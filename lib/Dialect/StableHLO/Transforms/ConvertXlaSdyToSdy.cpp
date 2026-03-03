@@ -46,14 +46,14 @@ public:
         signalPassFailure();
         return;
       }
+    }
 
-      // Walk through all operations and convert stablehlo.custom_call @Sharding
-      // ops to sdy.sharding_constraint ops
-      if (mlir::failed(shardy_utils::convertCustomCallToShardingConstraint(
-              rootModule, context, builder))) {
-        signalPassFailure();
-        return;
-      }
+    // Convert stablehlo.custom_call @Sharding, @tt.sharding_constraint, and
+    // @xla.sdy.FuncResultSharding ops to sdy.sharding_constraint ops.
+    if (mlir::failed(shardy_utils::convertCustomCallToShardingConstraint(
+            rootModule, context, builder))) {
+      signalPassFailure();
+      return;
     }
   }
 };

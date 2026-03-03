@@ -1,22 +1,29 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/operations/configs.fbs";
 
 namespace tt.target.ttnn;
 
 table AllGatherOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
   all_gather_dim: int32;
   cluster_axis: uint32;
-  num_links: uint32;
+  sub_device_id: uint8 = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  num_links: uint32 = null;
+  topology: tt.target.Topology = null;
 }
 
-table CollectivePermuteOp {
+table AllReduceOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
-  source_target_pairs: [int64];
+  reduce_type: uint32;
+  cluster_axis: uint32;
+  sub_device_id: uint8 = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  num_links: uint32 = null;
+  topology: tt.target.Topology = null;
 }
 
 table MeshShardOp {
@@ -32,17 +39,43 @@ table MeshShardOp {
 table ReduceScatterOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
   scatter_dim: int32;
   reduce_type: uint32;
   cluster_axis: uint32;
-  num_links: uint32;
+  sub_device_id: uint8 = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  num_links: uint32 = null;
+  topology: tt.target.Topology = null;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
 table PointToPointOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
-  send_coord: [uint32];
-  receive_coord: [uint32];
-  accum_tensor: tt.target.ttnn.TensorRef;
+  sender_coord: [uint32];
+  receiver_coord: [uint32];
+  optional_output_tensor: tt.target.ttnn.TensorRef;
+}
+
+table DistributeTensorOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  mapper_config: tt.target.ttnn.MeshMapperConfig;
+  device: tt.target.DeviceRef;
+  cq_id: uint32 = null;
+}
+
+table AggregateTensorOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  composer_config: tt.target.ttnn.MeshComposerConfig;
+  device: tt.target.DeviceRef;
+}
+
+table MeshPartitionOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  dim: int32;
+  cluster_axis: uint32 = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
 }

@@ -226,11 +226,11 @@ getShardShape(const llvm::ArrayRef<int64_t> &shapeAttr) {
 getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
   std::set<::tt::tt_metal::CoreRange> coreRangeSet;
   for (const CoreRangeAttr &coreRange : coreRangeSetAttr.getCoreRanges()) {
-    coreRangeSet.insert(
-        ::tt::tt_metal::CoreRange(CoreCoord(coreRange.getStartCoord().getX(),
-                                            coreRange.getStartCoord().getY()),
-                                  CoreCoord(coreRange.getEndCoord().getX(),
-                                            coreRange.getEndCoord().getY())));
+    coreRangeSet.insert(::tt::tt_metal::CoreRange(
+        ::tt::tt_metal::CoreCoord(coreRange.getStartCoord().getX(),
+                                  coreRange.getStartCoord().getY()),
+        ::tt::tt_metal::CoreCoord(coreRange.getEndCoord().getX(),
+                                  coreRange.getEndCoord().getY())));
   }
   return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
 }
@@ -241,8 +241,8 @@ getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
   for (const auto &[loc, size] : ttcore::utils::toCoreRangeSet(
            layout.getGrid().getShape(), layout.getGrid().getMapping())) {
     coreRangeSet.insert(::tt::tt_metal::CoreRange(
-        CoreCoord(loc[0], loc[1]),
-        CoreCoord(loc[0] + size[0] - 1, loc[1] + size[1] - 1)));
+        ::tt::tt_metal::CoreCoord(loc[0], loc[1]),
+        ::tt::tt_metal::CoreCoord(loc[0] + size[0] - 1, loc[1] + size[1] - 1)));
   }
   return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
 }
@@ -436,7 +436,7 @@ convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
   return ::ttsl::SmallVector<int>(vec.begin(), vec.end());
 }
 
-std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
+std::optional<::ttnn::Conv2dConfig>
 getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   if (!conv2dConfig || !conv2dConfig.has_value() || !conv2dConfig.value()) {
     return std::nullopt;
@@ -446,7 +446,7 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   // CoreRangeSet as an IR attribute.
   assert(!conv2dConfig->getCoreGrid() && "CoreGrid is not supported yet");
 
-  ::ttnn::operations::conv::conv2d::Conv2dConfig config;
+  ::ttnn::Conv2dConfig config;
 
   if (conv2dConfig->getWeightsDtype()) {
     config.weights_dtype = getDataType(*conv2dConfig->getWeightsDtype());
@@ -511,13 +511,14 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
         conv2dConfig->getEnableWeightsDoubleBuffer().getValue();
   }
 
-  if (conv2dConfig->getInPlace()) {
-    config.in_place = conv2dConfig->getInPlace().getValue();
-  }
-
   if (conv2dConfig->getEnableKernelStrideFolding()) {
     config.enable_kernel_stride_folding =
         conv2dConfig->getEnableKernelStrideFolding().getValue();
+  }
+
+  if (conv2dConfig->getConfigTensorsInDram()) {
+    config.config_tensors_in_dram =
+        conv2dConfig->getConfigTensorsInDram().getValue();
   }
 
   return config;
@@ -550,10 +551,6 @@ getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
   const DeviceComputeKernelConfigAttr &devConfig =
       deviceComputeKernelConfig.value();
 
-  // Note: Currently, we only support creating WormholeComputeKernelConfig.
-  // If we need to support GrayskullComputeKernelConfig in the future, we
-  // need to pass in the device information to this function or include it in
-  // DeviceComputeKernelConfigAttr.
   ::ttnn::WormholeComputeKernelConfig config;
   if (devConfig.getFp32DestAccEn()) {
     config.fp32_dest_acc_en = devConfig.getFp32DestAccEn().getValue();
@@ -570,6 +567,34 @@ getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
   if (devConfig.getMathFidelity().has_value()) {
     config.math_fidelity = getMathFidelity(devConfig.getMathFidelity().value());
   }
+  return config;
+}
+
+std::optional<::ttnn::Conv2dSliceConfig> getConv2dSliceConfig(
+    const std::optional<Conv2dSliceConfigAttr> &conv2dSliceConfig) {
+  if (!conv2dSliceConfig || !conv2dSliceConfig.has_value() ||
+      !conv2dSliceConfig.value()) {
+    return std::nullopt;
+  }
+
+  const Conv2dSliceConfigAttr &sliceConfig = conv2dSliceConfig.value();
+
+  ::ttnn::Conv2dSliceConfig config;
+
+  switch (sliceConfig.getSliceType()) {
+  case Conv2dSliceType::DramHeight:
+    config.slice_type = ::ttnn::Conv2dSliceConfig::SliceType::DRAM_HEIGHT;
+    break;
+  case Conv2dSliceType::DramWidth:
+    config.slice_type = ::ttnn::Conv2dSliceConfig::SliceType::DRAM_WIDTH;
+    break;
+  case Conv2dSliceType::L1Full:
+    config.slice_type = ::ttnn::Conv2dSliceConfig::SliceType::L1_FULL;
+    break;
+  }
+
+  config.num_slices = sliceConfig.getNumSlices();
+
   return config;
 }
 
@@ -592,7 +617,8 @@ getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
   if (memoryConfig.memory_layout() ==
       ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED) {
     assert(memoryConfig.shard_spec().has_value());
-    CoreRange boundingGrid = memoryConfig.shard_spec()->grid.bounding_box();
+    ::tt::tt_metal::CoreRange boundingGrid =
+        memoryConfig.shard_spec()->grid.bounding_box();
     assert(memoryConfig.shard_spec()->num_cores() == boundingGrid.size());
     return {static_cast<int64_t>(boundingGrid.grid_size().y),
             static_cast<int64_t>(boundingGrid.grid_size().x)};
@@ -628,9 +654,13 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
 
   BufferType bufferType =
       getBufferType(tensorSpec.memory_config().buffer_type());
-  auto memoryLayoutAttr = TensorMemoryLayoutAttr::get(
-      context,
-      getTensorMemoryLayout(tensorSpec.memory_config().memory_layout()));
+
+  auto memoryLayoutAttr =
+      bufferType == BufferType::SystemMemory
+          ? TensorMemoryLayoutAttr{}
+          : TensorMemoryLayoutAttr::get(
+                context, getTensorMemoryLayout(
+                             tensorSpec.memory_config().memory_layout()));
 
   ttcore::GridAttr gridAttr = ttcore::GridAttr::get(context);
   if (isL1BufferType(bufferType)) {
@@ -642,6 +672,154 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
 
   return TTNNLayoutAttr::get(context, shape, elementType, bufferType, gridAttr,
                              memoryLayoutAttr);
+}
+
+std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+getSDPAProgramConfig(
+    const std::optional<SDPAProgramConfigAttr> &sdpaProgramConfig) {
+  if (!sdpaProgramConfig.has_value()) {
+    return std::nullopt;
+  }
+
+  const SDPAProgramConfigAttr &config = sdpaProgramConfig.value();
+  ::ttnn::operations::transformer::SDPAProgramConfig sdpaConfig;
+
+  CoreCoordAttr gridSize = config.getComputeWithStorageGridSize();
+  sdpaConfig.compute_with_storage_grid_size =
+      ::tt::tt_metal::CoreCoord{gridSize.getX(), gridSize.getY()};
+
+  if (config.getSubCoreGrids()) {
+    sdpaConfig.sub_core_grids = getCoreRangeSet(config.getSubCoreGrids());
+  }
+
+  sdpaConfig.q_chunk_size = config.getQChunkSize();
+  sdpaConfig.k_chunk_size = config.getKChunkSize();
+
+  if (config.getExpApproxMode()) {
+    sdpaConfig.exp_approx_mode = config.getExpApproxMode().getValue();
+  }
+
+  if (config.getMaxCoresPerHeadBatch().has_value()) {
+    sdpaConfig.max_cores_per_head_batch =
+        config.getMaxCoresPerHeadBatch().value();
+  }
+
+  return sdpaConfig;
+}
+
+std::optional<std::string> getScatterReductionType(
+    const std::optional<ttcore::ReduceTypeAttr> &reduceTypeAttr) {
+  assert(reduceTypeAttr && *reduceTypeAttr &&
+         "reduceTypeAttr doesn't contain value");
+  switch (reduceTypeAttr.value().getValue()) {
+  case ttcore::ReduceType::Sum:
+    return "add";
+  case ttcore::ReduceType::Max:
+    return "amax";
+  case ttcore::ReduceType::Min:
+    return "amin";
+  case ttcore::ReduceType::Prod:
+    return "multiply";
+  case ttcore::ReduceType::Invalid:
+    return std::nullopt;
+  case ttcore::ReduceType::Mean:
+  case ttcore::ReduceType::Std:
+  case ttcore::ReduceType::Var:
+    // These reduction types are not supported by scatter operation
+    llvm_unreachable("Unsupported reduction type");
+  }
+}
+
+std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+getMatmulProgramConfig(mlir::Attribute programConfigAttr) {
+  if (!programConfigAttr) {
+    return std::nullopt;
+  }
+
+  if (auto config = mlir::dyn_cast<MatmulMultiCoreReuseProgramConfigAttr>(
+          programConfigAttr)) {
+    CoreCoordAttr gridSize = config.getComputeWithStorageGridSize();
+    return ::ttnn::operations::matmul::MatmulMultiCoreReuseProgramConfig{
+        .compute_with_storage_grid_size =
+            ::tt::tt_metal::CoreCoord{gridSize.getX(), gridSize.getY()},
+        .in0_block_w = config.getIn0BlockW(),
+        .out_subblock_h = config.getOutSubblockH(),
+        .out_subblock_w = config.getOutSubblockW(),
+        .per_core_M = config.getPerCoreM(),
+        .per_core_N = config.getPerCoreN()};
+  }
+
+  if (auto config =
+          mlir::dyn_cast<MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
+              programConfigAttr)) {
+    CoreCoordAttr gridSize = config.getComputeWithStorageGridSize();
+    std::optional<::ttnn::operations::unary::UnaryWithParam> fusedActivation =
+        std::nullopt;
+    if (auto actAttr = config.getFusedActivation()) {
+      fusedActivation = getUnaryWithParams(actAttr);
+    }
+    return ::ttnn::operations::matmul::
+        MatmulMultiCoreReuseMultiCastProgramConfig{
+            .compute_with_storage_grid_size =
+                ::tt::tt_metal::CoreCoord{gridSize.getX(), gridSize.getY()},
+            .in0_block_w = config.getIn0BlockW(),
+            .out_subblock_h = config.getOutSubblockH(),
+            .out_subblock_w = config.getOutSubblockW(),
+            .out_block_h = config.getOutBlockH(),
+            .out_block_w = config.getOutBlockW(),
+            .per_core_M = config.getPerCoreM(),
+            .per_core_N = config.getPerCoreN(),
+            .transpose_mcast = config.getTransposeMcast(),
+            .fused_activation = fusedActivation,
+            .fuse_batch = config.getFuseBatch()};
+  }
+
+  if (auto config =
+          mlir::dyn_cast<MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
+              programConfigAttr)) {
+    CoreCoordAttr gridSize = config.getComputeWithStorageGridSize();
+    std::optional<::ttnn::operations::unary::UnaryWithParam> fusedActivation =
+        std::nullopt;
+    if (auto actAttr = config.getFusedActivation()) {
+      fusedActivation = getUnaryWithParams(actAttr);
+    }
+    return ::ttnn::operations::matmul::
+        MatmulMultiCoreReuseMultiCast1DProgramConfig{
+            .compute_with_storage_grid_size =
+                ::tt::tt_metal::CoreCoord{gridSize.getX(), gridSize.getY()},
+            .in0_block_w = config.getIn0BlockW(),
+            .out_subblock_h = config.getOutSubblockH(),
+            .out_subblock_w = config.getOutSubblockW(),
+            .out_block_h = config.getOutBlockH(),
+            .out_block_w = config.getOutBlockW(),
+            .per_core_M = config.getPerCoreM(),
+            .per_core_N = config.getPerCoreN(),
+            .fuse_batch = config.getFuseBatch(),
+            .fused_activation = fusedActivation,
+            .mcast_in0 = config.getMcastIn0(),
+            .gather_in0 = config.getGatherIn0(),
+            .hop_cores = getCoreRangeSet(config.getHopCores()),
+            .num_global_cb_receivers = config.getNumGlobalCbReceivers(),
+            .untilize_out = config.getUntilizeOut()};
+  }
+
+  if (auto config = mlir::dyn_cast<
+          MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+          programConfigAttr)) {
+    std::optional<::ttnn::operations::unary::UnaryWithParam> fusedActivation =
+        std::nullopt;
+    if (auto actAttr = config.getFusedActivation()) {
+      fusedActivation = getUnaryWithParams(actAttr);
+    }
+    return ::ttnn::operations::matmul::
+        MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig{
+            .in0_block_w = config.getIn0BlockW(),
+            .per_core_M = config.getPerCoreM(),
+            .per_core_N = config.getPerCoreN(),
+            .fused_activation = fusedActivation};
+  }
+
+  return std::nullopt;
 }
 
 } // namespace conversion

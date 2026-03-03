@@ -285,45 +285,49 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
 }
 
 // Get the argument sharding attributes.
+// If createIfMissing is true, create default sharding attributes (replicated
+// on) for any arguments that do not have sdy.sharding annotations.
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
-                   mlir::sdy::MeshOp &globalMeshOp) {
+                   mlir::sdy::MeshOp &globalMeshOp, bool createIfMissing) {
   llvm::SmallVector<mlir::sdy::TensorShardingAttr> inShardingAttrs;
+
+  auto createDefaultShardingAttr = [&](uint32_t argNum) {
+    if (!createIfMissing) {
+      return mlir::sdy::TensorShardingAttr();
+    }
+    funcOp.emitWarning("In function ")
+        << funcOp.getName() << " argument #: " << argNum
+        << " is not annotated with sdy.sharding. Using default "
+           "sharding annotation (ie all dimensions replicated)";
+    mlir::sdy::TensorShardingAttr shardingAttr =
+        shardy_utils::getDefaultTensorSdyShardingAttr(
+            context, globalMeshOp.getSymName(),
+            funcOp.getArgument(argNum).getType());
+
+    // Set argument with it's default sdy.sharding attribute
+    mlir::DictionaryAttr newDictAttr =
+        shardy_utils::addDictionaryAttrSdyShardingAnnotation(
+            context, shardingAttr,
+            funcOp.getArgAttrDict(funcOp.getArgument(argNum).getArgNumber()));
+    funcOp.setArgAttrs(argNum, newDictAttr);
+
+    return shardingAttr;
+  };
 
   for (auto arg : funcOp.getArguments()) {
     // Get the tensor sharding attribute from argument dictionary.
     mlir::sdy::TensorShardingAttr shardingAttr;
-    if (auto argAttrDict = funcOp.getArgAttrDict(arg.getArgNumber())) {
+    auto argNumber = arg.getArgNumber();
+    if (auto argAttrDict = funcOp.getArgAttrDict(argNumber)) {
       shardingAttr = mlir::dyn_cast_if_present<mlir::sdy::TensorShardingAttr>(
           argAttrDict.get(mlir::sdy::TensorShardingAttr::name));
 
       if (!shardingAttr) {
-        funcOp.emitWarning("In function ")
-            << funcOp.getName() << " argument #: " << arg.getArgNumber()
-            << " is not annotated with sdy.sharding. Using default "
-               "sharding annotation (ie all dimensions replicated)";
-        shardingAttr = shardy_utils::getDefaultTensorSdyShardingAttr(
-            context, globalMeshOp.getSymName(), arg.getType());
-
-        // Set argument with it's default sdy.sharding attribute
-        mlir::DictionaryAttr newDictAttr =
-            shardy_utils::addDictionaryAttrSdyShardingAnnotation(
-                context, shardingAttr, argAttrDict);
-        funcOp.setArgAttrs(arg.getArgNumber(), newDictAttr);
+        shardingAttr = createDefaultShardingAttr(argNumber);
       }
     } else {
-      funcOp.emitWarning("In function ")
-          << funcOp.getName() << " argument #: " << arg.getArgNumber()
-          << " does not have an attributes dictionary. Using default "
-             "sharding annotation (ie all dimensions replicated)";
-      shardingAttr = shardy_utils::getDefaultTensorSdyShardingAttr(
-          context, globalMeshOp.getSymName(), arg.getType());
-
-      // Set argument with it's default sdy.sharding attribute
-      mlir::DictionaryAttr newDictAttr =
-          shardy_utils::addDictionaryAttrSdyShardingAnnotation(context,
-                                                               shardingAttr);
-      funcOp.setArgAttrs(arg.getArgNumber(), newDictAttr);
+      shardingAttr = createDefaultShardingAttr(argNumber);
     }
 
     inShardingAttrs.push_back(shardingAttr);
@@ -649,6 +653,34 @@ bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh) {
   return true;
 }
 
+bool isShardedModule(mlir::ModuleOp &module) {
+  llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps =
+      shardy_utils::getMeshOps(module);
+  if (parsedMeshOps.empty()) {
+    return false;
+  }
+  auto globalMeshOp = parsedMeshOps[0];
+  for (auto funcOp : module.getOps<mlir::func::FuncOp>()) {
+    for (auto inSharding :
+         getInShardingAttrs(funcOp.getContext(), funcOp, globalMeshOp, false)) {
+      if (!inSharding) {
+        continue;
+      }
+      if (!isFullyReplicatedTensor(inSharding)) {
+        return true;
+      }
+    }
+
+    for (auto outSharding :
+         getOutShardingAttrs(funcOp.getContext(), funcOp, globalMeshOp)) {
+      if (!isFullyReplicatedTensor(outSharding)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // Get all mesh names from a function, returning empty vector if none found.
 llvm::SmallVector<std::string> getMeshNames(mlir::func::FuncOp &funcOp) {
   llvm::SmallVector<std::string> meshNames;
@@ -682,10 +714,25 @@ parseDimensionShardings(const std::string &dimsContent,
     std::string dimContent =
         dimsContent.substr(braceStart + 1, braceEnd - braceStart - 1);
 
+    // Parse priority if present (e.g., "}p0" or "}p1")
+    std::optional<int64_t> priority = std::nullopt;
+    size_t afterBrace = braceEnd + 1;
+    if (afterBrace < dimsContent.length() && dimsContent[afterBrace] == 'p') {
+      size_t numStart = afterBrace + 1;
+      size_t numEnd = numStart;
+      while (numEnd < dimsContent.length() &&
+             std::isdigit(dimsContent[numEnd])) {
+        ++numEnd;
+      }
+      if (numEnd > numStart) {
+        priority = std::stoll(dimsContent.substr(numStart, numEnd - numStart));
+      }
+    }
+
     if (dimContent.empty()) {
-      // "#sdy.sharding<@mesh, [{}]>"
+      // "#sdy.sharding<@mesh, [{}]>" or "{?}" (open, empty)
       dimShardings.push_back(
-          mlir::sdy::DimensionShardingAttr::get(context, {}, true));
+          mlir::sdy::DimensionShardingAttr::get(context, {}, true, priority));
     } else {
       llvm::SmallVector<mlir::sdy::AxisRefAttr> axisRefs;
       size_t axisPos = 0;
@@ -707,8 +754,8 @@ parseDimensionShardings(const std::string &dimsContent,
         axisPos = quoteEnd + 1;
       }
 
-      dimShardings.push_back(
-          mlir::sdy::DimensionShardingAttr::get(context, axisRefs, isClosed));
+      dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
+          context, axisRefs, isClosed, priority));
     }
 
     pos = braceEnd + 1;
@@ -766,14 +813,11 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
     llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings =
         parseDimensionShardings(dimsContent, context);
 
-    if (!dimShardings.empty()) {
-      mlir::sdy::TensorShardingAttr sharding =
-          mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings,
-                                             {}, {});
-      newArgAttrs.emplace_back(
-          mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
-          sharding);
-    }
+    mlir::sdy::TensorShardingAttr sharding = mlir::sdy::TensorShardingAttr::get(
+        context, meshName, dimShardings, {}, {});
+    newArgAttrs.emplace_back(
+        mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
+        sharding);
   }
 
   return mlir::DictionaryAttr::get(context, newArgAttrs);
@@ -803,44 +847,316 @@ mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
   return mlir::success();
 }
 
-// Convert all stablehlo.custom_call @Sharding ops to sdy.sharding_constraint
-// ops.
+// Replace mesh_idx_N placeholders with actual axis names from mesh.
+// e.g., "mesh_idx_0" -> "x", "mesh_idx_1" -> "y" or "mesh_idx_0" -> "_axis_0",
+// "mesh_idx_1" -> "_axis_1"
+static std::string replaceMeshIdxPlaceholders(
+    const std::string &shardingStr,
+    const llvm::SmallVector<mlir::sdy::MeshAxisAttr> &meshAxes) {
+  std::string result = shardingStr;
+  constexpr llvm::StringLiteral kMeshIdxPrefix = "mesh_idx_";
+
+  for (size_t i = 0; i < meshAxes.size(); ++i) {
+    std::string placeholder = (kMeshIdxPrefix + llvm::Twine(i)).str();
+    std::string axisName = meshAxes[i].getName().str();
+
+    // Replace all occurrences of placeholder with actual axis name
+    size_t pos = 0;
+    while ((pos = result.find(placeholder, pos)) != std::string::npos) {
+      result.replace(pos, placeholder.length(), axisName);
+      pos += axisName.length();
+    }
+  }
+  return result;
+}
+
+// Convert all stablehlo.custom_call @Sharding, @tt.sharding_constraint, and
+// @xla.sdy.FuncResultSharding ops to sdy.sharding_constraint ops.
 mlir::LogicalResult
 convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
                                       mlir::MLIRContext *context,
                                       mlir::OpBuilder &builder) {
-  rootModule.walk([&](mlir::Operation *op) {
-    if (!mlir::isa<mlir::stablehlo::CustomCallOp>(op)) {
+  // Get mesh axes for placeholder replacement.
+  llvm::SmallVector<mlir::sdy::MeshAxisAttr> meshAxes;
+  llvm::SmallVector<mlir::sdy::MeshOp> meshOps = getMeshOps(rootModule);
+  if (!meshOps.empty()) {
+    meshAxes = llvm::to_vector(meshOps[0].getMeshAttr().getAxes());
+  }
+
+  llvm::SmallVector<mlir::stablehlo::CustomCallOp> opsToErase;
+  bool hasFuncResultSharding = false;
+
+  rootModule.walk([&](mlir::stablehlo::CustomCallOp customCallOp) {
+    auto callTargetName = customCallOp.getCallTargetNameAttr();
+    // Handle @Sharding (from xs.mark_sharding), @tt.sharding_constraint
+    // (from custom ops), and @xla.sdy.FuncResultSharding (result shardings).
+    if (callTargetName != gspmd_utils::kShardingCustomCallTargetName &&
+        callTargetName != sharding_utils::kTTShardingConstraintTargetName &&
+        callTargetName != shardy_utils::kFuncResultShardingTargetName) {
       return;
     }
 
-    // Check call target name to see if it's the one we are interested in.
-    mlir::stablehlo::CustomCallOp customCallOp =
-        mlir::cast<mlir::stablehlo::CustomCallOp>(op);
-    auto callTargetName = customCallOp.getCallTargetNameAttr();
-    if (callTargetName != gspmd_utils::kShardingCustomCallTargetName) {
-      return;
+    // For tt.sharding_constraint, replace mesh_idx_N placeholders with actual
+    // axis names before parsing.
+    mlir::DictionaryAttr attrDict = customCallOp->getAttrDictionary();
+    if (callTargetName == sharding_utils::kTTShardingConstraintTargetName &&
+        !meshAxes.empty()) {
+      if (auto frontendAttrs = attrDict.getAs<mlir::DictionaryAttr>(
+              gspmd_utils::kFrontendAttributesAttr)) {
+        if (auto sdyShardingStr = frontendAttrs.getAs<mlir::StringAttr>(
+                sharding_utils::kXlaSdyShardingAttr)) {
+          std::string replacedStr = replaceMeshIdxPlaceholders(
+              sdyShardingStr.getValue().str(), meshAxes);
+          // Create new frontend_attributes with replaced sharding string.
+          llvm::SmallVector<mlir::NamedAttribute> newFrontendAttrs;
+          for (auto attr : frontendAttrs) {
+            if (attr.getName() == sharding_utils::kXlaSdyShardingAttr) {
+              newFrontendAttrs.push_back(mlir::NamedAttribute(
+                  attr.getName(), mlir::StringAttr::get(context, replacedStr)));
+            } else {
+              newFrontendAttrs.push_back(attr);
+            }
+          }
+          // Create new attrDict with updated frontend_attributes.
+          llvm::SmallVector<mlir::NamedAttribute> newAttrs;
+          for (auto attr : attrDict) {
+            if (attr.getName() == gspmd_utils::kFrontendAttributesAttr) {
+              newAttrs.push_back(mlir::NamedAttribute(
+                  attr.getName(),
+                  mlir::DictionaryAttr::get(context, newFrontendAttrs)));
+            } else {
+              newAttrs.push_back(attr);
+            }
+          }
+          attrDict = mlir::DictionaryAttr::get(context, newAttrs);
+        }
+      }
     }
 
     mlir::DictionaryAttr newAttrDict =
-        shardy_utils::convertXlaSdyToSdyDictionary(
-            context, customCallOp->getAttrDictionary());
+        shardy_utils::convertXlaSdyToSdyDictionary(context, attrDict);
     mlir::Attribute sdyShardingAttr =
         newAttrDict.get(mlir::sdy::TensorShardingAttr::name);
+
+    // If no sharding attribute found, skip this op - it uses a different
+    // sharding format (e.g., mhlo.sharding) that is handled by AnalyzeMeshPass.
+    if (!sdyShardingAttr) {
+      return;
+    }
+
     mlir::sdy::TensorShardingAttr tensorShardingAttr =
         mlir::cast<mlir::sdy::TensorShardingAttr>(sdyShardingAttr);
 
-    // Create sdy.sharding_constraint op and replace it in place of custom
-    // call
+    // Create sdy.sharding_constraint op and replace it in place of custom call.
     builder.setInsertionPointAfter(customCallOp);
     auto shardingConstraintOp = builder.create<mlir::sdy::ShardingConstraintOp>(
         customCallOp->getLoc(), customCallOp.getResult(0).getType(),
         customCallOp.getOperand(0), tensorShardingAttr);
     customCallOp.getResult(0).replaceAllUsesWith(
         shardingConstraintOp.getResult());
+
+    // Only erase FuncResultSharding ops, others are needed by AnalyzeMeshPass.
+    if (callTargetName == shardy_utils::kFuncResultShardingTargetName) {
+      hasFuncResultSharding = true;
+      opsToErase.push_back(customCallOp);
+    }
   });
 
+  for (auto op : opsToErase) {
+    op.erase();
+  }
+
+  // Remove mhlo.sharding from function results to allow
+  // WrapUnderManualComputation to wrap the function body (gspmdAnnotationsExist
+  // checks for mhlo.sharding).
+  if (hasFuncResultSharding) {
+    rootModule.walk([&](func::FuncOp funcOp) {
+      for (unsigned i = 0; i < funcOp.getNumResults(); i++) {
+        funcOp.removeResultAttr(
+            i, mlir::StringAttr::get(context, gspmd_utils::kXlaShardingAttr));
+      }
+    });
+  }
+
   return mlir::success();
+}
+
+std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
+    mlir::DenseElementsAttr globalAttr, mlir::RankedTensorType localType,
+    mlir::sdy::TensorShardingAttr sharding, mlir::sdy::MeshOp meshOp) {
+
+  auto oldType = mlir::cast<mlir::RankedTensorType>(globalAttr.getType());
+  auto globalShape = oldType.getShape();
+  int64_t rank = static_cast<int64_t>(globalShape.size());
+
+  // Collect all sharded dimensions and their shard counts.
+  // Only one axis per dimension is supported (multi-axis-per-dim returns
+  // nullopt).
+  struct ShardedDimInfo {
+    int64_t dimIdx;
+    int64_t numShards;
+  };
+  llvm::SmallVector<ShardedDimInfo> shardedDims;
+
+  // Build axis-name to size map for lookup.
+  llvm::StringMap<int64_t> axisNameToSize;
+  for (auto meshAxis : meshOp.getMesh().getAxes()) {
+    axisNameToSize[meshAxis.getName()] = meshAxis.getSize();
+  }
+
+  llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+      sharding.getDimShardings();
+
+  for (auto [dimIdx, dimSharding] : llvm::enumerate(dimShardings)) {
+    auto axisRefs = dimSharding.getAxes();
+    if (axisRefs.empty()) {
+      continue;
+    }
+
+    // Multi-axis-per-dim not supported for periodic slicing.
+    if (axisRefs.size() > 1) {
+      return std::nullopt;
+    }
+
+    auto it = axisNameToSize.find(axisRefs[0].getName());
+    if (it == axisNameToSize.end()) {
+      return std::nullopt;
+    }
+
+    int64_t dimShardCount = it->second;
+    if (dimShardCount > 1) {
+      shardedDims.push_back({static_cast<int64_t>(dimIdx), dimShardCount});
+    }
+  }
+
+  if (shardedDims.empty()) {
+    return std::nullopt;
+  }
+
+  // Verify periodicity independently along each sharded dimension.
+  auto globalValues = globalAttr.getValues<mlir::Attribute>();
+
+  for (auto &sd : shardedDims) {
+    int64_t shardingDim = sd.dimIdx;
+    int64_t numShards = sd.numShards;
+    int64_t totalDimSize = globalShape[shardingDim];
+    int64_t shardDimSize = totalDimSize / numShards;
+
+    if (totalDimSize % numShards != 0) {
+      return std::nullopt;
+    }
+
+    int64_t innerBlockSize = 1;
+    for (int64_t i = shardingDim + 1; i < rank; ++i) {
+      innerBlockSize *= globalShape[i];
+    }
+
+    int64_t outerCount = 1;
+    for (int64_t i = 0; i < shardingDim; ++i) {
+      outerCount *= globalShape[i];
+    }
+
+    int64_t shardStep = shardDimSize * innerBlockSize;
+    int64_t rowSize = totalDimSize * innerBlockSize;
+
+    for (int64_t out = 0; out < outerCount; ++out) {
+      int64_t rowStart = out * rowSize;
+
+      for (int64_t k = 1; k < numShards; ++k) {
+        for (int64_t s = 0; s < shardDimSize; ++s) {
+          for (int64_t inner = 0; inner < innerBlockSize; ++inner) {
+            int64_t offset0 = rowStart + (s * innerBlockSize) + inner;
+            int64_t offsetK = offset0 + (k * shardStep);
+
+            if (globalValues[offset0] != globalValues[offsetK]) {
+              return std::nullopt;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Extract shard 0 across all sharded dimensions.
+  // For shard 0, local indices map directly to global indices.
+  auto localShape = localType.getShape();
+
+  // Compute global strides (row-major).
+  llvm::SmallVector<int64_t> globalStrides(rank);
+  globalStrides[rank - 1] = 1;
+  for (int64_t i = rank - 2; i >= 0; --i) {
+    globalStrides[i] = globalStrides[i + 1] * globalShape[i + 1];
+  }
+
+  std::vector<mlir::Attribute> newValues;
+  int64_t numLocalElements = localType.getNumElements();
+  newValues.reserve(numLocalElements);
+
+  // N-dimensional index iterator over the local shape.
+  llvm::SmallVector<int64_t> localIndices(rank, 0);
+
+  for (int64_t elem = 0; elem < numLocalElements; ++elem) {
+    int64_t globalFlatIdx = 0;
+    for (int64_t d = 0; d < rank; ++d) {
+      globalFlatIdx += localIndices[d] * globalStrides[d];
+    }
+
+    newValues.push_back(globalValues[globalFlatIdx]);
+
+    // Increment local indices (row-major order, last dim fastest).
+    for (int64_t d = rank - 1; d >= 0; --d) {
+      localIndices[d]++;
+      if (localIndices[d] < localShape[d]) {
+        break;
+      }
+      localIndices[d] = 0;
+    }
+  }
+
+  return mlir::DenseElementsAttr::get(localType, newValues);
+}
+
+// Check if the operation has Shardy-sharded inputs or outputs.
+// Note: This only detects Shardy TensorShardingAttrs, not legacy GSPMD
+// mhlo.sharding attributes. Should be called after ConvertXlaSdyToSdyPass.
+bool opHasShardySharding(mlir::Operation *op) {
+  // Get the module op to check for mesh ops.
+  mlir::ModuleOp moduleOp = op->getParentOfType<mlir::ModuleOp>();
+  if (!moduleOp) {
+    return false;
+  }
+
+  // Get mesh ops from the module.
+  llvm::SmallVector<mlir::sdy::MeshOp> meshOps = getMeshOps(moduleOp);
+
+  // If no mesh ops exist, there's no sharding.
+  if (meshOps.empty()) {
+    return false;
+  }
+
+  mlir::sdy::MeshOp globalMeshOp = meshOps[0];
+
+  // Check if any input operands are sharded.
+  for (mlir::OpOperand &operand : op->getOpOperands()) {
+    mlir::sdy::TensorShardingAttr shardingAttr =
+        getOperandShardingAttr(operand, globalMeshOp);
+    if (!isFullyReplicatedTensor(shardingAttr)) {
+      return true;
+    }
+  }
+
+  // Check if any output results are sharded.
+  if (auto shardingPerValue =
+          op->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+              mlir::sdy::TensorShardingAttr::name)) {
+    for (auto shardingAttr : shardingPerValue.getShardings()) {
+      if (!isFullyReplicatedTensor(shardingAttr)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO

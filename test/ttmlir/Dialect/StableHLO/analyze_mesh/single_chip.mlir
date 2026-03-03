@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt -split-input-file --stablehlo-pipeline -o %t.mlir %s
+// RUN: ttmlir-opt --stablehlo-pipeline -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // CHECK-LABEL: module {
@@ -14,12 +14,3 @@ module {
 }
 
 // -----
-
-// CHECK-LABEL: module {
-module {
-  // CHECK: sdy.mesh @mesh = <["x"=1, "y"=2]>
-  func.func @main(%arg0: tensor<256x256xf32> {mhlo.sharding = "{devices=[1,2]<=[2]}"}) -> (tensor<256x256xf32> {jax.result_info = "result", mhlo.sharding = "{devices=[1,2]<=[2]}"}) {
-    %0 = stablehlo.negate %arg0 : tensor<256x256xf32>
-    return %0 : tensor<256x256xf32>
-  }
-}

@@ -7,39 +7,45 @@
 
 #include <optional>
 
-#include "ttmlir/Target/Common/Target.h"
-
 #define FMT_HEADER_ONLY
+#include "tt-metalium/cluster.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/mesh_device.hpp"
 
-#include "tt-metalium/fabric_types.hpp"
+#include "tt-metalium/experimental/fabric/fabric_edm_types.hpp"
+#include "tt-metalium/experimental/fabric/fabric_types.hpp"
 #include "tt/runtime/detail/common/flatbuffer_operator_ostream.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/types.h"
 
 namespace tt::runtime::common {
 
+inline bool isEthDispatchable() {
+  const auto clusterType = tt::tt_metal::GetClusterType();
+  switch (clusterType) {
+  case tt::tt_metal::ClusterType::N150:
+  case tt::tt_metal::ClusterType::N300:
+  case tt::tt_metal::ClusterType::T3K:
+  case tt::tt_metal::ClusterType::N300_2x2:
+    return true;
+  default:
+    return false;
+  }
+}
+
 inline ::tt::tt_metal::DispatchCoreType getDispatchCoreType(
     std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType) {
+  // Prefer ETH dispatch when possible.
+  const auto type =
+      dispatchCoreType.value_or(::tt::runtime::DispatchCoreType::Ethernet);
+  assert(type == ::tt::runtime::DispatchCoreType::Ethernet ||
+         type == ::tt::runtime::DispatchCoreType::Worker);
 
-  ::tt::tt_metal::DispatchCoreType type;
-  if (dispatchCoreType.has_value()) {
-    if (dispatchCoreType == ::tt::runtime::DispatchCoreType::Ethernet) {
-      type = ::tt::tt_metal::DispatchCoreType::ETH;
-    } else if (dispatchCoreType == ::tt::runtime::DispatchCoreType::Worker) {
-      type = ::tt::tt_metal::DispatchCoreType::WORKER;
-    } else {
-      LOG_FATAL("Unsupported dispatch core type");
-    }
-  } else {
-    size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
-    size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
-    type = numDevices == numPCIeDevices
-               ? ::tt::tt_metal::DispatchCoreType::WORKER
-               : ::tt::tt_metal::DispatchCoreType::ETH;
+  const bool ethDispatchable = isEthDispatchable();
+  if (ethDispatchable && type == ::tt::runtime::DispatchCoreType::Ethernet) {
+    return ::tt::tt_metal::DispatchCoreType::ETH;
   }
-  return type;
+  return ::tt::tt_metal::DispatchCoreType::WORKER;
 }
 
 inline ::tt::tt_fabric::FabricConfig
@@ -59,31 +65,24 @@ toMetalFabricConfig(tt::runtime::FabricConfig cfg) {
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_TORUS_Y;
   case tt::runtime::FabricConfig::FABRIC_2D_TORUS_XY:
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_TORUS_XY;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC:
-    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X:
-    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y:
-    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY:
-    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY;
   case tt::runtime::FabricConfig::CUSTOM:
     return ::tt::tt_fabric::FabricConfig::CUSTOM;
   }
   LOG_FATAL("Unknown tt::runtime::FabricConfig value");
 }
 
-inline CoreRangeSet toCoreRangeSet(
+inline tt::tt_metal::CoreRangeSet toCoreRangeSet(
     const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet) {
-  std::set<CoreRange> coreRanges;
+  std::set<tt::tt_metal::CoreRange> coreRanges;
   for (const ::tt::target::Dim2dRange *coreRange : *coreRangeSet) {
-    CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
+    tt::tt_metal::CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
     // End is inclusive
-    CoreCoord end(coreRange->loc().x() + coreRange->size().x() - 1,
-                  coreRange->loc().y() + coreRange->size().y() - 1);
+    tt::tt_metal::CoreCoord end(
+        coreRange->loc().x() + coreRange->size().x() - 1,
+        coreRange->loc().y() + coreRange->size().y() - 1);
     coreRanges.emplace(start, end);
   }
-  return CoreRangeSet(coreRanges);
+  return tt::tt_metal::CoreRangeSet(coreRanges);
 }
 
 inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
@@ -102,6 +101,8 @@ inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
     return ::tt::DataFormat::UInt8;
   case ::tt::target::DataType::Int32:
     return ::tt::DataFormat::Int32;
+  case ::tt::target::DataType::BFP_BFloat8:
+    return ::tt::DataFormat::Bfp8_b;
   default:
     LOG_FATAL("Unsupported data type");
   }
@@ -109,8 +110,6 @@ inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
 
 inline ::tt::target::Arch toTargetArch(::tt::ARCH arch) {
   switch (arch) {
-  case ::tt::ARCH::GRAYSKULL:
-    return ::tt::target::Arch::Grayskull;
   case ::tt::ARCH::WORMHOLE_B0:
     return ::tt::target::Arch::Wormhole_b0;
   case ::tt::ARCH::BLACKHOLE:
@@ -162,6 +161,21 @@ createFullMeshDevice(
           /*mesh_shape=*/std::nullopt),
       DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE,
       /*num_command_queues=*/1, type);
+}
+
+inline ::tt::tt_fabric::Topology
+toMetalTopology(::tt::target::Topology topology) {
+  switch (topology) {
+  case ::tt::target::Topology::Ring:
+    return ::tt::tt_fabric::Topology::Ring;
+  case ::tt::target::Topology::Linear:
+    return ::tt::tt_fabric::Topology::Linear;
+  case ::tt::target::Topology::Mesh:
+    return ::tt::tt_fabric::Topology::Mesh;
+  case ::tt::target::Topology::Torus:
+    return ::tt::tt_fabric::Topology::Torus;
+  }
+  LOG_FATAL("Unknown tt::target::Topology value");
 }
 
 } // namespace tt::runtime::common

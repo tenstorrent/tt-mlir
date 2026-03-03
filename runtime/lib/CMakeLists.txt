@@ -41,6 +41,9 @@ target_link_libraries(TTMLIRRuntime
     TTRuntimePerf
     TTRuntimeWorkarounds
     TTRuntimeDylibs
+    TTRuntimeFabricConfig
+    TTRuntimeMeshFabricConfig
+    TTRuntimeSystemMesh
     # This ensures that symbols from libTTRuntimeTTNNTestLib.a (libA) are linked into libTTMLIRRuntime.so (libB).
     # Since the symbols from libA aren't used in libB, linker will just ignore them. By using --whole-archive,
     # we tell linker to link all the symbols anyway. We need this as symbols from libA might be used by whoever
@@ -51,9 +54,18 @@ target_link_libraries(TTMLIRRuntime
 )
 
 target_link_libraries(TTMLIRRuntime PUBLIC coverage_config)
-
-set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN;${TTMETAL_LIBRARY_DIR}")
-set_target_properties(TTMLIRRuntime PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
+if (TTMLIR_ENABLE_TTNN_JIT)
+  # ttnn-jit wheel requires custom rpaths when installed into a tt-metal dev venv
+  set_target_properties(TTMLIRRuntime PROPERTIES
+    INSTALL_RPATH "${JIT_WHEEL_RPATHS}"
+    BUILD_WITH_INSTALL_RPATH TRUE
+  )
+else()
+  set_target_properties(TTMLIRRuntime PROPERTIES
+    INSTALL_RPATH "$ORIGIN;${TTMETAL_LIBRARY_DIR}"
+    BUILD_WITH_INSTALL_RPATH TRUE
+  )
+endif()
 
 add_dependencies(TTMLIRRuntime FBS_GENERATION RUNTIME_FBS_GENERATION)
 
@@ -62,7 +74,6 @@ if (TTMLIR_ENABLE_RUNTIME)
     "../include/tt/runtime/debug.h"
     "../include/tt/runtime/perf.h"
     "../include/tt/runtime/runtime.h"
-    "../include/tt/runtime/tensor_cache.h"
     "../include/tt/runtime/types.h"
     "../include/tt/runtime/utils.h"
     "../include/tt/runtime/workarounds.h"

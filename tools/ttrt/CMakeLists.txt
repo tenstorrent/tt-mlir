@@ -8,23 +8,31 @@ foreach (filename ${TTRT_FILES})
     list(APPEND TTRT_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/${relative_filename}")
 endforeach (filename)
 
+set(TTRT_PIP_PERF_REQUIREMENTS_COMMAND)
+if(TT_RUNTIME_ENABLE_PERF_TRACE)
+  set(TTRT_PIP_PERF_REQUIREMENTS_COMMAND
+      COMMAND python -m pip install -r "${CMAKE_CURRENT_BINARY_DIR}/requirements-perf.txt")
+endif()
+
 add_custom_command(
   COMMAND rm -rf build
   COMMAND python -m pip install -r "${CMAKE_CURRENT_BINARY_DIR}/requirements.txt"
+  ${TTRT_PIP_PERF_REQUIREMENTS_COMMAND}
   COMMAND TTMLIR_ENABLE_RUNTIME=${TTMLIR_ENABLE_RUNTIME}
           TT_RUNTIME_ENABLE_TTNN=${TT_RUNTIME_ENABLE_TTNN}
           TT_RUNTIME_ENABLE_TTMETAL=${TT_RUNTIME_ENABLE_TTMETAL}
           TTMLIR_ENABLE_RUNTIME_TESTS=${TTMLIR_ENABLE_RUNTIME_TESTS}
           TT_RUNTIME_ENABLE_PERF_TRACE=${TT_RUNTIME_ENABLE_PERF_TRACE}
           TT_RUNTIME_DEBUG=${TT_RUNTIME_DEBUG}
+          TT_METAL_RUNTIME_ROOT=${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal
           TTMLIR_BINARY_DIR=${TTMLIR_BINARY_DIR}
           TTMLIR_VERSION_MAJOR=${TTMLIR_VERSION_MAJOR}
           TTMLIR_VERSION_MINOR=${TTMLIR_VERSION_MINOR}
           TTMLIR_VERSION_PATCH=${TTMLIR_VERSION_PATCH}
           CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}
           SOURCE_ROOT=${TTMLIR_SOURCE_DIR}
-          python -m pip wheel . --wheel-dir build
-  COMMAND python -m pip install build/*.whl --force-reinstall
+          python -m pip wheel . --wheel-dir build --no-deps
+  COMMAND python -m pip install build/ttrt-*.whl --force-reinstall --no-deps
   COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS ${TTRT_SOURCES} ${TTRT_FILES} TTMLIRRuntime TTRuntimeTTNNTypes TTRuntimeTTNNUtils _ttmlir_runtime
@@ -39,6 +47,7 @@ declare_mlir_python_sources(TTRTSources
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
   SOURCES
     __init__.py
+    __main__.py
     library_tweaks.py
 
     # binary subpackage files

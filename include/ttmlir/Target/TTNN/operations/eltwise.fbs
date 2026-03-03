@@ -53,11 +53,6 @@ table EltwiseBinaryCompositeOp {
   out: tt.target.ttnn.TensorRef;
 }
 
-union RhsParams {
-  FP: FloatingPointType,
-  UI32: UIntegralType,
-}
-
 enum EltwiseBinaryCompositeScalarOpType: uint32 {
   PowScalar,
 }
@@ -65,7 +60,7 @@ enum EltwiseBinaryCompositeScalarOpType: uint32 {
 table EltwiseBinaryCompositeScalarOp {
   type: EltwiseBinaryCompositeScalarOpType;
   lhs: tt.target.ttnn.TensorRef;
-  rhs: RhsParams;
+  rhs: NumberType;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
@@ -189,8 +184,8 @@ enum EltwiseUnaryCompositeOpType: uint32 {
 }
 
 table ClampScalarOpParams {
-  min: float;
-  max: float;
+  min: NumberType;
+  max: NumberType;
 }
 
 table ClampTensorOpParams {
@@ -300,4 +295,29 @@ enum UnaryOpType: uint32 {
 table UnaryWithParam {
   op_type: UnaryOpType;
   params: [double];
+}
+
+enum ExperimentalEltwiseBinaryBackwardOpType: uint32 {
+  GeluBW
+}
+
+table ExperimentalEltwiseBinaryBackwardOp {
+  type: ExperimentalEltwiseBinaryBackwardOpType;
+  grad: tt.target.ttnn.TensorRef;
+  input: tt.target.ttnn.TensorRef;
+  approximate: string;
+  output_dtype: tt.target.DataType = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table DropoutOp {
+  in: tt.target.ttnn.TensorRef;
+  prob: float;
+  scale: float;
+  seed: uint32;
+  use_per_device_seed: bool = true;
+  output_dtype: tt.target.DataType = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
 }

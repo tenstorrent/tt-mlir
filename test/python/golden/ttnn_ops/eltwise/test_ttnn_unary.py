@@ -5,10 +5,10 @@
 import pytest
 import torch
 from typing import Callable, List, Optional
-from conftest import x86_only
-from builder.base.builder import Operand, Shape
+from conftest import x86_only, get_request_kwargs
+from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
-from builder.base.builder_utils import (
+from builder.base.builder_apis import (
     compile_and_execute_ttnn,
 )
 from test_utils import shape_str
@@ -265,14 +265,15 @@ def test_unary_ops(
             "Mish with float 32 causes PCC: https://github.com/tenstorrent/tt-metal/issues/31112"
         )
 
+    def module(builder: TTNNBuilder):
+        @builder.func([shape], [dtype])
+        def unary_ops_wrapper(in0: Operand, builder: TTNNBuilder):
+            return test_fn(in0, builder)
+
     pipeline_options = []
     compile_and_execute_ttnn(
-        test_fn,
-        inputs_shapes=[shape],
-        inputs_types=[dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        module,
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=pipeline_options,
@@ -296,13 +297,14 @@ bitwise_unary_ops = [bitwise_not]
 def test_bitwise_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    def module(builder: TTNNBuilder):
+        @builder.func([shape], [dtype])
+        def bitwise_unary_ops_wrapper(in0: Operand, builder: TTNNBuilder):
+            return test_fn(in0, builder)
+
     compile_and_execute_ttnn(
-        test_fn,
-        inputs_shapes=[shape],
-        inputs_types=[dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        module,
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -335,19 +337,17 @@ def test_unary_ops_with_float_param(
     request,
     device,
 ):
-    def wrapper_func(
-        in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return test_fn(in0, parameter, builder, unit_attrs=unit_attrs)
+    def module(builder: TTNNBuilder):
+        @builder.func([shape], [dtype])
+        def wrapper_func(
+            in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return test_fn(in0, parameter, builder, unit_attrs=unit_attrs)
 
     pipeline_options = []
     compile_and_execute_ttnn(
-        wrapper_func,
-        inputs_shapes=[shape],
-        inputs_types=[dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        module,
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=pipeline_options,
@@ -371,17 +371,18 @@ def create_hoisted_unary_op(op_func, name):
 
 
 hoisted_unary_ops = [
-    create_hoisted_unary_op(exp, "exp"),
-    create_hoisted_unary_op(abs, "abs"),
-    create_hoisted_unary_op(ceil, "ceil"),
-    create_hoisted_unary_op(floor, "floor"),
-    create_hoisted_unary_op(tanh, "tanh"),
-    create_hoisted_unary_op(reciprocal, "reciprocal"),
-    create_hoisted_unary_op(neg, "neg"),
-    create_hoisted_unary_op(sigmoid, "sigmoid"),
-    create_hoisted_unary_op(sin, "sin"),
-    create_hoisted_unary_op(cos, "cos"),
-    create_hoisted_unary_op(relu, "relu"),
+    exp,
+    abs,
+    ceil,
+    floor,
+    tanh,
+    reciprocal,
+    neg,
+    sigmoid,
+    sin,
+    cos,
+    relu,
+    relu6,
 ]
 
 
@@ -396,12 +397,14 @@ def test_cpu_hoistable_unary_ops(
     dtype: torch.dtype = torch.float32,
 ):
     """Test unary ops that support CPU hoisting"""
+
+    def module(builder: TTNNBuilder):
+        @builder.func([shape], [dtype])
+        def unary_ops_wrapper(in0: Operand, builder: TTNNBuilder):
+            return test_fn(in0, builder, unit_attrs=["ttnn.should_hoist"])
+
     compile_and_execute_ttnn(
-        test_fn,
-        inputs_shapes=[shape],
-        inputs_types=[dtype],
+        module,
         test_base=f"{request.node.name}",
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )

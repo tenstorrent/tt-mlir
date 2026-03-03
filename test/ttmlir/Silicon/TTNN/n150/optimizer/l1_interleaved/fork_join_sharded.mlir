@@ -8,38 +8,30 @@ module @L1InterleavedTestForkJoin attributes {} {
     // CHECK-DAG: #[[DRAM:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#dram>{{.*}}<interleaved>>
     // CHECK-DAG: #[[L1:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#l1>{{.*}}<interleaved>>
     // CHECK-DAG: #[[SHARDED:.*]] = #ttnn.ttnn_layout<{{.*}}, <height_sharded>>
-    %0 = ttir.empty() : tensor<64x128xbf16>
     // not immediately consumed -> dram
-// CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-    %2 = ttir.empty() : tensor<64x128xbf16>
-// CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[L1]]>
-    %3 = "ttir.add"(%arg2, %arg3, %2) : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-    %4 = ttir.empty() : tensor<64x128xbf16>
+    // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
+    %0 = "ttir.add"(%arg0, %arg1) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[L1]]>
-    %5 = "ttir.add"(%1, %3, %4) : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-    %6 = ttir.empty() : tensor<64x128xbf16>
+    %1 = "ttir.add"(%arg2, %arg3) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+    // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[L1]]>
+    %2 = "ttir.add"(%0, %1) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
     // fork, not a single user -> dram
-// CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
-    %7 = "ttir.relu"(%5, %6) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-    // Fork: %7 used in two ops
-    %8 = ttir.empty() : tensor<64x128xbf16>
+    // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
+    %3 = "ttir.relu"(%2) : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
+    // Fork: %3 used in two ops
     // CHECK: %{{.*}} = "ttnn.neg"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
-    %9 = "ttir.neg"(%7, %8) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16> loc(#loc)
-    %10 = ttir.empty() : tensor<64x128xbf16>
+    %4 = "ttir.neg"(%3) : (tensor<64x128xbf16>) -> tensor<64x128xbf16> loc(#loc)
     // CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
-    %11 = "ttir.abs"(%7, %10) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16> loc(#loc)
+    %5 = "ttir.abs"(%3) : (tensor<64x128xbf16>) -> tensor<64x128xbf16> loc(#loc)
     // Join: add the results
-    %12 = ttir.empty() : tensor<64x128xbf16>
     // sharded inputs fit with the result in L1 -> L1
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[L1]]>
-    %13 = "ttir.add"(%9, %11, %12) : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-    %14 = ttir.empty() : tensor<64x128xbf16>
+    %6 = "ttir.add"(%4, %5) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
     // As output is the return value, not beneficial to move to L1, will always stay in DRAM.
     // CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
-    %15 = "ttir.abs"(%13, %14) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+    %7 = "ttir.abs"(%6) : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
 
-    return %15 : tensor<64x128xbf16>
+    return %7 : tensor<64x128xbf16>
   }
 }
 #loc = loc("op")

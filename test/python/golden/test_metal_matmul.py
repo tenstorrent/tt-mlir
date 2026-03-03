@@ -5,12 +5,13 @@
 import pytest
 import torch
 from typing import List
+from conftest import get_request_kwargs
 
 from test_utils import shape_str
 
-from builder.base.builder import Operand
+from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -25,16 +26,25 @@ pytestmark = pytest.mark.frontend("ttir")
 #    output, which is too slow.
 # Solution: constraint the input range to within (0.001, 0.999) to avoid large
 # differences of magnitudes in the calculation.
-def create_matmul_constrained_inputs(lhs_shape, rhs_shape):
-    def matmul_constrained_inputs(
-        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
-    ):
-        in_lhs = torch.rand(lhs_shape, dtype=torch.float32) * 0.999 + 0.001
-        in_rhs = torch.rand(rhs_shape, dtype=torch.float32) * 0.999 + 0.001
-        builder.set_goldens(inputs={in0: in_lhs, in1: in_rhs})
-        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+def create_matmul_constrained_inputs(lhs_shape, rhs_shape, dtype=torch.float32):
+    def module(builder: TTIRBuilder):
+        @builder.func([lhs_shape, rhs_shape], [dtype, dtype])
+        def matmul_constrained_inputs(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            if dtype == torch.float32:
+                in_lhs = torch.rand(lhs_shape, dtype=torch.float32) * 0.999 + 0.001
+                in_rhs = torch.rand(rhs_shape, dtype=torch.float32) * 0.999 + 0.001
+            else:
+                in_lhs = torch.rand(lhs_shape, dtype=torch.bfloat16)
+                in_rhs = torch.rand(rhs_shape, dtype=torch.bfloat16)
+            builder.set_goldens(inputs={in0: in_lhs, in1: in_rhs})
+            return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
-    return matmul_constrained_inputs
+    return module
 
 
 @pytest.mark.parametrize("m", [2])
@@ -60,14 +70,10 @@ def test_matmul_single_core_8otpc(m: int, k: int, n: int, target: str, request, 
 
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs),
-        [lhs, rhs],
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -93,41 +99,13 @@ def test_matmul_multi_core_8otpc(m: int, k: int, n: int, target: str, request, d
 
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs),
-        [lhs, rhs],
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
-# Temporary testcase to verify larger testcases compile on p150 (execution hangs, but we want to cover non-square grid cases)
-@pytest.mark.only_config(["ttmetal", "p150"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_matmul_p150_grid_selection_compile_only(target: str, request, device):
-    from builder.base.builder_utils import compile_ttir_to_flatbuffer
-
-    lhs = (1024, 1024)
-    rhs = (1024, 1024)
-
-    options = [
-        f"num-stream-buffers=1",
-    ]
-
-    # Compile only - verify IR is well-formed with correct dim_alignments, etc.
-    mlir_path = compile_ttir_to_flatbuffer(
-        create_matmul_constrained_inputs(lhs, rhs),
-        [lhs, rhs],
-        target=target,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -141,16 +119,34 @@ def test_matmul_p150_grid_selection_compile_only(target: str, request, device):
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("use_tile_matmul", [True, False])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "use_tile_matmul", [True, False], ids=["matmul_tile", "matmul_block"]
+)
+@pytest.mark.parametrize("enable_l1_acc", [True, False], ids=["l1_acc", "no_l1_acc"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Large matmuls, based on ttnn's matmul benchmarks
 def test_matmul_ttnn_shapes_single_buffered(
     shape: tuple[int, ...],
+    dtype: torch.dtype,
     use_tile_matmul: bool,
+    enable_l1_acc: bool,
     target: str,
     request,
     device,
 ):
+    pcc = 0.99 if dtype == torch.float32 else 0.96
+    if (
+        dtype == torch.bfloat16
+        and not enable_l1_acc
+        and shape
+        in (
+            (2048, 2048, 2048),
+            (1024, 2048, 2048),
+        )
+    ):
+        pytest.xfail(reason="bf16 PCC below threshold for these shapes")
+
     lhs = (
         shape[0],
         shape[1],
@@ -164,22 +160,20 @@ def test_matmul_ttnn_shapes_single_buffered(
         f"matmul-interchange=2,0,1",
         f"num-stream-buffers=1",
         f"use-tile-matmul={use_tile_matmul}",
+        f"enable-l1-acc={enable_l1_acc}",
     ]
     compile_and_execute_ttir(
-        create_matmul_constrained_inputs(lhs, rhs),
-        [lhs, rhs],
+        create_matmul_constrained_inputs(lhs, rhs, dtype),
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        module_dump=True,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
+        save_artifacts=True,
+        skip_exec=getattr(request.node, "skip_exec", False),
+        pcc=pcc,
     )
 
 
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -188,15 +182,84 @@ def test_matmul_ttnn_shapes_single_buffered(
         (512, 1024, 2048),
         (1024, 1024, 1024),
         (1024, 1024, 2048),
+        (1024, 2048, 2048),
+        (2048, 2048, 2048),
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("use_tile_matmul", [True, False])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "use_tile_matmul", [True, False], ids=["matmul_tile", "matmul_block"]
+)
+@pytest.mark.parametrize("enable_l1_acc", [True, False], ids=["l1_acc", "no_l1_acc"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Large matmuls, based on ttnn's matmul benchmarks
 def test_matmul_ttnn_shapes_double_buffered(
     shape: tuple[int, ...],
+    dtype: torch.dtype,
     use_tile_matmul: bool,
+    enable_l1_acc: bool,
+    target: str,
+    request,
+    device,
+):
+    pcc = 0.99 if dtype == torch.float32 else 0.96
+    if dtype == torch.float32 and shape == (2048, 2048, 2048):
+        pytest.xfail(reason="Too large for f32.")
+
+    if (
+        dtype == torch.bfloat16
+        and not enable_l1_acc
+        and shape
+        in (
+            (2048, 2048, 2048),
+            (1024, 2048, 2048),
+        )
+    ):
+        pytest.xfail(reason="bf16 PCC below threshold for these shapes")
+
+    lhs = (
+        shape[0],
+        shape[1],
+    )
+    rhs = (
+        shape[1],
+        shape[2],
+    )
+
+    options = [
+        f"matmul-interchange=2,0,1",
+        f"use-tile-matmul={use_tile_matmul}",
+        f"enable-l1-acc={enable_l1_acc}",
+    ]
+    compile_and_execute_ttir(
+        create_matmul_constrained_inputs(lhs, rhs, dtype),
+        target=target,
+        device=device,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        **get_request_kwargs(request),
+        save_artifacts=True,
+        skip_exec=getattr(request.node, "skip_exec", False),
+        pcc=pcc,
+    )
+
+
+@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (32, 4096, 2048),  # width sharded in0, block sharded in1
+        (32768, 32, 32),  # height sharded in0, block sharded in1
+        (32, 32, 32768),  # block sharded in0, width sharded in1
+        (2048, 4096, 32),  # block sharded in0, height sharded in1
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_matmul_1d_shapes(
+    shape: tuple[int, ...],
+    dtype: torch.dtype,
     target: str,
     request,
     device,
@@ -210,19 +273,26 @@ def test_matmul_ttnn_shapes_double_buffered(
         shape[2],
     )
 
+    def module(builder: TTIRBuilder):
+        @builder.func([lhs, rhs], [dtype, dtype])
+        def matmul_1d(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+
     options = [
         f"matmul-interchange=2,0,1",
-        f"use-tile-matmul={use_tile_matmul}",
+        f"use-tile-matmul=false",
     ]
     compile_and_execute_ttir(
-        create_matmul_constrained_inputs(lhs, rhs),
-        [lhs, rhs],
+        module,
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        module_dump=True,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
+        save_artifacts=True,
+        skip_exec=getattr(request.node, "skip_exec", False),
     )

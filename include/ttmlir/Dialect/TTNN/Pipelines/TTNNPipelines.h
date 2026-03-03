@@ -5,7 +5,10 @@
 #ifndef TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
+#include "ttmlir/Dialect/TTCore/IR/TopologyParser.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
+#include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
+#include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
@@ -17,14 +20,29 @@ class MeshDevice;
 } // namespace tt::tt_metal::distributed
 
 namespace mlir::tt::ttnn {
-// Options for the TTIR to TTNN backend pipeline.
+// TTIR to TTNN Device pipeline options.
 //
-struct TTIRToTTNNBackendPipelineOptions
-    : public PassPipelineOptions<TTIRToTTNNBackendPipelineOptions> {
-  // If this option is true, run Optimizer trying to set optimal Op
-  // configuration for max performance. If this option is false, skip running
-  // Optimizer pass, thus leaving all ops on default configuration.
-  Option<bool> optimizerPassEnabled{
+struct TTIRToTTNNDevicePipelineOptions
+    : public PassPipelineOptions<TTIRToTTNNDevicePipelineOptions> {
+  // Optimization level controls multiple optimization passes.
+  // Level 0 (default): All optimizer passes disabled.
+  // Level 1: All optimizer passes enabled. Memory layout analysis is disabled.
+  // Moderate compile time. Level 2: All optimizer passes enabled with memory
+  // layout analysis (sharding). Longest compile time. Individual options can
+  // override the optimization level settings.
+  Option<int> optimizationLevel{
+      *this, OptionNames::optimizationLevel,
+      llvm::cl::desc(
+          "Optimization level: 0=all optimizer passes disabled (fastest "
+          "compile), "
+          "1=optimizer passes enabled except sharding (moderate compile), "
+          "2=all optimizer passes including sharding enabled (longest "
+          "compile)."),
+      llvm::cl::init(0)};
+
+  // Enable all optimizer passes.
+  // If not explicitly set, determined by optimization_level.
+  mutable Option<bool> optimizerPassEnabled{
       *this, OptionNames::optimizerPassEnabled,
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(false)};
@@ -130,9 +148,9 @@ struct TTIRToTTNNBackendPipelineOptions
           llvm::cl::desc("Override Conv2d configuration for specific ops."),
           llvm::cl::init(llvm::StringMap<Conv2dConfigOverrideParams>())};
 
-  // If this option is true, run memory layout analysis.
-  //
-  Option<bool> memoryLayoutAnalysisEnabled{
+  // Enable memory layout analysis for performant tensor layouts (sharding).
+  // If not explicitly set, determined by optimization_level.
+  mutable Option<bool> memoryLayoutAnalysisEnabled{
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       llvm::cl::desc("Enable memory layout optimization."),
       llvm::cl::init(false)};
@@ -189,23 +207,31 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, OptionNames::maxLegalLayouts,
       llvm::cl::desc("Override maximum number of sharded layouts for legal "
                      "layout analysis."),
-      llvm::cl::init(64)};
+      llvm::cl::init(8)};
 
   ListOption<int64_t> meshShape{
       *this, OptionNames::meshShape,
       llvm::cl::desc("Set the multi-device mesh shape.")};
+
+  ListOption<ttcore::Topology> meshTopology{
+      *this, OptionNames::meshTopology,
+      llvm::cl::desc("Set the per-axis topology for the mesh."),
+      llvm::cl::values(
+          clEnumValN(ttcore::Topology::Ring, "ring", "Ring topology"),
+          clEnumValN(ttcore::Topology::Linear, "linear", "Linear topology"),
+          clEnumValN(ttcore::Topology::Disabled, "disabled",
+                     "Disabled topology"))};
 
   Option<bool> rowMajorEnabled{
       *this, "row-major-enabled",
       llvm::cl::desc(
           "Enable row major layout generation in legal layout analysis."),
       llvm::cl::init(false)};
-
   // Option to override maximum percent of L1 storage that can be used
   // by tensors in Optimizer analysis.
   // This is a value between 0.0 and 1.0, where 1.0 means that the entire L1
   // storage can be used by tensors.
-  // The default value is 0.8.
+  // The default value is 0.95.
   //
   Option<float> tensorL1UsageCap{
       *this, OptionNames::tensorL1UsageCap,
@@ -250,10 +276,23 @@ struct TTIRToTTNNBackendPipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
 
-  Option<bool> enableFusingConv2dWithMultiplyPattern{
+  Option<bool> enableD2MFusing{*this, "enable-d2m-fusing-pass",
+                               llvm::cl::desc("Enable D2M fusing pass."),
+                               llvm::cl::init(false)};
+
+  // Enable fusing of conv2d + multiply pattern.
+  // If not explicitly set, determined by optimization_level.
+  mutable Option<bool> enableFusingConv2dWithMultiplyPattern{
       *this, "enable-fusing-conv2d-with-multiply-pattern",
       llvm::cl::desc("Enable Conv2dWithMultiply pattern in the fusing pass."),
       llvm::cl::init(false)};
+
+  // Enable fusing of permute + matmul/linear pattern.
+  Option<bool> enablePermuteMatmulFusion{
+      *this, "enable-permute-matmul-fusion",
+      llvm::cl::desc(
+          "Fuse permute ops into matmul/linear transpose attributes."),
+      llvm::cl::init(true)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
@@ -286,6 +325,18 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable const-eval optimization pass."),
       llvm::cl::init(true)};
 
+  // Enable CPU-hoisting for const-eval subgraphs.
+  Option<bool> enableCPUHoistedConstEval{
+      *this, "enable-cpu-hoisted-const-eval",
+      llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
+      llvm::cl::init(false)};
+
+  // Force const-eval function inputs to system memory.
+  Option<bool> enableConstEvalInputsToSystemMemory{
+      *this, "enable-const-eval-inputs-to-system-memory",
+      llvm::cl::desc("Force const-eval function inputs to system memory."),
+      llvm::cl::init(true)};
+
   Option<bool> enableTrace{*this, "enable-trace",
                            llvm::cl::desc("Enable trace optimization pass."),
                            llvm::cl::init(false)};
@@ -304,19 +355,107 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
       llvm::cl::init(false)};
 
+  Option<bool> experimentalBfp8Weights{
+      *this, "experimental-bfp8-weights",
+      llvm::cl::desc(
+          "Experimental: Enables conversion of weight tensors in "
+          "matrix multiplication and convolution operations to bfp8_b."),
+      llvm::cl::init(false)};
+
+  // ComputeKernelConfig options
+  // Note: computeCfgMathFidelity default value is HiFi4
+  // And computeCfgFp32DestAccEn default value is true.
+  // This is done as part of generality effort,
+  // to boost accuracy on all operations exposing compute kernel config by
+  // default.
+  Option<OptionalMathFidelity> computeCfgMathFidelity{
+      *this, "compute-cfg-math-fidelity",
+      llvm::cl::desc("Set math fidelity for all ttnn operations exposing "
+                     "compute kernel config."),
+      llvm::cl::values(
+          clEnumValN(OptionalMathFidelity::LoFi, "lofi", "Low fidelity math"),
+          clEnumValN(OptionalMathFidelity::HiFi2, "hifi2", "High fidelity 2"),
+          clEnumValN(OptionalMathFidelity::HiFi3, "hifi3", "High fidelity 3"),
+          clEnumValN(OptionalMathFidelity::HiFi4, "hifi4", "High fidelity 4"),
+          clEnumValN(OptionalMathFidelity::Undefined, "undefined",
+                     "Undefined math fidelity")),
+      llvm::cl::init(OptionalMathFidelity::HiFi4)};
+
+  Option<bool> computeCfgFp32DestAccEn{
+      *this, "compute-cfg-fp32-dest-acc-en",
+      llvm::cl::desc("Set fp32 destination accumulation for all ttnn "
+                     "operations exposing compute kernel config."),
+      llvm::cl::init(true)};
+
+  Option<bool> ttnnPerfMetricsEnabled{
+      *this, "ttnn-perf-metrics-enabled",
+      llvm::cl::desc("Enable performance metrics collection."),
+      llvm::cl::init(false)};
+
+  // Optional output file path for performance metrics JSON. If not provided,
+  // defaults to generate filename based on module or function name in
+  // "perf_metrics" directory.
+  Option<std::string> ttnnPerfMetricsOutputFile{
+      *this, "ttnn-perf-metrics-output-file",
+      llvm::cl::desc("Output file path for the performance metrics JSON."),
+      llvm::cl::init("")};
+
+  Option<bool> ttnnPerfMetricsVerboseOutputEnabled{
+      *this, "ttnn-perf-metrics-verbose-output-enabled",
+      llvm::cl::desc(
+          "Enable verbose output with per-operation details in metrics."),
+      llvm::cl::init(true)};
+
+  Option<uint32_t> maxFallbackAttempts{
+      *this, "max-fallback-attempts",
+      llvm::cl::desc(
+          "Maximum number of fallback attempts per operation in Operation "
+          "Validation and Fallback pass. 0 means unlimited attempts."),
+      llvm::cl::init(10000)};
+
   // Option to provide a pointer to an already opened device. When provided,
   // the optimizer will use this device instead of opening a new one.
   // This allows frontends to pass in an active device without closing it.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
+
+  // Resolve options controlled by optimization_level.
+  void resolveOptimizationLevelOptions() const {
+    // Validate optimization_level is in valid range.
+    if (optimizationLevel < 0 || optimizationLevel > 2) {
+      llvm::reportFatalUsageError(
+          "Invalid optimization_level: " + llvm::Twine(optimizationLevel) +
+          ". Must be 0, 1, or 2.");
+    }
+
+    // Only apply optimization_level if user didn't explicitly set the option.
+    // Use getNumOccurrences() to detect explicit user settings.
+    if (optimizerPassEnabled.getNumOccurrences() == 0) {
+      optimizerPassEnabled = (optimizationLevel >= 1);
+    }
+    if (enableFusingConv2dWithMultiplyPattern.getNumOccurrences() == 0) {
+      enableFusingConv2dWithMultiplyPattern = (optimizationLevel >= 1);
+    }
+    if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
+      memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
+    }
+  }
 };
 
-// TTNN Backend to EmitC PipelineOptions.
+// TTNN to EmitC Device pipeline options.
 //
-struct TTNNBackendToEmitCPipelineOptions
-    : public PassPipelineOptions<TTNNBackendToEmitCPipelineOptions> {
+struct TTNNToEmitCDevicePipelineOptions
+    : public PassPipelineOptions<TTNNToEmitCDevicePipelineOptions> {
   Option<bool> targetDylib{*this, "target-dylib",
                            llvm::cl::desc("Tailor passes for dylib target."),
                            llvm::cl::init(false)};
+
+  Option<bool> tryRecoverStructure{
+      *this, "try-recover-structure",
+      llvm::cl::desc(
+          "Enable pipelines and passes that try to recover structure of the "
+          "original IR/code. Highly experimental; please file issues at "
+          "https://github.com/tenstorrent/tt-mlir/issues"),
+      llvm::cl::init(false)};
 
   Option<bool> tuplifyInputIfEmpty{
       *this, "tuplify-input-if-empty",
@@ -341,13 +480,16 @@ struct TTNNBackendToEmitCPipelineOptions
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
 };
 
-// TTNN Backend to EmitPy PipelineOptions.
+// TTNN to EmitPy Device pipeline options.
 //
-struct TTNNBackendToEmitPyPipelineOptions
-    : public PassPipelineOptions<TTNNBackendToEmitPyPipelineOptions> {
-  // TTNNToEmitC pipeline options contain "target-dylib" and
-  // "tuplify-input-if-empty" options. There's no dylib (or equivalent) path in
-  // EmitPy yet, so these options are removed.
+struct TTNNToEmitPyDevicePipelineOptions
+    : public PassPipelineOptions<TTNNToEmitPyDevicePipelineOptions> {
+  Option<bool> targetModule{
+      *this, "target-module",
+      llvm::cl::desc("Tailor passes for Python module target. When enabled, "
+                     "the entry function is named 'forward' with tuple of "
+                     "tensors and device as inputs."),
+      llvm::cl::init(false)};
 
   Option<bool> loadInputTensorsFromDisk{
       *this, "load-input-tensors-from-disk",
@@ -363,50 +505,60 @@ struct TTNNBackendToEmitPyPipelineOptions
   Option<std::string> tensorLoadFilePrefix{
       *this, "tensor-load-file-prefix",
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
+
+  Option<bool> tryRecoverStructure{
+      *this, "try-recover-structure",
+      llvm::cl::desc(
+          "Enable pipelines and passes that try to recover structure of the "
+          "original IR/code. Highly experimental; please file issues at "
+          "https://github.com/tenstorrent/tt-mlir/issues"),
+      llvm::cl::init(false)};
 };
 
-// TTIR to EmitC pipeline options.
-// Inherit from TTIRToTTNNBackendPipelineOptions and
-// TTNNBackendToEmitCPipelineOptions to reuse the options.
+// TTIR to TTNN backend pipeline options.
 //
-struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
-                                    public TTNNBackendToEmitCPipelineOptions {};
+// Inherits from TTIRToTTNNDevicePipelineOptions and
+// TTIRToLLVMCPUPipelineOptions to reuse the options.
+//
+struct TTIRToTTNNBackendPipelineOptions
+    : public TTIRToTTNNDevicePipelineOptions,
+      public ttir::TTIRToLLVMCPUPipelineOptions {};
+
+// TTIR to EmitC end-to-end pipeline options.
+//
+// Inherits from TTIRToTTNNDevicePipelineOptions and
+// TTNNToEmitCDevicePipelineOptions to reuse the options.
+//
+struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
+                                    public TTNNToEmitCDevicePipelineOptions {
+  TTIRToEmitCPipelineOptions() {
+    // TODO(dmilinkovic): Remove once CPU-hoisting is supported on EmitC - issue
+    // #6100.
+    this->enableCPUHoistedConstEval = false;
+  }
+};
 
 // TTIR to EmitPy pipeline options.
-// Inherit from TTIRToTTNNBackendPipelineOptions and
-// TTNNBackendToEmitPyPipelineOptions to reuse the options.
 //
-struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
-                                     public TTNNBackendToEmitPyPipelineOptions {
+// Inherits from TTIRToTTNNDevicePipelineOptions and
+// TTNNToEmitPyDevicePipelineOptions to reuse the options.
+//
+struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
+                                     public TTNNToEmitPyDevicePipelineOptions {
+};
+
+// Recover Structure XLA/Torch pipeline options.
+struct RecoverStructureXLATorchPipelineOptions
+    : public PassPipelineOptions<RecoverStructureXLATorchPipelineOptions> {
+  // Add any future options here if needed
 };
 
 //===----------------------------------------------------------------------===//
-// Passes and pipelines
+// End-to-end pipelines, which lower TTIR to various TTNN targets.
 //===----------------------------------------------------------------------===//
-
-void createTTNNPipelineTTIRPasses(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
-
-void createTTNNPipelineAnalysisPasses(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
-
-void createTTNNPipelineLoweringPasses(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
-
-void createTTNNPipelineLayoutDecompositionPass(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
-
-void createTTNNPipelineDeallocPass(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
-
-void createTTNNBackendToEmitCPipeline(
-    OpPassManager &pm, const TTNNBackendToEmitCPipelineOptions &options);
-
-void createTTNNBackendToEmitPyPipeline(
-    OpPassManager &pm, const TTNNBackendToEmitPyPipelineOptions &options);
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options);
@@ -414,8 +566,14 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options);
 
-/// Registers all pipelines for the `bufferization` dialect. Currently,
-/// this includes only the "ttir-to-ttnn-backend-pipeline".
+void createTTNNToEmitPyPipeline(
+    OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options);
+
+void createRecoverStructureXLATorchPipeline(
+    OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
+
+void createTTNNPipelineD2MPass(OpPassManager &pm);
+
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn
 

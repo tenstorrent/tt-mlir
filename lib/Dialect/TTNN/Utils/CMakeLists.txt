@@ -5,6 +5,7 @@ add_mlir_dialect_library(TTMLIRTTNNUtils
   PassOverrides.cpp
   TransformUtils.cpp
   Utils.cpp
+  VerificationUtils.cpp
 
 
   ADDITIONAL_HEADER_DIRS

@@ -8,9 +8,11 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Location.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -240,6 +242,28 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
                                    mlir::Value &output, mlir::Location loc,
                                    bool frontUnsqueeze);
 
+// Given a reshape operation and an input dimension position (RTL - right to
+// left, 0 = rightmost), finds the corresponding output dimension position where
+// that dimension maps to. Returns -1 if no matching dimension is found.
+int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL);
+
+// Checks if an operation preserves a given dimension.
+// For reshape, this checks both that the dimension size is unchanged and that
+// the product of trailing dimensions (stride) is preserved.
+// Dimension can be negative (counted from back, e.g. -1 for last dimension).
+bool preservesDim(mlir::Operation *op, int64_t dim);
+
+// In tt-metal, implicit broadcast is supported up to rank 5.
+// For rank >= 6, the device ops require a_dim == b_dim (and c_dim) on all
+// higher axes.
+inline bool isImplicitBroadcastSupported(BroadcastOp broadcastOp) {
+  auto dims = broadcastOp.getBroadcastDimensions();
+  if (dims.size() <= 6) {
+    return true;
+  }
+  return llvm::all_of(dims.drop_back(6), [](int64_t dim) { return dim == 1; });
+}
+
 template <typename AdaptorT>
 mlir::ValueRange getDpsInputsFromAdaptor(AdaptorT adaptor,
                                          unsigned numDpsInits) {
@@ -258,42 +282,163 @@ mlir::ValueRange getDpsOutputsFromAdaptor(AdaptorT adaptor,
   return operands.take_back(numDpsInits);
 }
 
-/// Add the "ttir.should_hoist" attribute to an operation.
-inline void addShouldHoistAttr(mlir::Operation *op,
-                               mlir::PatternRewriter &rewriter) {
-  op->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
+// Helper function to create a reshape operation.
+inline ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
+                                       Value input,
+                                       ::llvm::ArrayRef<int64_t> targetShape) {
+  auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+  auto shapeAttr =
+      rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
+
+  return rewriter.create<ttir::ReshapeOp>(
+      loc,
+      RankedTensorType::get(targetShape, inputType.getElementType(),
+                            inputType.getEncoding()),
+      input, shapeAttr);
 }
 
-/// Check if the "ttir.should_hoist" attribute is present on an operation.
-inline bool hasShouldHoistAttr(mlir::Operation *op) {
-  return op->hasAttr("ttir.should_hoist");
+// Helper function to flatten a tensor to 1D.
+// It flattens tensor on given location with optional suffix to the location
+// name.
+inline Value flattenTensor(PatternRewriter &rewriter, Location loc,
+                           Value tensor, const std::string &suffix = "") {
+  RankedTensorType tensorType = mlir::cast<RankedTensorType>(tensor.getType());
+  ArrayRef<int64_t> tensorShape = tensorType.getShape();
+
+  // Calculate total number of elements (product of all dimensions).
+  int64_t totalElements = 1;
+  for (int64_t dim : tensorShape) {
+    totalElements *= dim;
+  }
+
+  // Create new 1D shape.
+  llvm::SmallVector<int64_t> flattenedShape = {totalElements};
+
+  // Create location with optional suffix.
+  Location reshapeLocation =
+      suffix.empty() ? loc : ttmlir::utils::appendLocationSuffix(loc, suffix);
+
+  // Reshape tensor to 1D.
+  Value flattenedTensor =
+      createReshapeOp(rewriter, reshapeLocation, tensor, flattenedShape);
+
+  return flattenedTensor;
 }
 
-// Helper to check if this convolution is a transposed convolution.
-// Determine if the stablehlo.convolution op represents a regular or
-// transposed convolution, based on Torch-MLIR lowering patterns:
-// https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
-// and XLA patterns: convolution is transposed if the input dilation is
-// greater than 1.
-inline bool isTransposedConv(ttir::ConvolutionOp convolutionOp) {
-  constexpr static uint32_t SPATIAL_DIM_HEIGHT = 0;
-  constexpr static uint32_t SPATIAL_DIM_WIDTH = 1;
-  ttir::ConvolutionLayoutAttr convLayoutAttr =
-      convolutionOp.getConvolutionLayoutAttr();
-
-  bool isTransposed =
-      convLayoutAttr.getKernelInputFeatureDimension() ==
-          convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_WIDTH] &&
-      convLayoutAttr.getKernelOutputFeatureDimension() ==
-          convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_HEIGHT] &&
-      convLayoutAttr.getInputSpatialDimensions() !=
-          convLayoutAttr.getKernelSpatialDimensions() &&
-      convLayoutAttr.getOutputSpatialDimensions() !=
-          convLayoutAttr.getKernelSpatialDimensions();
-  isTransposed |= llvm::any_of(convolutionOp.getInputDilation(),
-                               [](int64_t d) { return d > 1; });
-  return isTransposed;
+// Traces backward from a value through specified ops to find the source value.
+template <typename... Ops>
+mlir::Value lookThrough(mlir::Value value) {
+  while (auto *op = value.getDefiningOp()) {
+    if (llvm::isa<Ops...>(op)) {
+      value = op->getOperand(0);
+    } else {
+      break;
+    }
+  }
+  return value;
 }
+
+// Traces backward from a value through specified ops to find an operation of
+// type OpTy.
+template <typename OpTy, typename... Ops>
+OpTy findOpThrough(mlir::Value value) {
+  return lookThrough<Ops...>(value).template getDefiningOp<OpTy>();
+}
+
+// Traces backward through all layout ops (typecast, reshape, broadcast,
+// repeat_interleave) to find the source value.
+inline mlir::Value lookThroughLayoutOps(mlir::Value value) {
+  return lookThrough<TypecastOp, ReshapeOp, BroadcastOp, RepeatInterleaveOp>(
+      value);
+}
+
+// Traces backward through all layout ops, but only looks through ops that
+// satisfy the given predicate. The predicate receives the operation and should
+// return true if we should look through it, false to stop.
+template <typename PredicateFn>
+mlir::Value lookThroughLayoutOpsIf(mlir::Value value, PredicateFn &&predicate) {
+  while (auto *op = value.getDefiningOp()) {
+    if (llvm::isa<TypecastOp, ReshapeOp, BroadcastOp, RepeatInterleaveOp>(op)) {
+      if (!predicate(op)) {
+        break;
+      }
+      value = op->getOperand(0);
+    } else {
+      break;
+    }
+  }
+  return value;
+}
+
+// Traces backward through all layout ops to find an operation of type OpTy.
+template <typename OpTy>
+OpTy findOpThroughLayoutOps(mlir::Value value) {
+  return lookThroughLayoutOps(value).template getDefiningOp<OpTy>();
+}
+
+// Traces backward through all layout ops that satisfy the predicate to find
+// an operation of type OpTy.
+template <typename OpTy, typename PredicateFn>
+OpTy findOpThroughLayoutOpsIf(mlir::Value value, PredicateFn &&predicate) {
+  return lookThroughLayoutOpsIf(value, std::forward<PredicateFn>(predicate))
+      .template getDefiningOp<OpTy>();
+}
+
+// Moves the use-define chain of a value before a target operation.
+// Used when operations are moved or new operations are added to ensure that
+// operations are not placed before the definitions of their inputs, preserving
+// MLIR's topological ordering.
+inline void moveUDChainBefore(mlir::Value value, mlir::Operation *targetOp) {
+  if (!value.getDefiningOp() ||
+      value.getDefiningOp()->isBeforeInBlock(targetOp)) {
+    return;
+  }
+
+  llvm::SetVector<mlir::Value> udChain = ttmlir::utils::getUseDefChain(value);
+  llvm::SetVector<mlir::Operation *> udChainOps =
+      ttmlir::utils::filterOperations(udChain.getArrayRef());
+  llvm::SetVector<mlir::Operation *> udChainSorted =
+      mlir::topologicalSort(udChainOps);
+
+  // We are not moving ops in UD chain that are already before the target, as
+  // they could have descendants that are also before target but are not in
+  // the UD chain.
+  for (auto *op : udChainSorted) {
+    if (op->isBeforeInBlock(targetOp)) {
+      continue;
+    }
+    op->moveBefore(targetOp);
+  }
+}
+
+// Transforms a value to match a target type by adding reshape and/or typecast
+// as needed. This is commonly used when fusing patterns that trace through
+// reshape and typecast ops.
+// Returns the transformed value that matches targetType's shape and dtype.
+inline mlir::Value reshapeAndCastToType(mlir::PatternRewriter &rewriter,
+                                        mlir::Location loc, mlir::Value value,
+                                        mlir::RankedTensorType targetType) {
+  auto valueType = mlir::cast<mlir::RankedTensorType>(value.getType());
+  mlir::Value result = value;
+
+  // If shape differs, add a reshape
+  if (valueType.getShape() != targetType.getShape()) {
+    llvm::SmallVector<int32_t> targetShape(targetType.getShape());
+    auto reshapeOutputType = mlir::RankedTensorType::get(
+        targetType.getShape(), valueType.getElementType(),
+        valueType.getEncoding());
+    result = rewriter.create<ReshapeOp>(loc, reshapeOutputType, result,
+                                        rewriter.getI32ArrayAttr(targetShape));
+  }
+
+  // If dtype differs, add a typecast
+  if (valueType.getElementType() != targetType.getElementType()) {
+    result = rewriter.create<TypecastOp>(loc, targetType, result);
+  }
+
+  return result;
+}
+
 } // namespace mlir::tt::ttir::utils
 
 #endif // TTMLIR_DIALECT_TTIR_UTILS_UTILS_H

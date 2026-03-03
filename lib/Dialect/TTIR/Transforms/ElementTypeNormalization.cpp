@@ -210,8 +210,7 @@ public:
                                 mlir::Location loc) -> mlir::Value {
         mlir::RankedTensorType rankedType =
             mlir::cast<mlir::RankedTensorType>(type);
-        return ttir::utils::createDPSOp<ttir::TypecastOp>(builder, loc,
-                                                          rankedType, inputs);
+        return builder.create<ttir::TypecastOp>(loc, rankedType, inputs);
       };
 
       addSourceMaterialization(materializeFunc);
@@ -235,10 +234,12 @@ struct ElementTypeNormalization
     }
 
     mlir::RewritePatternSet patterns(&getContext());
+    GreedyRewriteConfig config;
+    config.enableFolding(false);
     patterns.add<UniformTypeRewriter>(converter, &getContext());
     patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
-    if (failed(
-            mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+    if (failed(mlir::applyPatternsGreedily(getOperation(), std::move(patterns),
+                                           config))) {
       signalPassFailure();
       return;
     }

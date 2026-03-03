@@ -4,7 +4,9 @@
 
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/mesh_fabric_config.h"
 #include "tt/runtime/detail/common/runtime_context.h"
+#include "tt/runtime/detail/common/system_mesh.h"
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
@@ -111,6 +113,19 @@ uint32_t getNumShards(Tensor tensor) {
       });
 }
 } // namespace detail
+Layout getTensorLayout(Tensor tensor) {
+  using RetType = Layout;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ::tt::runtime::ttnn::getTensorLayout(tensor); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorLayout", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorLayout",
+                                    HostRuntime::Distributed);
+      });
+}
 
 void setMlirHome(std::string_view mlirHome) {
 #if defined(DEVICE_RUNTIME_ENABLED)
@@ -124,6 +139,23 @@ void setMetalHome(std::string_view metalHome) {
   return RuntimeContext::instance().setMetalHome(metalHome);
 #endif
   LOG_FATAL("runtime is not enabled");
+}
+
+void setMemoryLogLevel(const MemoryLogLevel &logLevel) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::RuntimeContext::instance().setMemoryLogLevel(
+            logLevel);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::RuntimeContext::instance().setMemoryLogLevel(
+            logLevel);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::distributed::setMemoryLogLevel(logLevel);
+      });
 }
 
 std::vector<DeviceRuntime> getAvailableDeviceRuntimes() {
@@ -344,6 +376,32 @@ Tensor createMultiDeviceHostTensor(
       });
 }
 
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+  using RetType = Tensor;
+  LOG_ASSERT(!shape.empty());
+  LOG_ASSERT(!stride.empty());
+  LOG_ASSERT(itemsize > 0);
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::createMultiDeviceBorrowedHostTensor(
+            data, shape, stride, itemsize, dataType, strategy, meshShape);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::createMultiDeviceBorrowedHostTensor(
+            data, shape, stride, itemsize, dataType, strategy, meshShape);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createMultiDeviceBorrowedHostTensor",
+                                    HostRuntime::Distributed);
+      });
+}
+
 Tensor createEmptyTensor(Device device, Layout layout,
                          const std::vector<std::uint32_t> &shape,
                          const std::vector<std::uint32_t> &stride,
@@ -485,7 +543,7 @@ TensorDesc getTensorDesc(Tensor t) {
       [&]() -> RetType { return ::tt::runtime::ttnn::getTensorDesc(t); },
       [&]() -> RetType { return ::tt::runtime::ttmetal::getTensorDesc(t); },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getTensorDesc", HostRuntime::Distributed);
+        return ::tt::runtime::distributed::getTensorDesc(t);
       });
 }
 
@@ -517,28 +575,6 @@ tt::target::Arch getArch() {
       [&]() -> RetType { return ::tt::runtime::ttmetal::getArch(); },
       [&]() -> RetType {
         detail::fatalNotImplemented("getArch", HostRuntime::Distributed);
-      });
-}
-
-void enablePersistentKernelCache() {
-  using RetType = void;
-  DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::enablePersistentKernelCache(); },
-      [&]() { ::tt::runtime::ttmetal::enablePersistentKernelCache(); },
-      [&]() {
-        detail::fatalNotImplemented("enablePersistentKernelCache",
-                                    HostRuntime::Distributed);
-      });
-}
-
-void disablePersistentKernelCache() {
-  using RetType = void;
-  DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::disablePersistentKernelCache(); },
-      [&]() { ::tt::runtime::ttmetal::disablePersistentKernelCache(); },
-      [&]() {
-        detail::fatalNotImplemented("disablePersistentKernelCache",
-                                    HostRuntime::Distributed);
       });
 }
 
@@ -651,6 +687,23 @@ std::vector<int> getDeviceIds(Device meshDevice) {
       });
 }
 
+std::vector<int> getMappedDeviceIds(const std::vector<uint32_t> &meshShape) {
+#if defined(DEVICE_RUNTIME_ENABLED)
+  return ::tt::runtime::common::getMappedDeviceIds(meshShape);
+#endif
+  LOG_FATAL("Runtime is not enabled");
+}
+
+MeshFabricConfig
+computeMeshFabricConfig(const SystemDesc &systemDesc,
+                        const std::vector<uint32_t> &meshShape) {
+#if defined(DEVICE_RUNTIME_ENABLED)
+  return ::tt::runtime::common::computeMeshFabricConfig(systemDesc.get(),
+                                                        meshShape);
+#endif
+  LOG_FATAL("Runtime is not enabled");
+}
+
 size_t getNumHwCqs(Device meshDevice) {
   using RetType = size_t;
   return DISPATCH_TO_CURRENT_RUNTIME(
@@ -675,9 +728,16 @@ bool isProgramCacheEnabled(Device meshDevice) {
         return ::tt::runtime::ttmetal::isProgramCacheEnabled(meshDevice);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("isProgramCacheEnabled",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::isProgramCacheEnabled(meshDevice);
       });
+}
+
+void clearProgramCache(Device meshDevice) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::clearProgramCache(meshDevice); },
+      [&]() { ::tt::runtime::ttmetal::clearProgramCache(meshDevice); },
+      [&]() { ::tt::runtime::distributed::clearProgramCache(meshDevice); });
 }
 
 size_t getL1SmallSize(Device meshDevice) {
@@ -864,6 +924,22 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
       });
 }
 
+std::vector<Tensor> getDeviceTensors(Tensor tensor) {
+  using RetType = std::vector<Tensor>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getDeviceTensors(tensor);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getDeviceTensors", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getDeviceTensors",
+                                    HostRuntime::Distributed);
+      });
+}
+
 Tensor toLayout(Tensor tensor, Device device, Layout layout,
                 std::optional<bool> retain) {
   using RetType = Tensor;
@@ -912,7 +988,7 @@ bool hasLayout(Tensor tensor, Layout layout) {
         detail::fatalNotImplemented("hasLayout", DeviceRuntime::TTMetal);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("hasLayout", HostRuntime::Distributed);
+        return ::tt::runtime::distributed::hasLayout(tensor, layout);
       });
 }
 

@@ -56,9 +56,11 @@ inline Value getOperandThroughDPSOps(Value value) {
 }
 
 template <typename OpT, typename FnT, typename TensorFnT>
-Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
-                             FnT fn, TensorFnT tensorValueToFlatbuffer,
-                             const llvm::StringMap<uint32_t> &programIndexMap) {
+Program<OpT>
+funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
+                TensorFnT tensorValueToFlatbuffer,
+                const llvm::StringMap<uint32_t> &programIndexMap,
+                const llvm::StringMap<std::string> &constEvalFuncHashes) {
   OpPrintingFlags printFlags;
   printFlags = printFlags.elideLargeElementsAttrs()
                    .elideLargeResourceString()
@@ -70,20 +72,60 @@ Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
   program.name = entry.getSymName().data();
 
   for (auto &input : entry.getBody().getArguments()) {
-    program.inputs.push_back(cache.getOrCreate(input, tensorValueToFlatbuffer));
+    // Get argument encoding to determine sharding status.
+    mlir::DictionaryAttr argAttrDict =
+        entry.getArgAttrDict(input.getArgNumber());
+    ttcore::ShardStatus shardStatus = ttcore::ShardStatus::Unsharded;
+    mlir::RankedTensorType localShape =
+        mlir::cast<mlir::RankedTensorType>(input.getType());
+
+    if (argAttrDict) {
+      auto runtimeTensorShardingAttr =
+          argAttrDict.get(mlir::tt::ttcore::RuntimeTensorShardingAttr::name);
+      if (runtimeTensorShardingAttr) {
+        auto rtsAttr = mlir::cast<mlir::tt::ttcore::RuntimeTensorShardingAttr>(
+            runtimeTensorShardingAttr);
+        shardStatus = rtsAttr.getShardStatus().getValue();
+        localShape = rtsAttr.getLocalShape();
+      }
+    }
+
+    program.inputs.push_back(cache.getOrCreate(input, tensorValueToFlatbuffer,
+                                               shardStatus, localShape));
   }
 
   mlir::AsmState printState(entry, printFlags);
   entry.getBody().walk([&](mlir::Operation *op) {
     if (auto returnOp = dyn_cast_if_present<func::ReturnOp>(op); returnOp) {
-      for (auto output : returnOp.getOperands()) {
-        program.outputs.push_back(cache.at<::tt::target::ttnn::TensorRef>(
-            getOperandThroughDPSOps(output)));
+      for (auto [i, output] : llvm::enumerate(returnOp.getOperands())) {
+        ttcore::ShardStatus shardStatus = ttcore::ShardStatus::Unsharded;
+        mlir::RankedTensorType localShape =
+            mlir::cast<mlir::RankedTensorType>(output.getType());
+
+        auto resultAttrs = mlir::DictionaryAttr::get(op->getContext(),
+                                                     entry.getResultAttrs(i));
+        if (resultAttrs) {
+          auto runtimeTensorShardingAttr = resultAttrs.get(
+              mlir::tt::ttcore::RuntimeTensorShardingAttr::name);
+          if (runtimeTensorShardingAttr) {
+            auto rtsAttr =
+                mlir::cast<mlir::tt::ttcore::RuntimeTensorShardingAttr>(
+                    runtimeTensorShardingAttr);
+            shardStatus = rtsAttr.getShardStatus().getValue();
+            localShape = rtsAttr.getLocalShape();
+          }
+        }
+
+        auto tensorRefResult =
+            cache.getOrCreate(getOperandThroughDPSOps(output),
+                              tensorValueToFlatbuffer, shardStatus, localShape);
+        program.outputs.push_back(tensorRefResult);
       }
     } else {
       std::string debugStr = getOpDebugString(op, printState);
       std::string locInfo = getOpLocInfo(op);
-      program.ops.push_back(fn(cache, op, programIndexMap, debugStr, locInfo));
+      program.ops.push_back(fn(cache, op, programIndexMap, debugStr, locInfo,
+                               constEvalFuncHashes));
     }
   });
 

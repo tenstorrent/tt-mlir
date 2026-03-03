@@ -6,9 +6,7 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
-#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -71,17 +69,20 @@ struct ConvertD2MToTTKernel
     target.addIllegalDialect<d2m::D2MDialect>();
     target.addIllegalDialect<memref::MemRefDialect>();
 
-    target.addLegalOp<d2m::ToLayoutOp>();
+    target.addLegalOp<d2m::ToDeviceOp>();
+    target.addLegalOp<d2m::ToHostOp>();
     target.addLegalOp<d2m::StreamLayoutOp>();
     target.addLegalOp<d2m::ViewLayoutOp>();
     target.addLegalOp<d2m::GenericOp>();
     target.addLegalOp<d2m::EmptyOp>();
     target.addLegalOp<d2m::MeshShardOp>();
-
-    target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
+    target.addLegalOp<d2m::CreateGlobalSemaphoreOp>();
+    target.addLegalOp<d2m::ResetGlobalSemaphoreOp>();
 
     if (ttnnMode) {
+      target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
       target.addLegalDialect<ttnn::TTNNDialect>();
+      target.addLegalOp<d2m::FullOp>();
     }
 
     // Allow loads and stores to integer element types.
@@ -137,6 +138,9 @@ struct ConvertD2MToTTKernel
     });
     typeConverter.addConversion([](d2m::SemaphoreType semaphore) {
       return ttkernel::SemaphoreType::get(semaphore.getContext());
+    });
+    typeConverter.addConversion([](d2m::GlobalSemaphoreType globalSemaphore) {
+      return ttkernel::L1AddrType::get(globalSemaphore.getContext());
     });
 
     d2m::AssociatedDMAWaits associatedDMAWaits =

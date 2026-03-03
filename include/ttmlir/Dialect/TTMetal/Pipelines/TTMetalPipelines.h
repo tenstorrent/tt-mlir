@@ -116,13 +116,38 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Number of backing buffers to allocate per stream storage "
                      "(>=1). Default is 2."),
       llvm::cl::init(2)};
-  // Allocator will not consider generic outputs in L1 eligible for spilling
-  // unless this option is turned on. DRAM outputs are always spilled.
+
+  // The allocator will not consider generic outputs eligible for spilling
+  // unless this option is turned on.
   Option<bool> allowL1OutputSpilling{
       *this, "allow-l1-output-spilling",
       llvm::cl::desc(
           "Make generic outputs in L1 eligible for spilling to DRAM."),
       llvm::cl::init(false)};
+  // The allocator will attempt to have all generic operands use streams by
+  // default. Using 'infer' will restore the old behavior of trying to infer
+  // stream requirements from static generic structure (broadcast, reduction
+  // dims, etc).
+  Option<std::string> streamInsertPolicy{
+      *this, "stream-insert-policy",
+      llvm::cl::desc("Policy for deciding when to insert operand streams "
+                     "('always', 'infer')."),
+      llvm::cl::init("infer")};
+  // If a size-2 list given, the allocator will use it as the
+  // available L1 [base, max) address range.
+  ListOption<std::int64_t> availableL1AddrRange{
+      *this, "available-l1-addr-range",
+      llvm::cl::desc("Assume given L1 addressable range [base, max).")};
+  // If a positive value given, the allocator will use it for L1 capacity
+  // instead of reading from `ChipDescAttr`. Used for testing.
+  Option<std::int64_t> testAssumel1Capacity{
+      *this, "test-assume-l1-capacity",
+      llvm::cl::desc("Assume given L1 capacity."), llvm::cl::init(0)};
+  // WIP pass option to control the allocator logic for sizing stream buffers.
+  Option<std::string> testBufferSizePolicy{
+      *this, "test-buffer-size-policy",
+      llvm::cl::desc("Set policy for sizing stream buffers ('min', 'max')."),
+      llvm::cl::init("max")};
 
   // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
   // GenericOp.
@@ -137,13 +162,50 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Target data format for global conversion: "
                      "f32, bf16, or bfp_bf8. Disabled by default."),
       llvm::cl::init("")};
+
+  // Option to enable/disable operation scheduling optimization.
+  Option<bool> enableOpScheduler{
+      *this, "enable-op-scheduler",
+      llvm::cl::desc("Enable operation scheduling optimization"),
+      llvm::cl::init(true)};
+
+  // Option to enable/disable automatic multicast inference for reduction
+  // operations.
+  Option<bool> enableMulticastInference{
+      *this, "enable-multicast-inference",
+      llvm::cl::desc("Enable automatic multicast inference for reduction "
+                     "operations"),
+      llvm::cl::init(true)};
+
+  // Option to enable debug mode for coalescing inference in DMA lowering.
+  // When enabled, runs both analytical and sampling-based coalescing checks
+  // and prints debug output comparing them.
+  Option<bool> debugD2mCoalescingInference{
+      *this, "debug-d2m-coalescing-inference",
+      llvm::cl::desc("Enable debug mode for coalescing inference. Runs both "
+                     "analytical and sampling-based coalescing checks and "
+                     "prints debug output comparing them."),
+      llvm::cl::init(false)};
+
+  Option<bool> enableL1Acc{*this, "enable-l1-acc",
+                           llvm::cl::desc("Enable L1 accumulation."),
+                           llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
+void createTTIRToTTMetalFrontendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
+void createTTIRToTTMetalMiddleendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
+void createTTIRToTTMetalPipeline(OpPassManager &pm,
+                                 const TTIRToTTMetalPipelineOptions &options);
 
 void createTTIRToTTMetalPipelineDebug(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);

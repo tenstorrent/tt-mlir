@@ -2,22 +2,30 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/TTMetal/binary_generated.h"
 #include "ttmlir/Target/TTMetal/command_generated.h"
+#include "ttmlir/Target/TTMetal/program_generated.h"
 #include "ttmlir/Target/TTMetal/types_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Target/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 #include "ttmlir/Version.h"
 
 #include "flatbuffers/buffer.h"
@@ -128,21 +136,22 @@ static target::metal::EthType toFlatbuffer(ttmetal::EthType ethType) {
   assert(false && "Unsupported EthType");
 }
 
-static target::metal::NocIndex toFlatbuffer(ttmetal::NocIndex nocIndex) {
-  switch (nocIndex) {
-  case ttmetal::NocIndex::Noc0:
-    return target::metal::NocIndex::Noc0;
-  case ttmetal::NocIndex::Noc1:
-    return target::metal::NocIndex::Noc1;
-  }
-  assert(false && "Unsupported NocIndex");
-}
-
 static target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
   const auto offset = coreRange.getOffset();
   const auto size = coreRange.getSize();
   return target::Dim2dRange(target::Dim2d(offset[0], offset[1]),
                             target::Dim2d(size[0], size[1]));
+}
+
+static ::tt::target::RoutingMode
+toFlatbuffer(ttmetal::RoutingMode routingMode) {
+  switch (routingMode) {
+  case ttmetal::RoutingMode::BidirLineMesh:
+    return ::tt::target::RoutingMode::BidirLineMesh;
+  case ttmetal::RoutingMode::UnidirRingTorus:
+    return ::tt::target::RoutingMode::UnidirRingTorus;
+  }
+  assert(false && "Unsupported RoutingMode");
 }
 
 static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
@@ -250,11 +259,29 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
       *cache.fbb, dummyTensorSize, dummyShardSize, shardSpecBuffer);
 }
 
+// Returns the physical grid shape for a memref. If virtualGridInverseMapping is
+// present, the grid is virtual and we compute the 2D physical extent.
+// Otherwise the grid is already physical and returned as-is.
+static SmallVector<int64_t> getPhysicalGridShapeForVirtualGrid(
+    ttcore::ShardLayoutAttr shardLayout, ttcore::DeviceAttr device,
+    MemRefType memref, std::optional<AffineMap> virtualGridInverseMapping) {
+  SmallVector<int64_t> gridShape =
+      llvm::to_vector(shardLayout.getGridShape(memref));
+
+  if (!virtualGridInverseMapping) {
+    return gridShape;
+  }
+
+  auto workerGridShape = device.getWorkerGrid().getShape();
+  return ttmlir::d2m::utils::grids::getPhysicalGridExtent(gridShape,
+                                                          workerGridShape);
+}
+
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
-createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
-                                     MemRefType memref,
-                                     ttcore::DeviceAttr device,
-                                     target::Dim2d elementShape) {
+createShardedBufferConfigForL1Memref(
+    FlatbufferObjectCache &cache, MemRefType memref, ttcore::DeviceAttr device,
+    target::Dim2d elementShape,
+    std::optional<AffineMap> virtualGridInverseMapping) {
   auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
       memref.getLayout());
   if (!deviceLayout) {
@@ -267,7 +294,9 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
 
   ArrayRef<int64_t> stride = shardLayout.getStride();
   int64_t elementSize = stride[stride.size() - 1];
-  auto memrefGridShape = shardLayout.getGridShape(memref);
+  SmallVector<int64_t> memrefGridShape = getPhysicalGridShapeForVirtualGrid(
+      shardLayout, device, memref, virtualGridInverseMapping);
+
   auto memrefShardShape = shardLayout.getShardShape(memref);
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getMapping(), memrefGridShape.size());
@@ -317,11 +346,10 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
 }
 
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
-memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
-                                          MemRefType memref,
-                                          ttcore::DeviceAttr device,
-                                          target::Dim2d elementShape,
-                                          ttcore::SystemDescAttr systemDesc) {
+memrefTypeToShardedBufferConfigFlatbuffer(
+    FlatbufferObjectCache &cache, MemRefType memref, ttcore::DeviceAttr device,
+    target::Dim2d elementShape, ttcore::SystemDescAttr systemDesc,
+    std::optional<AffineMap> virtualGridInverseMapping) {
 
   flatbuffers::Offset<target::metal::ShardedBufferConfig> sharded_buffer_config;
   if (isMemrefDeviceDRAMMemspace(memref)) {
@@ -329,7 +357,7 @@ memrefTypeToShardedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
         cache, memref, device, systemDesc);
   } else if (isMemrefDeviceL1Memspace(memref)) {
     sharded_buffer_config = createShardedBufferConfigForL1Memref(
-        cache, memref, device, elementShape);
+        cache, memref, device, elementShape, virtualGridInverseMapping);
   } else {
     assert(false &&
            "ShardedBufferConfig not supported for System memory space");
@@ -382,9 +410,9 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 }
 
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
-memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
-                                           MemRefType memref,
-                                           ttcore::DeviceAttr device) {
+memrefTypeToCircularBufferConfigFlatbuffer(
+    FlatbufferObjectCache &cache, MemRefType memref, ttcore::DeviceAttr device,
+    std::optional<AffineMap> virtualGridInverseMapping) {
   auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
       memref.getLayout());
   if (!deviceLayout) {
@@ -395,13 +423,25 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   assert(shardLayout &&
          "expected shard layout for circular buffer config generation");
 
-  auto memrefGridShape = shardLayout.getGridShape(memref);
+  SmallVector<int64_t> memrefGridShape = getPhysicalGridShapeForVirtualGrid(
+      shardLayout, device, memref, virtualGridInverseMapping);
 
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getMapping(), memrefGridShape.size());
 
+  // We default to the worker grid shape since memrefGridShape may be larger
+  // than the available grid due to block factors. Directly using the
+  // memrefGridShape will lead to crashes when initializing CBs, therefore we
+  // spoof the shape here.
+  SmallVector<int64_t> workerGridShape =
+      llvm::to_vector(device.getWorkerGrid().getShape());
+  if (workerGridShape.size() < memrefGridShape.size()) {
+    workerGridShape.insert(workerGridShape.begin(),
+                           memrefGridShape.size() - workerGridShape.size(), 1);
+  }
+
   std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, memrefGridShape, extendedMapping);
+      toFlatbuffer(cache, workerGridShape, extendedMapping);
 
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
   uint64_t shardSize =
@@ -415,7 +455,8 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 static flatbuffers::Offset<target::metal::BufferDesc>
 memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                        ttcore::DeviceAttr device,
-                       ttcore::SystemDescAttr systemDesc) {
+                       ttcore::SystemDescAttr systemDesc,
+                       std::optional<AffineMap> virtualGridInverseMapping) {
   std::vector<int32_t> shape =
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
   target::Dim2d elementShape(1, 1);
@@ -442,14 +483,15 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     if (isSharded) {
       flatbuffers::Offset<target::metal::ShardedBufferConfig>
           shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
-              cache, memref, device, elementShape, systemDesc);
+              cache, memref, device, elementShape, systemDesc,
+              virtualGridInverseMapping);
 
       // only generate CircularBufferConfig for L1 memspace
       flatbuffers::Offset<target::metal::CircularBufferConfig>
           circularBufferConfig =
               isMemrefDeviceL1Memspace(memref)
-                  ? memrefTypeToCircularBufferConfigFlatbuffer(cache, memref,
-                                                               device)
+                  ? memrefTypeToCircularBufferConfigFlatbuffer(
+                        cache, memref, device, virtualGridInverseMapping)
                   : 0;
 
       bufferDetail = target::metal::CreateMetalBuffer(
@@ -511,8 +553,17 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
   auto device = ttcore::lookupDevice(value.getParentBlock()->getParentOp());
   assert(device);
   auto memrefType = mlir::cast<MemRefType>(value.getType());
+
+  std::optional<AffineMap> virtualGridInverseMapping;
+  if (auto createBufferOp = value.getDefiningOp<ttmetal::CreateBufferOp>()) {
+    if (auto mapAttr = createBufferOp.getVirtualGridInverseMappingAttr()) {
+      virtualGridInverseMapping = mapAttr.getValue();
+    }
+  }
+
   auto bufferDesc =
-      cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device, systemDesc);
+      cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device, systemDesc,
+                        virtualGridInverseMapping);
   return target::metal::CreateBufferRef(*cache.fbb, cache.nextGlobalId(),
                                         address, bufferDesc);
 }
@@ -543,6 +594,13 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
   return target::metal::CreateTensorRef(*cache.fbb, size, tensorDesc);
 }
 
+static flatbuffers::Offset<target::metal::GlobalSemaphoreRef>
+globalSemaphoreValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
+                                 uint64_t address) {
+  return target::metal::CreateGlobalSemaphoreRef(*cache.fbb,
+                                                 cache.nextGlobalId(), address);
+}
+
 static flatbuffers::Offset<target::metal::KernelArg>
 toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
   target::metal::KernelArgType argType;
@@ -567,6 +625,18 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     arg = target::metal::CreateKernelArgSemaphore(*cache.fbb).Union();
     break;
   }
+  case ttkernel::ArgType::NamedArgument: {
+    argType = target::metal::KernelArgType::KernelArgNamedArgument;
+    arg = target::metal::CreateKernelArgNamedArgument(*cache.fbb).Union();
+    break;
+  }
+  case ttkernel::ArgType::GlobalSemaphore: {
+    argType = target::metal::KernelArgType::KernelArgGlobalSemaphore;
+    arg = target::metal::CreateKernelArgGlobalSemaphore(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
   }
 
   return target::metal::CreateKernelArg(*cache.fbb, argType, arg);
@@ -584,7 +654,7 @@ static flatbuffers::Offset<target::metal::NocConfig>
 nocConfigToFlatbuffer(FlatbufferObjectCache &cache,
                       NocConfigAttr nocConfigAttr) {
   return target::metal::CreateNocConfig(
-      *cache.fbb, toFlatbuffer(nocConfigAttr.getNocIndex()));
+      *cache.fbb, toFlatbuffer(cache, nocConfigAttr.getNocIndex()));
 }
 
 static flatbuffers::Offset<target::metal::ComputeConfig>
@@ -604,7 +674,19 @@ ethernetConfigToFlatbuffer(FlatbufferObjectCache &cache,
                            EthernetConfigAttr ethernetConfigAttr) {
   return target::metal::CreateEthernetConfig(
       *cache.fbb, toFlatbuffer(ethernetConfigAttr.getEthType()),
-      toFlatbuffer(ethernetConfigAttr.getNocIndex()));
+      toFlatbuffer(cache, ethernetConfigAttr.getNocIndex()));
+}
+
+static flatbuffers::Offset<target::FabricConnectionConfig>
+fabricConnectionConfigToFlatbuffer(
+    FlatbufferObjectCache &cache,
+    FabricConnectionConfigAttr fabricConnectionConfig) {
+  return target::CreateFabricConnectionConfig(
+      *cache.fbb, toFlatbuffer(cache, fabricConnectionConfig.getNocIndex()),
+      toFlatbuffer(cache, fabricConnectionConfig.getTopology()),
+      fabricConnectionConfig.getClusterAxis(),
+      toFlatbuffer(fabricConnectionConfig.getRoutingMode()),
+      fabricConnectionConfig.getNumLinks());
 }
 
 static flatbuffers::Offset<target::metal::KernelConfig>
@@ -680,8 +762,13 @@ memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
   flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> data;
 
   if (mlir::isa<FloatType>(value.getElementType())) {
-    if (value.getElementType().getIntOrFloatBitWidth() == 32) {
+    unsigned bitWidth = value.getElementType().getIntOrFloatBitWidth();
+    if (bitWidth == 32) {
       data = mlir::tt::toFlatbufferByteVector<float>(cache, initialValueAttr);
+    } else if (bitWidth == 16) {
+      auto bitcasted = initialValueAttr.bitcast(
+          IntegerType::get(initialValueAttr.getContext(), 16));
+      data = mlir::tt::toFlatbufferByteVector<uint16_t>(cache, bitcasted);
     } else {
       assert(false && "unsupported float bit width");
     }
@@ -778,10 +865,19 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
       } else if (auto enqueueProgramOp =
                      dyn_cast_if_present<tt::ttmetal::EnqueueProgramOp>(op);
                  enqueueProgramOp) {
-        std::vector<flatbuffers::Offset<target::metal::BufferRef>> buffers;
-        buffers.reserve(enqueueProgramOp.getBuffers().size());
-        for (auto buffer : enqueueProgramOp.getBuffers()) {
-          buffers.push_back(cache.at<target::metal::BufferRef>(buffer));
+        std::vector<target::metal::ArgRef> argTypes;
+        std::vector<flatbuffers::Offset<void>> args;
+        argTypes.reserve(enqueueProgramOp.getArgs().size());
+        args.reserve(enqueueProgramOp.getArgs().size());
+        for (auto arg : enqueueProgramOp.getArgs()) {
+          if (mlir::isa<MemRefType>(arg.getType())) {
+            argTypes.push_back(target::metal::ArgRef::BufferRef);
+            args.push_back(cache.at<target::metal::BufferRef>(arg).Union());
+          } else if (mlir::isa<GlobalSemaphoreType>(arg.getType())) {
+            argTypes.push_back(target::metal::ArgRef::GlobalSemaphoreRef);
+            args.push_back(
+                cache.at<target::metal::GlobalSemaphoreRef>(arg).Union());
+          }
         }
 
         std::vector<flatbuffers::Offset<target::metal::CBRef>> cbs;
@@ -800,10 +896,19 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
               cache, mlir::cast<KernelConfigInterface>(kernelConfig),
               symbolTable));
         }
+
+        flatbuffers::Offset<target::FabricConnectionConfig>
+            fabricConnectionConfig;
+        if (enqueueProgramOp.getFabricConnectionConfigAttr()) {
+          fabricConnectionConfig = fabricConnectionConfigToFlatbuffer(
+              cache, enqueueProgramOp.getFabricConnectionConfigAttr());
+        }
+
         cqBuilder.appendCommand(
             target::metal::CreateEnqueueProgramCommandDirect(
-                fbb, &buffers, &cbs,
-                target::metal::CreateProgramDescDirect(fbb, &kernelConfigs)),
+                fbb, &argTypes, &args, &cbs,
+                target::metal::CreateProgramDescDirect(fbb, &kernelConfigs),
+                fabricConnectionConfig),
             op);
       } else if (auto createBufferOp =
                      dyn_cast_if_present<tt::ttmetal::CreateBufferOp>(op);
@@ -854,12 +959,16 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
         for (auto input : cpuOp.getOperands()) {
           ins.push_back(cache.at<target::metal::BufferRef>(input));
         }
+        std::vector<flatbuffers::Offset<target::metal::BufferRef>> outs;
+        outs.reserve(cpuOp.getResults().size());
+        for (auto result : cpuOp.getResults()) {
+          outs.push_back(cache.getOrCreate(result, bufferValueToFlatbuffer,
+                                           systemDesc, 0));
+        }
         llvm::SmallString<24> funcName =
             utils::convertDylibFuncName(cpuOp.getCallee());
-        auto out = cache.getOrCreate(cpuOp.getResults()[0],
-                                     bufferValueToFlatbuffer, systemDesc, 0);
         cqBuilder.appendCommand(target::metal::CreateCpuCommandDirect(
-                                    fbb, &ins, out, funcName.c_str(), 0),
+                                    fbb, &ins, &outs, funcName.c_str(), 0),
                                 op);
       } else if (auto returnOp = dyn_cast_if_present<func::ReturnOp>(op);
                  returnOp) {
@@ -933,6 +1042,32 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                 cache.fbb->CreateVector<int64_t>(meshShardOp.getShardShape()),
                 cache.fbb->CreateVector<int64_t>(meshShardOp.getShardDims())),
             op);
+      } else if (auto createGlobalSemaphoreOp =
+                     dyn_cast_if_present<tt::ttmetal::CreateGlobalSemaphoreOp>(
+                         op);
+                 createGlobalSemaphoreOp) {
+        std::vector<target::Dim2dRange> coreRangeSet = {toFlatbuffer(
+            mlir::cast<CoreRangeAttr>(createGlobalSemaphoreOp.getCoreRange()))};
+
+        cqBuilder.appendCommand(
+            target::metal::CreateCreateGlobalSemaphoreCommandDirect(
+                fbb,
+                cache.getOrCreate(createGlobalSemaphoreOp.getResult(),
+                                  globalSemaphoreValueToFlatbuffer,
+                                  createGlobalSemaphoreOp.getAddress()),
+                createGlobalSemaphoreOp.getInitialValue(), &coreRangeSet),
+            op);
+      } else if (auto resetGlobalSemaphoreOp =
+                     dyn_cast_if_present<tt::ttmetal::ResetGlobalSemaphoreOp>(
+                         op);
+                 resetGlobalSemaphoreOp) {
+        cqBuilder.appendCommand(
+            target::metal::CreateResetGlobalSemaphoreCommand(
+                fbb,
+                cache.at<target::metal::GlobalSemaphoreRef>(
+                    resetGlobalSemaphoreOp.getSemaphore()),
+                resetGlobalSemaphoreOp.getValue()),
+            op);
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
         // Unqualified walk will visit the root op itself last, we should
         // ignore this.
@@ -1003,6 +1138,16 @@ LogicalResult translateTTMetalToFlatbuffer(
                              std::unordered_map<std::uint32_t, GoldenTensor>>
         &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
+  ModuleOp rootModule = dyn_cast<ModuleOp>(op);
+  if (!rootModule) {
+    return op->emitError("expected ModuleOp as top level operation");
+  }
+
+  // Verify that all functions have function type attributes.
+  if (failed(ttmlir::utils::verifyFunctionTypes(rootModule))) {
+    return failure();
+  }
+
   std::shared_ptr<void> data =
       translateTTMetalToFlatbuffer(op, goldenMap, moduleCache);
   std::size_t size = flatbuffers::GetSizePrefixedBufferLength(

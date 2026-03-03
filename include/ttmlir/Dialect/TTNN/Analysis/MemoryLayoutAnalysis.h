@@ -24,7 +24,6 @@ namespace mlir::tt::ttnn {
 struct MemoryLayoutAnalysisInput {
   const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
-  unsigned usableL1CacheSize = 0;
   llvm::DenseSet<Edge> overrideReshardEdges;
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
 
@@ -35,13 +34,11 @@ struct MemoryLayoutAnalysisInput {
   MemoryLayoutAnalysisInput(
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
-      unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
       const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout,
       MemoryLayoutAnalysisPolicyType policy)
       : tensorTypePossibleLayouts(tensorTypePossibleLayouts),
-        legalConfigs(legalConfigs), usableL1CacheSize(usableL1CacheSize),
-        overrideReshardEdges(overrideReshardEdges),
+        legalConfigs(legalConfigs), overrideReshardEdges(overrideReshardEdges),
         overrideOutputLayout(overrideOutputLayout), policy(policy) {}
 
   bool operator==(const MemoryLayoutAnalysisInput &rhs) const {
@@ -57,17 +54,21 @@ struct MemoryLayoutAnalysisResult {
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   llvm::DenseMap<Edge, MemReconfigEntry> memReconfigEntryMap;
   std::vector<Operation *> spillToDramOps;
+  std::vector<Operation *> spillToL1InterleavedOps;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> schedule;
 
   MemoryLayoutAnalysisResult()
-      : legalConfigs(), memReconfigEntryMap(), spillToDramOps(), schedule() {}
+      : legalConfigs(), memReconfigEntryMap(), spillToDramOps(),
+        spillToL1InterleavedOps(), schedule() {}
 
   MemoryLayoutAnalysisResult(
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
-      const std::vector<Operation *> &spillToDramOps)
+      const std::vector<Operation *> &spillToDramOps,
+      const std::vector<Operation *> &spillToL1InterleavedOps)
       : legalConfigs(legalConfigs), memReconfigEntryMap(memReconfigEntryMap),
-        spillToDramOps(spillToDramOps) {}
+        spillToDramOps(spillToDramOps),
+        spillToL1InterleavedOps(spillToL1InterleavedOps) {}
 };
 
 // Analyze and determine which parts of the model graph can be pushed to L1

@@ -49,7 +49,7 @@ module {
     // CHECK: ttkernel.tile_regs_acquire
     // CHECK: ttkernel.copy_tile_init
     // CHECK: ttkernel.copy_tile
-    // CHECK: ttkernel.typecast_tile_init
+    // CHECK: ttkernel.typecast_tile_init(<f32>, <bf16>)
     // CHECK: ttkernel.typecast_tile(%{{.*}}, <f32>, <bf16>)
     // CHECK: ttkernel.pack_tile
     return

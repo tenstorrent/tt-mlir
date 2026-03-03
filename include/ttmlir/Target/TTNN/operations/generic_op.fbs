@@ -3,11 +3,6 @@ include "ttmlir/Target/TTNN/types.fbs";
 
 namespace tt.target.ttnn;
 
-enum Noc : uint8 {
-  Noc0,
-  Noc1,
-}
-
 enum NocMode : uint8 {
   DM_DEDICATED_NOC,
   DM_DYNAMIC_NOC,
@@ -56,7 +51,7 @@ table ComputeKernelConfig {
 
 table DataMovementKernelConfig {
   processor: DataMovementType = RISCV_0;
-  noc: Noc = Noc0;
+  noc: tt.target.NocIndex = Noc0;
   noc_mode: NocMode = DM_DEDICATED_NOC;
 }
 
@@ -87,11 +82,17 @@ table KernelArgSemaphoreAt {
   semaphore_index: uint32;
 }
 
+table KernelArgNamedArgument {
+  name: string;
+  value: uint32;
+}
+
 union KernelArgType {
   KernelArgCBBufferIndex,
   KernelArgBufferAddress,
   KernelArgBufferAddressOfTensor,
   KernelArgSemaphoreAt,
+  KernelArgNamedArgument,
 }
 
 table KernelArg {
@@ -102,8 +103,9 @@ table KernelCoreArgs {
   args: [KernelArg];
 }
 
-table KernelCoreRTArgs {
-  args: [KernelCoreArgs];
+table CoreRuntimeArgs {
+  core_coord: tt.target.ttnn.CoreCoord;
+  args: KernelCoreArgs;
 }
 
 table KernelDescriptor {
@@ -112,11 +114,12 @@ table KernelDescriptor {
   config: KernelConfig;
   core_ranges: tt.target.ttnn.CoreRangeSet;
   ct_args: KernelCoreArgs;
-  rt_args: [KernelCoreRTArgs];
+  rt_args: [CoreRuntimeArgs];
   common_rt_args: KernelCoreArgs;
 }
 
 table SemaphoreDescriptor {
+  id: uint32;
   core_type: CoreType;
   core_ranges: tt.target.ttnn.CoreRangeSet;
   initial_value: uint32;
@@ -128,7 +131,22 @@ table ProgramDescriptor {
   cbs: [KernelCBDescriptor];
 }
 
+table MeshProgram {
+  device_range: MeshCoordRange;
+  program: ProgramDescriptor;
+}
+
+table MeshProgramDescriptor {
+  mesh_programs: [MeshProgram];
+  fabric_connection_config: tt.target.FabricConnectionConfig;
+}
+
+union ProgramType {
+  ProgramDescriptor,
+  MeshProgramDescriptor,
+}
+
 table GenericOp {
   io_tensors: [tt.target.ttnn.TensorRef];
-  program: ProgramDescriptor;
+  program: ProgramType;
 }

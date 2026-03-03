@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/StableHLO/Pipelines/StableHLOPipelines.h"
 #include "shardy/dialect/sdy/transforms/propagation/aggressive_propagation.h"
+#include "shardy/dialect/sdy/transforms/propagation/user_priority_propagation.h"
 
 #include "mlir/Transforms/Passes.h"
 
@@ -21,11 +22,17 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
 
-  // Annotate arguments with whether they are already pre-sharded or not.
-  pm.addPass(createApplyArgumentShardStatusPass());
-
   // Convert any xla.sdy ops to sdy ops.
   pm.addPass(createConvertXlaSdyToSdyPass());
+
+  // Apply StableHLO fusing pass.
+  pm.addPass(mlir::tt::stablehlo::createStableHLOFusingPass());
+
+  // Partially convert sdy ops to stablehlo.
+  pm.addPass(createPartiallyConvertSdyToStableHLOPass());
+
+  // Annotate arguments with whether they are already pre-sharded or not.
+  pm.addPass(createApplyArgumentShardStatusPass());
 
   // Analyze the mesh of the graph and update shardings or annotations to match
   // the target device.
@@ -36,30 +43,35 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   pm.addPass(createDecoupleConstFanoutPass());
 
+  // Flatten all composite ops to make sharding propagation easier.
+  pm.addPass(createFlattenCompositePass());
+
+  // Register custom sharding rules for unsupported ops in Shardy.
+  pm.addPass(createRegisterCustomShardingRulePass());
+
   // Apply sharding constraints.
   pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 
   // Propagate tensor shardings through the entire graph.
   // This propagation is taken from
   // https://github.com/openxla/shardy/blob/0b8873d121008abc3edf7db2281f2b48cc647978/docs/sdy_propagation_passes.md?plain=1#L27.
-  // Aggressive propagation is a wrapper ontop of basic propagation with
-  // additional options user can set. With basic propagation, only shardings
-  // that have no conflicts are propagated. With aggressive propagation, we can
-  // set options to resolve conflicts and propagate more shardings. However,
-  // sometimes, the propagation algorithm can be too aggressive and propagate
-  // shardings that are not valid. To mitigate this, we set
-  // conservativePropagation to true, which ensures that only shardings that are
-  // valid are propagated.
+  //
+  // UserPriorityPropagation includes AggressivePropagation passes internally.
+  // The propagation order is: priority 0 -> priority 1 -> ... -> no priority.
+  // Higher priority (lower number) shardings are propagated first, allowing
+  // control over which shardings take precedence when conflicts arise.
+  // If no explicit priority is set, Shardy's internal default policy decides.
   mlir::sdy::PropagationOptions propagationOptions;
-  mlir::sdy::PropagationStrategy propagationStrategy =
-      mlir::sdy::PropagationStrategy::Aggressive;
   propagationOptions.conservativePropagation = true;
-  pm.addPass(mlir::sdy::createAggressivePropagationPass(propagationOptions,
-                                                        propagationStrategy));
+  pm.addPass(mlir::sdy::createUserPriorityPropagationPass(propagationOptions));
 
   // Convert sharding constraints to reshards
   pm.nest<mlir::func::FuncOp>().addPass(
       mlir::sdy::createShardingConstraintToReshardPass());
+
+  // Replicate non-splittable constants so that InsertExplicitReshards inserts
+  // reshard ops between the replicated constant and its sharded consumers.
+  pm.addPass(createReplicateNonSplittableConstantsPass());
 
   // Insert explicit reshards conditionally.
   pm.addPass(createInsertExplicitReshardsPass());
@@ -72,8 +84,14 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.nest<mlir::func::FuncOp>().addPass(
       mlir::sdy::createReshardToCollectivesPass());
 
+  // Canonicalize shardy CCL ops
+  pm.addPass(createShardyCCLCanonicalizationPass());
+
   // Split tensor dimensions according to tensor sharding annotations.
   pm.addPass(createUpdateGlobalToLocalShapesPass());
+
+  // Re-outline composite ops from flattened groups.
+  pm.addPass(createReoutlineCompositePass());
 
   // Close tensor shardings as analysis is complete.
   pm.addPass(mlir::sdy::createCloseShardingsPass());

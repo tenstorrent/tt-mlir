@@ -71,6 +71,14 @@ declare_mlir_dialect_python_bindings(
   DIALECT_NAME ttnn
 )
 
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT TTMLIRPythonSources.Dialects
+  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  TD_FILE dialects/DebugBinding.td
+  SOURCES dialects/debug.py
+  DIALECT_NAME debug
+)
+
 declare_mlir_python_sources(TTMLIRPythonSources.OptimizerOverrides
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   ADD_TO_PARENT TTMLIRPythonSources
@@ -108,9 +116,11 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   SOURCES
     TTMLIRModule.cpp
     TTModule.cpp
+    TTIRModule.cpp
     D2MModule.cpp
     TTKernelModule.cpp
     TTNNModule.cpp
+    DebugModule.cpp
     OptimizerOverrides.cpp
     Passes.cpp
     Util.cpp
@@ -119,6 +129,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     TTMLIRCAPI
   PRIVATE_LINK_LIBS
     TTMLIRCompilerStatic
+    TTMLIRPassTracker
     MLIRArmNeonToLLVMIRTranslation
     MLIRArmSMEToLLVMIRTranslation
     MLIRArmSVEToLLVMIRTranslation
@@ -135,6 +146,12 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     MLIRX86VectorTransforms
   PYTHON_BINDINGS_LIBRARY nanobind
 )
+
+# Create a separate library for PassTracker compiled with -fno-rtti to match MLIR
+add_library(TTMLIRPassTracker STATIC PassTracker.cpp)
+target_compile_options(TTMLIRPassTracker PRIVATE -fno-rtti)
+target_include_directories(TTMLIRPassTracker PRIVATE ${MLIR_INCLUDE_DIRS})
+target_link_libraries(TTMLIRPassTracker PRIVATE MLIRPass MLIRIR LLVMSupport)
 
 set(MLIR_BINDINGS_PYTHON_NB_DOMAIN "ttmlir")
 
@@ -214,8 +231,46 @@ add_mlir_python_modules(TTMLIRPythonModules
     TTMLIRPythonCAPI
 )
 
+# HACK: Use flat namespace on macOS to allow RTTI symbols from MLIRPass/LLVMSupport
+# to be found at runtime. This is needed because PassInstrumentation RTTI isn't
+# exported by default from the pre-built MLIR libraries.
+if(APPLE)
+  set_property(TARGET TTMLIRPythonModules.extension._ttmlir.dso
+    APPEND PROPERTY LINK_FLAGS "-Wl,-flat_namespace,-undefined,dynamic_lookup")
+endif()
+
 # PyWheel Component to create install directives for the packaged TTMLIR bindings wheel:
-install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION . COMPONENT TTMLIRPythonWheel EXCLUDE_FROM_ALL)
+install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ttmlir DESTINATION . COMPONENT TTMLIRPythonWheel EXCLUDE_FROM_ALL)
 
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python/dialects/ DESTINATION python/dialects COMPONENT Test EXCLUDE_FROM_ALL)
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION python_packages COMPONENT Test EXCLUDE_FROM_ALL)
+
+add_custom_command(
+  COMMAND rm -rf build dist *.egg-info
+  COMMAND python -m pip install build
+  COMMAND TTMLIR_DEV_BUILD=ON python -m build --wheel
+  COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/.ttmlir-wheel-built
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  DEPENDS
+    TTMLIRPythonModules
+    TTMLIRPythonCAPI
+    TTMLIRCAPI
+    TTMLIRPythonExtensions
+    ${CMAKE_CURRENT_SOURCE_DIR}/TTMLIRModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/TTModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/TTIRModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/D2MModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/TTKernelModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/TTNNModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/DebugModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/OptimizerOverrides.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Passes.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Util.cpp
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/.ttmlir-wheel-built
+  COMMENT "Building ttmlir wheel"
+)
+
+add_custom_target(ttmlir-wheel
+  COMMENT "ttmlir wheel"
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/.ttmlir-wheel-built
+)

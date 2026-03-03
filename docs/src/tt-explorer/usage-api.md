@@ -374,7 +374,7 @@ Here is an example of what this attribute look like:
 							"input_type": "value_list",
 							"options": [
 								"wormhole",
-								"grayskull"
+								"blackhole"
 							]
 						}
 					}

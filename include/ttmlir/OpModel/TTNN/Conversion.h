@@ -85,7 +85,7 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
 ::ttsl::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec);
 
-std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
+std::optional<::ttnn::Conv2dConfig>
 getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig);
 
 template <typename To, std::size_t N, typename From>
@@ -131,6 +131,19 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
 std::optional<::ttnn::DeviceComputeKernelConfig>
 getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
                                  &deviceComputeKernelConfig);
+
+std::optional<::ttnn::Conv2dSliceConfig> getConv2dSliceConfig(
+    const std::optional<Conv2dSliceConfigAttr> &conv2dSliceConfig);
+
+std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+getSDPAProgramConfig(
+    const std::optional<SDPAProgramConfigAttr> &sdpaProgramConfig);
+
+std::optional<std::string> getScatterReductionType(
+    const std::optional<ttcore::ReduceTypeAttr> &reduceTypeAttr);
+
+std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+getMatmulProgramConfig(mlir::Attribute programConfigAttr);
 
 } // namespace conversion
 } // namespace mlir::tt::ttnn::op_model

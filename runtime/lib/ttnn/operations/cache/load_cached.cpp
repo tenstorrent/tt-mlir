@@ -6,9 +6,9 @@
 
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
+#include "tt/runtime/detail/ttnn/types/global_tensor_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 #include <string_view>
 #include <vector>
@@ -18,13 +18,10 @@ namespace tt::runtime::ttnn::operations::cache {
 using LogType = ::tt::runtime::logger::LogType;
 
 void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
-  std::shared_ptr<TensorCache> cache = context.getConstEvalTensorCache();
-  LOG_ASSERT(cache, "Cache must be enabled to support const-eval ops.");
+  GlobalTensorCache &cache = GlobalTensorCache::getInstance();
 
   // Get the device ID from the parent mesh
   const int deviceId = context.getMeshDevice().id();
-  const std::string cacheKey =
-      generateCacheOuterKey(deviceId, context.getProgramIndex());
   const std::string &constEvalFuncname = op->callee_name()->str();
 
   std::vector<uint64_t> inputVersions;
@@ -36,9 +33,15 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
     inputVersions.push_back(runtimeInput.getVersion());
   }
 
+  const auto programHash = op->program_hash()->str();
+
+  const auto cacheKey = CacheKey{deviceId, programHash, inputVersions};
+
+  LOG_DEBUG("Running LoadCachedOp for function ", constEvalFuncname,
+            " with hash: ", op->program_hash()->str());
+
   // Get the cached tensors, which will be empty if cache is invalid
-  const std::vector<Tensor> *cachedOutputs =
-      cache->getAll(cacheKey, constEvalFuncname, inputVersions);
+  const std::vector<Tensor> *cachedOutputs = cache.getAll(cacheKey);
 
   if (cachedOutputs) {
     LOG_DEBUG("Cache hit for function: ", constEvalFuncname.c_str());
@@ -58,8 +61,8 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   std::vector<::tt::runtime::Tensor> inputs;
   inputs.reserve(op->inputs()->size());
   for (const auto *input : *op->inputs()) {
-    inputs.emplace_back(
-        context.getTensorPool().getRuntimeTensorAndValidate(input));
+    auto &tensor = context.getTensorPool().getRuntimeTensorAndValidate(input);
+    inputs.emplace_back(tensor);
   }
 
   // Execute the function
@@ -77,7 +80,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
     outputWrapper.setRetain(true);
   }
 
-  cache->store(cacheKey, constEvalFuncname, std::move(inputVersions), outputs);
+  cache.store(cacheKey, inputs, outputs);
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     context.getTensorPool().insertRuntimeTensorAndValidate(

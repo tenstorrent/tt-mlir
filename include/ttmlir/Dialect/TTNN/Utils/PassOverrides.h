@@ -17,6 +17,7 @@ namespace mlir::tt::ttnn {
 
 struct OptionNames {
 
+  static constexpr StringRef optimizationLevel = "optimization-level";
   static constexpr StringRef optimizerPassEnabled = "enable-optimizer";
   static constexpr StringRef insertMemReconfig = "insert-memreconfig";
   static constexpr StringRef overrideOutputLayout = "override-output-layout";
@@ -32,8 +33,13 @@ struct OptionNames {
   static constexpr StringRef mockSystemDescArch = "mock-system-desc-arch";
   static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
   static constexpr StringRef meshShape = "mesh-shape";
+  static constexpr StringRef meshTopology = "mesh-topology";
   static constexpr StringRef tuplifyInputIfEmpty = "tuplify-input-if-empty";
   static constexpr StringRef tensorL1UsageCap = "tensor-l1-usage-cap";
+  static constexpr StringRef ttnnPerfMetricsOutputFile =
+      "ttnn-perf-metrics-output-file";
+  static constexpr StringRef ttnnPerfMetricsVerboseOutputEnabled =
+      "ttnn-perf-metrics-verbose-output-enabled";
 };
 
 using Conv2dConfigOverrideParams = Conv2dConfigParams;

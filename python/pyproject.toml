@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "cmake", "pybind11", "nanobind", "wheel", "pip", "ninja"]
+requires = ["setuptools>=61.0", "cmake", "pybind11", "nanobind==2.10.2", "wheel", "pip", "ninja"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -27,6 +27,6 @@ Repository = "https://github.com/tenstorrent/tt-mlir"
 Issues = "https://github.com/tenstorrent/tt-mlir/issues"
 
 [tool.cibuildwheel]
-build = "cp311-manylinux_x86_64*"
+build = "cp312-manylinux_x86_64*"
 skip = "*-musllinux_*"
 build-verbosity = 2

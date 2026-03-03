@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
@@ -25,13 +26,16 @@
 #include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
+
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
 #define GEN_PASS_DEF_TTNNLOADINPUTTENSORS
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
 #define GEN_PASS_DEF_TTNNEMPYWORKAROUNDS
+#define GEN_PASS_DEF_TTNNPREPAREMODULEFOREXPORT
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNDeallocate : public impl::TTNNDeallocateBase<TTNNDeallocate> {
@@ -41,30 +45,146 @@ public:
 
   Operation *getLastValueUsageOp(const LivenessBlockInfo *livenessInfo,
                                  Value value) {
-    Operation *startOp = livenessInfo->getStartOperation(value);
-    Operation *endOp = livenessInfo->getEndOperation(value, startOp);
+    Value currentValue = value;
+    Operation *startOp = livenessInfo->getStartOperation(currentValue);
+    Operation *endOp = livenessInfo->getEndOperation(currentValue, startOp);
     auto *opOperandIter =
         llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
-          return opOperand.is(value);
+          return opOperand.is(currentValue);
         });
 
     // In case of DPS op keep going until we find the last usage of the tensor.
     //
-    while (
-        opOperandIter != endOp->getOpOperands().end() &&
-        isa<DestinationStyleOpInterface>(endOp) &&
-        cast<DestinationStyleOpInterface>(endOp).isDpsInit(&(*opOperandIter))) {
-      OpResult result =
-          cast<DestinationStyleOpInterface>(endOp).getTiedOpResult(
-              &(*opOperandIter));
-      endOp = livenessInfo->getEndOperation(result, endOp);
-      opOperandIter =
-          llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
-            return opOperand.is(result);
-          });
+    //
+    // Follow aliasing chains until we reach the true final user.
+    // Today we model:
+    //  1) DPS init operands (tensor flows into tied result)
+    //  2) Identity mesh_shard (input/result alias for shape tracking)
+    while (true) {
+      if (opOperandIter != endOp->getOpOperands().end() &&
+          isa<DestinationStyleOpInterface>(endOp) &&
+          cast<DestinationStyleOpInterface>(endOp).isDpsInit(
+              &(*opOperandIter))) {
+        OpResult result =
+            cast<DestinationStyleOpInterface>(endOp).getTiedOpResult(
+                &(*opOperandIter));
+        currentValue = result;
+        endOp = livenessInfo->getEndOperation(currentValue, endOp);
+        opOperandIter =
+            llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
+              return opOperand.is(currentValue);
+            });
+        continue;
+      }
+
+      if (auto meshShardOp = dyn_cast<ttnn::MeshShardOp>(endOp);
+          meshShardOp &&
+          meshShardOp.getShardType() == ttcore::MeshShardType::Identity &&
+          meshShardOp.getInput() == currentValue) {
+        currentValue = meshShardOp.getResult();
+        endOp = livenessInfo->getEndOperation(currentValue, endOp);
+        opOperandIter =
+            llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
+              return opOperand.is(currentValue);
+            });
+        continue;
+      }
+
+      break;
     }
 
     return endOp;
+  }
+
+  // Check if a value has a conv2d/conv_transpose2d user with
+  // deallocate_activation=true that is not the last user, which would cause a
+  // use-after-free.
+  LogicalResult checkConv2dUseAfterFree(Value value, Operation *lastOp) {
+    for (Operation *user : value.getUsers()) {
+      if (user == lastOp) {
+        continue;
+      }
+
+      auto result =
+          llvm::TypeSwitch<Operation *, LogicalResult>(user)
+              .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
+                if (convOp.getInput() == value &&
+                    convOp.getConv2dConfigAttr() &&
+                    convOp.getConv2dConfigAttr().getDeallocateActivation() &&
+                    convOp.getConv2dConfigAttr()
+                        .getDeallocateActivation()
+                        .getValue()) {
+                  convOp->emitError(
+                      "use-after-free detected: op deallocates its input but "
+                      "is not the last user");
+                  return failure();
+                }
+                return success();
+              })
+              .Default([](Operation *) { return success(); });
+
+      if (failed(result)) {
+        return failure();
+      }
+    }
+    return success();
+  }
+
+  // Check and insert deallocation for a value after finding its last usage.
+  // Returns success() if checks pass and deallocation was inserted/skipped,
+  // returns failure() if validation checks fail (e.g., use-after-free
+  // detected).
+  LogicalResult checkAndInsertDeallocation(IRRewriter &rewriter, Value value,
+                                           Operation *lastOp) {
+    if (isa<func::ReturnOp>(lastOp)) {
+      return success();
+    }
+
+    RankedTensorType valueTy = mlir::cast<RankedTensorType>(value.getType());
+    assert(valueTy.getEncoding());
+    BufferType bufferType =
+        llvm::TypeSwitch<Attribute, BufferType>(valueTy.getEncoding())
+            .Case<TTNNLayoutAttr, TTNNNDLayoutAttr>(
+                [](auto layoutAttr) { return layoutAttr.getBufferType(); })
+            .Default([](Attribute) {
+              llvm_unreachable("Unsupported layout attribute type");
+              // This returns a default value to avoid a compile error.
+              return BufferType::DRAM;
+            });
+
+    if (bufferType == BufferType::L1) {
+      // deallocate_activation is an option for Conv2d ops to deallocate
+      // their input activations only if it is in L1 memory.
+
+      // Sanity check: if there are any conv2d ops that consume this
+      // value and deallocate it (via deallocate_activation=true), ensure
+      // they are the last user to prevent use-after-free.
+      if (failed(checkConv2dUseAfterFree(value, lastOp))) {
+        return failure();
+      }
+
+      // Don't deallocate the activation after conv2d/conv_transpose2d op if
+      // 'deallocate_activation' in Conv2dConfig is set to true.
+      bool skipDeallocation =
+          llvm::TypeSwitch<Operation *, bool>(lastOp)
+              .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
+                return convOp.getInput() == value &&
+                       convOp.getConv2dConfigAttr() &&
+                       convOp.getConv2dConfigAttr().getDeallocateActivation() &&
+                       convOp.getConv2dConfigAttr()
+                           .getDeallocateActivation()
+                           .getValue();
+              })
+              .Default([](Operation *) { return false; });
+
+      if (skipDeallocation) {
+        return success();
+      }
+    }
+
+    rewriter.setInsertionPointAfter(lastOp);
+    rewriter.create<DeallocateOp>(lastOp->getLoc(), value);
+    return success();
   }
 
   void runOnOperation() final {
@@ -81,76 +201,63 @@ public:
       const LivenessBlockInfo *livenessInfo =
           liveness.getLiveness(&func.getBody().front());
 
+      // Collect all values to deallocate with their last usage operations.
+      SmallVector<std::pair<Value, Operation *>> valuesToDeallocate;
+
       // Const eval subgraphs and trace functions may not dealloc their params
       // since they don't own them.
       if (!ttmlir::utils::isConstEvalFunc(func) &&
-          !utils::isTTNNTraceFunc(func)) {
-        // Handle func op input parameters
+          !ttmlir::utils::isTraceFunc(func)) {
+        // Collect func op input parameters
         for (BlockArgument arg : func.getArguments()) {
           if (!isa<RankedTensorType>(arg.getType())) {
             continue;
           }
           Operation *lastOp = getLastValueUsageOp(livenessInfo, arg);
-
-          if (isa<func::ReturnOp>(lastOp)) {
-            continue;
-          }
-
-          rewriter.setInsertionPointAfter(lastOp);
-          rewriter.create<DeallocateOp>(lastOp->getLoc(), arg);
+          valuesToDeallocate.push_back({arg, lastOp});
         }
       }
 
-      // Handle non DPS ops which do not store function result and are used to
-      // allocate tensors. DPS ops are handled via ttnn::EmptyOp.
-      //
+      // Collect results from non-DPS ops which do not store function result
+      // and are used to allocate tensors. DPS ops are handled via
+      // ttnn::EmptyOp.
       func->walk([&](Operation *op) {
         if (isa<DestinationStyleOpInterface>(op)) {
           return;
         }
 
+        // Identity mesh_shard is an alias-only op (no new storage ownership),
+        // so its result must not receive a separate deallocate.
+        if (auto meshShardOp = dyn_cast<ttnn::MeshShardOp>(op);
+            meshShardOp &&
+            meshShardOp.getShardType() == ttcore::MeshShardType::Identity) {
+          return;
+        }
+
         // Skip ops which do not have results.
-        //
         if (op->getNumResults() == 0) {
           return;
         }
 
         // Iterate over all results of the op.
-        //
         for (OpResult result : op->getResults()) {
           // Check if result is ranked tensor type.
-          //
           if (!isa<RankedTensorType>(result.getType())) {
             continue;
           }
 
-          RankedTensorType resultTy =
-              mlir::cast<RankedTensorType>(result.getType());
-          assert(resultTy.getEncoding());
-
           Operation *lastOp = getLastValueUsageOp(livenessInfo, result);
-
-          if (isa<func::ReturnOp>(lastOp)) {
-            continue;
-          }
-
-          // Don't deallocate the activation after conv2d op if
-          // 'deallocate_activation' in Conv2dConfig is set to true.
-          if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(lastOp)) {
-            if (conv2dOp.getInput() == result &&
-                conv2dOp.getConv2dConfigAttr() &&
-                conv2dOp.getConv2dConfigAttr().getDeallocateActivation() &&
-                conv2dOp.getConv2dConfigAttr()
-                    .getDeallocateActivation()
-                    .getValue()) {
-              continue;
-            }
-          }
-
-          rewriter.setInsertionPointAfter(lastOp);
-          rewriter.create<DeallocateOp>(lastOp->getLoc(), result);
+          valuesToDeallocate.push_back({result, lastOp});
         }
       });
+
+      // Check and insert deallocations for all collected values.
+      for (auto [value, lastOp] : valuesToDeallocate) {
+        if (failed(checkAndInsertDeallocation(rewriter, value, lastOp))) {
+          signalPassFailure();
+          return;
+        }
+      }
     });
   }
 };
@@ -181,7 +288,7 @@ protected:
         rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
 
-      if (funcOp.isPrivate() || ttmlir::utils::isConstEvalFunc(funcOp)) {
+      if (funcOp.isPrivate()) {
         return mlir::WalkResult::skip();
       }
 
@@ -195,8 +302,12 @@ protected:
         forwardAndInputFuncOps;
     for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
       rewriter.setInsertionPointToEnd(block);
-      mlir::func::FuncOp inputFuncOp = createInputFunctionImpl(
-          rewriter, forwardFuncOp.getLoc(), forwardFuncOp, functionPrefix);
+      mlir::func::FuncOp inputFuncOp;
+      // Only create input function if the forward function has inputs
+      if (!forwardFuncOp.getFunctionType().getInputs().empty()) {
+        inputFuncOp = createInputFunctionImpl(rewriter, forwardFuncOp.getLoc(),
+                                              forwardFuncOp, functionPrefix);
+      }
       forwardAndInputFuncOps.emplace_back(forwardFuncOp, inputFuncOp);
     }
 
@@ -227,6 +338,11 @@ protected:
     //
     func::FuncOp inputFuncOp =
         rewriter.create<mlir::func::FuncOp>(loc, inputFuncName, functionType);
+
+    // Mark this function as an input generator function.
+    //
+    ttmlir::utils::setFunctionType(inputFuncOp,
+                                   ttmlir::utils::FunctionType::InputGenerator);
 
     // Add a Block to func op and set insertion point to the beginning of the
     // Block.
@@ -292,6 +408,11 @@ private:
     func::FuncOp mainFuncOp = rewriter.create<mlir::func::FuncOp>(
         moduleOp.getLoc(), mainFuncName, functionType);
 
+    // Mark this function as a main function.
+    //
+    ttmlir::utils::setFunctionType(mainFuncOp,
+                                   ttmlir::utils::FunctionType::Main);
+
     // Set insertion point to the start of the main function.
     //
     rewriter.modifyOpInPlace(mainFuncOp, [&]() {
@@ -302,6 +423,7 @@ private:
 
       llvm::SmallVector<Value> operands;
       // Generate/load the input tensors for a forwardFuncOp if needed.
+      // inputFuncOp will be null if the forward function has no inputs.
       //
       if (inputFuncOp) {
         func::CallOp tensors = rewriter.create<mlir::func::CallOp>(
@@ -485,9 +607,9 @@ public:
     SmallVector<func::FuncOp, 1> targetFuncOpsInput;
     SmallVector<func::FuncOp, 1> targetFuncOpsResult;
     block->walk([&](func::FuncOp funcOp) {
-      // Skip private functions.
+      // Skip private functions that are not const-eval functions.
       //
-      if (funcOp.isPrivate()) {
+      if (funcOp.isPrivate() && !ttmlir::utils::isConstEvalFunc(funcOp)) {
         return mlir::WalkResult::skip();
       }
 
@@ -611,6 +733,88 @@ public:
               returnOp.getOperandsMutable().assign(tupleOp);
             });
           });
+    }
+  }
+};
+
+class TTNNPrepareModuleForExport
+    : public impl::TTNNPrepareModuleForExportBase<TTNNPrepareModuleForExport> {
+
+public:
+  using impl::TTNNPrepareModuleForExportBase<
+      TTNNPrepareModuleForExport>::TTNNPrepareModuleForExportBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    // Ensure that the module has a single region and a single block within that
+    // region.
+    //
+    assert(moduleOp->getRegions().size() == 1);
+    assert(moduleOp->getRegion(0).getBlocks().size() == 1);
+
+    Block *block = moduleOp.getBody(0);
+
+    // Find the first forward function.
+    //
+    func::FuncOp targetFuncOp = nullptr;
+    block->walk([&](func::FuncOp funcOp) {
+      if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
+        return mlir::WalkResult::skip();
+      }
+      targetFuncOp = funcOp;
+      return mlir::WalkResult::interrupt();
+    });
+
+    if (!targetFuncOp) {
+      return;
+    }
+
+    // Rename the function to "forward".
+    //
+    rewriter.modifyOpInPlace(targetFuncOp,
+                             [&]() { targetFuncOp.setSymName("forward"); });
+
+    // Add device argument to the function signature.
+    //
+    DeviceType deviceType = DeviceType::get(&getContext());
+    Block &entryBlock = targetFuncOp.getBlocks().front();
+    BlockArgument deviceArg =
+        entryBlock.addArgument(deviceType, targetFuncOp.getLoc());
+
+    // Update function type to include device argument.
+    //
+    mlir::FunctionType originalFuncType = targetFuncOp.getFunctionType();
+    SmallVector<Type> newInputTypes(originalFuncType.getInputs().begin(),
+                                    originalFuncType.getInputs().end());
+    newInputTypes.push_back(deviceType);
+    FunctionType newFuncType = FunctionType::get(&getContext(), newInputTypes,
+                                                 originalFuncType.getResults());
+
+    rewriter.modifyOpInPlace(targetFuncOp,
+                             [&]() { targetFuncOp.setType(newFuncType); });
+
+    // Set the emitpy.name attribute for the input tuple and device arguments.
+    // The input tuple should be named "input" and the device should be named
+    // "device".
+    //
+    if (!newInputTypes.empty()) {
+      targetFuncOp.setArgAttr(0, "emitpy.name",
+                              rewriter.getStringAttr("input"));
+    }
+    targetFuncOp.setArgAttr(newInputTypes.size() - 1, "emitpy.name",
+                            rewriter.getStringAttr("device"));
+
+    // Find all GetDeviceOp operations and replace their uses with the device
+    // argument.
+    //
+    SmallVector<ttnn::GetDeviceOp> getDeviceOps;
+    targetFuncOp.walk(
+        [&](ttnn::GetDeviceOp op) { getDeviceOps.push_back(op); });
+
+    for (ttnn::GetDeviceOp getDeviceOp : getDeviceOps) {
+      rewriter.replaceOp(getDeviceOp, deviceArg);
     }
   }
 };

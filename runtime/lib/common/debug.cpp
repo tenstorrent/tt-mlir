@@ -9,13 +9,14 @@
 #include <sstream>
 
 #include "tt/runtime/debug.h"
+#include "tt/runtime/detail/common/logger.h"
 
 namespace tt::runtime::debug {
 
-const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
+const Env &Env::get(bool dumpKernels, bool loadKernels,
                     bool useLocForKernelName, std::string kernelSourceDir,
                     bool deviceAddressValidation, bool blockingCQ) {
-  static Env config(dumpKernelsToDisk, loadKernelsFromDisk, useLocForKernelName,
+  static Env config(dumpKernels, loadKernels, useLocForKernelName,
                     kernelSourceDir, deviceAddressValidation, blockingCQ);
   return config;
 }

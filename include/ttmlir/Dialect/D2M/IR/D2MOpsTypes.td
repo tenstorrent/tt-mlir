@@ -102,4 +102,9 @@ def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLike
     }];
 }
 
+def D2M_GlobalSemaphore : D2M_Type<"GlobalSemaphore", "global_semaphore"> {
+    let summary = "D2M global semaphore type.";
+    let description = "Global semaphore type used with semaphore wait/set ops to synchronize cores.";
+}
+
 #endif  // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSTYPES_TD

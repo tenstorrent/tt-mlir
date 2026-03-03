@@ -3,11 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
+
+#include "llvm/ADT/DenseSet.h"
 
 #include <cassert>
 #include <cstdint>
@@ -448,7 +451,8 @@ TTNNLayoutAttr TTNNLayoutAttr::withDataType(ttcore::DataType dataType) {
       getContext(), getLinear(), getGrid(),
       ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), getScalarShardShape(), elementType, getBufferType()),
-      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout());
+      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout(),
+      getExactGrid());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -491,7 +495,8 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(BufferType memorySpace) {
       getContext(), getLinear(), grid,
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), getScalarShardShape(), getElementType(), memorySpace),
-      memLayoutAttr, getTensorMesh(), getIgnorePhysicalLayout());
+      memLayoutAttr, getTensorMesh(), getIgnorePhysicalLayout(),
+      getExactGrid());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -509,7 +514,7 @@ TTNNLayoutAttr::withMemoryLayout(TensorMemoryLayoutAttr memLayoutAttr) {
                                  getContext(), getScalarShardShape(),
                                  getElementType(), getBufferType()),
                              memLayoutAttr, getTensorMesh(),
-                             getIgnorePhysicalLayout());
+                             getIgnorePhysicalLayout(), getExactGrid());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -541,7 +546,8 @@ TTNNLayoutAttr::withShardShape(llvm::SmallVector<int64_t> shardShape) {
       getContext(), getLinear(), getGrid(),
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), shardShape, getElementType(), getBufferType()),
-      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout());
+      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout(),
+      getExactGrid());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -577,7 +583,7 @@ TTNNLayoutAttr
 TTNNLayoutAttr::withIgnorePhysicalLayout(bool ignorePhysicalLayout) {
   return TTNNLayoutAttr::get(getContext(), getLinear(), getGrid(), getMemref(),
                              getMemLayout(), getTensorMesh(),
-                             ignorePhysicalLayout);
+                             ignorePhysicalLayout, getExactGrid());
 };
 
 TTNNLayoutAttr TTNNLayoutAttr::get(::mlir::MLIRContext *context,
@@ -587,7 +593,8 @@ TTNNLayoutAttr TTNNLayoutAttr::get(::mlir::MLIRContext *context,
                                    ttcore::TensorMeshAttr tensor_mesh) {
   return TTNNLayoutAttr::get(context, linear, grid, memref, mem_layout,
                              tensor_mesh,
-                             /*ignorePhysicalLayout=*/false);
+                             /*ignorePhysicalLayout=*/false,
+                             /*exactGrid=*/false);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -640,14 +647,15 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           context, shardShape, elementType, bufferType);
   return get(context, linear, grid, memRefType, memLayoutAttr, tensorMesh,
-             ignorePhysicalLayout);
+             ignorePhysicalLayout, /*exactGrid=*/false);
 }
 
 llvm::LogicalResult TTNNLayoutAttr::verify(
     llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
     mlir::tt::ttcore::GridAttr grid, MemRefType memref,
     TensorMemoryLayoutAttr memLayout,
-    mlir::tt::ttcore::TensorMeshAttr tensorMesh, bool ignorePhysicalLayout) {
+    mlir::tt::ttcore::TensorMeshAttr tensorMesh, bool ignorePhysicalLayout,
+    bool exactGrid) {
   BufferType bufferType =
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
 
@@ -678,11 +686,24 @@ MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr,
       utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
 }
 
+MemoryConfigAttr MemoryConfigAttr::get(
+    ::mlir::MLIRContext *context, TensorMemoryLayoutAttr tensorMemoryLayout,
+    BufferTypeAttr bufferType, std::optional<ShardSpecAttr> shardSpec) {
+  return MemoryConfigAttr::get(context, tensorMemoryLayout, bufferType,
+                               shardSpec, /*ndShardSpec=*/std::nullopt);
+}
+
 // Verify memory config attribute
 ::llvm::LogicalResult MemoryConfigAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     TensorMemoryLayoutAttr tensorMemoryLayout, BufferTypeAttr bufferType,
-    std::optional<ShardSpecAttr> shardSpec) {
+    std::optional<ShardSpecAttr> shardSpec,
+    std::optional<NDShardSpecAttr> ndShardSpec) {
+
+  if (ndShardSpec && shardSpec) {
+    return emitError() << "Setting both NDShardSpecAttr and ShardSpecAttr is "
+                          "not supported.";
+  }
   // Verify buffer type, memory layout and sharding
   return ::llvm::success(verifyBufferAndMemoryLayout(emitError,
                                                      bufferType.getValue(),
@@ -691,6 +712,88 @@ MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr,
                          verifySharding(emitError, bufferType.getValue(),
                                         tensorMemoryLayout, shardSpec)
                              .succeeded());
+}
+
+// Manually parse MemoryConfigAttr to avoid various issues with the tablegen
+// parser in dealing with multiple optional parameters. See PR #6512 for more
+// details.
+mlir::Attribute MemoryConfigAttr::parse(::mlir::AsmParser &parser,
+                                        ::mlir::Type type) {
+  ::llvm::SMLoc loc = parser.getCurrentLocation();
+  if (parser.parseLess()) {
+    return {};
+  }
+
+  BufferTypeAttr bufferType;
+  if (parser.parseCustomAttributeWithFallback(bufferType)) {
+    return {};
+  }
+
+  TensorMemoryLayoutAttr tensorMemoryLayout;
+  std::optional<ShardSpecAttr> shardSpec;
+  std::optional<NDShardSpecAttr> ndShardSpec;
+
+  while (parser.parseOptionalComma().succeeded()) {
+    // Attempt to parse the optional param as a shardSpecAttr.
+    ShardSpecAttr maybeShardSpec;
+    OptionalParseResult shardSpecResult =
+        parser.parseOptionalAttribute(maybeShardSpec);
+    if (shardSpecResult.has_value()) {
+      if (succeeded(*shardSpecResult)) {
+        shardSpec = maybeShardSpec;
+        continue;
+      }
+    }
+
+    // Attempt to parse the optional param as a tensorMemoryLayoutAttr.
+    TensorMemoryLayoutAttr tml;
+    if (succeeded(parser.parseCustomAttributeWithFallback(tml))) {
+      tensorMemoryLayout = tml;
+      continue;
+    }
+
+    // Only attempt to parse the param as an NDShardSpecAttr if the keyword is
+    // explicitly specified.
+    if (parser.parseOptionalKeyword("ndShardSpec").succeeded()) {
+      if (parser.parseEqual()) {
+        return {};
+      }
+      NDShardSpecAttr attr;
+      if (parser.parseCustomAttributeWithFallback(attr)) {
+        return {};
+      }
+      ndShardSpec = attr;
+      continue;
+    }
+
+    return {};
+  }
+
+  if (parser.parseGreater()) {
+    return {};
+  }
+
+  // getChecked outputs verification errors instead of just crashing.
+  return MemoryConfigAttr::getChecked(
+      [loc, &parser]() { return parser.emitError(loc); }, parser.getContext(),
+      tensorMemoryLayout, bufferType, shardSpec, ndShardSpec);
+}
+
+void MemoryConfigAttr::print(::mlir::AsmPrinter &p) const {
+  p << "<";
+  p.printStrippedAttrOrType(getBufferType());
+  if (getTensorMemoryLayout()) {
+    p << ", ";
+    p.printStrippedAttrOrType(getTensorMemoryLayout());
+  }
+  if (getShardSpec()) {
+    p << ", ";
+    p.printStrippedAttrOrType(getShardSpec());
+  } else if (getNdShardSpec()) {
+    p << ", ndShardSpec = ";
+    p.printStrippedAttrOrType(getNdShardSpec());
+  }
+  p << ">";
 }
 
 bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
@@ -760,8 +863,8 @@ Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
                                /*outputLayout=*/std::nullopt,
                                /*enableActDoubleBuffer=*/nullptr,
                                /*enableWeightsDoubleBuffer=*/nullptr,
-                               /*inPlace=*/nullptr,
-                               /*enableKernelStrideFolding=*/nullptr);
+                               /*enableKernelStrideFolding=*/nullptr,
+                               /*configTensorsInDram=*/nullptr);
 }
 
 // Returns default configuration.
@@ -860,16 +963,16 @@ Conv2dConfigAttr::withEnableWeightsDoubleBuffer(bool value) const {
   return params.buildConv2dConfigAttr(getContext());
 }
 
-Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
-  Conv2dConfigParams params(*this);
-  params.inPlace = value;
-  return params.buildConv2dConfigAttr(getContext());
-}
-
 Conv2dConfigAttr
 Conv2dConfigAttr::withEnableKernelStrideFolding(bool value) const {
   Conv2dConfigParams params(*this);
   params.enableKernelStrideFolding = value;
+  return params.buildConv2dConfigAttr(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withConfigTensorsInDram(bool value) const {
+  Conv2dConfigParams params(*this);
+  params.configTensorsInDram = value;
   return params.buildConv2dConfigAttr(getContext());
 }
 
@@ -927,10 +1030,12 @@ bool Conv2dConfigAttr::hasEnableWeightsDoubleBuffer() const {
   return getEnableWeightsDoubleBuffer() != nullptr;
 }
 
-bool Conv2dConfigAttr::hasInPlace() const { return getInPlace() != nullptr; }
-
 bool Conv2dConfigAttr::hasEnableKernelStrideFolding() const {
   return getEnableKernelStrideFolding() != nullptr;
+}
+
+bool Conv2dConfigAttr::hasConfigTensorsInDram() const {
+  return getConfigTensorsInDram() != nullptr;
 }
 
 CoreRangeSetAttr
@@ -952,6 +1057,20 @@ ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
   }
 
   return CoreRangeSetAttr::get(context, coreRangeSet);
+}
+
+NDShardSpecAttr NDShardSpecAttr::get(TTNNNDLayoutAttr layout) {
+  auto shardGrid = layout.getGrid();
+  auto *context = layout.getContext();
+  auto coreRangeSetAttr = CoreRangeSetAttr::get(
+      context, CoreRangeAttr::get(
+                   context, CoreCoordAttr::get(context, 0, 0),
+                   CoreCoordAttr::get(context, shardGrid.getShape()[1] - 1,
+                                      shardGrid.getShape()[0] - 1)));
+  return NDShardSpecAttr::get(
+      context, coreRangeSetAttr,
+      ShapeAttr::get(context, layout.getScalarShardShape()),
+      layout.getShardOrientation(), layout.getShardDistributionStrategy());
 }
 
 struct DeviceComputeKernelConfigAttrParams {
@@ -1023,11 +1142,25 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   for (auto kernel : kernels) {
     if (!llvm::isa<mlir::tt::ttnn::ComputeKernelAttr,
                    mlir::tt::ttnn::ReadKernelAttr,
-                   mlir::tt::ttnn::WriteKernelAttr>(kernel)) {
+                   mlir::tt::ttnn::WriteKernelAttr,
+                   mlir::tt::ttnn::DataMovementKernelAttr>(kernel)) {
       return emitError() << "Unexpected kernel";
     }
   }
 
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult MeshProgramAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    MeshRangeAttr meshRange, ProgramAttr program) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult MeshProgramDescriptorAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<MeshProgramAttr> meshPrograms,
+    FabricConnectionConfigAttr fabricConnectionConfig) {
   return ::llvm::success();
 }
 
@@ -1046,7 +1179,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 }
 
 ::llvm::LogicalResult KernelSemaphoreAttr::verify(
-    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, uint32_t id,
     KernelCoreType coreType, ::mlir::tt::ttnn::CoreRangeSetAttr coreRanges,
     uint32_t initialValue) {
   return ::llvm::success();
@@ -1059,7 +1192,8 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   for (auto arg : args) {
     if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
                    mlir::tt::ttnn::KernelArgAddressOfTensorAttr,
-                   mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
+                   mlir::tt::ttnn::KernelArgSemaphoreAtAttr,
+                   mlir::tt::ttnn::KernelArgNamedArgAttr>(arg)) {
       return emitError() << "Unexpected common runtime argument";
     }
   }
@@ -1080,6 +1214,23 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   return ::llvm::success();
 }
 
+::llvm::LogicalResult verifyRuntimeArgs(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs) {
+  // Check for duplicate CoreCoords.
+  llvm::DenseSet<std::pair<uint64_t, uint64_t>> seenCoords;
+  for (CoreRuntimeArgsAttr rtArg : rtArgs) {
+    CoreCoordAttr coord = rtArg.getCoreCoord();
+    auto coordPair = std::make_pair(coord.getX(), coord.getY());
+    if (!seenCoords.insert(coordPair).second) {
+      return emitError() << "Duplicate CoreCoord (" << coord.getX() << ", "
+                         << coord.getY() << ") in runtime arguments";
+    }
+  }
+
+  return ::llvm::success();
+}
+
 ::llvm::LogicalResult ComputeKernelAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     SymbolRefAttr symbolRef, ::mlir::tt::ttnn::CoreRangeSetAttr coreRanges,
@@ -1088,8 +1239,10 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     ::llvm::ArrayRef<ComputeKernelUnpackToDestMode> unpackToDestModes,
     bool bfp8PackPrecise, bool mathApproxMode,
     ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs,
     ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
   if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
       failed(verifyCompileTimeArgs(emitError, ctArgs))) {
     return ::llvm::failure();
   }
@@ -1101,8 +1254,10 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     mlir::SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
     ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs,
     ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
   if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
       failed(verifyCompileTimeArgs(emitError, ctArgs))) {
     return ::llvm::failure();
   }
@@ -1114,12 +1269,32 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     mlir::SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
     ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs,
     ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
   if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
       failed(verifyCompileTimeArgs(emitError, ctArgs))) {
     return ::llvm::failure();
   }
 
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult DataMovementKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
+    DataMovementProcessor processor, NocIndex nocIndex, NocMode nocMode,
+    llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    llvm::ArrayRef<CoreRuntimeArgsAttr> rtArgs,
+    llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (nocMode == NocMode::DynamicNoc) {
+    return emitError() << "dynamic noc mode is not supported";
+  }
+  if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
+    return ::llvm::failure();
+  }
   return ::llvm::success();
 }
 
@@ -1134,4 +1309,59 @@ TTNNLayoutAttr TTNNLayoutAttr::withLayout(Layout layout,
   assert(layout == Layout::RowMajor || layout == Layout::Tile);
   Type elementType = utils::getElementType(getContext(), layout, getDataType());
   return withElementType(elementType, tensorShape);
+}
+
+// Get scalar shard shape
+//
+// If the element type is TileType, this function returns the scalar shape of
+// the shard.
+// Example: memref<2x2x!ttcore.tile<32x32xf32>> -> { 64, 64 }
+// Example: memref<128x128xf32> -> { 128, 128 }
+// Example: memref<2x3!ttcore.tile<32x32xf32>> -> { 64, 96 }
+//
+// return The scalar shape of the shard.
+llvm::SmallVector<int64_t> TTNNNDLayoutAttr::getScalarShardShape() const {
+  SmallVector<int64_t> shardShape(getMemref().getShape());
+  if (isTiled()) {
+    return mlir::cast<mlir::tt::ttcore::TileType>(getMemref().getElementType())
+        .getScalarShape(shardShape);
+  }
+
+  return shardShape;
+}
+
+bool TTNNNDLayoutAttr::isTiled() const {
+  return ::mlir::isa<::mlir::tt::ttcore::TileType>(
+      getMemref().getElementType());
+}
+
+BufferType TTNNNDLayoutAttr::getBufferType() const {
+  return mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()).getValue();
+}
+
+Layout TTNNNDLayoutAttr::getLayout() const {
+  return isTiled() ? Layout::Tile : Layout::RowMajor;
+}
+
+mlir::tt::ttcore::DataType TTNNNDLayoutAttr::getDataType() const {
+  Type elementType = getMemref().getElementType();
+  if (isTiled()) {
+    mlir::tt::ttcore::TileType tileType =
+        mlir::cast<mlir::tt::ttcore::TileType>(elementType);
+    return tileType.getDataType();
+  }
+
+  return mlir::tt::ttcore::elementTypeToDataType(elementType);
+}
+
+bool TTNNNDLayoutAttr::isInterleaved() const {
+  return getMemLayout().getValue() == TensorMemoryLayout::Interleaved;
+}
+
+bool TTNNNDLayoutAttr::isSharded() const {
+  return getMemLayout().getValue() != TensorMemoryLayout::Interleaved;
+}
+
+mlir::Type TTNNNDLayoutAttr::getElementType() const {
+  return getMemref().getElementType();
 }

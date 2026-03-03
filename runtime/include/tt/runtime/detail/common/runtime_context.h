@@ -36,6 +36,9 @@ public:
   ::tt::runtime::FabricConfig getCurrentFabricConfig() const;
   void setCurrentFabricConfig(const tt::runtime::FabricConfig &config);
 
+  MemoryLogLevel getMemoryLogLevel() const;
+  void setMemoryLogLevel(const MemoryLogLevel &logLevel);
+
 private:
   RuntimeContext();
   ~RuntimeContext() = default;
@@ -47,6 +50,7 @@ private:
   std::atomic<HostRuntime> currentHostRuntime_ = HostRuntime::Local;
   std::atomic<tt::runtime::FabricConfig> currentFabricConfig_ =
       tt::runtime::FabricConfig::DISABLED;
+  std::atomic<MemoryLogLevel> memoryLogLevel_ = MemoryLogLevel::NONE;
 };
 
 } // namespace tt::runtime

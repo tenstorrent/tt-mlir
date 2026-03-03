@@ -128,15 +128,24 @@ private:
     }
   };
 
-  // TODO (jnie): Add support for fp32, currently there's some precision loss
-  // which causes some FE tests to fail.
-  // Tracking here: https://github.com/tenstorrent/tt-metal/issues/21023
   bool canTilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
-    return dataType == ttcore::DataType::BFloat16;
+    // tt-metal tilize supports: bfloat16, float32, uint32, int32, uint16
+    // See: ttnn/operations/data_movement/tilize/device/tilize_op.cpp
+    return dataType == ttcore::DataType::BFloat16 ||
+           dataType == ttcore::DataType::Float32 ||
+           dataType == ttcore::DataType::UInt32 ||
+           dataType == ttcore::DataType::UInt16 ||
+           dataType == ttcore::DataType::Int32;
   }
 
   bool canUntilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
-    return dataType == ttcore::DataType::BFloat16;
+    // tt-metal untilize supports: bfloat16, float32, uint32, int32
+    // (requires use_pack_untilize for uint32/int32)
+    // See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
+    return dataType == ttcore::DataType::BFloat16 ||
+           dataType == ttcore::DataType::Float32 ||
+           dataType == ttcore::DataType::UInt32 ||
+           dataType == ttcore::DataType::Int32;
   }
 
   std::pair<LayoutInfo, LayoutInfo>
@@ -337,7 +346,6 @@ private:
                                             /*memory_config*/ nullptr);
   }
 
-  template <typename OpType>
   mlir::Value createDataTypeCastingOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
                                       mlir::Value currentInput,
                                       const OpCreationInfo &info) const {
@@ -346,8 +354,8 @@ private:
     RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
         mlir::cast<RankedTensorType>(currentInput.getType()),
         info.output.dataType);
-    return this->createOp<OpType>(rewriter, op, newResultType, currentInput,
-                                  dtypeAttr);
+    return this->createOp<ttnn::TypecastOp>(rewriter, op, newResultType,
+                                            currentInput, dtypeAttr);
   }
 
   mlir::Value
@@ -363,17 +371,11 @@ private:
 
     TTNNLayoutAttr inputLayout =
         mlir::cast<TTNNLayoutAttr>(currentInputType.getEncoding());
-    if (inputLayout.isSystemBufferType()) {
-      // If the input tensor is on host, we need to cast it on the host.
-      return this->createDataTypeCastingOp<ttnn::ToDTypeOp>(op, rewriter,
-                                                            currentInput, info);
+    if (!inputLayout.isSystemBufferType()) {
+      assert(inputLayout.getLayout() == Layout::Tile &&
+             "Only tilized tensors are supported for device typecast");
     }
-
-    assert(inputLayout.getLayout() == Layout::Tile &&
-           "Only tilized tensors are supported for device typecast");
-    // If the input tensor is on device, we can cast it on the device.
-    return this->createDataTypeCastingOp<ttnn::TypecastOp>(op, rewriter,
-                                                           currentInput, info);
+    return this->createDataTypeCastingOp(op, rewriter, currentInput, info);
   }
 
   mlir::Value createToMemoryConfigOpIfNeeded(ttnn::ToLayoutOp op,
@@ -385,8 +387,18 @@ private:
     }
     ttnn::MemoryConfigAttr memoryConfigAttr =
         info.output.createMemoryConfigAttr(op.getContext());
-    return this->createOp<ttnn::ToMemoryConfigOp>(op, rewriter, currentInput,
-                                                  memoryConfigAttr);
+    RankedTensorType currentInputType =
+        mlir::cast<RankedTensorType>(currentInput.getType());
+    TTNNLayoutAttr newLayout =
+        utils::getLayoutAttrFromTensor(currentInputType)
+            .withBufferType(info.output.bufferType)
+            .withMemoryLayout(info.output.tensorMemoryLayout)
+            .withGrid(currentInputType.getShape(), info.output.shardGrid)
+            .withShardShape(info.output.shardShape);
+    RankedTensorType newResultType =
+        utils::RankedTensorTypeFactory::create(currentInputType, newLayout);
+    return this->createOp<ttnn::ToMemoryConfigOp>(
+        rewriter, op, newResultType, currentInput, memoryConfigAttr);
   }
 
   /* Functions that create ops based on the layouts of the input output tensors
@@ -781,10 +793,19 @@ private:
 
     // If the output is tilized, typecast directly on device
     if (output.isTilized()) {
-      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
-                                                           currentInput, info);
-      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
-                                                          currentInput, info);
+      // If the input is sharded, typecast should happen after converting to
+      // memory.
+      if (input.isL1Sharded()) {
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+        currentInput = this->createDataTypeCastingOpIfNeeded(
+            op, rewriter, currentInput, info);
+      } else {
+        currentInput = this->createDataTypeCastingOpIfNeeded(
+            op, rewriter, currentInput, info);
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+      }
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);

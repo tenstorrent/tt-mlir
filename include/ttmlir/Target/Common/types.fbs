@@ -11,7 +11,6 @@ struct Dim2dRange {
 }
 
 enum Arch: uint {
-  Grayskull,
   Wormhole_b0,
   Blackhole
 }
@@ -171,4 +170,29 @@ enum MeshShardType: uint32 {
   Replicate,
   Maximal,
   Devices,
+}
+
+enum Topology: ushort {
+  Ring,
+  Linear,
+  Mesh,
+  Torus,
+}
+
+enum NocIndex : ushort {
+  Noc0,
+  Noc1,
+}
+
+enum RoutingMode : ushort {
+  BidirLineMesh,
+  UnidirRingTorus,
+}
+
+table FabricConnectionConfig {
+  noc_index: NocIndex;
+  topology: Topology;
+  cluster_axis: uint32;
+  routing_mode: RoutingMode;
+  num_links: uint32;
 }

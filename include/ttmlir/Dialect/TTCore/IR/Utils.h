@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTCORE_IR_UTILS_H
 #define TTMLIR_DIALECT_TTCORE_IR_UTILS_H
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
@@ -15,6 +16,8 @@
 #include "mlir/IR/SymbolTable.h"
 
 namespace mlir::tt::ttcore {
+
+constexpr inline llvm::StringLiteral g_kvCacheAttrName = "ttcore.kv_cache";
 
 class DeviceOp;
 class DeviceAttr;
@@ -65,6 +68,10 @@ inline bool isConstOrParamArg(mlir::BlockArgument blockArg,
 // Filters out the constant parameters from the function signature.
 inline llvm::SmallPtrSet<mlir::BlockArgument, 4>
 getConstsAndParams(mlir::func::FuncOp funcOp) {
+  if (funcOp.isDeclaration()) {
+    return {};
+  }
+
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constsAndParams;
 
   for (auto arg : funcOp.getArguments()) {
@@ -137,6 +144,26 @@ inline bool hasDeviceLayout(ShapedType shapedType) {
 
 inline bool hasDeviceLayout(Value value) {
   return hasDeviceLayout(mlir::cast<ShapedType>(value.getType()));
+}
+
+// Helper function to derive grid shape from tensor OR memref using underlying
+// layout attr.
+inline ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
+  TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
+              mlir::isa<MemRefType>(tensorOrMemref.getType())),
+             "Expected a tensor or memref type");
+  return ttcore::getDeviceLayout(tensorOrMemref)
+      .getGridShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
+}
+
+// Helper function to derive shard shape from tensor OR memref using underlying
+// layout attr.
+inline ArrayRef<int64_t> getShardShape(Value tensorOrMemref) {
+  TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
+              mlir::isa<MemRefType>(tensorOrMemref.getType())),
+             "Expected a tensor or memref type");
+  return ttcore::getDeviceLayout(tensorOrMemref)
+      .getShardShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
 }
 
 Type getOperandInnerElementType(const mlir::Value operand);

@@ -3,9 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #ifndef TT_RUNTIME_DETAIL_TTNN_UTILS_H
-#define TT_RUNTIME_DETAIL_TTNN_UTILS_H
-
-#include "flatbuffers/vector.h"
+#define TT_RUNTIME_DETAIL_TTNN_UTILS_H #include "flatbuffers/vector.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/Common/types_generated.h"
@@ -27,9 +25,14 @@ bool isValidTileShape(const ::tt::target::Dim2d *shape);
 bool isSharded(
     const ::tt::target::ttnn::TensorMemoryLayout &tensorMemoryLayout);
 
-bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
-
 bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
+
+bool canUntilizeOnDevice(
+    const ::ttnn::DataType &dataType,
+    const std::optional<::ttnn::MemoryConfig> &memoryConfig);
+
+bool canTilizeOnDevice(const ::ttnn::DataType &dataType,
+                       const std::optional<::ttnn::MemoryConfig> &memoryConfig);
 
 const ::tt::target::ttnn::TTNNBinary *
 getBinary(const ::tt::runtime::Flatbuffer &binary);
@@ -70,26 +73,39 @@ fromTTNNStorageType(::ttnn::StorageType storageType);
 ::ttnn::Layout
 inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-CoreCoord toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord);
+tt::tt_metal::CoreCoord
+toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord);
 
-::tt::target::ttnn::CoreCoord fromTTNNCoreCoord(const CoreCoord &coreCoord);
+::tt::target::ttnn::CoreCoord
+fromTTNNCoreCoord(const tt::tt_metal::CoreCoord &coreCoord);
 
-CoreRange toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange);
+tt::tt_metal::CoreRange
+toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange);
 
-::tt::target::ttnn::CoreRange fromTTNNCoreRange(const CoreRange &coreRange);
+::tt::target::ttnn::CoreRange
+fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange);
 
-CoreRangeSet
+tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet);
 
 ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
 fromTTNNCoreRangeSet(::flatbuffers::FlatBufferBuilder &fbb,
-                     const CoreRangeSet &coreRangeSet);
+                     const tt::tt_metal::CoreRangeSet &coreRangeSet);
+
+tt::tt_metal::distributed::MeshCoordinate
+toTTNNMeshCoordinate(const ::tt::target::ttnn::MeshCoord &meshCoord);
+
+tt::tt_metal::distributed::MeshCoordinateRange toTTNNMeshCoordinateRange(
+    const ::tt::target::ttnn::MeshCoordRange &meshCoordRange);
 
 ::ttnn::ShardOrientation
 toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation);
 
 ::tt::target::ttnn::ShardOrientation
 fromTTNNShardOrientation(::ttnn::ShardOrientation orientation);
+
+tt::tt_metal::ShardDistributionStrategy toTTNNShardDistributionStrategy(
+    tt::target::ttnn::ShardDistributionStrategy distributionStrategy);
 
 ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
 fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
@@ -131,15 +147,19 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor);
     const ::ttnn::Layout &layout = ::ttnn::Layout::ROW_MAJOR,
     const ::ttnn::MemoryConfig &memoryConfig = ::ttnn::DRAM_MEMORY_CONFIG);
 
+std::unordered_map<::tt::runtime::MemoryBufferType, ::tt::runtime::MemoryView>
+getMemoryView(Device deviceHandle);
+
 template <typename T>
 inline ::ttnn::Tensor createTTNNTensor(
     const void *rawData, const ::ttnn::Shape &shape,
-    const ::ttnn::DataType &dataType, ::ttnn::MeshDevice *device = nullptr,
+    const ::ttnn::DataType &outputDataType,
+    ::ttnn::MeshDevice *device = nullptr,
     const ::ttnn::Layout &layout = ::ttnn::Layout::ROW_MAJOR,
     const ::ttnn::MemoryConfig &memoryConfig = ::ttnn::DRAM_MEMORY_CONFIG) {
   std::uint64_t numElements = shape.volume();
   ::ttnn::TensorSpec tensorSpec =
-      createTensorSpec(shape, dataType, layout, memoryConfig);
+      createTensorSpec(shape, outputDataType, layout, memoryConfig);
   if (rawData != nullptr) {
     const T *typedData = static_cast<const T *>(rawData);
     ::ttsl::Span<const T> data(typedData, typedData + numElements);
@@ -149,6 +169,42 @@ inline ::ttnn::Tensor createTTNNTensor(
   std::vector<T> data(numElements);
   ::ttnn::Tensor tensor = ::ttnn::Tensor::from_vector(data, tensorSpec, device);
   return tensor;
+}
+
+// Create a TTNN tensor that borrows the memory from a pre-allocated buffer,
+// without copying.
+//
+// The buffer is managed through a shared_ptr, allowing TTNN to handle the
+// deletion of the buffer when the tensor is destroyed.
+//
+template <typename T>
+inline ::ttnn::Tensor createBorrowedTTNNTensor(std::shared_ptr<void> data,
+                                               const ::ttnn::Shape &shape) {
+  // Create MemoryPin with shared_ptr that allows TTNN to handle the deletion of
+  // the buffer.
+  auto pin = ::tt::tt_metal::MemoryPin(data);
+
+  std::uint64_t numElements = shape.volume();
+  T *typedData = static_cast<T *>(data.get());
+  ::ttsl::Span<T> span(typedData, typedData + numElements);
+
+  return ::ttnn::Tensor::from_borrowed_data(span, shape, pin);
+}
+
+// Create a TTNN tensor that borrows the memory from a pre-allocated buffer,
+// without copying.
+//
+// The caller is responsible for ensuring that the buffer
+// remains valid for the lifetime of the tensor.
+//
+template <typename T>
+inline ::ttnn::Tensor createBorrowedTTNNTensor(void *rawData,
+                                               const ::ttnn::Shape &shape) {
+  auto dataPtr = std::shared_ptr<void>(rawData, [](void *) {
+    // No deletion needed, as the caller manages the buffer's lifetime.
+  });
+
+  return createBorrowedTTNNTensor<T>(dataPtr, shape);
 }
 
 template <typename T>

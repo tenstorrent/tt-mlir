@@ -4,7 +4,7 @@
 
 #include "Constants.h"
 
-#include "tt-metalium/fabric.hpp"
+#include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
@@ -38,30 +38,6 @@
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
-
-static tt::runtime::MemoryView
-createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
-  return tt::runtime::MemoryView{
-      .numBanks = memoryView.num_banks,
-      .totalBytesPerBank = memoryView.total_bytes_per_bank,
-      .totalBytesAllocatedPerBank = memoryView.total_bytes_allocated_per_bank,
-      .totalBytesFreePerBank = memoryView.total_bytes_free_per_bank,
-      .largestContiguousBytesFreePerBank =
-          memoryView.largest_contiguous_bytes_free_per_bank,
-      .blockTable = memoryView.block_table,
-  };
-}
-
-template <typename T>
-static ::ttnn::Tensor createBorrowedTTNNTensor(void *rawData,
-                                               const ::ttnn::Shape &shape) {
-  std::uint64_t numElements = shape.volume();
-  T *typedData = static_cast<T *>(rawData);
-  ::ttsl::Span<T> data(typedData, typedData + numElements);
-  ::ttnn::Tensor tensor =
-      ::ttnn::Tensor::from_borrowed_data(data, shape, []() {}, []() {});
-  return tensor;
-}
 
 static ::ttnn::Tensor
 createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
@@ -141,7 +117,8 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
 
   // If untilize is true and the data type can be untilized on device
   bool untilizeOnDevice =
-      untilize && utils::canUntilizeDataTypeOnDevice(inputTensor.dtype());
+      untilize && utils::canUntilizeOnDevice(inputTensor.dtype(),
+                                             inputTensor.memory_config());
   // If blackhole workarounds are enabled, only untilize on device if the
   // architecture is not blackhole
   if (::tt::runtime::workaround::Env::get().blackholeWorkarounds) {
@@ -209,22 +186,22 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
   switch (dataType) {
   case ::tt::target::DataType::Float32:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<float>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<float>(data, ttnnShape));
   case ::tt::target::DataType::BFloat16:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<bfloat16>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<bfloat16>(data, ttnnShape));
   case ::tt::target::DataType::UInt32:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<uint32_t>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<uint32_t>(data, ttnnShape));
   case ::tt::target::DataType::UInt16:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<uint16_t>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<uint16_t>(data, ttnnShape));
   case ::tt::target::DataType::UInt8:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<uint8_t>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<uint8_t>(data, ttnnShape));
   case ::tt::target::DataType::Int32:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<int32_t>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<int32_t>(data, ttnnShape));
   default:
     LOG_FATAL("Unsupported data type");
   }
@@ -278,6 +255,22 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
 }
 
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+  std::vector<::tt::runtime::Tensor> tensorShards;
+  tensorShards.reserve(data.size());
+  std::transform(data.begin(), data.end(), std::back_inserter(tensorShards),
+                 [&](void *dataShard) -> ::tt::runtime::Tensor {
+                   return createBorrowedHostTensor(dataShard, shape, stride,
+                                                   itemsize, dataType);
+                 });
+  return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
+}
+
 ::tt::runtime::Tensor createEmptyTensor(
     Device device, Layout layout, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize) {
@@ -300,7 +293,7 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
           layoutDesc.dataType, ::ttnn::PageConfig(layoutDesc.layout),
           layoutDesc.memoryConfig.value_or(::ttnn::MemoryConfig{})));
   ::ttnn::Tensor tensor =
-      ::tt::tt_metal::allocate_tensor_on_device(tensorSpec, &meshDevice);
+      ::tt::tt_metal::create_device_tensor(tensorSpec, &meshDevice);
 
   return utils::createRuntimeTensorFromTTNN(tensor);
 }
@@ -462,14 +455,6 @@ tt::target::Arch getArch() {
   return ::tt::runtime::common::toTargetArch(::tt::tt_metal::hal::get_arch());
 }
 
-void enablePersistentKernelCache() {
-  ::tt::tt_metal::detail::EnablePersistentKernelCache();
-}
-
-void disablePersistentKernelCache() {
-  ::tt::tt_metal::detail::DisablePersistentKernelCache();
-}
-
 size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
@@ -619,6 +604,12 @@ bool isProgramCacheEnabled(Device meshDevice) {
   return ttnnMeshDevice.get_program_cache().is_enabled();
 }
 
+void clearProgramCache(Device meshDevice) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  return ttnnMeshDevice.clear_program_cache();
+}
+
 size_t getL1SmallSize(Device meshDevice) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
@@ -688,29 +679,7 @@ void readDeviceProfilerResults(Device deviceHandle) {
 
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device deviceHandle) {
-  std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-      memoryMap;
-  ::ttnn::MeshDevice &meshDevice =
-      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-
-  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::DRAM);
-  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::L1);
-  auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::L1_SMALL);
-  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::TRACE);
-
-  memoryMap[tt::runtime::MemoryBufferType::DRAM] =
-      createMemoryView(dramMemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::L1] = createMemoryView(l1MemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::L1_SMALL] =
-      createMemoryView(l1SmallMemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::TRACE] =
-      createMemoryView(traceMemoryView);
-
-  return memoryMap;
+  return utils::getMemoryView(deviceHandle);
 }
 
 void setFabricConfig(tt::runtime::FabricConfig config) {
@@ -785,6 +754,26 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   return hostTensors;
 }
 
+std::vector<::tt::runtime::Tensor>
+getDeviceTensors(::tt::runtime::Tensor tensor) {
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
+      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+
+  std::vector<::ttnn::Tensor> ttnnTensors =
+      ::ttnn::distributed::get_device_tensors(tensorWrapper.getTensor());
+
+  std::vector<Tensor> runtime_tensors;
+  runtime_tensors.reserve(ttnnTensors.size());
+
+  for (const ::ttnn::Tensor &ttnnTensor : ttnnTensors) {
+    runtime_tensors.emplace_back(utils::createRuntimeTensorFromTTNN(
+        ttnnTensor, tensorWrapper.getMeshEvent(),
+        tensorWrapper.shouldRetain()));
+  }
+
+  return runtime_tensors;
+}
+
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
                                Layout layout, std::optional<bool> retain) {
   const std::shared_ptr<LayoutDesc> tensorLayoutDesc =
@@ -822,6 +811,14 @@ bool hasLayout(::tt::runtime::Tensor tensor, Layout layout) {
       layout.as<LayoutDesc>(DeviceRuntime::TTNN);
 
   return *tensorLayoutDesc == desiredLayoutDesc;
+}
+
+// Return the layout of a given runtime Tensor as a Layout handle
+Layout getTensorLayout(::tt::runtime::Tensor tensor) {
+  const std::shared_ptr<LayoutDesc> tensorLayoutDesc =
+      LayoutDesc::fromTensor(tensor);
+  return Layout(std::static_pointer_cast<void>(tensorLayoutDesc),
+                DeviceRuntime::TTNN);
 }
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
@@ -906,7 +903,8 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
   } else {
-    ::tt::tt_metal::memcpy(dst, srcTensor);
+    ::tt::tt_metal::copy_to_host(srcTensor.device()->mesh_command_queue(),
+                                 srcTensor, reinterpret_cast<std::byte *>(dst));
   }
 }
 
@@ -925,8 +923,13 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dstPtr, srcPtr, size);
+  } else if (utils::isOnHost(srcTensor.storage_type())) {
+    ::tt::tt_metal::copy_to_device(srcTensor, dstTensor);
   } else {
-    ::tt::tt_metal::memcpy(dstTensor, srcTensor);
+    void *dstPtr = utils::getRawHostDataPtr(dstTensor);
+    ::tt::tt_metal::copy_to_host(srcTensor.device()->mesh_command_queue(),
+                                 srcTensor,
+                                 reinterpret_cast<std::byte *>(dstPtr));
   }
 }
 
@@ -1014,10 +1017,6 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ToLayoutOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::ToDTypeOp: {
-    tensorRef = opContext.type_as_ToDTypeOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     tensorRef = opContext.type_as_TypecastOp()->out();
     break;
@@ -1054,6 +1053,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_EltwiseBinaryCompositeScalarOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
+    tensorRef = opContext.type_as_ExperimentalEltwiseBinaryBackwardOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
     tensorRef = opContext.type_as_EltwiseTernaryWhereOp()->out();
     break;
@@ -1084,6 +1087,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::RandOp: {
     tensorRef = opContext.type_as_RandOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DropoutOp: {
+    tensorRef = opContext.type_as_DropoutOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
@@ -1154,6 +1161,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_Conv2dOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::Conv3dOp: {
+    tensorRef = opContext.type_as_Conv3dOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
     tensorRef = opContext.type_as_ConvTranspose2dOp()->out();
     break;
@@ -1174,6 +1185,14 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_PrepareConv2dBiasOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
+    tensorRef = opContext.type_as_PrepareConvTranspose2dWeightsOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dBiasOp: {
+    tensorRef = opContext.type_as_PrepareConvTranspose2dBiasOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
     tensorRef = opContext.type_as_BatchNormInferenceOp()->out();
     break;
@@ -1182,20 +1201,32 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RMSNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    tensorRef = opContext.type_as_DistributedRMSNormOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LayerNormOp: {
+    tensorRef = opContext.type_as_LayerNormOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRef = opContext.type_as_AllGatherOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllReduceOp: {
+    tensorRef = opContext.type_as_AllReduceOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRef = opContext.type_as_ReduceScatterOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
-    tensorRef = opContext.type_as_CollectivePermuteOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRef = opContext.type_as_MeshShardOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
+    tensorRef = opContext.type_as_MeshPartitionOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
@@ -1206,16 +1237,16 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_UpsampleOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::CpuOp: {
-    tensorRef = opContext.type_as_CpuOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::ConstantOp: {
     tensorRef = opContext.type_as_ConstantOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::FillCacheOp: {
     tensorRef = opContext.type_as_FillCacheOp()->cache();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    tensorRef = opContext.type_as_PagedFillCacheOp()->cache();
     break;
   }
   case ::tt::target::ttnn::OpType::UpdateCacheOp: {
@@ -1258,6 +1289,11 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ScaledDotProductAttentionDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    tensorRef =
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     tensorRef = opContext.type_as_ScaledDotProductAttentionOp()->out();
     break;
@@ -1266,6 +1302,7 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::CpuOp:
   case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
   case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp:
   case ::tt::target::ttnn::OpType::SortOp:
@@ -1279,7 +1316,11 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
-  case ::tt::target::ttnn::OpType::DumpTensorOp: {
+  case ::tt::target::ttnn::OpType::DumpTensorOp:
+  case ::tt::target::ttnn::OpType::TopKOp:
+  case ::tt::target::ttnn::OpType::BreakpointOp:
+  case ::tt::target::ttnn::OpType::PrintOp:
+  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
@@ -1288,6 +1329,26 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::GenericOp: {
     auto size = opContext.type_as_GenericOp()->io_tensors()->size();
     tensorRef = opContext.type_as_GenericOp()->io_tensors()->Get(size - 1);
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AggregateTensorOp: {
+    tensorRef = opContext.type_as_AggregateTensorOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DistributeTensorOp: {
+    tensorRef = opContext.type_as_DistributeTensorOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AnnotateOp: {
+    tensorRef = opContext.type_as_AnnotateOp()->result();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RegionStartOp: {
+    tensorRef = opContext.type_as_RegionStartOp()->result();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RegionEndOp: {
+    tensorRef = opContext.type_as_RegionEndOp()->result();
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1331,16 +1392,16 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::RandOp: {
     break;
   }
+  case ::tt::target::ttnn::OpType::DropoutOp: {
+    tensorRefs = {opContext.type_as_DropoutOp()->in()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
     tensorRefs = {opContext.type_as_ToMemoryConfigOp()->in0()};
     break;
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     tensorRefs = {opContext.type_as_ToLayoutOp()->in()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::ToDTypeOp: {
-    tensorRefs = {opContext.type_as_ToDTypeOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::TypecastOp: {
@@ -1367,6 +1428,12 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
     tensorRefs = {opContext.type_as_EltwiseBinaryCompositeScalarOp()->lhs()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
+    tensorRefs = {
+        opContext.type_as_ExperimentalEltwiseBinaryBackwardOp()->grad(),
+        opContext.type_as_ExperimentalEltwiseBinaryBackwardOp()->input()};
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
@@ -1412,6 +1479,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     tensorRefs = {opContext.type_as_ReductionOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TopKOp: {
+    tensorRefs = {opContext.type_as_TopKOp()->input_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
@@ -1474,6 +1545,10 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_Conv2dOp()->input()};
     break;
   }
+  case ::tt::target::ttnn::OpType::Conv3dOp: {
+    tensorRefs = {opContext.type_as_Conv3dOp()->input()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
     tensorRefs = {opContext.type_as_ConvTranspose2dOp()->input()};
     break;
@@ -1496,6 +1571,16 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->bias_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
+    tensorRefs = {
+        opContext.type_as_PrepareConvTranspose2dWeightsOp()->weight_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dBiasOp: {
+    tensorRefs = {
+        opContext.type_as_PrepareConvTranspose2dBiasOp()->bias_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
@@ -1524,20 +1609,45 @@ getOpInputRefs(OpContext opContextHandle,
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    tensorRefs = {opContext.type_as_DistributedRMSNormOp()->input()};
+    if (opContext.type_as_DistributedRMSNormOp()->weight()) {
+      tensorRefs.push_back(opContext.type_as_DistributedRMSNormOp()->weight());
+    }
+    if (opContext.type_as_DistributedRMSNormOp()->residual()) {
+      tensorRefs.push_back(
+          opContext.type_as_DistributedRMSNormOp()->residual());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LayerNormOp: {
+    tensorRefs = {opContext.type_as_LayerNormOp()->input()};
+    if (opContext.type_as_LayerNormOp()->weight()) {
+      tensorRefs.push_back(opContext.type_as_LayerNormOp()->weight());
+    }
+    if (opContext.type_as_LayerNormOp()->bias()) {
+      tensorRefs.push_back(opContext.type_as_LayerNormOp()->bias());
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRefs = {opContext.type_as_AllGatherOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllReduceOp: {
+    tensorRefs = {opContext.type_as_AllReduceOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
     break;
   }
-  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
-    tensorRefs = {opContext.type_as_CollectivePermuteOp()->in()};
-    break;
-  }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRefs = {opContext.type_as_MeshShardOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
+    tensorRefs = {opContext.type_as_MeshPartitionOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
@@ -1569,6 +1679,13 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::FillCacheOp: {
     tensorRefs = {opContext.type_as_FillCacheOp()->cache(),
                   opContext.type_as_FillCacheOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    tensorRefs = {opContext.type_as_PagedFillCacheOp()->cache(),
+                  opContext.type_as_PagedFillCacheOp()->input(),
+                  opContext.type_as_PagedFillCacheOp()->page_table(),
+                  opContext.type_as_PagedFillCacheOp()->batch_idx_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
@@ -1659,6 +1776,21 @@ getOpInputRefs(OpContext opContextHandle,
         opContext.type_as_ScaledDotProductAttentionOp()->attention_mask()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    tensorRefs = {
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->query(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->key(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->value(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->page_table(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->attention_mask(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->cur_pos_tensor(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->attention_sink()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
     tensorRefs = {opContext.type_as_RotaryEmbeddingLlamaOp()->input(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
@@ -1683,6 +1815,38 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::LoadTensorOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AggregateTensorOp: {
+    tensorRefs = {opContext.type_as_AggregateTensorOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DistributeTensorOp: {
+    tensorRefs = {opContext.type_as_DistributeTensorOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AnnotateOp: {
+    tensorRefs = {opContext.type_as_AnnotateOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RegionStartOp: {
+    tensorRefs = {opContext.type_as_RegionStartOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RegionEndOp: {
+    tensorRefs = {opContext.type_as_RegionEndOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BreakpointOp: {
+    tensorRefs = {opContext.type_as_BreakpointOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrintOp: {
+    tensorRefs = {opContext.type_as_PrintOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
+    tensorRefs = {opContext.type_as_MemorySnapshotOp()->operand()};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1790,101 +1954,117 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   }
 
   registerCallback();
-  ProgramExecutor executor(deviceHandle, executableHandle, programIndex,
-                           inputs);
-  executor.execute();
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  ::tt::runtime::utils::logMemoryStateIfNeeded(
+      ::tt::runtime::ttnn::utils::getMemoryView, deviceHandle,
+      ::tt::runtime::MemoryLogLevel::Program,
+      "Device memory state before submit");
+#endif
+
+  std::unique_ptr<ProgramExecutor> executor = std::make_unique<ProgramExecutor>(
+      deviceHandle, executableHandle, programIndex, inputs);
+
+  executor->execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
-      executor.gatherOutputTensors();
+      executor->gatherOutputTensors();
 
-  // unregister hooks?
+  executor.reset();
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  ::tt::runtime::utils::logMemoryStateIfNeeded(
+      ::tt::runtime::ttnn::utils::getMemoryView, deviceHandle,
+      ::tt::runtime::MemoryLogLevel::Program,
+      "Device memory state after submit");
+#endif
+
   return outputTensors;
-}
 
-std::optional<Tensor>
-retrieveTensorFromPool(CallbackContext programContextHandle,
-                       tt::runtime::TensorRef tensorRef, bool untilize) {
-  const auto &programContext =
-      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
-          DeviceRuntime::TTNN);
-  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+  std::optional<Tensor> retrieveTensorFromPool(
+      CallbackContext programContextHandle, tt::runtime::TensorRef tensorRef,
+      bool untilize) {
+    const auto &programContext =
+        programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+            DeviceRuntime::TTNN);
+    const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
 
-  const auto *tensorRefPtr =
-      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+    const auto *tensorRefPtr =
+        &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
-  if (!tensorRefPtr) {
-    LOG_WARNING("Tensor ref pointer is null when retrieving tensor");
-    return std::nullopt;
+    if (!tensorRefPtr) {
+      LOG_WARNING("Tensor ref pointer is null when retrieving tensor");
+      return std::nullopt;
+    }
+
+    if (!tensorPool.contains(tensorRefPtr)) {
+      LOG_WARNING("Tensor not found in tensor pool when retrieving tensor");
+      return std::nullopt;
+    }
+
+    ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
+        tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
+
+    std::vector<tt::runtime::Tensor> hostTensors =
+        ::tt::runtime::ttnn::toHost(outTensor, untilize);
+
+    if (hostTensors.empty()) {
+      LOG_WARNING("Failed to get host tensor when retrieving tensor");
+      return std::nullopt;
+    }
+
+    if (hostTensors.size() != 1) {
+      LOG_FATAL("Multi device tensor not supported when retrieving tensor");
+    }
+
+    return hostTensors[0];
   }
 
-  if (!tensorPool.contains(tensorRefPtr)) {
-    LOG_WARNING("Tensor not found in tensor pool when retrieving tensor");
-    return std::nullopt;
+  void updateTensorInPool(CallbackContext programContextHandle,
+                          TensorRef tensorRef, Tensor tensor) {
+    auto &programContext =
+        programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+            DeviceRuntime::TTNN);
+    ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+    const auto *tensorRefPtr =
+        &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+
+    if (!tensorRefPtr) {
+      LOG_WARNING("Tensor ref pointer is null when updating tensor");
+      return;
+    }
+    if (!tensorPool.contains(tensorRefPtr)) {
+      LOG_WARNING("Tensor not found in tensor pool when updating tensor");
+      return;
+    }
+
+    ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
+    ::ttnn::Tensor &dstTensor =
+        tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
+    srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
+    if (utils::isOnDevice(dstTensor.storage_type())) {
+      srcTensor = ::ttnn::to_device(srcTensor, dstTensor.device(),
+                                    dstTensor.memory_config());
+    }
+    tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
   }
 
-  ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
-      tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
-
-  std::vector<tt::runtime::Tensor> hostTensors =
-      ::tt::runtime::ttnn::toHost(outTensor, untilize);
-
-  if (hostTensors.empty()) {
-    LOG_WARNING("Failed to get host tensor when retrieving tensor");
-    return std::nullopt;
+  void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
+    ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
+    ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);
   }
 
-  if (hostTensors.size() != 1) {
-    LOG_FATAL("Multi device tensor not supported when retrieving tensor");
+  ::tt::runtime::Tensor loadTensor(const std::string &filePath,
+                                   std::optional<Device> device) {
+
+    ::ttnn::MeshDevice *devicePtr = nullptr;
+    if (device.has_value()) {
+      devicePtr = &device->as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+    }
+
+    ::ttnn::Tensor metalTensor =
+        ::tt::tt_metal::load_tensor_flatbuffer(filePath, devicePtr);
+
+    auto tensor = utils::createRuntimeTensorFromTTNN(metalTensor);
+
+    return tensor;
   }
-
-  return hostTensors[0];
-}
-
-void updateTensorInPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, Tensor tensor) {
-  auto &programContext =
-      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
-          DeviceRuntime::TTNN);
-  ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
-  const auto *tensorRefPtr =
-      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
-
-  if (!tensorRefPtr) {
-    LOG_WARNING("Tensor ref pointer is null when updating tensor");
-    return;
-  }
-  if (!tensorPool.contains(tensorRefPtr)) {
-    LOG_WARNING("Tensor not found in tensor pool when updating tensor");
-    return;
-  }
-
-  ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
-  ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
-  srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
-  if (utils::isOnDevice(dstTensor.storage_type())) {
-    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.device(),
-                                  dstTensor.memory_config());
-  }
-  tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
-}
-
-void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
-  ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
-  ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);
-}
-
-::tt::runtime::Tensor loadTensor(const std::string &filePath,
-                                 std::optional<Device> device) {
-
-  ::ttnn::MeshDevice *devicePtr = nullptr;
-  if (device.has_value()) {
-    devicePtr = &device->as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  }
-
-  ::ttnn::Tensor metalTensor =
-      ::tt::tt_metal::load_tensor_flatbuffer(filePath, devicePtr);
-
-  auto tensor = utils::createRuntimeTensorFromTTNN(metalTensor);
-
-  return tensor;
-}
 } // namespace tt::runtime::ttnn

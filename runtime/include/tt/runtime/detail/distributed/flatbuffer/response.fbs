@@ -13,6 +13,9 @@ table ErrorResponse {
 table ConfigureRuntimeContextResponse {
 }
 
+table SetMemoryLogLevelResponse {
+}
+
 table GetSystemDescResponse {
   system_desc: [ubyte]; // size-prefixed SystemDescRoot buffer
 }
@@ -89,9 +92,33 @@ table DeallocateTensorResponse {
 table ShutdownResponse {
 }
 
+table TensorDescFlat {
+  shape: [uint32];
+  data_type: tt.target.DataType;
+  itemsize: uint32;
+  stride: [uint32];
+  physical_volume: uint64;
+}
+
+table GetTensorDescResponse{
+  tensor_desc: TensorDescFlat;
+}
+
+table HasLayoutResponse{
+  has_layout: bool;
+}
+
+table IsProgramCacheEnabledResponse{
+  enabled: bool;
+}
+
+table ClearProgramCacheResponse{
+}
+
 union ResponseType {
   ErrorResponse,
   ConfigureRuntimeContextResponse,
+  SetMemoryLogLevelResponse,
   GetSystemDescResponse,
   SetFabricConfigResponse,
   GetNumAvailableDevicesResponse,
@@ -114,6 +141,10 @@ union ResponseType {
   MemcpyResponse,
   DeallocateTensorResponse,
   ShutdownResponse,
+  GetTensorDescResponse,
+  HasLayoutResponse,
+  IsProgramCacheEnabledResponse,
+  ClearProgramCacheResponse
 }
 
 table Response {

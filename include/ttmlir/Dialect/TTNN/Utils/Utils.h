@@ -5,7 +5,6 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Value.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -14,6 +13,16 @@
 #include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::tt::ttnn::utils {
+
+// Attribute name for storing tensor L1 usage cap during optimizer passes.
+// This attribute is set by DevicePassesWrapper and read by validation
+// and analysis passes to avoid parameter threading through pass infrastructure.
+inline constexpr llvm::StringLiteral g_TensorL1UsageCapAttrName =
+    "ttnn.tensor_l1_usage_cap";
+
+// Helper function to retrieve tensor L1 usage cap from module attribute.
+// Returns the configured cap if found, otherwise returns the default value.
+float getTensorL1UsageCap(Operation *op, float defaultValue = 0.95f);
 
 bool isTensorOnDevice(::mlir::RankedTensorType tensorType);
 
@@ -91,7 +100,10 @@ createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
                         mlir::tt::ttcore::GridAttr shardGrid,
                         mlir::tt::ttcore::GridAttr deviceGrid);
 
-bool isTTNNTraceFunc(func::FuncOp funcOp);
+// Helper method to create a NDShardSpecAttr if needed.
+std::optional<NDShardSpecAttr>
+createNDShardSpecIfNeeded(TTNNNDLayoutAttr layout);
+
 bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op);
 
 // Returns all TTNN dialect registered operations.
@@ -106,13 +118,42 @@ bool producesDRAMLayout(Operation *op);
 // Check if operation's first result uses L1 buffer layout.
 bool producesL1Layout(Operation *op);
 
+// Check if operation's first result uses system memory layout.
+bool producesSystemMemoryLayout(Operation *op);
+
 // Check if operation's first result uses tiled tensor layout.
 bool producesTiledTensorLayout(Operation *op);
+
+// Check if operation's first result uses sharded L1 layout.
+bool producesShardedL1Layout(Operation *op);
 
 // Check if operation's first operand uses DRAM buffer layout.
 bool hasFirstOperandInDRAM(Operation *op);
 
 mlir::RankedTensorType getTraceIdType(MLIRContext *ctx);
+
+// Convert activation string to UnaryWithParamAttr.
+// Returns nullptr if activation is not set or not recognized.
+UnaryWithParamAttr getActivationAttr(MLIRContext *ctx,
+                                     std::optional<StringRef> activation);
+
+// Compute the bounding box grid dimensions from a layout's shard grid.
+// Returns {gridX, gridY} representing the physical core grid extent.
+std::pair<int64_t, int64_t> getPhysicalGridDimensions(TTNNLayoutAttr layout);
+
+// Calculate optimal C_in_block for Conv3d based on channel count.
+// Finds the largest block size in [32, 128] (step 32) that evenly divides
+// in_channels. Returns 0 when no valid block size exists (TT-Metal will
+// use the full channel count).
+inline uint32_t calculateOptimalCInBlock(uint32_t in_channels) {
+  for (uint32_t i = 128; i >= 32; i -= 32) {
+    if (in_channels % i == 0) {
+      return i;
+    }
+  }
+  return 0;
+}
+
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

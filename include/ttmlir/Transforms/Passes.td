@@ -37,7 +37,7 @@ def ConstEvalHoistTransform: Pass<"const-eval-hoist-transform", "::mlir::ModuleO
       %4 = "ttir.add"(%2, %0, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       return %4 : tensor<32x32xbf16>
     }
-    func.func @forward_const_eval_0(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {const_eval} {
+    func.func @forward_const_eval_0(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {tt.function_type = "const_eval"} {
       %0 = tensor.empty() : tensor<32x32xbf16>
       %1 = "ttir.subtract"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       return %1 : tensor<32x32xbf16>
@@ -57,71 +57,6 @@ def UndoConstEvalTransform : Pass<"undo-const-eval", "mlir::ModuleOp"> {
 
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
-
-def ReenableLostDPS: Pass<"ttir-reenable-dps", "::mlir::ModuleOp"> {
-  let summary = "Transform functions with return values to use output parameters.";
-  let description = [{
-    This pass finds functions with the ttir.return_to_output_mapping attribute and
-    transforms them to use output parameters instead of return values. This is useful
-    for operations that implement the DestinationStyleOpInterface, where we want to
-    write directly to the output buffer instead of creating a new tensor and returning it.
-
-    Example:
-    ```mlir
-    // Before
-    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
-      %0 = linalg.generic ... {
-        ...
-      } : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
-      return %0 : tensor<4x4xf32>
-    }
-
-    // After
-    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>, %arg2: tensor<4x4xf32>) {
-      // The linalg.generic now writes directly to %arg2 instead of creating a new tensor
-      linalg.generic ... {
-        ...
-      } : tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>
-      return
-    }
-    ```
-  }];
-
-  let dependentDialects = ["mlir::linalg::LinalgDialect", "mlir::tensor::TensorDialect", "mlir::func::FuncDialect"];
-}
-
-def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
-  let summary = "Remove return values from functions.";
-  let description = [{
-    This pass finds functions with return values and transforms them to have no return
-    values.  We use this on the CPU hoisting path, since we want to avoid RVO issues at
-    runtime, but model the functions as returning values during some intermediate stages
-    to avoid op elimination, track which operation is the final output (corresponding
-    to DPS output tensor), etc.
-
-    Example:
-    ```mlir
-    // Before
-    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
-      %0 = linalg.generic ... {
-        ...
-      } : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
-      return %0 : tensor<4x4xf32>
-    }
-
-    // After
-    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) {
-      %0 = linalg.generic ... {
-        ...
-      } : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
-      return
-    }
-    ```
-  }];
-
-  let dependentDialects = ["mlir::func::FuncDialect"];
-}
-
 
 def CollapseParallelLoops: Pass<"collapse-parallel-loops", "::mlir::func::FuncOp"> {
   let summary = "Collapse and reverse dimensions in multidimensional SCF parallel loops";

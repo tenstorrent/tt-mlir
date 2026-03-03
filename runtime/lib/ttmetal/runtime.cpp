@@ -6,7 +6,8 @@
 #include <variant>
 
 #include "tracy/Tracy.hpp"
-#include "tt-metalium/fabric.hpp"
+#include "tt-metalium/allocator.hpp"
+#include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
 #include "tt/runtime/detail/common/logger.h"
@@ -194,6 +195,16 @@ Tensor createMultiDeviceHostTensor(
                                               meshShape);
 }
 
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+  LOG_FATAL(
+      "createMultiDeviceBorrowedHostTensor not implemented for metal runtime");
+}
+
 bool isTensorAllocated(Tensor tensor) {
   LOG_FATAL("isTensorAllocated not implemented for metal runtime");
 }
@@ -231,14 +242,6 @@ void setTensorRetain(Tensor tensor, bool retain) {
 
 tt::target::Arch getArch() {
   return ::tt::runtime::common::toTargetArch(::tt::tt_metal::hal::get_arch());
-}
-
-void enablePersistentKernelCache() {
-  ::tt::tt_metal::detail::EnablePersistentKernelCache();
-}
-
-void disablePersistentKernelCache() {
-  ::tt::tt_metal::detail::DisablePersistentKernelCache();
 }
 
 size_t getNumAvailableDevices() { return tt_metal::GetNumAvailableDevices(); }
@@ -379,6 +382,13 @@ bool isProgramCacheEnabled(Device meshDevice) {
       meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
   return metalMeshDevice.get_program_cache().is_enabled();
+}
+
+void clearProgramCache(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.clear_program_cache();
 }
 
 size_t getL1SmallSize(Device meshDevice) {
@@ -619,8 +629,15 @@ void memcpy(Tensor dst, Tensor src) {
 
 void memcpy(Tensor dst, TensorDesc dstDesc, Tensor src, TensorDesc srcDesc) {
   LOG_ASSERT(dstDesc.dataType == srcDesc.dataType, "Tensor data type mismatch");
-  LOG_ASSERT(dstDesc.shape.size() == srcDesc.shape.size(),
-             "Tensor rank mismatch");
+  // Allow rank mismatch for reshape-style copies (e.g. [128] -> [1,128]) when
+  // total byte size matches and both are contiguous (rank normalization may
+  // promote 1D to 2D on one side while the other keeps original shape).
+  if (dstDesc.shape.size() != srcDesc.shape.size()) {
+    LOG_ASSERT(dstDesc.sizeBytes() == srcDesc.sizeBytes(),
+               "Tensor size mismatch for rank-changing copy");
+    LOG_ASSERT(!dstDesc.isPadded() && !srcDesc.isPadded(),
+               "Padded tensors with different ranks not supported for memcpy");
+  }
   void *singleDeviceTensorPtr = nullptr;
   std::visit(utils::overloaded{
                  [&](const TensorDesc &srcDesc) {

@@ -19,6 +19,16 @@ enum ShardOrientation: uint32 {
   ColMajor,
 }
 
+enum ShardDistributionStrategy: uint32 {
+  RoundRobin1D,
+  Grid2D,
+}
+
+enum ShardStatus: uint32 {
+  Presharded,
+  Unsharded,
+}
+
 struct CoreCoord {
   x: uint64;
   y: uint64;
@@ -55,10 +65,18 @@ table ShardSpec {
   orientation: ShardOrientation;
 }
 
+table NDShardSpec {
+  core_range_set: CoreRangeSet;
+  shape: [int32];
+  orientation: ShardOrientation;
+  distribution_strategy: ShardDistributionStrategy;
+}
+
 table MemoryConfig {
   tensor_memory_layout: TensorMemoryLayout;
   buffer_type: BufferType;
   shard_spec: ShardSpec;
+  nd_shard_spec: NDShardSpec;
 }
 
 table MemoryDesc {
@@ -73,10 +91,16 @@ table LayoutDesc {
   memory_desc: MemoryDesc;
 }
 
+table RuntimeTensorShardingDesc {
+  shard_status: ShardStatus;
+  local_shape: [int];
+}
+
 table TensorDesc {
   shape: [int];
   mesh_shape: [int32];
   layout: LayoutDesc;
+  runtime_tensor_sharding: RuntimeTensorShardingDesc;
 }
 
 table TensorRef {
@@ -88,6 +112,40 @@ table FloatingPointType {
   value: float;
 }
 
-table UIntegralType {
-  value: uint32;
+table IntegralType {
+  value: int32;
+}
+
+union NumberType {
+  FP: FloatingPointType,
+  I32: IntegralType,
+}
+
+enum PlacementType: ushort {
+    Replicate,
+    Shard,
+}
+
+struct Placement {
+  type: PlacementType;
+  dim: int32;
+}
+
+table MeshMapperConfig {
+  placements: [Placement];
+  mesh_shape_override: [uint32];
+}
+
+table MeshComposerConfig {
+  dims: [int32];
+  mesh_shape_override: [uint32];
+}
+
+table MeshCoord {
+  coords: [uint32];
+}
+
+table MeshCoordRange {
+  start: MeshCoord;
+  end: MeshCoord;
 }

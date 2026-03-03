@@ -2,11 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -15,103 +14,6 @@
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_UPDATEGLOBALTOLOCALSHAPESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
-
-// Helper function to determine if a ScatterOp represents a safe sharded scatter
-//  that doesn't require attr rewriting when running
-//  UpdateGlobalToLocalShapesPass. This requires the scatter to have inputs that
-//  are either unsharded, or jointly sharded along the same axis, which must
-//  differ from the scatter axis:
-// i.e. both insertedWindowDims and scatterDimsToOperandDims must be orthogonal
-//  to the update/input sharding dims.
-static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
-                                 mlir::sdy::MeshOp &globalMeshOp) {
-  mlir::stablehlo::ScatterDimensionNumbersAttr scatterDimensionNumbers =
-      scatterOp.getScatterDimensionNumbers();
-  llvm::ArrayRef<int64_t> insertedWindowDims =
-      scatterDimensionNumbers.getInsertedWindowDims();
-  llvm::ArrayRef<int64_t> scatterDimsToOperandDims =
-      scatterDimensionNumbers.getScatterDimsToOperandDims();
-
-  // Get sharding info for inputs.
-  llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> inputDimShardings =
-      shardy_utils::getOperandShardingAttr(
-          scatterOp.getOperation()->getOpOperand(0), globalMeshOp)
-          .getDimShardings();
-
-  // Get sharding info for updates.
-  llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> updateDimShardings =
-      shardy_utils::getOperandShardingAttr(
-          scatterOp.getOperation()->getOpOperand(2), globalMeshOp)
-          .getDimShardings();
-
-  // Early exit conditions - return false if we can't analyze safely.
-  if (inputDimShardings.empty() || updateDimShardings.empty()) {
-    return false;
-  }
-
-  mlir::OperandRange scatterInputs = scatterOp.getInputs();
-  mlir::OperandRange scatterUpdates = scatterOp.getUpdates();
-
-  // SHLO scatter accepts a variadic number of inputs / updates tensors, we
-  // expect only 1.
-  if (scatterInputs.size() != 1 || scatterUpdates.size() != 1) {
-    return false;
-  }
-
-  // Expect the inputs and updates to have the same size.
-  mlir::RankedTensorType scatterInputType =
-      mlir::dyn_cast<mlir::RankedTensorType>(scatterInputs.front().getType());
-  mlir::RankedTensorType scatterUpdateType =
-      mlir::dyn_cast<mlir::RankedTensorType>(scatterUpdates.front().getType());
-  if (scatterInputType.getShape().size() !=
-      scatterUpdateType.getShape().size()) {
-    return false;
-  }
-
-  // insertedWindowDims / scatterDimsToOperandDims must be a single dim and
-  // equal for a cache update.
-  if (insertedWindowDims.size() != 1 || scatterDimsToOperandDims.size() != 1 ||
-      (insertedWindowDims.front() != scatterDimsToOperandDims.front())) {
-    return false;
-  }
-
-  int64_t scatterAxis = insertedWindowDims.front();
-
-  // Determine the "sharding axis"
-  // input and updates must be sharded equivalently.
-  // Allow closed/open mismatches (e.g., {} vs {?})
-  if (inputDimShardings.size() != updateDimShardings.size()) {
-    return false;
-  }
-
-  for (size_t i = 0; i < inputDimShardings.size(); ++i) {
-    const auto &inputSharding = inputDimShardings[i];
-    const auto &updateSharding = updateDimShardings[i];
-
-    // Compare axes - they must match
-    if (inputSharding.getAxes() != updateSharding.getAxes()) {
-      return false;
-    }
-
-    // Allow closed/open mismatches - we only care that the axes are the same
-    // (i.e., {} and {?} should be treated as equivalent)
-  }
-
-  llvm::SmallVector<uint8_t> shardingAxes = {};
-
-  for (auto [dimIndex, sharding] : llvm::enumerate(inputDimShardings)) {
-    if (!sharding.getAxes().empty()) {
-      shardingAxes.push_back(dimIndex);
-    }
-  }
-
-  // We expect the sharding axes and scatter axes to be disjoint.
-  if (llvm::is_contained(shardingAxes, scatterAxis)) {
-    return false;
-  }
-
-  return true;
-}
 
 // This function creates a new operation state with updated shapes and
 // attributes based on the provided operation, global mesh, new types, and
@@ -141,18 +43,37 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                 mlir::cast<mlir::DenseElementsAttr>(
                     attrDict.get(valueAttrName));
 
-            // If the element is not a splat value (ie. the same value
-            // for the entire constant) we fail as this is currently
-            // not supported.
-            if (!denseElementsAttr.isSplat()) {
-              constantOp->emitError(
-                  "Shardy automatic parallelization currently does "
-                  "not support non-splat constant tensors");
-              return mlir::failure();
+            mlir::DenseElementsAttr newAttr;
+
+            // If the type didn't change (e.g. replicated constant), keep
+            // the original attribute as-is.
+            if (denseElementsAttr.getType() == newTypes[0]) {
+              newAttr = denseElementsAttr;
+            } else if (denseElementsAttr.isSplat()) {
+              newAttr = mlir::DenseElementsAttr::get(
+                  newTypes[0],
+                  denseElementsAttr.getSplatValue<mlir::Attribute>());
+            } else {
+              // The constant is periodic across shards — slice it.
+              // Non-splat, non-periodic constants were already replicated
+              // by ReplicateNonSplittableConstantsPass and handled by the
+              // type-unchanged branch above.
+              std::optional<mlir::DenseElementsAttr> periodicAttr =
+                  mlir::tt::shardy_utils::tryGetPeriodicShardSlice(
+                      denseElementsAttr, newTypes[0], tensorShardings[0],
+                      globalMeshOp);
+
+              if (!periodicAttr.has_value()) {
+                constantOp.emitError(
+                    "Non-splat, non-periodic constant reached "
+                    "UpdateGlobalToLocalShapes with a sharded annotation. "
+                    "ReplicateNonSplittableConstantsPass should have marked "
+                    "it as replicated.");
+                return mlir::failure();
+              }
+              newAttr = periodicAttr.value();
             }
-            mlir::DenseElementsAttr newAttr = mlir::DenseElementsAttr::get(
-                newTypes[0],
-                denseElementsAttr.getSplatValue<mlir::Attribute>());
+
             auto namedAttrIt = llvm::find_if(
                 namedAttrs, [&](const mlir::NamedAttribute &attr) {
                   return attr.getName() == valueAttrName;
@@ -193,12 +114,23 @@ static FailureOr<mlir::OperationState> createNewOperationState(
 
               if (failed(updatedLimitDim)) {
                 sliceOp->emitError(
-                    "Could not apply propagated tensor shardings "
-                    "to attribute dictionary for slice op");
+                    "Could not apply propagated tensor shardings for limit "
+                    "indices of attribute dictionary for slice op");
                 return mlir::failure();
               }
 
               limitIndices[i] = *updatedLimitDim;
+
+              FailureOr<int64_t> updatedStartDim =
+                  shardy_utils::calculateUpdatedDim(
+                      globalMeshOp.getMesh(), shardings[0], startIndices[i]);
+              if (failed(updatedStartDim)) {
+                sliceOp->emitError(
+                    "Could not apply propagated tensor shardings for start "
+                    "indices of attribute dictionary for slice op");
+                return mlir::failure();
+              }
+              startIndices[i] = *updatedStartDim;
             }
 
             // 4. Update start and limit indices in op named attributes.
@@ -288,19 +220,6 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                 mlir::DenseI64ArrayAttr::get(context, newSliceSizes));
 
             return mlir::success();
-          })
-          .Case<mlir::stablehlo::ScatterOp>([&](auto scatterOp) {
-            // Check if this is a safe cache update that can be handled
-            if (isSafeShardedScatter(scatterOp, globalMeshOp)) {
-              return mlir::success();
-            }
-
-            // If not a safe cache update, emit the error as before
-            scatterOp->emitError(
-                "Scatter operation is not supported in stablehlo-pipeline for "
-                "meshes not 1x1: "
-                "https://github.com/tenstorrent/tt-mlir/issues/3496.");
-            return mlir::failure();
           })
           .Default([](mlir::Operation *op) { return mlir::success(); });
 
@@ -442,8 +361,30 @@ convertShardyCCLToStableHLOCCL(MLIRContext *context,
   populateShardyCCLToStableHLOCCLPatterns(context, patterns);
   FrozenRewritePatternSet patternSet(std::move(patterns));
 
+  GreedyRewriteConfig config;
+  // We will disable constant CSE if there are any protected constants
+  // (i.e., constants from composite functions) to avoid removing them
+  // during the rewrite process.
+  const bool hasProtectedConst = [&] {
+    bool found = false;
+    rootModule.walk([&](mlir::stablehlo::ConstantOp cst) {
+      if (cst->hasAttr(utils::kReoutlineGroupAttr)) {
+        found = true;
+        return mlir::WalkResult::interrupt();
+      }
+      return mlir::WalkResult::advance();
+    });
+    return found;
+  }();
+
+  config.enableConstantCSE(!hasProtectedConst);
+  // Fixes: https://github.com/tenstorrent/tt-mlir/issues/6157
+  // TODO(hshah): See if the above issue can be fixed by modifying the pattern
+  // rewriter directly (without needing to use top-down traversal)
+  config.setUseTopDownTraversal();
+
   // Apply patterns greedily.
-  if (failed(applyPatternsGreedily(rootModule, patternSet))) {
+  if (failed(applyPatternsGreedily(rootModule, patternSet, config))) {
     rootModule.emitError("Could not convert shardy ccl operations into "
                          "stablehlo ccl operations");
     return mlir::failure();

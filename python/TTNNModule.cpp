@@ -34,6 +34,30 @@ void populateTTNNModule(nb::module_ &m) {
       .def_prop_ro("value", [](tt::ttnn::TensorMemoryLayoutAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
+
+  tt_attribute_class<tt::ttnn::ShardOrientationAttr>(m, "ShardOrientationAttr")
+      .def_static("get",
+                  [](MlirContext ctx, uint32_t shardOrientation) {
+                    return wrap(tt::ttnn::ShardOrientationAttr::get(
+                        unwrap(ctx), static_cast<tt::ttnn::ShardOrientation>(
+                                         shardOrientation)));
+                  })
+      .def_prop_ro("value", [](tt::ttnn::ShardOrientationAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
+
+  tt_attribute_class<tt::ttnn::ShardDistributionStrategyAttr>(
+      m, "ShardDistributionStrategyAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, uint32_t shardDistributionStrategy) {
+            return wrap(tt::ttnn::ShardDistributionStrategyAttr::get(
+                unwrap(ctx), static_cast<tt::ttnn::ShardDistributionStrategy>(
+                                 shardDistributionStrategy)));
+          })
+      .def_prop_ro("value", [](tt::ttnn::ShardDistributionStrategyAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
   tt_attribute_class<tt::ttnn::BufferTypeAttr>(m, "BufferTypeAttr")
       .def_static(
           "get",
@@ -67,10 +91,17 @@ void populateTTNNModule(nb::module_ &m) {
       .def_static(
           "get",
           [](MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,
-             MlirAttribute bufferTypeAttr, MlirAttribute shardSpecAttr) {
+             MlirAttribute bufferTypeAttr,
+             std::optional<MlirAttribute> shardSpec = std::nullopt) {
+            MlirAttribute shardSpecAttr = {nullptr};
+            if (shardSpec.has_value()) {
+              shardSpecAttr = shardSpec.value();
+            }
             return ttmlirTTNNMemoryConfigAttrGet(ctx, tensorMemoryLayoutAttr,
                                                  bufferTypeAttr, shardSpecAttr);
-          })
+          },
+          nb::arg("ctx"), nb::arg("tensorMemoryLayoutAttr"),
+          nb::arg("bufferTypeAttr"), nb::arg("shardSpec") = nb::none())
       .def_prop_ro("buffer_type", &tt::ttnn::MemoryConfigAttr::getBufferType)
       .def_prop_ro("tensor_memory_layout",
                    &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
@@ -110,7 +141,8 @@ void populateTTNNModule(nb::module_ &m) {
           [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
              MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
              std::optional<tt::ttcore::TensorMeshAttr> tensorMesh =
-                 std::nullopt) {
+                 std::nullopt,
+             std::optional<bool> exactGrid = std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
               memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
@@ -125,10 +157,12 @@ void populateTTNNModule(nb::module_ &m) {
                 unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
                 mlir::cast<tt::ttcore::GridAttr>(unwrap(grid)),
                 mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
-                tensorMeshAttr));
+                tensorMeshAttr, /*ignorePhysicalLayout=*/false,
+                exactGrid.value_or(false)));
           },
           nb::arg("ctx"), nb::arg("linear"), nb::arg("grid"), nb::arg("memref"),
-          nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none())
+          nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none(),
+          nb::arg("exactGrid") = nb::none())
       .def_static(
           "get",
           [](MlirContext ctx, std::vector<std::int64_t> shape, MlirType type,
@@ -182,6 +216,82 @@ void populateTTNNModule(nb::module_ &m) {
         return static_cast<uint32_t>(self.getDataType());
       });
 
+  tt_attribute_class<tt::ttnn::TTNNNDLayoutAttr>(m, "TTNNNDLayoutAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, MlirAttribute grid, MlirType memref,
+             MlirAttribute memLayout,
+             std::optional<unsigned> shardOrientation = std::nullopt,
+             std::optional<unsigned> shardDistributionStrategy = std::nullopt) {
+            tt::ttnn::ShardOrientationAttr shardOrientationAttr =
+                tt::ttnn::ShardOrientationAttr::get(
+                    unwrap(ctx), tt::ttnn::ShardOrientation::RowMajor);
+            if (shardOrientation.has_value()) {
+              shardOrientationAttr = tt::ttnn::ShardOrientationAttr::get(
+                  unwrap(ctx), static_cast<tt::ttnn::ShardOrientation>(
+                                   shardOrientation.value()));
+            }
+            tt::ttnn::ShardDistributionStrategyAttr
+                shardDistributionStrategyAttr =
+                    tt::ttnn::ShardDistributionStrategyAttr::get(
+                        unwrap(ctx),
+                        tt::ttnn::ShardDistributionStrategy::Grid2D);
+            if (shardDistributionStrategy.has_value()) {
+              shardDistributionStrategyAttr =
+                  tt::ttnn::ShardDistributionStrategyAttr::get(
+                      unwrap(ctx),
+                      static_cast<tt::ttnn::ShardDistributionStrategy>(
+                          shardDistributionStrategy.value()));
+            }
+            return wrap(tt::ttnn::TTNNNDLayoutAttr::get(
+                unwrap(ctx), mlir::cast<tt::ttcore::GridAttr>(unwrap(grid)),
+                mlir::cast<MemRefType>(unwrap(memref)),
+                mlir::cast<tt::ttnn::TensorMemoryLayoutAttr>(unwrap(memLayout)),
+                shardOrientationAttr, shardDistributionStrategyAttr));
+          },
+          nb::arg("ctx"), nb::arg("grid"), nb::arg("memref"),
+          nb::arg("memLayout"), nb::arg("shardOrientation") = nb::none(),
+          nb::arg("shardDistributionStrategy") = nb::none())
+
+      .def_prop_ro("grid_attr", &tt::ttnn::TTNNNDLayoutAttr::getGrid)
+      .def_prop_ro("grid_shape",
+                   [](tt::ttnn::TTNNNDLayoutAttr self) {
+                     auto shape = self.getGrid().getShape();
+                     return std::vector<int64_t>(shape.begin(), shape.end());
+                   })
+      .def_prop_ro("memref",
+                   [](tt::ttnn::TTNNNDLayoutAttr self) {
+                     return wrap(self.getMemref());
+                   })
+      .def_prop_ro("tensor_memory_layout_as_int",
+                   [](tt::ttnn::TTNNNDLayoutAttr self)
+                       -> std::variant<uint32_t, nb::object> {
+                     if (!self.getMemLayout()) {
+                       return nb::none();
+                     }
+                     return static_cast<uint32_t>(
+                         self.getMemLayout().getValue());
+                   })
+      .def_prop_ro("memory_layout_as_int",
+                   [](tt::ttnn::TTNNNDLayoutAttr self) {
+                     return static_cast<uint32_t>(
+                         self.getMemLayout().getValue());
+                   })
+      .def_prop_ro("memory_space",
+                   [](tt::ttnn::TTNNNDLayoutAttr self) {
+                     return wrap(self.getMemref().getMemorySpace());
+                   })
+      .def_prop_ro("shard_orientation_as_int",
+                   [](tt::ttnn::TTNNNDLayoutAttr self) {
+                     return static_cast<uint32_t>(
+                         self.getShardOrientation().getValue());
+                   })
+      .def_prop_ro("shard_distribution_strategy_as_int",
+                   [](tt::ttnn::TTNNNDLayoutAttr self) {
+                     return static_cast<uint32_t>(
+                         self.getShardDistributionStrategy().getValue());
+                   });
+
   tt_attribute_class<tt::ttnn::Conv2dConfigAttr>(m, "Conv2dConfigAttr")
       .def_static(
           "get",
@@ -196,7 +306,7 @@ void populateTTNNModule(nb::module_ &m) {
              tt::ttnn::CoreRangeSetAttr coreGrid, BoolAttr transposeShards,
              std::optional<tt::ttnn::Layout> outputLayout,
              BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
-             BoolAttr inPlace, BoolAttr enableKernelStrideFolding) {
+             BoolAttr enableKernelStrideFolding, BoolAttr configTensorsInDram) {
             MLIRContext *context = unwrap(ctx);
 
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
@@ -204,7 +314,8 @@ void populateTTNNModule(nb::module_ &m) {
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
                 coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
-                enableWeightsDoubleBuffer, inPlace, enableKernelStrideFolding));
+                enableWeightsDoubleBuffer, enableKernelStrideFolding,
+                configTensorsInDram));
           })
       .def_prop_ro("weights_dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self)
@@ -313,14 +424,6 @@ void populateTTNNModule(nb::module_ &m) {
                        return nb::none();
                      }
                      return self.getEnableWeightsDoubleBuffer().getValue();
-                   })
-      .def_prop_ro("in_place",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, bool> {
-                     if (!self.getInPlace()) {
-                       return nb::none();
-                     }
-                     return self.getInPlace().getValue();
                    });
 
   tt_attribute_class<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")

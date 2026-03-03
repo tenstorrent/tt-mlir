@@ -46,10 +46,17 @@ public:
         op, newPerm.getResult(), permutation, rewriter,
         /*inverseDimPermute=*/true);
 
+    // All users must be identical TMs. We must not reference `permuteUser`
+    // during/after replacements, as it will be erased on its turn.
     SmallVector<Operation *> users(op->getUsers());
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(permuteUser, user);
+                        }) &&
+           "isCommuteUpwardsViable/Favorable should have ensured all users "
+           "are identical TMs");
+
     for (auto *user : users) {
-      assert(checkIdenticalTms(permuteUser, user) &&
-             "shouldCommute should have ensured this is true");
       rewriter.replaceOp(user, newReduce);
     }
   }
@@ -90,8 +97,7 @@ private:
         outputShape, inputType.getElementType(), inputType.getEncoding());
 
     // Create and return the new PermuteOp
-    return ttir::utils::createDPSOp<PermuteOp>(rewriter, loc, outputType, input,
-                                               permutation);
+    return rewriter.create<PermuteOp>(loc, outputType, input, permutation);
   }
 
   ArrayAttr permuteDims(ArrayAttr dimArg, ArrayRef<int64_t> permutation,
@@ -128,9 +134,8 @@ private:
         RankedTensorType::get(newReduceShape, op.getType().getElementType(),
                               op.getType().getEncoding());
 
-    return utils::createDPSOp<ReduceOpType>(
-        rewriter, op->getLoc(), newReduceType, newInput, op.getKeepDimAttr(),
-        newDimArgAttrs);
+    return rewriter.create<ReduceOpType>(op->getLoc(), newReduceType, newInput,
+                                         op.getKeepDimAttr(), newDimArgAttrs);
   }
 
   bool isCommuteUpwardsViable(ReduceOpType op, PermuteOp) const override {
@@ -157,9 +162,7 @@ private:
     // - Are an identical TM
     // - Are on a consteval-able path
 
-    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
-    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
-      auto operandValue = operand->get();
+    for (auto operandValue : op->getOperands()) {
       if (checkIdenticalTms(operandValue.getDefiningOp(), permuteOperand) ||
           ttcore::valueTracesToConstantArgs(operandValue)) {
         continue;

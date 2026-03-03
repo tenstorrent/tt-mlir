@@ -5,6 +5,7 @@
 #ifndef TTMLIR_SUPPORT_LOGGER_H
 #define TTMLIR_SUPPORT_LOGGER_H
 
+#include "mlir/IR/Operation.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
@@ -18,8 +19,28 @@
 
 namespace ttmlir {
 
+inline std::string opToString(mlir::Operation *op) {
+  std::string s;
+  llvm::raw_string_ostream os(s);
+  mlir::OpPrintingFlags flags;
+  flags.elideLargeElementsAttrs();
+  op->print(os, flags);
+  os.flush();
+  return s;
+}
+
 // Log components for different components
-enum class LogComponent { Optimizer, OpValidation, Allocator, Test, General };
+enum class LogComponent {
+  RecoverStructure,
+  Optimizer,
+  DFShardingPolicy,
+  OpValidation,
+  RMPropagation,
+  Allocator,
+  Test,
+  General,
+  D2MFusion
+};
 
 // Log levels in order of verbosity
 enum class LogLevel {
@@ -31,16 +52,24 @@ enum class LogLevel {
 // Define LLVM log component type strings
 inline constexpr const char *getLogComponentStr(LogComponent type) {
   switch (type) {
+  case LogComponent::RecoverStructure:
+    return "recover-structure";
   case LogComponent::Optimizer:
     return "optimizer";
+  case LogComponent::DFShardingPolicy:
+    return "df-sharding-policy";
   case LogComponent::OpValidation:
     return "op-validation";
+  case LogComponent::RMPropagation:
+    return "rm-propagation";
   case LogComponent::Allocator:
     return "allocator";
   case LogComponent::Test:
     return "test";
   case LogComponent::General:
     return "general";
+  case LogComponent::D2MFusion:
+    return "d2m-fusion";
   }
   return "unknown";
 }

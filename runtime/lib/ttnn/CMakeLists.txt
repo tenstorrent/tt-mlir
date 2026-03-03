@@ -30,7 +30,7 @@ target_include_directories(TTRuntimeTTNN PUBLIC
   ${Python3_INCLUDE_DIRS}
 )
 target_include_directories(TTRuntimeTTNN SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-target_link_libraries(TTRuntimeTTNN PUBLIC TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
+target_link_libraries(TTRuntimeTTNN PUBLIC TTRuntimeTypes TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
 target_link_libraries(TTRuntimeTTNN PUBLIC coverage_config)
 target_link_libraries(TTRuntimeTTNN PUBLIC ${Python3_LIBRARIES})
-add_dependencies(TTRuntimeTTNN TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils RUNTIME_FBS_GENERATION)
+add_dependencies(TTRuntimeTTNN RUNTIME_FBS_GENERATION)

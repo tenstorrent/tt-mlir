@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/Debug/IR/Debug.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/SFPI/IR/SFPI.h"
@@ -92,7 +93,8 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
       mlir::memref::MemRefDialect, mlir::emitc::EmitCDialect,
       mlir::bufferization::BufferizationDialect, mlir::LLVM::LLVMDialect,
-      mlir::quant::QuantDialect, mlir::tt::emitpy::EmitPyDialect>();
+      mlir::quant::QuantDialect, mlir::tt::emitpy::EmitPyDialect,
+      mlir::tt::debug::DebugDialect>();
 
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);

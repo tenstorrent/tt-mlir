@@ -69,6 +69,16 @@ def TTCoreRegisterDevicePass : Pass<"ttcore-register-device", "::mlir::ModuleOp"
              )}]>,
         Option<"systemDescPath", "system-desc-path", "std::string", "", "System desc path">,
         ListOption<"meshShape", "mesh-shape", "int64_t", "Set the mesh shape">,
+        ListOption<"meshTopology", "mesh-topology", "ttcore::Topology",
+            "Set the per-axis mesh topology",
+            [{::llvm::cl::values(
+              clEnumValN(ttcore::Topology::Ring, "ring",
+               "Ring topology"),
+              clEnumValN(ttcore::Topology::Linear, "linear",
+               "Linear topology"),
+              clEnumValN(ttcore::Topology::Disabled, "disabled",
+               "Disabled topology")
+             )}]>,
     ];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
@@ -96,6 +106,30 @@ def TTCoreOneShotBufferizePass : Pass<"ttcore-one-shot-bufferize", "::mlir::Modu
     "::mlir::bufferization::BufferizationDialect",
     "::mlir::tt::ttcore::TTCoreDialect"
   ];
+}
+
+def TTCoreMarkFunctionsAsForwardPass : Pass<"ttcore-mark-functions-as-forward", "::mlir::ModuleOp"> {
+  let summary = "Mark all public functions without a type as Device Forward functions";
+  let description = [{
+    This pass marks all public (non-private) functions in the provided module
+    that do not already have a function type attribute as Device Forward
+    functions. It is intended to run early in the pipeline, before any hoisting
+    or const-eval transforms.
+
+    This provides a consistent mechanism for downstream passes to identify
+    Device Forward functions without relying on ad-hoc detection logic.
+
+    Example:
+    Input:
+      func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
+        ...
+      }
+
+    Output:
+      func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {tt.function_type = "forward_device"} {
+        ...
+      }
+  }];
 }
 
 #endif

@@ -1,0 +1,7 @@
+set(LLVM_TARGET_DEFINITIONS DebugOps.td)
+mlir_tablegen(DebugOps.h.inc -gen-op-decls)
+mlir_tablegen(DebugOps.cpp.inc -gen-op-defs)
+mlir_tablegen(DebugOpsDialect.h.inc -gen-dialect-decls -dialect=debug)
+mlir_tablegen(DebugOpsDialect.cpp.inc -gen-dialect-defs -dialect=debug)
+add_public_tablegen_target(MLIRDebugOpsIncGen)
+add_dependencies(mlir-headers MLIRDebugOpsIncGen)

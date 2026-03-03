@@ -1,12 +1,17 @@
 add_subdirectory(EraseInverseOps)
+add_subdirectory(HoistCPUOps)
 add_mlir_dialect_library(MLIRTTIRTransforms
         Broadcast.cpp
+        DecomposeComplexReshape.cpp
         ExplicateTMs.cpp
         FlattenSlidingWindow.cpp
-        HoistCPUOps.cpp
+        FoldConstantReshapeBroadcast.cpp
         ElementTypeNormalization.cpp
+        InferKVCacheArgumentTypes.cpp
+        MoveReshapeToConstant.cpp
         Quantization.cpp
         QuantDequantConversion.cpp
+        ReductionForceKeepDim.cpp
         Transforms.cpp
         TTIRFusing.cpp
         MultiDeviceTensorAnnotation.cpp
@@ -21,4 +26,5 @@ add_mlir_dialect_library(MLIRTTIRTransforms
 
         LINK_LIBS PUBLIC
         MLIRTTIREraseInverseOps
+        MLIRTTIRHoistCPUOps
         )

@@ -27,6 +27,10 @@ def TTNN_KernelInterface: AttrInterface<"KernelInterface"> {
       "llvm::ArrayRef<mlir::Attribute>", "getCommonRtArgs", (ins)
     >,
     InterfaceMethod<
+      "Get per-core runtime arguments",
+      "llvm::ArrayRef<::mlir::tt::ttnn::CoreRuntimeArgsAttr>", "getRtArgs", (ins)
+    >,
+    InterfaceMethod<
       "Get compile time arguments",
       "llvm::ArrayRef<mlir::Attribute>", "getCtArgs", (ins)
     >,

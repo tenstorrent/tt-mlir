@@ -1,6 +1,7 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/Common/debug_info.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/operations/debug.fbs";
 include "ttmlir/Target/TTNN/operations/ccl.fbs";
 include "ttmlir/Target/TTNN/operations/get_device.fbs";
 include "ttmlir/Target/TTNN/operations/conv.fbs";
@@ -30,14 +31,15 @@ include "ttmlir/Target/TTNN/operations/transformer.fbs";
 namespace tt.target.ttnn;
 
 union OpType {
+  AggregateTensorOp,
   AllGatherOp,
+  AllReduceOp,
   ArangeOp,
   AssignOp,
   BatchNormInferenceOp,
   BatchNormTrainingOp,
   BeginTraceCaptureOp,
   CaptureOrExecuteTraceOp,
-  CollectivePermuteOp,
   ConcatOp,
   ConcatenateHeadsOp,
   RotaryEmbeddingLlamaOp,
@@ -47,8 +49,12 @@ union OpType {
   ConstantOp,
   Conv2dOp,
   ConvTranspose2dOp,
+  Conv3dOp,
   CpuOp,
   DeallocateOp,
+  DistributeTensorOp,
+  DistributedRMSNormOp,
+  DropoutOp,
   EltwiseBinaryCompositeOp,
   EltwiseBinaryCompositeScalarOp,
   EltwiseBinaryOp,
@@ -61,6 +67,7 @@ union OpType {
   EmptyOp,
   EndTraceCaptureOp,
   ExecuteTraceOp,
+  ExperimentalEltwiseBinaryBackwardOp,
   FillCacheOp,
   FromDeviceOp,
   FullOp,
@@ -68,6 +75,7 @@ union OpType {
   GenericOp,
   GetDeviceOp,
   GlobalAvgPool2dOp,
+  LayerNormOp,
   LinearOp,
   LoadCachedOp,
   // ANCHOR: adding_an_op_matmul_fbs_op_type
@@ -75,16 +83,21 @@ union OpType {
   // ANCHOR_END: adding_an_op_matmul_fbs_op_type
   MaxPool2dWithIndicesOp,
   MeshShardOp,
+  MeshPartitionOp,
   MorehCumSumOp,
   NamedFullOp,
   NLPConcatHeadsDecodeOp,
   PadOp,
+  PagedFillCacheOp,
+  PagedScaledDotProductAttentionDecodeOp,
   PagedUpdateCacheOp,
   PermuteOp,
   PointToPointOp,
   Pool2dOp,
   PrepareConv2dBiasOp,
   PrepareConv2dWeightsOp,
+  PrepareConvTranspose2dBiasOp,
+  PrepareConvTranspose2dWeightsOp,
   RandOp,
   ReductionArgMaxOp,
   ReductionOp,
@@ -102,7 +115,6 @@ union OpType {
   SortOp,
   SplitQueryKeyValueAndSplitHeadsOp,
   ToDeviceOp,
-  ToDTypeOp,
   ToLayoutOp,
   ToMemoryConfigOp,
   TransposeOp,
@@ -112,6 +124,13 @@ union OpType {
   WriteTensorOp,
   DumpTensorOp,
   LoadTensorOp,
+  AnnotateOp,
+  BreakpointOp,
+  PrintOp,
+  MemorySnapshotOp,
+  RegionStartOp,
+  RegionEndOp,
+  TopKOp,
 }
 
 table Operation {

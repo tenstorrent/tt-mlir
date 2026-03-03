@@ -72,31 +72,15 @@ class MLIRModuleExecutor:
         # Prepare for new run.
         self._reset(module)
 
-        # TODO special case where module consists solely of one of following TTNN ops
-        # that cannot be executed on their own. They either fail fb generation or run.
-        # See what should be done with them.
-        if (
-            module.has_origin_op
-            and module.dialect == ModuleDialect.TTNN
-            and module.origin_op_name
-            in [
-                "ttnn.get_device",
-                "ttnn.to_device",
-                "ttnn.full",
-                "ttnn.empty",
-                "ttnn.deallocate",
-            ]
-        ):
-            return self._execution_result
-
         # Run execution steps on stored module.
         return self._execute()
 
     # ----- Private methods -----
 
-    def __init__(self, compile_only: bool = False) -> None:
+    def __init__(self, compile_only: bool = False, debug_print: bool = False) -> None:
         """Constructor."""
         self._compile_only = compile_only
+        self._debug_print = debug_print
         self._module: ModuleWrapper = None
         self._execution_result: ExecutionResult = None
 
@@ -119,6 +103,11 @@ class MLIRModuleExecutor:
             )
 
         self._execution_result = ExecutionResult(starting_execution_phase, module)
+
+    def _debug_print_module(self, module) -> None:
+        """Prints module if debug_print is enabled."""
+        if self._debug_print:
+            print(str(module), flush=True)
 
     def _mark_execution_step(
         self,
@@ -150,6 +139,7 @@ class MLIRModuleExecutor:
             return self._compile_ttir_to_ttnn()
         elif self._original_module_dialect == ModuleDialect.TTNN:
             # Trivial, original module was already a TTNN module.
+            self._debug_print_module(self._module)
             return self._module
         else:
             raise ValueError(
@@ -167,6 +157,7 @@ class MLIRModuleExecutor:
         # which it modifies in-place. Also, don't lose track of the origin op.
         try:
             shlo = self._module.module
+            self._debug_print_module(shlo)
 
             ttir = stablehlo_to_ttir(shlo)
             self._mark_execution_step(
@@ -176,8 +167,10 @@ class MLIRModuleExecutor:
                     origin_op_name=self._module.origin_op_name,
                     origin_op_operands=self._module.origin_op_operands,
                     origin_op_results=self._module.origin_op_results,
+                    origin_model=self._module.origin_model,
                 ),
             )
+            self._debug_print_module(ttir)
 
             ttnn = ttir_to_ttnn(ttir)
             self._mark_execution_step(
@@ -187,8 +180,10 @@ class MLIRModuleExecutor:
                     origin_op_name=self._module.origin_op_name,
                     origin_op_operands=self._module.origin_op_operands,
                     origin_op_results=self._module.origin_op_results,
+                    origin_model=self._module.origin_model,
                 ),
             )
+            self._debug_print_module(ttnn)
         finally:
             return self._execution_result.last_generated_module
 
@@ -201,6 +196,7 @@ class MLIRModuleExecutor:
         """
         try:
             ttir = self._module.module
+            self._debug_print_module(ttir)
 
             ttnn = ttir_to_ttnn(ttir)
             self._mark_execution_step(
@@ -210,8 +206,10 @@ class MLIRModuleExecutor:
                     origin_op_name=self._module.origin_op_name,
                     origin_op_operands=self._module.origin_op_operands,
                     origin_op_results=self._module.origin_op_results,
+                    origin_model=self._module.origin_model,
                 ),
             )
+            self._debug_print_module(ttnn)
         finally:
             return self._execution_result.last_generated_module
 

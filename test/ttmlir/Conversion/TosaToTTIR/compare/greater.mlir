@@ -3,9 +3,8 @@
 module attributes {} {
   func.func @test_greater(%arg0: tensor<13x21x3xf32>, %arg1: tensor<13x21x3xf32>) -> tensor<13x21x3xi1> {
     %0 = tosa.greater %arg0, %arg1 : (tensor<13x21x3xf32>, tensor<13x21x3xf32>) -> tensor<13x21x3xi1>
-    // CHECK: [[VAL0:%[0-9]+]] = ttir.empty() : [[TENSOR_SIZE:tensor<13x21x3xi1>]]
-    // CHECK: [[VAL1:%[0-9]+]] = "ttir.gt"(%arg{{[0-9]+}}, %arg{{[0-9]+}}, [[VAL0]]){{.+}}: (tensor<13x21x3xf32>, tensor<13x21x3xf32>, [[TENSOR_SIZE]]) -> [[TENSOR_SIZE]]
+    // CHECK: [[VAL1:%[0-9]+]] = "ttir.gt"(%arg{{[0-9]+}}, %arg{{[0-9]+}}) : ([[TENSOR_SIZE:tensor<13x21x3xf32>]], [[TENSOR_SIZE]]) -> [[RESULT_SIZE:tensor<13x21x3xi1>]]
     return %0 : tensor<13x21x3xi1>
-    // CHECK: return [[VAL1]] : [[TENSOR_SIZE]]
+    // CHECK: return [[VAL1]] : [[RESULT_SIZE]]
   }
 }

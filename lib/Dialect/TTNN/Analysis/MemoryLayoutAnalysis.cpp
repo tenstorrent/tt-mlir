@@ -62,8 +62,7 @@ void MemoryLayoutAnalysis::analysisImplementation() {
   case MemoryLayoutAnalysisPolicyType::DFSharding: {
     DFShardingPolicy dfShardingPolicy(
         op, l1ChainConfigs, analysisInput.tensorTypePossibleLayouts,
-        filterShardedOnly(analysisInput.legalConfigs), analysisResult.schedule,
-        analysisInput.usableL1CacheSize);
+        filterShardedOnly(analysisInput.legalConfigs), analysisResult.schedule);
     dfShardingPolicy.setOverrides(analysisInput.overrideReshardEdges,
                                   analysisInput.overrideOutputLayout);
     dfShardingPolicy.run();
@@ -73,7 +72,7 @@ void MemoryLayoutAnalysis::analysisImplementation() {
     GreedyL1InterleavedPolicy l1InterleavedPolicy(
         op, l1ChainConfigs,
         filterDRAMAndL1Interleaved(analysisInput.legalConfigs),
-        analysisResult.schedule, analysisInput.usableL1CacheSize);
+        analysisResult.schedule);
     l1InterleavedPolicy.run();
     break;
   }
@@ -81,7 +80,7 @@ void MemoryLayoutAnalysis::analysisImplementation() {
     BFInterleavedPolicy bfInterleavedPolicy(
         op, l1ChainConfigs,
         filterDRAMAndL1Interleaved(analysisInput.legalConfigs),
-        analysisResult.schedule, analysisInput.usableL1CacheSize);
+        analysisResult.schedule);
     bfInterleavedPolicy.run();
     break;
   }
@@ -108,8 +107,18 @@ void MemoryLayoutAnalysis::analysisImplementation() {
         l1ChainConfig.getMemReconfigEntryMap().begin(),
         l1ChainConfig.getMemReconfigEntryMap().end());
 
-    if (l1ChainConfig.spillEndToDRAM) {
+    // Handle spill location for chain output
+    switch (l1ChainConfig.spillLocation) {
+    case SpillLocation::DRAM:
       analysisResult.spillToDramOps.push_back(l1ChainConfig.getLastOp());
+      break;
+    case SpillLocation::L1Interleaved:
+      analysisResult.spillToL1InterleavedOps.push_back(
+          l1ChainConfig.getLastOp());
+      break;
+    case SpillLocation::None:
+      // No spill needed - chain output consumed directly by next chain
+      break;
     }
   }
 }

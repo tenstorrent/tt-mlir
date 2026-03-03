@@ -4,10 +4,12 @@
 
 import pytest
 import torch
+import os
 from typing import List, Optional
-from builder.base.builder import Operand, Shape
+from conftest import get_request_kwargs
+from builder.base.builder_utils import Operand, Shape, get_artifact_dir
 from builder.ttnn.ttnn_builder import TTNNBuilder
-from builder.base.builder_utils import compile_and_execute_ttnn
+from builder.base.builder_apis import compile_and_execute_ttnn
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -44,43 +46,48 @@ def test_matmul_activation_fusing(
 ):
     activation_name, torch_activation_fn, builder_activation_fn = activation
 
-    def matmul_sigmoid(
-        input_tensor: Operand,
-        weight: Operand,
-        builder: TTNNBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
-        weight_data = torch.randn(shapes[1], dtype=dtypes[1])
+    def module(builder: TTNNBuilder):
+        @builder.func(shapes, dtypes)
+        def matmul_sigmoid(
+            input_tensor: Operand,
+            weight: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
+            weight_data = torch.randn(shapes[1], dtype=dtypes[1])
 
-        matmul_result = torch.matmul(input_tensor_data, weight_data)
-        golden_output = torch_activation_fn(matmul_result)
+            matmul_result = torch.matmul(input_tensor_data, weight_data)
+            golden_output = torch_activation_fn(matmul_result)
 
-        matmul = builder.matmul(input_tensor, weight, unit_attrs=unit_attrs)
-        activation_op = builder_activation_fn(builder, matmul, unit_attrs)
+            matmul = builder.matmul(input_tensor, weight, unit_attrs=unit_attrs)
+            activation_op = builder_activation_fn(builder, matmul, unit_attrs)
 
-        builder.set_goldens(
-            {
-                input_tensor: input_tensor_data,
-                weight: weight_data,
-            },
-            {activation_op: golden_output},
-        )
-        return activation_op
+            builder.set_goldens(
+                {
+                    input_tensor: input_tensor_data,
+                    weight: weight_data,
+                },
+                {activation_op: golden_output},
+            )
+            return activation_op
 
-    output = compile_and_execute_ttnn(
-        matmul_sigmoid,
-        shapes,
-        dtypes,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
         device=device,
+        save_artifacts=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTNNBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
     )
 
-    assert check_op(output, "matmul"), "Matmul operation should exist"
+    assert check_op(output_path, "matmul"), "Matmul operation should exist"
     assert not check_op(
-        output, activation_name
+        output_path, activation_name
     ), f"Standalone {activation_name} operation should be fused"
 
 
@@ -104,48 +111,53 @@ def test_linear_activation_fusing(
 ):
     activation_name, torch_activation_fn, builder_activation_fn = activation
 
-    def linear_sigmoid(
-        input_tensor: Operand,
-        weight: Operand,
-        bias: Operand,
-        builder: TTNNBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
-        weight_data = torch.randn(shapes[1], dtype=dtypes[1])
-        bias_data = torch.randn(shapes[2], dtype=dtypes[2])
+    def module(builder: TTNNBuilder):
+        @builder.func(shapes, dtypes)
+        def linear_sigmoid(
+            input_tensor: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
+            weight_data = torch.randn(shapes[1], dtype=dtypes[1])
+            bias_data = torch.randn(shapes[2], dtype=dtypes[2])
 
-        goldens = {
-            input_tensor: input_tensor_data,
-            weight: weight_data,
-            bias: bias_data,
-        }
+            goldens = {
+                input_tensor: input_tensor_data,
+                weight: weight_data,
+                bias: bias_data,
+            }
 
-        linear_result = torch.nn.functional.linear(
-            input_tensor_data, weight_data, bias=bias_data
-        )
+            linear_result = torch.nn.functional.linear(
+                input_tensor_data, weight_data, bias=bias_data
+            )
 
-        golden_output = torch_activation_fn(linear_result)
+            golden_output = torch_activation_fn(linear_result)
 
-        linear = builder.linear(
-            input_tensor, weight, bias=bias, transpose_b=True, unit_attrs=unit_attrs
-        )
-        activation_op = builder_activation_fn(builder, linear, unit_attrs)
+            linear = builder.linear(
+                input_tensor, weight, bias=bias, transpose_b=True, unit_attrs=unit_attrs
+            )
+            activation_op = builder_activation_fn(builder, linear, unit_attrs)
 
-        builder.set_goldens(goldens, {activation_op: golden_output})
-        return activation_op
+            builder.set_goldens(goldens, {activation_op: golden_output})
+            return activation_op
 
-    output = compile_and_execute_ttnn(
-        linear_sigmoid,
-        shapes,
-        dtypes,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
         device=device,
+        save_artifacts=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTNNBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
     )
 
-    assert check_op(output, "linear"), "Linear operation should exist"
+    assert check_op(output_path, "linear"), "Linear operation should exist"
     assert not check_op(
-        output, activation_name
+        output_path, activation_name
     ), f"Standalone {activation_name} operation should be fused"

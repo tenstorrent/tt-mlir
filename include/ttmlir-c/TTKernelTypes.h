@@ -46,7 +46,7 @@ MLIR_CAPI_EXPORTED MlirType
 ttmlirTTKernelTensorAccessorPageMappingTypeGet(MlirContext ctx);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTKernelArgAttrGet(MlirContext ctx,
-                                                          MlirType argType,
+                                                          uint32_t argTypeValue,
                                                           size_t operandIndex,
                                                           bool isUniform);
 

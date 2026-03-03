@@ -4,23 +4,16 @@
 
 import os
 import json
-import importlib.machinery
 import sys
 import signal
-import io
 import subprocess
-import time
 import socket
-from pkg_resources import get_distribution
 import shutil
-import atexit
 import traceback
-from pathlib import Path
 import csv
 import ast
 
 from ttrt.common.util import *
-from ttrt.common.query import Query
 
 
 class Perf:
@@ -85,11 +78,11 @@ class Perf:
             help="test file to save results to",
         )
         Perf.register_arg(
-            name="--disable-golden",
+            name="--enable-golden",
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable golden comparison for intermediate and output tensors",
+            help="enable golden comparison for intermediate and output tensors",
         )
         Perf.register_arg(
             name="--memory",
@@ -115,7 +108,7 @@ class Perf:
         Perf.register_arg(
             name="--enable-program-cache",
             type=bool,
-            default=False,
+            default=True,
             choices=[True, False],
             help="enable program cache in ttnn runtime",
         )
@@ -167,6 +160,20 @@ class Perf:
             default="",
             choices=None,
             help="comma-separated list of operation types to filter out from perf results (e.g., 'const_eval,input_layout_conversion')",
+        )
+        Perf.register_arg(
+            name="--dump-kernels",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="dump the kernels to disk (/tmp) as they are being executed",
+        )
+        Perf.register_arg(
+            name="--load-kernels",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="pickup the kernels from disk (/tmp) instead of the flatbuffer, must have previously run with --dump-kernels",
         )
 
     def __init__(self, args={}, logger=None, artifacts=None):
@@ -365,7 +372,7 @@ class Perf:
                     try:
                         serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         serv.bind((ip, port))
-                        return str(port)
+                        return port
                     except PermissionError as e:
                         pass
                     except OSError as e:
@@ -382,18 +389,19 @@ class Perf:
                         get_available_port() if self["--port"] == 0 else self["--port"]
                     )
 
-                    if not port:
+                    if port is None:
                         raise Exception("No available port found")
                     self.logging.debug(f"selected port={port}")
 
                     env_vars = dict(os.environ)
-                    env_vars["TRACY_PORT"] = port
+                    env_vars["TRACY_PORT"] = str(port)
 
                     if not self["--host-only"]:
                         env_vars["TT_METAL_CLEAR_L1"] = "1"
                         env_vars["TT_METAL_DEVICE_PROFILER"] = "1"
                         env_vars["TTNN_OP_PROFILER"] = "1"
                         env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
+                        env_vars["TT_METAL_PROFILER_CPP_POST_PROCESS"] = "1"
 
                     tracy_capture_tool_command = f"{self.tracy_capture_tool_path} -o {tracy_file_path} -f -p {port}"
                     self.tracy_capture_tool_process = subprocess.Popen(
@@ -408,8 +416,8 @@ class Perf:
                     if self["--disable-eth-dispatch"]:
                         command_options += " --disable-eth-dispatch "
 
-                    if self["--disable-golden"]:
-                        command_options += " --disable-golden "
+                    if self["--enable-golden"]:
+                        command_options += " --enable-golden "
 
                     if self["--enable-program-cache"]:
                         command_options += " --enable-program-cache "
@@ -435,6 +443,12 @@ class Perf:
 
                     if self["--disable-ttrt-callbacks"]:
                         command_options += " --disable-ttrt-callbacks "
+
+                    if self["--dump-kernels"]:
+                        command_options += " --dump-kernels "
+
+                    if self["--load-kernels"]:
+                        command_options += " --load-kernels "
 
                     ttrt_executable_path = shutil.which("ttrt")
                     test_command = (
@@ -505,6 +519,8 @@ class Perf:
 
                     # copy all relevant files into perf folder for this test
                     perf_folder_path = self.artifacts.get_binary_perf_folder_path(bin)
+                    if not self.file_manager.check_directory_exists(perf_folder_path):
+                        self.file_manager.create_directory(perf_folder_path)
                     self.file_manager.copy_file(perf_folder_path, tracy_file_path)
                     self.file_manager.copy_file(
                         perf_folder_path, tracy_ops_times_file_path
@@ -939,6 +955,20 @@ class Perf:
                 self.logging.info(f"PASS: test case={bin.file_path}")
             else:
                 self.logging.error(f"ERROR: test case={bin.file_path}")
+
+        if len(self.results.get_results()) == 0:
+            test_result = {
+                "file_path": self["binary"],
+                "result": "error",
+                "exception": f"no binaries found or executed at path: {self['binary']}",
+                "log_file": self.logger.file_name,
+                "artifacts": self.artifacts.artifacts_folder_path,
+                "program_index": self["--program-index"],
+            }
+            self.logging.error(
+                f"ERROR: no binaries found or executed at path: {self['binary']}"
+            )
+            self.results.add_result(test_result)
 
         self.results.save_results(self["--result-file"])
 

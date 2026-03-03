@@ -1,15 +1,30 @@
-ARG FROM_IMAGE=base
 ARG FROM_TAG=latest
 
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-${FROM_IMAGE}-ubuntu-22-04:${FROM_TAG}
+# Multi-stage build to optimize for both base and ci images
+# This stage handles the expensive GDB build that can be shared
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS gdb-builder
 SHELL ["/bin/bash", "-c"]
 
-# Set environment variables
+# Set environment variables for build stage
 ENV DEBIAN_FRONTEND=noninteractive
-ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
+# Install build dependencies for GDB
+RUN apt-get install -y libmpfr-dev
+
+# Build GDB 16.3 (this is the expensive part we want to cache)
+RUN wget https://mirror.csclub.uwaterloo.ca/gnu/gdb/gdb-16.3.tar.gz && \
+    # wget https://ftpmirror.gnu.org/gnu/gdb/gdb-16.3.tar.gz && \
+    # use specific mirror because of CIv2 runner white listing issues
+    tar -xzf gdb-16.3.tar.gz && \
+    cd gdb-16.3 && \
+    ./configure && \
+    make -j$(nproc) && \
+    make install && \
+    cd .. && \
+    rm -rf gdb-16.3 gdb-16.3.tar.gz
+
+RUN echo " \
+  apt-get update && apt-get install -y \
     ssh \
     sudo \
     wget \
@@ -17,22 +32,47 @@ RUN apt-get update && apt-get install -y \
     nano \
     tmux \
     psmisc \
-    bash-completion
+    bash-completion \
+    && rm -rf /var/lib/apt/lists/*" > _install.sh && chmod +x _install.sh
+
+# Base image stage
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS base-ird
+
+SHELL ["/bin/bash", "-c"]
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+
+# Copy and run the install script
+COPY --from=gdb-builder /_install.sh /_install.sh
+RUN /_install.sh && rm /_install.sh
 
 # Create a directory for the toolchain and set permissions
 RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \
     chmod -R 777 $TTMLIR_TOOLCHAIN_DIR
 
-# Install GDB 16.3
-RUN apt install libmpfr-dev -y && \
-    wget https://mirror.csclub.uwaterloo.ca/gnu/gdb/gdb-16.3.tar.gz && \
-    # wget https://ftpmirror.gnu.org/gnu/gdb/gdb-16.3.tar.gz && \
-    # use specific mirror because of CIv2 runner white listing issues
-    tar -xvf gdb-16.3.tar.gz && \
-    cd gdb-16.3 && \
-    ./configure && \
-    make -j$(nproc) && \
-    make install && \
-    cd ..  && \
-    rm -rf gdb-16.3 gdb-16.3.tar.gz  && \
-    gdb --version
+# Copy the pre-built GDB from the builder stage
+COPY --from=gdb-builder /usr/local /usr/local
+RUN gdb --version
+
+# CI image stage
+ARG FROM_TAG=latest
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:${FROM_TAG} AS ird
+SHELL ["/bin/bash", "-c"]
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+
+# Copy and run the install script
+COPY --from=gdb-builder /_install.sh /_install.sh
+RUN /_install.sh && rm /_install.sh
+
+# Create a directory for the toolchain and set permissions
+RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \
+    chmod -R 777 $TTMLIR_TOOLCHAIN_DIR
+
+# Copy the pre-built GDB from the builder stage
+COPY --from=gdb-builder /usr/local /usr/local
+RUN gdb --version

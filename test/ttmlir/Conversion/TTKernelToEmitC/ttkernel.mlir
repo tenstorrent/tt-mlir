@@ -112,8 +112,10 @@ module {
 
     // CHECK-LABEL: func @typecast_tile_init
     func.func @typecast_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.call_opaque "typecast_tile_init"() : () -> ()
-      "ttkernel.typecast_tile_init"() : () -> ()
+      // CHECK: emitc.call_opaque "typecast_tile_init"() {template_args =
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float32)">
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float16_b)">
+      "ttkernel.typecast_tile_init"() <{in_dtype = #ttcore.supportedDataTypes<f32>, out_dtype = #ttcore.supportedDataTypes<bf16>}> : () -> ()
       return
     }
 
@@ -347,8 +349,8 @@ module {
       %cb_idx_A = arith.constant 1 : i32
       %cb_idx_B = arith.constant 2 : i32
       %cb_idx_C = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "matmul_tiles"(%[[CB_A]], %[[CB_B]], %[[CB_IDX_A]], %[[CB_IDX_B]], %[[CB_IDX_C]], %[[TRANSPOSE]])
-      "ttkernel.matmul_tiles"(%cb_A, %cb_B, %cb_idx_A, %cb_idx_B, %cb_idx_C, %transpose) : (!cb0_tiles, !cb1_tiles, i32, i32, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "matmul_tiles"(%[[CB_A]], %[[CB_B]], %[[CB_IDX_A]], %[[CB_IDX_B]], %[[CB_IDX_C]])
+      "ttkernel.matmul_tiles"(%cb_A, %cb_B, %cb_idx_A, %cb_idx_B, %cb_idx_C) : (!cb0_tiles, !cb1_tiles, i32, i32, i32) -> ()
       return
     }
 
@@ -471,21 +473,43 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @max_tile_init
-    func.func @max_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.call_opaque "max_tile_init"()
-      "ttkernel.max_tile_init"() : () -> ()
+    // CHECK-LABEL: func @binary_max_tile_init
+    func.func @binary_max_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "binary_max_tile_init"()
+      "ttkernel.binary_max_tile_init"() : () -> ()
       return
     }
 
-    // CHECK-LABEL: func @max_tile
-    func.func @max_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+    // CHECK-LABEL: func @binary_max_tile
+    func.func @binary_max_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
       // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
       %dst1_index = arith.constant 2 : i32
-      // CHECK: emitc.call_opaque "max_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]])
-      "ttkernel.max_tile"(%dst0_index, %dst1_index) : (i32, i32) -> ()
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "binary_max_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.binary_max_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @binary_min_tile_init
+    func.func @binary_min_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "binary_min_tile_init"()
+      "ttkernel.binary_min_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @binary_min_tile
+    func.func @binary_min_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "binary_min_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.binary_min_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
       return
     }
 
@@ -703,6 +727,21 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @tanh_tile_init
+    func.func @tanh_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "tanh_tile_init"()
+      "ttkernel.tanh_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @tanh_tile
+    func.func @tanh_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "tanh_tile"(%[[DST_INDEX]])
+      "ttkernel.tanh_tile"(%dst_index) : (i32) -> ()
+      return
+    }
     // CHECK-LABEL: func @sqrt_tile_init
     func.func @sqrt_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "sqrt_tile_init"()
@@ -767,6 +806,42 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @hardsigmoid_tile_init
+    func.func @hardsigmoid_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "hardsigmoid_tile_init"()
+      "ttkernel.hardsigmoid_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @hardsigmoid_tile
+    func.func @hardsigmoid_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "hardsigmoid_tile"(%[[DST_INDEX]])
+      "ttkernel.hardsigmoid_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @clamp_tile_init
+    func.func @clamp_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "clamp_tile_init"()
+      "ttkernel.clamp_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @clamp_tile
+    func.func @clamp_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : index
+      // CHECK: %[[MIN_PARAM:.*]] = "emitc.constant"
+      %min_param = arith.constant 1073741824 : i32
+      // CHECK: %[[MAX_PARAM:.*]] = "emitc.constant"
+      %max_param = arith.constant 1084227584 : i32
+      // CHECK: emitc.call_opaque "clamp_tile"(%[[DST_INDEX]], %[[MIN_PARAM]], %[[MAX_PARAM]])
+      "ttkernel.clamp_tile"(%dst_index, %min_param, %max_param) : (index, i32, i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @gelu_tile_init
     func.func @gelu_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "gelu_tile_init"()
@@ -780,6 +855,38 @@ module {
       %dst_index = arith.constant 3 : i32
       // CHECK: emitc.call_opaque "gelu_tile"(%[[DST_INDEX]])
       "ttkernel.gelu_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @erf_tile_init
+    func.func @erf_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "erf_tile_init"()
+      "ttkernel.erf_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @erf_tile
+    func.func @erf_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "erf_tile"(%[[DST_INDEX]])
+      "ttkernel.erf_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @erfc_tile_init
+    func.func @erfc_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "erfc_tile_init"()
+      "ttkernel.erfc_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @erfc_tile
+    func.func @erfc_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "erfc_tile"(%[[DST_INDEX]])
+      "ttkernel.erfc_tile"(%dst_index) : (i32) -> ()
       return
     }
 
@@ -799,30 +906,12 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @ceil_tile_float32
-    func.func @ceil_tile_float32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
-      %dst0_index = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "ceil_tile_float32"(%[[DST0_INDEX]])
-      "ttkernel.ceil_tile_float32"(%dst0_index) : (i32) -> ()
-      return
-    }
-
     // CHECK-LABEL: func @floor_tile
     func.func @floor_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
       // CHECK: emitc.call_opaque "floor_tile"(%[[DST0_INDEX]])
       "ttkernel.floor_tile"(%dst0_index) : (i32) -> ()
-      return
-    }
-
-    // CHECK-LABEL: func @floor_tile_float32
-    func.func @floor_tile_float32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
-      %dst0_index = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "floor_tile_float32"(%[[DST0_INDEX]])
-      "ttkernel.floor_tile_float32"(%dst0_index) : (i32) -> ()
       return
     }
 
@@ -851,28 +940,44 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @logical_not_unary_tile_init
-    func.func @logical_not_unary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.call_opaque "logical_not_unary_tile_init"()
-      "ttkernel.logical_not_unary_tile_init"() : () -> ()
+    // CHECK-LABEL: func @sign_tile_init
+    func.func @sign_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "sign_tile_init"()
+      "ttkernel.sign_tile_init"() : () -> ()
       return
     }
 
-    // CHECK-LABEL: func @logical_not_unary_tile
-    func.func @logical_not_unary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
-      %dst0_index = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "logical_not_unary_tile"(%[[DST0_INDEX]])
-      "ttkernel.logical_not_unary_tile"(%dst0_index) : (i32) -> ()
+    // CHECK-LABEL: func @sign_tile
+    func.func @sign_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "sign_tile"(%[[DST_INDEX]])
+      "ttkernel.sign_tile"(%dst_index) : (i32) -> ()
       return
     }
 
-    // CHECK-LABEL: func @logical_not_unary_tile_int32
-    func.func @logical_not_unary_tile_int32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+    // CHECK-LABEL: func @logical_not_tile_init
+    func.func @logical_not_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "logical_not_tile_init"()
+      "ttkernel.logical_not_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @logical_not_tile
+    func.func @logical_not_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "logical_not_unary_tile_int32"(%[[DST0_INDEX]])
-      "ttkernel.logical_not_unary_tile_int32"(%dst0_index) : (i32) -> ()
+      // CHECK: emitc.call_opaque "logical_not_tile"(%[[DST0_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Float16_b">]}
+      "ttkernel.logical_not_tile"(%dst0_index) {dtype = #ttcore.supportedDataTypes<bf16>} : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @logical_not_tile_int32
+    func.func @logical_not_tile_int32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "logical_not_tile"(%[[DST0_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.logical_not_tile"(%dst0_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32) -> ()
       return
     }
 
@@ -1082,6 +1187,67 @@ module {
       %dst0_index = arith.constant 1 : i32
       // CHECK: emitc.call_opaque "relu_tile_int32"(%[[DST0_INDEX]])
       "ttkernel.relu_tile_int32"(%dst0_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @bitwise_and_binary_tile
+    func.func @bitwise_and_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 0 : i32
+      %dst1_index = arith.constant 1 : i32
+      %odst_index = arith.constant 2 : i32
+      // CHECK: emitc.call_opaque "bitwise_and_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.bitwise_and_binary_tile"(%dst0_index, %dst1_index, %odst_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @bitwise_or_binary_tile
+    func.func @bitwise_or_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 0 : i32
+      %dst1_index = arith.constant 1 : i32
+      %odst_index = arith.constant 2 : i32
+      // CHECK: emitc.call_opaque "bitwise_or_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.bitwise_or_binary_tile"(%dst0_index, %dst1_index, %odst_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @bitwise_xor_binary_tile
+    func.func @bitwise_xor_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 0 : i32
+      %dst1_index = arith.constant 1 : i32
+      %odst_index = arith.constant 2 : i32
+      // CHECK: emitc.call_opaque "bitwise_xor_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.bitwise_xor_binary_tile"(%dst0_index, %dst1_index, %odst_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @where_tile_init
+    func.func @where_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "where_tile_init"()
+      "ttkernel.where_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @where_tile
+    func.func @where_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[COND_INDEX:.*]] = "emitc.constant"
+      %cond_index = arith.constant 0 : index
+      // CHECK: %[[TRUE_INDEX:.*]] = "emitc.constant"
+      %true_index = arith.constant 1 : index
+      // CHECK: %[[FALSE_INDEX:.*]] = "emitc.constant"
+      %false_index = arith.constant 2 : index
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : index
+      // CHECK: emitc.call_opaque "where_tile"(%[[COND_INDEX]], %[[TRUE_INDEX]], %[[FALSE_INDEX]], %[[ODST_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Float32">]}
+      "ttkernel.where_tile"(%cond_index, %true_index, %false_index, %odst_index) {dtype = #ttcore.supportedDataTypes<f32>} : (index, index, index, index) -> ()
       return
     }
   } // module
@@ -1465,33 +1631,260 @@ module {
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %bank_address = arith.constant 303104 : i32
       %page_size = arith.constant 32 : i32
-      // CHECK: %[[ARGS:.*]] = emitc.call_opaque "TensorAccessorArgs"() {template_args = [[[CTA_OFFSET]] : i32, [[CRTA_OFFSET]] : i32]} : () -> !emitc.opaque<"TensorAccessorArgs">
-      %tensor_accessor_args = "ttkernel.TensorAccessorArgs"(%cta_offset, %crta_offset) : (i32, i32) -> !ttkernel.TensorAccessorArgs
-      // CHECK: %[[TENSOR_ACCESSOR:.*]] = emitc.call_opaque "TensorAccessor"(%[[ARGS]], %[[ADDR]], %[[SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
+      // CHECK: emitc.verbatim "auto [[ARGS:tensor_accessor_args_[0-9]+]] = TensorAccessorArgs<2, 0>();"
+      // CHECK: %[[ARGS_LIT:.*]] = emitc.literal "[[ARGS]]" : !emitc.opaque<"TensorAccessorArgs">
+      %tensor_accessor_args = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset)
+      // CHECK: %[[TENSOR_ACCESSOR:.*]] = emitc.call_opaque "TensorAccessor"(%[[ARGS_LIT]], %[[ADDR]], %[[SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
       %tensor_accessor = "ttkernel.TensorAccessor"(%tensor_accessor_args, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
       %temp1 = arith.constant 0 : i32
       %temp2 = arith.constant 32: i32
-      // CHECK: emitc.verbatim "uint32_t [[NOC_ADDR:.*]] = {}.get_noc_addr({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
+      // CHECK: emitc.verbatim "uint64_t [[NOC_ADDR:.*]] = {}.get_noc_addr({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
       // CHECK: emitc.literal "[[NOC_ADDR]]" : i64
-      %noc_addr = "ttkernel.tensor_accessor_get_noc_addr"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> !ttkernel.noc_addr
+      %noc_addr = "ttkernel.tensor_accessor.get_noc_addr"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> !ttkernel.noc_addr
       // CHECK: emitc.verbatim "uint32_t [[SHARD_ADDR:.*]] = {}.get_shard_noc_addr({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
       // CHECK: emitc.literal "[[SHARD_ADDR]]"
-      %shard_noc_addr = "ttkernel.tensor_accessor_get_shard_noc_addr"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> i32
-      // CHECK: emitc.verbatim "uint32_t [[BANK_AND_OFFSET:.*]] = {}.get_bank_and_offset({});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32
+      %shard_noc_addr = "ttkernel.tensor_accessor.get_shard_noc_addr"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> i32
+      // CHECK: emitc.verbatim "PageMapping [[BANK_AND_OFFSET:.*]] = {}.get_bank_and_offset({});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32
       // CHECK: emitc.literal "[[BANK_AND_OFFSET]]" : !emitc.opaque<"PageMapping">
-      %bank_and_offset = "ttkernel.tensor_accessor_get_bank_and_offset"(%tensor_accessor, %temp1) : (!ttkernel.TensorAccessor, i32) -> !ttkernel.PageMapping
-      // CHECK: emitc.verbatim "uint32_t [[IS_LOCAL_BANK:.*]] = {}.is_local_bank({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
+      %bank_and_offset = "ttkernel.tensor_accessor.get_bank_and_offset"(%tensor_accessor, %temp1) : (!ttkernel.TensorAccessor, i32) -> !ttkernel.PageMapping
+      // CHECK: emitc.verbatim "bool [[IS_LOCAL_BANK:.*]] = {}.is_local_bank({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
       // CHECK: emitc.literal "[[IS_LOCAL_BANK]]" : i1
-      %is_local_bank = "ttkernel.tensor_accessor_is_local_bank"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> i1
-      // CHECK: emitc.verbatim "uint32_t [[IS_LOCAL_ADDR:.*]] = {}.is_local_addr({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
+      %is_local_bank = "ttkernel.tensor_accessor.is_local_bank"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> i1
+      // CHECK: emitc.verbatim "bool [[IS_LOCAL_ADDR:.*]] = {}.is_local_addr({}, {});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32, i32
       // CHECK: emitc.literal "[[IS_LOCAL_ADDR]]" : i1
-      %is_local_addr = "ttkernel.tensor_accessor_is_local_addr"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> i1
-      // CHECK: emitc.verbatim "uint32_t [[IS_LOCAL_PAGE:.*]] = {}.is_local_page({});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32
+      %is_local_addr = "ttkernel.tensor_accessor.is_local_addr"(%tensor_accessor, %temp1, %temp2) : (!ttkernel.TensorAccessor, i32, i32) -> i1
+      // CHECK: emitc.verbatim "bool [[IS_LOCAL_PAGE:.*]] = {}.is_local_page({});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32
       // CHECK: emitc.literal "[[IS_LOCAL_PAGE]]" : i1
-      %is_local_page = "ttkernel.tensor_accessor_is_local_page"(%tensor_accessor, %temp1) : (!ttkernel.TensorAccessor, i32) -> i1
-      // CHECK: emitc.verbatim "uint32_t [[IS_LOCAL_SHARD:.*]] = {}.is_local_shard({});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32
+      %is_local_page = "ttkernel.tensor_accessor.is_local_page"(%tensor_accessor, %temp1) : (!ttkernel.TensorAccessor, i32) -> i1
+      // CHECK: emitc.verbatim "bool [[IS_LOCAL_SHARD:.*]] = {}.is_local_shard({});" args %[[TENSOR_ACCESSOR]], {{.*}} : !emitc.opaque<"TensorAccessor">, i32
       // CHECK: emitc.literal "[[IS_LOCAL_SHARD]]" : i1
-      %is_local_shard = "ttkernel.tensor_accessor_is_local_shard"(%tensor_accessor, %temp1) : (!ttkernel.TensorAccessor, i32) -> i1
+      %is_local_shard = "ttkernel.tensor_accessor.is_local_shard"(%tensor_accessor, %temp1) : (!ttkernel.TensorAccessor, i32) -> i1
+      return
+    }
+
+    // TEST: Chained TensorAccessorArgs with literal, constexpr, and chained offsets
+    // Tests the new functionality for chaining TensorAccessorArgs using
+    // prev_args.next_compile_time_args_offset() in template arguments
+
+    // CHECK-LABEL: func @test_chained_tensor_accessor_args
+    func.func @test_chained_tensor_accessor_args() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %cta_offset = arith.constant 0 : i32
+      %crta_offset = arith.constant 0 : i32
+      %crta_offset_2 = arith.constant 4 : i32
+
+      // Case 1: First accessor with literal integer offset (existing functionality)
+      // CHECK: emitc.verbatim "auto [[ARGS1:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK-NEXT: %[[ARGS1_LIT:.*]] = emitc.literal "[[ARGS1]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args1 = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset)
+
+      // Case 2: Second accessor chained from first (NEW: chaining via prev_args)
+      // CHECK: emitc.verbatim "auto [[ARGS2:[a-z_0-9]+]] = TensorAccessorArgs<[[ARGS1]].next_compile_time_args_offset(), [[ARGS1]].next_common_runtime_args_offset()>();"
+      // CHECK-NEXT: %[[ARGS2_LIT:.*]] = emitc.literal "[[ARGS2]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args2 = ttkernel.TensorAccessorArgs(prev = %args1)
+
+      // Case 3: Third accessor chained from second (chaining continues)
+      // CHECK: emitc.verbatim "auto [[ARGS3:[a-z_0-9]+]] = TensorAccessorArgs<[[ARGS2]].next_compile_time_args_offset(), [[ARGS2]].next_common_runtime_args_offset()>();"
+      // CHECK-NEXT: %[[ARGS3_LIT:.*]] = emitc.literal "[[ARGS3]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args3 = ttkernel.TensorAccessorArgs(prev = %args2)
+
+      // Test that chained accessors can be used to create TensorAccessors
+      %bank_address = arith.constant 303104 : i32
+      %page_size = arith.constant 32 : i32
+
+      // CHECK: %[[BANK_ADDR:.*]] = "emitc.constant"() {{.*}} : () -> i32
+      // CHECK: %[[PAGE_SIZE:.*]] = "emitc.constant"() {{.*}} : () -> i32
+      // CHECK: emitc.call_opaque "TensorAccessor"(%[[ARGS3_LIT]], %[[BANK_ADDR]], %[[PAGE_SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
+      %tensor_accessor = "ttkernel.TensorAccessor"(%args3, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
+
+      return
+    }
+
+    // TEST: CTA + CRTA chaining (most common pattern in tt-metal)
+    // Tests chaining both compile-time and common-runtime args offsets
+
+    // CHECK-LABEL: func @test_cta_crta_chained_tensor_accessor_args
+    func.func @test_cta_crta_chained_tensor_accessor_args() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %cta_0 = arith.constant 0 : i32
+      %crta_0 = arith.constant 0 : i32
+      %bank_address = arith.constant 303104 : i32
+      %page_size = arith.constant 32 : i32
+
+      // Case 1: First accessor args_src with literal offsets
+      // CHECK: emitc.verbatim "auto [[SRC:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK-NEXT: %[[SRC_LIT:.*]] = emitc.literal "[[SRC]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args_src = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
+
+      // Case 2: Second accessor args_dst chains BOTH CTA and CRTA from args_src
+      // This is the COMMON PATTERN: TensorAccessorArgs<args_src.next_compile_time_args_offset(), args_src.next_common_runtime_args_offset()>
+      // CHECK: emitc.verbatim "auto [[DST:[a-z_0-9]+]] = TensorAccessorArgs<[[SRC]].next_compile_time_args_offset(), [[SRC]].next_common_runtime_args_offset()>();"
+      // CHECK-NEXT: %[[DST_LIT:.*]] = emitc.literal "[[DST]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args_dst = ttkernel.TensorAccessorArgs(prev = %args_src)
+
+      // Use the result to ensure it's not erased
+      // CHECK: emitc.call_opaque "TensorAccessor"
+      %tensor_accessor = "ttkernel.TensorAccessor"(%args_dst, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
+
+      return
+    }
+
+    // TEST: CTA-only chaining (chain CTA, use literal CRTA)
+    // Tests selective chaining using crta_expr to override
+
+    // CHECK-LABEL: func @test_cta_only_chained
+    func.func @test_cta_only_chained() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[CTA0:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      %cta_0 = arith.constant 0 : i32
+      // CHECK: %[[CRTA0:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      %crta_0 = arith.constant 0 : i32
+      // CHECK: %[[BANK_ADDR:.*]] = "emitc.constant"() <{value = 303104 : i32}>
+      %bank_address = arith.constant 303104 : i32
+      // CHECK: %[[PAGE_SIZE:.*]] = "emitc.constant"() <{value = 32 : i32}>
+      %page_size = arith.constant 32 : i32
+
+      // First accessor
+      // CHECK: emitc.verbatim "auto [[BASE:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK-NEXT: %[[BASE_LIT:.*]] = emitc.literal "[[BASE]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args_base = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
+
+      // Chain CTA only, use literal 0 for CRTA
+      // CHECK: emitc.verbatim "auto [[CTA_ONLY:[a-z_0-9]+]] = TensorAccessorArgs<[[BASE]].next_compile_time_args_offset(), 0>();"
+      // CHECK-NEXT: %[[CTA_ONLY_LIT:.*]] = emitc.literal "[[CTA_ONLY]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args_cta_only = ttkernel.TensorAccessorArgs(prev = %args_base) crta_expr = "0"
+
+      // CHECK: %[[TA:.*]] = emitc.call_opaque "TensorAccessor"(%[[CTA_ONLY_LIT]], %[[BANK_ADDR]], %[[PAGE_SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
+      %tensor_accessor = "ttkernel.TensorAccessor"(%args_cta_only, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
+
+      return
+    }
+
+    // TEST: TensorAccessorArgs with constexpr string expression
+    // Tests the new cta_expr attribute for non-literal compile-time expressions
+
+    // CHECK-LABEL: func @test_tensor_accessor_args_constexpr
+    func.func @test_tensor_accessor_args_constexpr() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[CTA_OFFSET:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      %cta_offset = arith.constant 0 : i32
+      // CHECK: %[[CRTA_OFFSET:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      %crta_offset = arith.constant 0 : i32
+      // CHECK: %[[BANK_ADDR:.*]] = "emitc.constant"() <{value = 303104 : i32}>
+      %bank_address = arith.constant 303104 : i32
+      // CHECK: %[[PAGE_SIZE:.*]] = "emitc.constant"() <{value = 32 : i32}>
+      %page_size = arith.constant 32 : i32
+
+      // Case: First accessor with constexpr string expression (NEW: cta_expr attribute)
+      // CHECK: emitc.verbatim "auto [[CEXPR:[a-z_0-9]+]] = TensorAccessorArgs<get_base_offset(), 0>();"
+      // CHECK-NEXT: %[[CEXPR_LIT:.*]] = emitc.literal "[[CEXPR]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset) cta_expr = "get_base_offset()"
+
+      // Chain from a constexpr-based accessor
+      // CHECK: emitc.verbatim "auto [[CEXPR2:[a-z_0-9]+]] = TensorAccessorArgs<[[CEXPR]].next_compile_time_args_offset(), [[CEXPR]].next_common_runtime_args_offset()>();"
+      // CHECK-NEXT: %[[CEXPR2_LIT:.*]] = emitc.literal "[[CEXPR2]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args2 = ttkernel.TensorAccessorArgs(prev = %args)
+
+      // Use the result to ensure it's not erased
+      // CHECK: %[[TA:.*]] = emitc.call_opaque "TensorAccessor"(%[[CEXPR2_LIT]], %[[BANK_ADDR]], %[[PAGE_SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
+      %tensor_accessor = "ttkernel.TensorAccessor"(%args2, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
+
+      return
+    }
+
+    // TEST: Mixed CTA offsets - various CRTA values
+    // Ensures CRTA is always handled correctly
+
+    // CHECK-LABEL: func @test_tensor_accessor_args_mixed_crta
+    func.func @test_tensor_accessor_args_mixed_crta() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[CTA0:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      %cta_0 = arith.constant 0 : i32
+      // CHECK: %[[CRTA0:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      %crta_0 = arith.constant 0 : i32
+      %crta_8 = arith.constant 8 : i32
+      %crta_16 = arith.constant 16 : i32
+      // CHECK: %[[BANK_ADDR:.*]] = "emitc.constant"() <{value = 303104 : i32}>
+      %bank_address = arith.constant 303104 : i32
+      // CHECK: %[[PAGE_SIZE:.*]] = "emitc.constant"() <{value = 32 : i32}>
+      %page_size = arith.constant 32 : i32
+
+      // CHECK: emitc.verbatim "auto [[M1:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK-NEXT: %[[M1_LIT:.*]] = emitc.literal "[[M1]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args1 = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
+
+      // CHECK: emitc.verbatim "auto [[M2:[a-z_0-9]+]] = TensorAccessorArgs<[[M1]].next_compile_time_args_offset(), [[M1]].next_common_runtime_args_offset()>();"
+      // CHECK-NEXT: %[[M2_LIT:.*]] = emitc.literal "[[M2]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args2 = ttkernel.TensorAccessorArgs(prev = %args1)
+
+      // CHECK: emitc.verbatim "auto [[M3:[a-z_0-9]+]] = TensorAccessorArgs<[[M2]].next_compile_time_args_offset(), [[M2]].next_common_runtime_args_offset()>();"
+      // CHECK-NEXT: %[[M3_LIT:.*]] = emitc.literal "[[M3]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args3 = ttkernel.TensorAccessorArgs(prev = %args2)
+
+      // Use the result to ensure it's not erased
+      // CHECK: %[[TA:.*]] = emitc.call_opaque "TensorAccessor"(%[[M3_LIT]], %[[BANK_ADDR]], %[[PAGE_SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
+      %tensor_accessor = "ttkernel.TensorAccessor"(%args3, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
+
+      return
+    }
+
+    // TEST: Unused TensorAccessorArgs gets eliminated (dead code elimination)
+    // Verifies that ops with no uses are properly erased
+
+    // CHECK-LABEL: func @test_unused_tensor_accessor_args
+    func.func @test_unused_tensor_accessor_args() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %cta_0 = arith.constant 0 : i32
+      %crta_0 = arith.constant 0 : i32
+
+      // This accessor has no uses and should be eliminated
+      // CHECK-NOT: TensorAccessorArgs
+      %unused_args = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
+
+      return
+    }
+
+    // TEST: Priority override - cta_expr/crta_expr override prev_args chaining
+    // Verifies that explicit expressions take precedence over chaining
+
+    // CHECK-LABEL: func @test_priority_override
+    func.func @test_priority_override() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[CTA0:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      %cta_0 = arith.constant 0 : i32
+      // CHECK: %[[CRTA0:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      %crta_0 = arith.constant 0 : i32
+      // CHECK: %[[BANK_ADDR:.*]] = "emitc.constant"() <{value = 303104 : i32}>
+      %bank_address = arith.constant 303104 : i32
+      // CHECK: %[[PAGE_SIZE:.*]] = "emitc.constant"() <{value = 32 : i32}>
+      %page_size = arith.constant 32 : i32
+
+      // First accessor
+      // CHECK: emitc.verbatim "auto [[BASE:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK-NEXT: %[[BASE_LIT:.*]] = emitc.literal "[[BASE]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args_base = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
+
+      // Override chaining with explicit cta_expr (prev_args provided but cta_expr takes precedence)
+      // CTA uses explicit "42", CRTA chains from [[BASE]]
+      // CHECK: emitc.verbatim "auto [[OVERRIDE:[a-z_0-9]+]] = TensorAccessorArgs<42, [[BASE]].next_common_runtime_args_offset()>();"
+      // CHECK-NEXT: %[[OVERRIDE_LIT:.*]] = emitc.literal "[[OVERRIDE]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args_override = ttkernel.TensorAccessorArgs(prev = %args_base) cta_expr = "42"
+
+      // CHECK: %[[TA:.*]] = emitc.call_opaque "TensorAccessor"(%[[OVERRIDE_LIT]], %[[BANK_ADDR]], %[[PAGE_SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
+      %tensor_accessor = "ttkernel.TensorAccessor"(%args_override, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
+
+      return
+    }
+
+    // CHECK-LABEL: func @interleaved_addr_gen
+    func.func @interleaved_addr_gen() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      %data_format = "ttkernel.get_dataformat"(%cb) : (!cb0_tiles) -> !ttkernel.DataFormat
+
+      %is_dram = arith.constant 1 : i1
+      %bank_address = arith.constant 303104 : i32
+      %page_size = arith.constant 32 : i32
+
+      %interleaved_addr_gen = "ttkernel.get_interleaved_addr_gen_fast"(%is_dram, %bank_address, %page_size, %data_format) : (i1, i32, i32, !ttkernel.DataFormat) -> !ttkernel.interleaved_addr_gen_fast
+
+      %temp1 = arith.constant 0 : i32
+      %temp2 = arith.constant 32: i32
+      // CHECK: emitc.verbatim "uint64_t [[NOC_ADDR:.*]] = {}.get_noc_addr({}, {});" args
+      // CHECK: emitc.literal "[[NOC_ADDR]]" : i64
+      %noc_addr = "ttkernel.interleaved_addr_gen_fast.get_noc_addr"(%interleaved_addr_gen, %temp1, %temp2) : (!ttkernel.interleaved_addr_gen_fast, i32, i32) -> !ttkernel.noc_addr
       return
     }
 

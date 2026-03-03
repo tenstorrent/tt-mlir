@@ -3,7 +3,14 @@ add_mlir_dialect_library(MLIRStableHLOTransforms
   ApplyArgumentShardStatus.cpp
   ConvertXlaSdyToSdy.cpp
   DecoupleConstFanout.cpp
+  FlattenComposite.cpp
+  PartiallyConvertSdyToStableHLO.cpp
+  RegisterCustomShardingRule.cpp
+  ReoutlineComposite.cpp
+  ReplicateNonSplittableConstants.cpp
+  ShardyCCLCanonicalization.cpp
   ShardyCCLToStableHLOCCLPatterns.cpp
+  StableHLOFusing.cpp
   UnsolvedGraphPasses.cpp
   UpdateGlobalToLocalShapes.cpp
   WrapUnderManualComputation.cpp

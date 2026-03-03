@@ -3,8 +3,7 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 func.func @logical_right_shift(%arg0: tensor<5xui32>, %arg1: tensor<5xui32>) -> tensor<5xui32> {
-  %0 = ttir.empty() : tensor<5xui32>
-  %1 = "ttir.logical_right_shift"(%arg0, %arg1, %0) : (tensor<5xui32>, tensor<5xui32>, tensor<5xui32>) -> tensor<5xui32>
+  %1 = "ttir.logical_right_shift"(%arg0, %arg1) : (tensor<5xui32>, tensor<5xui32>) -> tensor<5xui32>
   // CHECK: "ttnn.logical_right_shift"
   // CHECK-SAME: tensor<5xui32
   // CHECK-SAME: tensor<5xui32

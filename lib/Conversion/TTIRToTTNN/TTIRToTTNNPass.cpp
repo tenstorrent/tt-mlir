@@ -5,6 +5,8 @@
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Dialect/Debug/IR/Debug.h"
+#include "ttmlir/Dialect/Debug/IR/DebugOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -41,9 +43,20 @@ struct ConvertTTIRToTTNNPass
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttnn::TTNNDialect>();
     target.addLegalDialect<quant::QuantDialect>();
+    target.addLegalDialect<debug::DebugDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<ttcore::DeviceOp>();
     target.addLegalOp<ttcore::OptimizationBarrierOp>();
+    target.addLegalOp<ttcore::LoadCachedOp>();
+
+    // Debug dialect ops.
+    target.addLegalOp<debug::AnnotateOp>();
+    target.addLegalOp<debug::BreakpointOp>();
+    target.addLegalOp<debug::PrintOp>();
+    target.addLegalOp<debug::MemorySnapshotOp>();
+    target.addLegalOp<debug::RegionStartOp>();
+    target.addLegalOp<debug::RegionEndOp>();
+    target.addIllegalOp<debug::DumpOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.

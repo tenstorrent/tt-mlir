@@ -11,9 +11,11 @@ endfunction()
 add_subdirectory(lib) # test util lib
 
 add_subdirectory(Allocation)
+add_subdirectory(D2MGenericAnalysis)
 add_subdirectory(Support)
 add_subdirectory(TestScheduler)
 add_subdirectory(Optimizer)
 add_subdirectory(OpModel)
 add_subdirectory(TTNNToEmitC)
 add_subdirectory(Validation)
+add_subdirectory(AffineMapUtils)

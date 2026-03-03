@@ -5,8 +5,7 @@
 
 module attributes {} {
   func.func @all_gather_invalid_dim(%arg0: tensor<1x1x32x32xbf16>) -> tensor<1x1x32x128xbf16> {
-    %0 = ttir.empty() : tensor<1x1x32x128xbf16>
-    %1 = "ttir.all_gather"(%arg0, %0) <{all_gather_dim = 4 : si32, cluster_axis = 1 : ui32}> : (tensor<1x1x32x32xbf16>, tensor<1x1x32x128xbf16>) -> tensor<1x1x32x128xbf16>
+    %1 = "ttir.all_gather"(%arg0) <{all_gather_dim = 4 : si32, cluster_axis = 1 : ui32}> : (tensor<1x1x32x32xbf16>) -> tensor<1x1x32x128xbf16>
     return %1 : tensor<1x1x32x128xbf16>
   }
 }
@@ -16,8 +15,7 @@ module attributes {} {
 
 module attributes {} {
   func.func @all_gather_invalid_negative_dim(%arg0: tensor<1x1x32x32xbf16>) -> tensor<1x1x32x128xbf16> {
-    %0 = ttir.empty() : tensor<1x1x32x128xbf16>
-    %1 = "ttir.all_gather"(%arg0, %0) <{all_gather_dim = -5 : si32, cluster_axis = 1 : ui32}> : (tensor<1x1x32x32xbf16>, tensor<1x1x32x128xbf16>) -> tensor<1x1x32x128xbf16>
+    %1 = "ttir.all_gather"(%arg0) <{all_gather_dim = -5 : si32, cluster_axis = 1 : ui32}> : (tensor<1x1x32x32xbf16>) -> tensor<1x1x32x128xbf16>
     return %1 : tensor<1x1x32x128xbf16>
   }
 }

@@ -14,7 +14,9 @@
 #include "mlir/Dialect/LLVMIR/Transforms/InlinerInterfaceImpl.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/IR/MLIRContext.h"
+#ifdef TTMLIR_ENABLE_STABLEHLO
 #include "shardy/dialect/sdy/ir/dialect.h"
+#endif
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -37,8 +39,12 @@ TTAlchemist::TTAlchemist() {
   registry.insert<mlir::tt::ttcore::TTCoreDialect, mlir::tt::ttir::TTIRDialect,
                   mlir::tt::d2m::D2MDialect, mlir::tt::ttnn::TTNNDialect,
                   mlir::func::FuncDialect, mlir::emitc::EmitCDialect,
-                  mlir::LLVM::LLVMDialect, mlir::quant::QuantDialect,
-                  mlir::sdy::SdyDialect>();
+                  mlir::LLVM::LLVMDialect, mlir::quant::QuantDialect
+#ifdef TTMLIR_ENABLE_STABLEHLO
+                  ,
+                  mlir::sdy::SdyDialect
+#endif
+                  >();
   context.appendDialectRegistry(registry);
 
   context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
@@ -49,7 +55,9 @@ TTAlchemist::TTAlchemist() {
   context.loadDialect<mlir::emitc::EmitCDialect>();
   context.loadDialect<mlir::LLVM::LLVMDialect>();
   context.loadDialect<mlir::quant::QuantDialect>();
+#ifdef TTMLIR_ENABLE_STABLEHLO
   context.loadDialect<mlir::sdy::SdyDialect>();
+#endif
 
   // Register TTNN pipelines to make them available for lookup
   mlir::tt::ttnn::registerTTNNPipelines();

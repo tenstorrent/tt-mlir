@@ -12,22 +12,31 @@ include "ttmlir/Dialect/D2M/IR/D2MBase.td"
 // Enum-backed attribute wrappers
 def D2M_ReduceDimAttr : EnumAttr<D2M_Dialect, D2M_ReduceDim, "reduce_dim">;
 
+def D2M_TileBcastTypeAttr : EnumAttr<D2M_Dialect, D2M_TileBcastType, "tile_bcast_type">;
+
 def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
   let mnemonic = "thread";
   let summary = "Thread information for a generic op.";
   let description = [{
     Holds the thread information corresponding to a single generic op region.
+    For datamovement threads, nocIndex indicates the assigned NoC (0 or 1).
+    A value of -1 means unassigned.
   }];
   let parameters = (ins
     "ThreadType":$threadType,
-    OptionalParameter<"SymbolRefAttr">:$kernelSymbol
+    OptionalParameter<"SymbolRefAttr">:$kernelSymbol,
+    DefaultValuedParameter<"int32_t", "-1">:$nocIndex
   );
 
-  let assemblyFormat = [{ `<` $threadType (`,` $kernelSymbol^)? `>` }];
+  let assemblyFormat = [{ `<` $threadType (`,` $kernelSymbol^)? (`,` `noc` `=` $nocIndex^)? `>` }];
 
   let extraClassDeclaration = [{
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType) {
-        return get(context, threadType, nullptr);
+        return get(context, threadType, nullptr, -1);
+      }
+      static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType,
+                            SymbolRefAttr kernelSymbol) {
+        return get(context, threadType, kernelSymbol, -1);
       }
   }];
 }

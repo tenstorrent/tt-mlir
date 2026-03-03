@@ -6,6 +6,7 @@
 
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
@@ -18,6 +19,19 @@
 namespace tt::runtime::ttnn::utils {
 
 using ::tt::runtime::DeviceRuntime;
+
+static tt::runtime::MemoryView
+createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
+  return tt::runtime::MemoryView{
+      .numBanks = memoryView.num_banks,
+      .totalBytesPerBank = memoryView.total_bytes_per_bank,
+      .totalBytesAllocatedPerBank = memoryView.total_bytes_allocated_per_bank,
+      .totalBytesFreePerBank = memoryView.total_bytes_free_per_bank,
+      .largestContiguousBytesFreePerBank =
+          memoryView.largest_contiguous_bytes_free_per_bank,
+      .blockTable = memoryView.block_table,
+  };
+}
 
 // TODO (bug #701)
 // Currently the memory layout/location in flatbuffer is incorrect
@@ -59,15 +73,57 @@ bool isSharded(
              ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
 }
 
-// TODO (jnie): Add support for fp32, currently there's some precision loss
-// which causes some FE tests to fail.
-// Tracking here: https://github.com/tenstorrent/tt-metal/issues/21023
+// tt-metal tilize supports: bfloat16, float32, uint32, int32, uint16
+// See: ttnn/operations/data_movement/tilize/device/tilize_op.cpp
 bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
-  return dataType == ::ttnn::DataType::BFLOAT16;
+  return dataType == ::ttnn::DataType::BFLOAT16 ||
+         dataType == ::ttnn::DataType::FLOAT32 ||
+         dataType == ::ttnn::DataType::UINT32 ||
+         dataType == ::ttnn::DataType::UINT16 ||
+         dataType == ::ttnn::DataType::INT32;
 }
 
+// tt-metal tilize on device requires INTERLEAVED or HEIGHT_SHARDED memory.
+// See: https://github.com/tenstorrent/tt-mlir/issues/6247
+bool canTilizeMemoryLayoutOnDevice(
+    const std::optional<::ttnn::MemoryConfig> &memoryConfig) {
+  if (!memoryConfig.has_value()) {
+    return true; // Default memory config is INTERLEAVED
+  }
+  const auto &memLayout = memoryConfig->memory_layout();
+  return memLayout == ::ttnn::TensorMemoryLayout::INTERLEAVED ||
+         memLayout == ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED;
+}
+
+bool canTilizeOnDevice(
+    const ::ttnn::DataType &dataType,
+    const std::optional<::ttnn::MemoryConfig> &memoryConfig) {
+  return canTilizeDataTypeOnDevice(dataType) &&
+         canTilizeMemoryLayoutOnDevice(memoryConfig);
+}
+
+// tt-metal untilize supports: bfloat16, float32, uint32, int32
+// (requires use_pack_untilize for uint32/int32)
+// See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
+// FP32 untilize fix: https://github.com/tenstorrent/tt-metal/pull/33904
+// UINT32 large tensor untilize issue:
+// https://github.com/tenstorrent/tt-metal/issues/34072
 bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
-  return dataType == ::ttnn::DataType::BFLOAT16;
+  return dataType == ::ttnn::DataType::BFLOAT16 ||
+         dataType == ::ttnn::DataType::FLOAT32 ||
+         dataType == ::ttnn::DataType::UINT32 ||
+         dataType == ::ttnn::DataType::INT32;
+}
+
+// tt-metal untilize does not support ND sharding. See:
+// https://github.com/tenstorrent/tt-metal/issues/35418
+bool canUntilizeOnDevice(
+    const ::ttnn::DataType &dataType,
+    const std::optional<::ttnn::MemoryConfig> &memoryConfig) {
+  bool notSharded = !memoryConfig.has_value() || !memoryConfig->is_sharded();
+  bool legacySharded =
+      memoryConfig.has_value() && memoryConfig->shard_spec().has_value();
+  return canUntilizeDataTypeOnDevice(dataType) && (notSharded || legacySharded);
 }
 
 const ::tt::target::ttnn::TTNNBinary *
@@ -285,40 +341,59 @@ inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef) {
   return inferLayoutFromTileShape(tileShape);
 }
 
-CoreCoord toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord) {
-  return CoreCoord(coreCoord.x(), coreCoord.y());
+tt::tt_metal::CoreCoord
+toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord) {
+  return tt::tt_metal::CoreCoord(coreCoord.x(), coreCoord.y());
 }
 
-::tt::target::ttnn::CoreCoord fromTTNNCoreCoord(const CoreCoord &coreCoord) {
+::tt::target::ttnn::CoreCoord
+fromTTNNCoreCoord(const tt::tt_metal::CoreCoord &coreCoord) {
   return ::tt::target::ttnn::CoreCoord(coreCoord.x, coreCoord.y);
 }
 
-CoreRange toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange) {
-  CoreCoord start = toTTNNCoreCoord(coreRange.start_coord());
-  CoreCoord end = toTTNNCoreCoord(coreRange.end_coord());
-  return CoreRange(start, end);
+tt::tt_metal::CoreRange
+toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange) {
+  tt::tt_metal::CoreCoord start = toTTNNCoreCoord(coreRange.start_coord());
+  tt::tt_metal::CoreCoord end = toTTNNCoreCoord(coreRange.end_coord());
+  return tt::tt_metal::CoreRange(start, end);
 }
 
-::tt::target::ttnn::CoreRange fromTTNNCoreRange(const CoreRange &coreRange) {
+tt::tt_metal::distributed::MeshCoordinate
+toTTNNMeshCoordinate(const tt::target::ttnn::MeshCoord &meshCoord) {
+  return tt::tt_metal::distributed::MeshCoordinate(meshCoord.coords()->Get(0),
+                                                   meshCoord.coords()->Get(1));
+}
+
+tt::tt_metal::distributed::MeshCoordinateRange toTTNNMeshCoordinateRange(
+    const tt::target::ttnn::MeshCoordRange &meshCoordRange) {
+  tt::tt_metal::distributed::MeshCoordinate start =
+      toTTNNMeshCoordinate(*meshCoordRange.start());
+  tt::tt_metal::distributed::MeshCoordinate end =
+      toTTNNMeshCoordinate(*meshCoordRange.end());
+  return tt::tt_metal::distributed::MeshCoordinateRange(start, end);
+}
+
+::tt::target::ttnn::CoreRange
+fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange) {
   return tt::target::ttnn::CoreRange(fromTTNNCoreCoord(coreRange.start_coord),
                                      fromTTNNCoreCoord(coreRange.end_coord));
 }
 
-CoreRangeSet
+tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
-  std::set<CoreRange> coreRanges;
+  std::set<tt::tt_metal::CoreRange> coreRanges;
   for (const tt::target::ttnn::CoreRange *coreRange :
        *coreRangeSet.core_ranges()) {
     coreRanges.emplace(toTTNNCoreRange(*coreRange));
   }
-  return CoreRangeSet(coreRanges);
+  return tt::tt_metal::CoreRangeSet(coreRanges);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
 fromTTNNCoreRangeSet(flatbuffers::FlatBufferBuilder &fbb,
-                     const CoreRangeSet &coreRangeSet) {
+                     const tt::tt_metal::CoreRangeSet &coreRangeSet) {
   std::vector<tt::target::ttnn::CoreRange> coreRanges;
-  for (const CoreRange &coreRange : coreRangeSet.ranges()) {
+  for (const tt::tt_metal::CoreRange &coreRange : coreRangeSet.ranges()) {
     coreRanges.emplace_back(fromTTNNCoreRange(coreRange));
   }
   return tt::target::ttnn::CreateCoreRangeSetDirect(fbb, &coreRanges);
@@ -341,6 +416,16 @@ fromTTNNShardOrientation(::ttnn::ShardOrientation orientation) {
     return tt::target::ttnn::ShardOrientation::RowMajor;
   case ::ttnn::ShardOrientation::COL_MAJOR:
     return tt::target::ttnn::ShardOrientation::ColMajor;
+  }
+}
+
+tt::tt_metal::ShardDistributionStrategy toTTNNShardDistributionStrategy(
+    tt::target::ttnn::ShardDistributionStrategy distributionStrategy) {
+  switch (distributionStrategy) {
+  case tt::target::ttnn::ShardDistributionStrategy::RoundRobin1D:
+    return tt::tt_metal::ShardDistributionStrategy::ROUND_ROBIN_1D;
+  case tt::target::ttnn::ShardDistributionStrategy::Grid2D:
+    return tt::tt_metal::ShardDistributionStrategy::GRID_2D;
   }
 }
 
@@ -377,50 +462,64 @@ getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef) {
 
 std::optional<::ttnn::MemoryConfig>
 createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
-
   if (!memcfg) {
     return std::nullopt;
   }
 
-  const ::tt::target::ttnn::TensorMemoryLayout targetMemoryLayout =
-      memcfg->tensor_memory_layout();
-  const ::tt::target::BufferType targetBufferType = memcfg->buffer_type();
-
+  const auto targetBufferType = memcfg->buffer_type();
   LOG_ASSERT(targetBufferType == ::tt::target::BufferType::DRAM ||
                  targetBufferType == ::tt::target::BufferType::L1,
              "Memory config buffer type should be DRAM or L1");
+  const auto ttnnBufferType = toTTNNBufferType(targetBufferType);
 
-  ::ttnn::TensorMemoryLayout ttnnMemLayout =
-      toTTNNTensorMemoryLayout(targetMemoryLayout);
-
-  ::ttnn::BufferType ttnnBufferType = toTTNNBufferType(targetBufferType);
+  const auto targetMemLayout = memcfg->tensor_memory_layout();
+  const auto memLayout = toTTNNTensorMemoryLayout(targetMemLayout);
 
   // Verify that shard spec is present only for sharded memory layouts
-  LOG_ASSERT((memcfg->shard_spec() != nullptr) ==
-             isSharded(targetMemoryLayout));
-  std::optional<::tt::tt_metal::ShardSpec> metalShardSpec = std::nullopt;
+  const bool hasShardSpec =
+      (memcfg->shard_spec() != nullptr) || (memcfg->nd_shard_spec() != nullptr);
+  LOG_ASSERT(
+      hasShardSpec == isSharded(targetMemLayout),
+      "A shard spec must be present if and only if the tensor is sharded");
 
-  if (isSharded(targetMemoryLayout)) {
-    const ::flatbuffers::Vector<int32_t> *targetShardShape =
-        memcfg->shard_spec()->shape();
-    LOG_ASSERT(targetShardShape->size() == 2,
+  // Handle (legacy) shard spec
+  if (const auto *shardSpec = memcfg->shard_spec()) {
+    const auto *shardShape = shardSpec->shape();
+    LOG_ASSERT(shardShape->size() == 2,
                "Only 2D shard shape is supported in TTNN backend");
-    std::array<uint32_t, 2> ttnnShardShape;
-    std::copy(targetShardShape->begin(), targetShardShape->end(),
-              ttnnShardShape.begin());
+    std::array<uint32_t, 2> shape;
+    std::copy(shardShape->begin(), shardShape->end(), shape.begin());
 
-    const tt::target::ttnn::CoreRangeSet *targetCoreRangeSet =
-        memcfg->shard_spec()->core_range_set();
-    CoreRangeSet ttnnCoreRangeSet = toTTNNCoreRangeSet(*targetCoreRangeSet);
-    ::ttnn::ShardOrientation ttnnShardOrientation =
-        toTTNNShardOrientation(memcfg->shard_spec()->orientation());
-    metalShardSpec = ::tt::tt_metal::ShardSpec(ttnnCoreRangeSet, ttnnShardShape,
-                                               ttnnShardOrientation);
+    const tt::tt_metal::CoreRangeSet coreRangeSet =
+        toTTNNCoreRangeSet(*shardSpec->core_range_set());
+    const ::ttnn::ShardOrientation orientation =
+        toTTNNShardOrientation(shardSpec->orientation());
+    auto metalShardSpec =
+        ::tt::tt_metal::ShardSpec(coreRangeSet, shape, orientation);
+
+    return ::ttnn::MemoryConfig{memLayout, ttnnBufferType, metalShardSpec};
   }
 
-  ::ttnn::MemoryConfig memoryConfig{ttnnMemLayout, ttnnBufferType,
-                                    metalShardSpec};
-  return std::make_optional(memoryConfig);
+  // Handle ND shard spec
+  if (const auto *ndShardSpec = memcfg->nd_shard_spec()) {
+    const auto *shardShape = ndShardSpec->shape();
+    std::vector<uint32_t> shape(shardShape->begin(), shardShape->end());
+
+    const tt::tt_metal::CoreRangeSet coreRangeSet =
+        toTTNNCoreRangeSet(*ndShardSpec->core_range_set());
+    const ::ttnn::ShardOrientation orientation =
+        toTTNNShardOrientation(ndShardSpec->orientation());
+    const tt::tt_metal::ShardDistributionStrategy strategy =
+        toTTNNShardDistributionStrategy(ndShardSpec->distribution_strategy());
+    auto metalNdShardSpec = tt::tt_metal::NdShardSpec(
+        tt::tt_metal::Shape(ttsl::Span<const uint32_t>(shape)), coreRangeSet,
+        orientation, strategy);
+
+    return ::ttnn::MemoryConfig{ttnnBufferType, metalNdShardSpec};
+  }
+
+  // Non-sharded memory config
+  return ::ttnn::MemoryConfig{memLayout, ttnnBufferType};
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
@@ -502,6 +601,12 @@ std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
   return stdVector;
 }
 
+void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
+  ::tt::tt_metal::HostBuffer hostBuffer =
+      ::tt::tt_metal::host_buffer::get_host_buffer(tensor);
+  return static_cast<void *>(hostBuffer.view_bytes().data());
+}
+
 ::ttnn::TensorSpec createTensorSpec(const ::ttnn::Shape &shape,
                                     const ::ttnn::DataType &dataType,
                                     const ::ttnn::Layout &layout,
@@ -511,10 +616,31 @@ std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
   return tensorSpec;
 }
 
-void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
-  ::tt::tt_metal::HostBuffer hostBuffer =
-      ::tt::tt_metal::host_buffer::get_host_buffer(tensor);
-  return static_cast<void *>(hostBuffer.view_bytes().data());
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device deviceHandle) {
+  std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+      memoryMap;
+  ::ttnn::MeshDevice &meshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
+  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::DRAM);
+  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::L1);
+  auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::L1_SMALL);
+  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      &meshDevice, ::ttnn::BufferType::TRACE);
+
+  memoryMap[tt::runtime::MemoryBufferType::DRAM] =
+      createMemoryView(dramMemoryView);
+  memoryMap[tt::runtime::MemoryBufferType::L1] = createMemoryView(l1MemoryView);
+  memoryMap[tt::runtime::MemoryBufferType::L1_SMALL] =
+      createMemoryView(l1SmallMemoryView);
+  memoryMap[tt::runtime::MemoryBufferType::TRACE] =
+      createMemoryView(traceMemoryView);
+
+  return memoryMap;
 }
 
 } // namespace tt::runtime::ttnn::utils

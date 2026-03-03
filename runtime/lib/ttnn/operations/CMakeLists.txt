@@ -1,12 +1,19 @@
+find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.Embed)
+
 if (NOT TTNN_RUNTIME_ENABLED)
   add_library(TTRuntimeTTNNOps INTERFACE)
   return()
 endif()
 
 set(TTNN_OPS_SRCS
+  ${CMAKE_CURRENT_SOURCE_DIR}/debug/debug.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/cache/global_tensor_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cache/load_cached.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/aggregate_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/collective_permute.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/distribute_tensor.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_partition.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/point_to_point.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
@@ -15,6 +22,9 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_weights.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_bias.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv_transpose2d_weights.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv_transpose2d_bias.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv3d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cpu/cpu.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/arange.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/constant.cpp
@@ -42,13 +52,15 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary/unary_composite.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding_backward.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/experimental/gelu_bw.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/experimental/dropout.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/generic/generic_op.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/fill_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/update_cache.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/paged_fill_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/paged_update_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/from_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_device.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_dtype.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_layout.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_memory_config.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/typecast.cpp
@@ -58,6 +70,8 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/mlir_native/func_call.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/moreh/moreh_cumsum.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/batch_norm.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/distributed_rms_norm.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/layer_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/rms_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pool/pool2d.cpp
@@ -66,6 +80,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/argmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/prod.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reduction/topk.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/tensor_serialization/dump_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/tensor_serialization/load_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/trace/begin_trace_capture.cpp
@@ -81,6 +96,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/scaled_dot_product_attention.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/scaled_dot_product_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/split_query_key_value_and_split_heads.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_scaled_dot_product_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )
 
@@ -104,7 +120,7 @@ target_include_directories(TTRuntimeTTNNOps PUBLIC
 
 target_include_directories(TTRuntimeTTNNOps SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN_LIBRARY TTRuntimeTTNNDebug TTRuntimeTTNNTypes TTRuntimeTTNNUtils TRACY_LIBRARY)
-target_link_libraries(TTRuntimeTTNNOps PUBLIC coverage_config)
+target_link_libraries(TTRuntimeTTNNOps PUBLIC coverage_config Python::Python)
 
 
 add_dependencies(TTRuntimeTTNNOps TTNN_LIBRARY tt-metal FBS_GENERATION TTRuntimeTTNNTypes TTRuntimeTTNNDebug RUNTIME_FBS_GENERATION)

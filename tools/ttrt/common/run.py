@@ -69,7 +69,7 @@ class Run:
             type=str,
             default="randn",
             choices=Run.TorchInitializer.init_fns,
-            help="function to initialize tensors with (implies --disable-golden)",
+            help="function to initialize tensors with (implies --enable-golden=False)",
         )
         Run.register_arg(
             name="--identity",
@@ -135,18 +135,18 @@ class Run:
             help="seed for random number generator",
         )
         Run.register_arg(
-            name="--dump-kernels-to-disk",
+            name="--dump-kernels",
             type=bool,
             default=False,
             choices=[True, False],
             help="dump the kernels to disk (/tmp) as they are being executed",
         )
         Run.register_arg(
-            name="--load-kernels-from-disk",
+            name="--load-kernels",
             type=bool,
             default=False,
             choices=[True, False],
-            help="pickup the kernels from disk (/tmp) instead of the flatbuffer, must have previously run with --dump-kernels-to-disk",
+            help="pickup the kernels from disk (/tmp) instead of the flatbuffer, must have previously run with --dump-kernels",
         )
         Run.register_arg(
             name="--use-loc-for-kernel-name",
@@ -212,11 +212,11 @@ class Run:
             help="test file to save results to",
         )
         Run.register_arg(
-            name="--disable-golden",
+            name="--enable-golden",
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable golden comparison for intermediate and output tensors",
+            help="enable golden comparison for intermediate and output tensors",
         )
         Run.register_arg(
             name="--save-golden-tensors",
@@ -258,7 +258,7 @@ class Run:
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable putting dispatch on ethernet cores - place it on worker cores instead; necessary on blackhole",
+            help="disable putting dispatch on ethernet cores - place it on worker cores instead",
         )
         Run.register_arg(
             name="--ignore-version",
@@ -277,7 +277,7 @@ class Run:
         Run.register_arg(
             name="--enable-program-cache",
             type=bool,
-            default=False,
+            default=True,
             choices=[True, False],
             help="enable program cache in ttnn runtime",
         )
@@ -328,7 +328,7 @@ class Run:
             type=str,
             default="fabric_1d",
             choices=None,
-            help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus, fabric_2d_dynamic or custom (case-insensitive, default: disabled)",
+            help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus_x, fabric_2d_torus_y, fabric_2d_torus_xy or custom (case-insensitive, default: fabric_1d)",
         )
         Run.register_arg(
             name="--disable-ttrt-callbacks",
@@ -380,7 +380,7 @@ class Run:
         if self["--benchmark"]:
             self["--loops"] = 2
             self["--enable-program-cache"] = True
-            self["--disable-golden"] = True
+            self["--enable-golden"] = False
             self["--program-index"] = 0
 
     def preprocess(self):
@@ -532,8 +532,8 @@ class Run:
                 return
 
             debug_env = ttrt.runtime.DebugEnv.get(
-                self["--dump-kernels-to-disk"],
-                self["--load-kernels-from-disk"],
+                self["--dump-kernels"],
+                self["--load-kernels"],
                 self["--use-loc-for-kernel-name"],
                 self["--kernel-source-dir"],
                 not self["--disable-device-address-validation"],
@@ -563,19 +563,17 @@ class Run:
             ttrt.runtime.set_compatible_device_runtime(binaries[0].fbb)
             current_runtime = ttrt.runtime.get_current_device_runtime()
             self.logging.debug(f"opening devices={self.query.device_ids}")
-            dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
-
-            if self["--disable-eth-dispatch"]:
-                dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
             if "--init" in sys.argv:
-                self["--disable-golden"] = True
+                self["--enable-golden"] = False
 
             num_devices = len(self.query.device_ids)
             mesh_options = ttrt.runtime.MeshDeviceOptions()
-            mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
             mesh_options.trace_region_size = self["--trace-region-size"]
+
+            if self["--disable-eth-dispatch"]:
+                mesh_options.dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
             # Initialize `device` to `None` for error handling in case device opening fails
             device = None
@@ -611,7 +609,7 @@ class Run:
                         self["--rtol"],
                         self["--save-golden-tensors"],
                         self.logging,
-                        not self["--disable-golden"],
+                        self["--enable-golden"],
                         self["--memory"],
                         self["--debugger"],
                     )
@@ -623,7 +621,7 @@ class Run:
                         self["--rtol"],
                         self["--save-golden-tensors"],
                         self.logging,
-                        not self["--disable-golden"],
+                        self["--enable-golden"],
                         self["--memory"],
                         self["--debugger"],
                     )
@@ -667,7 +665,7 @@ class Run:
                         for i in range(program.num_inputs()):
                             golden_tensor = {}
 
-                            if not self["--disable-golden"]:
+                            if self["--enable-golden"]:
                                 golden_tensor = bin.fbb.get_debug_info_golden(
                                     f"input_{i}"
                                 )
@@ -690,15 +688,15 @@ class Run:
                         inputs = []
                         outputs = []
                         for i in program.input_tensors:
-                            new_input = create_tensor(i)
+                            new_input = create_tensor(i, fb_mesh_shape)
                             inputs.append(new_input)
 
                         for i in program.output_tensors:
-                            new_output = create_tensor(i)
+                            new_output = create_tensor(i, fb_mesh_shape)
                             outputs.append(new_output)
 
                         # load output golden tensors
-                        if not self["--disable-golden"]:
+                        if self["--enable-golden"]:
                             golden_outputs_torch = []
                             for idx in range(0, len(program.output_tensors)):
                                 golden_tensor = {}
@@ -828,16 +826,22 @@ class Run:
                                 start_get_output = time.perf_counter_ns()
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
-                                )[0]
+                                )
                                 end_get_output = time.perf_counter_ns()
                                 e2e_duration_nanoseconds_output += (
                                     end_get_output - start_get_output
                                 )
 
-                                ttrt.runtime.memcpy(
-                                    outputs[i],
-                                    output_host,
-                                )
+                                # (todo: tapspatel) Temporary workaround for getting multi-device tensors back to host.
+                                # Currently, ttrt.runtime.to_host will return back a list of tensors, outputs[i] is a single multi-device tensor (with multiple device shards).
+                                if (
+                                    self["--print-input-output-tensors"]
+                                    or self["--enable-golden"]
+                                ):
+                                    ttrt.runtime.memcpy(
+                                        outputs[i],
+                                        output_host,
+                                    )
                                 ttrt.runtime.deallocate_tensor(
                                     runtime_output_tensor, force=True
                                 )
@@ -845,7 +849,7 @@ class Run:
                                 output_tensor_torch = None
                                 if (
                                     self["--print-input-output-tensors"]
-                                    or not self["--disable-golden"]
+                                    or self["--enable-golden"]
                                 ):
                                     output_tensor_torch = (
                                         convert_runtime_to_torch_tensor(outputs[i])
@@ -855,7 +859,7 @@ class Run:
                                 golden_tensor_torch = None
                                 pcc_fail = False
                                 allclose_fail = False
-                                if (not self["--disable-golden"]) and (
+                                if (self["--enable-golden"]) and (
                                     i < len(golden_outputs_torch)
                                 ):
                                     self.logging.debug(
@@ -1058,7 +1062,7 @@ class Run:
                         device.read_device_profiler_results()
 
                         # if golden comparison is enabled, check golden results json file to see if test passed
-                        if not self["--disable-golden"]:
+                        if self["--enable-golden"]:
                             if self["--save-artifacts"]:
                                 post_op_callback_runtime_config.save_golden_report(
                                     f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
@@ -1158,6 +1162,20 @@ class Run:
                 self.logging.info(f"PASS: test case={bin.file_path}")
             else:
                 self.logging.error(f"ERROR: test case={bin.file_path}")
+
+        if len(self.results.get_results()) == 0:
+            test_result = {
+                "file_path": self["binary"],
+                "result": "error",
+                "exception": f"no binaries found or executed at path: {self['binary']}",
+                "log_file": self.logger.file_name,
+                "artifacts": self.artifacts.artifacts_folder_path,
+                "program_index": self["--program-index"],
+            }
+            self.logging.error(
+                f"ERROR: no binaries found or executed at path: {self['binary']}"
+            )
+            self.results.add_result(test_result)
 
         self.results.save_results(self["--result-file"])
 

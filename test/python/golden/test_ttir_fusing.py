@@ -4,10 +4,12 @@
 
 import pytest
 import torch
+from conftest import get_request_kwargs
+import os
 from typing import List, Optional
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape, get_artifact_dir
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -52,103 +54,105 @@ def test_batch_norm_decomposition(
     request,
     device,
 ):
-    def conv2d_batch_norm(
-        input_tensor: Operand,
-        conv_weight: Operand,
-        conv_bias: Operand,
-        bn_scale: Operand,
-        bn_offset: Operand,
-        bn_mean: Operand,
-        bn_variance: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # Create input tensor with random data
-        input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def conv2d_batch_norm(
+            input_tensor: Operand,
+            conv_weight: Operand,
+            conv_bias: Operand,
+            bn_scale: Operand,
+            bn_offset: Operand,
+            bn_mean: Operand,
+            bn_variance: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Create input tensor with random data
+            input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
 
-        # Create conv2d weights and bias
-        conv_weight_data = torch.randn(shapes[1], dtype=dtypes[1])
-        conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
+            # Create conv2d weights and bias
+            conv_weight_data = torch.randn(shapes[1], dtype=dtypes[1])
+            conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
 
-        # Create batch norm parameters
-        bn_scale_data = torch.randn(shapes[3], dtype=dtypes[3])
-        bn_offset_data = torch.randn(shapes[4], dtype=dtypes[4])
-        bn_mean_data = torch.randn(shapes[5], dtype=dtypes[5])
-        bn_variance_data = (
-            torch.abs(torch.randn(shapes[6], dtype=dtypes[6])) + 1e-5
-        )  # Ensure positive variance
+            # Create batch norm parameters
+            bn_scale_data = torch.randn(shapes[3], dtype=dtypes[3])
+            bn_offset_data = torch.randn(shapes[4], dtype=dtypes[4])
+            bn_mean_data = torch.randn(shapes[5], dtype=dtypes[5])
+            bn_variance_data = (
+                torch.abs(torch.randn(shapes[6], dtype=dtypes[6])) + 1e-5
+            )  # Ensure positive variance
 
-        input_tensor_data_rs = input_tensor_data.transpose(-2, -1).transpose(-3, -2)
-        conv_result = torch.nn.functional.conv2d(
-            input_tensor_data_rs,
-            conv_weight_data,
-            conv_bias_data.squeeze(),
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-        )
-        conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
+            input_tensor_data_rs = input_tensor_data.transpose(-2, -1).transpose(-3, -2)
+            conv_result = torch.nn.functional.conv2d(
+                input_tensor_data_rs,
+                conv_weight_data,
+                conv_bias_data.squeeze(),
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+            )
+            conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
 
-        golden_output = torch.nn.functional.batch_norm(
-            conv_result,
-            bn_mean_data,
-            bn_variance_data,
-            bn_scale_data,
-            bn_offset_data,
-            eps=epsilon,
-        )
+            golden_output = torch.nn.functional.batch_norm(
+                conv_result,
+                bn_mean_data,
+                bn_variance_data,
+                bn_scale_data,
+                bn_offset_data,
+                eps=epsilon,
+            )
 
-        conv2d_0 = builder.conv2d(
-            input_tensor,
-            conv_weight,
-            conv_bias,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            unit_attrs=unit_attrs,
-        )
+            conv2d_0 = builder.conv2d(
+                input_tensor,
+                conv_weight,
+                conv_bias,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+                unit_attrs=unit_attrs,
+            )
 
-        batch_norm_0 = builder.batch_norm(
-            conv2d_0,
-            bn_scale,
-            bn_offset,
-            bn_mean,
-            bn_variance,
-            epsilon=epsilon,
-            dimension=dimension,
-            unit_attrs=unit_attrs,
-        )
+            batch_norm_0 = builder.batch_norm_inference(
+                conv2d_0,
+                bn_scale,
+                bn_offset,
+                bn_mean,
+                bn_variance,
+                epsilon=epsilon,
+                dimension=dimension,
+            )
 
-        builder.set_goldens(
-            {
-                input_tensor: input_tensor_data,
-                conv_weight: conv_weight_data,
-                conv_bias: conv_bias_data,
-                bn_scale: bn_scale_data,
-                bn_offset: bn_offset_data,
-                bn_mean: bn_mean_data,
-                bn_variance: bn_variance_data,
-            },
-            {batch_norm_0: golden_output},
-        )
-        builder.set_operand_goldens({conv2d_0: conv_result})
-        return batch_norm_0
+            builder.set_goldens(
+                {
+                    input_tensor: input_tensor_data,
+                    conv_weight: conv_weight_data,
+                    conv_bias: conv_bias_data,
+                    bn_scale: bn_scale_data,
+                    bn_offset: bn_offset_data,
+                    bn_mean: bn_mean_data,
+                    bn_variance: bn_variance_data,
+                },
+                {batch_norm_0: golden_output},
+            )
+            builder.set_operand_goldens({conv2d_0: conv_result})
+            return batch_norm_0
 
-    output = compile_and_execute_ttir(
-        conv2d_batch_norm,
-        shapes,
-        dtypes,
-        test_base=request.node.name,
-        output_root=request.config.getoption(
-            "--path",
-        ),
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
+        save_artifacts=True,
         pipeline_options=["enable-fusing-conv2d-with-multiply-pattern=true"],
     )
-    assert check_op(output, "conv2d") and not check_op(output, "batch_norm")
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
+    )
+    assert check_op(output_path, "conv2d") and not check_op(output_path, "batch_norm")
 
 
 @pytest.mark.xfail(
@@ -181,81 +185,85 @@ def test_conv_activation_fusing(
     request,
     device,
 ):
-    def conv2d_activation(
-        input_tensor: Operand,
-        conv_weight: Operand,
-        conv_bias: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # Create input tensor with random data
-        input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def conv2d_activation(
+            input_tensor: Operand,
+            conv_weight: Operand,
+            conv_bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Create input tensor with random data
+            input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
 
-        # Create conv2d weights and bias
-        conv_weight_data = torch.randn(shapes[1], dtype=dtypes[1])
-        conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
+            # Create conv2d weights and bias
+            conv_weight_data = torch.randn(shapes[1], dtype=dtypes[1])
+            conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
 
-        # Calculate golden output using torch operations
-        input_tensor_data_rs = input_tensor_data.transpose(-2, -1).transpose(-3, -2)
-        conv_result = torch.nn.functional.conv2d(
-            input_tensor_data_rs,
-            conv_weight_data,
-            conv_bias_data.squeeze(),
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-        )
-        conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
+            # Calculate golden output_path using torch operations
+            input_tensor_data_rs = input_tensor_data.transpose(-2, -1).transpose(-3, -2)
+            conv_result = torch.nn.functional.conv2d(
+                input_tensor_data_rs,
+                conv_weight_data,
+                conv_bias_data.squeeze(),
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+            )
+            conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
 
-        # Apply activation based on parameter
-        if activation == "relu":
-            golden_output = torch.nn.functional.relu(conv_result)
-        elif activation == "relu6":
-            golden_output = torch.nn.functional.relu6(conv_result)
-        elif activation == "silu":
-            golden_output = torch.nn.functional.silu(conv_result)
+            # Apply activation based on parameter
+            if activation == "relu":
+                golden_output = torch.nn.functional.relu(conv_result)
+            elif activation == "relu6":
+                golden_output = torch.nn.functional.relu6(conv_result)
+            elif activation == "silu":
+                golden_output = torch.nn.functional.silu(conv_result)
 
-        # Create conv2d builder op
-        conv = builder.conv2d(
-            input_tensor,
-            conv_weight,
-            conv_bias,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            unit_attrs=unit_attrs,
-        )
+            # Create conv2d builder op
+            conv = builder.conv2d(
+                input_tensor,
+                conv_weight,
+                conv_bias,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+                unit_attrs=unit_attrs,
+            )
 
-        # Add activation builder op based on parameter
-        if activation == "relu":
-            activation_op = builder.relu(conv)
-        elif activation == "relu6":
-            activation_op = builder.relu6(conv)
-        elif activation == "silu":
-            activation_op = builder.silu(conv)
+            # Add activation builder op based on parameter
+            if activation == "relu":
+                activation_op = builder.relu(conv)
+            elif activation == "relu6":
+                activation_op = builder.relu6(conv)
+            elif activation == "silu":
+                activation_op = builder.silu(conv)
 
-        builder.set_goldens(
-            {
-                input_tensor: input_tensor_data,
-                conv_weight: conv_weight_data,
-                conv_bias: conv_bias_data,
-            },
-            {conv: golden_output},
-        )
-        return activation_op
+            builder.set_goldens(
+                {
+                    input_tensor: input_tensor_data,
+                    conv_weight: conv_weight_data,
+                    conv_bias: conv_bias_data,
+                },
+                {conv: golden_output},
+            )
+            return activation_op
 
-    output = compile_and_execute_ttir(
-        conv2d_activation,
-        shapes,
-        dtypes,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
         device=device,
     )
-    assert check_op(output, "conv2d") and not check_op(output, activation)
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
+    )
+    assert check_op(output_path, "conv2d") and not check_op(output_path, activation)
 
 
 @pytest.mark.xfail(
@@ -288,71 +296,75 @@ def test_conv_silu_decomposed_fusing(
     request,
     device,
 ):
-    def conv2d_silu_decomposed(
-        input_tensor: Operand,
-        conv_weight: Operand,
-        conv_bias: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # Create input tensor with random data
-        input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def conv2d_silu_decomposed(
+            input_tensor: Operand,
+            conv_weight: Operand,
+            conv_bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Create input tensor with random data
+            input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
 
-        # Create conv2d weights and bias
-        conv_weight_data = torch.randn(shapes[1], dtype=dtypes[1])
-        conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
+            # Create conv2d weights and bias
+            conv_weight_data = torch.randn(shapes[1], dtype=dtypes[1])
+            conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
 
-        # Calculate golden output using torch operations
-        input_tensor_data_rs = input_tensor_data.transpose(-2, -1).transpose(-3, -2)
-        conv_result = torch.nn.functional.conv2d(
-            input_tensor_data_rs,
-            conv_weight_data,
-            conv_bias_data.squeeze(),
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-        )
-        conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
-        golden_output = conv_result * torch.sigmoid(conv_result)
+            # Calculate golden output using torch operations
+            input_tensor_data_rs = input_tensor_data.transpose(-2, -1).transpose(-3, -2)
+            conv_result = torch.nn.functional.conv2d(
+                input_tensor_data_rs,
+                conv_weight_data,
+                conv_bias_data.squeeze(),
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+            )
+            conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
+            golden_output = conv_result * torch.sigmoid(conv_result)
 
-        # Create conv2d builder op
-        conv = builder.conv2d(
-            input_tensor,
-            conv_weight,
-            conv_bias,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            unit_attrs=unit_attrs,
-        )
+            # Create conv2d builder op
+            conv = builder.conv2d(
+                input_tensor,
+                conv_weight,
+                conv_bias,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+                unit_attrs=unit_attrs,
+            )
 
-        # Add builder ops for x * sigmoid(x)
-        sigmoid_op = builder.sigmoid(conv, unit_attrs=unit_attrs)
-        silu_decomposed = builder.multiply(conv, sigmoid_op, unit_attrs=unit_attrs)
+            # Add builder ops for x * sigmoid(x)
+            sigmoid_op = builder.sigmoid(conv, unit_attrs=unit_attrs)
+            silu_decomposed = builder.multiply(conv, sigmoid_op)
 
-        builder.set_goldens(
-            {
-                input_tensor: input_tensor_data,
-                conv_weight: conv_weight_data,
-                conv_bias: conv_bias_data,
-            },
-            {conv: golden_output},
-        )
-        return silu_decomposed
+            builder.set_goldens(
+                {
+                    input_tensor: input_tensor_data,
+                    conv_weight: conv_weight_data,
+                    conv_bias: conv_bias_data,
+                },
+                {conv: golden_output},
+            )
+            return silu_decomposed
 
-    output = compile_and_execute_ttir(
-        conv2d_silu_decomposed,
-        shapes,
-        dtypes,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
         device=device,
     )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
+    )
     assert (
-        check_op(output, "conv2d")
-        and not check_op(output, "sigmoid")
-        and not check_op(output, "multiply")
+        check_op(output_path, "conv2d")
+        and not check_op(output_path, "sigmoid")
+        and not check_op(output_path, "multiply")
     )

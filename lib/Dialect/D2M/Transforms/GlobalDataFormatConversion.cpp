@@ -52,8 +52,7 @@ struct GlobalDataFormatBodyConverter : mlir::TypeConverter {
                               mlir::Location loc) -> mlir::Value {
       mlir::RankedTensorType rankedType =
           mlir::cast<mlir::RankedTensorType>(type);
-      return ttir::utils::createDPSOp<ttir::TypecastOp>(builder, loc,
-                                                        rankedType, inputs);
+      return builder.create<ttir::TypecastOp>(loc, rankedType, inputs);
     };
 
     addSourceMaterialization(materializeFunc); // Input conversions
@@ -114,6 +113,11 @@ struct D2MGlobalDataFormatConversion
     target.markUnknownOpDynamicallyLegal([&bodyConverter](mlir::Operation *op) {
       // Preserve function signatures
       if (isa<func::FuncOp>(op)) {
+        return true;
+      }
+
+      // Skip ops with the exclusion attribute
+      if (op->hasAttr("preserveDataFormat")) {
         return true;
       }
 

@@ -4,11 +4,12 @@
 
 import pytest
 import torch
+from conftest import get_request_kwargs
 from typing import Callable, List, Optional
 
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
-from builder.base.builder_utils import compile_and_execute_ttnn
+from builder.base.builder_apis import compile_and_execute_ttnn
 from test_utils import shape_str, shapes_list_str
 
 pytestmark = pytest.mark.frontend("ttnn")
@@ -17,21 +18,20 @@ pytestmark = pytest.mark.frontend("ttnn")
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
 def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, device):
-    def clamp_scalar(
-        in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        print(f"Clamping with min: {min_arg}, max: {max_arg}")
-        return builder.clamp_scalar(
-            in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
-        )
+    def module(builder: TTNNBuilder):
+        @builder.func([shape], [torch.float32])
+        def clamp_scalar(
+            in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            print(f"Clamping with min: {min_arg}, max: {max_arg}")
+            return builder.clamp_scalar(
+                in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttnn(
-        clamp_scalar,
-        [shape],
-        test_base=request.node.name,
+        module,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -39,65 +39,39 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, dev
     "shapes", [[(32, 64), (32, 64), (32, 64)]], ids=shapes_list_str
 )
 def test_clamp_tensor(shapes: List[Shape], request, device):
-    def clamp_tensor(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        builder: TTNNBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
+    def module(builder: TTNNBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def clamp_tensor(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
 
     compile_and_execute_ttnn(
-        clamp_tensor,
-        shapes,
-        test_base=request.node.name,
+        module,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes", [[(10, 64, 32), (32, 128), (1,)]], ids=shapes_list_str
-)
-def test_linear(shapes: List[Shape], request, device):
-    def linear(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        builder: TTNNBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.linear(in0, in1, in2, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttnn(
-        linear,
-        shapes,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
 @pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16), (1, 1, 64)], ids=shape_str)
-@pytest.mark.parametrize("dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
+@pytest.mark.parametrize("repeat_dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-def test_repeat(shape: Shape, dims: List[int], dtype, request, device):
-    def repeat(
-        in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.repeat(in0, dims=dims, unit_attrs=unit_attrs)
+def test_repeat(shape: Shape, repeat_dims: List[int], dtype, request, device):
+    def module(builder: TTNNBuilder):
+        @builder.func([shape], [dtype])
+        def repeat(
+            in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.repeat(in0, repeat_dims, unit_attrs=unit_attrs)
 
     compile_and_execute_ttnn(
-        repeat,
-        [shape],
-        [dtype],
-        test_base=request.node.name,
+        module,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -115,34 +89,22 @@ def test_repeat(shape: Shape, dims: List[int], dtype, request, device):
 def test_repeat_interleave(
     shapes: List[Shape], repeats: int, dim: int, request, device
 ):
-    def repeat_interleave(
-        in0: Operand,
-        builder: TTNNBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.repeat_interleave(
-            in0, repeats=repeats, dim=dim, unit_attrs=unit_attrs
-        )
+    def module(builder: TTNNBuilder):
+        @builder.func(shapes, [torch.float32])
+        def repeat_interleave(
+            in0: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.repeat_interleave(
+                in0, repeats=repeats, dim=dim, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttnn(
-        repeat_interleave,
-        shapes,
-        test_base=request.node.name,
+        module,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
-
-
-def concat(
-    in0: Operand,
-    in1: Operand,
-    in2: Operand,
-    dim: int,
-    builder: TTNNBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.concat([in0, in1, in2], dim=dim, unit_attrs=unit_attrs)
 
 
 @pytest.mark.parametrize(
@@ -159,25 +121,21 @@ def concat(
 @pytest.mark.parametrize("dim", [0])
 def test_concat(shapes: List[Shape], dim: int, request, device):
     # Create a wrapper function that captures dim
-    def concat_wrapper(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        builder: TTNNBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return concat(in0, in1, in2, dim, builder, unit_attrs)
-
-    # Set the name for better test identification.
-    concat_wrapper.__name__ = "concat"
+    def module(builder: TTNNBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def concat_wrapper(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.concat([in0, in1, in2], dim=dim, unit_attrs=unit_attrs)
 
     compile_and_execute_ttnn(
-        concat_wrapper,
-        shapes,
-        test_base=request.node.name,
+        module,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -198,21 +156,19 @@ def test_matmul(
     request,
     device,
 ):
-    def matmul(
-        in0: Operand,
-        in1: Operand,
-        builder: TTNNBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+    def module(builder: TTNNBuilder):
+        @builder.func(shapes, [dtype, dtype])
+        def matmul(
+            in0: Operand,
+            in1: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
     compile_and_execute_ttnn(
-        matmul,
-        shapes,
-        [dtype, dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        module,
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -235,33 +191,29 @@ def test_linear(
     request,
     device,
 ):
-    def linear(
-        in0: Operand,
-        in1: Operand,
-        bias_or_builder,
-        builder_or_none=None,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        if builder_or_none is not None:
-            bias = bias_or_builder
-            builder = builder_or_none
-        else:
-            bias = None
-            builder = bias_or_builder
+    def module(builder: TTNNBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def linear(
+            in0: Operand,
+            in1: Operand,
+            bias_or_builder,
+            builder_or_none=None,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            if builder_or_none is not None:
+                bias = bias_or_builder
+                builder = builder_or_none
+            else:
+                bias = None
+                builder = bias_or_builder
 
-        return builder.linear(
-            in0, in1, bias=bias, transpose_b=True, unit_attrs=unit_attrs
-        )
-
-    dtypes = [dtype] * len(shapes)
+            return builder.linear(
+                in0, in1, bias=bias, transpose_b=True, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttnn(
-        linear,
-        shapes,
-        dtypes,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        module,
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )

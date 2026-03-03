@@ -18,6 +18,21 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRERASEINVERSEOPS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
+// Check if any op in the funcOp has TTIR_FlattenedCompatInfoAttr
+bool hasFlattenedCompatInfoAttr(Operation *op) {
+  bool hasAttr = false;
+  op->walk([&](Operation *innerOp) {
+    for (auto attr : innerOp->getAttrs()) {
+      if (llvm::isa<ttir::FlattenedCompatInfoAttr>(attr.getValue())) {
+        hasAttr = true;
+        return WalkResult::interrupt();
+      }
+    }
+    return WalkResult::advance();
+  });
+  return hasAttr;
+}
+
 uint64_t countTms(Operation *op) {
   uint64_t tmCount = 0;
   op->walk([&](Operation *op) {
@@ -56,6 +71,12 @@ public:
     commuteBelowPatterns =
         getCommuteRewritePatternSet<CommuteDirection::DOWNWARDS>();
     for (auto funcOp : funcOps) {
+      // If no ops were flattened, we don't expect any inverse TMs.
+      // TTIR_FlattenedCompatInfoAttr (unless force flag is set)
+      if (!force.getValue() && !hasFlattenedCompatInfoAttr(funcOp)) {
+        continue;
+      }
+
 #ifdef TTMLIR_ENABLE_DEBUG_LOGS
       const int64_t nonConstevalableTMsBefore = countTms(funcOp);
 #endif
@@ -125,10 +146,15 @@ private:
     RewritePatternSet patterns(&getContext());
     populateElementwiseCommutePatterns<commuteDirection>(&getContext(),
                                                          patterns);
-    populateBroadcastCommutePatterns<commuteDirection>(&getContext(), patterns);
+    // Elementwise downwards can move reshapes onto consteval paths, creating
+    // broadcast->reshape matches; keep broadcast-upwards in both sets so
+    // elementwise-upwards does not race and pull those reshapes back first.
+    populateBroadcastCommutePatterns<CommuteDirection::UPWARDS>(&getContext(),
+                                                                patterns);
     populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateSliceCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateReduceCommutePatterns<commuteDirection>(&getContext(), patterns);
+    populateRMSNormCommutePatterns<commuteDirection>(&getContext(), patterns);
 
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;

@@ -15,7 +15,7 @@ class MeshDevice;
 
 namespace mlir::tt::ttnn {
 
-struct TTIRToTTNNBackendPipelineOptions;
+struct TTIRToTTNNDevicePipelineOptions;
 
 //===----------------------------------------------------------------------===//
 // TTNNOptimizer
@@ -34,14 +34,12 @@ struct TTNNOptimizerOptions {
   bool memReconfigEnabled = false;
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
-  float tensorL1UsageCap =
-      0.95f; // Default to 100% of maximum free space in L1.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
   TTNNOptimizerOptions() = default;
 
   explicit TTNNOptimizerOptions(
-      const TTIRToTTNNBackendPipelineOptions &pipelineOptions);
+      const TTIRToTTNNDevicePipelineOptions &pipelineOptions);
 };
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();

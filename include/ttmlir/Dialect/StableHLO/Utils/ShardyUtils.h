@@ -17,6 +17,11 @@ namespace mlir::tt::shardy_utils {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 
+// Sharding related string definitions from open-xla.
+// https://github.com/openxla/xla/blob/main/xla/service/spmd/shardy/constants.h
+inline constexpr llvm::StringRef kFuncResultShardingTargetName =
+    "xla.sdy.FuncResultSharding";
+
 // We used MapVector because we want the order to be preserved when inserting
 // axes into the meshMap.
 using MeshMap =
@@ -75,8 +80,8 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
 mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
                                                    mlir::MLIRContext *context);
 
-// Convert all stablehlo.custom_call @Sharding ops to sdy.sharding_constraint
-// ops.
+// Convert all stablehlo.custom_call @Sharding, @tt.sharding_constraint, and
+// @xla.sdy.FuncResultSharding ops to sdy.sharding_constraint ops.
 mlir::LogicalResult
 convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
                                       mlir::MLIRContext *context,
@@ -109,7 +114,8 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
 // Get the argument sharding attributes.
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
-                   mlir::sdy::MeshOp &globalMeshOp);
+                   mlir::sdy::MeshOp &globalMeshOp,
+                   bool createIfMissing = true);
 
 // Get the result sharding attributes.
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
@@ -175,6 +181,20 @@ private:
 
 // Return true if every dimension has no axes -> replicated.
 bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh);
+
+// Return true if the module has any sdy tensor sharding annotations that are
+// not fully replicated.
+bool isShardedModule(mlir::ModuleOp &module);
+
+// Attempts to slice a global constant tensor into a local shard if the data is
+// periodic (broadcasted) along the sharding axis.
+// Returns std::nullopt if the data is not periodic or sharding info is invalid.
+std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
+    mlir::DenseElementsAttr globalAttr, mlir::RankedTensorType localType,
+    mlir::sdy::TensorShardingAttr sharding, mlir::sdy::MeshOp meshOp);
+
+// Check if the operation has Shardy-sharded inputs or outputs.
+bool opHasShardySharding(mlir::Operation *op);
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 

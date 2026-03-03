@@ -98,4 +98,58 @@ module @sysmem_creation attributes {} {
     %0 = "ttir.constant"() <{value = dense<[[1], [2], [3]]> : tensor<3x1xui8>}> : () -> tensor<3x1xui8>
     return %0 : tensor<3x1xui8>
   }
+
+  func.func @test_constant_f32_from_int_value() -> tensor<2x2xf32> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: 1, 2
+    // CHECK-SAME: 3, 4
+    %0 = "ttir.constant"() <{value = dense<[[1, 2], [3, 4]]> : tensor<2x2xsi32>}> : () -> tensor<2x2xf32>
+    return %0 : tensor<2x2xf32>
+  }
+
+  func.func @test_constant_bf16_from_int_value() -> tensor<2x2xbf16> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: 1, 2
+    // CHECK-SAME: 3, 4
+    %0 = "ttir.constant"() <{value = dense<[[1, 2], [3, 4]]> : tensor<2x2xsi32>}> : () -> tensor<2x2xbf16>
+    return %0 : tensor<2x2xbf16>
+  }
+
+  func.func @test_constant_ui32_from_float_value() -> tensor<2x2xui32> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: 1.000000e+00, 2.000000e+00
+    // CHECK-SAME: 3.000000e+00, 4.000000e+00
+    %0 = "ttir.constant"() <{value = dense<[[1.0, 2.0], [3.0, 4.0]]> : tensor<2x2xf32>}> : () -> tensor<2x2xui32>
+    return %0 : tensor<2x2xui32>
+  }
+
+  func.func @test_constant_si32_from_float_value() -> tensor<2x2xsi32> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: -1.000000e+00, 2.000000e+00
+    // CHECK-SAME: 3.000000e+00, -4.000000e+00
+    %0 = "ttir.constant"() <{value = dense<[[-1.0, 2.0], [3.0, -4.0]]> : tensor<2x2xf32>}> : () -> tensor<2x2xsi32>
+    return %0 : tensor<2x2xsi32>
+  }
+
+  func.func @test_constant_ui16_from_float_value() -> tensor<2x2xui16> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: 1.000000e+00, 2.000000e+00
+    // CHECK-SAME: 3.000000e+00, 4.000000e+00
+    %0 = "ttir.constant"() <{value = dense<[[1.0, 2.0], [3.0, 4.0]]> : tensor<2x2xf32>}> : () -> tensor<2x2xui16>
+    return %0 : tensor<2x2xui16>
+  }
+
+  func.func @test_constant_ui8_from_float_value() -> tensor<2x2xui8> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: 1.000000e+00, 2.000000e+00
+    // CHECK-SAME: 3.000000e+00, 4.000000e+00
+    %0 = "ttir.constant"() <{value = dense<[[1.0, 2.0], [3.0, 4.0]]> : tensor<2x2xf32>}> : () -> tensor<2x2xui8>
+    return %0 : tensor<2x2xui8>
+  }
 }

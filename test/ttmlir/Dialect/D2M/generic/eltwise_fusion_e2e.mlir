@@ -1,4 +1,7 @@
-// RUN: ttmlir-opt %s --ttir-to-ttmetal-pipeline | FileCheck %s
+// RUN: ttmlir-opt %s --split-input-file --ttir-to-ttmetal-pipeline | FileCheck %s
+
+// Tests are mainly checking that the operation sequence over the main FUSED compute kernel
+// are correct when lowered all the way down to emitc and that the compiler doesn't fail.
 
 // Check for basic structure of the lowered IR
 // CHECK: #l1 = #ttcore.memory_space<l1>
@@ -16,9 +19,9 @@
 // CHECK: "ttmetal.enqueue_write_buffer"
 // CHECK: "ttmetal.enqueue_program"
 
-// Check for the fused elementwise operations in compute_kernel11
+// Check for the fused elementwise operations in compute_kernel7
 // This kernel should contain all the fused operations
-// CHECK: func.func private @compute_kernel11()
+// CHECK: func.func private @compute_kernel7()
 // CHECK-SAME: ttkernel.thread = #ttkernel.thread<compute>
 
 // Verify the sequence of operations that should be fused together
@@ -29,23 +32,18 @@
 // CHECK: emitc.call_opaque "negative_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
 // Then exp(-x)
 // CHECK: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
-// Then add exp(x) + exp(-x)
-// CHECK: emitc.call_opaque "add_binary_tile"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
-// Finally multiply by y (arg1)
-// CHECK: emitc.call_opaque "mul_binary_tile"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
+// Then div exp(x) / exp(-x)
+// CHECK: emitc.call_opaque "div_binary_tile"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
+// Finally pow by y (arg1)
+// CHECK: emitc.call_opaque "power_binary_tile"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
 
 module {
   func.func @cosh(%arg0: tensor<128x128xbf16>, %arg1: tensor<128x128xbf16>) -> tensor<128x128xbf16> {
-    %0 = ttir.empty() : tensor<128x128xbf16>
-    %1 = "ttir.neg"(%arg0, %0) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    %2 = ttir.empty() : tensor<128x128xbf16>
-    %3 = "ttir.exp"(%1, %2) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    %4 = ttir.empty() : tensor<128x128xbf16>
-    %5 = "ttir.exp"(%arg0, %4) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    %6 = ttir.empty() : tensor<128x128xbf16>
-    %7 = "ttir.add"(%5, %3, %6) : (tensor<128x128xbf16>, tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    %8 = ttir.empty() : tensor<128x128xbf16>
-    %9 = "ttir.multiply"(%7, %arg1, %8) : (tensor<128x128xbf16>, tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %1 = "ttir.neg"(%arg0) : (tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %3 = "ttir.exp"(%1) : (tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %5 = "ttir.exp"(%arg0) : (tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %7 = "ttir.div"(%5, %3) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %9 = "ttir.pow"(%7, %arg1) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
     return %9 : tensor<128x128xbf16>
   }
 }

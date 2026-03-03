@@ -54,6 +54,7 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
+
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options) {
   if (options.arithDialectConversionsEnabled) {
@@ -70,12 +71,20 @@ void createStableHLOToTTIRPipeline(
   ttir::ConvertStableHLOToTTIROptions passOptions;
   passOptions.enablePartialConversion = options.enableCPUFallback;
   pm.addPass(createConvertStableHLOToTTIRPass(passOptions));
+  pm.addPass(mlir::createCSEPass());
 
   if (options.enableCPUFallback) {
-    // Fallback any remaining SHLO ops to CPU.
+    // Wrap all ops in DeviceModule.
     pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
-    pm.addPass(ttir::createTTIRHoistTransformForDialects<
-               stablehlo::StablehloDialect>());
+
+    // Fallback non-lowerable SHLO ops to the CPU module.
+    pm.addPass(ttir::createCPUHoistNonLowerableSHLOOpsTransform());
+
+    // Run StableHLOToTTIR pass again on the DeviceModule to produce a failure
+    // if any unsupported ops have not been hoisted.
+    auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+    passOptions.enablePartialConversion = false;
+    devicePm.addPass(createConvertStableHLOToTTIRPass(passOptions));
   }
 }
 #endif
@@ -183,9 +192,8 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
                                 const LinalgToLLVMPipelineOptions &options) {
   // These are initial passes to ensure we start with well-form linalg dialect
   // operations.
-  // TODO (#2145): Explore ways to re-enable canonicalizer w/o return values for
-  // linalg funcs.
-  // manager.addPass(mlir::createCanonicalizerPass());
+
+  manager.addPass(mlir::createCanonicalizerPass());
   manager.addPass(mlir::createConvertElementwiseToLinalgPass());
   manager.addPass(mlir::createConvertTensorToLinalgPass());
 
@@ -247,10 +255,10 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   }
 }
 
-void createTTIRToCPUPipeline(OpPassManager &manager,
-                             const LinalgToLLVMPipelineOptions &options) {
-  OpPassManager &cpuPm =
-      manager.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+void createTTIRToLLVMCPUPipeline(OpPassManager &pm,
+                                 const TTIRToLLVMCPUPipelineOptions &options) {
+
+  auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
   // Directly convert any hoisted SHLO ops into linalg ops.
@@ -274,13 +282,6 @@ void createTTIRToCPUPipeline(OpPassManager &manager,
   // Add tosa-to-tensor/arith passes to handle tosa.const operations
   cpuPm.addPass(createTosaToTensorPass());
   cpuPm.addPass(createTosaToArithPass());
-
-  // Workaround for any DPS assumptions broken by either TTIRToTTIRDecomp or
-  // TTIRToTosa + TosaToLinalg decomp.
-  cpuPm.addPass(transforms::createReenableLostDPS());
-
-  // Cleanup the funcs s.t. they don't return values.
-  cpuPm.addPass(transforms::createRemoveReturnValues());
 
   ttir::createLinalgToLLVMPipeline(cpuPm, options);
   cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());

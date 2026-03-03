@@ -12,8 +12,9 @@
 
 namespace tt::alchemist::utils {
 
-std::string getPipelineName(mlir::ModuleOp module,
-                            CodeGenerationTarget target) {
+namespace {
+
+bool isOnlyTTNN(mlir::ModuleOp module) {
   bool hasTTIR = false;
   bool hasTTNN = false;
 
@@ -26,20 +27,21 @@ std::string getPipelineName(mlir::ModuleOp module,
     }
   });
 
-  bool isOnlyTTNN = hasTTNN && !hasTTIR;
+  return hasTTNN && !hasTTIR;
+}
+
+} // namespace
+
+std::string getPipelineName(mlir::ModuleOp module,
+                            CodeGenerationTarget target) {
+  bool ttnnInput = isOnlyTTNN(module);
+
   switch (target) {
   case CodeGenerationTarget::Cpp:
-    if (isOnlyTTNN) {
-      return "ttnn-backend-to-emitc-pipeline";
-    } else {
-      return "ttir-to-emitc-pipeline";
-    }
+    return ttnnInput ? "ttnn-to-emitc-device-pipeline"
+                     : "ttir-to-emitc-pipeline";
   case CodeGenerationTarget::Python:
-    if (isOnlyTTNN) {
-      return "ttnn-backend-to-emitpy-pipeline";
-    } else {
-      return "ttir-to-emitpy-pipeline";
-    }
+    return ttnnInput ? "ttnn-to-emitpy-pipeline" : "ttir-to-emitpy-pipeline";
   }
 }
 
@@ -48,7 +50,7 @@ bool runPipeline(mlir::PassManager &pm, mlir::ModuleOp module,
                  const std::string &pipelineOptions) {
   const auto *pipeline = mlir::PassPipelineInfo::lookup(pipelineName);
   if (!pipeline) {
-    std::cout << "Failed to find " << pipelineName << std::endl;
+    std::cout << "Failed to find pipeline: " << pipelineName << std::endl;
     return false;
   }
 

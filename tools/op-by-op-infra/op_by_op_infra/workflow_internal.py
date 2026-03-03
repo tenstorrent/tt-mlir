@@ -86,6 +86,8 @@ def add_missing_attributes(
     """
     Sets additional attributes of `pydantic_model` in-place.
 
+    Only sets attributes if they are provided.
+
     Parameters
     ----------
     pydantic_model: OpTest
@@ -98,8 +100,10 @@ def add_missing_attributes(
         Name of the ML model which was passed as original MLIR module to the op by op
         infra. I.e model in which operation `pydantic_model.op_name` is used.
     """
-    pydantic_model.frontend = frontend
-    pydantic_model.model_name = model_name
+    if frontend:
+        pydantic_model.frontend = frontend
+    if model_name:
+        pydantic_model.model_name = model_name
 
 
 # ---------- Workflows ----------
@@ -127,7 +131,8 @@ def split_and_execute(
     results = []
 
     progress_msg("Splitting module...")
-    sub_modules = splitter.split(module)
+    sub_ops = splitter.split(module)
+    sub_modules = splitter.sub_modules
 
     for sub_module in progress_bar(sub_modules, desc="Executing submodules..."):
         execution_result = executor.execute(sub_module)
@@ -136,7 +141,9 @@ def split_and_execute(
     return results
 
 
-def compile_split_and_execute(module: Module | str) -> List[ExecutionResult]:
+def compile_split_and_execute(
+    module: Module | str, compile_only: bool = False
+) -> List[ExecutionResult]:
     """
     Compiles the original `module` (SHLO/TTIR/TTNN) down to TTNN graph, splits it into
     constituent operations, creates flatbuffer for each of them and runs it on device.
@@ -151,14 +158,15 @@ def compile_split_and_execute(module: Module | str) -> List[ExecutionResult]:
     progress_msg(compile_split_and_execute.__doc__)
 
     splitter = MLIRModuleSplitter()
-    executor = MLIRModuleExecutor()
+    executor = MLIRModuleExecutor(compile_only)
 
     results = []
 
     progress_msg("Compiling module...")
     ttnn_module = executor.compile(module)
     progress_msg("Splitting module...")
-    sub_modules = splitter.split(ttnn_module)
+    sub_ops = splitter.split(ttnn_module)
+    sub_modules = splitter.sub_modules
 
     for sub_module in progress_bar(sub_modules, desc="Executing submodules..."):
         execution_result = executor.execute(sub_module)
@@ -167,7 +175,9 @@ def compile_split_and_execute(module: Module | str) -> List[ExecutionResult]:
     return results
 
 
-def split_compile_split_and_execute(module: Module | str) -> List[ExecutionResult]:
+def split_compile_split_and_execute(
+    module: Module | str, compile_only: bool = False
+) -> List[ExecutionResult]:
     """
     Splits the original `module` (SHLO/TTIR/TTNN) into constituent operations, compiles
     each of them down to TTNN graph, splits it into constituent TTNN operations, creates
@@ -183,12 +193,13 @@ def split_compile_split_and_execute(module: Module | str) -> List[ExecutionResul
     progress_msg(split_and_execute.__doc__)
 
     splitter = MLIRModuleSplitter()
-    executor = MLIRModuleExecutor()
+    executor = MLIRModuleExecutor(compile_only)
 
     results = []
 
     progress_msg("Splitting module...")
-    sub_modules = splitter.split(module)
+    sub_ops = splitter.split(module)
+    sub_modules = splitter.sub_modules
 
     for sub_module in progress_bar(
         sub_modules, desc="Compiling, splitting and executing submodules..."
@@ -196,7 +207,8 @@ def split_compile_split_and_execute(module: Module | str) -> List[ExecutionResul
         progress_msg("Compiling submodule...")
         ttnn_module = executor.compile(sub_module)
         progress_msg("Splitting submodule...")
-        ttnn_sub_modules = splitter.split(ttnn_module)
+        ttnn_sub_ops = splitter.split(ttnn_module)
+        ttnn_sub_modules = splitter.sub_modules
 
         for ttnn_sub_module in progress_bar(
             ttnn_sub_modules, desc="Executing submodules...", leave=False

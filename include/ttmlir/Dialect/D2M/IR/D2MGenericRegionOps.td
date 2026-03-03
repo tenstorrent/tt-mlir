@@ -11,7 +11,9 @@ include "ttmlir/Dialect/D2M/IR/D2MBase.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.td"
 
+include "mlir/Dialect/Affine/IR/AffineMemoryOpInterfaces.td"
 include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
+include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
@@ -74,7 +76,60 @@ class D2M_GenericRegionComputeBinaryDstOp<string mnemonic, list<Trait> traits = 
 
   let extraClassDeclaration = [{
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      // Both operands are tiles, load both from DST
       return {0, 1};
+    }
+  }];
+}
+
+// Binary ops that support tile-tile OR tile-scalar operations
+class D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<string mnemonic, list<Trait> traits = []> :
+    D2M_GenericRegionComputeOp<mnemonic, traits> {
+
+  let extraClassDeclaration = [{
+    bool supportsTileOrScalarRhs() { return true; }
+
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      assert(this->getNumOperands() == 2 && "Binary operation must have 2 operands");
+      auto rhsType = this->getOperand(1).getType();
+      // If RHS is a scalar (not a tile), only load LHS from DST
+      if (!mlir::isa<::mlir::tt::ttcore::TileType>(rhsType)) {
+        return {0};
+      }
+      // Both operands are tiles, load both from DST
+      return {0, 1};
+    }
+  }];
+}
+
+// FPU binary ops that support tile-tile OR tile-scalar operations
+class D2M_GenericRegionComputeFPUOrSFPUBinary<string mnemonic, list<Trait> traits = []> :
+    D2M_GenericRegionComputeOp<mnemonic, traits> {
+
+  let extraClassDeclaration = [{
+    bool supportsTileOrScalarRhs() { return true; }
+    bool isFPUBinaryOp() { return true; }
+
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      assert(this->getNumOperands() == 2 && "Binary operation must have 2 operands");
+      auto rhsType = this->getOperand(1).getType();
+      // If RHS is a scalar (not a tile), only load LHS from DST (SFPU path)
+      if (!mlir::isa<::mlir::tt::ttcore::TileType>(rhsType)) {
+        return {0};
+      }
+      // Both operands are tiles - FPU reads directly from CBs, no DST load needed
+      return {};
+    }
+  }];
+}
+
+class D2M_GenericRegionComputeTernaryDstOp<string mnemonic, list<Trait> traits = []> :
+    D2M_GenericRegionComputeOp<mnemonic, traits> {
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      // All three operands are tiles, load all from DST
+      return {0, 1, 2};
     }
   }];
 }
@@ -95,48 +150,59 @@ defvar D2M_TileComputeOpTraitBundle = [
 // D2M Generic Region Math Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def D2M_TileAddOp : D2M_GenericRegionComputeBinaryDstOp<"tile_add", D2M_TileComputeOpTraitBundle> {
+// Type constraint that accepts either a Tile or a scalar value (float/int)
+def TileOrScalar : AnyTypeOf<[TTCore_Tile, AnyFloat, AnyInteger]>;
+
+def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile Add Op";
     let description = [{
-        The `tile_add` operation adds two tiles element-wise on the SFPU.
+        The `tile_add` operation adds two tiles element-wise on the FPU,
+        or adds a scalar value to each element in the input tile if rhs is a scalar (SFPU path).
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
-def D2M_TileSubOp : D2M_GenericRegionComputeBinaryDstOp<"tile_sub", D2M_TileComputeOpTraitBundle> {
+def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile Sub Op";
     let description = [{
-        The `tile_sub` operation subtracts two tiles element-wise on the SFPU.
+        The `tile_sub` operation subtracts two tiles element-wise on the FPU,
+        or subtracts a scalar value from each element in the input tile if rhs is a scalar (SFPU path).
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
-def D2M_TileMulOp : D2M_GenericRegionComputeBinaryDstOp<"tile_mul", D2M_TileComputeOpTraitBundle> {
+def D2M_TileMulOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_mul", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile Mul Op";
     let description = [{
-        The `tile_mul` operation multiplies two tiles element-wise on the SFPU.
+        The `tile_mul` operation multiplies two tiles element-wise on the FPU,
+        or multiplies each element in the input tile by a scalar value if rhs is a scalar (SFPU path).
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
-def D2M_TileDivOp : D2M_GenericRegionComputeBinaryDstOp<"tile_div", D2M_TileComputeOpTraitBundle> {
+def D2M_TileDivOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_div", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Div Op";
     let description = [{
-        The `tile_div` operation divides two tiles element-wise.
+        The `tile_div` operation divides two tiles element-wise,
+        or divides each element in the input tile by a scalar value if rhs is a scalar.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
 def D2M_TileRecipOp : D2M_GenericRegionComputeUnaryDstOp<"tile_recip", D2M_TileComputeOpTraitBundle> {
@@ -149,15 +215,17 @@ def D2M_TileRecipOp : D2M_GenericRegionComputeUnaryDstOp<"tile_recip", D2M_TileC
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TilePowOp : D2M_GenericRegionComputeBinaryDstOp<"tile_pow", D2M_TileComputeOpTraitBundle> {
+def D2M_TilePowOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_pow", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Pow Op";
     let description = [{
-        The `tile_pow` operation raises two tiles element-wise.
+        The `tile_pow` operation raises two tiles element-wise,
+        or raises each element in the input tile to a scalar power if rhs is a scalar.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
 def D2M_TileExpOp : D2M_GenericRegionComputeUnaryDstOp<"tile_exp", D2M_TileComputeOpTraitBundle> {
@@ -210,6 +278,16 @@ def D2M_TileTanOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tan", D2M_TileCompu
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileTanhOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tanh", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Tanh Op";
+    let description = [{
+        The `tile_tanh` operation computes the hyperbolic tangent function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileSqrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sqrt", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sqrt Op";
     let description = [{
@@ -250,6 +328,16 @@ def D2M_TileSigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sigmoid", D2M_T
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileHardsigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_hardsigmoid", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Sigmoid Op";
+    let description = [{
+        The `tile_hardsigmoid` operation computes the hardsigmoid of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileSiluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_silu", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sliu Op";
     let description = [{
@@ -274,6 +362,37 @@ def D2M_TileGeluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gelu", D2M_TileCom
     let summary = "D2M Tile GELU Op";
     let description = [{
         The `tile_gelu` operation computes the GELU (Gaussian Error Linear Unit) of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileErfOp : D2M_GenericRegionComputeUnaryDstOp<"tile_erf", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Erf Op";
+    let description = [{
+        The `tile_erf` operation computes the error function (erf) of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileErfcOp : D2M_GenericRegionComputeUnaryDstOp<"tile_erfc", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Erfc Op";
+    let description = [{
+        The `tile_erfc` operation computes the complementary error function (erfc) of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileSignOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sign", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Sign Op";
+    let description = [{
+        The `tile_sign` operation computes the sign of each element in the input tile.
+        Returns 1 for positive values, -1 for negative values, and 0 for zero.
     }];
 
     let arguments = (ins TTCore_Tile:$input);
@@ -320,6 +439,39 @@ def D2M_TileBitwiseNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_bitwise_not"
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileBitwiseAndOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_bitwise_and", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Bitwise And Op";
+    let description = [{
+        The `tile_bitwise_and` operation computes bitwise AND between two tiles.
+    }];
+
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileBitwiseOrOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_bitwise_or", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Bitwise Or Op";
+    let description = [{
+        The `tile_bitwise_or` operation computes bitwise OR between two tiles.
+    }];
+
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileBitwiseXorOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_bitwise_xor", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Bitwise Xor Op";
+    let description = [{
+        The `tile_bitwise_xor` operation computes bitwise XOR between two tiles.
+    }];
+
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileLogicalNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_logical_not", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Logical Not Op";
     let description = [{
@@ -330,7 +482,7 @@ def D2M_TileLogicalNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_logical_not"
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileEqzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_eqz"> {
+def D2M_TileEqzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_eqz", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Eqz Op";
     let description = [{
         The `tile_eqz` operation checks if each element in the input tile == 0
@@ -400,7 +552,44 @@ def D2M_TileMaximumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_maximum", D2M_
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum"> {
+def D2M_TileMinimumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_minimum", D2M_TileComputeOpTraitBundle>{
+    let summary = "D2M Tile Minimum Op";
+    let description = [{
+        The `tile_minimum` operation calculates the minimum of two tensors element-wise.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileClampScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_clamp_scalar", D2M_TileComputeOpTraitBundle>{
+    let summary = "D2M Tile Clamp Scalar Op";
+    let description = [{
+        The `tile_clamp_scalar` operation clamps all elements of a tile to be within
+        the range [min, max] specified by scalar attributes.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input, F32Attr:$min, F32Attr:$max);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileWhereOp : D2M_GenericRegionComputeTernaryDstOp<"tile_where", D2M_TileComputeOpTraitBundle>{
+    let summary = "D2M Tile Where Op";
+    let description = [{
+        The `tile_where` operation performs element-wise conditional selection.
+        For each element position, it selects between two values based on a boolean
+        condition in the first tensor:
+        - If the condition is true (non-zero), it selects the corresponding element
+          from the second tensor (true_value)
+        - If the condition is false (zero), it selects the corresponding element
+          from the third tensor (false_value)
+    }];
+
+    let arguments = (ins TTCore_Tile:$condition, TTCore_Tile:$true_value, TTCore_Tile:$false_value);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Sum Op";
   let description = [{
         The `tile_reduce_sum` operation computes the sum of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- sum<dims>(A * B, C)
@@ -422,7 +611,7 @@ def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum"> {
   }];
 }
 
-def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max"> {
+def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Max Op";
   let description = [{
         The `tile_reduce_max` operation computes the max of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- max<dims>(A * B, C)
@@ -444,12 +633,16 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max"> {
   }];
 }
 
-def D2M_PackerMaskResetOp : D2M_GenericRegionComputeOp<"packer_mask_reset"> {
-  let summary = "D2M Packer Mask Reset Op";
+// TODO(#5968): fusion w/ implicit bcast causes multiple failure scenarios.
+def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+  let summary = "D2M Tile Broadcast Op";
   let description = [{
-        The `packer_mask_reset` operation resets the packer mask. This should be removed once LLK refactors the reduce API.
-        See tt-metal#22904 and tt-metal -> reduce.h.
-    }];
+    The `tile_bcast` operation broadcasts a row/col/scalar tile into a full tile.
+  }];
+
+  let arguments = (ins TTCore_Tile:$input,
+                       D2M_TileBcastTypeAttr:$bcast_type);
+  let results = (outs TTCore_Tile:$result);
 }
 
 def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul"> {
@@ -506,6 +699,7 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
                          AnyRankedTensorOrMemRef:$output);
+    let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -531,6 +725,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
                          AnyRankedTensorOrMemRef:$output);
+    let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -539,7 +734,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
     let hasVerifier = 1;
 }
 
-def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast"> {
+def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile Typecast Op";
     let description = [{
         The `tile_typecast` operation casts the input tile to the desired dataformat.
@@ -547,6 +742,104 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast"> {
 
     let arguments = (ins TTCore_Tile:$input);
     let results = (outs TTCore_Tile:$result);
+}
+
+//===----------------------------------------------------------------------===//
+// D2M Masking Ops
+//===----------------------------------------------------------------------===//
+
+def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
+    let summary = "D2M Tile Fill Op";
+    let description = [{
+        The `tile_fill` operation creates a tile filled with a constant scalar value.
+        All elements in the resulting tile will have the same value as the input scalar.
+
+        This operation abstracts away the complexity of creating a constant-filled tile,
+        providing a simple interface that takes a scalar value and produces a tile suitable
+        for element-wise operations.
+    }];
+
+    let arguments = (ins AnyFloat:$value);
+    let results = (outs TTCore_Tile:$result);
+
+    let assemblyFormat = [{
+        `(` $value `)` attr-dict `:` type($value) `->` type($result)
+    }];
+
+    let extraClassDeclaration = [{
+        // This operation doesn't load from DST (it generates a new tile)
+        mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+          return {};
+        }
+        bool getDstRegInPlace() { return false; }
+        // The operand is a scalar (float), not a tile
+        bool isScalarOperand(int64_t operandIdx) {
+          return true;
+        }
+    }];
+}
+
+def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  , D2M_SkipOpEltwiseFusionTrait
+  , AttrSizedOperandSegments
+  ]> {
+    let summary = "Mask block elements outside logical bounds with fill value";
+    let description = [{
+        The `block_mask` operation masks elements in a block/memref that fall outside
+        the logical tensor bounds, replacing them with a specified fill value.
+
+        This op operates at the block level (memref of tiles) and handles both complete
+        tile masking (tiles entirely outside bounds) and partial tile masking (tiles
+        that straddle the boundary).
+
+        The logical_rows and logical_cols are Index values specifying the logical
+        dimensions for this core's shard. These can be computed dynamically based on
+        the core's position in the grid, enabling multicore support.
+
+        For partial tile masking, row_mask_cb and col_mask_cb contain scratch mask
+        tiles written by a corresponding BlockMaskWriteOp in the DM region. These are
+        single-tile CBs where each element is 1.0 if valid or 0.0 if OOB.
+
+        This is a high-level op that gets decomposed in a later pass into multiple
+        loop nests that handle interior tiles, edge tiles, and corner tiles separately.
+
+        Example:
+        ```mlir
+        // With mask CBs for partial masking:
+        d2m.block_mask %input, %output, %row_mask_cb, %col_mask_cb,
+                       %logical_rows, %logical_cols, <zero>
+            : (memref<2x3x!ttcore.tile<32x32, f32>>, memref<2x3x!ttcore.tile<32x32, f32>>,
+               memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
+        ```
+    }];
+
+    let arguments = (ins
+        AnyRankedTensorOrMemRef:$input,
+        AnyRankedTensorOrMemRef:$output,
+        Optional<AnyRankedTensorOrMemRef>:$row_mask_cb,
+        Optional<AnyRankedTensorOrMemRef>:$col_mask_cb,
+        Index:$logical_rows,
+        Index:$logical_cols,
+        TTCore_OOBValAttr:$fill_value);
+
+    let results = (outs AnyRankedTensorOrMemRef:$result);
+
+    // Use default format with AttrSizedOperandSegments - the operand_segment_sizes
+    // attribute is automatically added/parsed to track optional operand presence.
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      bool hasMaskCBs() { return getRowMaskCb() != nullptr && getColMaskCb() != nullptr; }
+    }];
+
+    let hasVerifier = 1;
 }
 
 def D2M_DstReinterpretCastOp : D2M_GenericRegionOp<"dst_reinterpret_cast"> {
@@ -597,7 +890,19 @@ def D2M_AcquireDstOp : D2M_GenericRegionComputeOp<"acquire_dst",
     let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
 }
 
-def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose"> {
+def D2M_SetL1AccumulateOp : D2M_GenericRegionOp<"set_l1_accumulate"> {
+    let summary = "Enable L1 accumulation mode.";
+    let description = [{
+      Configures HW state such that all subsequent stores to L1 memory space
+      will be accumulated to in place.
+    }];
+
+    let arguments = (ins I32:$enable);
+
+    let assemblyFormat = [{ `(` $enable `)` attr-dict }];
+}
+
+def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Transpose Op";
     let description = [{
         The `tile_transpose` operation computes the transpose of the input tile.
@@ -611,164 +916,6 @@ def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose"> {
 // D2M Generic Region Datamovement Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
-  [ AttrSizedOperandSegments
-  , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
-  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "isNotConflicting"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  ]> {
-    let summary = "D2M DMA Op";
-    let description = [{
-      DMA operation, moves data from src to dst where src and dst are memrefs that may or may not belong to
-      different memory spaces. This op comes in a few flavors and is capable of roughly expressing everything
-      that underlying Noc hardware can do. The op can be used to express a wide range of data movement operations:
-
-      - Local to local
-      ```mlir
-      %tx = d2m.dma %src, %dst : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
-      ```
-
-      - Local to remote dram
-      ```mlir
-      %tx = d2m.dma %src, %dst : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x6x8x!ttcore.tile<32x32, f32>, $ttcore.shard<...>, #dram>) -> !d2m.mem_tx
-      ```
-
-      - Remote dram to local
-      ```mlir
-      %tx = d2m.dma %src, %dst : (memref<1x1x6x8x!ttcore.tile<32x32, f32>, #ttcore.shard<...>, #dram>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
-      ```
-
-      - Local to mcast, e.g. starting at offset core[1, 2] with mcast shape [4, 4] (src and dst have the same SSA value, implies NoC doesn't loopback)
-      ```mlir
-      %tx = d2m.dma %foo, %foo, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
-      ```
-
-      - Local to mcast w/ loopback (same as above but src and dst are different SSA values)
-      ```mlir
-      %tx = d2m.dma %src, %dst, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
-      ```
-
-      - A lower level form, is "fully indexed" DMA, where the src and dst memrefs have thier ranks fully indexed the additional numElems argument
-        is used to specify the number of elements to transfer. As opposed to the forms above that are not fully indexed which implicitly means to
-        transfer the leftover block.  That is given memref<2x2x3x4x!ttcore.tile<>>, if we indexed by [i, j], since we only indexed a rank of 2, the remaining
-        3x4 block is transferred.  In the fully indexed form, to express the same thing we would need to specify the number of elements to transfer:
-      ```mlir
-      %tx = d2m.dma %src[%i, %j, %k, %l], %dst[%i, %j, %k, %l], 12 : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
-      ```
-
-      - Conversely, a higher level form is affine form, where the src and dst indices are implied by an affine map shared with the parent generic op.
-        Given some affine map, as demonstrated below, the dma op will be evaluated at each point in the affine map's iteration space.
-      ```mlir
-      #map1 = affine_map<(d0, d1, d2) -> (d0, d2)>
-      %tx = d2m.dma %stream<#map1>, %cb0 : (memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.view<rank(4)>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
-      ```
-
-      Some constraints:
-      - src and dst must have the same element type.
-      - src and dst cannot both be remote
-    }];
-
-    let arguments = (ins AnyRankedTensorOrMemRef:$src, OptionalAttr<AffineMapAttr>:$srcAffineMap, Variadic<Index>:$srcIndices,
-                         AnyRankedTensorOrMemRef:$dst, OptionalAttr<AffineMapAttr>:$dstAffineMap, Variadic<Index>:$dstIndices,
-                         OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
-    let results = (outs D2M_MemTx:$result);
-
-    let builders =
-    [
-      // %tx = d2m.dma %src, %dst
-      OpBuilder<(ins "Value": $src, "Value": $dst),
-      [{
-        build($_builder, $_state, src, nullptr, dst);
-      }]>,
-      // %tx = d2m.dma %src<#map>, %dst
-      OpBuilder<(ins "Value": $src, "AffineMapAttr": $srcAffineMap, "Value": $dst),
-      [{
-        build($_builder, $_state, src, srcAffineMap, dst, ValueRange(), ValueRange());
-      }]>,
-      // %tx = d2m.dma %src<#map>, %dst core[%c0, %c1] mcast[%c2, %c3]
-      OpBuilder<(ins "Value": $src, "AffineMapAttr": $srcAffineMap, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcAffineMap, ValueRange(), dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape);
-      }]>,
-      // %tx = d2m.dma %src, %dst<#map> core[%c0, %c1] mcast[%c2, %c3]
-      OpBuilder<(ins "Value": $src, "Value": $dst, "AffineMapAttr": $dstAffineMap, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, ValueRange(), dst, dstAffineMap, ValueRange(), nullptr, mcastStartIndex, mcastShape);
-      }]>,
-      // %tx = d2m.dma %src, %dst<#map>
-      OpBuilder<(ins "Value": $src, "Value": $dst, "AffineMapAttr": $dstAffineMap),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, ValueRange(), dst, dstAffineMap, ValueRange(), nullptr, ValueRange(), ValueRange());
-      }]>,
-      // %tx = d2m.dma %src[%c0, %c1], %dst
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst),
-      [{
-        build($_builder, $_state, src, srcIndices, dst, ValueRange());
-      }]>,
-      // %tx = d2m.dma %src[%c0, %c1], %dst core[%c2, %c3] mcast[%c4, %c5]
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape);
-      }]>,
-      // %tx = d2m.dma %src, %dst[%c0, %c1]
-      OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices),
-      [{
-        build($_builder, $_state, src, ValueRange(), dst, dstIndices);
-      }]>,
-      // %tx = d2m.dma %src[%c0, %c1], %dst[%c2, %c3]
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices),
-      [{
-        build($_builder, $_state, src, srcIndices, dst, dstIndices, ValueRange(), ValueRange());
-      }]>,
-      // %tx = d2m.dma %src[%c0, %c1], %dst[%c2, %c3] core[%c4, %c5] mcast[%c6, %c7]
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, nullptr, mcastStartIndex, mcastShape);
-      }]>,
-      // %tx = d2m.dma %src[%c0, %c1], %dst[%c2, %c3], <4>
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
-      [{
-        build($_builder, $_state, src, srcIndices, dst, dstIndices, ValueRange(), ValueRange(), numElems);
-      }]>,
-      // %tx = d2m.dma %src[%c0, %c1], %dst[%c2, %c3] core[%c4, %c5] mcast[%c6, %c7], <4>
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
-      }]>,
-    ];
-
-    let assemblyFormat = [{ $src (`<` $srcAffineMap^ `>`)? (`[` $srcIndices^ `]`)? `,` $dst (`<` $dstAffineMap^ `>`)? (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`,` `<` $optNumElems^ `>`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
-
-    let hasVerifier = 1;
-
-    let extraClassDeclaration = [{
-      MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
-      MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
-      int64_t getNumElems();
-      size_t getSizeBytes();
-      bool isSrcLocal() { return !isSrcRemote(); }
-      bool isSrcRemote() { return ttcore::hasDeviceLayout(getSrc()); }
-      bool isDstLocal() { return !isDstRemote(); }
-      bool isDstRemote() { return ttcore::hasDeviceLayout(getDst()); }
-      bool isMcast() { return !getMcastShape().empty(); }
-      bool isAffine() { return (getSrcAffineMap() || getDstAffineMap()) && getSrcIndices().empty() && getDstIndices().empty(); }
-      ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
-        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
-      }
-      ::mlir::tt::ttcore::MemorySpace getDstMemorySpace() {
-        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue();
-      }
-
-    }];
-}
-
-
 def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
   [ AttrSizedOperandSegments
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
@@ -778,9 +925,8 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
 
     let summary = "Fully indexed and lowered D2M DMA Op for writes";
     let description = [{
-      This op is the fully lowered explicit write form of the higher level `d2m.dma` operation. It corresponds 1:1
-      to a single concrete DMA write operation from src memref to dst memref, where src and dst indices are fully resolved
-      (all view and memspace-specific affine maps applied).
+      This op performs a fully indexed DMA write operation from src memref to dst memref, where src and dst indices are fully resolved
+      (all view and memspace-specific affine maps applied). It corresponds 1:1 to a single concrete DMA write operation.
 
       This operation supports multicast; providing an empty multicast shape argument _implies a unicast write_.
 
@@ -845,9 +991,8 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
 
     let summary = "Fully indexed and lowered D2M DMA Op for read";
     let description = [{
-      This op is the fully lowered explicit read form of the higher level `d2m.dma` operation. It corresponds 1:1
-      to a single concrete DMA read operation from src memref to dst memref, where src and dst indices are fully resolved
-      (all view and memspace-specific affine maps applied). The dst memref _must_ be local!
+      This op performs a fully indexed DMA read operation from src memref to dst memref, where src and dst indices are fully resolved
+      (all view and memspace-specific affine maps applied). It corresponds 1:1 to a single concrete DMA read operation. The dst memref _must_ be local!
 
       This operation only supports unicast (mulicast are write-only).
 
@@ -917,6 +1062,450 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
 }
 
 //===----------------------------------------------------------------------===//
+// D2M Generic Region Remote Load/Store Ops (Based on Affine Load/Store)
+//===----------------------------------------------------------------------===//
+
+def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead, MemWrite]>
+  , DestinationStyleOpInterface
+  , DeclareOpInterfaceMethods<AffineReadOpInterface>
+  , DeclareOpInterfaceMethods<AffineMapAccessInterface>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  ]> {
+    let summary = "D2M Remote/Aliased Load Op";
+    let description = [{
+      Loads an _entire shard_ from remote or local GenericOp operand into a
+      local L1 buffer. The memref/tensor argument _must_ be an operand of the
+      GenericOp.
+
+      RemoteLoadOp indices correspond to the _grid dimensions only_ (first
+      N/2 dimensions of the device shape). The RemoteLoadOp always loads an
+      entire shard from the corresponding operand.
+
+      This operation is well-defined for both remote and local tensors. Backend
+      DMA passes opportunistically lower this operation to aliased CB operations
+      if possible, but the semantics for remote and local tensors are identical.
+
+      The operation requires an explicit destination buffer parameter. The
+      operation has multiple modes; the explicit CB form and unicast/multicast
+      modes are both orthogonal and can be mixed and matched.
+
+      The basic form takes a local buffer as input and loads data into it:
+
+      ```mlir
+      d2m.remote_load %buffer %generic_operand[%i, %j]
+        : memref<SY x SX x f32, ...>, memref<GY x GX x SY x SX x f32, ...>
+        -> memref<SY x SX x f32, ...>
+      ```
+
+      The explicit CB form takes a CB block arg as additional input; the load is
+      produced into the CB. The CB provided must be the CB block arg associated
+      with the operand. In explicit CB form, no local buffer is required.
+
+      ```mlir
+      d2m.remote_load %generic_operand[%i, %j] into %cb
+        : memref<GY x GX x SY x SX x f32, ...> into !d2m.cb<memref<SY x SX x f32, ...>>
+      ```
+
+      In implicit form, the result matches the shard memref/tensor type and aliases
+      the input buffer.
+
+      ## High-Level Multicast Mode
+
+      When a high-level multicast dimension list (mcast) is provided, this
+      operation performs a cooperative multicast along the parallel dimension
+      specified. All locations in the compute grid that share the same mcast dim value
+      will form a multicast group *if all non-mcast dims are reduction dims*.
+
+      The sender vs receiver roles in the multicast group are determined by convention.
+
+      NOTE: If implementing the high-level multicast is not feasible, the
+      operation will be lowered to an equivalent unicast remote load instead.
+
+      Example with high-level multicast (implicit form):
+
+      ```mlir
+      // Cooperative multicast along dimension 0
+      d2m.remote_load %buffer %memref[%i, %j] mcast[%c0]
+        : memref<4x6xf32, #l1_>, memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>
+        -> memref<4x6xf32, #l1_>
+      ```
+
+      ## Low-Level Multicast Mode
+
+      WARNING: This form is currently supported mostly for internal use within
+      middle-end pipeline. Picking a concrete multicast shape implicitly
+      constrains that the layout of the operand, but this isn't handled properly
+      in the frontend grid selection.
+
+      When low-level multicast parameters (mcore/mshape) are provided, this
+      operation performs a gather-multicast pattern:
+        - By convention, core 0 along each multicast dimension is the sender
+        - The sender reads the remote data into local memory
+        - The sender then multicasts to all other cores in the mcast group
+        starting at `mcastStartIndex` with shape `mcastShape`
+        - Receivers wait for the sender to complete
+
+      Example with low-level multicast (implicit form):
+
+      ```mlir
+      // Core 0 gathers and multicasts to a 1x4 region starting at mcore[0, 1]
+      d2m.remote_load %buffer %memref[%i, %j] mcore[%c0, %c1] mshape[%c1, %c4]
+        : memref<4x6xf32, #l1_>, memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>
+        -> memref<4x6xf32, #l1_>
+      ```
+
+      Constraints:
+      - The number of indices must equal N/2, where N is the memref/tensor rank.
+      - The operation loads the entire shard into the provided local L1 buffer
+      - If in implicit form (no CB):
+        - The localBuffer type must match the shard shape of the memref operand
+        - The localBuffer is required
+      - If in explicit CB form:
+        - The operand provided must be a memref
+        - The localBuffer must NOT be present
+        - The CB underlying type must match the shard shape
+      - The two multicast forms are mutually exclusive: either use low-level
+      (mcore/mshape) or high-level (mcast dims), not both
+    }];
+
+    let arguments = (ins Arg<Optional<AnyRankedTensorOrMemRef>, "the local buffer to load into",
+        [MemWrite]>:$localBuffer,
+        Arg<AnyRankedTensorOrMemRef, "the reference to load from",
+        [MemRead]>:$memref,
+        Variadic<Index>:$indices,
+        Optional<D2M_CB>:$cb,
+        Variadic<Index>:$mcastStartIndex,
+        Variadic<Index>:$mcastShape,
+        Variadic<Index>:$mcastDims);
+
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+    let builders = [
+      // With CB (no result, no localBuffer)
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, /*localBuffer=*/Value{}, memref, indices, cb, ValueRange(), ValueRange(), ValueRange());
+      }]>,
+      // With CB and low-level multicast (no result, no localBuffer)
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb,
+                     "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, /*localBuffer=*/Value{}, memref, indices, cb, mcastStartIndex, mcastShape, ValueRange());
+      }]>,
+      // With CB and high-level multicast (no result, no localBuffer)
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb,
+                     "ValueRange":$mcastDims),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, /*localBuffer=*/Value{}, memref, indices, cb, ValueRange(), ValueRange(), mcastDims);
+      }]>,
+      // Without CB (with result, localBuffer required)
+      OpBuilder<(ins "Type":$resultType, "Value":$localBuffer, "Value":$memref, "ValueRange":$indices),
+      [{
+        build($_builder, $_state, resultType, localBuffer, memref, indices, /*cb=*/Value{}, ValueRange(), ValueRange(), ValueRange());
+      }]>,
+      // Without CB, with low-level multicast (with result, localBuffer required)
+      OpBuilder<(ins "Type":$resultType, "Value":$localBuffer, "Value":$memref, "ValueRange":$indices,
+                     "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape),
+      [{
+        build($_builder, $_state, resultType, localBuffer, memref, indices, /*cb=*/Value{}, mcastStartIndex, mcastShape, ValueRange());
+      }]>,
+      // Without CB, with high-level multicast (with result, localBuffer required)
+      OpBuilder<(ins "Type":$resultType, "Value":$localBuffer, "Value":$memref, "ValueRange":$indices,
+                     "ValueRange":$mcastDims),
+      [{
+        build($_builder, $_state, resultType, localBuffer, memref, indices, /*cb=*/Value{}, ValueRange(), ValueRange(), mcastDims);
+      }]>
+    ];
+
+    let hasCustomAssemblyFormat = 1;
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      // Required by DestinationStyleOpInterface.
+      // The localBuffer operand is the DPS init (destination) for the load.
+      MutableOperandRange getDpsInitsMutable() {
+        return getLocalBufferMutable();
+      }
+
+      /// Returns the operand index (for this op!) for the local buffer parameter.
+      /// Returns UINT_MAX if localBuffer is not present (explicit CB form).
+      unsigned getLocalBufferOperandIndex() {
+        if (!getLocalBuffer()) return UINT_MAX;
+        return 0;
+      }
+
+      /// Returns the operand index (for this op!) for the memref/tensor parameter.
+      /// In explicit CB form, this is 0; in implicit form, this is 1.
+      unsigned getMemRefOperandIndex() {
+        return getLocalBuffer() ? 1 : 0;
+      }
+
+      void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
+
+      /// Returns the affine map for AffineReadOpInterface. Returns an identity
+      /// map over the actual index operands, since the indices on this op are
+      /// already the final computed grid indices (not raw iteration variables).
+      /// The parent GenericOp's indexing maps describe the iteration-space-to-
+      /// operand relationship and may have a different dimensionality (e.g.
+      /// after loop fusion), so they cannot be used here.
+      AffineMap getAffineMap() {
+        unsigned numIndices = getIndices().size();
+        if (numIndices == 0) {
+          return AffineMap();
+        }
+        return AffineMap::getMultiDimIdentityMap(numIndices, getContext());
+      }
+
+      /// Returns the CB type, or null CBType if CB is not present.
+      /// Caller should check getCb() before calling this if null check is needed.
+      CBType getCbType() {
+        Value cb = getCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
+      }
+
+      /// Returns true if the circular buffer operand is present (explicit CB form).
+      bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
+
+      /// Returns true if the operation is in implicit form (no CB, has localBuffer).
+      bool isImplicitForm() { return static_cast<bool>(getLocalBuffer()); }
+
+      /// Returns true if the result is present (result form).
+      bool hasResultForm() { return static_cast<bool>(getResult()); }
+
+      /// Returns the shaped type (memref or tensor) of the memref operand.
+      ShapedType getShapedType() { return cast<ShapedType>(getMemref().getType()); }
+
+      /// Returns the memref type, or fails if the operand is a tensor.
+      MemRefType getMemRefType() {
+        if (auto memrefType = dyn_cast<MemRefType>(getMemref().getType())) {
+          return memrefType;
+        }
+        llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
+      }
+
+      /// Returns true if this is a multicast operation (either form).
+      bool isMcast() { return !getMcastShape().empty() || !getMcastDims().empty(); }
+
+      /// Returns true if using high-level mcast form (dimension indices).
+      bool isHighLevelMcast() { return !getMcastDims().empty(); }
+
+      /// Returns true if using low-level mcast form (mcore/mshape).
+      bool isLowLevelMcast() { return !getMcastShape().empty(); }
+
+      // --- AffineReadOpInterface / AffineMapAccessInterface support ---
+
+      /// Returns the affine map operands (the grid indices).
+      Operation::operand_range getMapOperands() { return getIndices(); }
+
+      /// Returns the value read by this operation.
+      Value getValue() { return getResult(); }
+
+      /// Returns an AffineMapAttr wrapping the affine map for this operation.
+      AffineMapAttr getAffineMapAttr() {
+        return AffineMapAttr::get(getAffineMap());
+      }
+
+      /// Returns the name of the map attribute.
+      static StringRef getMapAttrStrName() { return "map"; }
+
+      /// Returns the AffineMapAttr associated with the given memref value.
+      NamedAttribute getAffineMapAttrForMemRef(Value memref) {
+        assert(memref == getMemref() &&
+               "Expected memref argument to match memref operand");
+        return {StringAttr::get(getContext(), getMapAttrStrName()),
+                getAffineMapAttr()};
+      }
+    }];
+}
+
+def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead, MemWrite]>
+  , DestinationStyleOpInterface
+  , DeclareOpInterfaceMethods<AffineWriteOpInterface>
+  , DeclareOpInterfaceMethods<AffineMapAccessInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  ]> {
+    let summary = "D2M Remote/Aliased Store Op";
+    let description = [{
+      Stores an _entire shard_ from a local buffer to remote or local GenericOp
+      operand. The memref/tensor argument _must_ be an operand of the GenericOp.
+
+      RemoteStoreOp indices correspond to the _grid dimensions only_ (first N/2
+      dimensions of the device shape). The RemoteStoreOp always stores an entire
+      shard to the corresponding operand.
+
+      This operation is well-defined for both remote and local tensors. Backend
+      DMA passes opportunistically lower this operation to aliased CB operations
+      if possible, but the semantics for remote and local tensors are identical.
+
+      The operation has two forms:
+      - Implicit form takes a plain memref/tensor as input to store; it doesn't
+      assume a particular buffering implementation (CBs, scratchpad, etc).
+
+      ```mlir
+      // For an operand with device shape (GY x GX) x (SY x SX)
+      d2m.remote_store %generic_operand[%i, %j] %buf
+        : memref<GY x GX x SY x SX x f32, ...>, memref<SY x SX x f32, ...>
+        -> memref<GY x GX x SY x SX x f32, ...>
+      ```
+
+      - Explicit CB form stores data from a concrete CB block arg to the remote operand.
+
+      ```mlir
+      d2m.remote_store %generic_operand[%i, %j] from %cb
+        : memref<GY x GX x SY x SX x f32, ...>, !d2m.cb<memref<SY x SX x f32, ...>>
+        -> memref<GY x GX x SY x SX x f32, ...>
+      ```
+
+      In both forms, the result matches the type of the operand memref/tensor.
+      This allows using the result as yield value in a generic region, as well
+      as forming a complete use-chain from remote_load to remote_store.
+
+      Constraints:
+      - The number of indices must equal N/2, where N is the memref/tensor rank.
+      - The operation stores the entire shard from a local buffer or circular buffer
+      - If in explicit CB form:
+        - The operand provided must be a memref
+        - The CB and operand memref must have compatible shard shapes
+      - Exactly one of localBuffer or cb must be present
+    }];
+
+    let arguments = (ins Arg<AnyRankedTensorOrMemRef, "the reference to store to",
+        [MemWrite]>:$memref,
+        Variadic<Index>:$indices,
+        Arg<Optional<AnyRankedTensorOrMemRef>, "the local buffer to store from",
+        [MemRead]>:$localBuffer,
+        Optional<D2M_CB>:$cb);
+
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+    let builders = [
+      // Explicit CB form (with CB, no result)
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb);
+      }]>,
+      // Implicit form with local buffer and result (required)
+      OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices, "Value":$localBuffer),
+      [{
+        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{});
+      }]>
+    ];
+
+    let assemblyFormat = [{ $memref `[` $indices `]` ($localBuffer^)? (`from` $cb^)? attr-dict `:` type($memref) (`,` type($localBuffer)^)? (`from` type($cb)^)? (`->` type($result)^)? }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      // Required by DestinationStyleOpInterface.
+      // The memref operand is the DPS init (destination) for the store.
+      MutableOperandRange getDpsInitsMutable() {
+        return getMemrefMutable();
+      }
+
+      /// Returns the operand index of the memref/tensor.
+      unsigned getMemRefOperandIndex() { return 0; }
+
+      void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
+
+      /// Returns the affine map for AffineWriteOpInterface. Returns an identity
+      /// map over the actual index operands, since the indices on this op are
+      /// already the final computed grid indices (not raw iteration variables).
+      /// The parent GenericOp's indexing maps describe the iteration-space-to-
+      /// operand relationship and may have a different dimensionality (e.g.
+      /// after loop fusion), so they cannot be used here.
+      AffineMap getAffineMap() {
+        unsigned numIndices = getIndices().size();
+        if (numIndices == 0) {
+          return AffineMap();
+        }
+        return AffineMap::getMultiDimIdentityMap(numIndices, getContext());
+      }
+
+      /// Returns the CB type, or null CBType if CB is not present.
+      /// Caller should check getCb() before calling this if null check is needed.
+      CBType getCbType() {
+        Value cb = getCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
+      }
+
+      /// Returns true if the circular buffer operand is present (explicit CB form).
+      bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
+
+      /// Returns true if the local buffer operand is present (implicit form).
+      bool isImplicitForm() { return static_cast<bool>(getLocalBuffer()); }
+
+      /// Returns true if the result is present (result form).
+      bool hasResultForm() { return static_cast<bool>(getResult()); }
+
+      /// Returns the shaped type (memref or tensor) of the memref operand.
+      ShapedType getShapedType() { return cast<ShapedType>(getMemref().getType()); }
+
+      /// Returns the memref type, or fails if the operand is a tensor.
+      MemRefType getMemRefType() {
+        if (auto memrefType = dyn_cast<MemRefType>(getMemref().getType())) {
+          return memrefType;
+        }
+        llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
+      }
+
+      // --- AffineWriteOpInterface / AffineMapAccessInterface support. ---
+
+      /// Returns the affine map operands (the grid indices).
+      Operation::operand_range getMapOperands() { return getIndices(); }
+
+      /// Returns the value to store (the local buffer).
+      Value getValueToStore() { return getLocalBuffer(); }
+
+      /// Returns the operand index of the value to store.
+      unsigned getStoredValOperandIndex() {
+        // LocalBuffer follows memref and indices in the operand list.
+        // Use the ODS segment info to find the correct index.
+        return getLocalBuffer()
+          ? static_cast<unsigned>(getODSOperandIndexAndLength(2).first)
+          : UINT_MAX;
+      }
+
+      /// Returns an AffineMapAttr wrapping the affine map for this operation.
+      AffineMapAttr getAffineMapAttr() {
+        return AffineMapAttr::get(getAffineMap());
+      }
+
+      /// Returns the name of the map attribute.
+      static StringRef getMapAttrStrName() { return "map"; }
+
+      /// Returns the AffineMapAttr associated with the given memref value.
+      NamedAttribute getAffineMapAttrForMemRef(Value memref) {
+        assert(memref == getMemref() &&
+               "Expected memref argument to match memref operand");
+        return {StringAttr::get(getContext(), getMapAttrStrName()),
+                getAffineMapAttr()};
+      }
+    }];
+}
+
+//===----------------------------------------------------------------------===//
 // D2M Generic Region Semaphore Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
@@ -944,10 +1533,10 @@ class D2M_SemaphoreUpdateOp<string mnemonic> : D2M_GenericRegionOp<mnemonic,
       ```
     }];
 
-    let arguments = (ins D2M_Semaphore:$semaphore, Index:$value,
+    let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value,
                          Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
 
-    let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict }];
+    let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` type($semaphore) }];
 
     let builders =
     [
@@ -979,9 +1568,9 @@ def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[
       ```
     }];
 
-    let arguments = (ins D2M_Semaphore:$semaphore, Index:$value, Optional<Index>:$resetValue);
+    let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value, Optional<Index>:$resetValue);
 
-    let assemblyFormat = [{ $semaphore `,` $value (`reset` $resetValue^)? attr-dict }];
+    let assemblyFormat = [{ $semaphore `,` $value (`reset` $resetValue^)? attr-dict `:` type($semaphore) }];
 
     let builders =
     [
@@ -1008,7 +1597,7 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
   ]> {
     let summary = "Yield op.";
     let description = [{
-      Yield operation, return control flow to another thread. Corresponds to a circular buffer push.
+      D2M yield equivalent, required for enforcing pure tensor semantics on the tensor form of the GenericOp.
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$values);
@@ -1170,7 +1759,8 @@ def D2M_WaitOp : D2M_CBOp<"wait"> {
     better to DPS style is that both reserve and wait guarantee acquisition of the
     underlying memory after the op has executed.
 
-    The resource is implicitly released at the end of block scope.
+    The resource is implicitly released at the end of block scope, OR explicitly
+    released via d2m.pop.
 
     Example:
     ```mlir
@@ -1193,13 +1783,176 @@ def D2M_ReserveOp : D2M_CBOp<"reserve"> {
     better to DPS style is that both reserve and wait guarantee acquisition of the
     underlying memory after the op has executed.
 
-    The resource is implicitly released at the end of block scope.
+    The resource is implicitly released at the end of block scope, OR explicitly
+    released via d2m.push.
 
     Example:
     ```mlir
     %memref = d2m.reserve %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     ```
   }];
+}
+
+def D2M_PushOp : D2M_GenericRegionOp<"push",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+  let summary = "Push to circular buffer (signal producer done).";
+  let description = [{
+    Push operation, releases the memref acquired via d2m.reserve.
+    Signals to consumer threads that data is ready.
+    Must be preceded by d2m.reserve in the same block.
+
+    This operation explicitly releases the circular buffer slot acquired by
+    d2m.reserve, making the data available to consumer threads. If d2m.push
+    is present, the automatic release at block end is skipped for the
+    corresponding d2m.reserve operation.
+
+    Example:
+    ```mlir
+    %memref = d2m.reserve %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    // ... write data to %memref ...
+    d2m.push %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+    ```
+  }];
+  let arguments = (ins D2M_CB:$cb);
+  let assemblyFormat = [{ $cb attr-dict `:` type($cb) }];
+
+  let extraClassDeclaration = [{
+    CBType getCbType() {
+      return mlir::cast<CBType>(getCb().getType());
+    }
+
+    bool hasTensorSemantics() { return getCbType().hasTensorType(); }
+  }];
+}
+
+def D2M_PopOp : D2M_GenericRegionOp<"pop",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+  let summary = "Pop from circular buffer (signal consumer done).";
+  let description = [{
+    Pop operation, releases the memref acquired via d2m.wait.
+    Signals to producer threads that space is available.
+    Must be preceded by d2m.wait in the same block.
+
+    This operation explicitly releases the circular buffer slot acquired by
+    d2m.wait, making space available for producer threads. If d2m.pop is
+    present, the automatic release at block end is skipped for the
+    corresponding d2m.wait operation.
+
+    Example:
+    ```mlir
+    %memref = d2m.wait %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    // ... read data from %memref ...
+    d2m.pop %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+    ```
+  }];
+  let arguments = (ins D2M_CB:$cb);
+  let assemblyFormat = [{ $cb attr-dict `:` type($cb) }];
+
+  let extraClassDeclaration = [{
+    CBType getCbType() {
+      return mlir::cast<CBType>(getCb().getType());
+    }
+
+    bool hasTensorSemantics() { return getCbType().hasTensorType(); }
+  }];
+}
+
+def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
+    MemoryEffects<[MemAlloc]>
+  ]> {
+  let summary = "Allocate scratch memory for intermediate spilling.";
+  let description = [{
+    Allocate a scratch buffer from the L1 scratchpad region for storing
+    intermediate results.
+
+    The `slot` attribute is a unique identifier for this scratch allocation
+    within the enclosing scope, used for tracking and debugging.
+
+    This op is lowered by `LowerScratchAllocate` to a `memref.subview` into
+    the scratch CB buffer.
+
+    Example:
+    ```mlir
+    %scratch = d2m.scratch_allocate {slot = 0 : i64}
+               : memref<1x!ttcore.tile<32x32xbf16>, #ttcore.memory_space<l1>>
+    ```
+  }];
+
+  let arguments = (ins I64Attr:$slot);
+  let results = (outs AnyMemRef:$result);
+
+  let assemblyFormat = [{
+    attr-dict `:` type($result)
+  }];
+}
+
+def D2M_GetScratchFromCBOp : D2M_GenericRegionOp<"get_scratch_from_cb",
+  [MemoryEffects<[MemRead]>]> {
+  let summary = "Unwrap scratch circular buffer into a memref.";
+  let description = [{
+    The `get_scratch_from_cb` operation extracts the underlying memref from
+    a scratch circular buffer (CB) block argument. This op is inserted by the
+    LowerScratchAllocate pass at the beginning of the `d2m.generic` region to
+    make the scratch buffer available as a plain memref for use by downstream
+    scratch allocation ops (e.g. `d2m.scratch_allocate` lowered to
+    `memref.subview`).
+
+    The result type matches the CB's underlying memref type.
+
+    Example:
+    ```mlir
+    %scratch = d2m.get_scratch_from_cb %cb_scratch
+        : !d2m.cb<memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+        -> memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+    ```
+  }];
+
+  let arguments = (ins D2M_CB:$cb);
+  let results = (outs DeviceL1MemRef:$result);
+
+  let assemblyFormat = [{ $cb attr-dict `:` type($cb) `->` type($result) }];
+
+  let builders = [
+    OpBuilder<(ins "Value":$cb), [{
+      auto cbType = mlir::cast<CBType>(cb.getType());
+      build($_builder, $_state, cbType.getUnderlying(), cb);
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    CBType getCbType() {
+      return mlir::cast<CBType>(getCb().getType());
+    }
+  }];
+
+  let extraClassDefinition = [{
+    mlir::LogicalResult $cppClass::verify() {
+      auto cbType = mlir::cast<CBType>(getCb().getType());
+      if (cbType.getUnderlying() != getResult().getType()) {
+        return emitOpError() << "result type does not match circular buffer's "
+                                "underlying memref type";
+      }
+      return ::mlir::success();
+    }
+  }];
+
+  let hasVerifier = 1;
 }
 
 def D2M_StoreOp : D2M_GenericRegionOp<"store",
@@ -1285,7 +2038,7 @@ class D2M_IndexOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionO
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
     let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
-    let hasFolder = true;
+    let hasFolder = false;
 
     let builders =
     [
@@ -1303,11 +2056,70 @@ def D2M_IterIndexOp : D2M_IndexOp<"iter_index"> {
     }];
 }
 
-def D2M_CoreIndexOp : D2M_IndexOp<"core_index"> {
+def D2M_BlockIndexOp : D2M_IndexOp<"block_index"> {
+    let summary = "Block Index op.";
+    let description = [{
+      Return the index for the given block dimension. This op represents
+      a symbolic index that requires grid/block calculation during
+      loop generation. It is created when expanding indexing map expressions
+      and requires combining grid indices with block factors and loop indices
+      to compute the final value.
+    }];
+}
+
+def D2M_BlockOffsetOp : D2M_IndexOp<"block_offset"> {
+    let summary = "Block Offset op.";
+    let description = [{
+      Represents block_factor * core_index as a constant-like operation. Useful
+      for representing blocking index math in an affine dialect compatible way.
+    }];
+    let hasFolder = false;
+}
+
+def D2M_GetBlockFactorOp : D2M_IndexOp<"get_block_factor"> {
+    let summary = "Get block factor op.";
+    let description = [{
+      Retrieve the block factor from the block factor array attribute in
+      the parent generic op at the provided dimension index.
+    }];
+    let hasFolder = false;
+}
+
+def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
+  [ Pure
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
+  , DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>
+  ]> {
     let summary = "Core Index op.";
     let description = [{
       Return the index of this core's coordinate inside the generic op's grid dimension.
     }];
+
+    // Optional physical-to-virtual grid mapping. When present, this op returns
+    // the virtualized core coordinate for `dim`.
+    let arguments = (ins
+      ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim,
+      OptionalAttr<AffineMapAttr>:$phys_to_virt_map
+    );
+
+    let results = (outs Index:$result);
+    let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
+    let hasFolder = false;
+
+    let builders =
+    [
+      OpBuilder<(ins "int64_t":$dim),
+      [{
+        build($_builder, $_state, $_builder.getIndexType(),
+              $_builder.getI64IntegerAttr(dim), nullptr);
+      }]>,
+      OpBuilder<(ins "int64_t":$dim, "mlir::AffineMap":$map),
+      [{
+        build($_builder, $_state, $_builder.getIndexType(),
+              $_builder.getI64IntegerAttr(dim), mlir::AffineMapAttr::get(map));
+      }]>
+    ];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1324,7 +2136,9 @@ def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
       ```mlir
       d2m.generic (%arg0, %arg1, %arg2) {
         ^datamovement(%cb0, %cb1, %cb2)
-          d2m.dma %arg1, %cb1 // Capture %arg1 from parent scope
+          %i = d2m.iter_index(0) : index
+          %j = d2m.iter_index(1) : index
+          d2m.remote_load %arg1[%i, %j] into %cb1 // Capture %arg1 from parent scope
       }
       ```
 
@@ -1333,7 +2147,9 @@ def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
       d2m.generic (%arg0, %arg1, %arg2) {
         ^datamovement(%cb0, %cb1, %cb2)
           %operand_arg1 = d2m.get_global_operand 1
-          d2m.dma %operand_arg1, %cb0
+          %i = d2m.iter_index(0) : index
+          %j = d2m.iter_index(1) : index
+          d2m.remote_load %operand_arg1[%i, %j] into %cb0
       }
       ```
 
@@ -1345,15 +2161,140 @@ def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
 
       func.func private @dm0(%cb0, %cb1, %cb2) {
         %operand_arg1 = d2m.get_global_operand 1
-        d2m.dma %operand_arg1, %cb0
+        %i = d2m.iter_index(0) : index
+        %j = d2m.iter_index(1) : index
+        d2m.remote_load %operand_arg1[%i, %j] into %cb0
       }
       ```
     }];
 
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$operand_index);
-    let results = (outs DeviceMemRef:$result);
+    let results = (outs AnyType:$result);
 
     let assemblyFormat = [{ `(` $operand_index `)` attr-dict `:` type($result) }];
 }
 
+//===----------------------------------------------------------------------===//
+// D2M Write Mask Tile Ops (Used for partial tile masking)
+//===----------------------------------------------------------------------===//
+
+def D2M_WriteRowMaskTileOp : D2M_GenericRegionOp<"write_row_mask_tile",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+    let summary = "Write row mask pattern to a tile CB";
+    let description = [{
+        The `write_row_mask_tile` operation writes a row mask pattern
+        to a tile CB, where element[i,j] = 1.0 if i < validRows, else 0.0.
+
+        This is used for partial tile OOB masking. The operation writes directly
+        to L1 memory, avoiding DST register pressure.
+    }];
+
+    let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validRows,
+                         AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
+
+    let assemblyFormat = [{ `(` $validRows `)` `to` $output attr-dict `:` type($validRows) `,` type($output) }];
+}
+
+def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+    let summary = "Write column mask pattern to a tile CB";
+    let description = [{
+        The `write_col_mask_tile` operation writes a column mask pattern
+        to a tile CB, where element[i,j] = 1.0 if j < validCols, else 0.0.
+
+        This is used for partial tile OOB masking. The operation writes directly
+        to L1 memory, avoiding DST register pressure.
+    }];
+
+    let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validCols,
+                         AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
+
+    let assemblyFormat = [{ `(` $validCols `)` `to` $output attr-dict `:` type($validCols) `,` type($output) }];
+}
+
+//===----------------------------------------------------------------------===//
+// D2M Arange Ops
+//===----------------------------------------------------------------------===//
+
+def D2M_FillArangeTileOp : D2M_GenericRegionOp<"fill_arange_tile",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Write full linear index pattern to a tile CB";
+  let description = [{
+      The `fill_arange_tile` operation writes a linear index pattern
+      to a tile CB, where element[i,j] = i * 32 + j (the linear index as float).
+
+      This is used for arange operations. Each element gets its linear index value
+      (0-1023) within the tile, which can be used to compute global indices.
+
+      The resulting tile looks like:
+      [[  0,   1,   2, ...,  31],
+        [ 32,  33,  34, ...,  63],
+        [ 64,  65,  66, ...,  95],
+        ...
+        [992, 993, 994, ..., 1023]]
+  }];
+
+  let arguments = (ins AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
+
+  let assemblyFormat = [{ `to` $output attr-dict `:` type($output) }];
+}
+
+def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
+  [DestinationStyleOpInterface,
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+  DeclareOpInterfaceMethods<BufferizableOpInterface,
+    ["bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
+    "getAliasingValues", "getBufferType"]>,
+  D2M_SkipOpEltwiseFusionTrait]> {
+  let summary = "Generate arange values in a block/memref";
+  let description = [{
+      The `arange_block` operation fills a block/memref with arange values:
+      output[i] = start + step * i, where i is the linear index.
+
+      This op operates at the block level (memref of tiles).
+
+      The index_tile_tensor is a scratch tensor (1x1 tile) handled by
+      the FillArangeTileOp.
+
+      For each tile at position (tile_row, tile_col), the computation is:
+      1. tile_offset = (tile_row * num_tile_cols * 32 + tile_col) * 32
+      2. global_idx = tile_add(tile_offset, local_idx)
+      3. result = tile_add(tile_mul(global_idx, step), start)
+
+      Example:
+      ```mlir
+      %result = d2m.arange_block %output, %index_tile
+                        {num_elements = 64, start = 0, step = 1}
+          : (tensor<1x2x!ttcore.tile<32x32, f32>>,
+              tensor<1x1x!ttcore.tile<32x32, f32>>) -> tensor<1x2x!ttcore.tile<32x32, f32>>
+      ```
+  }];
+
+  let arguments = (ins
+      AnyRankedTensorOrMemRef:$index_tile_tensor,
+      AnyRankedTensorOrMemRef:$output,
+      I64Attr:$num_elements,
+      I64Attr:$start,
+      I64Attr:$step);
+
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let builders = [
+    OpBuilder<(ins "Value":$indexTileTensor, "Value":$output,
+                    "int64_t":$numElements, "int64_t":$start, "int64_t":$step), [{
+      // Result type is the same as the output type.
+      Type resultType = output.getType();
+      build($_builder, $_state, resultType, indexTileTensor, output,
+            $_builder.getI64IntegerAttr(numElements),
+            $_builder.getI64IntegerAttr(start),
+            $_builder.getI64IntegerAttr(step));
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

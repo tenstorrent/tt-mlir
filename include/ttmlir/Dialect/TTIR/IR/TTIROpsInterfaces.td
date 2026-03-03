@@ -80,7 +80,7 @@ def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
       }],
       /*retTy=*/"mlir::Operation *",
       /*methodName=*/"rewriteWithQuantizedInputs",
-      /*args=*/(ins "PatternRewriter&":$rewriter, "ArrayRef<mlir::Value>":$sourceOperands, "mlir::ValueRange":$outputOperands),
+      /*args=*/(ins "PatternRewriter&":$rewriter, "ArrayRef<mlir::Value>":$sourceOperands),
       /*methodBody=*/"",
       /*defaultImplementation=*/"return nullptr;"
     >,
@@ -95,6 +95,25 @@ def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
       /*args=*/(ins "ArrayRef<mlir::Value>":$sourceOperands),
       /*methodBody=*/"",
       /*defaultImplementation=*/"return true;"
+    >,
+  ];
+}
+
+def TTIR_CacheOpInterface : OpInterface<"CacheOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let description = [{
+    This interface identifies kv_cache operations and provides access to their
+    cache operand.
+  }];
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{ Get the cache operand. }],
+      /*retTy=*/"::mlir::Value",
+      /*methodName=*/"getCache",
+      /*args=*/(ins),
+      /*methodBody=*/[{
+        return $_op.getCache();
+      }]
     >,
   ];
 }

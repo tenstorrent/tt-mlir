@@ -12,6 +12,8 @@ namespace tt::runtime::distributed {
 void launchDistributedRuntime(const DistributedOptions &options = {});
 void shutdownDistributedRuntime();
 
+void setMemoryLogLevel(const MemoryLogLevel &logLevel);
+
 SystemDesc getCurrentSystemDesc(
     std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType =
         std::nullopt,
@@ -78,6 +80,14 @@ void memcpy(const ::tt::runtime::Tensor &dstHandle,
             const ::tt::runtime::Tensor &srcHandle);
 
 void deallocateTensor(::tt::runtime::Tensor &tensorHandle, bool force = false);
+
+::tt::runtime::TensorDesc getTensorDesc(::tt::runtime::Tensor t);
+
+bool hasLayout(::tt::runtime::Tensor tensor, ::tt::runtime::Layout layout);
+
+void clearProgramCache(Device meshDevice);
+
+bool isProgramCacheEnabled(Device meshDevice);
 
 } // namespace tt::runtime::distributed
 

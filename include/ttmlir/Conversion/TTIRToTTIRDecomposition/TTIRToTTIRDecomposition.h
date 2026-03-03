@@ -17,7 +17,8 @@ enum class DecompMode { TTNN, TTMetal, CPUFallback };
 
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
-                                             TypeConverter &typeConverter);
+                                             TypeConverter &typeConverter,
+                                             DecompMode decompConfig);
 
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRDecompositionPass();
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRDecompositionPass(

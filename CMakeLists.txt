@@ -13,18 +13,39 @@ if (NOT DEFINED ENV{TTMLIR_ENV_ACTIVATED})
   message(FATAL_ERROR "tt-mlir environment not activated. Please run 'source env/activate'.")
 endif()
 
+set(NB_USE_SUBMODULE_DEPS ON CACHE BOOL "Use nanobind bundled dependencies")
+
+# nanobind uses cmake_parse_arguments() to parse keywords like NB_DOMAIN.
+# When the keyword is provided but the value is empty, CMake policy CMP0174
+# controls whether it is preserved as empty or treated as "not provided".
+# StableHLO's embedded python bindings can hit this path during configuration.
+if(POLICY CMP0174)
+  cmake_policy(SET CMP0174 NEW)
+endif()
+
+# Ensure MLIR's AddMLIRPython passes a non-empty NB_DOMAIN to nanobind for all
+# embedded python bindings (e.g. StableHLO), even when those projects are
+# configured before our own `python/` subdirectory is processed.
+set(MLIR_BINDINGS_PYTHON_NB_DOMAIN "ttmlir" CACHE STRING
+  "Domain name used for nanobind-based MLIR python extensions")
+
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_PYKERNEL "Enable python kernels" OFF)
 option(TTMLIR_ENABLE_TTNN_JIT "Enable ttnn-jit" OFF)
+option(TTMLIR_ENABLE_TTRT "Enable ttrt" ON)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
 option(TTMLIR_ENABLE_TTIRTONVVM "Enable lowering TTIR to NVVM" OFF)
 option(TTMLIR_ENABLE_OPMODEL "Enable OpModel support" OFF)
 option(TTMLIR_ENABLE_OPMODEL_TESTS "Enable OpModel tests" ON)
 option(TTMLIR_ENABLE_SHARED_LIB "Enable Shared lib building" ON)
 option(TTMLIR_ENABLE_EXPLORER "Enable cloning and building the explorer tool" ON)
-option(TTMLIR_ENABLE_ALCHEMIST "Enable tt-alchemist tool" ON)
+option(TTMLIR_ENABLE_TESTS "Enable building all tests" ON)
+option(TTMLIR_ENABLE_TOOLS "Enable building core tools (ttmlir-opt, ttmlir-lsp-server, ttmlir-translate, ttnn-standalone)" ON)
+option(TTMLIR_ENABLE_ALCHEMIST "Enable tt-alchemist lib" ON)
+option(TTMLIR_ENABLE_ALCHEMIST_WHEEL "Enable tt-alchemist wheel" OFF)  # Expensive to build
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
+option(TT_USE_SYSTEM_SFPI "Use system path for SFPI. SFPI is used to compile firmware." ON)
 
 if (TTMLIR_ENABLE_RUNTIME)
   option(TT_RUNTIME_ENABLE_TTNN "Enable TTNN Runtime (requires TTMLIR_ENABLE_RUNTIME)" ON)
@@ -71,6 +92,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake/modules)
 
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
   add_compile_options(-DTRACY_ENABLE=ON)
+  add_compile_options(-DTRACY_TIMER_FALLBACK=ON)
 endif()
 
 if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
@@ -180,7 +202,9 @@ if(MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)
   set(TTMLIR_PYTHON_PACKAGES_DIR "${CMAKE_CURRENT_BINARY_DIR}/python_packages")
   add_subdirectory(python)
 endif()
+if (TTMLIR_ENABLE_TESTS)
 add_subdirectory(test)
+endif()
 add_subdirectory(tools)
 add_subdirectory(runtime)
 add_subdirectory(docs)

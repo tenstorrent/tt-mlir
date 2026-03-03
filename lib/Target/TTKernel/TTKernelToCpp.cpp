@@ -6,9 +6,15 @@
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
+#include "ttmlir/Target/TTKernel/LLKs/experimental_coord_translation_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_1d_routing_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_2d_routing_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_api_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_topology_info_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_padding_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
 
@@ -42,10 +48,12 @@ public:
 
     builder->create<emitc::IncludeOp>(loc, "tools/profiler/kernel_profiler.hpp",
                                       /*isStandard=*/false);
+    builder->create<emitc::IncludeOp>(loc, "internal/firmware_common.h",
+                                      /*isStandard=*/false);
 
     if (threadType == ThreadType::Noc) {
 
-      builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
+      builder->create<emitc::IncludeOp>(loc, "api/dataflow/dataflow_api.h",
                                         /*isStandard=*/false);
       emitExperimentalLLKs();
       emitDebugPrint(threadType);
@@ -53,102 +61,118 @@ public:
     if (threadType == ThreadType::Compute) {
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
                                         /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
+      builder->create<emitc::IncludeOp>(loc, "api/compute/binary_max_min.h",
                                         /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/matmul.h",
+      builder->create<emitc::IncludeOp>(loc, "api/compute/common.h",
                                         /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/bcast.h",
+      builder->create<emitc::IncludeOp>(loc, "api/compute/matmul.h",
                                         /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/tilize.h",
+      builder->create<emitc::IncludeOp>(loc, "api/compute/bcast.h",
                                         /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/untilize.h",
+      builder->create<emitc::IncludeOp>(loc, "api/compute/tilize.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/untilize.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/transpose_wh.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_binary.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc,
-                                        "compute_kernel_api/transpose_wh.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "compute_kernel_api/eltwise_binary.h",
+                                        "api/compute/eltwise_binary_sfpu.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_binary_sfpu.h",
+          loc, "api/compute/compute_kernel_api.h", // max ops
           /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api.h", // max ops
+      builder->create<emitc::IncludeOp>(loc, "api/compute/copy_dest_values.h",
                                         /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "compute_kernel_api/tile_move_copy.h",
+      builder->create<emitc::IncludeOp>(loc, "api/compute/tile_move_copy.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/eltwise_unary.h",
+          loc, "api/compute/eltwise_unary/activations.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "api/compute/eltwise_unary/eltwise_unary.h",
           /*isStandard=*/false);
       // TODO (kmitrovic) exp.h is an ExpOp-specific include. Every op has one,
       // should be handled in general, not like this.
       // Issue: https://github.com/tenstorrent/tt-mlir/issues/772
+      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/exp.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/exp.h",
+          loc, "api/compute/eltwise_unary/sfpu_split_includes.h",
           /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "api/compute/eltwise_unary/recip.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/fill.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "api/compute/eltwise_unary/negative.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/sqrt.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "api/compute/eltwise_unary/rounding.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/sfpu_split_includes.h",
+          loc, "api/compute/eltwise_unary/trigonometry.h",
           /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/gelu.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "api/compute/eltwise_unary/erf_erfc.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/recip.h",
+          loc, "api/compute/eltwise_unary/logical_not.h",
           /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/comp.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "api/compute/eltwise_unary/rsqrt.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "api/compute/eltwise_unary/typecast.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "api/compute/binary_bitwise_sfpu.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/fill.h",
+          loc, "api/compute/eltwise_unary/bitwise_not.h",
           /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/relu.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/negative.h",
+          loc, "api/compute/eltwise_unary/binop_with_scalar.h",
           /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/sqrt.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/rounding.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/trigonometry.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/gelu.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/logical_not_noti.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/comp.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/rsqrt.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/typecast.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/bitwise_not.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/relu.h",
-          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "api/compute/eltwise_unary/where.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "api/compute/eltwise_unary/clamp.h",
+                                        /*isStandard=*/false);
+      // Helper for float-to-uint32 bit reinterpretation (used by scalar tile
+      // ops).
+      builder->create<emitc::VerbatimOp>(
+          loc, "inline uint32_t float_to_bits(float f) { "
+               "uint32_t r; __builtin_memcpy(&r, &f, sizeof(r)); return r; }");
+      // Define INFINITY if not available (needed for OOB masking with inf
+      // fill).
+      builder->create<emitc::VerbatimOp>(
+          loc, "#ifndef INFINITY\n#define INFINITY __builtin_inff()\n#endif");
       // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
       // because they are default template parameters values in reduce api.
       builder->create<emitc::VerbatimOp>(loc,
                                          "#define REDUCE_OP PoolType::SUM");
       builder->create<emitc::VerbatimOp>(
           loc, "#define REDUCE_DIM ReduceDim::REDUCE_COL");
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
+      builder->create<emitc::IncludeOp>(loc, "api/compute/reduce.h",
                                         /*isStandard=*/false);
       emitExperimentalLLKs();
       emitDebugPrint(threadType);
-      builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
   }
 
-  ~ScopedModuleHelper() {
-    if (threadType == ThreadType::Compute) {
-      builder->create<emitc::VerbatimOp>(loc, "void MAIN { kernel_main(); }");
-      builder->create<emitc::VerbatimOp>(loc,
-                                         "}"); // close namespace NAMESPACE
-    }
-  }
+  ~ScopedModuleHelper() = default;
 
   void emitComment(StringRef str) {
     builder->create<emitc::VerbatimOp>(loc, (Twine("// ") + str).str());
@@ -161,12 +185,8 @@ public:
       return;
     }
 
-    builder->create<emitc::IncludeOp>(loc, "debug/dprint.h",
+    builder->create<emitc::IncludeOp>(loc, "api/debug/dprint.h",
                                       /*isStandard=*/false);
-
-    builder->create<emitc::VerbatimOp>(
-        loc, "template <> uint8_t DebugPrintTypeToId<size_t>() { return "
-             "DPrintUINT32; }");
 
     builder->create<emitc::VerbatimOp>(loc, R""""(
 namespace ttmlir {
@@ -238,11 +258,63 @@ void dprint(Arg &&arg, ArgV&&... argv) {
       builder->create<emitc::VerbatimOp>(loc, experimentalDataflowLLKs);
     }
 
+    if (hasCall("experimental::convert_logical_x_to_translated") ||
+        hasCall("experimental::convert_logical_y_to_translated")) {
+      auto experimentalCoordTranslationLLKs =
+          StringRef(experimental_coord_translation_generated,
+                    experimental_coord_translation_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalCoordTranslationLLKs);
+    }
+
+    if (hasCall("experimental::close_fabric_connections") ||
+        hasCall("experimental::setup_fabric_connections") ||
+        hasCall("experimental::get_my_device_id") ||
+        hasCall("experimental::fabric_fast_write_any_len") ||
+        hasCall("experimental::fabric_mcast_fast_write_any_len") ||
+        hasCall("experimental::fabric_sem_inc") ||
+        hasCall("experimental::get_logical_mesh_position") ||
+        hasCall("experimental::get_device_id_from_logical_mesh_position")) {
+      // Emit in order: topology_info → routing → api
+      // 1. Topology info
+      auto experimentalFabricTopologyInfoLLKs =
+          StringRef(experimental_fabric_topology_info_generated,
+                    experimental_fabric_topology_info_generated_len);
+      builder->create<emitc::VerbatimOp>(loc,
+                                         experimentalFabricTopologyInfoLLKs);
+
+      // 2. Routing functions
+      auto experimentalFabric1DRoutingLLKs =
+          StringRef(experimental_fabric_1d_routing_generated,
+                    experimental_fabric_1d_routing_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalFabric1DRoutingLLKs);
+
+      auto experimentalFabric2DRoutingLLKs =
+          StringRef(experimental_fabric_2d_routing_generated,
+                    experimental_fabric_2d_routing_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalFabric2DRoutingLLKs);
+
+      // 3. Fabric APIs
+      auto experimentalFabricAPILLKs =
+          StringRef(experimental_fabric_api_generated,
+                    experimental_fabric_api_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalFabricAPILLKs);
+    }
+
     if (hasCall("experimental::matmul_block")) {
       auto experimentalMatmulLLKs =
           StringRef(experimental_matmul_llks_generated,
                     experimental_matmul_llks_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalMatmulLLKs);
+    }
+
+    if (hasCall("experimental::tile_fill") ||
+        hasCall("experimental::write_row_mask_tile") ||
+        hasCall("experimental::write_col_mask_tile") ||
+        hasCall("experimental::fill_arange_tile")) {
+      auto experimentalPaddingLLKs =
+          StringRef(experimental_padding_llks_generated,
+                    experimental_padding_llks_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalPaddingLLKs);
     }
 
     if (hasVerbatim("experimental::invoke_sfpi")) {

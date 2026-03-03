@@ -7,10 +7,12 @@ import pytest
 from typing import List, Tuple
 from collections import OrderedDict
 
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
+from builder.base.builder_enums import *
 from test_utils import shape_str, make_shard_shape
+from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -50,22 +52,22 @@ def _build_matmul_parallel(
 
     mesh_shard_in = builder.mesh_shard(
         input,
-        shard_direction="#ttcore.shard_direction<full_to_shard>",
-        shard_type="#ttcore.shard_type<devices>",
+        shard_direction=MeshShardDirection.FullToShard.value,
+        shard_type=MeshShardType.Devices.value,
         shard_shape=shard_shape_inout,
         shard_dims=shard_dims_inout,
     )
     mesh_shard_wt = builder.mesh_shard(
         weight,
-        shard_direction="#ttcore.shard_direction<full_to_shard>",
-        shard_type="#ttcore.shard_type<devices>",
+        shard_direction=MeshShardDirection.FullToShard.value,
+        shard_type=MeshShardType.Devices.value,
         shard_shape=shard_shape_wt,
         shard_dims=shard_dims_wt,
     )
     partial_matmul = builder.matmul(mesh_shard_in, mesh_shard_wt)
     reduced = builder.reduce_scatter(
         partial_matmul,
-        reduce_type="#ttcore.reduce_type<sum>",
+        reduce_type=ReduceType.Sum.value,
         scatter_dim=1,
         cluster_axis=parallelize_axis,
     )
@@ -74,8 +76,8 @@ def _build_matmul_parallel(
     else:
         return builder.mesh_shard(
             reduced,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
+            shard_direction=MeshShardDirection.ShardToFull.value,
+            shard_type=MeshShardType.Devices.value,
             shard_shape=shard_shape_inout,
             shard_dims=shard_dims_inout,
         )
@@ -105,33 +107,32 @@ def test_matmul_k_split_parallelism(
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("parallelism across 1 device is meaningless")
 
-    def matmul_multi(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        output = _build_matmul_parallel(
-            in0,
-            in1,
-            builder,
-            mesh_shape,
-            cluster_axis,
-            do_unshard=True,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32, torch.float32])
+        def matmul_multi(in0: Operand, in1: Operand, builder: TTIRBuilder):
+            output = _build_matmul_parallel(
+                in0,
+                in1,
+                builder,
+                mesh_shape,
+                cluster_axis,
+                do_unshard=True,
+            )
 
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        golden = torch.matmul(input_0, input_1)
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1}, {output: golden}
-        )
-        return output
+            input_0 = builder._get_golden_tensor(in0)
+            input_1 = builder._get_golden_tensor(in1)
+            golden = torch.matmul(input_0, input_1)
+            builder.set_goldens_from_builder_tensor(
+                {in0: input_0, in1: input_1}, {output: golden}
+            )
+            return output
 
     compile_and_execute_ttir(
-        matmul_multi,
-        shapes,
+        module,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
+        **get_request_kwargs(request),
     )
 
 
@@ -149,44 +150,43 @@ def test_matmul_k_split_parallelism(
 def test_parallelized_matmul_with_unary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
-    def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        matmul_shard = _build_matmul_parallel(
-            in0,
-            in1,
-            builder,
-            mesh_shape,
-            do_unshard=False,
-        )
-        output = builder.neg(matmul_shard)
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32, torch.float32])
+        def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
+            matmul_shard = _build_matmul_parallel(
+                in0,
+                in1,
+                builder,
+                mesh_shape,
+                do_unshard=False,
+            )
+            output = builder.neg(matmul_shard)
 
-        shard_dims_out = [0, 1]
-        shard_shape_out = make_shard_shape(2, shard_dims_out, mesh_shape)
-        output = builder.mesh_shard(
-            output,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_out,
-            shard_dims=shard_dims_out,
-        )
+            shard_dims_out = [0, 1]
+            shard_shape_out = make_shard_shape(2, shard_dims_out, mesh_shape)
+            output = builder.mesh_shard(
+                output,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_out,
+                shard_dims=shard_dims_out,
+            )
 
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        golden = torch.neg(torch.matmul(input_0, input_1))
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1}, {output: golden}
-        )
+            input_0 = builder._get_golden_tensor(in0)
+            input_1 = builder._get_golden_tensor(in1)
+            golden = torch.neg(torch.matmul(input_0, input_1))
+            builder.set_goldens_from_builder_tensor(
+                {in0: input_0, in1: input_1}, {output: golden}
+            )
 
-        return output
+            return output
 
     compile_and_execute_ttir(
-        matmul_test,
-        shapes,
+        module,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -204,50 +204,49 @@ def test_parallelized_matmul_with_unary_chaining(
 def test_parallelized_matmul_with_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
-    def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-        matmul_shard = _build_matmul_parallel(
-            in0,
-            in1,
-            builder,
-            mesh_shape,
-            do_unshard=False,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
+        def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+            matmul_shard = _build_matmul_parallel(
+                in0,
+                in1,
+                builder,
+                mesh_shape,
+                do_unshard=False,
+            )
 
-        shard_dims = [0, 1]
-        shard_shape = make_shard_shape(2, shard_dims, mesh_shape)
-        mesh_shard_in2 = builder.mesh_shard(
-            in2,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=shard_dims,
-        )
-        add = builder.add(matmul_shard, mesh_shard_in2)
-        output = builder.mesh_shard(
-            add,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=shard_dims,
-        )
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        input_2 = builder._get_golden_tensor(in2)
-        golden = torch.add(torch.matmul(input_0, input_1), input_2)
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1, in2: input_2}, {output: golden}
-        )
-        return output
+            shard_dims = [0, 1]
+            shard_shape = make_shard_shape(2, shard_dims, mesh_shape)
+            mesh_shard_in2 = builder.mesh_shard(
+                in2,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+            add = builder.add(matmul_shard, mesh_shard_in2)
+            output = builder.mesh_shard(
+                add,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+            input_0 = builder._get_golden_tensor(in0)
+            input_1 = builder._get_golden_tensor(in1)
+            input_2 = builder._get_golden_tensor(in2)
+            golden = torch.add(torch.matmul(input_0, input_1), input_2)
+            builder.set_goldens_from_builder_tensor(
+                {in0: input_0, in1: input_1, in2: input_2}, {output: golden}
+            )
+            return output
 
     compile_and_execute_ttir(
-        matmul_test,
-        shapes,
+        module,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -266,55 +265,57 @@ def test_parallelized_matmul_with_binary_chaining(
 def test_parallelized_matmul_fusion_with_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
-    def matmul_test(
-        in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
-    ):
-        matmul_0 = _build_matmul_parallel(
-            in0,
-            in1,
-            builder,
-            mesh_shape,
-            do_unshard=False,
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            shapes, [torch.float32, torch.float32, torch.float32, torch.float32]
         )
-        matmul_1 = _build_matmul_parallel(
-            in2,
-            in3,
-            builder,
-            mesh_shape,
-            do_unshard=False,
-        )
-        output = builder.add(matmul_0, matmul_1)
+        def matmul_test(
+            in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
+        ):
+            matmul_0 = _build_matmul_parallel(
+                in0,
+                in1,
+                builder,
+                mesh_shape,
+                do_unshard=False,
+            )
+            matmul_1 = _build_matmul_parallel(
+                in2,
+                in3,
+                builder,
+                mesh_shape,
+                do_unshard=False,
+            )
+            output = builder.add(matmul_0, matmul_1)
 
-        shard_dims_out = [0, 1]
-        shard_shape_out = make_shard_shape(2, shard_dims_out, mesh_shape)
-        output = builder.mesh_shard(
-            output,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_out,
-            shard_dims=shard_dims_out,
-        )
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        input_2 = builder._get_golden_tensor(in2)
-        input_3 = builder._get_golden_tensor(in3)
-        golden = torch.add(
-            torch.matmul(input_0, input_1), torch.matmul(input_2, input_3)
-        )
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1, in2: input_2, in3: input_3}, {output: golden}
-        )
-        return output
+            shard_dims_out = [0, 1]
+            shard_shape_out = make_shard_shape(2, shard_dims_out, mesh_shape)
+            output = builder.mesh_shard(
+                output,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_out,
+                shard_dims=shard_dims_out,
+            )
+            input_0 = builder._get_golden_tensor(in0)
+            input_1 = builder._get_golden_tensor(in1)
+            input_2 = builder._get_golden_tensor(in2)
+            input_3 = builder._get_golden_tensor(in3)
+            golden = torch.add(
+                torch.matmul(input_0, input_1), torch.matmul(input_2, input_3)
+            )
+            builder.set_goldens_from_builder_tensor(
+                {in0: input_0, in1: input_1, in2: input_2, in3: input_3},
+                {output: golden},
+            )
+            return output
 
     compile_and_execute_ttir(
-        matmul_test,
-        shapes,
+        module,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -346,47 +347,46 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
 def test_parallelized_elementwise_operations(
     shape: Shape, shard_dims: List[int], mesh_shape: Tuple[int, int], request, device
 ):
-    def eltwise_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        shard_shape = make_shard_shape(len(shape), shard_dims, mesh_shape)
-        mesh_shard_in0 = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=shard_dims,
-        )
-        mesh_shard_in1 = builder.mesh_shard(
-            in1,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=shard_dims,
-        )
-        partial_sum = builder.add(mesh_shard_in0, mesh_shard_in1)
-        output = builder.mesh_shard(
-            partial_sum,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=shard_dims,
-        )
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        golden = torch.add(input_0, input_1)
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1}, {output: golden}
-        )
-        return output
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [torch.float32, torch.float32])
+        def eltwise_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
+            shard_shape = make_shard_shape(len(shape), shard_dims, mesh_shape)
+            mesh_shard_in0 = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+            mesh_shard_in1 = builder.mesh_shard(
+                in1,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+            partial_sum = builder.add(mesh_shard_in0, mesh_shard_in1)
+            output = builder.mesh_shard(
+                partial_sum,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+            input_0 = builder._get_golden_tensor(in0)
+            input_1 = builder._get_golden_tensor(in1)
+            golden = torch.add(input_0, input_1)
+            builder.set_goldens_from_builder_tensor(
+                {in0: input_0, in1: input_1}, {output: golden}
+            )
+            return output
 
     compile_and_execute_ttir(
-        eltwise_parallel,
-        [shape, shape],
+        module,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -409,36 +409,35 @@ def test_parallelized_elementwise_operations(
 def test_mixed_device_parallelism_with_unary(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
-    def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        matmul_result = _build_matmul_parallel(
-            in0,
-            in1,
-            builder,
-            mesh_shape,
-            do_unshard=True,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32, torch.float32])
+        def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
+            matmul_result = _build_matmul_parallel(
+                in0,
+                in1,
+                builder,
+                mesh_shape,
+                do_unshard=True,
+            )
 
-        output = builder.neg(matmul_result)
+            output = builder.neg(matmul_result)
 
-        # Golden is computed on a single device
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        golden = torch.neg(torch.matmul(input_0, input_1))
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1}, {output: golden}
-        )
+            # Golden is computed on a single device
+            input_0 = builder._get_golden_tensor(in0)
+            input_1 = builder._get_golden_tensor(in1)
+            golden = torch.neg(torch.matmul(input_0, input_1))
+            builder.set_goldens_from_builder_tensor(
+                {in0: input_0, in1: input_1}, {output: golden}
+            )
 
-        return output
+            return output
 
     compile_and_execute_ttir(
-        matmul_test,
-        shapes,
+        module,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -456,35 +455,34 @@ def test_mixed_device_parallelism_with_unary(
 def test_mixed_device_parallelism_with_binary(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
-    def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-        matmul_result = _build_matmul_parallel(
-            in0,
-            in1,
-            builder,
-            mesh_shape,
-            do_unshard=True,
-        )
-        output = builder.add(matmul_result, in2)
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
+        def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+            matmul_result = _build_matmul_parallel(
+                in0,
+                in1,
+                builder,
+                mesh_shape,
+                do_unshard=True,
+            )
+            output = builder.add(matmul_result, in2)
 
-        # Golden is computed on a single device
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        input_2 = builder._get_golden_tensor(in2)
-        golden = torch.add(torch.matmul(input_0, input_1), input_2)
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1, in2: input_2}, {output: golden}
-        )
-        return output
+            # Golden is computed on a single device
+            input_0 = builder._get_golden_tensor(in0)
+            input_1 = builder._get_golden_tensor(in1)
+            input_2 = builder._get_golden_tensor(in2)
+            golden = torch.add(torch.matmul(input_0, input_1), input_2)
+            builder.set_goldens_from_builder_tensor(
+                {in0: input_0, in1: input_1, in2: input_2}, {output: golden}
+            )
+            return output
 
     compile_and_execute_ttir(
-        matmul_test,
-        shapes,
+        module,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -502,48 +500,50 @@ def test_mixed_device_parallelism_with_binary(
 def test_mixed_device_parallelism_with_dual_matmul(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
-    def matmul_test(
-        in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
-    ):
-        matmul_0 = _build_matmul_parallel(
-            in0,
-            in1,
-            builder,
-            mesh_shape,
-            do_unshard=True,
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            shapes, [torch.float32, torch.float32, torch.float32, torch.float32]
         )
-        matmul_1 = _build_matmul_parallel(
-            in2,
-            in3,
-            builder,
-            mesh_shape,
-            do_unshard=True,
-        )
-        output = builder.add(matmul_0, matmul_1)
+        def matmul_test(
+            in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
+        ):
+            matmul_0 = _build_matmul_parallel(
+                in0,
+                in1,
+                builder,
+                mesh_shape,
+                do_unshard=True,
+            )
+            matmul_1 = _build_matmul_parallel(
+                in2,
+                in3,
+                builder,
+                mesh_shape,
+                do_unshard=True,
+            )
+            output = builder.add(matmul_0, matmul_1)
 
-        # Golden is computed on a single device
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        input_2 = builder._get_golden_tensor(in2)
-        input_3 = builder._get_golden_tensor(in3)
-        golden = torch.add(
-            torch.matmul(input_0, input_1), torch.matmul(input_2, input_3)
-        )
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1, in2: input_2, in3: input_3}, {output: golden}
-        )
+            # Golden is computed on a single device
+            input_0 = builder._get_golden_tensor(in0)
+            input_1 = builder._get_golden_tensor(in1)
+            input_2 = builder._get_golden_tensor(in2)
+            input_3 = builder._get_golden_tensor(in3)
+            golden = torch.add(
+                torch.matmul(input_0, input_1), torch.matmul(input_2, input_3)
+            )
+            builder.set_goldens_from_builder_tensor(
+                {in0: input_0, in1: input_1, in2: input_2, in3: input_3},
+                {output: golden},
+            )
 
-        return output
+            return output
 
     compile_and_execute_ttir(
-        matmul_test,
-        shapes,
+        module,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -556,59 +556,60 @@ JIT_PARALLELISM_TESTS_INPUT_SHAPES = [(64, 1, 128, 2048), (1, 1, 2048, 128)]
 def test_jit_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
     shapes = JIT_PARALLELISM_TESTS_INPUT_SHAPES
 
-    def jit_tensor_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        shard_dims_in0 = [-1, 3]
-        shard_shape_in0 = make_shard_shape(4, shard_dims_in0, mesh_shape)
-        mesh_shard_in0 = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_in0,
-            shard_dims=shard_dims_in0,
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            shapes, [torch.float32, torch.float32, torch.float32, torch.float32]
         )
-        shard_dims_in1 = [-1, 2]
-        shard_shape_in1 = make_shard_shape(4, shard_dims_in1, mesh_shape)
-        mesh_shard_in1 = builder.mesh_shard(
-            in1,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_in1,
-            shard_dims=shard_dims_in1,
-        )
-        reshape_in0 = builder.squeeze(mesh_shard_in0, dim=1)
-        reshape_in1 = builder.squeeze(mesh_shard_in1, dim=1)
-        dot_general = builder.dot_general(
-            reshape_in0,
-            reshape_in1,
-            batch_dims_lhs=[],
-            batch_dims_rhs=[],
-            contract_dims_lhs=[2],
-            contract_dims_rhs=[1],
-        )
-        permute = builder.permute(dot_general, [0, 2, 1, 3])
-        reduce_scatter = builder.reduce_scatter(
-            permute,
-            scatter_dim=2,
-            reduce_type="#ttcore.reduce_type<sum>",
-            cluster_axis=1,
-        )
-        mesh_shard_out = builder.mesh_shard(
-            reduce_scatter,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_in1,
-            shard_dims=shard_dims_in1,
-        )
-        return mesh_shard_out
+        def jit_tensor_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
+            shard_dims_in0 = [-1, 3]
+            shard_shape_in0 = make_shard_shape(4, shard_dims_in0, mesh_shape)
+            mesh_shard_in0 = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_in0,
+                shard_dims=shard_dims_in0,
+            )
+            shard_dims_in1 = [-1, 2]
+            shard_shape_in1 = make_shard_shape(4, shard_dims_in1, mesh_shape)
+            mesh_shard_in1 = builder.mesh_shard(
+                in1,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_in1,
+                shard_dims=shard_dims_in1,
+            )
+            reshape_in0 = builder.squeeze(mesh_shard_in0, dim=1)
+            reshape_in1 = builder.squeeze(mesh_shard_in1, dim=1)
+            dot_general = builder.dot_general(
+                reshape_in0,
+                reshape_in1,
+                batch_dims_lhs=[],
+                batch_dims_rhs=[],
+                contract_dims_lhs=[2],
+                contract_dims_rhs=[1],
+            )
+            permute = builder.permute(dot_general, [0, 2, 1, 3])
+            reduce_scatter = builder.reduce_scatter(
+                permute,
+                scatter_dim=2,
+                reduce_type=ReduceType.Sum.value,
+                cluster_axis=1,
+            )
+            mesh_shard_out = builder.mesh_shard(
+                reduce_scatter,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_in1,
+                shard_dims=shard_dims_in1,
+            )
+            return mesh_shard_out
 
     compile_and_execute_ttir(
-        jit_tensor_parallel,
-        shapes,
+        module,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -617,53 +618,54 @@ def test_jit_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
 def test_jit_data_parallel(mesh_shape: Tuple[int, int], request, device):
     shapes = JIT_PARALLELISM_TESTS_INPUT_SHAPES
 
-    def jit_data_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        shard_dims_in0 = [-1, 0]
-        shard_shape_in0 = make_shard_shape(4, shard_dims_in0, mesh_shape)
-        mesh_shard_in0 = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_in0,
-            shard_dims=shard_dims_in0,
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            shapes, [torch.float32, torch.float32, torch.float32, torch.float32]
         )
-        mesh_shard_in1 = builder.mesh_shard(
-            in1,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<replicate>",
-            shard_shape=[1],
-            shard_dims=[-1],
-        )
-        reshape_in0 = builder.squeeze(mesh_shard_in0, dim=1)
-        reshape_in1 = builder.squeeze(mesh_shard_in1, dim=1)
-        dot_general = builder.dot_general(
-            reshape_in0,
-            reshape_in1,
-            batch_dims_lhs=[],
-            batch_dims_rhs=[],
-            contract_dims_lhs=[2],
-            contract_dims_rhs=[1],
-        )
-        permute = builder.permute(dot_general, [0, 2, 1, 3])
-        shard_dims_out = [-1, 0]
-        shard_shape_out = make_shard_shape(4, shard_dims_out, mesh_shape)
-        mesh_shard_out = builder.mesh_shard(
-            permute,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_out,
-            shard_dims=shard_dims_out,
-        )
-        return mesh_shard_out
+        def jit_data_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
+            shard_dims_in0 = [-1, 0]
+            shard_shape_in0 = make_shard_shape(4, shard_dims_in0, mesh_shape)
+            mesh_shard_in0 = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_in0,
+                shard_dims=shard_dims_in0,
+            )
+            mesh_shard_in1 = builder.mesh_shard(
+                in1,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Replicate.value,
+                shard_shape=[1],
+                shard_dims=[-1],
+            )
+            reshape_in0 = builder.squeeze(mesh_shard_in0, dim=1)
+            reshape_in1 = builder.squeeze(mesh_shard_in1, dim=1)
+            dot_general = builder.dot_general(
+                reshape_in0,
+                reshape_in1,
+                batch_dims_lhs=[],
+                batch_dims_rhs=[],
+                contract_dims_lhs=[2],
+                contract_dims_rhs=[1],
+            )
+            permute = builder.permute(dot_general, [0, 2, 1, 3])
+            shard_dims_out = [-1, 0]
+            shard_shape_out = make_shard_shape(4, shard_dims_out, mesh_shape)
+            mesh_shard_out = builder.mesh_shard(
+                permute,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_out,
+                shard_dims=shard_dims_out,
+            )
+            return mesh_shard_out
 
     compile_and_execute_ttir(
-        jit_data_parallel,
-        shapes,
+        module,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -672,60 +674,61 @@ def test_jit_data_parallel(mesh_shape: Tuple[int, int], request, device):
 def test_jit_data_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
     shapes = JIT_PARALLELISM_TESTS_INPUT_SHAPES
 
-    def jit_data_tensor_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        shard_dims_in0 = [0, 3]
-        shard_shape_in0 = make_shard_shape(4, shard_dims_in0, mesh_shape)
-        mesh_shard_in0 = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_in0,
-            shard_dims=shard_dims_in0,
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            shapes, [torch.float32, torch.float32, torch.float32, torch.float32]
         )
-        shard_dims_in1 = [-1, 2]
-        shard_shape_in1 = make_shard_shape(4, shard_dims_in1, mesh_shape)
-        mesh_shard_in1 = builder.mesh_shard(
-            in1,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_in1,
-            shard_dims=shard_dims_in1,
-        )
-        reshape_in0 = builder.squeeze(mesh_shard_in0, dim=1)
-        reshape_in1 = builder.squeeze(mesh_shard_in1, dim=1)
-        dot_general = builder.dot_general(
-            reshape_in0,
-            reshape_in1,
-            batch_dims_lhs=[],
-            batch_dims_rhs=[],
-            contract_dims_lhs=[2],
-            contract_dims_rhs=[1],
-        )
-        permute = builder.permute(dot_general, [0, 2, 1, 3])
-        reduce_scatter = builder.reduce_scatter(
-            permute,
-            scatter_dim=2,
-            reduce_type="#ttcore.reduce_type<sum>",
-            cluster_axis=1,
-        )
-        shard_dims_out = [0, 2]
-        shard_shape_out = make_shard_shape(4, shard_dims_out, mesh_shape)
-        mesh_shard_out = builder.mesh_shard(
-            reduce_scatter,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape_out,
-            shard_dims=shard_dims_out,
-        )
-        return mesh_shard_out
+        def jit_data_tensor_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
+            shard_dims_in0 = [0, 3]
+            shard_shape_in0 = make_shard_shape(4, shard_dims_in0, mesh_shape)
+            mesh_shard_in0 = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_in0,
+                shard_dims=shard_dims_in0,
+            )
+            shard_dims_in1 = [-1, 2]
+            shard_shape_in1 = make_shard_shape(4, shard_dims_in1, mesh_shape)
+            mesh_shard_in1 = builder.mesh_shard(
+                in1,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_in1,
+                shard_dims=shard_dims_in1,
+            )
+            reshape_in0 = builder.squeeze(mesh_shard_in0, dim=1)
+            reshape_in1 = builder.squeeze(mesh_shard_in1, dim=1)
+            dot_general = builder.dot_general(
+                reshape_in0,
+                reshape_in1,
+                batch_dims_lhs=[],
+                batch_dims_rhs=[],
+                contract_dims_lhs=[2],
+                contract_dims_rhs=[1],
+            )
+            permute = builder.permute(dot_general, [0, 2, 1, 3])
+            reduce_scatter = builder.reduce_scatter(
+                permute,
+                scatter_dim=2,
+                reduce_type=ReduceType.Sum.value,
+                cluster_axis=1,
+            )
+            shard_dims_out = [0, 2]
+            shard_shape_out = make_shard_shape(4, shard_dims_out, mesh_shape)
+            mesh_shard_out = builder.mesh_shard(
+                reduce_scatter,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_out,
+                shard_dims=shard_dims_out,
+            )
+            return mesh_shard_out
 
     compile_and_execute_ttir(
-        jit_data_tensor_parallel,
-        shapes,
+        module,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )

@@ -35,7 +35,8 @@ table Pool2dOp {
   memory_config: tt.target.ttnn.MemoryConfig;
   applied_shard_scheme: tt.target.ttnn.TensorMemoryLayout = null;
   ceil_mode: bool = false;
-  in_place_halo: bool = false;
+  reallocate_halo_output: bool = true;
+  config_tensors_in_dram: bool = false;
 }
 
 table UniformScale2D {
@@ -81,5 +82,6 @@ table MaxPool2dWithIndicesOp {
   memory_config: tt.target.ttnn.MemoryConfig;
   applied_shard_scheme: tt.target.ttnn.TensorMemoryLayout = null;
   ceil_mode: bool = false;
-  in_place_halo: bool = false;
+  reallocate_halo_output: bool = true;
+  config_tensors_in_dram: bool = false;
 }

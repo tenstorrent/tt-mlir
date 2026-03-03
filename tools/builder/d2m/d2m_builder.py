@@ -16,17 +16,14 @@ from ttmlir.dialects import d2m, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
+from builder.base.builder_utils import *
+
 from golden import *
 
 
 class D2MBuilder(Builder):
-    """
-    Builder class for creating D2M (Direct-to-Metal) operations.
 
-    This builder creates D2M operations directly, bypassing the TTIR dialect.
-    It's designed for use cases where operations need to be generated for
-    pipelines that work directly with D2M operations.
-    """
+    # ----- Methods -----
 
     def __init__(
         self,
@@ -107,9 +104,14 @@ class D2MBuilder(Builder):
                         golden_output = op_golden_function(
                             *(organize_golden_args(inputs)), **golden_kwargs
                         )
-                    self._set_golden_tensor(op, golden_output)
+                    self._set_golden_tensor(op.result, golden_output)
 
-            return op
+            return op.result
+
+    def create_tensor_encoding(
+        self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
+    ) -> ttnn.ir.TTNNLayoutAttr:
+        return None
 
     # ----- Public methods -----
 
@@ -117,7 +119,7 @@ class D2MBuilder(Builder):
 
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
         """Get D2M-specific empty operation."""
-        return d2m.EmptyOp(tensor_type)
+        return d2m.EmptyOp(tensor_type).result
 
     # ----- D2M Layout Operations -----
 
@@ -159,15 +161,27 @@ class D2MBuilder(Builder):
         self,
         input: Operand,
         output_type: Type,
+        remapping: Optional[Union[AffineMap, AffineMapAttr]] = None,
         reinterpret_layout: bool = False,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """Create a D2M view_layout operation."""
 
-        return self._op_proxy(
+        if remapping is None:
+            remapping = AffineMap.get_identity(len(output_type.shape), self._ctx)
+        remapping_attr = (
+            remapping
+            if isinstance(remapping, AffineMapAttr)
+            else AffineMapAttr.get(remapping)
+        )
+
+        result = self._op_proxy(
             d2m.ViewLayoutOp,
             [input],
-            d2m_kwargs={"reinterpretLayout": reinterpret_layout},
+            d2m_kwargs={
+                "remapping": remapping_attr,
+                "reinterpretLayout": reinterpret_layout,
+            },
             output_type=output_type,
             output_shape=output_type.shape,
             output_create_fn=self._create_empty_from_tensor_type,
@@ -175,16 +189,27 @@ class D2MBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+        return result
+
     def stream_layout(
         self,
         input: Operand,
         storage: Operand,
+        remapping: Optional[Union[AffineMap, AffineMapAttr]] = None,
     ) -> OpView:
         """Create a D2M stream_layout operation."""
         with self._ctx, self._loc:
             # Determine result type based on input type
             result_type = input.type
-            return d2m.StreamLayoutOp(input, storage, result_type)
+            if remapping is None:
+                remapping = AffineMap.get_identity(len(result_type.shape), self._ctx)
+            remapping_attr = (
+                remapping
+                if isinstance(remapping, AffineMapAttr)
+                else AffineMapAttr.get(remapping)
+            )
+            op = d2m.StreamLayoutOp(result_type, input, remapping_attr, storage)
+            return op.result
 
     # ----- D2M Layout Convenience Methods -----
 

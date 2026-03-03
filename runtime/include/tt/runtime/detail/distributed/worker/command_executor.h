@@ -66,6 +66,11 @@ private:
 
   void
   execute(uint64_t commandId,
+          const ::tt::runtime::distributed::flatbuffer::SetMemoryLogLevelCommand
+              *command);
+
+  void
+  execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::SetFabricConfigCommand
               *command);
 
@@ -158,6 +163,22 @@ private:
   void execute(
       uint64_t commandId,
       const ::tt::runtime::distributed::flatbuffer::ShutdownCommand *command);
+
+  void
+  execute(uint64_t commandId,
+          const ::tt::runtime::distributed::flatbuffer::GetTensorDescCommand
+              *command);
+  void execute(
+      uint64_t commandId,
+      const ::tt::runtime::distributed::flatbuffer::HasLayoutCommand *command);
+  void execute(
+      uint64_t commandId,
+      const ::tt::runtime::distributed::flatbuffer::IsProgramCacheEnabledCommand
+          *command);
+  void
+  execute(uint64_t commandId,
+          const ::tt::runtime::distributed::flatbuffer::ClearProgramCacheCommand
+              *command);
 
   void executeCommand(
       const ::tt::runtime::distributed::flatbuffer::Command *command);

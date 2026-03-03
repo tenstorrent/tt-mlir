@@ -12,6 +12,8 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/MathExtras.h"
+#include <limits>
 
 namespace mlir::tt::ttnn::wa {
 
@@ -150,12 +152,18 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds() {
   inputRowMajorInt32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   inputRowMajorInt32Workaround.tensorDataTypeWorkaround =
       ttcore::DataType::UInt32;
-  TTNNOperandWorkarounds bf16Workaround =
-      TTNNOperandWorkarounds(ttcore::DataType::BFloat16);
+  TTNNOperandWorkarounds weightRowMajorBf16Workaround;
+  weightRowMajorBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  weightRowMajorBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds outputTiledBf16Workaround;
+  outputTiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
+  outputTiledBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
       .addInputOperandWorkaround(inputRowMajorInt32Workaround)
-      .addInputOperandWorkaround(bf16Workaround)
-      .addOutputOperandWorkaround(bf16Workaround);
+      .addInputOperandWorkaround(weightRowMajorBf16Workaround)
+      .addOutputOperandWorkaround(outputTiledBf16Workaround);
 }
 
 // Factory method to create a set of workarounds for embedding backward
@@ -202,7 +210,7 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workarounds for ScatterOp. The ScatterOp
-// expects the input to be in row-major layout if using f32.
+// expects the input to be in row-major layout if using f32, bf16, or int32.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
     mlir::Operation *op) {
@@ -218,8 +226,14 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
       mlir::cast<ttnn::TTNNLayoutAttr>(sourceType.getEncoding());
 
   bool isLayoutWorkaroundRequired =
-      (inputLayoutAttr.isTiled() && inputType.getElementType().isF32()) ||
-      (sourceLayoutAttr.isTiled() && sourceType.getElementType().isF32());
+      (inputLayoutAttr.isTiled() &&
+       (inputType.getElementType().isF32() ||
+        inputType.getElementType().isBF16() ||
+        inputType.getElementType().isInteger(32))) ||
+      (sourceLayoutAttr.isTiled() &&
+       (sourceType.getElementType().isF32() ||
+        sourceType.getElementType().isBF16() ||
+        sourceType.getElementType().isInteger(32)));
 
   TTNNOperandWorkarounds operandWorkaround;
 
@@ -249,51 +263,18 @@ TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(
       .addOutputOperandWorkaround(sysMemWorkaround);
 }
 
-// Factory method to create a set of workaround for concat operation operands.
-// tt-metal applies padding (before concatenation) to the input tensors if the
-// layout is tile and the shape is not divisible by tile size along concatenated
-// dimension for any input tensor. Padding can only be applied for float or
-// bfloat16 tensors.
+// Factory method to create a set of workarounds for mesh partition op operands.
+// The input and output tensors associated with the op should always be in
+// row-major layout.
+// TODO (hshah): Remove once
+// https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
-    mlir::Operation::operand_range inputs, int64_t numOperands, int32_t dim) {
-  mlir::RankedTensorType inputType =
-      mlir::cast<RankedTensorType>(inputs.front().getType());
-  ttnn::TTNNLayoutAttr layoutAttr =
-      mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
-  mlir::Type elementType = inputType.getElementType();
-
-  // Check if the op is using tile layout.
-  bool isDataTypeWARequired = layoutAttr.isTiled();
-  // Check if the tensor data type is neither float32 nor bfloat16.
-  isDataTypeWARequired &= (!elementType.isF32() && !elementType.isBF16());
-  // Check if shape (for any input tensor) along concatenated dimension is not
-  // divisible by tileHeight (Assuming TileWidth and TileHeigh are same).
-  int32_t tileWidth = 1;
-  int32_t tileHeight = 1;
-  if (isDataTypeWARequired) {
-    ttcore::TileType tile =
-        mlir::cast<ttcore::TileType>(layoutAttr.getMemref().getElementType());
-    tileWidth = tile.getWidth();
-    tileHeight = tile.getHeight();
-  }
-  assert(tileHeight == tileWidth);
-  isDataTypeWARequired &= llvm::any_of(inputs, [&](mlir::Value value) {
-    RankedTensorType inputTensor =
-        mlir::dyn_cast<RankedTensorType>(value.getType());
-    return inputTensor.getShape()[dim] % tileHeight != 0;
-  });
-
-  TTNNOperandWorkarounds bf16Workaround;
-  if (isDataTypeWARequired) {
-    bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
-  }
-  auto workaround =
-      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
-  for (int64_t count = 0; count < numOperands; ++count) {
-    workaround.addInputOperandWorkaround(bf16Workaround);
-  }
-  return workaround.addOutputOperandWorkaround(bf16Workaround);
+TTNNOperandsWorkaroundsFactory::createMeshPartitionOpOperandsWorkarounds() {
+  wa::TTNNOperandWorkarounds rowMajorWorkaround;
+  rowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorWorkaround)
+      .addOutputOperandWorkaround(rowMajorWorkaround);
 }
 
 // Factory method to create a set of workarounds for slice op input operands.
@@ -447,7 +428,7 @@ TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(
 
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
-    MLIRContext *context) {
+    Operation *op) {
   TTNNOperandWorkarounds nullWorkarounds;
   TTNNOperandWorkarounds
       inputWorkarounds; // Input sharding requires specific virtual grid. This
@@ -459,10 +440,40 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 
   pageTableWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
 
+  if (cast<ttnn::PagedUpdateCacheOp>(op).getPageTable()) {
+    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addInputOperandWorkaround(nullWorkarounds)
+        .addInputOperandWorkaround(inputWorkarounds)
+        .addInputOperandWorkaround(updateIndexWorkarounds)
+        .addInputOperandWorkaround(pageTableWorkarounds);
+  }
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(nullWorkarounds)
       .addInputOperandWorkaround(inputWorkarounds)
-      .addInputOperandWorkaround(updateIndexWorkarounds)
+      .addInputOperandWorkaround(updateIndexWorkarounds);
+}
+
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createPagedFillCacheOpOperandsWorkarounds(
+    Operation *op) {
+  TTNNOperandWorkarounds nullWorkarounds;
+  TTNNOperandWorkarounds pageTableWorkarounds;
+
+  pageTableWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
+
+  if (op->getNumOperands() == 4) {
+    TTNNOperandWorkarounds batchIdxTensorWorkarounds;
+    batchIdxTensorWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
+
+    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addInputOperandWorkaround(nullWorkarounds)
+        .addInputOperandWorkaround(nullWorkarounds)
+        .addInputOperandWorkaround(pageTableWorkarounds)
+        .addInputOperandWorkaround(batchIdxTensorWorkarounds);
+  }
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(nullWorkarounds)
+      .addInputOperandWorkaround(nullWorkarounds)
       .addInputOperandWorkaround(pageTableWorkarounds);
 }
 
@@ -489,6 +500,15 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
     return {};
   }
 
+  // GeluBackwardOp requires bfloat16 data type.
+  // ttnn.experimental.gelu_bw only supports BFLOAT16.
+  if (isa<ttnn::GeluBackwardOp>(op)) {
+    if (dType == mlir::tt::ttcore::DataType::BFloat16) {
+      return {};
+    }
+    return mlir::tt::ttcore::DataType::BFloat16;
+  }
+
   // All remaining binary ops.
   // Tracked in :
   // https://github.com/issues/created?issue=tenstorrent%7Ctt-metal%7C25112
@@ -503,6 +523,19 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
   }
 
   return {};
+}
+
+// Factory method to create a set of workarounds for Dropout operation
+// operands. ttnn.experimental.dropout op requires bfloat16 data type.
+// this is tracked in tt-metal issue:
+// https://github.com/tenstorrent/tt-metal/issues/36543
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createDropoutOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds operandWorkaround;
+  operandWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
 }
 
 // Factory method to create a set of workarounds for binary operation operands.
@@ -623,7 +656,6 @@ TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workarounds for Pad op operands.
-// tt-metal only supports float32 and bfloat16 data types.
 // tt-metal does not support front padding for tile layout.
 // https://github.com/tenstorrent/tt-metal/issues/10987
 TTNNOperandsWorkarounds
@@ -643,10 +675,6 @@ TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
 
   if (isFrontPadding && layoutAttr.isTiled()) {
     operandWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
-  }
-  if (isa<IntegerType>(input.getType().getElementType())) {
-    operandWorkaround.tensorDataTypeWorkaround =
-        mlir::tt::ttcore::DataType::BFloat16;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(operandWorkaround)
@@ -744,13 +772,9 @@ TTNNOperandsWorkaroundsFactory::createReductionOpOperandsWorkarounds(
 // Factory method to create a set of workarounds for reduce product op operands.
 // tt-metal only supports full product reduction for bfloat16 data type.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
-    mlir::Type elementType, bool allDimensions) {
-  bool isDataTypeWARequired = allDimensions && !elementType.isBF16();
+TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds() {
   TTNNOperandWorkarounds bf16Workaround;
-  if (isDataTypeWARequired) {
-    bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
-  }
+  bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
 
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(bf16Workaround)
@@ -758,27 +782,102 @@ TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
 }
 
 // Factory method to create a set of workaround for SortOp operands.
-// tt-metal generates indices of type UInt16. Any mismatch between generated and
-// expected data type will cause runtime to assert.
-// Issue page: https://github.com/tenstorrent/tt-mlir/issues/4405
+// tt-metal generates indices of type UInt16 or UInt32 depending on padded size.
+// Any mismatch between generated and expected data type will cause runtime to
+// assert. Issue page: https://github.com/tenstorrent/tt-mlir/issues/4405
+// tt-metal also only supports BFloat16 or UInt16 for input tensors, not
+// Float32. Issue page: https://github.com/tenstorrent/tt-metal/issues/37322
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
     ttnn::SortOp op) {
-  auto indicesElementType = op.getIndices().getType().getElementType();
-
-  TTNNOperandWorkarounds datatypeWorkaround;
-  if (!(indicesElementType.isInteger(16) &&
-        indicesElementType.isUnsignedInteger())) {
-    datatypeWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+  // Check input tensor type - tt-metal only supports BFloat16 or UInt16
+  auto inputElementType = op.getInput().getType().getElementType();
+  TTNNOperandWorkarounds inputOutputWorkaround;
+  if (isa<IntegerType>(inputElementType) &&
+      !(inputElementType.isInteger(16) &&
+        inputElementType.isUnsignedInteger())) {
+    // Convert integer input to ui16
+    inputOutputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+  } else if (inputElementType.isF32()) {
+    // Convert f32 input to bf16
+    inputOutputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
   }
 
-  // Empty workaround object for operands which do not require any changes.
-  TTNNOperandWorkarounds operandWorkaround;
+  // Check output indices type - tt-metal generates UInt16 or UInt32 based on
+  // padded size. Bitonic sort pads to next power of 2, and uses UInt32 if
+  // padded size >= uint16_t::max
+  auto indicesElementType = op.getIndices().getType().getElementType();
+  TTNNOperandWorkarounds indicesWorkaround;
+  bool isUInt16 = indicesElementType.isInteger(16) &&
+                  indicesElementType.isUnsignedInteger();
+  bool isUInt32 = indicesElementType.isInteger(32) &&
+                  indicesElementType.isUnsignedInteger();
+
+  // Calculate padded size to determine UInt16 vs UInt32
+  auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+  auto inputShape = inputType.getShape();
+  int64_t lastDim = inputShape[inputShape.size() - 1];
+  int64_t paddedLastDim = llvm::PowerOf2Ceil(lastDim);
+  constexpr int64_t uint16Max = std::numeric_limits<uint16_t>::max();
+
+  // Determine the correct indices type based on padded size, then only
+  // apply a workaround if the current type doesn't already match.
+  if (paddedLastDim < uint16Max) {
+    if (!isUInt16) {
+      indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+    }
+  } else {
+    if (!isUInt32) {
+      indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+    }
+  }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(operandWorkaround)
-      .addOutputOperandWorkaround(operandWorkaround)
-      .addOutputOperandWorkaround(datatypeWorkaround);
+      .addInputOperandWorkaround(inputOutputWorkaround)
+      .addOutputOperandWorkaround(inputOutputWorkaround)
+      .addOutputOperandWorkaround(indicesWorkaround);
+}
+
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
+        Operation *op) {
+  TTNNOperandWorkarounds emptyWorkaround;
+  TTNNOperandWorkarounds rowMajorLayoutWorkaround;
+  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  auto sdpaOp = cast<PagedScaledDotProductAttentionDecodeOp>(op);
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  // Query, key, and value need no workarounds.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+
+  if (sdpaOp.getPageTable()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
+  }
+
+  if (sdpaOp.getCurPosTensor()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
+  }
+
+  if (sdpaOp.getAttentionSink()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  }
+
+  // Need no workaround for output tensor.
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(emptyWorkaround);
+
+  return operandsWorkaround;
 }
 
 template TTNNOperandsWorkarounds
@@ -787,5 +886,26 @@ TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::ConvTranspose2dOp op);
+
+// TT-Metal's Conv3d requires BFloat16 inputs.
+// Tracked in: https://github.com/tenstorrent/tt-metal/issues/35436
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConv3dOpOperandsWorkarounds(
+    ttnn::Conv3dOp op) {
+  TTNNOperandWorkarounds bf16Workaround;
+  bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  auto workaround =
+      wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(bf16Workaround)
+          .addInputOperandWorkaround(bf16Workaround)
+          .addOutputOperandWorkaround(bf16Workaround);
+
+  if (op.getBias()) {
+    workaround = workaround.addInputOperandWorkaround(bf16Workaround);
+  }
+
+  return workaround;
+}
 
 } // namespace mlir::tt::ttnn::wa

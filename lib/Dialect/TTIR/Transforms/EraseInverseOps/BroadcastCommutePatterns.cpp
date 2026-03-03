@@ -221,23 +221,26 @@ public:
         RankedTensorType::get(newReshapeShape, tmResultType.getElementType(),
                               tmResultType.getEncoding());
 
-    auto newReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, reshapeUser.getLoc(), newTMResultType, op.getInput(),
+    auto newReshape = rewriter.create<ttir::ReshapeOp>(
+        reshapeUser.getLoc(), newTMResultType, op.getInput(),
         rewriter.getI32ArrayAttr(SmallVector<int32_t>(newReshapeShape.begin(),
                                                       newReshapeShape.end())));
 
     assert(newBroadcastDimensions.size() ==
            static_cast<size_t>(tmResultType.getRank()));
-    auto newBroadcast = ttir::utils::createDPSOp<ttir::BroadcastOp>(
-        rewriter, op->getLoc(), tmResultType, newReshape,
-        newBroadcastDimensions);
+    auto newBroadcast = rewriter.create<ttir::BroadcastOp>(
+        op->getLoc(), tmResultType, newReshape, newBroadcastDimensions);
 
+    // All users must be identical TMs.
+    // We must not reference `reshapeUser` during/after replacements, as it will
+    // be erased on its turn.
     SmallVector<Operation *> users(op->getUsers());
-    for (auto *user : users) {
-      assert(checkIdenticalTms(reshapeUser, user) &&
-             "isCommuteUpwardsViable/Favorable should have ensured all users "
-             "are identical TMs");
-    }
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(reshapeUser, user);
+                        }) &&
+           "isCommuteUpwardsViable/Favorable should have ensured all users "
+           "are identical TMs");
 
     for (auto *user : users) {
       rewriter.replaceOp(user, newBroadcast);
@@ -267,17 +270,18 @@ private:
     auto finalShape = reshapeUser.getResult().getType().getShape();
     auto broadcastDims = op.getBroadcastDimensions();
 
-    // There is a bug when broadcasting across more than 4 dimensions.
-    // Will remove this check once TTNN provides a permanent fix.
-    // https://github.com/tenstorrent/tt-metal/issues/21967
-    return finalShape.size() <= 4 &&
-           getNewReshapeAndBroadcastDims(originalShape, finalShape,
+    return getNewReshapeAndBroadcastDims(originalShape, finalShape,
                                          broadcastDims)
-               .has_value();
+        .has_value();
   }
 
   bool isCommuteUpwardsFavorable(ttir::BroadcastOp op,
                                  ttir::ReshapeOp) const override {
+    // Commute only if the broadcast will be folded.
+    if (!ttir::utils::isImplicitBroadcastSupported(op)) {
+      return false;
+    }
+
     // We should always commute a reshape above a broadcast if all users are an
     // identical reshape. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());
@@ -327,23 +331,27 @@ public:
         ttmlir::utils::applyPermutation(op.getBroadcastDimensions(),
                                         permutation);
 
-    auto newPermute = ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter, permuteUser->getLoc(), newShape,
-        tmResultType.getElementType(), tmResultType.getEncoding(), operand,
-        permutation);
+    auto newPermute = rewriter.create<ttir::PermuteOp>(
+        permuteUser->getLoc(),
+        RankedTensorType::get(newShape, tmResultType.getElementType(),
+                              tmResultType.getEncoding()),
+        operand, permutation);
 
     assert(newBroadcastDimensions.size() ==
            static_cast<size_t>(tmResultType.getRank()));
-    auto newBroadcast = ttir::utils::createDPSOp<ttir::BroadcastOp>(
-        rewriter, op->getLoc(), tmResultType, newPermute,
-        newBroadcastDimensions);
+    auto newBroadcast = rewriter.create<ttir::BroadcastOp>(
+        op->getLoc(), tmResultType, newPermute, newBroadcastDimensions);
 
+    // All users must be identical TMs.
+    // We must not reference `permuteUser` during/after replacements, as it will
+    // be erased on its turn.
     SmallVector<Operation *> users(op->getUsers());
-    for (auto *user : users) {
-      assert(checkIdenticalTms(permuteUser, user) &&
-             "isCommuteUpwardsViable/Favorable should have ensured all users "
-             "are identical TMs");
-    }
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(permuteUser, user);
+                        }) &&
+           "isCommuteUpwardsViable/Favorable should have ensured all users "
+           "are identical TMs");
 
     for (auto *user : users) {
       rewriter.replaceOp(user, newBroadcast);
@@ -367,6 +375,11 @@ private:
 
   bool isCommuteUpwardsFavorable(ttir::BroadcastOp op,
                                  ttir::PermuteOp) const override {
+    // Commute only if the broadcast will be folded.
+    if (!ttir::utils::isImplicitBroadcastSupported(op)) {
+      return false;
+    }
+
     // We should always commute a permute above a broadcast if all users are an
     // identical permutation. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());

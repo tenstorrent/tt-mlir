@@ -8,18 +8,18 @@ module attributes {} {
   func.func @test_pad_workaround(%arg0: tensor<1x30x30xsi32, #ttnn_layout>) -> tensor<1x32x32xsi32, #ttnn_layout1> {
     // CHECK-LABEL: @test_pad_workaround
     // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_layout"(%arg0)
-    // CHECK-SAME: <{dtype = #ttcore.supportedDataTypes<bf16>,
+    // CHECK-SAME: <{dtype = #ttcore.supportedDataTypes<si32>,
     // CHECK-SAME: layout = #ttnn.layout<row_major>,
     // CHECK-SAME: tensor<1x30x30xsi32,
-    // CHECK-SAME: -> tensor<1x30x30xbf16,
+    // CHECK-SAME: -> tensor<1x30x30xsi32,
     // CHECK: %[[PAD:[0-9]+]] = "ttnn.pad"(%[[ARG0]])
-    // CHECK-SAME: tensor<1x30x30xbf16
-    // CHECK-SAME: -> tensor<1x32x32xbf16,
+    // CHECK-SAME: tensor<1x30x30xsi32
+    // CHECK-SAME: -> tensor<1x32x32xsi32,
     %0 = "ttnn.pad"(%arg0) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>, padding = array<i32: 0, 0, 1, 1, 1, 1>, use_multicore = true, value = 0.000000e+00 : f32}> : (tensor<1x30x30xsi32, #ttnn_layout>) -> tensor<1x32x32xsi32, #ttnn_layout1>
     // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[PAD]])
     // CHECK-SAME: <{dtype = #ttcore.supportedDataTypes<si32>,
     // CHECK-SAME: layout = #ttnn.layout<tile>
-    // CHECK-SAME: tensor<1x32x32xbf16,
+    // CHECK-SAME: tensor<1x32x32xsi32,
     // CHECK-SAME: -> tensor<1x32x32xsi32,
     return %0 : tensor<1x32x32xsi32, #ttnn_layout1>
   }

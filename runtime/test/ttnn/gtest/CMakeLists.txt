@@ -1,1 +1,2 @@
 add_runtime_gtest(test_tensor_serialization)
+add_runtime_gtest(test_tensor_cache_lifetime)

@@ -9,11 +9,11 @@
 #include "tt-metalium/circular_buffer.hpp"
 #include "tt-metalium/distributed_host_buffer.hpp"
 #include "tt-metalium/event.hpp"
+#include "tt-metalium/global_semaphore.hpp"
 #include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/memory_reporter.hpp"
 #include "tt-metalium/mesh_device.hpp"
-#include "tt-metalium/persistent_kernel_cache.hpp"
 #include "tt-metalium/program_cache.hpp"
 #include "tt-metalium/tt_metal.hpp"
 
@@ -64,6 +64,13 @@ Tensor createMultiDeviceHostTensor(
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
 
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
+
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
 Tensor toLayout(Tensor tensor, Device device, Layout layout,
@@ -82,9 +89,6 @@ bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
 
 tt::target::Arch getArch();
-
-void enablePersistentKernelCache();
-void disablePersistentKernelCache();
 
 size_t getNumAvailableDevices();
 
@@ -106,6 +110,7 @@ std::vector<uint32_t> getMeshShape(Device meshDevice);
 std::vector<int> getDeviceIds(Device meshDevice);
 size_t getNumHwCqs(Device meshDevice);
 bool isProgramCacheEnabled(Device meshDevice);
+void clearProgramCache(Device meshDevice);
 size_t getL1SmallSize(Device meshDevice);
 size_t getTraceRegionSize(Device meshDevice);
 size_t getNumDramChannels(Device meshDevice);

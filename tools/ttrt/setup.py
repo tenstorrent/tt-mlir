@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import platform
 from setuptools import setup
 import shutil
 import subprocess
@@ -12,6 +13,24 @@ TTMLIR_VERSION_MINOR = os.getenv("TTMLIR_VERSION_MINOR", "0")
 TTMLIR_VERSION_PATCH = os.getenv("TTMLIR_VERSION_PATCH", "0")
 
 __version__ = f"{TTMLIR_VERSION_MAJOR}.{TTMLIR_VERSION_MINOR}.{TTMLIR_VERSION_PATCH}"
+
+
+def load_requirements(filename):
+    requirements = []
+    filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    with open(filepath, encoding="utf-8") as requirements_file:
+        for raw_line in requirements_file:
+            requirement = raw_line.strip()
+            if (
+                not requirement
+                or requirement.startswith("#")
+                or requirement.startswith("--")
+            ):
+                continue
+            requirements.append(requirement)
+
+    return requirements
+
 
 src_dir = os.environ.get(
     "SOURCE_ROOT",
@@ -34,14 +53,14 @@ enable_runtime_tests = os.environ.get("TTMLIR_ENABLE_RUNTIME_TESTS", "OFF") == "
 enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
 debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
 arch = os.environ.get("CMAKE_SYSTEM_PROCESSOR", "x86_64")
+py_maj_ver, py_min_ver, py_patch_ver = platform.python_version_tuple()
 
-runtime_module = f"_ttmlir_runtime.cpython-311-{arch}-linux-gnu.so"
+runtime_module = f"_ttmlir_runtime.cpython-{py_maj_ver}{py_min_ver}-{arch}-linux-gnu.so"
 dylibs = []
 runlibs = []
 perflibs = []
 metallibs = []
-install_requires = []
-install_requires += ["nanobind"]
+install_requires = load_requirements("requirements.txt")
 
 if enable_ttnn:
     runlibs += ["_ttnncpp.so"]
@@ -146,6 +165,9 @@ if enable_runtime:
         f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tt_metal",
         dirs_exist_ok=True,
         ignore=tt_metal_ignore_folders,
+        ignore_dangling_symlinks=True,
+        # Broken symlinks introduced in tt-umd -> tt-metal uplift
+        # issue: https://github.com/tenstorrent/tt-umd/issues/1864
     )
 
     # copy runtime dir folder
@@ -202,12 +224,7 @@ package_dir = {
     "ttrt.runtime": f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
 }
 if enable_perf:
-    install_requires += ["loguru"]
-    install_requires += ["pandas"]
-    install_requires += ["seaborn"]
-    install_requires += ["graphviz"]
-    install_requires += ["pyyaml"]
-    install_requires += ["click"]
+    install_requires += load_requirements("requirements-perf.txt")
     packages += ["tracy"]
     packages += ["tt_metal"]
     package_dir["tracy"] = f"{ttmetalhome}/tools/tracy"

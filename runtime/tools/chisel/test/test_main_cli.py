@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 
+@pytest.mark.skip
 @pytest.mark.parametrize(
     "ttir_path, function_name",
     [

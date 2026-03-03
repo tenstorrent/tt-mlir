@@ -15,9 +15,10 @@
 
 namespace mlir::tt::scheduler {
 
-// TTNN op is scheduleable if it is not an EmptyOp and has at least one result.
+// TTNN op is scheduleable if it is not an EmptyOp or GetDeviceOp.
+// This includes in-place ops (like paged_update_cache) that have no results.
 static bool isTTNNScheduleableOp(mlir::Operation *op) {
-  return isa<ttnn::TTNNDialect>(op->getDialect()) && op->getNumResults() > 0 &&
+  return isa<ttnn::TTNNDialect>(op->getDialect()) &&
          !llvm::isa<ttnn::EmptyOp>(op) && !llvm::isa<ttnn::GetDeviceOp>(op);
 }
 
@@ -46,13 +47,14 @@ Scheduler::Scheduler(func::FuncOp *func) {
       continue;
     }
 
-    OpResult result = op.getResult(0);
-
-    for (mlir::Operation *use : result.getUsers()) {
-      // Skip non TTIR operations
-      // Skip operations which set the result
-      if (isTTSchedulableOp(use) && use->getResult(0) != result) {
-        dependencies[use].push_back(&op);
+    for (OpResult result : op.getResults()) {
+      for (mlir::Operation *use : result.getUsers()) {
+        // Skip non TTIR operations
+        // Skip operations which set the result
+        if (isTTSchedulableOp(use) &&
+            !llvm::is_contained(use->getResults(), result)) {
+          dependencies[use].push_back(&op);
+        }
       }
     }
   }
@@ -110,6 +112,10 @@ llvm::SmallVector<mlir::Operation *> Scheduler::getSchedulableOps() {
     return false;
   };
 
+  // std::stable_sort internally uses std::get_temporary_buffer which is
+  // deprecated in C++17. The deprecation is in the standard library
+  // implementation, not our usage.
+  // NOLINTNEXTLINE
   std::stable_sort(schedulableOps.begin(), schedulableOps.end(),
                    [&](mlir::Operation *a, mlir::Operation *b) {
                      bool aBlocked = hasBlockedSuccessor(a);

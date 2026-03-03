@@ -3,22 +3,28 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import ast
 import inspect
-import functools
 from typing import Literal
+
+import ttnn
 
 from ttmlir.ir import *
 from ttmlir.passes import (
     ttnn_to_flatbuffer_file,
     ttnn_to_flatbuffer_bin,
     ttnn_to_ttmetal_pipeline,
+    ttkernel_to_cpp_file,
 )
 
-from ttnn_jit._src.utils import _cleanup_source_code
-from ttnn_jit._src.dispatch_op import _run_binary, _run_binary_from_capsule
+from ttnn_jit._src.utils import cleanup_source_code
+from ttnn_jit._src.dispatch_op import run_binary, run_binary_from_capsule
 from ttnn_jit._src import JitCache
 from ttnn_jit._src.ir_generator import generate_ir
+from ttnn_jit._src import (
+    get_current_system_desc,
+    create_runtime_device_from_ttnn,
+)
+from ttnn_jit._src.memory_analyzer import MemoryAnalyzer
 
 
 class JitFunction:
@@ -27,23 +33,22 @@ class JitFunction:
     def __init__(
         self,
         func,
-        max_grid: tuple[int, int],
         compile_only: bool,
         debug: bool,
         enable_cache: bool,
-        graph_capture: bool,
+        math_fidelity: ttnn.MathFidelity,
+        memory_config: ttnn.MemoryConfig,
     ):
         self.func = func
-        self.source_code = _cleanup_source_code(func)
-        self.max_grid = max_grid
+        self.source_code = cleanup_source_code(func)
         self.compile_only = compile_only
-        self.debug = debug
-        self.graph_capture = graph_capture
-        self.out_dir = os.path.join("generated", "pykernels")
+        self.debug = debug or compile_only
+        self.out_dir = os.path.join("generated", "ttnn-jit", func.__name__)
+        self.math_fidelity = math_fidelity
+        self.memory_config = memory_config
         os.makedirs(self.out_dir, exist_ok=True)
 
         self.system_desc_path = os.getenv("SYSTEM_DESC_PATH")
-        assert self.system_desc_path, "SYSTEM_DESC_PATH must be set."
 
         if self.debug:
             os.environ["TTRT_LOGGER_LEVEL"] = "DEBUG"
@@ -53,50 +58,104 @@ class JitFunction:
         # Hashing based off runtime tensor metadata.
         self.cache = JitCache(64) if enable_cache else None
 
-    def __call__(self, *args, **kwargs):
-        """Execute the JIT-compiled function."""
-        tensor_args = {}
-        param_names = list(inspect.signature(self.func).parameters.keys())
-        if len(param_names) != len(args):
+    def _validate_arguments(self, args, kwargs):
+        """Validate arguments (handles defaults and kwargs)."""
+        sig = inspect.signature(self.func)
+        try:
+            sig.bind(*args, **kwargs)
+        except TypeError as e:
             raise ValueError(
-                f"Passed {len(args)} args, but function expects {len(param_names)}"
+                f"Invalid arguments for function {self.func.__name__}: {str(e)}"
+            ) from e
+        return sig
+
+    def _query_and_save_system_desc(self, ttnn_device=None):
+        """Query system descriptor from device and save it to a file.
+        Uses the MLIR runtime bindings directly, replicating the logic from
+        ttrt query --save-artifacts.
+        """
+        try:
+            # Use input tensor device to query if available.
+            if ttnn_device:
+                runtime_device = create_runtime_device_from_ttnn(ttnn_device)
+                system_desc = get_current_system_desc(mesh_device=runtime_device)
+                if self.debug:
+                    print(f"System descriptor queried using existing device.")
+            else:
+                system_desc = get_current_system_desc()
+                if self.debug:
+                    print(f"System descriptor queried by creating new device")
+
+            system_desc_path = os.path.join(self.out_dir, "system_desc.ttsys")
+            system_desc.store(system_desc_path)
+            os.environ["SYSTEM_DESC_PATH"] = system_desc_path
+
+            if self.debug:
+                print(f"System descriptor saved to: {system_desc_path}")
+
+            return system_desc_path
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to query system descriptor. Ensure device is available.\n"
+                f"Exception: {str(e)}"
             )
 
-        for i, arg in enumerate(args):
-            tensor_args[param_names[i]] = arg
-        kwargs["_tensor_args"] = tensor_args
-        kwargs["_max_grid"] = self.max_grid
+    def __call__(self, *args, **kwargs):
+        """Execute the JIT-compiled function."""
+        device = args[0].device() if args else None
+        assert device is not None, "Device is required"
+        if not self.system_desc_path:
+            self.system_desc_path = self._query_and_save_system_desc(device)
+
+        sig = self._validate_arguments(args, kwargs)
+        param_names = list(sig.parameters.keys())
+        kwargs["_tensor_args"] = {param_names[i]: args[i] for i in range(len(args))}
 
         # Cache hit, no need to compile.
         if self.cache and self.cache.contains(*args):
             fb_binary = self.cache.get(*args)
-            return _run_binary(fb_binary, args)
+            return run_binary(fb_binary, args)
 
-        ir = generate_ir(
-            self.graph_capture,
-            self.source_code,
+        ir, output_type = generate_ir(
             self.func,
             self.debug,
+            self.memory_config,
             *args,
             **kwargs,
         )
 
-        options = f"system-desc-path={self.system_desc_path} ttnn-mode=true"
+        # Analyze memory: get available L1/DRAM ranges and output tensor requirements
+        memory_analyzer = MemoryAnalyzer(device, output_type)
+        if self.debug:
+            memory_analyzer.print_stats()
+
+        options = f"system-desc-path={self.system_desc_path} ttnn-mode=true set-math-fidelity={self.math_fidelity.name}"
+        options += memory_analyzer.get_l1_range_str()
         if self.compile_only:
             ttnn_to_ttmetal_pipeline(ir, options)
-            flatbuffer_bin = os.path.join(self.out_dir, self.func.__name__ + ".ttn")
-            ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+            print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
+            print(ir)
+
+            # Dump kernels to C++ files in generated/ttnn-jit
+            ttkernel_to_cpp_file(ir, self.out_dir)
+
+            # Generate and dump flatbuffer in generated/ttnn-jit
+            flatbuffer_file = os.path.join(self.out_dir, self.func.__name__ + ".ttnn")
+            ttnn_to_flatbuffer_file(ir, flatbuffer_file, {}, [])
             return ir
 
         if self.cache:
             fb_binary = self.cache.compile_and_insert(
                 str(ir), options, self.debug, *args
             )
-            return _run_binary(fb_binary, args)
+            return run_binary(fb_binary, args)
 
         ttnn_to_ttmetal_pipeline(ir, options)
+        if self.debug:
+            print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
+            print(ir)
         fb_capsule = ttnn_to_flatbuffer_bin(ir)
-        return _run_binary_from_capsule(fb_capsule, args)
+        return run_binary_from_capsule(fb_capsule, args)
 
     @property
     def num_entries(self):

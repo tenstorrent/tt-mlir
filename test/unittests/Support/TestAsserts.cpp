@@ -6,8 +6,6 @@
 
 #include "llvm/Support/raw_ostream.h"
 
-#include "testing/Utils.h"
-
 #include <memory>
 #include <string>
 
@@ -15,8 +13,8 @@
 // TT_ASSERT_FAILURE() can be used to avoid aborting the process on an assert
 // failure and/or to re-route failure messaging to a custom stream.
 //
-// For that reason, we must define a few things before #including "Asserts.h" in
-// the translation unit.
+// For that reason, we must define a few things before #including "Asserts.h"
+// (and "testing/Utils.h") in the translation unit.
 //
 // See "DeathTestAsserts.cpp" for a version of this test suite using "default"
 // assert behavior.
@@ -48,6 +46,8 @@ inline MockErrStream &stream() {
 #define TT_ASSERT_REPORT_STREAM() stream().out()
 #define TT_ASSERT_FAILURE() ((void)0)
 #include "ttmlir/Asserts.h"
+
+#include "testing/Utils.h"
 
 #include <regex>
 #include <string_view>

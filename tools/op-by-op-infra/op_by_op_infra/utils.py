@@ -20,6 +20,90 @@ from ttmlir.ir import (
     Type,
 )
 
+# Patterns for preprocessing MLIR module strings
+_LOC_LINE_PATTERN = re.compile(r"^#loc.*$", re.MULTILINE)  # Match #loc lines
+_LOC_INLINE_PATTERN = re.compile(
+    r"\s*loc\((?:[^()]*(?:\([^()]*\))*)*\)"
+)  # Match inline loc(...) annotations
+_SDY_MESH_PATTERN = re.compile(r"\s*sdy.mesh.*$", re.MULTILINE)  # Match sdy.mesh lines
+
+# Operations that are preserved in the function body rather than parameterized as inputs.
+# - ttnn.get_device: Returns device handle, cannot be replaced with test input
+# - stablehlo.constant: Required for reduce/reduce_window pattern matching, otherwise improves test accuracy
+# - stablehlo.iota: Required for reduce/sort pattern matching, otherwise improves test accuracy
+PRESERVED_OP_NAMES = [
+    "ttnn.get_device",
+    "stablehlo.constant",
+    "stablehlo.iota",
+]
+
+# Operations that preserve constant semantics when their input is a constant.
+# Mirrors the logic in StableHLOToTTIRPatterns.cpp::getStableHLOConstantDefiningOp.
+CONSTANT_PRESERVING_OPS = [
+    "stablehlo.reshape",
+    "stablehlo.broadcast_in_dim",
+    "stablehlo.convert",
+]
+
+
+def _get_constant_chain(operand) -> List:
+    """Traverses backward through constant-preserving ops to find a constant chain."""
+    defining_op = operand.owner
+    # owner is None for function args, or a Block for block args (not an Operation)
+    if not defining_op or not hasattr(defining_op, "name"):
+        return []
+
+    # Direct constant case
+    if defining_op.name in PRESERVED_OP_NAMES:
+        return [defining_op]
+
+    # Traverse backward through constant-preserving ops
+    chain = []
+    current_op = defining_op
+    while current_op and hasattr(current_op, "name"):
+        if current_op.name in CONSTANT_PRESERVING_OPS:
+            chain.append(current_op)
+            current_op = current_op.operands[0].owner
+        elif current_op.name in PRESERVED_OP_NAMES:
+            chain.append(current_op)
+            # Reverse to get [constant, ..., final_preserving_op]
+            chain.reverse()
+            return chain
+        else:
+            break
+
+    return []
+
+
+def _get_captured_values_from_regions(op) -> List:
+    """Collects values used inside op's regions that are defined outside (captured)."""
+    captured = []
+    for region in op.regions:
+        for block in region.blocks:
+            # Collect all values defined within this block:
+            # 1. Block arguments (e.g., %arg204, %arg205 in reducer)
+            # 2. Results of operations within the block
+            defined_in_block = set()
+            for arg in block.arguments:
+                defined_in_block.add(arg)
+            for inner_op in block.operations:
+                for result in inner_op.results:
+                    defined_in_block.add(result)
+
+            # Find operands that are used but not defined in the block = captured
+            for inner_op in block.operations:
+                for operand in inner_op.operands:
+                    if operand not in defined_in_block and operand not in captured:
+                        captured.append(operand)
+
+    return captured
+
+
+def _replace_mlir_identifier(text: str, old_name: str, new_name: str) -> str:
+    """Replace SSA value name (e.g., %arg0), avoiding partial matches like %arg01."""
+    pattern = re.escape(old_name) + r"(?=[^a-zA-Z0-9_]|$)"
+    return re.sub(pattern, new_name, text)
+
 
 @dataclass(frozen=True)
 class OperandAndResultBase(ABC):
@@ -105,7 +189,13 @@ class Result(OperandAndResultBase):
 
 
 class OpWrapper:
-    """Convenience wrapper around MLIR op."""
+    """
+    Convenience wrapper around MLIR op.
+
+    Extracts and caches all necessary information from the live OpView at construction
+    time, so the wrapper can outlive the MLIR context.
+    If the op has preserved operands, they are stored, to later be added to the module.
+    """
 
     # ----- Public methods and properties -----
 
@@ -114,77 +204,204 @@ class OpWrapper:
         op: OpView,
         attrs: Optional[OpAttributeMap] = None,
         func_op: Optional[func.FuncOp] = None,
+        origin_model: str = "",
     ) -> None:
         """Constructor."""
-        self.op = op
-        self.operands = [
-            Operand(operand.get_name(), operand.type) for operand in op.operands
+        self.op_string = str(op)
+        self.op_name = op.name
+        self.func_op_string = str(func_op) if func_op is not None else ""
+
+        # First pass: collect unique operands by original_name (keep first occurrence)
+        unique_operands = {}  # original_name -> operand
+        for operand in op.operands:
+            original_name = operand.get_name()
+            if original_name not in unique_operands:
+                unique_operands[original_name] = operand
+
+        # Also collect captured values from regions (e.g., constants used inside reducer blocks)
+        for captured in _get_captured_values_from_regions(op):
+            original_name = captured.get_name()
+            if original_name not in unique_operands:
+                unique_operands[original_name] = captured
+
+        # Second pass: process unique operands, detect constant chains
+        operand_mapping = {}  # original_name -> standardized_name
+        parameterized_operands = []
+        preserved_chains = (
+            []
+        )  # List of (chain_ops, chain_original_names, final_standardized_name)
+        pres_counter = 0
+        arg_counter = 0
+
+        for original_name, operand in unique_operands.items():
+            chain = _get_constant_chain(operand)
+            if chain:
+                # This operand comes from a constant or constant-preserving chain
+                final_standardized_name = f"%pres{pres_counter}"
+                operand_mapping[original_name] = final_standardized_name
+
+                # Collect original names for all values in the chain
+                chain_original_names = [
+                    chain_op.results[0].get_name() for chain_op in chain
+                ]
+
+                preserved_chains.append((chain, chain_original_names, pres_counter))
+                pres_counter += 1
+            else:
+                # Parameterized operand
+                standardized_name = f"%operand{arg_counter}"
+                operand_mapping[original_name] = standardized_name
+                parameterized_operands.append(Operand(standardized_name, operand.type))
+                arg_counter += 1
+
+        # Build result mapping - track which results have users for selective return
+        result_mapping = {}
+        num_results = len(op.results)
+        for i, result in enumerate(op.results):
+            original_name = result.get_name()
+            standardized_name = f"%res{i}"
+            result_mapping[original_name] = standardized_name
+
+        # For multi-result ops, only return results that have users in the original graph.
+        # This is important for pattern matching (e.g., argmax checks that first result is unused).
+        if num_results > 1:
+            used_result_indices = [
+                i
+                for i, result in enumerate(op.results)
+                if any(True for _ in result.uses)
+            ]
+            # If no results have users (all dead), return all of them to avoid empty return
+            if not used_result_indices:
+                used_result_indices = list(range(num_results))
+        else:
+            used_result_indices = list(range(num_results))
+
+        # For multi-result ops, replace the defining syntax %base:N with %res0, %res1, ...
+        # MLIR defines multi-result ops as %name:N = op(...) but they're referenced as %name#0, %name#1
+        if len(op.results) > 1:
+            first_result_name = op.results[0].get_name()
+            if "#" in first_result_name:
+                base_name = first_result_name.split("#")[0]
+                old_def_pattern = f"{base_name}:{len(op.results)}"
+                new_def_pattern = ", ".join(f"%res{i}" for i in range(len(op.results)))
+                self.op_string = self.op_string.replace(
+                    old_def_pattern, new_def_pattern
+                )
+
+        # Replace all identifiers in main op string
+        for original, standardized in {**result_mapping, **operand_mapping}.items():
+            self.op_string = _replace_mlir_identifier(
+                self.op_string, original, standardized
+            )
+
+        # Build preserved_ops_strings with proper SSA naming for chains
+        self.preserved_ops_strings = []
+        for chain, chain_original_names, pres_idx in preserved_chains:
+            # Build SSA name mapping for this chain
+            # Intermediate values: %pres{pres_idx}_{i}, final value: %pres{pres_idx}
+            chain_name_mapping = {}
+            for i, orig_name in enumerate(chain_original_names):
+                if orig_name is None:
+                    continue
+                if i == len(chain) - 1:
+                    # Final op in chain gets the main preserved name
+                    chain_name_mapping[orig_name] = f"%pres{pres_idx}"
+                else:
+                    # Intermediate ops get indexed names
+                    chain_name_mapping[orig_name] = f"%pres{pres_idx}_{i}"
+
+            # Convert each op in chain to string and apply renaming
+            for i, chain_op in enumerate(chain):
+                op_str = str(chain_op)
+                for orig, standardized in chain_name_mapping.items():
+                    op_str = _replace_mlir_identifier(op_str, orig, standardized)
+                self.preserved_ops_strings.append(op_str)
+
+        self.operands = parameterized_operands
+        self.results = [
+            Result(f"%res{i}", result.type) for i, result in enumerate(op.results)
         ]
-        self.results = [Result(result.get_name(), result.type) for result in op.results]
-        self.attributes = attrs
-        self.func_op = func_op
+        # Track which results to return (only those with users in original graph)
+        self.used_result_indices = used_result_indices
+        # Convert attributes to string to avoid MLIR context issues
+        if attrs is not None:
+            self.attributes_str = (
+                "{" + ",\n".join(f"{a.name} = {a.attr}" for a in attrs) + "}"
+            )
+        else:
+            self.attributes_str = "{}"
+        self.origin_model = [origin_model]
 
     def __str__(self) -> str:
-        return str(self.op)
+        return self.op_string
 
     def __repr__(self) -> str:
         return str(self)
 
     @property
     def name(self) -> str:
-        return self.op.name
+        return self.op_name
+
+    def add_origin_model(self, model: str) -> None:
+        """Adds a new origin model to the list if it's not already present."""
+        if model and model not in self.origin_model:
+            self.origin_model.append(model)
 
     def as_module_str(self) -> str:
         """
-        Wraps `self.op` in a MLIR `func` and then in a MLIR `module` and returns string
-        representation of that module.
+        Wraps the cached op string in a MLIR `func` and then in a MLIR `module` and
+        returns string representation of that module.
+
+        If the op has preserved operands, they are emitted at the beginning of the
+        function body.
 
         Example
         ------
         ```
         module attributes {...} {
-            func.func main(...) -> ... {
-                %0 = self.op ...
-                return %0
+            func.func main(%arg0: tensor<...>) -> ... {
+                %pres1 = stablehlo.constant dense<...> : tensor<...>
+                %res0 = <op>(%arg0, %pres1) ...
+                return %res0
             }
         }
         ```
         """
-        # Make operands unique to handle cases where the same operand is used multiple times
-        unique_operands = {operand.name: operand for operand in self.operands}.values()
         unpacked_operands = ", ".join(
-            f"{operand.name}: {operand.type}" for operand in unique_operands
+            f"{operand.name}: {operand.type}" for operand in self.operands
         )
 
-        if len(self.results) > 1:
-            results = f"{', '.join(result.name for result in self.results)}"
-            return_type = f"{', '.join(str(result.type) for result in self.results)}"
+        # Prepare preserved ops to emit in function body
+        preserved_body = ""
+        if self.preserved_ops_strings:
+            preserved_body = "    " + "\n    ".join(self.preserved_ops_strings) + "\n"
+
+        # Only return results that had users in the original graph
+        returned_results = [self.results[i] for i in self.used_result_indices]
+
+        if len(returned_results) > 1:
+            results = f"{', '.join(result.name for result in returned_results)}"
+            return_type = (
+                f"{', '.join(str(result.type) for result in returned_results)}"
+            )
             return_stmt = f"return {results} : {return_type}"
-        elif len(self.results) == 1:
-            return_type = self.results[0].type
-            return_stmt = f"return {self.results[0].name} : {self.results[0].type}"
+        elif len(returned_results) == 1:
+            return_type = returned_results[0].type
+            return_stmt = (
+                f"return {returned_results[0].name} : {returned_results[0].type}"
+            )
         else:
             return_type = "()"
             return_stmt = "return"
 
-        # Handle special case of modules that carry attributes.
-        if self.attributes is not None:
-            attrs = (
-                "{" + ",\n".join(f"{a.name} = {a.attr}" for a in self.attributes) + "}"
-            )
-        else:
-            attrs = "{}"
-
-        # Add func_op if present
-        func_op_str = f"  {self.func_op} \n" if self.func_op is not None else ""
-
         return (
-            f"module attributes {attrs} {{ \n"
-            f"  func.func @main({unpacked_operands}) -> ({return_type}) {{ \n"
-            f"    {self.op} \n"
+            f"module attributes {self.attributes_str} {{ \n"
+            f'  func.func @main({unpacked_operands}) -> ({return_type}) attributes {{tt.function_type = "forward_device"}} {{ \n'
+            f"{preserved_body}"
+            f"    {self.op_string} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
-            f"{func_op_str}"
+            f"  {self.func_op_string}"
             f"}}"
         )
 
@@ -197,6 +414,8 @@ class OpWrapper:
         module_wrapper.origin_op_name = str(self.name)
         module_wrapper.origin_op_operands = self.operands
         module_wrapper.origin_op_results = self.results
+        # Convert list of origin models to a single string (comma-separated if multiple)
+        module_wrapper.origin_model = ", ".join(self.origin_model)
         return module_wrapper
 
 
@@ -214,15 +433,19 @@ class TTNNOpWrapper(OpWrapper):
         tt_device_op: ttcore.DeviceOp,
         attrs: Optional[OpAttributeMap] = None,
         func_op: Optional[func.FuncOp] = None,
+        origin_model: str = "",
     ) -> None:
-        super().__init__(op, attrs, func_op)
-        self.tt_device_op = tt_device_op
+        super().__init__(op, attrs, func_op, origin_model)
+        self.tt_device_op_string = str(tt_device_op)
 
     # @override
     def as_module_str(self) -> str:
         """
-        Implements wrapping of `self.op` in a TTNN module which is a bit more complex
-        than what base class does.
+        Implements wrapping of the cached op string in a TTNN module which is a bit more
+        complex than what base class does.
+
+        If the op has preserved operands, they are emitted at the beginning of the
+        function body.
 
         Example
         -------
@@ -230,52 +453,53 @@ class TTNNOpWrapper(OpWrapper):
         module {
             ttcore.device_module {
                 builtin.module attributes {...} {
-                    self.tt_device_op ...
-                    func.func main(...) -> ... {
-                        %0 = self.op ...
-                        return %0
+                    <tt_device_op> ...
+                    func.func main(%arg0: tensor<...>) -> ... {
+                        %pres1 = stablehlo.constant dense<...> : tensor<...>
+                        %res0 = <op>(%arg0, %pres1) ...
+                        return %res0
                     }
                 }
             }
         }
         ```
         """
-        # Make operands unique to handle cases where the same operand is used multiple times
-        unique_operands = {operand.name: operand for operand in self.operands}.values()
         unpacked_operands = ", ".join(
-            f"{operand.name}: {operand.type}" for operand in unique_operands
+            f"{operand.name}: {operand.type}" for operand in self.operands
         )
 
-        if len(self.results) > 1:
-            results = f"({', '.join(result.name for result in self.results)})"
-            return_type = f"({', '.join(str(result.type) for result in self.results)})"
+        # Prepare preserved ops to emit in function body
+        preserved_body = ""
+        if self.preserved_ops_strings:
+            preserved_body = "    " + "\n    ".join(self.preserved_ops_strings) + "\n"
+
+        # Only return results that had users in the original graph
+        returned_results = [self.results[i] for i in self.used_result_indices]
+
+        if len(returned_results) > 1:
+            results = f"{', '.join(result.name for result in returned_results)}"
+            return_type = (
+                f"{', '.join(str(result.type) for result in returned_results)}"
+            )
             return_stmt = f"return {results} : {return_type}"
-        elif len(self.results) == 1:
-            return_type = self.results[0].type
-            return_stmt = f"return {self.results[0].name} : {self.results[0].type}"
+        elif len(returned_results) == 1:
+            return_type = returned_results[0].type
+            return_stmt = (
+                f"return {returned_results[0].name} : {returned_results[0].type}"
+            )
         else:
             return_type = "()"
             return_stmt = "return"
 
-        # Handle special case of modules that carry attributes.
-        if self.attributes is not None:
-            attrs = (
-                "{" + ",\n".join(f"{a.name} = {a.attr}" for a in self.attributes) + "}"
-            )
-        else:
-            attrs = "{}"
-
-        # Add func_op if present
-        func_op_str = f"  {self.func_op} \n" if self.func_op is not None else ""
-
         return (
             f"module {{ \n"
             f"ttcore.device_module {{ \n"
-            f"builtin.module attributes {attrs} {{ \n"
-            f"  {self.tt_device_op} \n"
-            f"{func_op_str}"
-            f"  func.func @main({unpacked_operands}) -> {return_type} {{ \n"
-            f"    {self.op} \n"
+            f"builtin.module attributes {self.attributes_str} {{ \n"
+            f"  {self.tt_device_op_string} \n"
+            f"  {self.func_op_string}"
+            f'  func.func @main({unpacked_operands}) -> ({return_type}) attributes {{tt.function_type = "forward_device"}} {{ \n'
+            f"{preserved_body}"
+            f"    {self.op_string} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
             f"}} \n"
@@ -302,6 +526,7 @@ class ModuleWrapper:
         origin_op_name: Optional[str] = None,
         origin_op_operands: Optional[List[Operand]] = None,
         origin_op_results: Optional[List[Result]] = None,
+        origin_model: str = "",
     ) -> None:
         self.module: Module = module
         self.dialect: ModuleDialect = dialect or ModuleDialect.detect(module)
@@ -309,6 +534,7 @@ class ModuleWrapper:
         self.origin_op_name = origin_op_name
         self.origin_op_operands = origin_op_operands
         self.origin_op_results = origin_op_results
+        self.origin_model = origin_model
 
     def __repr__(self) -> str:
         s = f"ModuleWrapper(\ndialect: {self.dialect.value}\n{self.module}"
@@ -342,8 +568,13 @@ class ModuleWrapper:
         """Returns True if module originated as a single op."""
         return self.origin_op_name is not None
 
-    def wrap_op(self, op: OpView, func_op: Optional[func.FuncOp] = None) -> OpWrapper:
-        return OpWrapper(op, self._attributes, func_op)
+    def wrap_op(
+        self,
+        op: OpView,
+        func_op: Optional[func.FuncOp] = None,
+        origin_model: str = "",
+    ) -> OpWrapper:
+        return OpWrapper(op, self._attributes, func_op, origin_model)
 
     # ----- Private methods and properties -----
 
@@ -394,6 +625,7 @@ class TTNNModuleWrapper(ModuleWrapper):
         origin_op_name: Optional[str] = None,
         origin_op_operands: Optional[List[Operand]] = None,
         origin_op_results: Optional[List[Result]] = None,
+        origin_model: str = "",
     ) -> None:
         super().__init__(
             module,
@@ -401,6 +633,7 @@ class TTNNModuleWrapper(ModuleWrapper):
             origin_op_name=origin_op_name,
             origin_op_operands=origin_op_operands,
             origin_op_results=origin_op_results,
+            origin_model=origin_model,
         )
 
         self._tt_device_module_op: ttcore.DeviceModuleOp = self.module.body.operations[
@@ -434,9 +667,14 @@ class TTNNModuleWrapper(ModuleWrapper):
 
     # @override
     def wrap_op(
-        self, op: OpView, func_op: Optional[func.FuncOp] = None
+        self,
+        op: OpView,
+        func_op: Optional[func.FuncOp] = None,
+        origin_model: str = "",
     ) -> TTNNOpWrapper:
-        return TTNNOpWrapper(op, self._tt_device_op, self._attributes, func_op)
+        return TTNNOpWrapper(
+            op, self._tt_device_op, self._attributes, func_op, origin_model
+        )
 
     # ----- Private methods and properties -----
 
@@ -492,12 +730,9 @@ def preprocess_module_str(module_str: str) -> str:
     - `loc(...(...)...)` from other lines
     - `.sdy.mesh...` lines
     """
-    loc_pattern = re.compile(r"^#loc.*$", re.MULTILINE)
-    module_str = re.sub(loc_pattern, "", module_str)
-    loc_pattern = re.compile(r"\s*loc\((?:[^()]*(?:\([^()]*\))*)*\)")
-    module_str = re.sub(loc_pattern, "", module_str)
-    loc_pattern = re.compile(r"\s*sdy.mesh.*$", re.MULTILINE)
-    return re.sub(loc_pattern, "", module_str)
+    module_str = re.sub(_LOC_LINE_PATTERN, "", module_str)
+    module_str = re.sub(_LOC_INLINE_PATTERN, "", module_str)
+    return re.sub(_SDY_MESH_PATTERN, "", module_str)
 
 
 def convert_to_module_wrapper(func: Callable) -> Callable:

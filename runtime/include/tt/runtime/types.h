@@ -12,8 +12,6 @@
 #include <optional>
 #include <vector>
 
-#include "tt/runtime/utils.h"
-
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
 #include "ttmlir/Target/Common/debug_info_generated.h"
@@ -29,6 +27,7 @@ using ::tt::runtime::flatbuffer::DeviceRuntime;
 using ::tt::runtime::flatbuffer::DispatchCoreType;
 using ::tt::runtime::flatbuffer::FabricConfig;
 using ::tt::runtime::flatbuffer::HostRuntime;
+using ::tt::runtime::flatbuffer::MemoryLogLevel;
 
 /*
 MemoryBlockTable is a list of memory blocks in the following format:
@@ -45,14 +44,6 @@ enum class MemoryBufferType {
   TRACE,
 };
 
-inline std::string toString(DeviceRuntime runtime) {
-  return ::tt::runtime::flatbuffer::EnumNameDeviceRuntime(runtime);
-}
-
-inline std::string toString(HostRuntime runtime) {
-  return ::tt::runtime::flatbuffer::EnumNameHostRuntime(runtime);
-}
-
 enum class DistributedMode {
   // Single process on the local host,
   // mainly for testing and debugging
@@ -62,6 +53,27 @@ enum class DistributedMode {
   // across multiple hosts
   MultiProcess,
 };
+
+inline std::string toString(DeviceRuntime runtime) {
+  return ::tt::runtime::flatbuffer::EnumNameDeviceRuntime(runtime);
+}
+
+inline std::string toString(HostRuntime runtime) {
+  return ::tt::runtime::flatbuffer::EnumNameHostRuntime(runtime);
+}
+
+inline std::string toString(MemoryBufferType bufferType) {
+  switch (bufferType) {
+  case MemoryBufferType::DRAM:
+    return "DRAM";
+  case MemoryBufferType::L1:
+    return "L1";
+  case MemoryBufferType::L1_SMALL:
+    return "L1_SMALL";
+  case MemoryBufferType::TRACE:
+    return "TRACE";
+  }
+}
 
 namespace detail {
 
@@ -167,14 +179,9 @@ struct TensorDesc {
              const ::tt::target::DataType dataType,
              const std::optional<uint32_t> itemsize = {},
              const std::optional<std::vector<uint32_t>> &stride = {},
-             const std::optional<uint64_t> physicalVolume = {})
-      : shape(shape), dataType(dataType) {
-    this->itemsize = itemsize.value_or(utils::dataTypeElementSize(dataType));
-    this->stride = stride.value_or(utils::calculateStride(shape));
-    this->physicalVolume = physicalVolume.value_or(volume());
-  }
+             const std::optional<uint64_t> physicalVolume = {});
 
-  size_t volume() const { return utils::product(shape.cbegin(), shape.cend()); }
+  size_t volume() const;
 
   size_t sizeBytes() const { return physicalVolume * itemsize; }
 
@@ -188,6 +195,8 @@ struct MemoryView {
   size_t totalBytesFreePerBank = 0;
   size_t largestContiguousBytesFreePerBank = 0;
   MemoryBlockTable blockTable;
+
+  std::string toString() const;
 };
 
 struct MeshDeviceOptions {
@@ -224,6 +233,10 @@ public:
   MultiProcessArgs &
   withExtraMpiArgs(const std::vector<std::string> &extraMpiArgs);
 
+  MultiProcessArgs &withControllerHostname(std::string_view hostname);
+
+  std::optional<std::string> getControllerHostname() const;
+
   std::string toArgString() const;
 
 private:
@@ -243,11 +256,16 @@ private:
   bool allowRunAsRoot_ = false;
 
   std::vector<std::string> extraMpiArgs_;
+
+  std::optional<std::string> controllerHostname_;
 };
 
 struct DistributedOptions {
   uint16_t controllerPort = 0;
-  DistributedMode mode = DistributedMode::LocalSubprocess;
+  DistributedMode mode = DistributedMode::MultiProcess;
+  // Optional, if not provided, the distributed worker path will be derived from
+  // the MLIR home.
+  std::optional<std::string> workerPath = std::nullopt;
   // Required for MultiProcess mode
   std::optional<MultiProcessArgs> multiProcessArgs = std::nullopt;
 };
@@ -273,6 +291,7 @@ struct Flatbuffer : public detail::ObjectImpl {
 
 struct SystemDesc : public Flatbuffer {
   using Flatbuffer::Flatbuffer;
+  SystemDesc(Flatbuffer fb);
 
   static SystemDesc loadFromPath(const char *path);
 
@@ -283,7 +302,6 @@ struct SystemDesc : public Flatbuffer {
   const ::tt::target::SystemDesc *operator->() const { return get(); }
 };
 
-class TensorCache;
 class ProgramDescCache;
 
 struct Binary : public Flatbuffer {
@@ -324,9 +342,6 @@ struct Binary : public Flatbuffer {
   void setId(std::uint64_t id) { binaryId = id; }
   std::uint64_t id() const;
 
-  // Get the tensor cache associated with this binary
-  std::shared_ptr<TensorCache> getConstEvalTensorCache() { return tensorCache; }
-
   // Get the program descriptor cache associated with this binary
   std::shared_ptr<tt::runtime::ProgramDescCache> getProgramDescCache() {
     return programDescCache;
@@ -336,9 +351,6 @@ private:
   std::uint64_t nextBinaryId();
 
   std::uint64_t binaryId;
-
-  // The tensor cache associated with this binary
-  std::shared_ptr<TensorCache> tensorCache;
 
   // Program descriptor cache associated with this binary
   std::shared_ptr<tt::runtime::ProgramDescCache> programDescCache;
@@ -392,7 +404,6 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
 
 private:
   std::uint64_t nextTensorGlobalId();
-
   std::uint64_t globalId;
 };
 

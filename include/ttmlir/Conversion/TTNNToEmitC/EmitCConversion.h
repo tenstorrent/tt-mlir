@@ -38,6 +38,12 @@ struct SmallVector {
 };
 } // namespace ttsl
 
+namespace tt {
+namespace tt_fabric {
+enum class Topology;
+} // namespace tt_fabric
+} // namespace tt
+
 namespace ttnn {
 struct Shape;
 
@@ -53,6 +59,10 @@ struct MemoryConfig;
 struct BufferType;
 
 struct QueueId;
+
+struct WormholeComputeKernelConfig;
+
+enum class MathFidelity;
 
 namespace types {
 struct ShardOrientation;
@@ -231,6 +241,11 @@ struct TypeName<::ttnn::Tensor> {
 };
 
 template <>
+struct TypeName<::ttnn::WormholeComputeKernelConfig> {
+  inline static const std::string value = "::ttnn::WormholeComputeKernelConfig";
+};
+
+template <>
 struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
   inline static const std::string value =
       "::ttnn::operations::unary::UnaryWithParam";
@@ -238,14 +253,12 @@ struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
 
 template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
-  inline static const std::string value =
-      "::ttnn::operations::conv::conv2d::Conv2dConfig";
+  inline static const std::string value = "::ttnn::Conv2dConfig";
 };
 
 template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
-  inline static const std::string value =
-      "::ttnn::operations::conv::conv2d::Conv2dSliceConfig";
+  inline static const std::string value = "::ttnn::Conv2dSliceConfig";
 };
 
 template <>
@@ -299,6 +312,11 @@ struct TypeName<::ttnn::BufferType> {
 };
 
 template <>
+struct TypeName<::tt::tt_fabric::Topology> {
+  inline static const std::string value = "::tt::tt_fabric::Topology";
+};
+
+template <>
 struct TypeName<::ttnn::Shape> {
   inline static const std::string value = "::ttnn::Shape";
 };
@@ -312,6 +330,11 @@ struct TypeName<::ttnn::operations::reduction::ReduceType> {
 template <>
 struct TypeName<::ttnn::QueueId> {
   inline static const std::string value = "::ttnn::QueueId";
+};
+
+template <>
+struct TypeName<::ttnn::MathFidelity> {
+  inline static const std::string value = "::MathFidelity";
 };
 
 template <>
@@ -716,6 +739,46 @@ struct EmitCTypeConverter<::ttnn::BufferType> {
 };
 
 template <>
+struct EmitCTypeConverter<::mlir::tt::ttcore::Topology> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto topologyAttr =
+            mlir::dyn_cast_if_present<mlir::tt::ttcore::TopologyAttr>(attr)) {
+      return convert(topologyAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::tt::ttcore::TopologyAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(mlir::tt::ttcore::Topology attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::tt::tt_fabric::Topology> << "::";
+    switch (attr) {
+    case mlir::tt::ttcore::Topology::Ring:
+      rso << "Ring";
+      return buf;
+    case mlir::tt::ttcore::Topology::Linear:
+      rso << "Linear";
+      return buf;
+    case mlir::tt::ttcore::Topology::Mesh:
+      rso << "Mesh";
+      return buf;
+    case mlir::tt::ttcore::Topology::Torus:
+      rso << "Torus";
+      return buf;
+    case mlir::tt::ttcore::Topology::Disabled:
+      llvm_unreachable("Disabled topology is not supported in tt_fabric");
+    }
+
+    llvm_unreachable("Unknown mlir::tt::ttcore::Topology");
+  }
+};
+
+template <>
 struct EmitCTypeConverter<::ttnn::Shape> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto shapeAttr = mlir::dyn_cast_if_present<ttnn::ShapeAttr>(attr)) {
@@ -779,6 +842,12 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     case ttcore::ReduceType::Var:
       rso << "VAR";
       return buf;
+    case ttcore::ReduceType::Prod:
+      rso << "PROD";
+      return buf;
+    case ttcore::ReduceType::Invalid:
+      rso << "INVALID";
+      return buf;
     }
 
     llvm_unreachable("Unknown ttcore::ReduceType");
@@ -807,6 +876,99 @@ struct EmitCTypeConverter<::ttnn::QueueId> {
   convert(T &&value) {
     return TypeNameV<::ttnn::QueueId> + "(" +
            std::to_string(static_cast<uint8_t>(value)) + ")";
+  }
+};
+
+// Specialization for MathFidelity
+template <>
+struct EmitCTypeConverter<::ttnn::MathFidelity> {
+  static std::string convert(ttnn::MathFidelity mathFidelity) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::MathFidelity> << "::";
+    switch (mathFidelity) {
+    case ttnn::MathFidelity::LoFi:
+      rso << "LoFi";
+      break;
+    case ttnn::MathFidelity::HiFi2:
+      rso << "HiFi2";
+      break;
+    case ttnn::MathFidelity::HiFi3:
+      rso << "HiFi3";
+      break;
+    case ttnn::MathFidelity::HiFi4:
+      rso << "HiFi4";
+      break;
+    }
+    return buf;
+  }
+};
+
+// Specialization for DeviceComputeKernelConfig (as WormholeComputeKernelConfig)
+template <>
+struct EmitCTypeConverter<::ttnn::WormholeComputeKernelConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    auto configAttr =
+        mlir::dyn_cast_if_present<ttnn::DeviceComputeKernelConfigAttr>(attr);
+    if (!configAttr) {
+      return {};
+    }
+    return convert(configAttr);
+  }
+
+  static std::string convert(ttnn::DeviceComputeKernelConfigAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::WormholeComputeKernelConfig> << "{";
+
+    bool first = true;
+
+    // math_fidelity
+    if (auto mathFidelity = attr.getMathFidelity()) {
+      if (!first) {
+        rso << ", ";
+      }
+      first = false;
+      rso << ".math_fidelity = "
+          << EmitCTypeConverter<::ttnn::MathFidelity>::convert(*mathFidelity);
+    }
+    // math_approx_mode
+    if (auto mathApproxMode = attr.getMathApproxMode()) {
+      if (!first) {
+        rso << ", ";
+      }
+      first = false;
+      rso << ".math_approx_mode = "
+          << (mathApproxMode.getValue() ? "true" : "false");
+    }
+    // fp32_dest_acc_en
+    if (auto fp32DestAccEn = attr.getFp32DestAccEn()) {
+      if (!first) {
+        rso << ", ";
+      }
+      first = false;
+      rso << ".fp32_dest_acc_en = "
+          << (fp32DestAccEn.getValue() ? "true" : "false");
+    }
+    // packer_l1_acc
+    if (auto packerL1Acc = attr.getPackerL1Acc()) {
+      if (!first) {
+        rso << ", ";
+      }
+      first = false;
+      rso << ".packer_l1_acc = " << (packerL1Acc.getValue() ? "true" : "false");
+    }
+    // dst_full_sync_en
+    if (auto dstFullSyncEn = attr.getDstFullSyncEn()) {
+      if (!first) {
+        rso << ", ";
+      }
+      rso << ".dst_full_sync_en = "
+          << (dstFullSyncEn.getValue() ? "true" : "false");
+    }
+
+    rso << "}";
+    return buf;
   }
 };
 
@@ -1368,6 +1530,11 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
           << EmitCTypeConverter<bool>::convert(attr.getReallocateHaloOutput());
       firstElement = false;
     }
+    if (attr.getConfigTensorsInDram()) {
+      rso << (firstElement ? "" : ", ") << ".config_tensors_in_dram = "
+          << EmitCTypeConverter<bool>::convert(attr.getConfigTensorsInDram());
+      firstElement = false;
+    }
     if (attr.getActBlockHOverride()) {
       rso << (firstElement ? "" : ", ") << ".act_block_h_override = "
           << EmitCTypeConverter<uint32_t>::convert(
@@ -1424,11 +1591,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
                  attr.getEnableWeightsDoubleBuffer());
       firstElement = false;
     }
-    if (attr.getInPlace()) {
-      rso << (firstElement ? "" : ", ") << ".in_place = "
-          << EmitCTypeConverter<bool>::convert(attr.getInPlace());
-      firstElement = false;
-    }
     if (attr.getEnableKernelStrideFolding()) {
       rso << (firstElement ? "" : ", ") << ".enable_kernel_stride_folding = "
           << EmitCTypeConverter<bool>::convert(
@@ -1463,15 +1625,15 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
     // Convert enum to proper C++ enum value instead of integer
     switch (attr.getSliceType()) {
     case ttnn::Conv2dSliceType::DramHeight:
-      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::"
+      rso << "ttnn::Conv2dSliceConfig::SliceType::"
              "DRAM_HEIGHT";
       break;
     case ttnn::Conv2dSliceType::DramWidth:
-      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::"
+      rso << "ttnn::Conv2dSliceConfig::SliceType::"
              "DRAM_WIDTH";
       break;
     case ttnn::Conv2dSliceType::L1Full:
-      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_"
+      rso << "ttnn::Conv2dSliceConfig::SliceType::L1_"
              "FULL";
       break;
     }
@@ -1584,6 +1746,16 @@ struct TTNNTarget<tt::ttnn::Conv2dSliceConfigAttr> {
   using type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig;
 };
 
+template <>
+struct TTNNTarget<tt::ttcore::Topology> {
+  using type = ::mlir::tt::ttcore::Topology;
+};
+
+template <>
+struct TTNNTarget<tt::ttcore::TopologyAttr> {
+  using type = ::mlir::tt::ttcore::Topology;
+};
+
 template <typename T>
 struct IsMLIRType {
   static constexpr bool value = std::is_convertible_v<T, mlir::Attribute> ||
@@ -1626,8 +1798,17 @@ public:
     }
   }
 
+  // Emits std::nullopt. If TargetTy is specified, emits a typed empty optional
+  // (e.g., `std::optional<T>{}`) instead of bare `std::nullopt`. This is
+  // necessary for tt-metal APIs that use C++20 concepts/constraints where
+  // template deduction fails with bare `std::nullopt_t`.
+  template <typename TargetTy = void>
   mlir::Attribute emit(std::nullopt_t) {
-    return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    if constexpr (std::is_void_v<TargetTy>) {
+      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    } else {
+      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<TargetTy> + "{}");
+    }
   }
 
   // The `val` should be either an operand of the current source operation, in
@@ -1675,6 +1856,67 @@ public:
     llvm::raw_string_ostream rso(code);
     llvm::interleaveComma(coords, rso);
     rso << "})";
+
+    return rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
+  }
+
+  mlir::Attribute emitSubDeviceId(std::optional<uint32_t> subDeviceId) {
+    if (!subDeviceId) {
+      return emit(std::nullopt);
+    }
+
+    std::string code = "std::make_optional<::tt::tt_metal::SubDeviceId>(";
+    code += std::to_string(*subDeviceId);
+    code += ")";
+
+    return rewriter.getAttr<emitc::OpaqueAttr>(code);
+  }
+
+  mlir::Attribute emitConv3dConfig(
+      std::optional<mlir::tt::ttnn::Conv3dConfigAttr> conv3dConfig =
+          std::nullopt) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    // Create config with default values and override only the fields that
+    // remain in the new Conv3dConfig struct
+    rso << "[&]() { ";
+    rso << "auto config = "
+           "::ttnn::experimental::prim::Conv3dConfig(); ";
+
+    // Apply Conv3dConfigAttr overrides if provided
+    if (conv3dConfig.has_value()) {
+      if (conv3dConfig->getWeightsDtype()) {
+        rso << "config.weights_dtype = ";
+        rso << EmitCTypeConverter<::ttnn::DataType>::convert(
+            *conv3dConfig->getWeightsDtype());
+        rso << "; ";
+      }
+      if (conv3dConfig->getTOutBlock()) {
+        rso << "config.T_out_block = " << *conv3dConfig->getTOutBlock() << "; ";
+      }
+      if (conv3dConfig->getWOutBlock()) {
+        rso << "config.W_out_block = " << *conv3dConfig->getWOutBlock() << "; ";
+      }
+      if (conv3dConfig->getHOutBlock()) {
+        rso << "config.H_out_block = " << *conv3dConfig->getHOutBlock() << "; ";
+      }
+      if (conv3dConfig->getCOutBlock()) {
+        rso << "config.C_out_block = " << *conv3dConfig->getCOutBlock() << "; ";
+      }
+      if (conv3dConfig->getCInBlock()) {
+        rso << "config.C_in_block = " << *conv3dConfig->getCInBlock() << "; ";
+      }
+      if (conv3dConfig->getComputeWithStorageGridSize()) {
+        auto gridAttr = *conv3dConfig->getComputeWithStorageGridSize();
+        rso << "config.compute_with_storage_grid_size = "
+               "tt::tt_metal::CoreCoord{"
+            << gridAttr.getShape()[0] << ", " << gridAttr.getShape()[1]
+            << "}; ";
+      }
+    }
+
+    rso << "return config; }()";
 
     return rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
   }
@@ -1900,14 +2142,15 @@ public:
       return loadOp.getResult();
     }
 
-    // SortOp returns a std::vector<ttnn::Tensor> containing two elements:
-    // [0] = sorted tensor, [1] = corresponding indices.
-    // Extract both elements to replace the original SortOp.
-    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::SortOp>) {
+    // SortOp and TopKOp returns a std::vector<ttnn::Tensor> containing two
+    // elements: [0] = values tensor, [1] = corresponding indices. Extract both
+    // elements to replace the original Op.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::SortOp> ||
+                  std::is_same_v<TTNNOp, tt::ttnn::TopKOp>) {
       assert(op.getNumResults() == 2 &&
-             "Expected two outputs for SortOp (sorted tensor and indices).");
+             "Expected two outputs (values tensor and indices).");
       using ReturnTy = std::vector<::ttnn::Tensor>;
-      auto sortOp = rewriter.create<emitc::CallOpaqueOp>(
+      auto callOp = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
           opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
           /*template_args=*/nullptr, operands);
@@ -1926,7 +2169,7 @@ public:
 
         // Get reference to the i-th element in the result vector.
         auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
-            op.getLoc(), lvalueType, sortOp.getResult(0), indexVal);
+            op.getLoc(), lvalueType, callOp.getResult(0), indexVal);
 
         // Load the actual tensor value from the reference.
         auto loadOp = rewriter.create<emitc::LoadOp>(
@@ -1938,7 +2181,7 @@ public:
       }
 
       rewriter.replaceOp(op, results);
-      return sortOp.getResult(0);
+      return callOp.getResult(0);
     }
 
     auto resultTypes = llvm::to_vector(
@@ -1975,6 +2218,58 @@ public:
                                              deviceAttr.getWorkerGrid()));
 
     return emit(memoryConfigAttr);
+  }
+
+  // Creates MeshShape code from integer attributes.
+  std::string
+  createMeshShapeCode(llvm::ArrayRef<mlir::IntegerAttr> meshShapeOverride) {
+    if (meshShapeOverride.empty()) {
+      return "";
+    }
+    std::string meshShapeCode = std::string("::ttnn::distributed::MeshShape({");
+    llvm::raw_string_ostream os(meshShapeCode);
+    llvm::SmallVector<uint32_t> dims;
+    for (const auto &intAttr : meshShapeOverride) {
+      dims.push_back(intAttr.getValue().getZExtValue());
+    }
+    llvm::interleaveComma(dims, os);
+    os << "})";
+    return os.str();
+  }
+
+  // Converts raw pointer to reference. Only works for raw pointers, not smart
+  // pointers.
+  mlir::Value dereferenceToRef(mlir::Value ptrValue,
+                               const std::string &refTypeName) {
+    return rewriter
+        .create<emitc::ApplyOp>(
+            op.getLoc(),
+            emitc::OpaqueType::get(rewriter.getContext(), refTypeName), "*",
+            ptrValue)
+        .getResult();
+  }
+
+  // Converts unique_ptr<T> to T&. Uses VerbatimOp since ApplyOp doesn't support
+  // unique_ptr.
+  mlir::Value dereferenceUniquePtr(mlir::Value uniquePtrValue,
+                                   const std::string &refTypeName) {
+    // Generate variable name
+    std::string ssaName;
+    llvm::raw_string_ostream os(ssaName);
+    mlir::OpPrintingFlags flags;
+    uniquePtrValue.printAsOperand(os, flags);
+    os.flush();
+    std::string varName = "ref_" + ssaName.substr(1);
+
+    // Create reference variable
+    auto refType = emitc::OpaqueType::get(rewriter.getContext(), refTypeName);
+    std::string verbatimCode = "auto& " + varName + " = *{};";
+    rewriter.create<emitc::VerbatimOp>(
+        op.getLoc(), rewriter.getStringAttr(verbatimCode),
+        llvm::SmallVector<mlir::Value>{uniquePtrValue});
+
+    return rewriter.create<emitc::LiteralOp>(op.getLoc(), refType, varName)
+        .getResult();
   }
 
 private:

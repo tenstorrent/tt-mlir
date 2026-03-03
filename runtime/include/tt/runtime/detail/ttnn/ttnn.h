@@ -12,7 +12,6 @@
 #include "tt-metalium/host_buffer.hpp"
 #include "tt-metalium/memory_reporter.hpp"
 #include "tt-metalium/mesh_device.hpp"
-#include "tt-metalium/persistent_kernel_cache.hpp"
 #include "tt-metalium/program_cache.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/events.hpp"
@@ -36,6 +35,7 @@
 #include "ttnn/operations/eltwise/ternary/ternary.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
+#include "ttnn/operations/experimental/conv3d/conv3d.hpp"
 #include "ttnn/operations/experimental/paged_cache/paged_cache.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding/rotary_embedding.hpp"
@@ -45,6 +45,7 @@
 #include "ttnn/operations/matmul/matmul.hpp"
 #include "ttnn/operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "ttnn/operations/normalization/batch_norm/batch_norm.hpp"
+#include "ttnn/operations/normalization/layernorm/layernorm.hpp"
 #include "ttnn/operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
 #include "ttnn/operations/pool/generic/generic_pools.hpp"
@@ -53,6 +54,7 @@
 #include "ttnn/operations/reduction/argmax/argmax.hpp"
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/operations/reduction/prod/prod.hpp"
+#include "ttnn/operations/reduction/topk/topk.hpp"
 #include "ttnn/operations/trace.hpp"
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "ttnn/operations/transformer/sdpa/sdpa.hpp"
@@ -106,6 +108,16 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
 
+// Creates multi-device host tensor with borrowed storage (the buffer of the
+// tensor is on the host and it was borrowed from an external buffer which is
+// responsible for its allocation/deallocation).
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
+
 ::tt::runtime::Tensor createEmptyTensor(
     Device device, Layout layout, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize);
@@ -151,9 +163,6 @@ void setTensorRetain(::tt::runtime::Tensor tensor, bool retain);
 
 tt::target::Arch getArch();
 
-void enablePersistentKernelCache();
-void disablePersistentKernelCache();
-
 size_t getNumAvailableDevices();
 
 Device openMeshDevice(const MeshDeviceOptions &options = {});
@@ -175,6 +184,7 @@ std::vector<uint32_t> getMeshOffset(Device meshDevice);
 std::vector<int> getDeviceIds(Device meshDevice);
 size_t getNumHwCqs(Device meshDevice);
 bool isProgramCacheEnabled(Device meshDevice);
+void clearProgramCache(Device meshDevice);
 size_t getL1SmallSize(Device meshDevice);
 size_t getTraceRegionSize(Device meshDevice);
 size_t getNumDramChannels(Device meshDevice);
@@ -208,11 +218,16 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize = false,
                                           bool blocking = true);
 
+std::vector<::tt::runtime::Tensor>
+getDeviceTensors(::tt::runtime::Tensor tensor);
+
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
                                Layout layout,
                                std::optional<bool> retain = std::nullopt);
 
 bool hasLayout(Tensor tensor, Layout layout);
+
+Layout getTensorLayout(Tensor tensor);
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);

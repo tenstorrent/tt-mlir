@@ -38,6 +38,11 @@ namespace {
 
 struct ConvertD2MToTTNNPass final
     : d2m::impl::ConvertD2MToTTNNBase<ConvertD2MToTTNNPass> {
+
+  ConvertD2MToTTNNPass() = default;
+  ConvertD2MToTTNNPass(const d2m::ConvertD2MToTTNNOptions &options)
+      : ConvertD2MToTTNNBase(options) {}
+
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
@@ -59,7 +64,8 @@ struct ConvertD2MToTTNNPass final
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
-    populateD2MToTTNNPatterns(&getContext(), patterns, typeConverter);
+    populateD2MToTTNNPatterns(&getContext(), patterns, typeConverter,
+                              mathFidelity);
 
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
@@ -74,6 +80,11 @@ namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTNNPass() {
   return std::make_unique<ConvertD2MToTTNNPass>();
+}
+
+std::unique_ptr<OperationPass<ModuleOp>>
+createConvertD2MToTTNNPass(const d2m::ConvertD2MToTTNNOptions &options) {
+  return std::make_unique<ConvertD2MToTTNNPass>(options);
 }
 
 } // namespace mlir::tt

@@ -4,7 +4,7 @@
 
 # User Guide
 
-- [Getting Started](./getting-started.md)
+- [Building & Getting Started](./getting-started.md)
   - [Docker Notes](./docker-notes.md)
   - [Ubuntu VM on macOS](./macos-ubuntu-vm.md)
 - [Testing](./testing.md)
@@ -18,7 +18,6 @@
      - [Adding a TTIR op](./builder/adding-a-ttir-op.md)
      - [StableHLO Builder](./builder/stablehlo-builder.md)
      - [Testing](./builder/testing.md)
-  - [`stablehlo-builder`](./builder/stablehlo-builder.md)
   - [`tt-explorer`](./tt-explorer/tt-explorer.md)
     - [UI & changes to Model Explorer](./tt-explorer/ui.md)
     - [CLI](./tt-explorer/cli.md)
@@ -53,3 +52,4 @@
   - [Runtime Stitching](./specs/runtime-stitching.md)
   - [Tensor Layout](./specs/tensor-layout.md)
   - [Device](./specs/device.md)
+  - [TTNN Optimizer](./specs/ttnn-optimizer.md)

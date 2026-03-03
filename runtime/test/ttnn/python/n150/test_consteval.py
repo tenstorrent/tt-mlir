@@ -41,7 +41,9 @@ def test_consteval_add_mul_subtract(helper: Helper, request, num_loops):
     debug_stats = ttrt.runtime.DebugStats.get()
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
-        inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(device)
+        inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
+            device
+        )
         for i in range(num_loops):
             # First execute should be a consteval cache miss
             # Subsequent executes should be consteval cache hit
@@ -53,7 +55,9 @@ def test_consteval_add_mul_subtract(helper: Helper, request, num_loops):
 
         ttrt.runtime.DebugStats.get().clear()
 
-        inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(device)
+        inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
+            device
+        )
 
         for i in range(num_loops):
             # First execute should be a consteval cache miss because we've updated the inputs
@@ -67,4 +71,52 @@ def test_consteval_add_mul_subtract(helper: Helper, request, num_loops):
             assert debug_stats.get_stat("ConstEvalCacheHit") == i
 
     ttrt.runtime.DebugStats.get().clear()
+    helper.teardown()
+
+
+@pytest.mark.parametrize("num_loops", [3])
+def test_consteval_global_cache_across_binaries(helper: Helper, request, num_loops):
+    """Test that GlobalTensorCache is shared across different Binary instances."""
+    binary_path = os.path.join(FLATBUFFER_BASE_PATH, "binary_ops.mlir.tmp.ttnn")
+    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
+
+    test_config = ProgramTestConfig(
+        name="binary_ops_consteval",
+        expected_num_inputs=4,
+        compute_golden=lambda inputs: (inputs[0] + inputs[1])
+        * ((inputs[1] + inputs[2]) - (inputs[2] + inputs[3])),
+        description="Binary ops consteval test - global cache across binaries",
+    )
+
+    debug_stats = ttrt.runtime.DebugStats.get()
+    debug_stats.clear()
+
+    with DeviceContext(mesh_shape=[1, 1]) as device:
+        # Create first binary and run it
+        helper.initialize(request.node.name + "_binary1", binary_path)
+        helper.check_constraints()
+        test_runner1 = ProgramTestRunner(test_config, helper.binary, 0)
+
+        inputs1, golden1, _ = test_runner1.get_inputs_and_golden(device)
+
+        # First execution - should be cache miss
+        test_runner1.run_program_and_compare_golden(device, inputs1, golden1)
+        assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
+        assert debug_stats.get_stat("ConstEvalCacheHit") == 0
+
+        # Second execution with same binary - should be cache hit
+        test_runner1.run_program_and_compare_golden(device, inputs1, golden1)
+        assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
+        assert debug_stats.get_stat("ConstEvalCacheHit") == 1
+
+        # Create SECOND binary instance from same flatbuffer
+        helper.initialize(request.node.name + "_binary2", binary_path)
+        test_runner2 = ProgramTestRunner(test_config, helper.binary, 0)
+
+        # Execute with second binary - should be cache HIT (global cache shared)
+        test_runner2.run_program_and_compare_golden(device, inputs1, golden1)
+        assert debug_stats.get_stat("ConstEvalCacheMiss") == 1  # still 1
+        assert debug_stats.get_stat("ConstEvalCacheHit") == 2  # now 2
+
+    debug_stats.clear()
     helper.teardown()

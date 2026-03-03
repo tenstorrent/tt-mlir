@@ -33,6 +33,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("get_device_ids", &tt::runtime::getDeviceIds)
       .def("get_num_hw_cqs", &tt::runtime::getNumHwCqs)
       .def("is_program_cache_enabled", &tt::runtime::isProgramCacheEnabled)
+      .def("clear_program_cache", &tt::runtime::clearProgramCache)
       .def("get_l1_small_size", &tt::runtime::getL1SmallSize)
       .def("get_trace_region_size", &tt::runtime::getTraceRegionSize)
       .def("get_num_dram_channels", &tt::runtime::getNumDramChannels)
@@ -130,8 +131,17 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("with_rank_file_path",
            &tt::runtime::MultiProcessArgs::withRankFilePath,
            nb::rv_policy::reference_internal)
-      .def("with_mca_options", &tt::runtime::MultiProcessArgs::withMcaOptions,
-           nb::rv_policy::reference_internal)
+      .def(
+          "with_mca_options",
+          [](tt::runtime::MultiProcessArgs &self, nb::dict mcaOptions) {
+            std::map<std::string, std::string> mcaOptionsMap;
+            for (auto [key, value] : mcaOptions) {
+              mcaOptionsMap[nb::cast<std::string>(key)] =
+                  nb::cast<std::string>(value);
+            }
+            return self.withMcaOptions(mcaOptionsMap);
+          },
+          nb::rv_policy::reference_internal)
       .def("with_tag_output", &tt::runtime::MultiProcessArgs::withTagOutput,
            nb::rv_policy::reference_internal)
       .def("with_allow_run_as_root",
@@ -140,6 +150,9 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("with_extra_mpi_args",
            &tt::runtime::MultiProcessArgs::withExtraMpiArgs,
            nb::rv_policy::reference_internal)
+      .def("with_controller_hostname",
+           &tt::runtime::MultiProcessArgs::withControllerHostname,
+           nb::rv_policy::reference_internal)
       .def("to_arg_string", &tt::runtime::MultiProcessArgs::toArgString);
 
   nb::class_<tt::runtime::DistributedOptions>(m, "DistributedOptions")
@@ -147,6 +160,18 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def_rw("controller_port",
               &tt::runtime::DistributedOptions::controllerPort)
       .def_rw("mode", &tt::runtime::DistributedOptions::mode)
+      .def_prop_rw(
+          "worker_path",
+          [](const tt::runtime::DistributedOptions &o) {
+            return o.workerPath.has_value() ? nb::cast(o.workerPath.value())
+                                            : nb::none();
+          },
+          [](tt::runtime::DistributedOptions &o, nb::handle value) {
+            o.workerPath =
+                value.is_none()
+                    ? std::nullopt
+                    : std::make_optional(nb::cast<std::string>(value));
+          })
       .def_prop_rw(
           "multi_process_args",
           [](const tt::runtime::DistributedOptions &o) {
@@ -210,7 +235,14 @@ void registerRuntimeBindings(nb::module_ &m) {
             return nb::bytearray(reinterpret_cast<const char *>(vec.data()),
                                  vec.size());
           },
-          nb::rv_policy::take_ownership);
+          nb::rv_policy::take_ownership)
+      .def("has_layout",
+           [](tt::runtime::Tensor self, tt::runtime::Layout layout) {
+             return tt::runtime::hasLayout(self, layout);
+           })
+      .def("get_layout", [](tt::runtime::Tensor self) {
+        return tt::runtime::getTensorLayout(self);
+      });
 
   nb::class_<tt::runtime::TensorRef>(m, "TensorRef");
   nb::class_<tt::runtime::Layout>(m, "Layout");
@@ -273,25 +305,24 @@ void registerRuntimeBindings(nb::module_ &m) {
              ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_Y)
       .value("FABRIC_2D_TORUS_XY",
              ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_XY)
-      .value("FABRIC_2D_DYNAMIC",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC)
-      .value("FABRIC_2D_DYNAMIC_TORUS_X",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X)
-      .value("FABRIC_2D_DYNAMIC_TORUS_Y",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y)
-      .value("FABRIC_2D_DYNAMIC_TORUS_XY",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY)
       .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
 
   nb::enum_<::tt::target::Arch>(m, "Arch")
-      .value("GRAYSKULL", ::tt::target::Arch::Grayskull)
       .value("WORMHOLE_B0", ::tt::target::Arch::Wormhole_b0)
       .value("BLACKHOLE", ::tt::target::Arch::Blackhole);
+
+  nb::enum_<::tt::runtime::MemoryLogLevel>(m, "MemoryLogLevel", nb::is_flag())
+      .value("NONE", ::tt::runtime::MemoryLogLevel::NONE)
+      .value("PROGRAM", ::tt::runtime::MemoryLogLevel::Program)
+      .value("OPERATION", ::tt::runtime::MemoryLogLevel::Operation)
+      .value("ANY", ::tt::runtime::MemoryLogLevel::ANY);
 
   m.def("set_mlir_home", &tt::runtime::setMlirHome, nb::arg("mlir_home"),
         "Set the MLIR home directory");
   m.def("set_metal_home", &tt::runtime::setMetalHome, nb::arg("metal_home"),
         "Set the Metal home directory");
+  m.def("set_memory_log_level", &tt::runtime::setMemoryLogLevel,
+        nb::arg("log_level"), "Set the memory log level");
   m.def("get_current_device_runtime", &tt::runtime::getCurrentDeviceRuntime,
         "Get the backend device runtime type");
   m.def("get_available_device_runtimes",
@@ -364,16 +395,25 @@ void registerRuntimeBindings(nb::module_ &m) {
             data, shape, stride, itemsize, dataType, strategy, meshShape);
       },
       "Create a multi-device host tensor with owned memory");
+  m.def(
+      "create_multi_device_borrowed_host_tensor",
+      [](std::vector<std::uintptr_t> &ptrs,
+         const std::vector<std::uint32_t> &shape,
+         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         ::tt::target::DataType dataType,
+         const std::unordered_map<std::string, std::string> &strategy,
+         const std::vector<uint32_t> &meshShape) {
+        std::vector<void *> data;
+        data.reserve(ptrs.size());
+        std::transform(
+            ptrs.begin(), ptrs.end(), std::back_inserter(data),
+            [](std::uintptr_t ptr) { return reinterpret_cast<void *>(ptr); });
+        return tt::runtime::createMultiDeviceBorrowedHostTensor(
+            data, shape, stride, itemsize, dataType, strategy, meshShape);
+      },
+      "Create a multi-device host tensor with owned memory");
   m.def("get_arch", &tt::runtime::getArch,
         "Get the architecture of the device");
-  m.def("enable_persistent_kernel_cache",
-        &tt::runtime::enablePersistentKernelCache,
-        "Enable persistent kernel cache, which will cache kernel binaries on "
-        "disk usable across runs.");
-  m.def("disable_persistent_kernel_cache",
-        &tt::runtime::disablePersistentKernelCache,
-        "Disable persistent kernel cache, which will disable caching kernel "
-        "binaries on disk.");
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
         "Get the number of available devices");
   m.def("open_mesh_device", &tt::runtime::openMeshDevice,
@@ -392,6 +432,8 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("to_host", &tt::runtime::toHost, nb::arg("tensor"),
         nb::arg("untilize") = false, nb::arg("blocking") = true,
         "Copy the tensor to host");
+  m.def("get_device_tensors", &tt::runtime::getDeviceTensors, nb::arg("tensor"),
+        "Returns vector of device tensors.");
   m.def("to_layout", &tt::runtime::toLayout, nb::arg("tensor"),
         nb::arg("device"), nb::arg("layout"), nb::arg("retain") = nb::none(),
         "Create a copy of the tensor with the specified layout");

@@ -11,11 +11,18 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/OpModelError.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.cpp.inc"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/Utils.h"
 
+#include "mlir/IR/Block.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Value.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/Support/Error.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <optional>
@@ -249,8 +256,8 @@ getPoolingOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
       inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
-      opConfig.outputLayout);
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
+      op.getConfigTensorsInDram(), opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -265,8 +272,8 @@ getPoolingOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
-      opConfig.outputLayout);
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
+      op.getConfigTensorsInDram(), opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -289,9 +296,9 @@ getMaxPool2dWithIndicesOpConstraints(OpT op,
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
       inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
-      /*deallocate_input*/ false, /*reallocate_halo_output*/ true,
-      /*return_indices*/ true, opConfig.outputLayout);
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
+      /*deallocate_input*/ false, /*return_indices*/ true,
+      op.getConfigTensorsInDram(), opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -307,9 +314,9 @@ getMaxPool2dWithIndicesOpRuntime(OpT op,
       op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
-      /*deallocate_input*/ false, /*reallocate_halo_output*/ true,
-      /*return_indices*/ true, opConfig.outputLayout);
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
+      /*deallocate_input*/ false, /*return_indices*/ true,
+      op.getConfigTensorsInDram(), opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -1053,21 +1060,60 @@ BitwiseXorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ScatterOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-// (issue #4788) scatter is currently defined as a binary op in TTNNIR
-// to be updated when it's fixed to match proper metal implementation
-
 llvm::Expected<op_model::OpConstraints>
 ScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::ArchitecturalMismatch);
+  assert(inputs.size() == 3);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto indexShape = getIndex().getType().getShape();
+  const auto sourceShape = getSource().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  std::optional<ttcore::ReduceTypeAttr> reduceType =
+      ttcore::ReduceTypeAttr::get(getContext(), ttcore::ReduceType::Invalid);
+  if (getScatterReduceType() != ttcore::ReduceType::Invalid) {
+    reduceType =
+        ttcore::ReduceTypeAttr::get(getContext(), getScatterReduceType());
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ScatterOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], indexShape, inputs[1], sourceShape, inputs[2],
+      getDim(), reduceType, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 ScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::ArchitecturalMismatch);
+  assert(inputs.size() == 3);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto indexShape = getIndex().getType().getShape();
+  const auto sourceShape = getSource().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  std::optional<ttcore::ReduceTypeAttr> reduceType =
+      ttcore::ReduceTypeAttr::get(getContext(), ttcore::ReduceType::Invalid);
+  if (getScatterReduceType() != ttcore::ReduceType::Invalid) {
+    reduceType =
+        ttcore::ReduceTypeAttr::get(getContext(), getScatterReduceType());
+  }
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<ScatterOp>::getOpRuntime, *this, inputShape, inputs[0],
+      indexShape, inputs[1], sourceShape, inputs[2], getDim(), reduceType,
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1084,6 +1130,48 @@ llvm::Expected<size_t>
 Atan2Op::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                       const OpConfig &opConfig) {
   return detail::getBinaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
+// GeluBackwardOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+GeluBackwardOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = getLhs().getType().getShape();
+  const auto inputShapeB = getRhs().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<GeluBackwardOp>::getOpConstraints, getOperation(),
+      deviceGrid, inputShapeA, inputs[0], inputShapeB, inputs[1],
+      getApproximate().str(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+GeluBackwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = getLhs().getType().getShape();
+  const auto inputShapeB = getRhs().getType().getShape();
+
+  std::string approximate =
+      getApproximate().empty() ? "none" : getApproximate().str();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<GeluBackwardOp>::getOpRuntime, getOperation(),
+      inputShapeA, inputs[0], inputShapeB, inputs[1], approximate,
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1591,6 +1679,7 @@ llvm::Expected<op_model::OpConstraints>
 ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   assert(inputs.size() == 1);
+  assert(opConfig.outputLayout && "ToLayoutOp requires output layout");
   assert(opConfig.outputLayout.getLayout() == getLayout());
 
   const auto inputShape = getInput().getType().getShape();
@@ -1612,6 +1701,7 @@ llvm::Expected<size_t>
 ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   assert(inputs.size() == 1);
+  assert(opConfig.outputLayout && "ToLayoutOp requires output layout");
   assert(opConfig.outputLayout.getLayout() == getLayout());
 
   const auto inputShape = getInput().getType().getShape();
@@ -1708,23 +1798,6 @@ ToDeviceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
-}
-//===----------------------------------------------------------------------===//
-// ToDTypeOp - TTNN Op Model Interface
-//===----------------------------------------------------------------------===//
-
-llvm::Expected<op_model::OpConstraints>
-ToDTypeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                            const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
-}
-
-llvm::Expected<size_t>
-ToDTypeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                        const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1889,13 +1962,14 @@ struct ScaledDotProductAttentionDecodeArgs {
   llvm::SmallVector<int64_t> valueShape;
   TTNNLayoutAttr valueLayout;
   bool isCausal;
-  llvm::SmallVector<int64_t> curPosTensorShape;
-  TTNNLayoutAttr curPosTensorLayout;
+  std::optional<llvm::SmallVector<int64_t>> curPosTensorShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> curPosTensorLayout = std::nullopt;
   std::optional<llvm::SmallVector<int64_t>> attentionMaskShape = std::nullopt;
   std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
   std::optional<llvm::SmallVector<int64_t>> attentionSinkShape = std::nullopt;
   std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
   std::optional<llvm::APFloat> scale = std::nullopt;
+  std::optional<SDPAProgramConfigAttr> programConfig = std::nullopt;
 };
 
 static ScaledDotProductAttentionDecodeArgs
@@ -1913,37 +1987,38 @@ unpackScaledDotProductAttentionDecodeArgs(
   ret.valueLayout = inputs[2];
   ret.isCausal = op.getIsCausal();
   ret.scale = op.getScale();
+  if (op.getProgramConfigAttr()) {
+    ret.programConfig = op.getProgramConfigAttr();
+  }
 
   TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
+  TypedValue<RankedTensorType> curPosTensor = op.getCurPosTensor();
   TypedValue<RankedTensorType> attentionSink = op.getAttentionSink();
 
-  if (attentionMask && attentionSink) {
+  size_t idx = 3;
+  if (attentionMask) {
     ret.attentionMaskShape =
         llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
-    ret.attentionMaskLayout = inputs[3];
+    assert(idx < inputs.size() &&
+           "Op has attention mask but no attention mask layout was provided.");
+    ret.attentionMaskLayout = inputs[idx];
+    idx++;
+  }
+  if (curPosTensor) {
     ret.curPosTensorShape =
-        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
-    ret.curPosTensorLayout = inputs[4];
+        llvm::SmallVector<int64_t>(curPosTensor.getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has cur pos tensor but no cur pos tensor layout was provided.");
+    ret.curPosTensorLayout = inputs[idx];
+    idx++;
+  }
+  if (attentionSink) {
     ret.attentionSinkShape =
         llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
-    ret.attentionSinkLayout = inputs[5];
-  } else if (attentionMask) {
-    ret.attentionMaskShape =
-        llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
-    ret.attentionMaskLayout = inputs[3];
-    ret.curPosTensorShape =
-        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
-    ret.curPosTensorLayout = inputs[4];
-  } else if (attentionSink) {
-    ret.curPosTensorShape =
-        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
-    ret.curPosTensorLayout = inputs[3];
-    ret.attentionSinkShape =
-        llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
-    ret.attentionSinkLayout = inputs[4];
-  } else {
-    llvm_unreachable("All combinations of attention mask and attention sink "
-                     "should have been handled");
+    assert(idx < inputs.size() &&
+           "Op has attention sink but no attention sink layout was provided.");
+    ret.attentionSinkLayout = inputs[idx];
+    idx++;
   }
 
   return ret;
@@ -1961,10 +2036,9 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
   // https://godbolt.org/z/sa9ojqqov
   //
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
-         "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
-         "5, or 6 "
-         "input tensors");
+  assert(inputs.size() >= 3 && inputs.size() <= 6 &&
+         "ttnn::transformer::scaled_dot_product_attention_decode can have 3, "
+         "4, 5, or 6 input tensors");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -1984,7 +2058,8 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
       sdpaArgs.valueLayout, sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
       sdpaArgs.attentionMaskLayout, sdpaArgs.curPosTensorShape,
       sdpaArgs.curPosTensorLayout, sdpaArgs.attentionSinkShape,
-      sdpaArgs.attentionSinkLayout, sdpaArgs.scale, opConfig.outputLayout);
+      sdpaArgs.attentionSinkLayout, sdpaArgs.scale, sdpaArgs.programConfig,
+      opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
@@ -1993,10 +2068,9 @@ llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
   // See the comment in caledDotProductAttentionDecodeOp::getOpConstraints for
   // an explanation of this lint suppression.
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
-         "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
-         "5, or 6 "
-         "input tensors");
+  assert(inputs.size() >= 3 && inputs.size() <= 6 &&
+         "ttnn::transformer::scaled_dot_product_attention_decode can have 3, "
+         "4, 5, or 6 input tensors");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -2018,6 +2092,144 @@ llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
+//===----------------------------------------------------------------------===//
+// PagedScaledDotProductAttentionDecodeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct PagedScaledDotProductAttentionDecodeArgs {
+  llvm::SmallVector<int64_t> queryShape;
+  TTNNLayoutAttr queryLayout;
+  llvm::SmallVector<int64_t> keyShape;
+  TTNNLayoutAttr keyLayout;
+  llvm::SmallVector<int64_t> valueShape;
+  TTNNLayoutAttr valueLayout;
+  llvm::SmallVector<int64_t> pageTableShape;
+  TTNNLayoutAttr pageTableLayout;
+  bool isCausal;
+  std::optional<llvm::SmallVector<int64_t>> attentionMaskShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
+  std::optional<llvm::SmallVector<int64_t>> curPosTensorShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> curPosTensorLayout = std::nullopt;
+  std::optional<llvm::SmallVector<int64_t>> attentionSinkShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
+  std::optional<llvm::APFloat> scale = std::nullopt;
+};
+
+static PagedScaledDotProductAttentionDecodeArgs
+unpackPagedScaledDotProductAttentionDecodeArgs(
+    const std::vector<TTNNLayoutAttr> &inputs,
+    PagedScaledDotProductAttentionDecodeOp op) {
+  PagedScaledDotProductAttentionDecodeArgs ret;
+  ret.queryShape =
+      llvm::SmallVector<int64_t>(op.getQuery().getType().getShape());
+  ret.queryLayout = inputs[0];
+  ret.keyShape = llvm::SmallVector<int64_t>(op.getKey().getType().getShape());
+  ret.keyLayout = inputs[1];
+  ret.valueShape =
+      llvm::SmallVector<int64_t>(op.getValue().getType().getShape());
+  ret.valueLayout = inputs[2];
+  ret.pageTableShape =
+      llvm::SmallVector<int64_t>(op.getPageTable().getType().getShape());
+  ret.pageTableLayout = inputs[3];
+  ret.isCausal = op.getIsCausal();
+  ret.scale = op.getScale();
+
+  TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
+  TypedValue<RankedTensorType> curPosTensor = op.getCurPosTensor();
+  TypedValue<RankedTensorType> attentionSink = op.getAttentionSink();
+
+  size_t idx = 4;
+  if (attentionMask) {
+    ret.attentionMaskShape =
+        llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has attention mask but no attention mask layout was provided.");
+    ret.attentionMaskLayout = inputs[idx];
+    idx++;
+  }
+  if (curPosTensor) {
+    ret.curPosTensorShape =
+        llvm::SmallVector<int64_t>(curPosTensor.getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has cur pos tensor but no cur pos tensor layout was provided.");
+    ret.curPosTensorLayout = inputs[idx];
+    idx++;
+  }
+  if (attentionSink) {
+    ret.attentionSinkShape =
+        llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has attention sink but no attention sink layout was provided.");
+    ret.attentionSinkLayout = inputs[idx];
+    idx++;
+  }
+
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  // See the comment in scaledDotProductAttentionDecodeOp::getOpConstraints for
+  // an explanation of this lint suppression.
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+  assert(inputs.size() >= 4 && inputs.size() <= 7 &&
+         "ttnn::paged_scaled_dot_product_attention_decode can have 4, 5, 6, or "
+         "7 input tensors");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  PagedScaledDotProductAttentionDecodeArgs pagedSdpaArgs =
+      unpackPagedScaledDotProductAttentionDecodeArgs(inputs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<
+          PagedScaledDotProductAttentionDecodeOp>::getOpConstraints,
+      *this, deviceGrid, pagedSdpaArgs.queryShape, pagedSdpaArgs.queryLayout,
+      pagedSdpaArgs.keyShape, pagedSdpaArgs.keyLayout, pagedSdpaArgs.valueShape,
+      pagedSdpaArgs.valueLayout, pagedSdpaArgs.pageTableShape,
+      pagedSdpaArgs.pageTableLayout, pagedSdpaArgs.isCausal,
+      pagedSdpaArgs.attentionMaskShape, pagedSdpaArgs.attentionMaskLayout,
+      pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
+      pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
+      pagedSdpaArgs.scale, opConfig.outputLayout);
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+}
+
+llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  // See the comment in scaledDotProductAttentionDecodeOp::getOpConstraints for
+  // an explanation of this lint suppression.
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+  assert(inputs.size() >= 4 && inputs.size() <= 7 &&
+         "ttnn::paged_scaled_dot_product_attention_decode can have 4, 5, 6, or "
+         "7 input tensors");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  PagedScaledDotProductAttentionDecodeArgs pagedSdpaArgs =
+      unpackPagedScaledDotProductAttentionDecodeArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime,
+      *this, pagedSdpaArgs.queryShape, pagedSdpaArgs.queryLayout,
+      pagedSdpaArgs.keyShape, pagedSdpaArgs.keyLayout, pagedSdpaArgs.valueShape,
+      pagedSdpaArgs.valueLayout, pagedSdpaArgs.pageTableShape,
+      pagedSdpaArgs.pageTableLayout, pagedSdpaArgs.isCausal,
+      pagedSdpaArgs.attentionMaskShape, pagedSdpaArgs.attentionMaskLayout,
+      pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
+      pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
+      pagedSdpaArgs.scale, opConfig.outputLayout);
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+}
 //===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
@@ -2633,6 +2845,33 @@ RequantizeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // LinearOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+// If a matmul program config has been specified in opConfig, use that.
+// Otherwise, fall back to the op's property.
+// Works with both LinearOp and MatmulOp since they share the same attribute.
+template <typename OpTy>
+static MatmulAttrs unpackMatmulAttrs(const OpConfig::OpSpecificAttrs &attrs,
+                                     OpTy op) {
+  assert((std::holds_alternative<MatmulAttrs>(attrs) ||
+          std::holds_alternative<UninitializedAttrs>(attrs)) &&
+         "Please create a MatmulAttrs or leave it to be uninitialized.");
+
+  if (std::holds_alternative<UninitializedAttrs>(attrs)) {
+    return MatmulAttrs{op.getMatmulProgramConfig(), op.getComputeConfig()};
+  }
+
+  MatmulAttrs matmulAttrs = std::get<MatmulAttrs>(attrs);
+
+  // Prefer the config from opConfig if it has a valid value.
+  return MatmulAttrs{(matmulAttrs.matmulProgramConfig.has_value() &&
+                      matmulAttrs.matmulProgramConfig.value())
+                         ? matmulAttrs.matmulProgramConfig
+                         : op.getMatmulProgramConfig(),
+                     (matmulAttrs.computeKernelConfig.has_value() &&
+                      matmulAttrs.computeKernelConfig.value())
+                         ? matmulAttrs.computeKernelConfig
+                         : op.getComputeConfig()};
+}
+
 llvm::Expected<op_model::OpConstraints>
 LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
@@ -2656,10 +2895,19 @@ LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
+  // Convert activation attribute to optional StringRef
+  std::optional<llvm::StringRef> activation =
+      getActivation() ? std::make_optional(getActivation().value())
+                      : std::nullopt;
+
+  // Get matmul program config from opConfig if present, otherwise from op.
+  MatmulAttrs attr = unpackMatmulAttrs(opConfig.opSpecificAttrs, *this);
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<LinearOp>::getOpConstraints, *this, deviceGrid,
       inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape, biasLayout,
-      opConfig.outputLayout, getTransposeA(), getTransposeB());
+      opConfig.outputLayout, getTransposeA(), getTransposeB(), activation,
+      attr.matmulProgramConfig, attr.computeKernelConfig);
 }
 
 llvm::Expected<size_t>
@@ -2696,6 +2944,24 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShapeA = getA().getType().getShape();
   const auto inputShapeB = getB().getType().getShape();
 
+  // Skip getOpConstraints for matmul with block sharded first operand if height
+  // or width is less than tile size
+  // TODO (mvasiljevic): remove once the fix in metal is merged and uplifted:
+  // https://github.com/tenstorrent/tt-metal/pull/33777
+  if (!inputs.empty() && inputs[0].getMemLayout() &&
+      inputs[0].getMemLayout().getValue() == TensorMemoryLayout::BlockSharded &&
+      inputShapeA.size() >= 2) {
+    int64_t height = inputShapeA[inputShapeA.size() - 2];
+    int64_t width = inputShapeA[inputShapeA.size() - 1];
+    if (height < static_cast<int64_t>(TILE_HEIGHT) ||
+        width < static_cast<int64_t>(TILE_WIDTH)) {
+      return llvm::createStringError(
+          llvm::inconvertibleErrorCode(),
+          "Matmul with block sharded first operand having logical "
+          "shape less than tile size is not supported");
+    }
+  }
+
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
@@ -2703,10 +2969,19 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
+  // Convert activation attribute to optional StringRef
+  std::optional<llvm::StringRef> activation =
+      getActivation() ? std::make_optional(getActivation().value())
+                      : std::nullopt;
+
+  // Get matmul program config from opConfig if present, otherwise from op.
+  MatmulAttrs attr = unpackMatmulAttrs(opConfig.opSpecificAttrs, *this);
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<MatmulOp>::getOpConstraints, *this, deviceGrid,
       inputShapeA, inputs[0], inputShapeB, inputs[1], opConfig.outputLayout,
-      getTransposeA(), getTransposeB());
+      getTransposeA(), getTransposeB(), activation, attr.matmulProgramConfig,
+      attr.computeKernelConfig);
 }
 
 llvm::Expected<size_t>
@@ -2841,7 +3116,8 @@ UpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
-  assert(inputs.size() == 4);
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "PagedUpdateCacheOp must have 3 or 4 inputs");
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
@@ -2852,29 +3128,90 @@ PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   auto cacheShape = getCache().getType().getShape();
   auto inputShape = getInput().getType().getShape();
   auto updateIndexShape = getUpdateIndex().getType().getShape();
-  auto pageTableShape = getPageTable().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> pageTableShape;
+  std::optional<TTNNLayoutAttr> pageTableLayout;
+  if (getPageTable()) {
+    pageTableShape = getPageTable().getType().getShape();
+    pageTableLayout = inputs[3];
+  }
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<PagedUpdateCacheOp>::getOpConstraints, *this,
       deviceGrid, cacheShape, inputs[0], inputShape, inputs[1],
-      updateIndexShape, inputs[2], pageTableShape, inputs[3], getShareCache(),
-      opConfig.outputLayout);
+      updateIndexShape, inputs[2], pageTableShape, pageTableLayout,
+      getShareCache(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 PagedUpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                  const OpConfig &opConfig) {
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "PagedUpdateCacheOp must have 3 or 4 inputs");
   auto cacheShape = getCache().getType().getShape();
   auto inputShape = getInput().getType().getShape();
   auto updateIndexShape = getUpdateIndex().getType().getShape();
-  auto pageTableShape = getPageTable().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> pageTableShape;
+  std::optional<TTNNLayoutAttr> pageTableLayout;
+  if (getPageTable()) {
+    pageTableShape = getPageTable().getType().getShape();
+    pageTableLayout = inputs[3];
+  }
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<PagedUpdateCacheOp>::getOpRuntime, *this, cacheShape,
       inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
-      pageTableShape, inputs[3], getShareCache(), opConfig.outputLayout);
+      pageTableShape, pageTableLayout, getShareCache(), opConfig.outputLayout);
 }
 
+llvm::Expected<op_model::OpConstraints>
+PagedFillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "PagedFillCacheOp must have 3 or 4 inputs");
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  auto cacheShape = getCache().getType().getShape();
+  auto inputShape = getInput().getType().getShape();
+  auto pageTableShape = getPageTable().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> batchIdxShape;
+  std::optional<TTNNLayoutAttr> batchIdxLayout;
+  if (getBatchIdxTensor()) {
+    batchIdxShape = getBatchIdxTensor().getType().getShape();
+    batchIdxLayout = inputs[3];
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PagedFillCacheOp>::getOpConstraints, *this, deviceGrid,
+      cacheShape, inputs[0], inputShape, inputs[1], pageTableShape, inputs[2],
+      batchIdxShape, batchIdxLayout, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+PagedFillCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "PagedFillCacheOp must have 3 or 4 inputs");
+  auto cacheShape = getCache().getType().getShape();
+  auto inputShape = getInput().getType().getShape();
+  auto pageTableShape = getPageTable().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> batchIdxShape;
+  std::optional<TTNNLayoutAttr> batchIdxLayout;
+
+  if (getBatchIdxTensor()) {
+    batchIdxShape = getBatchIdxTensor().getType().getShape();
+    batchIdxLayout = inputs[3];
+  }
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<PagedFillCacheOp>::getOpRuntime, *this, cacheShape,
+      inputs[0], inputShape, inputs[1], pageTableShape, inputs[2],
+      batchIdxShape, batchIdxLayout, opConfig.outputLayout);
+}
 //===----------------------------------------------------------------------===//
 // WriteTensorOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
@@ -2946,7 +3283,8 @@ Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
       getInputWidth(), getKernelSize(), getStride(), getPadding(),
       getDilation(), getGroups(), attr.conv2dConfig,
-      attr.deviceComputeKernelConfig, opConfig.outputLayout);
+      attr.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2970,7 +3308,67 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
       getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
       getKernelSize(), getStride(), getPadding(), getDilation(), getGroups(),
-      attr.conv2dConfig, attr.deviceComputeKernelConfig, opConfig.outputLayout);
+      attr.conv2dConfig, attr.deviceComputeKernelConfig,
+      getConv2dSliceConfigAttr(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// Conv3dOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto weightShape = getWeight().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<TTNNLayoutAttr> biasLayout;
+
+  if (inputs.size() == 3) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[2];
+  }
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<Conv3dOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
+      getInChannels(), getOutChannels(), getBatchSize(), getInputDepth(),
+      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
+      getPadding(), getGroups(), getPaddingMode(), getDtypeAttr(),
+      getConv3dConfig(), getComputeConfig(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+Conv3dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto weightShape = getWeight().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<TTNNLayoutAttr> biasLayout;
+
+  if (inputs.size() == 3) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[2];
+  }
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<Conv3dOp>::getOpRuntime, *this, inputShape, inputs[0],
+      weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
+      getOutChannels(), getBatchSize(), getInputDepth(), getInputHeight(),
+      getInputWidth(), getKernelSize(), getStride(), getPadding(), getGroups(),
+      getPaddingMode(), getDtypeAttr(), getConv3dConfig(), getComputeConfig(),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3029,7 +3427,7 @@ ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
       getInputWidth(), getKernelSize(), getStride(), getPadding(),
       getOutputPadding(), getDilation(), getGroups(), conv2dAttrs.conv2dConfig,
-      opConfig.outputLayout);
+      getConv2dSliceConfig(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3056,7 +3454,7 @@ ConvTranspose2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
       getKernelSize(), getStride(), getPadding(), getOutputPadding(),
       getDilation(), getGroups(), conv2dAttrs.conv2dConfig,
-      opConfig.outputLayout);
+      getConv2dSliceConfig(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3085,7 +3483,8 @@ PrepareConv2dWeightsOp::getOpConstraints(
       getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
       getKernelSize(), getStride(), getPadding(), getDilation(), getHasBias(),
       getGroups(), getInputDtype(), getOutputDtype(), conv2dAttrs.conv2dConfig,
-      conv2dAttrs.deviceComputeKernelConfig, opConfig.outputLayout);
+      conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3127,6 +3526,78 @@ PrepareConv2dBiasOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 PrepareConv2dBiasOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                   const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareConvTranspose2dWeightsOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConvTranspose2dWeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const ::llvm::ArrayRef<int64_t> weightShape =
+      getWeightTensor().getType().getShape();
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints,
+      *this, deviceGrid, inputs[0], weightShape, getInputMemoryConfig(),
+      getInputTensorLayout(), getWeightsFormat(), getInChannels(),
+      getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
+      getKernelSize(), getStride(), getPadding(), getDilation(), getHasBias(),
+      getGroups(), getInputDtype(), getOutputDtype(), conv2dAttrs.conv2dConfig,
+      conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfig(),
+      getMirrorKernel(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t> PrepareConvTranspose2dWeightsOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareConvTranspose2dBiasOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConvTranspose2dBiasOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const ::llvm::ArrayRef<int64_t> biasShape =
+      getBiasTensor().getType().getShape();
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints, *this,
+      deviceGrid, inputs[0], biasShape, getInputMemoryConfig(),
+      getInputTensorLayout(), getInChannels(), getOutChannels(), getBatchSize(),
+      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
+      getPadding(), getDilation(), getGroups(), getInputDtype(),
+      getOutputDtype(), conv2dAttrs.conv2dConfig,
+      conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfig(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t> PrepareConvTranspose2dBiasOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
 }
@@ -3334,6 +3805,15 @@ static RMSNormOptionalArgs
 unpackRMSNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
                           RMSNormOp op) {
   RMSNormOptionalArgs ret;
+  if (inputs.size() == 2) {
+    if (op.getWeight()) {
+      ret.weightShape = op.getWeight().getType().getShape();
+      ret.weightLayout = inputs[1];
+    } else if (op.getBias()) {
+      ret.biasShape = op.getBias().getType().getShape();
+      ret.biasLayout = inputs[1];
+    }
+  }
   if (inputs.size() == 3) {
     ret.weightShape = op.getWeight().getType().getShape();
     ret.biasShape = op.getBias().getType().getShape();
@@ -3346,12 +3826,6 @@ unpackRMSNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 RMSNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-  assert((inputs.size() == 1 || inputs.size() == 3) &&
-         "ttnn::rms_norm can either have 1 input tensor (representing the "
-         "main input) or 3 input tensors (representing main input tensor, "
-         "weight and bias). The usage of this op with 2 input tensors is "
-         "discouraged as it's ambiguous.");
-
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
@@ -3373,12 +3847,6 @@ RMSNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 RMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
-  assert((inputs.size() == 1 || inputs.size() == 3) &&
-         "ttnn::rms_norm can either have 1 input tensor (representing the "
-         "main input) or 3 input tensors (representing main input tensor, "
-         "weight and bias). The usage of this op with 2 input tensors is "
-         "discouraged as it's ambiguous.");
-
   const auto inputShape = getInput().getType().getShape();
 
   RMSNormOptionalArgs optionalArgs = unpackRMSNormOptionalArgs(inputs, *this);
@@ -3386,6 +3854,94 @@ RMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<RMSNormOp>::getOpRuntime, *this, inputShape, inputs[0],
       optionalArgs.weightShape, optionalArgs.weightLayout,
+      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// DistributedRMSNormOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+// DistributedRMSNormOp is a fused CCL operation that requires multi-device
+// support and is not supported in the op model.
+
+llvm::Expected<op_model::OpConstraints> DistributedRMSNormOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMultiDevice);
+}
+
+llvm::Expected<size_t>
+DistributedRMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMultiDevice);
+}
+
+//===----------------------------------------------------------------------===//
+// LayerNormOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct LayerNormOptionalArgs {
+  std::optional<llvm::ArrayRef<int64_t>> weightShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+};
+static LayerNormOptionalArgs
+unpackLayerNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
+                            LayerNormOp op) {
+  LayerNormOptionalArgs ret;
+  if (inputs.size() == 2) {
+    if (op.getWeight()) {
+      ret.weightShape = op.getWeight().getType().getShape();
+      ret.weightLayout = inputs[1];
+    } else if (op.getBias()) {
+      ret.biasShape = op.getBias().getType().getShape();
+      ret.biasLayout = inputs[1];
+    }
+  }
+  if (inputs.size() == 3) {
+    ret.weightShape = op.getWeight().getType().getShape();
+    ret.biasShape = op.getBias().getType().getShape();
+    ret.weightLayout = inputs[1];
+    ret.biasLayout = inputs[2];
+  }
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+LayerNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  LayerNormOptionalArgs optionalArgs =
+      unpackLayerNormOptionalArgs(inputs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<LayerNormOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+LayerNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  const auto inputShape = getInput().getType().getShape();
+
+  LayerNormOptionalArgs optionalArgs =
+      unpackLayerNormOptionalArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<LayerNormOp>::getOpRuntime, *this, inputShape,
+      inputs[0], optionalArgs.weightShape, optionalArgs.weightLayout,
       optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
       opConfig.outputLayout);
 }
@@ -3410,7 +3966,8 @@ ClampScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ClampScalarOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getMin(), getMax(), opConfig.outputLayout);
+      inputShape, inputs[0], ttmlir::utils::attributeToAPFloat(getMin()),
+      ttmlir::utils::attributeToAPFloat(getMax()), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3422,7 +3979,8 @@ ClampScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ClampScalarOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getMin(), getMax(), opConfig.outputLayout);
+      inputs[0], ttmlir::utils::attributeToAPFloat(getMin()),
+      ttmlir::utils::attributeToAPFloat(getMax()), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3784,6 +4342,24 @@ ReduceScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// MeshPartitionOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+MeshPartitionOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                  const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+MeshPartitionOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
 // PointToPointOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -3801,25 +4377,6 @@ PointToPointOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::NeedsMultiDevice);
-}
-
-//===----------------------------------------------------------------------===//
-// CollectivePermuteOp - TTNN Op Model Interface
-//===----------------------------------------------------------------------===//
-
-// CollectivePermuteOp is not supported rn. The reason is that the metal
-// definition is missing for this op.
-llvm::Expected<op_model::OpConstraints>
-CollectivePermuteOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                      const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-}
-llvm::Expected<size_t>
-CollectivePermuteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                                  const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3895,6 +4452,43 @@ RandOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                      const OpConfig &opConfig) {
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
+//===----------------------------------------------------------------------===//
+// DropoutOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+DropoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<DropoutOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], getProb(), getScale(), getSeed(),
+      getUsePerDeviceSeed(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+DropoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<DropoutOp>::getOpRuntime, *this, inputShape, inputs[0],
+      getProb(), getScale(), getSeed(), getUsePerDeviceSeed(),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4109,4 +4703,246 @@ AssignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputShape, inputs[0], getMemoryConfig(), getDtype());
 }
 
+//===----------------------------------------------------------------------===//
+// DistributeTensorOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+DistributeTensorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+DistributeTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
+// AggregateTensorOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AggregateTensorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+AggregateTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
+// D2MSubgraphOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+// define what's the compare function for the constraints. Right now, we take
+// the max memory usage of any internal op of the D2M subgraph.
+static const auto d2m_subgraph_constraints_comp_fn = [](size_t a, size_t b) {
+  return std::max(a, b);
+};
+
+// The runtime is assumed to be the sum of the runtimes of the internal ops.
+static const auto d2m_subgraph_runtime_comp_fn = [](size_t a, size_t b) {
+  return a + b;
+};
+
+void accumulateConstraintsForD2MOp(op_model::OpConstraints &lhs,
+                                   const op_model::OpConstraints &rhs) {
+  lhs.cbL1PeakSize =
+      d2m_subgraph_constraints_comp_fn(lhs.cbL1PeakSize, rhs.cbL1PeakSize);
+  lhs.tensorL1PeakSize = d2m_subgraph_constraints_comp_fn(lhs.tensorL1PeakSize,
+                                                          rhs.tensorL1PeakSize);
+  lhs.peakL1MemorySize = d2m_subgraph_constraints_comp_fn(lhs.peakL1MemorySize,
+                                                          rhs.peakL1MemorySize);
+  lhs.outputL1BufferSize = d2m_subgraph_constraints_comp_fn(
+      lhs.outputL1BufferSize, rhs.outputL1BufferSize);
+}
+
+// Map each SSA value in the block to its layout. Block args 0..inputs.size()-1
+// are the D2M tensor inputs; any further block args (e.g. output buffer) use
+// opConfig.outputLayout. Op results get their layout from the result type
+// encoding (actual layout) when present, else opConfig.outputLayout, so that
+// both getOpConstraints and getOpRuntime use the same map and a trailing
+// ToLayoutOp (if present) gets the correct input layout.
+using ValueToLayoutMap = llvm::DenseMap<mlir::Value, TTNNLayoutAttr>;
+ValueToLayoutMap
+buildValueToLayoutMap(const std::vector<TTNNLayoutAttr> &inputs,
+                      mlir::Block &d2mBlock, const OpConfig &opConfig) {
+  ValueToLayoutMap ret;
+  for (mlir::BlockArgument arg : d2mBlock.getArguments()) {
+    unsigned argNum = arg.getArgNumber();
+    if (argNum < inputs.size()) {
+      ret[arg] = inputs[argNum];
+    } else {
+      ret[arg] = opConfig.outputLayout;
+    }
+  }
+  for (mlir::Operation &op : d2mBlock.getOperations()) {
+    for (mlir::Value result : op.getResults()) {
+      if (auto tensorType =
+              mlir::dyn_cast<RankedTensorType>(result.getType())) {
+        if (auto encoding =
+                mlir::dyn_cast<TTNNLayoutAttr>(tensorType.getEncoding())) {
+          ret[result] = encoding;
+          continue;
+        }
+      }
+      ret[result] = opConfig.outputLayout;
+    }
+  }
+  return ret;
+}
+
+// D2M has no tt-metal op; the op dispatches to a D2M-compiled subgraph. We
+// walk the function body, call getOpConstraints for each internal op with
+// the correct input layouts (from D2M inputs or from preceding op outputs),
+// and return the element-wise max of their constraints.
+llvm::Expected<op_model::OpConstraints>
+D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  auto func = getD2MMainFunc();
+  assert(func && "D2MSubgraphOp must have a D2M function");
+  auto &body = func.getBody();
+  assert(body.hasOneBlock() && "D2M function must have one block");
+  auto &block = body.front();
+
+  ValueToLayoutMap valueToLayout =
+      buildValueToLayoutMap(inputs, block, opConfig);
+
+  op_model::OpConstraints ret(0, 0, 0, 0, {opConfig.outputLayout});
+
+  for (mlir::Operation &op : block.getOperations()) {
+    auto backend = mlir::dyn_cast<OpModel>(&op);
+    if (!backend) {
+      // the constraint API for this op is not implemented:
+      continue;
+    }
+
+    // Build input layouts for this op: block args -> inputs[i], op results ->
+    // layout we stored when we processed the defining op.
+    std::vector<TTNNLayoutAttr> internalOpInputLayouts;
+    for (mlir::Value operand : op.getOperands()) {
+      auto it = valueToLayout.find(operand);
+      assert(it != valueToLayout.end() &&
+             "D2M internal op operand must have a known layout");
+      internalOpInputLayouts.push_back(it->second);
+    }
+
+    // Use this op's actual output layout (from the map), not the D2M's
+    // top-level layout, so the constraint API is asked for the layout this op
+    // produces.
+    assert(op.getNumResults() > 0 && "OpModel op expected to have results");
+    TTNNLayoutAttr internalOpOutputLayout =
+        valueToLayout.lookup(op.getResult(0));
+    OpConfig internalOpConfig(internalOpOutputLayout);
+
+    op_model::OpConstraints c(0, 0, 0, 0, {internalOpOutputLayout});
+
+    llvm::Expected<op_model::OpConstraints> expectedConstraints =
+        backend.getOpConstraints(internalOpInputLayouts, internalOpConfig);
+    if (expectedConstraints) {
+      c = *expectedConstraints;
+    } else {
+      // Use default constraints so one failing internal op doesn't invalidate
+      // the whole D2M subgraph / model compilation.
+      llvm::consumeError(expectedConstraints.takeError());
+    }
+
+    // Accumulate the constraints for this op into the total constraints for the
+    // D2M subgraph.
+    accumulateConstraintsForD2MOp(ret, c);
+  }
+
+  return ret;
+}
+
+llvm::Expected<size_t>
+D2MSubgraphOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  auto func = getD2MMainFunc();
+  assert(func && "D2MSubgraphOp must have a D2M function");
+  auto &body = func.getBody();
+  assert(body.hasOneBlock() && "D2M function must have one block");
+  auto &block = body.front();
+
+  ValueToLayoutMap valueToLayout =
+      buildValueToLayoutMap(inputs, block, opConfig);
+
+  size_t ret = 0;
+
+  for (mlir::Operation &internalOp : block.getOperations()) {
+    auto backend = mlir::dyn_cast<OpModel>(&internalOp);
+    if (!backend) {
+      continue;
+    }
+
+    std::vector<TTNNLayoutAttr> internalOpInputLayouts;
+    for (mlir::Value operand : internalOp.getOperands()) {
+      auto it = valueToLayout.find(operand);
+      assert(it != valueToLayout.end() &&
+             "D2M internal op operand must have a known layout");
+      internalOpInputLayouts.push_back(it->second);
+    }
+
+    // Use this op's actual output layout (from the map), not the D2M's
+    // top-level layout, so the runtime API is costed for the layout this op
+    // produces.
+    assert(internalOp.getNumResults() > 0 &&
+           "OpModel op expected to have results");
+    OpConfig internalOpConfig(valueToLayout.lookup(internalOp.getResult(0)));
+
+    size_t runtime = 0;
+    llvm::Expected<size_t> internalOpRuntime =
+        backend.getOpRuntime(internalOpInputLayouts, internalOpConfig);
+    if (internalOpRuntime) {
+      runtime = *internalOpRuntime;
+    } else {
+      // Use default runtime so one failing internal op doesn't invalidate the
+      // whole D2M subgraph / model compilation.
+      llvm::consumeError(internalOpRuntime.takeError());
+    }
+    ret = d2m_subgraph_runtime_comp_fn(ret, runtime);
+  }
+
+  return ret;
+}
+
+//===----------------------------------------------------------------------===//
+// TopKOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+TopKOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+  const auto inputShape = getInputTensor().getType().getShape();
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::TopKOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], getK(), getDim(), getLargest(),
+      getSorted(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+TopKOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  const auto inputShape = getInputTensor().getType().getShape();
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::TopKOp>::getOpRuntime, *this,
+      inputShape, inputs[0], getK(), getDim(), getLargest(), getSorted(),
+      opConfig.outputLayout);
+}
 } // namespace mlir::tt::ttnn

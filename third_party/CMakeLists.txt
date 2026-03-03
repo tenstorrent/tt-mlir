@@ -1,8 +1,9 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "7c6c39392d8fe44cb2cfa9013e2bab161297d544")
+set(TT_METAL_VERSION "beccdb232ed7532b0748f8f97aba958ba43ddae1")
 
-set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
+# Suppress install logs to avoid cluttering the build output
+set(CMAKE_INSTALL_MESSAGE NEVER)
 
 
 if (DEFINED ENV{CPM_SOURCE_CACHE})
@@ -11,6 +12,13 @@ else()
   set(CPM_SOURCE_CACHE "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache")
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
+
+set(TTMETAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build_${CMAKE_BUILD_TYPE})
+set(TTMETAL_BUILD_SYMLINK ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
+# tt-metal uses GNUInstallDirs which sets CMAKE_INSTALL_LIBDIR to "lib" or "lib64" based on the system
+# We need to use the same value to find the installed libraries
+include(GNUInstallDirs)
+set(TTMETAL_LIBRARY_DIR ${TTMETAL_BUILD_DIR}/${CMAKE_INSTALL_LIBDIR})
 
 set(TRACY_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/tracy/public
@@ -24,8 +32,9 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/deprecated
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/include
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/hostdevcommon/api
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/umd
@@ -35,7 +44,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_eager
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/include
+  ${TTMETAL_BUILD_SYMLINK}/include
   ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
   ${CPM_SOURCE_CACHE}/nanomsg/28cc32d5bdb6a858fe53b3ccf7e923957e53eada/include
   ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
@@ -43,15 +52,12 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
   ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
   ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-  ${CPM_SOURCE_CACHE}/tt-logger/5d45c661affa374c5656335a77010ab503f96a99/include
+  ${CPM_SOURCE_CACHE}/tt-logger/d2339ce68562cae34cd95f3fece7fd94eb0529b7/include
   ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
   PARENT_SCOPE
 )
-
-set(TTMETAL_BUILD_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
-set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/lib)
 
 set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so)
 set(TTNN_PY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
@@ -60,7 +66,7 @@ set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
 set(DEVICE_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libdevice.so)
 set(TT_STL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_stl.so)
 set(TRACY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtracy.so)
-
+set(TRACY_BINARY_DIR ${TTMETAL_BUILD_DIR}/tools/profiler/bin)
 set(TTMETAL_BUILD_DIR ${TTMETAL_BUILD_DIR} PARENT_SCOPE)
 set(TTMETAL_LIBRARY_DIR ${TTMETAL_LIBRARY_DIR} PARENT_SCOPE)
 set(TTNN_LIBRARY_PATH ${TTNN_LIBRARY_PATH} PARENT_SCOPE)
@@ -69,6 +75,7 @@ set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_PATH} PARENT_SCOPE)
 set(DEVICE_LIBRARY_PATH ${DEVICE_LIBRARY_PATH} PARENT_SCOPE)
 set(TT_STL_LIBRARY_PATH ${TT_STL_LIBRARY_PATH} PARENT_SCOPE)
 set(TRACY_LIBRARY_PATH ${TRACY_LIBRARY_PATH} PARENT_SCOPE)
+set(TRACY_BINARY_DIR ${TRACY_BINARY_DIR} PARENT_SCOPE)
 
 if ("${CMAKE_CXX_COMPILER_LAUNCHER}" STREQUAL "ccache")
   # `tt-metal` has specific setup for ccache.
@@ -92,16 +99,15 @@ else()
   set(ENABLE_DISTRIBUTED OFF)
 endif()
 
-set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
-set(METAL_INSTALL_PREFIX "${METAL_BUILD_DIR}")
+set(METAL_INSTALL_PREFIX "${TTMETAL_BUILD_DIR}")
 ExternalProject_Add(
   tt-metal
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
-  BINARY_DIR ${METAL_BUILD_DIR}
+  BINARY_DIR ${TTMETAL_BUILD_DIR}
   # This patch command creates the build dir that otherwise doesn't get created
-  PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${METAL_BUILD_DIR}
+  PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${TTMETAL_BUILD_DIR}
   CMAKE_ARGS
-    -DCMAKE_INSTALL_MESSAGE=LAZY
+    -DCMAKE_INSTALL_MESSAGE=NEVER
   CMAKE_GENERATOR Ninja
   CMAKE_ARGS
     -DCMAKE_BUILD_TYPE=${TTMETAL_BUILD_TYPE}
@@ -117,6 +123,7 @@ ExternalProject_Add(
     -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
     -DENABLE_LIBCXX=OFF
     -DENABLE_DISTRIBUTED=${ENABLE_DISTRIBUTED}
+    -DTT_USE_SYSTEM_SFPI=${TT_USE_SYSTEM_SFPI}
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
   GIT_TAG ${TT_METAL_VERSION}
   GIT_PROGRESS OFF
@@ -124,6 +131,14 @@ ExternalProject_Add(
 )
 
 ExternalProject_Add_StepTargets(tt-metal download update configure)
+
+ExternalProject_Add_Step(tt-metal create_build_symlink
+  COMMAND ${CMAKE_COMMAND} -E rm -f ${TTMETAL_BUILD_SYMLINK}
+  COMMAND ${CMAKE_COMMAND} -E create_symlink ${TTMETAL_BUILD_DIR} ${TTMETAL_BUILD_SYMLINK}
+  COMMENT "Creating symlink: build -> build_${CMAKE_BUILD_TYPE}"
+  DEPENDEES build
+)
+
 set_target_properties(tt-metal-download PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(tt-metal-update PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)
@@ -135,6 +150,7 @@ set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
 install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tools
   DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
   USE_SOURCE_PERMISSIONS
   COMPONENT SharedLib
@@ -171,6 +187,7 @@ install(
   FILES_MATCHING
   REGEX "third_party/tt_llk/tt_llk_blackhole/"
   REGEX "third_party/tt_llk/tt_llk_wormhole_b0/"
+  REGEX "third_party/tt_llk/common"
   REGEX "third_party/umd/"
 )
 
@@ -216,8 +233,8 @@ install(
 )
 install(
   DIRECTORY
-    ${CPM_SOURCE_CACHE}/tt-logger/5d45c661affa374c5656335a77010ab503f96a99/include
-  DESTINATION tt-metal/.cpmcache/tt-logger/5d45c661affa374c5656335a77010ab503f96a99
+    ${CPM_SOURCE_CACHE}/tt-logger/d2339ce68562cae34cd95f3fece7fd94eb0529b7/include
+  DESTINATION tt-metal/.cpmcache/tt-logger/d2339ce68562cae34cd95f3fece7fd94eb0529b7
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
 )
@@ -257,6 +274,14 @@ install(
   EXCLUDE_FROM_ALL
 )
 
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tests/scale_out
+  DESTINATION tt-metal/tests/scale_out
+  COMPONENT DistributedRuntime
+  EXCLUDE_FROM_ALL
+)
+
 list(APPEND library_names TTNN_LIBRARY TTNN_PY_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY TT_STL_LIBRARY TRACY_LIBRARY)
 list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTNN_PY_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH} ${TT_STL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH})
 
@@ -278,6 +303,24 @@ install(CODE
     )"
     COMPONENT SharedLib
 )
+
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  install(CODE
+      "
+      MESSAGE(STATUS \"Installing tt-metal profiler binaries to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
+      file(
+          INSTALL
+          ${TRACY_BINARY_DIR}/csvexport-release
+          ${TRACY_BINARY_DIR}/capture-release
+          DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}
+          TYPE SHARED_LIBRARY
+          USE_SOURCE_PERMISSIONS
+          FOLLOW_SYMLINK_CHAIN
+      )"
+      COMPONENT SharedLib
+  )
+endif()
+
 else() # TTMLIR_ENABLE_RUNTIME OR TTMLIR_ENABLE_OPMODEL
   add_library(tt-metal INTERFACE)
   add_library(TTNN_LIBRARY INTERFACE)

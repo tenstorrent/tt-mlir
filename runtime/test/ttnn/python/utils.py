@@ -100,7 +100,10 @@ class ProgramTestRunner:
         if self.config.compute_golden:
             golden = self.config.compute_golden(inputs_torch)
 
-        return inputs_runtime_with_layout, golden
+        # Returning inputs_torch to prevent Python GC from freeing memory of the Torch tensors,
+        # which can lead to invalid memory access if the inputs are expected in the host memory.
+        # Issue #6254.
+        return inputs_runtime_with_layout, golden, inputs_torch
 
     def submit_program(self, device, inputs):
         return ttrt.runtime.submit(device, self.binary.fbb, self.program_index, inputs)[
@@ -126,7 +129,7 @@ class DeviceContext:
         self,
         mesh_shape=None,
         mesh_offset=None,
-        enable_program_cache=False,
+        enable_program_cache=True,
         trace_region_size=0,
         num_hw_cqs=1,
     ):
@@ -154,8 +157,16 @@ def subprocess_get_system_descriptor(request):
     folder_name = "-".join([request.fspath.basename, request.node.name, "artifacts"])
     artifacts_dir = f"{os.getcwd()}/{folder_name}"
 
+    ttrt_query_cmd = [
+        "ttrt",
+        "query",
+        "--save-artifacts",
+        "--artifact-dir",
+        artifacts_dir,
+    ]
+
     result = subprocess.run(
-        ["ttrt", "query", "--save-artifacts", "--artifact-dir", artifacts_dir],
+        ttrt_query_cmd,
         capture_output=True,
         text=True,
     )

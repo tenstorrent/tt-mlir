@@ -30,6 +30,7 @@ uint32_t getNumShards(Tensor tensor);
 
 void setMlirHome(std::string_view mlirHome);
 void setMetalHome(std::string_view metalHome);
+void setMemoryLogLevel(const MemoryLogLevel &logLevel);
 
 std::vector<DeviceRuntime> getAvailableDeviceRuntimes();
 DeviceRuntime getCurrentDeviceRuntime();
@@ -84,6 +85,16 @@ Tensor createMultiDeviceHostTensor(
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
 
+// Creates multi-device host tensor with borrowed storage (the buffer of the
+// tensor is on the host and it was borrowed from an external buffer which is
+// responsible for its allocation/deallocation).
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
+
 // Creates empty tensor on host/device depending on the passed layout.
 Tensor createEmptyTensor(Device device, Layout layout,
                          const std::vector<std::uint32_t> &shape,
@@ -129,9 +140,6 @@ void setTensorRetain(Tensor tensor, bool retain);
 
 tt::target::Arch getArch();
 
-void enablePersistentKernelCache();
-void disablePersistentKernelCache();
-
 size_t getNumAvailableDevices();
 
 Device openMeshDevice(const MeshDeviceOptions &options = {});
@@ -150,8 +158,11 @@ void reshapeMeshDevice(Device meshDevice,
 
 std::vector<uint32_t> getMeshShape(Device meshDevice);
 std::vector<int> getDeviceIds(Device meshDevice);
+
+std::vector<int> getMappedDeviceIds(const std::vector<uint32_t> &meshShape);
 size_t getNumHwCqs(Device meshDevice);
 bool isProgramCacheEnabled(Device meshDevice);
+void clearProgramCache(Device meshDevice);
 size_t getL1SmallSize(Device meshDevice);
 size_t getTraceRegionSize(Device meshDevice);
 size_t getNumDramChannels(Device meshDevice);
@@ -177,6 +188,15 @@ This function gets the memory view per device
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);
 
+struct MeshFabricConfig {
+  FabricConfig globalConfig;
+  std::vector<FabricConfig> perAxisConfig;
+};
+
+MeshFabricConfig
+computeMeshFabricConfig(const SystemDesc &systemDesc,
+                        const std::vector<uint32_t> &meshShape);
+
 void setFabricConfig(tt::runtime::FabricConfig config);
 
 void wait(Event event);
@@ -191,10 +211,15 @@ void wait(const std::vector<Tensor> &tensors,
 std::vector<Tensor> toHost(Tensor tensor, bool untilize = false,
                            bool blocking = true);
 
+// Returns vector of device tensors from provided sharded tensor.
+std::vector<Tensor> getDeviceTensors(Tensor tensor);
+
 Tensor toLayout(Tensor tensor, Device device, Layout layout,
                 std::optional<bool> retain = std::nullopt);
 
 bool hasLayout(Tensor tensor, Layout layout);
+
+Layout getTensorLayout(Tensor tensor);
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);

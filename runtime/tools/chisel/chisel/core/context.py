@@ -183,7 +183,7 @@ class ChiselContext:
             "binary": str(self.flatbuffer_path),
             "save-artifacts": True,
             "--program-index": self.program_index,
-            "--init": "ones",
+            "--init": "randn",
             "--disable-ttrt-callbacks": True,
         }
 

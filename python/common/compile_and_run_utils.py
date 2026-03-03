@@ -36,11 +36,13 @@ class ModuleDialect(Enum):
         """
         str_repr = str(module_or_op)
 
-        if "stablehlo." in str_repr:
+        if "= stablehlo." in str_repr:
             return ModuleDialect.STABLE_HLO
-        elif "ttir." in str_repr:
+        elif '= "stablehlo.' in str_repr:
+            return ModuleDialect.STABLE_HLO
+        elif '= "ttir.' in str_repr:
             return ModuleDialect.TTIR
-        elif "ttnn." in str_repr:
+        elif '= "ttnn.' in str_repr:
             return ModuleDialect.TTNN
         else:
             # Fallback to returning `tt` dialect if nothing else succeeds. It bundles

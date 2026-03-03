@@ -14,10 +14,15 @@ namespace tt::runtime::distributed::controller {
 
 class CommandFactory {
 public:
+  static uint64_t buildSetMemoryLogLevelCommand(
+      ::flatbuffers::FlatBufferBuilder &fbb,
+      const ::tt::runtime::MemoryLogLevel &memoryLogLevel);
+
   static uint64_t buildConfigureRuntimeContextCommand(
       ::flatbuffers::FlatBufferBuilder &fbb, const std::string &mlirHome,
       const std::string &metalHome,
-      const ::tt::runtime::DeviceRuntime &currentDeviceRuntime);
+      const ::tt::runtime::DeviceRuntime &currentDeviceRuntime,
+      const ::tt::runtime::MemoryLogLevel &memoryLogLevel);
 
   static uint64_t buildGetSystemDescCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
@@ -128,6 +133,19 @@ public:
   buildDeallocateTensorCommand(::flatbuffers::FlatBufferBuilder &fbb,
                                const ::tt::runtime::Tensor &tensor, bool force);
 
+  static uint64_t
+  buildGetTensorDescCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                            const ::tt::runtime::Tensor &tensor);
+
+  static uint64_t
+  buildClearProgramCacheCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                                const tt::runtime::Device &meshDevice);
+  static uint64_t
+  buildIsProgramCacheEnabledCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                                    const tt::runtime::Device &meshDevice);
+  static uint64_t buildHasLayoutCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                                        const ::tt::runtime::Tensor &tensor,
+                                        const ::tt::runtime::Layout &layout);
   static uint64_t buildShutdownCommand(::flatbuffers::FlatBufferBuilder &fbb);
 };
 

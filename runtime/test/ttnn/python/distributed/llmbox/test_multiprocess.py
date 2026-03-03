@@ -8,6 +8,7 @@ import pytest
 import torch
 import ttrt
 import ttrt.runtime
+from typing import Dict, Any, Tuple, List
 from ttrt.common.util import *
 from ...utils import (
     TT_MLIR_HOME,
@@ -52,20 +53,102 @@ def shutdown_distributed_runtime():
     ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Local)
 
 
-@pytest.mark.xfail(
-    reason="TODO(#5320): System descriptor returned is local per host process, we need unification logic to merge them"
-)
+def compare_system_descriptors(
+    desc1: Dict[str, Any], desc2: Dict[str, Any]
+) -> Tuple[bool, List[str]]:
+    def _is_empty_container(value: Any) -> bool:
+        return (isinstance(value, list) and len(value) == 0) or (
+            isinstance(value, dict) and len(value) == 0
+        )
+
+    def _deep_compare(obj1: Any, obj2: Any, path: str, differences: List[str]) -> None:
+        if type(obj1) != type(obj2):
+            differences.append(
+                f"{path}: Type mismatch - {type(obj1).__name__} vs {type(obj2).__name__}"
+            )
+            return
+
+        # Multihost descriptors can have different chip channel assignments
+        if path == "system_desc.chip_channels":
+            return
+
+        if isinstance(obj1, dict):
+            keys1 = set(obj1.keys())
+            keys2 = set(obj2.keys())
+
+            # Check for missing keys
+            # Sometimes flatbuffers will omit fields/keys when the value is empty
+            # Therefore if a key is missing, we need to check that the value is empty for the object that has the key
+            if keys1 != keys2:
+                missing_in_2 = keys1 - keys2
+                missing_in_1 = keys2 - keys1
+
+                # For keys in first but not second, check they have empty values
+                for key in missing_in_2:
+                    value = obj1[key]
+                    if not _is_empty_container(value):
+                        differences.append(
+                            f"{path}.{key}: Key exists in first but not second, and has non-empty value: {value}"
+                        )
+
+                # For keys in second but not first, check they have empty values
+                for key in missing_in_1:
+                    value = obj2[key]
+                    if not _is_empty_container(value):
+                        differences.append(
+                            f"{path}.{key}: Key exists in second but not first, and has non-empty value: {value}"
+                        )
+
+            # Compare common keys
+            for key in keys1 & keys2:
+                # Skip the erisc_l1_unreserved_base field
+                # This field will be different on multi host because of extra fabric firmware overhead
+                if key == "erisc_l1_unreserved_base":
+                    continue
+
+                new_path = f"{path}.{key}" if path else key
+                _deep_compare(obj1[key], obj2[key], new_path, differences)
+
+        elif isinstance(obj1, list):
+            if len(obj1) != len(obj2):
+                differences.append(
+                    f"{path}: List length mismatch - {len(obj1)} vs {len(obj2)}"
+                )
+                return
+
+            for i, (item1, item2) in enumerate(zip(obj1, obj2)):
+                new_path = f"{path}[{i}]"
+                _deep_compare(item1, item2, new_path, differences)
+
+        else:
+            # Compare primitive values
+            if obj1 != obj2:
+                differences.append(f"{path}: Value mismatch - {obj1} vs {obj2}")
+
+    differences = []
+    _deep_compare(desc1, desc2, "", differences)
+
+    are_equal = len(differences) == 0
+
+    return are_equal, differences
+
+
 def test_system_desc(request):
     system_desc_local = subprocess_get_system_descriptor(request)
 
     launch_distributed_runtime()
 
-    system_desc = ttrt.runtime.get_current_system_desc()
-    assert system_desc is not None
+    system_desc_distributed = ttrt.runtime.get_current_system_desc()
+    assert system_desc_distributed is not None
 
     shutdown_distributed_runtime()
 
-    assert system_desc.as_json() == system_desc_local.as_json()
+    are_equal, differences = compare_system_descriptors(
+        json.loads(system_desc_local.as_json()),
+        json.loads(system_desc_distributed.as_json()),
+    )
+
+    assert are_equal, f"System descriptor mismatch with differences: {differences}"
 
 
 def test_get_num_devices():
@@ -187,7 +270,7 @@ def test_flatbuffer_execution(request, num_loops, mesh_shape):
     launch_distributed_runtime()
 
     with DeviceContext(mesh_shape=mesh_shape_list) as device:
-        inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(
+        inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
             device, borrow=False
         )
         for i in range(num_loops):
@@ -253,10 +336,12 @@ def test_flatbuffer_execution_dp(request, num_loops):
         (
             inputs_runtime_with_layout_submesh1,
             golden1,
+            _,
         ) = test_runner.get_inputs_and_golden(submesh1, borrow=False)
         (
             inputs_runtime_with_layout_submesh2,
             golden2,
+            _,
         ) = test_runner.get_inputs_and_golden(submesh2, borrow=False)
 
         # Synchronous back to back execution
@@ -297,3 +382,90 @@ def test_flatbuffer_execution_dp(request, num_loops):
         ttrt.runtime.release_sub_mesh_device(submesh2)
 
     shutdown_distributed_runtime()
+
+
+@pytest.mark.parametrize(
+    "shape,dtype",
+    [
+        ((177, 211), torch.float32),
+        ((32, 64), torch.bfloat16),
+        ((100, 50), torch.bfloat16),
+        ((10, 20), torch.int32),
+        ((2, 3, 4), torch.bfloat16),
+        ((1, 3, 224, 224), torch.bfloat16),
+    ],
+)
+def test_getTensorDesc(shape, dtype):
+    launch_distributed_runtime()
+    if dtype in [torch.int8, torch.uint8, torch.int32]:
+        reference_torch_tensor = torch.randint(-10, 10, shape, dtype=dtype)
+    else:
+        reference_torch_tensor = torch.randn(shape, dtype=dtype)
+
+    tensor = get_runtime_tensor_from_torch(
+        reference_torch_tensor, storage=Storage.Owned
+    )
+
+    tensor_desc = tensor.get_tensor_desc()
+
+    # Assert tensor descriptor properties match the reference tensor
+    assert tensor_desc.shape == list(reference_torch_tensor.shape)
+    expected_runtime_dtype = Binary.Program.to_data_type(reference_torch_tensor.dtype)
+    assert tensor_desc.dtype == expected_runtime_dtype
+    assert tensor_desc.item_size == reference_torch_tensor.element_size()
+
+    # Physical volume is typically 0 for host tensors (not on device)
+    assert tensor_desc.physical_volume == 0
+
+    shutdown_distributed_runtime()
+
+
+@pytest.mark.parametrize("enable_program_cache", [True, False])
+def test_isProgramCacheEnabled(enable_program_cache):
+    launch_distributed_runtime()
+
+    with DeviceContext(
+        mesh_shape=[1, 8], enable_program_cache=enable_program_cache
+    ) as device:
+        assert device.is_program_cache_enabled() == enable_program_cache
+        # It is currently not possible to inspect the contents of program cache from tt-mlir runtime
+        # so this test just checks that this function doesn't throw
+        device.clear_program_cache()
+
+    shutdown_distributed_runtime()
+
+
+layout_funcs = [
+    ttrt.runtime.test.get_dram_interleaved_tile_layout,
+    ttrt.runtime.test.get_dram_interleaved_row_major_layout,
+    ttrt.runtime.test.get_host_row_major_layout,
+]
+
+
+@pytest.mark.parametrize(
+    "shape,dtype",
+    [
+        ((177, 211), torch.float32),
+        ((32, 64), torch.bfloat16),
+    ],
+)
+@pytest.mark.parametrize("layout_func", layout_funcs)
+def test_hasLayout(shape, dtype, layout_func):
+    reference_torch_tensor = torch.zeros(shape, dtype=dtype)
+
+    tensor = get_runtime_tensor_from_torch(
+        reference_torch_tensor, storage=Storage.Owned
+    )
+    runtime_dtype = Binary.Program.to_data_type(dtype)
+
+    device_layout = layout_func(runtime_dtype)
+    wrong_layout_funcs = [f for f in layout_funcs if f is not layout_func]
+    wrong_layouts = [
+        wrong_layout_func(runtime_dtype) for wrong_layout_func in wrong_layout_funcs
+    ]
+
+    with DeviceContext(mesh_shape=[1, 1]) as device:
+        device_tensor = ttrt.runtime.to_layout(tensor, device, device_layout)
+        assert device_tensor.has_layout(device_layout)
+        for wrong_layout in wrong_layouts:
+            assert not device_tensor.has_layout(wrong_layout)

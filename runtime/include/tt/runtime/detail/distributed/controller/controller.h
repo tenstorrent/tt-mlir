@@ -86,6 +86,8 @@ public:
   void setWorkerShutdownTimeout(const std::chrono::seconds &timeout);
 
   // Runtime APIs
+  void setMemoryLogLevel(const MemoryLogLevel &logLevel);
+
   SystemDesc getCurrentSystemDesc(
       std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType =
           std::nullopt,
@@ -157,6 +159,14 @@ public:
   void deallocateTensor(::tt::runtime::Tensor &tensorHandle,
                         bool force = false);
 
+  ::tt::runtime::TensorDesc
+  getTensorDesc(const ::tt::runtime::Tensor &tensorHandle);
+
+  bool hasLayout(const ::tt::runtime::Tensor &tensor,
+                 const ::tt::runtime::Layout &layout);
+  bool isProgramCacheEnabled(const ::tt::runtime::Device &meshDevice);
+  void clearProgramCache(const ::tt::runtime::Device &meshDevice);
+
   ShutdownResult shutdown();
 
 private:
@@ -198,6 +208,10 @@ private:
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
   void handleConfigureRuntimeContextResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleSetMemoryLogLevelResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
@@ -286,6 +300,19 @@ private:
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
   void handleShutdownResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleGetTensorDescResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+  void handleHasLayoutResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+  void handleIsProgramCacheEnabledResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+  void handleClearProgramCacheResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 

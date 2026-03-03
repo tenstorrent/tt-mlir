@@ -11,21 +11,29 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dSliceConfigRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv3dBlockingRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv3dDepthPaddingRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv3dPadOutputChannelsRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv3dRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PadHighDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PointToPointOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RMSNormConfigRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -374,17 +382,22 @@ public:
     llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
-    Value deviceValue = op.getDevice();
     auto deviceDesc = ttcore::lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
 
-    // Algorithm: iterate through all tensor dimension values and select first
-    // tensor dimension which is divisible by number of devices along the
+    // Algorithm: iterate through all tensor dimension values and select the
+    // last tensor dimension which is divisible by number of devices along the
     // cluster axis on which we are performing the all reduce.
     auto sizeOfDevices = meshShape[clusterAxis];
     auto inputShape = inputType.getShape();
-    const auto *tensorDimDevice = llvm::find_if(
-        inputShape, [&](int64_t dim) { return dim % sizeOfDevices == 0; });
+    auto reversedInputShape = llvm::reverse(inputShape);
+    auto tensorDimRevIt =
+        llvm::find_if(reversedInputShape, [sizeOfDevices](int64_t dim) {
+          return dim % sizeOfDevices == 0;
+        });
+    const auto *tensorDimDevice = tensorDimRevIt == reversedInputShape.end()
+                                      ? inputShape.end()
+                                      : tensorDimRevIt.base() - 1;
 
     if (tensorDimDevice == inputShape.end()) {
       // If all the dimensions are not evenly divisible by the number of
@@ -420,13 +433,14 @@ public:
     ttnn::ReduceScatterOp reduceScatterOp =
         rewriter.create<ttnn::ReduceScatterOp>(
             ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
-            scatteredInputType, op.getInput(), deviceValue, op.getReduceType(),
-            dimension, clusterAxis);
+            scatteredInputType, op.getInput(), op.getReduceType(), dimension,
+            clusterAxis, nullptr, nullptr, nullptr, nullptr, nullptr);
 
     // Replace all_reduce op with all_gather op.
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
-        op, op.getType(), reduceScatterOp.getResult(), deviceValue, dimension,
-        clusterAxis);
+        op, op.getType(), reduceScatterOp.getResult(), dimension, clusterAxis,
+        nullptr /*sub_device_id*/, nullptr /*memory_config*/,
+        nullptr /*num_links*/, nullptr /*topology*/);
     return success();
   }
 
@@ -438,7 +452,6 @@ private:
     RankedTensorType inputType = op.getInput().getType();
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
-    Value deviceValue = op.getDevice();
 
     // Use allGather + Reduce breakdown.
     // Increase the rank of the current input shape by 1.
@@ -464,8 +477,9 @@ private:
                                                      expandedInputShape);
     ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
-        allGatherOutputType, leadingReshapeOp.getResult(), deviceValue, 0,
-        clusterAxis);
+        allGatherOutputType, leadingReshapeOp.getResult(), 0, clusterAxis,
+        nullptr /*sub_device_id*/, nullptr /*memory_config*/,
+        nullptr /*num_links*/, nullptr /*topology*/);
     // Create a new reduce op.
     ArrayAttr reduceDimAttr =
         rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});
@@ -490,6 +504,10 @@ private:
       return op.emitOpError() << "std is not supported";
     case ttcore::ReduceType::Var:
       return op.emitOpError() << "var is not supported";
+    case ttcore::ReduceType::Prod:
+      return op.emitOpError() << "prod is not supported";
+    case ttcore::ReduceType::Invalid:
+      return op.emitOpError() << "invalid is not supported";
     }
     return success();
   }
@@ -553,8 +571,6 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<
           TTNNAllReduceWorkarounds,
-          workarounds::decomposition::ConcatOpDecompositionRewritePattern,
-          workarounds::decomposition::ConcatOpReshapeRewritePattern,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
@@ -563,19 +579,32 @@ public:
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
           workarounds::decomposition::ArgMaxOpRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
+          workarounds::decomposition::RotaryEmbeddingOpRewritePattern,
           workarounds::decomposition::LinearOpRewritePattern,
           workarounds::decomposition::MultiplyOpDecompositionRewritePattern,
           workarounds::decomposition::SubtractOpImplicitBroadcastRewritePattern,
-          workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern,
           workarounds::decomposition::Conv2dRewritePattern<Conv2dOp>,
           workarounds::decomposition::Conv2dRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::
               Conv2dEnableKernelStrideFoldingRewritePattern<Conv2dOp>,
           workarounds::decomposition::
               Conv2dEnableKernelStrideFoldingRewritePattern<ConvTranspose2dOp>,
-          workarounds::decomposition::Conv2dSliceConfigRewritePattern,
+          workarounds::decomposition::Conv3dRewritePattern,
+          workarounds::decomposition::Conv3dPadOutputChannelsRewritePattern,
+          workarounds::decomposition::Conv3dDepthPaddingRewritePattern,
+          workarounds::decomposition::Conv3dBlockingRewritePattern,
+          workarounds::decomposition::PadHighDimRewritePattern,
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern,
-          workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
+          workarounds::decomposition::
+              SplitQueryKeyValueAndSplitHeadsOpRewritePattern,
+          workarounds::decomposition::PagedUpdateCacheOpRewritePattern,
+          workarounds::decomposition::
+              ScaledDotProductAttentionPadTileDimsRewritePattern,
+          workarounds::decomposition::PointToPointOpRewritePattern,
+          workarounds::decomposition::RMSNormConfigRewritePattern,
+          workarounds::decomposition::
+              DistributedRMSNormWidthShardInputRewritePattern,
+          workarounds::decomposition::ReduceScatterConfigRewritePattern>(
           &getContext());
 
       runRewritePatterns(std::move(patterns),
@@ -627,6 +656,7 @@ private:
 
 const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
-        ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName()};
+        ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
+        ttnn::EmbeddingOp::getOperationName()};
 
 } // namespace mlir::tt::ttnn

@@ -7,9 +7,10 @@ import torch
 from typing import List, Optional
 import re
 
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
+from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -58,32 +59,30 @@ def test_conv2d_sharding(
     request,
     device,
 ):
-    def conv2d(
-        in0: Operand,
-        weight: Operand,
-        bias: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.conv2d(
-            in0,
-            weight,
-            bias,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            unit_attrs=unit_attrs,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def conv2d(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.conv2d(
+                in0,
+                weight,
+                bias,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+                unit_attrs=unit_attrs,
+            )
 
     output_file_mlir = compile_and_execute_ttir(
-        conv2d,
-        shapes,
-        dtypes,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        module,
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=[
             "enable-optimizer=true",
             "memory-layout-analysis-enabled=true",

@@ -13,6 +13,7 @@ gh run download $runid --repo tenstorrent/tt-mlir --pattern "test-reports-*" --d
 echo "Parsing test summaries..."
 step_number=""
 rm -f _summary.md
+rm -f _failed_summary.md
 summaries=$(find test_reports -name "summary_*.md" -type f)
 for summary_file in $summaries; do
     filename=$(basename "$summary_file")
@@ -44,6 +45,7 @@ for summary_file in $summaries; do
                 test_prefix="- ![#c5f015](https://placehold.co/15x15/c5f015/c5f015.png)"
             else
                 test_prefix="- ![#f03c15](https://placehold.co/15x15/f03c15/f03c15.png)"
+                echo "$line" >>_failed_summary.md
             fi
             if [ ${#test_lines[@]} -gt 0 ]; then
                 test_line=${test_lines[0]}

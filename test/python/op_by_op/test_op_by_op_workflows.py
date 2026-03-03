@@ -26,10 +26,7 @@ def test_compile_split_and_execute_shlo_module(shlo_module_str: str):
 
     expected_results = [
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
     ]
     for i, result in enumerate(results):
         assert result.execution_phase == expected_results[i]
@@ -40,10 +37,7 @@ def test_split_compile_split_and_execute_shlo_module(shlo_module_str: str):
 
     expected_results = [
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
     ]
     for i, result in enumerate(results):
         assert result.execution_phase == expected_results[i]
@@ -63,10 +57,7 @@ def test_compile_split_and_execute_ttir_module(ttir_module_str: str):
 
     expected_results = [
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
     ]
     for i, result in enumerate(results):
         assert result.execution_phase == expected_results[i]
@@ -76,21 +67,8 @@ def test_split_compile_split_and_execute_ttir_module(ttir_module_str: str):
     results = split_compile_split_and_execute(ttir_module_str)
 
     expected_results = [
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
     ]
     for i, result in enumerate(results):
         assert result.execution_phase == expected_results[i]
@@ -101,10 +79,7 @@ def test_split_and_execute_ttnn_module(ttnn_module_str: str):
 
     expected_results = [
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
     ]
     for i, result in enumerate(results):
         assert result.execution_phase == expected_results[i]
@@ -115,10 +90,7 @@ def test2_compile_split_and_execute_ttnn_module(ttnn_module_str: str):
 
     expected_results = [
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
     ]
     for i, result in enumerate(results):
         assert result.execution_phase == expected_results[i]
@@ -129,10 +101,7 @@ def test_split_compile_split_and_execute_ttnn_module(ttnn_module_str: str):
 
     expected_results = [
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
     ]
     for i, result in enumerate(results):
         assert result.execution_phase == expected_results[i]

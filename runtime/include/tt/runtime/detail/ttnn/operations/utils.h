@@ -31,18 +31,29 @@ toTTNNUnaryWithParam(const ::tt::target::ttnn::UnaryWithParam &unaryWithParam);
 std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
 createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op);
 
-::ttnn::operations::conv::conv2d::Conv2dConfig
+std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOp *op);
+
+::ttnn::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg);
 
-::ttnn::operations::conv::conv2d::Conv2dSliceConfig
+::ttnn::Conv2dSliceConfig
 createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config);
+
+::ttnn::operations::transformer::SDPAProgramConfig
+createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config);
 
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfig *config);
 
-::ttnn::Tensor toTTNNTensor(const ::flatbuffers::Vector<uint8_t> *data,
+::ttnn::prim::LayerNormProgramConfig
+createLayerNormShardedMultiCoreProgramConfig(
+    const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig *config);
+
+::ttnn::Tensor toTTNNTensor(const ::flatbuffers::Vector<uint8_t> *input,
+                            const ::ttnn::DataType &inputDataType,
                             const ::ttnn::Shape &shape,
-                            const ::ttnn::DataType &dataType,
+                            const ::ttnn::DataType &outputDataType,
                             ::ttnn::MeshDevice *meshDevice,
                             const ::ttnn::Layout &layout,
                             const ::ttnn::MemoryConfig &memoryConfig);

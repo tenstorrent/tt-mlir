@@ -25,7 +25,7 @@ Usage Examples:
     export OP_BY_OP_MLIR_FILE_PATH=/path/to/your/model.mlir
     pytest -svv test/python/op_by_op/op_by_op_read_ir_from_file.py::test_op_by_op_inference_from_file --json-report --json-report-file=report.json
 
-    # Try different workflow types (currently unsupported)
+    # Try different workflow types
     export OP_BY_OP_WORKFLOW_TYPE=compile_split_and_execute
     pytest -svv test/python/op_by_op/op_by_op_read_ir_from_file.py::test_op_by_op_inference_from_file --json-report --json-report-file=report.json
 
@@ -69,15 +69,15 @@ def run_op_by_op_workflow(
         print("INFO: Compile-only mode enabled")
 
     if workflow_type == "split_and_execute":
-        execution_results = workflow_internal.split_and_execute(
-            module, compile_only=compile_only
-        )
+        execution_results = workflow_internal.split_and_execute(module, compile_only)
     elif workflow_type == "compile_split_and_execute":
-        raise ValueError(f"Currently unsupported: {workflow_type}")
-        # execution_results = workflow_internal.compile_split_and_execute(module)
+        execution_results = workflow_internal.compile_split_and_execute(
+            module, compile_only
+        )
     elif workflow_type == "split_compile_split_and_execute":
-        raise ValueError(f"Currently unsupported: {workflow_type}")
-        # execution_results = workflow_internal.split_compile_split_and_execute(module)
+        execution_results = workflow_internal.split_compile_split_and_execute(
+            module, compile_only
+        )
     else:
         raise ValueError(f"Unknown workflow type: {workflow_type}")
 

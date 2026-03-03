@@ -119,6 +119,7 @@ def TTIRToD2M: Pass<"ttir-to-d2m", "::mlir::ModuleOp"> {
           )}]>,
       Option<"collapseTensorsTo2D", "collapse-tensors-2d", "bool", /*default=*/"true", "Default collapse all tensors to 2D">,
       Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable translation of TTNN Tensors">,
+      Option<"enableMulticastInference", "enable-multicast-inference", "bool", /*default=*/"true", "Enable automatic multicast inference for reduction operations">,
   ];
 }
 
@@ -196,6 +197,65 @@ def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   let summary = "Convert TTNN dialect to EmitPy dialect.";
   let constructor = "createConvertTTNNToEmitPyPass()";
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect", "mlir::tt::ttnn::TTNNDialect"];
+  let options = [
+    Option<"enableGoldenMode", "enable-golden-mode", "bool", /*default=*/"false",
+    "Enable golden mode for EmitPy conversion. In golden mode, ttnn ops are executed on CPU using golden functions attached to ttnn ops. These golden functions perform Torch library calls.">,
+    // `target-module` is forwarded from the TTNN EmitPy pipeline options.
+    // Issue: https://github.com/tenstorrent/tt-mlir/issues/6746
+    Option<"targetModule", "target-module", "bool", /*default=*/"false",
+      "Tailor EmitPy conversion for Python module export target. When enabled, const-eval functions accept device as an explicit argument instead of opening it via a singleton.">
+  ];
+}
+
+def EmitPyNameVars : Pass<"emitpy-name-vars", "::mlir::ModuleOp"> {
+  let summary = "Pass to add suggested names for variables in EmitPy pipeline.";
+  let description = [{
+    This pass adds suggested names for operands based on operations on EmitPy IR.
+  }];
+  let constructor = "createEmitPyNameVarsPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
+}
+
+def EmitPyLinkModules : Pass<"emitpy-link-modules", "::mlir::ModuleOp"> {
+  let summary = "Link ttcore.cpu_module and ttcore.device_module contents into top-level builtin.module";
+  let description = [{
+    This pass links the CPU and Device modules by moving all operations from both modules into
+    the root module. CPU-hoisted function declarations in the Device module are skipped (not moved),
+    and call sites are updated to call the actual function definitions from the CPU module.
+
+    Example:
+
+    Input:
+    module {
+      ttcore.cpu_module {
+        module {
+          func.func @cpu_hoisted_function() { ... }  // Definition of hoisted function
+        }
+      }
+      ttcore.device_module {
+        module {
+          emitpy.import "ttnn"
+          func.func private @cpu_hoisted_function()  // Stub declaration
+          func.func @device_function() {
+            call @cpu_hoisted_function()  // Call to hoisted function
+          }
+        }
+      }
+    }
+
+    Output:
+    module {
+      emitpy.import "ttnn"
+      func.func @cpu_hoisted_function() { ... }
+
+      func.func @device_function() {
+        call @cpu_hoisted_function()  // Call updated to the hoisted function definition
+      }
+    }
+  }];
+
+  let constructor = "createEmitPyLinkModulesPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
 def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
@@ -286,6 +346,17 @@ def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
   }];
   let constructor = "createConvertD2MToTTNNPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttnn::TTNNDialect"];
+  let options = [
+    Option<"mathFidelity", "math-fidelity", "mlir::tt::ttmetal::MathFidelity",
+           /*default=*/"mlir::tt::ttmetal::MathFidelity::HiFi4",
+           "Set the math fidelity for ttnn.generic op",
+           [{::llvm::cl::values(
+             clEnumValN(mlir::tt::ttmetal::MathFidelity::LoFi, "LoFi", "LoFi"),
+             clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi2, "HiFi2", "HiFi2"),
+             clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi3, "HiFi3", "HiFi3"),
+             clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi4, "HiFi4", "HiFi4")
+           )}]>
+  ];
 }
 
 

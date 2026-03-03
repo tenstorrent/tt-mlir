@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttcore-mark-functions-as-forward -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 #dram = #ttnn.buffer_type<dram>
@@ -22,8 +22,7 @@
   transpose_shards = true,
   output_layout = tile,
   enable_act_double_buffer = false,
-  enable_weights_double_buffer = false,
-  in_place = false
+  enable_weights_double_buffer = false
 >
 
 module attributes {} {

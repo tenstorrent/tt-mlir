@@ -11,30 +11,20 @@
 // RUN: FileCheck %s --check-prefix=CUSTOM-FULL --input-file=%t.custom_full.mlir
 
 module {
-  // DEFAULT: load_tensor
-  // DEFAULT-SAME: args = [#emitpy.opaque<"\22arg0.tensorbin\22"
-  // DEFAULT-NEXT: load_tensor
-  // DEFAULT-SAME: args = [#emitpy.opaque<"\22arg1.tensorbin\22"
+  // DEFAULT: load_tensor{{.*}}args = [#emitpy.opaque<"\22arg0.tensorbin\22"
+  // DEFAULT: load_tensor{{.*}}args = [#emitpy.opaque<"\22arg1.tensorbin\22"
 
-  // CUSTOM-DIR: load_tensor
-  // CUSTOM-DIR-SAME: args = [#emitpy.opaque<"\22tensors/arg0.tensorbin\22"
-  // CUSTOM-DIR-NEXT: load_tensor
-  // CUSTOM-DIR-SAME: args = [#emitpy.opaque<"\22tensors/arg1.tensorbin\22"
+  // CUSTOM-DIR: load_tensor{{.*}}args = [#emitpy.opaque<"\22tensors/arg0.tensorbin\22"
+  // CUSTOM-DIR: load_tensor{{.*}}args = [#emitpy.opaque<"\22tensors/arg1.tensorbin\22"
 
-  // CUSTOM-PREFIX: load_tensor
-  // CUSTOM-PREFIX-SAME: args = [#emitpy.opaque<"\22input0.tensorbin\22"
-  // CUSTOM-PREFIX-NEXT: load_tensor
-  // CUSTOM-PREFIX-SAME: args = [#emitpy.opaque<"\22input1.tensorbin\22"
+  // CUSTOM-PREFIX: load_tensor{{.*}}args = [#emitpy.opaque<"\22input0.tensorbin\22"
+  // CUSTOM-PREFIX: load_tensor{{.*}}args = [#emitpy.opaque<"\22input1.tensorbin\22"
 
-  // CUSTOM-FULL: load_tensor
-  // CUSTOM-FULL-SAME: args = [#emitpy.opaque<"\22tensors/input0.tensorbin\22"
-  // CUSTOM-FULL-NEXT: load_tensor
-  // CUSTOM-FULL-SAME: args = [#emitpy.opaque<"\22tensors/input1.tensorbin\22"
+  // CUSTOM-FULL: load_tensor{{.*}}args = [#emitpy.opaque<"\22tensors/input0.tensorbin\22"
+  // CUSTOM-FULL: load_tensor{{.*}}args = [#emitpy.opaque<"\22tensors/input1.tensorbin\22"
   func.func @add(%arg0 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<constant>}, %arg1 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<input> }) -> tensor<32x32xbf16> {
-    %0 = ttir.empty() : tensor<32x32xbf16>
-    %1 = "ttir.add"(%arg0, %arg0, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %2 = ttir.empty() : tensor<32x32xbf16>
-    %3 = "ttir.subtract"(%arg1, %1, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    return %3 : tensor<32x32xbf16>
+    %0 = "ttir.add"(%arg0, %arg0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %1 = "ttir.subtract"(%arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    return %1 : tensor<32x32xbf16>
   }
 }

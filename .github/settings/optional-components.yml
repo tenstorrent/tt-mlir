@@ -10,3 +10,5 @@ emitc:
   - lib/Conversion/TTNNToEmitC/**
 ttnn-jit-wheel:
   - tools/ttnn-jit/**
+ttnn-jit-nightly:
+  - test/ttnn-jit/nightly/**

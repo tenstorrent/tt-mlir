@@ -22,7 +22,11 @@ namespace mlir::tt::llvm_util {
 #define GEN_PASS_DEF_LLVMEMITCALLINGCONVENTIONWRAPPERFUNCS
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h.inc"
 
-// Generate wrapper func which
+// Generates LLVM wrapper functions for CPU-hoisted functions that:
+// - unpack WrappedTensor arguments from an array of WrappedTensors and
+//   pass them as individual arguments to the original function
+// - pack returned memref descriptors into WrappedTensors and return them
+//   as an array of WrappedTensors
 void generateLLVMWrappersForArgRanks(ModuleOp moduleOp) {
   auto *context = moduleOp.getContext();
   OpBuilder builder(context);
@@ -39,14 +43,32 @@ void generateLLVMWrappersForArgRanks(ModuleOp moduleOp) {
       continue;
     }
 
+    auto resultRanksAttr =
+        llvm::dyn_cast<ArrayAttr>(func->getAttr("result_ranks"));
+    if (!resultRanksAttr) {
+      continue;
+    }
+
     builder.setInsertionPointToEnd(moduleOp.getBody());
 
     llvm::SmallString<32> helperName(func.getName());
     helperName.append("_helper");
 
+    // Get result ranks from attribute (set by HoistCPUOps).
+    SmallVector<int64_t, 4> resultRanks;
+    for (auto attr : resultRanksAttr) {
+      resultRanks.push_back(mlir::cast<IntegerAttr>(attr).getInt());
+    }
+
+    bool hasOutputs = !resultRanks.empty();
+
+    // Helper returns ptr (to array of WrappedTensors) if there are outputs,
+    // void otherwise.
+    Type helperReturnType =
+        hasOutputs ? Type(ptrTy) : Type(LLVM::LLVMVoidType::get(context));
+
     auto helperFuncType = LLVM::LLVMFunctionType::get(
-        LLVM::LLVMVoidType::get(context), {LLVM::LLVMPointerType::get(context)},
-        false);
+        helperReturnType, {LLVM::LLVMPointerType::get(context)}, false);
 
     auto helperFunc = builder.create<LLVM::LLVMFuncOp>(
         func.getLoc(), helperName, helperFuncType);
@@ -129,11 +151,110 @@ void generateLLVMWrappersForArgRanks(ModuleOp moduleOp) {
       }
     }
 
-    // Call the original functions with the unpacked args.
-    builder.create<LLVM::CallOp>(func.getLoc(), TypeRange(), func.getName(),
-                                 originalCallArgs);
+    // CPU-hoisted functions return results as memref descriptors:
+    // !llvm.struct<(ptr, ptr, i64, array<rank x i64>, array<rank x i64>)>
+    // which corresponds to (basePtr, alignedBasePtr, offset, sizes, strides).
+    // We need to wrap these back into WrappedTensor structs for the caller.
 
-    builder.create<LLVM::ReturnOp>(func.getLoc(), ValueRange());
+    if (!hasOutputs) {
+      builder.create<LLVM::CallOp>(func.getLoc(), TypeRange(), func.getName(),
+                                   originalCallArgs);
+      builder.create<LLVM::ReturnOp>(func.getLoc(), ValueRange());
+    } else {
+      // Call original function and pack results into WrappedTensors.
+      auto returnType = func.getFunctionType().getReturnType();
+      Value result = builder
+                         .create<LLVM::CallOp>(func.getLoc(), returnType,
+                                               func.getName(), originalCallArgs)
+                         .getResult();
+
+      auto mallocFunc = moduleOp.lookupSymbol<LLVM::LLVMFuncOp>("malloc");
+      auto loc = func.getLoc();
+      auto i64Ty = builder.getI64Type();
+
+      auto makeConst = [&](int64_t val) {
+        return builder.create<LLVM::ConstantOp>(loc, i64Ty,
+                                                builder.getI64IntegerAttr(val));
+      };
+
+      // Allocate output array and sizesAndStrides buffer.
+      constexpr int64_t kWrappedTensorBytes = 32; // 4 fields * 8 bytes
+      int64_t numOutputs = resultRanks.size();
+      int64_t totalSizesStridesBytes = 0;
+      for (int64_t rank : resultRanks) {
+        totalSizesStridesBytes += 2 * rank * 8;
+      }
+
+      Value outputArrayPtr =
+          builder
+              .create<LLVM::CallOp>(
+                  loc, ptrTy, mallocFunc.getName(),
+                  ValueRange{makeConst(numOutputs * kWrappedTensorBytes)})
+              .getResult();
+      Value sizesStridesBase =
+          builder
+              .create<LLVM::CallOp>(
+                  loc, ptrTy, mallocFunc.getName(),
+                  ValueRange{makeConst(totalSizesStridesBytes)})
+              .getResult();
+
+      int64_t sizesStridesOffset = 0;
+      for (int64_t outIdx = 0; outIdx < numOutputs; ++outIdx) {
+        int64_t rank = resultRanks[outIdx];
+
+        // For single output, result is the descriptor; otherwise extract it.
+        Value desc =
+            (numOutputs == 1)
+                ? result
+                : builder.create<LLVM::ExtractValueOp>(
+                      loc, result, builder.getDenseI64ArrayAttr({outIdx}));
+
+        // Extract memref descriptor fields.
+        Value basePtr = builder.create<LLVM::ExtractValueOp>(
+            loc, ptrTy, desc, builder.getDenseI64ArrayAttr({0}));
+        Value alignedPtr = builder.create<LLVM::ExtractValueOp>(
+            loc, ptrTy, desc, builder.getDenseI64ArrayAttr({1}));
+        Value offset = builder.create<LLVM::ExtractValueOp>(
+            loc, i64Ty, desc, builder.getDenseI64ArrayAttr({2}));
+
+        // Get pointer to this output's sizesAndStrides array.
+        Value sizesStridesPtr = builder.create<LLVM::GEPOp>(
+            loc, ptrTy, builder.getI8Type(), sizesStridesBase,
+            ValueRange{makeConst(sizesStridesOffset)});
+
+        // Copy sizes and strides from descriptor to sizesAndStrides array.
+        for (int64_t i = 0; i < 2 * rank; ++i) {
+          int64_t structIdx = (i < rank) ? 3 : 4;
+          int64_t arrayIdx = (i < rank) ? i : i - rank;
+          Value val = builder.create<LLVM::ExtractValueOp>(
+              loc, i64Ty, desc,
+              builder.getDenseI64ArrayAttr({structIdx, arrayIdx}));
+          Value destPtr = builder.create<LLVM::GEPOp>(
+              loc, ptrTy, i64Ty, sizesStridesPtr, ValueRange{makeConst(i)});
+          builder.create<LLVM::StoreOp>(loc, val, destPtr);
+        }
+
+        // Build and store WrappedTensor struct.
+        Value wrapped = builder.create<LLVM::UndefOp>(loc, wrappedTensorTy);
+        wrapped = builder.create<LLVM::InsertValueOp>(
+            loc, wrapped, basePtr, builder.getDenseI64ArrayAttr({0}));
+        wrapped = builder.create<LLVM::InsertValueOp>(
+            loc, wrapped, alignedPtr, builder.getDenseI64ArrayAttr({1}));
+        wrapped = builder.create<LLVM::InsertValueOp>(
+            loc, wrapped, offset, builder.getDenseI64ArrayAttr({2}));
+        wrapped = builder.create<LLVM::InsertValueOp>(
+            loc, wrapped, sizesStridesPtr, builder.getDenseI64ArrayAttr({3}));
+
+        Value outPtr = builder.create<LLVM::GEPOp>(
+            loc, ptrTy, wrappedTensorTy, outputArrayPtr,
+            ValueRange{makeConst(outIdx)});
+        builder.create<LLVM::StoreOp>(loc, wrapped, outPtr);
+
+        sizesStridesOffset += 2 * rank * 8;
+      }
+
+      builder.create<LLVM::ReturnOp>(loc, ValueRange{outputArrayPtr});
+    }
   }
 
   builder.setInsertionPointToEnd(moduleOp.getBody());

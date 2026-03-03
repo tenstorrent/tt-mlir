@@ -42,17 +42,14 @@ public:
 private:
   // Helper function to collect quantized operands for the given operation.
   llvm::SmallVector<Value> getSourceOperands(QuantizableOpInterface op) const {
-    DestinationStyleOpInterface dps =
-        mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
-    return llvm::to_vector(llvm::map_range(
-        dps.getDpsInputOperands(), [&](OpOperand *operand) -> Value {
-          Value input = operand->get();
+    return llvm::to_vector(
+        llvm::map_range(op->getOperands(), [&](Value operand) -> Value {
           // Push back the input -> dequantize -> op.
-          if (auto dq = input.getDefiningOp<ttir::DequantizeOp>()) {
-            return dq.getOperand(0);
+          if (auto dq = operand.getDefiningOp<ttir::DequantizeOp>()) {
+            return dq.getInput();
           }
           // Or push back the input -> op.
-          return input;
+          return operand;
         }));
   }
 
@@ -90,11 +87,8 @@ private:
     // If the op is not successfully rewritten in quantized form, we fall back
     // to inserting:
     //   Dequantize(Quantize(op(Dequantize(...))))
-    DestinationStyleOpInterface dps =
-        mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
     llvm::SmallVector<Value> sourceOperands = getSourceOperands(op);
-    Operation *newOp = op.rewriteWithQuantizedInputs(rewriter, sourceOperands,
-                                                     dps.getDpsInits());
+    Operation *newOp = op.rewriteWithQuantizedInputs(rewriter, sourceOperands);
     llvm::SmallVector<mlir::Value> newResults;
     if (newOp) {
       // Op successfully rewritten in quantized form. For every output of the
@@ -108,9 +102,8 @@ private:
         if (mlir::dyn_cast<mlir::quant::QuantizedType>(
                 newResultType.getElementType())) {
           // It's quantized, so insert a DequantizeOp.
-          auto newDequant =
-              mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::DequantizeOp>(
-                  rewriter, op->getLoc(), oldType, newResult);
+          auto newDequant = rewriter.create<mlir::tt::ttir::DequantizeOp>(
+              op->getLoc(), oldType, newResult);
           newResults.push_back(newDequant);
         } else {
           // It's already floating-point or non-quantized.
@@ -137,12 +130,12 @@ private:
             originalType.getShape(), quantType, originalType.getEncoding());
         // Create quantize op.
         mlir::tt::ttir::QuantizeOp quantize =
-            mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::QuantizeOp>(
-                rewriter, op->getLoc(), quantizeType, result);
+            rewriter.create<mlir::tt::ttir::QuantizeOp>(op->getLoc(),
+                                                        quantizeType, result);
         // Now dequantize op, effectively commuting the original dequantize.
         mlir::tt::ttir::DequantizeOp dequantize =
-            mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::DequantizeOp>(
-                rewriter, op->getLoc(), originalType, quantize);
+            rewriter.create<mlir::tt::ttir::DequantizeOp>(
+                op->getLoc(), originalType, quantize);
         newResults.push_back(dequantize);
       }
     }
@@ -165,8 +158,8 @@ struct RewriteDQToRequantize
         op.getInput().getDefiningOp());
     if (dequantizeOp) {
       ttir::RequantizeOp requantize =
-          mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::RequantizeOp>(
-              rewriter, op->getLoc(), op.getType(), dequantizeOp.getInput());
+          rewriter.create<mlir::tt::ttir::RequantizeOp>(
+              op->getLoc(), op.getType(), dequantizeOp.getInput());
       rewriter.replaceOp(op, requantize);
       return mlir::success();
     }

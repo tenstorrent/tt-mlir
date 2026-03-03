@@ -1,30 +1,40 @@
 if (TTMLIR_ENABLE_OPMODEL)
         add_definitions(-DTTMLIR_ENABLE_OPMODEL)
+        set(OPMODEL_SRCS Fusing/RoPEFusingPattern.cpp)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
         Passes.cpp
         OptimizerPasses/OperationValidationAndFallback.cpp
         OptimizerPasses/Optimizer.cpp
-        OptimizerPasses/OptimizerPassesWrapper.cpp
+        OptimizerPasses/DevicePassesWrapper.cpp
+        OptimizerPasses/RowMajorLayoutPropagation.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNAdjustDeallocs.cpp
+        TTNNCollaspeD2M.cpp
+        TTNNCollectPerfMetrics.cpp
+        TTNND2MFusing.cpp
         TTNNDecomposeLayouts.cpp
         TTNNEmitPyWorkarounds.cpp
+        TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
+        ${OPMODEL_SRCS}
         TTNNLayout.cpp
+        TTNNConfigureCCLOps.cpp
+        TTNNRecoverStructure.cpp
+        TTNNRecoverStructureUtils.cpp
+        TTNNSetComputeKernelConfig.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
         TTNNTraceHoistTransform.cpp
         TTNNUniqueLocs.cpp
+        TTNNWeightBFP8Conversion.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
-        Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
-        Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.cpp
         Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
-        Workarounds/Decomposition/ConcatOpReshapeRewritePattern.cpp
-        Workarounds/Decomposition/Conv2dSliceConfigRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
+        Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
+        Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
@@ -32,9 +42,16 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
         Workarounds/Decomposition/ScatterOpRewritePattern.cpp
+        Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
+        Workarounds/Decomposition/RMSNormConfigRewritePattern.cpp
+        Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.cpp
+        Workarounds/Decomposition/ReduceScatterConfigRewritePattern.cpp
+        Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp
         Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.cpp
-        Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.cpp
+        Workarounds/Decomposition/Conv3dPadOutputChannelsRewritePattern.cpp
+        Workarounds/Decomposition/Conv3dDepthPaddingRewritePattern.cpp
+        Workarounds/Decomposition/PadHighDimRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS

@@ -24,3 +24,13 @@ target_link_libraries(worker PRIVATE
   TTRuntimeDistributedWorker
   ${METAL_LIBS}
 )
+
+# All libraries are installed under ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
+# We need a relative path because the tt-xla wheel can be installed at a different location.
+set_target_properties(worker PROPERTIES INSTALL_RPATH "$ORIGIN/../../../../lib")
+
+install(
+  TARGETS worker
+  DESTINATION ${CMAKE_INSTALL_BINDIR}/ttmlir/runtime/distributed
+  COMPONENT DistributedRuntime
+)

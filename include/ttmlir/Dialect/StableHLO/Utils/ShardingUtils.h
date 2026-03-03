@@ -5,7 +5,6 @@
 #ifndef TTMLIR_DIALECT_STABLEHLO_UTILS_SHARDINGUTILS_H
 #define TTMLIR_DIALECT_STABLEHLO_UTILS_SHARDINGUTILS_H
 
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 namespace mlir::tt::sharding_utils {
@@ -16,10 +15,22 @@ namespace mlir::tt::sharding_utils {
 inline constexpr llvm::StringRef kXlaSdyShardingAttr = "xla.sdy.sharding";
 inline constexpr llvm::StringRef kXlaSdyMeshesAttr = "xla.sdy.meshes";
 inline constexpr llvm::StringRef kDefaultMeshName = "mesh";
+inline constexpr llvm::StringRef kTTShardingConstraintTargetName =
+    "tt.sharding_constraint";
 
 inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
-    SupportedMeshes = {
-        {{1, 1}, {1, 2}, {1, 4}, {1, 8}, {2, 4}, {1, 32}, {8, 4}}};
+    SupportedMeshes = {{{1, 1},
+                        {1, 2},
+                        {1, 4},
+                        {1, 8},
+                        {2, 4},
+                        {1, 32},
+                        {4, 8},
+                        {4, 16},
+                        {4, 32},
+                        {8, 4},
+                        {8, 8},
+                        {8, 16}}};
 
 // Check if the meshMap is valid.
 // todo: https://github.com/tenstorrent/tt-mlir/issues/4668

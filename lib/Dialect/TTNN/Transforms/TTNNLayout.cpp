@@ -3,14 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -59,9 +64,10 @@ static TensorMemoryLayoutAttr getMemoryLayoutAttr(MLIRContext *ctx,
   return TensorMemoryLayoutAttr{};
 }
 
-static TTNNLayoutAttr createLayoutAttr(
-    MLIRContext *ctx, ttcore::GridAttr deviceGrid, RankedTensorType type,
-    BufferType bufferType = g_defaultMemorySpaceDevice, bool isTiled = true) {
+static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx,
+                                       ttcore::GridAttr deviceGrid,
+                                       RankedTensorType type,
+                                       BufferType bufferType, bool isTiled) {
 
   // Default to single core grid.
   ttcore::GridAttr tensorGrid = ttcore::GridAttr::get(ctx);
@@ -107,22 +113,22 @@ static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
 // To layout pass
 //===----------------------------------------------------------------------===//
 
-// Converts tensor types to have a ttnn layout attribute with default values
+// Converts tensor types to have a ttnn layout attribute with provided encoding
+// parameters.
 //
-// Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, ttnn_layout<...>>
-// where ttnn_layout<...> is constructed with default values
-// Dram, MemoryLayout::Interleaved, Grid<1x1>
 namespace {
 class TTNNLayoutTensorTypeConverter : public TypeConverter {
 public:
-  TTNNLayoutTensorTypeConverter(MLIRContext *ctx, ttcore::GridAttr deviceGrid) {
+  TTNNLayoutTensorTypeConverter(MLIRContext *ctx, ttcore::GridAttr deviceGrid,
+                                BufferType bufferType, bool isTiled) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx, deviceGrid](RankedTensorType type) -> Type {
+    addConversion([=](RankedTensorType type) -> Type {
       if (isa_and_nonnull<TTNNLayoutAttr>(type.getEncoding())) {
         return type;
       }
 
-      TTNNLayoutAttr newLayout = createLayoutAttr(ctx, deviceGrid, type);
+      TTNNLayoutAttr newLayout =
+          createLayoutAttr(ctx, deviceGrid, type, bufferType, isTiled);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
     });
@@ -130,18 +136,11 @@ public:
 };
 } // namespace
 
-// Given desired buffer type, memory layout and type checks if the input tensor
-// needs to be converted to the desired layout. If it does, creates a new
-// EmptyOp/ConstantOp/EmptyOp + ToLayoutOp depending on the input.
-static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
-                                             Location loc, Value input,
-                                             BufferType desiredBufferType,
-                                             bool tiled) {
+static std::optional<RankedTensorType>
+createDesiredType(PatternRewriter &rewriter, RankedTensorType ty,
+                  BufferType desiredBufferType, bool tiled) {
   TensorMemoryLayoutAttr desiredMemLayoutAttr =
       getMemoryLayoutAttr(rewriter.getContext(), desiredBufferType);
-
-  // Get type
-  RankedTensorType ty = mlir::cast<RankedTensorType>(input.getType());
 
   // Get ttnn layout from the type
   TTNNLayoutAttr ttnnLayoutAttr = mlir::cast<TTNNLayoutAttr>(ty.getEncoding());
@@ -180,16 +179,35 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 
   // Create a new ttnn layout with the desired buffer type, element type and
   // memory layout
-  TTNNLayoutAttr desiredLayout = rewriter.getAttr<TTNNLayoutAttr>(
+  TTNNLayoutAttr encoding = rewriter.getAttr<TTNNLayoutAttr>(
       ty.getShape(), desiredElementType, desiredBufferType,
       ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr, desiredTensorMesh,
       g_defaultCollapseDims);
 
+  return mlir::RankedTensorType::get(ty.getShape(), ty.getElementType(),
+                                     encoding);
+}
+
+// Given desired buffer type, memory layout and type checks if the input tensor
+// needs to be converted to the desired layout. If it does, creates a new
+// EmptyOp/ConstantOp/EmptyOp + ToLayoutOp depending on the input.
+static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
+                                             Location loc, Value input,
+                                             BufferType desiredBufferType,
+                                             bool tiled) {
+  // Get type
+  RankedTensorType inputType = mlir::cast<RankedTensorType>(input.getType());
+  std::optional<RankedTensorType> desiredType =
+      createDesiredType(rewriter, inputType, desiredBufferType, tiled);
+
+  if (!desiredType) {
+    return std::nullopt;
+  }
+
   // Create the ToLayoutOp which will convert the input tensor to the desired
   // layout.
-  return ttir::utils::createDPSOp<ttir::ToLayoutOp>(
-             rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout,
-             input, nullptr)
+  return ttir::utils::createDPSOp<ttir::ToLayoutOp>(rewriter, loc, *desiredType,
+                                                    input, nullptr)
       ->getResult(0);
 }
 
@@ -197,24 +215,22 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 // This function rewrites the operands and result to have the correct layout
 // with respect to operand constraints.
 namespace {
-class TTNNLayoutDPSOperandsRewriter
-    : public OpInterfaceRewritePattern<DestinationStyleOpInterface> {
+class TTNNLayoutRewriter : public OpInterfaceRewritePattern<ttir::TTIROp> {
 public:
-  TTNNLayoutDPSOperandsRewriter(MLIRContext *ctx)
-      : OpInterfaceRewritePattern<DestinationStyleOpInterface>(ctx) {}
+  TTNNLayoutRewriter(MLIRContext *ctx)
+      : OpInterfaceRewritePattern<ttir::TTIROp>(ctx) {}
 
-  LogicalResult matchAndRewrite(DestinationStyleOpInterface op,
+  LogicalResult matchAndRewrite(ttir::TTIROp op,
                                 PatternRewriter &rewriter) const final {
     // Skip toLayout ops
-    if (mlir::isa<ttir::ToLayoutOp>(op.getOperation())) {
+    if (mlir::isa<ttir::ToLayoutOp>(op) ||
+        op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>() ||
+        mlir::isa<ttir::MeshShardOp>(op)) {
       return failure();
     }
 
-    assert(op->template hasTrait<ttir::TTIROp::Trait>());
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
-      // Check if the operand is a dps result
-      bool isDPSResult = op.isDpsInit(&operand);
 
       // If the operand is a BroadcastOp or a ToLayout op do not put a
       // ToLayoutOp on its output
@@ -224,23 +240,31 @@ public:
       }
 
       Location newLoc =
-          appendInputSuffix(op.getLoc(), operand.getOperandNumber());
-
-      bool isTiled = shouldTilize(op, operand.getOperandNumber(), isDPSResult);
+          appendInputSuffix(op->getLoc(), operand.getOperandNumber());
 
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout = createToLayoutOp(
-          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice, isTiled);
+          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
+          /*tiled=*/true);
 
       // If layout changed update the operand
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
           modified = true;
           op->setOperand(operand.getOperandNumber(), *desiredLayout);
-          // If operand is dps result, update the result type on current op
-          if (isDPSResult) {
-            op->getResult(0).setType(desiredLayout->getType());
-          }
+        });
+      }
+    }
+
+    for (auto it : llvm::enumerate(op->getResultTypes())) {
+      RankedTensorType ty = mlir::cast<RankedTensorType>(it.value());
+      std::optional<RankedTensorType> desiredType =
+          createDesiredType(rewriter, ty, g_defaultMemorySpaceDevice,
+                            /*tiled=*/shouldTilizeResult(op));
+      if (desiredType) {
+        rewriter.modifyOpInPlace(op, [&]() {
+          modified = true;
+          op->getResult(it.index()).setType(*desiredType);
         });
       }
     }
@@ -249,20 +273,21 @@ public:
   }
 
 private:
-  bool shouldTilize(DestinationStyleOpInterface dpsOp, int64_t operandNumber,
-                    bool isDPSResult) const {
-
-    Operation *operation = dpsOp.getOperation();
+  bool shouldTilizeResult(Operation *op) const {
 
     // TTNN Reshape does not support implicit tilization/untilization
     // Therefore input output layouts should be the same
-    if (mlir::isa<ttir::ReshapeOp>(operation) && operandNumber == 1) {
-      Value input = dpsOp->getOperand(0);
+    if (auto reshapeOp = mlir::dyn_cast<ttir::ReshapeOp>(op)) {
       RankedTensorType inputType =
-          mlir::cast<RankedTensorType>(input.getType());
+          mlir::cast<RankedTensorType>(reshapeOp.getType());
       TTNNLayoutAttr inputLayout =
           mlir::cast<TTNNLayoutAttr>(inputType.getEncoding());
       return mlir::isa<ttcore::TileType>(inputLayout.getElementType());
+    }
+
+    // Conv3d produces ROW_MAJOR output at runtime (experimental op)
+    if (mlir::isa<ttir::Conv3dOp>(op)) {
+      return false;
     }
 
     return true;
@@ -280,7 +305,7 @@ public:
   // Match and rewrite the CallOp.
   LogicalResult matchAndRewrite(func::CallOp callOp,
                                 PatternRewriter &rewriter) const override {
-    if (!callOp->hasAttr(ttir::HoistedCallAttr::name)) {
+    if (!callOp->hasAttr(ttir::CPUHoistedCallAttr::name)) {
       return failure();
     }
 
@@ -312,6 +337,44 @@ public:
     rewriter.replaceOp(callOp, newCallOp);
 
     return success();
+  }
+};
+} // namespace
+
+// Rewrite LoadCachedOp result types to match the callee function signature.
+namespace {
+class TTNNLayoutLoadCachedOpTypeRewriter
+    : public OpRewritePattern<ttcore::LoadCachedOp> {
+public:
+  TTNNLayoutLoadCachedOpTypeRewriter(MLIRContext *ctx)
+      : OpRewritePattern<ttcore::LoadCachedOp>(ctx) {}
+
+  LogicalResult matchAndRewrite(ttcore::LoadCachedOp loadCachedOp,
+                                PatternRewriter &rewriter) const override {
+    // Look up the callee function.
+    func::FuncOp funcOp =
+        dyn_cast<func::FuncOp>(SymbolTable::lookupNearestSymbolFrom(
+            loadCachedOp, loadCachedOp.getCalleeAttr()));
+    if (!funcOp) {
+      return failure();
+    }
+
+    bool modified = false;
+
+    // Rewrite result types to match function signature.
+    for (auto [idx, callResultType] :
+         llvm::enumerate(loadCachedOp->getResultTypes())) {
+      if (idx >= funcOp.getResultTypes().size()) {
+        break;
+      }
+      auto funcResultType = funcOp.getResultTypes()[idx];
+      if (callResultType != funcResultType) {
+        loadCachedOp->getResult(idx).setType(funcResultType);
+        modified = true;
+      }
+    }
+
+    return success(modified);
   }
 };
 } // namespace
@@ -389,11 +452,11 @@ public:
 private:
   ttcore::GridAttr deviceGrid;
 
-  // Rewrite the function declaration to have system memory in/out types
-  // Func declarations are used by CPU-hoisted functions.
+  // Rewrite the CPU-hoisted function declarations to have system memory in/out
+  // types.
   bool rewriteFuncDecl(mlir::func::FuncOp funcOp,
                        PatternRewriter &rewriter) const {
-    if (!funcOp.isDeclaration()) {
+    if (!ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
       return false;
     }
 
@@ -426,9 +489,9 @@ private:
 
   bool rewriteInput(mlir::func::FuncOp funcOp,
                     PatternRewriter &rewriter) const {
-    // Func declarations are always CPU-hoisted funcs, which means all inputs
-    // should stay in system  memory.
-    if (funcOp.isDeclaration()) {
+    // For CPU-hoisted declarations, all inputs should stay in the system
+    // memory.
+    if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
       return false;
     }
     bool modified = false;
@@ -437,16 +500,27 @@ private:
     SmallVector<Type> inputTypes;
     SmallVector<Type> outputTypes(funcOp.getResultTypes());
     for (BlockArgument &arg : entryBlock.getArguments()) {
-      if (!mlir::isa<RankedTensorType>(arg.getType()) ||
-          !shouldForceInputSystemMemory(arg)) {
+      if (!mlir::isa<RankedTensorType>(arg.getType())) {
         inputTypes.push_back(arg.getType());
         continue;
       }
-      RankedTensorType ty = mlir::cast<RankedTensorType>(arg.getType());
-      RankedTensorType newType = toSystemMemoryType(funcOp.getContext(), ty);
+
+      RankedTensorType currentType =
+          mlir::cast<RankedTensorType>(arg.getType());
+
+      RankedTensorType newType;
+      if (shouldForceInputSystemMemory(arg)) {
+        newType = toSystemMemoryType(funcOp.getContext(), currentType);
+      } else {
+        newType = currentType;
+      }
+
+      if (shouldForceInputRowMajor(arg)) {
+        newType = toRowMajorType(funcOp.getContext(), newType);
+      }
 
       inputTypes.push_back(newType);
-      modified = arg.getType() != newType;
+      modified |= arg.getType() != newType;
     }
 
     if (modified) {
@@ -462,9 +536,9 @@ private:
 
   bool rewriteOutput(mlir::func::FuncOp funcOp,
                      PatternRewriter &rewriter) const {
-    // Func declarations are always CPU-hoisted funcs, which means all outputs
-    // should stay in system  memory.
-    if (funcOp.isDeclaration()) {
+    // For CPU-hoisted declarations, all outputs should stay in the system
+    // memory.
+    if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
       return false;
     }
 
@@ -499,28 +573,70 @@ private:
   RankedTensorType toSystemMemoryType(MLIRContext *ctx,
                                       RankedTensorType ty) const {
     TTNNLayoutAttr newLayout = createLayoutAttr(
-        ctx, deviceGrid, ty, BufferType::SystemMemory, false /* isTiledOpt */);
+        ctx, deviceGrid, ty, BufferType::SystemMemory, /*isTiled=*/false);
     auto newType =
         RankedTensorType::get(ty.getShape(), ty.getElementType(), newLayout);
     return newType;
   }
 
   bool shouldForceInputSystemMemory(BlockArgument arg) const {
+    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
+
+    // For block arguments which are maked as conv2d weights leave them on host.
+    uint32_t argIdx = arg.getArgNumber();
+    if (owningFunc.getArgAttr(argIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
+      return true;
+    }
+
+    // If function is marked as const-eval leave inputs as is.
+    // TTNNConstEvalInputsToSystemMemory pass will handle them.
+    if (ttmlir::utils::isConstEvalFunc(owningFunc)) {
+      return false;
+    }
+
     for (Operation *user : arg.getUsers()) {
       if (shouldMeshShardOpForceSystemMemory(user)) {
         return true;
       }
     }
 
-    // For block arguments which are maked as conv2d weights leave them on host.
-    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
-    uint32_t argIdx = arg.getArgNumber();
+    return false;
+  }
 
-    if (owningFunc.getArgAttr(argIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
-      return true;
+  bool shouldForceInputRowMajor(BlockArgument arg) const {
+    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
+
+    // KV cache arguments should not be forced to row major.
+    if (owningFunc.getArgAttr(arg.getArgNumber(), ttcore::g_kvCacheAttrName)) {
+      return false;
     }
 
+    for (Operation *user : arg.getUsers()) {
+      // MeshShardOp inputs should be tiled.
+      if (mlir::isa<ttir::MeshShardOp>(user)) {
+        return false;
+      }
+    }
+
+    if (auto typeAttr = owningFunc.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
+            arg.getArgNumber(), ttcore::ArgumentTypeAttr::name)) {
+      return typeAttr.getValue() == ttcore::ArgumentType::Input;
+    }
     return false;
+  }
+
+  RankedTensorType toRowMajorType(MLIRContext *ctx, RankedTensorType ty) const {
+    BufferType bufferType = g_defaultMemorySpaceDevice;
+
+    // Preserve existing buffer type if encoding exists
+    if (auto currentLayout =
+            mlir::dyn_cast_if_present<TTNNLayoutAttr>(ty.getEncoding())) {
+      bufferType = currentLayout.getBufferType();
+    }
+
+    TTNNLayoutAttr rmLayout =
+        createLayoutAttr(ctx, deviceGrid, ty, bufferType, /*isTiled=*/false);
+    return RankedTensorType::get(ty.getShape(), ty.getElementType(), rmLayout);
   }
 };
 } // namespace
@@ -579,15 +695,36 @@ public:
   using impl::TTNNLayoutBase<TTNNLayout>::TTNNLayoutBase;
 
   void runOnOperation() final {
+    ttcore::DeviceOp deviceOp = ttcore::lookupDeviceOp(getOperation());
+
+    // If there is no device registered in the module, we simply want all
+    // tensors to be laid out in the system memory (e.g., CPU module).
+    if (!deviceOp) {
+      TTNNLayoutTensorTypeConverter typeConverter(
+          &getContext(), ttcore::GridAttr::get(&getContext()),
+          BufferType::SystemMemory, /* isTiled */ false);
+
+      RewritePatternSet patterns(&getContext());
+      patterns.add<ttir::UniformTypeRewriter>(typeConverter, &getContext());
+
+      FrozenRewritePatternSet patternSet(std::move(patterns));
+      if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
+        signalPassFailure();
+      }
+      return;
+    }
+
     // First add default attribute to all tensors. Example:
     // Given tensor type: tensor<15x10x32xf32>
     // we construct a ttnn layout attribute with default values:
-    // ttnn_layout<affine_map, grid<1x1>, memref<<15x64>xf32, #system_memory>
+    // ttnn_layout<affine_map, grid<1x1>,
+    // memref<1x1x!ttcore.tile<32x32>, #dram>, <interleaved>>
     {
-      ttcore::DeviceAttr device = ttcore::lookupDevice(getOperation());
+      ttcore::DeviceAttr device = deviceOp.getDeviceAttr();
       assert(device && "Device not found");
       TTNNLayoutTensorTypeConverter typeDefaultConverter(
-          &getContext(), device.getWorkerGrid());
+          &getContext(), device.getWorkerGrid(), g_defaultMemorySpaceDevice,
+          /* isTiled */ true);
       RewritePatternSet patterns(&getContext());
       // Set the tensor layouts to have proper values
       patterns.add<ttir::UniformTypeRewriter>(typeDefaultConverter,
@@ -605,15 +742,18 @@ public:
     }
     {
       RewritePatternSet patterns(&getContext());
-      // Takes all TTIR ops which have DPS operands
-      // and rewrites its operands and result to have the correct layout
-      // with respect to operand constraints.
-      patterns.add<TTNNLayoutDPSOperandsRewriter>(&getContext());
+      patterns.add<TTNNLayoutRewriter>(&getContext());
       // Update the return op output layout based on its consumers
       // Logic here should match that of TTNNLayoutFuncInputOutputTypeRewriter
       patterns.add<TTNNLayoutFuncReturnRewriter>(&getContext());
       patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
       patterns.add<TTNNLayoutMeshShardRewriter>(&getContext());
+
+      // Rewrite LoadCachedOp call sites to have correct result types matching
+      // callee function signatures in case const-eval function signatures have
+      // been updated.
+      patterns.add<TTNNLayoutLoadCachedOpTypeRewriter>(&getContext());
+
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.setUseTopDownTraversal(true);

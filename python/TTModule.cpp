@@ -44,7 +44,7 @@ void populateTTModule(nb::module_ &m) {
           "get",
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
              uint32_t oobValValue, uint32_t memorySpaceValue,
-             uint32_t memoryLayoutValue, MlirAffineMap indexMap) {
+             uint32_t memoryLayoutValue) {
             // Use [0, -1] as default collapsed intervals.
             auto *context = unwrap(ctx);
             auto intervalType =
@@ -65,7 +65,7 @@ void populateTTModule(nb::module_ &m) {
                 static_cast<tt::ttcore::OOBVal>(oobValValue),
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                 static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
-                collapsedIntervals, dimAlignments, unwrap(indexMap)));
+                collapsedIntervals, dimAlignments));
           })
       // 8-arg overload (full specification with index_map)
       .def_static(
@@ -73,14 +73,14 @@ void populateTTModule(nb::module_ &m) {
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
              uint32_t oobValValue, uint32_t memorySpaceValue,
              uint32_t memoryLayoutValue, MlirAttribute collapseIntervals,
-             std::vector<int64_t> dimAlignments, MlirAffineMap indexMap) {
+             std::vector<int64_t> dimAlignments) {
             return wrap(tt::ttcore::MetalLayoutAttr::get(
                 unwrap(ctx), ArrayRef<int64_t>(logicalShape),
                 static_cast<tt::ttcore::OOBVal>(oobValValue),
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                 static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
                 mlir::cast<DenseIntElementsAttr>(unwrap(collapseIntervals)),
-                ArrayRef<int64_t>(dimAlignments), unwrap(indexMap)));
+                ArrayRef<int64_t>(dimAlignments)));
           })
       .def("getLayout",
            [](MlirType &type)
@@ -371,6 +371,22 @@ void populateTTModule(nb::module_ &m) {
         return self.getChipChannels().vec();
       });
 
+  nb::enum_<tt::ttcore::Topology>(m, "Topology")
+      .value("Ring", tt::ttcore::Topology::Ring)
+      .value("Linear", tt::ttcore::Topology::Linear)
+      .value("Disabled", tt::ttcore::Topology::Disabled);
+
+  tt_attribute_class<tt::ttcore::TopologyAttr>(m, "TopologyAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, uint32_t topology) {
+            return wrap(tt::ttcore::TopologyAttr::get(
+                unwrap(ctx), static_cast<tt::ttcore::Topology>(topology)));
+          })
+      .def_prop_ro("topology_as_int", [](tt::ttcore::TopologyAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
+
   tt_attribute_class<tt::ttcore::MemorySpaceAttr>(m, "MemorySpaceAttr")
       .def_static("get",
                   [](MlirContext ctx, uint32_t memorySpace) {
@@ -418,12 +434,14 @@ void populateTTModule(nb::module_ &m) {
                   [](MlirContext ctx, std::vector<int64_t> gridShape,
                      MlirAffineMap workerGridMapping, MlirAffineMap l1Map,
                      MlirAffineMap dramMap, std::vector<int64_t> meshShape,
-                     std::vector<unsigned> chipIds) {
+                     std::vector<unsigned> chipIds,
+                     std::vector<tt::ttcore::Topology> meshTopology) {
                     return wrap(tt::ttcore::DeviceAttr::get(
                         unwrap(ctx),
                         tt::ttcore::GridAttr::get(unwrap(ctx), gridShape,
                                                   unwrap(workerGridMapping)),
-                        unwrap(l1Map), unwrap(dramMap), meshShape, chipIds));
+                        unwrap(l1Map), unwrap(dramMap), meshShape, chipIds,
+                        meshTopology));
                   })
       .def("unwrap",
            [](const MlirAttribute &self) {
@@ -440,8 +458,14 @@ void populateTTModule(nb::module_ &m) {
                    [](const tt::ttcore::DeviceAttr &self) {
                      return self.getMeshShape().vec();
                    })
-      .def_prop_ro("chip_ids", [](const tt::ttcore::DeviceAttr &self) {
-        return self.getChipIds().vec();
+      .def_prop_ro("chip_ids",
+                   [](const tt::ttcore::DeviceAttr &self) {
+                     return self.getChipIds().vec();
+                   })
+      .def_prop_ro("mesh_topology", [](const tt::ttcore::DeviceAttr &self) {
+        auto topologies = self.getMeshTopology();
+        return std::vector<tt::ttcore::Topology>(topologies.begin(),
+                                                 topologies.end());
       });
 
   nb::enum_<mlir::tt::ttcore::TensorMemoryLayout>(m, "TensorMemoryLayout")
@@ -460,8 +484,96 @@ void populateTTModule(nb::module_ &m) {
                    [](tt::ttcore::TileType self) {
                      return static_cast<uint32_t>(self.getDataType());
                    })
+      .def_prop_ro("data_type",
+                   [](tt::ttcore::TileType self) { return self.getDataType(); })
       .def_prop_ro("shape", [](const tt::ttcore::TileType &tile) {
         return std::vector<int64_t>({tile.getHeight(), tile.getWidth()});
+      });
+
+  nb::enum_<tt::ttcore::ReduceType>(m, "ReduceType")
+      .value("Sum", tt::ttcore::ReduceType::Sum)
+      .value("Mean", tt::ttcore::ReduceType::Mean)
+      .value("Max", tt::ttcore::ReduceType::Max)
+      .value("Min", tt::ttcore::ReduceType::Min)
+      .value("Std", tt::ttcore::ReduceType::Std)
+      .value("Var", tt::ttcore::ReduceType::Var)
+      .value("Prod", tt::ttcore::ReduceType::Prod)
+      .value("Invalid", tt::ttcore::ReduceType::Invalid);
+
+  tt_attribute_class<tt::ttcore::ReduceTypeAttr>(m, "ReduceTypeAttr")
+      .def_static("get",
+                  [](MlirContext ctx, tt::ttcore::ReduceType reduceType) {
+                    return wrap(tt::ttcore::ReduceTypeAttr::get(unwrap(ctx),
+                                                                reduceType));
+                  })
+      .def_prop_ro("value", [](tt::ttcore::ReduceTypeAttr self) {
+        return self.getValue();
+      });
+
+  nb::enum_<tt::ttcore::MeshShardType>(m, "MeshShardType")
+      .value("Identity", tt::ttcore::MeshShardType::Identity)
+      .value("Replicate", tt::ttcore::MeshShardType::Replicate)
+      .value("Maximal", tt::ttcore::MeshShardType::Maximal)
+      .value("Devices", tt::ttcore::MeshShardType::Devices);
+
+  tt_attribute_class<tt::ttcore::MeshShardTypeAttr>(m, "MeshShardTypeAttr")
+      .def_static("get",
+                  [](MlirContext ctx, tt::ttcore::MeshShardType shardType) {
+                    return wrap(tt::ttcore::MeshShardTypeAttr::get(unwrap(ctx),
+                                                                   shardType));
+                  })
+      .def_prop_ro("value", [](tt::ttcore::MeshShardTypeAttr self) {
+        return self.getValue();
+        ;
+      });
+
+  nb::enum_<tt::ttcore::MeshShardDirection>(m, "MeshShardDirection")
+      .value("FullToShard", tt::ttcore::MeshShardDirection::FullToShard)
+      .value("ShardToFull", tt::ttcore::MeshShardDirection::ShardToFull);
+
+  tt_attribute_class<tt::ttcore::MeshShardDirectionAttr>(
+      m, "MeshShardDirectionAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, tt::ttcore::MeshShardDirection shardDirection) {
+            return wrap(tt::ttcore::MeshShardDirectionAttr::get(
+                unwrap(ctx), shardDirection));
+          })
+      .def_prop_ro("value", [](tt::ttcore::MeshShardDirectionAttr self) {
+        return self.getValue();
+        ;
+      });
+
+  tt_attribute_class<tt::ttcore::MeshAttr>(m, "MeshAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::string name, std::vector<int64_t> shape) {
+            return wrap(tt::ttcore::MeshAttr::get(
+                unwrap(ctx), mlir::StringAttr::get(unwrap(ctx), name),
+                ArrayRef<int64_t>(shape)));
+          })
+      .def_prop_ro(
+          "name",
+          [](const tt::ttcore::MeshAttr &mesh) { return mesh.getName().str(); })
+      .def_prop_ro("shape", [](const tt::ttcore::MeshAttr &mesh) {
+        return std::vector<int64_t>(mesh.getShape().begin(),
+                                    mesh.getShape().end());
+      });
+
+  tt_attribute_class<tt::ttcore::MeshesAttr>(m, "MeshesAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::vector<MlirAttribute> meshes) {
+            std::vector<tt::ttcore::MeshAttr> meshAttrs;
+            for (const auto &mesh : meshes) {
+              meshAttrs.push_back(
+                  mlir::cast<tt::ttcore::MeshAttr>(unwrap(mesh)));
+            }
+            return wrap(tt::ttcore::MeshesAttr::get(
+                unwrap(ctx), ArrayRef<tt::ttcore::MeshAttr>(meshAttrs)));
+          })
+      .def_prop_ro("meshes", [](const tt::ttcore::MeshesAttr &meshes) {
+        return meshes.getMeshes().vec();
       });
 }
 } // namespace mlir::ttmlir::python
