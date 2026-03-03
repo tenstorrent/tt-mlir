@@ -471,12 +471,55 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
                          << getType().getDimSize(getArangeDimension());
   }
 
+  if (auto dtype = getDtype()) {
+    if (dtype != getType().getElementType()) {
+      return emitOpError()
+             << "dtype does not match with output tensor element type [dtype = "
+             << dtype << ", output tensor element type = "
+             << getType().getElementType() << "].";
+    }
+  }
+
   return success();
 }
 
 //===----------------------------------------------------------------------===//
 // EmptyOp
 //===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
+// ZerosOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::ZerosOp::verify() {
+  if (auto dtype = getDtype()) {
+    if (dtype != getType().getElementType()) {
+      return emitOpError()
+             << "dtype does not match with output tensor element type [dtype = "
+             << dtype << ", output tensor element type = "
+             << getType().getElementType() << "].";
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// OnesOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::OnesOp::verify() {
+  if (auto dtype = getDtype()) {
+    if (dtype != getType().getElementType()) {
+      return emitOpError()
+             << "dtype does not match with output tensor element type [dtype = "
+             << dtype << ", output tensor element type = "
+             << getType().getElementType() << "].";
+    }
+  }
+
+  return success();
+}
 
 //===----------------------------------------------------------------------===//
 // RandOp
@@ -4648,6 +4691,15 @@ mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {
   if (!llvm::equal(getShape(), getType().getShape())) {
     return emitOpError() << "expected shape (" << getType().getShape()
                          << "), got (" << getShape() << ")";
+  }
+
+  if (auto dtype = getDtype()) {
+    if (dtype != getType().getElementType()) {
+      return emitOpError()
+             << "dtype does not match with output tensor element type [dtype = "
+             << dtype << ", output tensor element type = "
+             << getType().getElementType() << "].";
+    }
   }
 
   return mlir::success();

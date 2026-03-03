@@ -4901,6 +4901,7 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
     - `end` (Integer): The end value of the sequence (exclusive).
     - `step` (Integer): The step size between values in the sequence.
     - `arange_dimension` (Integer): The dimension along which to generate the sequence.
+    - `dtype` (Optional Type): The desired element type of the output tensor.
 
     Output:
     - `result` (Tensor): The generated tensor containing the sequence.
@@ -4909,7 +4910,8 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
   let arguments = (ins SI64Attr:$start,
                        SI64Attr:$end,
                        SI64Attr:$step,
-                       I64Attr:$arange_dimension);
+                       I64Attr:$arange_dimension,
+                       OptionalAttr<TypeAttr>:$dtype);
 
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
@@ -4928,7 +4930,8 @@ def TTIR_FullOp : TTIR_CreationOp<"full"> {
   }];
 
   let arguments = (ins DenseI32ArrayAttr:$shape,
-                       AnyAttrOf<[F32Attr, I32Attr]>:$fill_value);
+                       AnyAttrOf<[F32Attr, I32Attr]>:$fill_value,
+                       OptionalAttr<TypeAttr>:$dtype);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -4937,7 +4940,7 @@ def TTIR_FullOp : TTIR_CreationOp<"full"> {
     OpBuilder<(ins "Type": $resultType, "Attribute": $fillValue),
     [{
       RankedTensorType tensorType = cast<RankedTensorType>(resultType);
-      build($_builder, $_state, tensorType, llvm::to_vector_of<int32_t>(tensorType.getShape()), fillValue);
+      build($_builder, $_state, tensorType, llvm::to_vector_of<int32_t>(tensorType.getShape()), fillValue, /*dtype=*/nullptr);
     }]>
   ];
 
@@ -5024,6 +5027,7 @@ class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
 
     Attributes:
     - `shape` (Array of Integer): The shape of the tensor to create.
+    - `dtype` (Optional Type): The desired element type of the output tensor.
 
     Output:
     - `result` (Tensor): The created tensor with the specified shape.
@@ -5033,7 +5037,8 @@ class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
     by providing common argument and result definitions.
   }];
 
-  let arguments = (ins DenseI32ArrayAttr:$shape);
+  let arguments = (ins DenseI32ArrayAttr:$shape,
+                       OptionalAttr<TypeAttr>:$dtype);
 
   let results = (outs AnyRankedTensor:$result);
 }
@@ -5061,10 +5066,16 @@ def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
     // Result: [[0.0, 0.0, 0.0, 0.0],
     //          [0.0, 0.0, 0.0, 0.0],
     //          [0.0, 0.0, 0.0, 0.0]]
+
+    // Create with explicit dtype
+    %result = ttir.zeros() {
+        shape = [3, 4], dtype = bf16
+    } : () -> tensor<3x4xbf16>
     ```
 
     Attributes:
     - `shape` (Array of Integer): The shape of the tensor to create.
+    - `dtype` (Optional Type): The desired element type of the output tensor.
 
     Output:
     - `result` (Tensor): The tensor filled with zeros.
@@ -5073,6 +5084,8 @@ def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
     This operation is useful for initializing tensors before filling them with computed values or as a
     starting point for accumulation operations.
   }];
+
+  let hasVerifier = 1;
 }
 
 def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
@@ -5098,10 +5111,16 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
     // Result: [[1.0, 1.0, 1.0, 1.0],
     //          [1.0, 1.0, 1.0, 1.0],
     //          [1.0, 1.0, 1.0, 1.0]]
+
+    // Create with explicit dtype
+    %result = ttir.ones() {
+        shape = [3, 4], dtype = bf16
+    } : () -> tensor<3x4xbf16>
     ```
 
     Attributes:
     - `shape` (Array of Integer): The shape of the tensor to create.
+    - `dtype` (Optional Type): The desired element type of the output tensor.
 
     Output:
     - `result` (Tensor): The tensor filled with ones.
@@ -5110,6 +5129,8 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
     This operation is useful for initializing tensors before scaling them or as a starting point for
     operations that require tensors filled with ones, such as creating masks or constant multipliers.
   }];
+
+  let hasVerifier = 1;
 }
 
 def TTIR_EmptyOp : TTIR_CreationOp<"empty", [TTCore_NonCacheableTrait]> {

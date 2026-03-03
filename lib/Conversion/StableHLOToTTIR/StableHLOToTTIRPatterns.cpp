@@ -821,10 +821,12 @@ public:
     FloatAttr momentumAttr = rewriter.getF32FloatAttr(1.0f);
 
     auto runningMean = rewriter.create<ttir::ZerosOp>(
-        loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()));
+        loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()),
+        mlir::TypeAttr::get(meanType.getElementType()));
     auto runningVariance = rewriter.create<ttir::OnesOp>(
         loc, varianceType,
-        llvm::to_vector_of<int32_t>(varianceType.getShape()));
+        llvm::to_vector_of<int32_t>(varianceType.getShape()),
+        mlir::TypeAttr::get(varianceType.getElementType()));
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormTrainingOp>(
         srcOp, TypeRange{outputType, meanType, varianceType},
@@ -4407,7 +4409,8 @@ public:
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
     rewriter.replaceOpWithNewOp<ttir::ArangeOp>(
         srcOp, outputType, 0, outputType.getDimSize(adaptor.getIotaDimension()),
-        1, adaptor.getIotaDimension());
+        1, adaptor.getIotaDimension(),
+        mlir::TypeAttr::get(outputType.getElementType()));
 
     // Dynamic Iota has an output_shape attribute but the output shape is
     // already known by the result type This is to remove the operand that
@@ -5392,7 +5395,8 @@ public:
 
       Value arangeOp = rewriter.create<ttir::ArangeOp>(
           loc, expandedType, /*start=*/0,
-          /*end=*/shape[idx], /*step=*/1, /*arange_dimension=*/idx);
+          /*end=*/shape[idx], /*step=*/1, /*arange_dimension=*/idx,
+          mlir::TypeAttr::get(expandedType.getElementType()));
       toConcat.push_back(arangeOp);
     }
 
