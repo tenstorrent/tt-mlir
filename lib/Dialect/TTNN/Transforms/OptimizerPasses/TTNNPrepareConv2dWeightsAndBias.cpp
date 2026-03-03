@@ -173,7 +173,8 @@ private:
                                mlir::tt::ttcore::DataTypeAttr outputDtypeAttr,
                                ttnn::Conv2dConfigAttr conv2dConfig) {
     if constexpr (std::is_same_v<ConvOp, ttnn::Conv2dOp>) {
-      return rewriter.create<PrepareWeightsOp>(
+      return PrepareWeightsOp::create(
+          rewriter,
           ttmlir::utils::appendLocationSuffix(convOp.getLoc(),
                                               "_prepare_conv2d_weight"),
           getPreparedWeightsType(convOp, conv2dConfig), convOp.getWeight(),
@@ -190,7 +191,8 @@ private:
           outputDtypeAttr, conv2dConfig, convOp.getComputeConfigAttr(),
           convOp.getConv2dSliceConfigAttr());
     } else {
-      return rewriter.create<PrepareWeightsOp>(
+      return PrepareWeightsOp::create(
+          rewriter,
           ttmlir::utils::appendLocationSuffix(
               convOp.getLoc(), "_prepare_conv_transpose2d_weight"),
           getPreparedWeightsType(convOp, conv2dConfig), convOp.getWeight(),
@@ -219,7 +221,8 @@ private:
                             mlir::tt::ttcore::DataTypeAttr outputDtypeAttr,
                             ttnn::Conv2dConfigAttr conv2dConfig) {
     if constexpr (std::is_same_v<ConvOp, ttnn::Conv2dOp>) {
-      return rewriter.create<PrepareBiasOp>(
+      return PrepareBiasOp::create(
+          rewriter,
           ttmlir::utils::appendLocationSuffix(convOp.getLoc(),
                                               "_prepare_conv2d_bias"),
           getPreparedBiasType(convOp.getBias(), inputElementType),
@@ -233,7 +236,8 @@ private:
           inputDtypeAttr, outputDtypeAttr, conv2dConfig,
           convOp.getComputeConfigAttr(), convOp.getConv2dSliceConfigAttr());
     } else {
-      return rewriter.create<PrepareBiasOp>(
+      return PrepareBiasOp::create(
+          rewriter,
           ttmlir::utils::appendLocationSuffix(convOp.getLoc(),
                                               "_prepare_conv_transpose2d_bias"),
           getPreparedBiasType(convOp.getBias(), inputElementType),

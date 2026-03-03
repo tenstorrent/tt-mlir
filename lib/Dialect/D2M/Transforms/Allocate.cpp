@@ -1696,8 +1696,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       OpBuilder::InsertionGuard guard(rewriter);
       {
         rewriter.setInsertionPointAfter(lastOp);
-        rewriter.create<memref::DeallocOp>(lastOp->getLoc(),
-                                           allocOp.getResult());
+        memref::DeallocOp::create(rewriter, lastOp->getLoc(),
+                                  allocOp.getResult());
       }
     }
   }

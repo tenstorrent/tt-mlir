@@ -156,8 +156,8 @@ public:
     }
 
     // Build low-level multicast arguments.
-    Value zero = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    Value zero = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
 
     SmallVector<Value> mcastStartIndex;
     SmallVector<int64_t> mcastShapeInt64;
@@ -218,8 +218,9 @@ public:
     SmallVector<Value> mcastShape;
     mcastShape.reserve(mcastShapeInt64.size());
     for (int64_t dimSize : mcastShapeInt64) {
-      mcastShape.push_back(rewriter.create<arith::ConstantOp>(
-          loc, rewriter.getIndexType(), rewriter.getIndexAttr(dimSize)));
+      mcastShape.push_back(
+          arith::ConstantOp::create(rewriter, loc, rewriter.getIndexType(),
+                                    rewriter.getIndexAttr(dimSize)));
     }
 
     // Create replacement RemoteLoadOp with low-level multicast form.

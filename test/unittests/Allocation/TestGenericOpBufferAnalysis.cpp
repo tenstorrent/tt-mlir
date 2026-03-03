@@ -39,8 +39,8 @@ protected:
     builder.setInsertionPointToEnd(module->getBody());
 
     auto funcType = builder.getFunctionType({}, {});
-    func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(),
-                                              "test_func", funcType);
+    func = mlir::func::FuncOp::create(builder, builder.getUnknownLoc(),
+                                      "test_func", funcType);
 
     mlir::Block *entryBlock = func.addEntryBlock();
     builder.setInsertionPointToStart(entryBlock);
@@ -102,13 +102,13 @@ GenericOp createGenericOp(mlir::OpBuilder &builder, mlir::MLIRContext &context,
 
   // Use memref alloc to create concrete memref values from types.
   Value input1 =
-      builder.create<ttir::EmptyOp>(builder.getUnknownLoc(), memrefType1)
+      ttir::EmptyOp::create(builder, builder.getUnknownLoc(), memrefType1)
           ->getResult(0);
   Value input2 =
-      builder.create<ttir::EmptyOp>(builder.getUnknownLoc(), memrefType2)
+      ttir::EmptyOp::create(builder, builder.getUnknownLoc(), memrefType2)
           ->getResult(0);
   Value output =
-      builder.create<ttir::EmptyOp>(builder.getUnknownLoc(), memrefType3)
+      ttir::EmptyOp::create(builder, builder.getUnknownLoc(), memrefType3)
           ->getResult(0);
   ValueRange additionalArgs = {};
 
@@ -116,9 +116,9 @@ GenericOp createGenericOp(mlir::OpBuilder &builder, mlir::MLIRContext &context,
   SmallVector<Value> outputs = {output};
 
   // Create the GenericOp.
-  auto genericOp = builder.create<mlir::tt::d2m::GenericOp>(
-      builder.getUnknownLoc(), inputs, outputs, additionalArgs, indexingMaps,
-      iteratorTypes);
+  auto genericOp = mlir::tt::d2m::GenericOp::create(
+      builder, builder.getUnknownLoc(), inputs, outputs, additionalArgs,
+      indexingMaps, iteratorTypes);
   return genericOp;
 }
 

@@ -1041,8 +1041,8 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
   auto tokenIndex = rewriter.getIntegerAttr(
       rewriter.getIntegerType(32, /*isSigned=*/false), 0);
 
-  auto newRope = rewriter.create<RotaryEmbeddingOp>(
-      ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
+  auto newRope = RotaryEmbeddingOp::create(
+      rewriter, ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
       ropeOp.getCosCache(), ropeOp.getSinCache(), tokenIndex,
       ropeOp.getMemoryConfigAttr(), ropeOp.getComputeConfigAttr());
 

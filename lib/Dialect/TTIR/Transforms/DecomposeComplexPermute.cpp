@@ -168,8 +168,8 @@ public:
             ttmlir::utils::applyPermutation(inputType.getShape(), perm);
         auto outputType = RankedTensorType::get(
             outputShape, inputType.getElementType(), inputType.getEncoding());
-        auto permuteOp = rewriter.create<ttir::PermuteOp>(loc, outputType,
-                                                          currentInput, perm);
+        auto permuteOp = ttir::PermuteOp::create(rewriter, loc, outputType,
+                                                 currentInput, perm);
         permuteOp->setAttr("decomposed", rewriter.getUnitAttr());
         currentInput = permuteOp.getResult();
         inputType = mlir::cast<RankedTensorType>(currentInput.getType());

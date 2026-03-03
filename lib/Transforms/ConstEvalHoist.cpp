@@ -560,8 +560,8 @@ private:
     // Create the const-eval function before the parent function
     // This ensures proper ordering in the generated EmitC code.
     builder.setInsertionPoint(originalFunc);
-    auto newFuncOp = builder.create<func::FuncOp>(originalFunc.getLoc(),
-                                                  newFuncName, funcType);
+    auto newFuncOp = func::FuncOp::create(builder, originalFunc.getLoc(),
+                                          newFuncName, funcType);
     // Mark the new function as const-eval and private.
     ttmlir::utils::setFunctionType(newFuncOp,
                                    ttmlir::utils::FunctionType::ConstEval);
@@ -617,7 +617,7 @@ private:
       returnValues.push_back(it->second);
     }
 
-    builder.create<func::ReturnOp>(originalFunc.getLoc(), returnValues);
+    func::ReturnOp::create(builder, originalFunc.getLoc(), returnValues);
 
     auto &originalEntryBlock = originalFunc.getBody().front();
     // Manually order LoadCachedOp as first n ops in original func--we may
@@ -631,8 +631,9 @@ private:
         mlir::SymbolRefAttr::get(builder.getContext(), newFuncName);
 
     // Create the LoadCachedOp with the correct argument order
-    auto callOp = builder.create<ttcore::LoadCachedOp>(
-        originalFunc.getLoc(), outputTypes, calleeAttr, ValueRange(inputs));
+    auto callOp = ttcore::LoadCachedOp::create(builder, originalFunc.getLoc(),
+                                               outputTypes, calleeAttr,
+                                               ValueRange(inputs));
 
     // Replace uses of original outputs with call results.
     for (size_t i = 0; i < outputs.size(); ++i) {

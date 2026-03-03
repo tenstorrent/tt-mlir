@@ -206,7 +206,7 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
   ::llvm::SmallVector<mlir::Value> invocationStack;
   auto bufferType = mlir::cast<MemRefType>(
       *getBufferType(getResult(), options, state, invocationStack));
-  auto allocOp = rewriter.create<memref::AllocOp>(getLoc(), bufferType);
+  auto allocOp = memref::AllocOp::create(rewriter, getLoc(), bufferType);
 
   // Propagate virtualGridInverseMapping (inverse) and virtualGridForwardMapping
   // (forward) as discardable attributes on memref::AllocOp (we don't own
@@ -643,7 +643,8 @@ ToLayoutOp::bufferize(mlir::RewriterBase &rewriter,
 
   // ToLayoutOp is now only for device-to-device transfers. Host transfers
   // use ToDeviceOp and ToHostOp instead.
-  rewriter.create<ToLayoutOp>(getLoc(), TypeRange(), *maybeInput, *maybeOutput);
+  ToLayoutOp::create(rewriter, getLoc(), TypeRange(), *maybeInput,
+                     *maybeOutput);
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      *maybeOutput);
@@ -800,13 +801,13 @@ ToDeviceOp::bufferize(mlir::RewriterBase &rewriter,
   if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
           .isPadded()) {
     auto alignedHostTensor =
-        rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
-    rewriter.create<memref::CopyOp>(getLoc(), *maybeInput, alignedHostTensor);
+        memref::AllocOp::create(rewriter, getLoc(), alignedHostMemref);
+    memref::CopyOp::create(rewriter, getLoc(), *maybeInput, alignedHostTensor);
     maybeInput = alignedHostTensor.getResult();
   }
 
-  rewriter.create<ToDeviceOp>(getLoc(), TypeRange(), *maybeInput, *maybeOutput,
-                              getLayout());
+  ToDeviceOp::create(rewriter, getLoc(), TypeRange(), *maybeInput, *maybeOutput,
+                     getLayout());
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      *maybeOutput);
@@ -930,15 +931,15 @@ ToHostOp::bufferize(mlir::RewriterBase &rewriter,
       mlir::dyn_cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout());
   if (hostLayout && hostLayout.isPadded()) {
     auto alignedHostTensor =
-        rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
+        memref::AllocOp::create(rewriter, getLoc(), alignedHostMemref);
 
-    rewriter.create<ToHostOp>(getLoc(), TypeRange(), *maybeInput,
-                              alignedHostTensor, getLayout());
+    ToHostOp::create(rewriter, getLoc(), TypeRange(), *maybeInput,
+                     alignedHostTensor, getLayout());
 
-    rewriter.create<memref::CopyOp>(getLoc(), alignedHostTensor, *maybeOutput);
+    memref::CopyOp::create(rewriter, getLoc(), alignedHostTensor, *maybeOutput);
   } else {
-    rewriter.create<ToHostOp>(getLoc(), TypeRange(), *maybeInput, *maybeOutput,
-                              getLayout());
+    ToHostOp::create(rewriter, getLoc(), TypeRange(), *maybeInput, *maybeOutput,
+                     getLayout());
   }
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
@@ -1091,9 +1092,9 @@ mlir::LogicalResult d2m::ViewLayoutOp::bufferize(
   }
 
   auto outMemrefType = mlir::cast<mlir::MemRefType>(*outMemrefTypeOr);
-  auto newOp = rewriter.create<d2m::ViewLayoutOp>(getLoc(), outMemrefType,
-                                                  *maybeInput, getRemapping(),
-                                                  getReinterpretLayout());
+  auto newOp =
+      d2m::ViewLayoutOp::create(rewriter, getLoc(), outMemrefType, *maybeInput,
+                                getRemapping(), getReinterpretLayout());
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      newOp.getResult());
