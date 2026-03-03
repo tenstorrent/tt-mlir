@@ -258,8 +258,8 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   /////////////////////////////////////////////////////////////////////////////
   auto fusedResultTypes = TypeRange(fusedOutputs);
 
-  auto fusedOp = rewriter.create<GenericOp>(
-      consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
+  auto fusedOp = GenericOp::create(
+      rewriter, consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
       mergedAdditionalArgs, consumer.getGrid(), consumer.getBlockFactors(),
       rewriter.getAffineMapArrayAttr(fusedMaps), consumer.getIteratorTypes(),
       consumer.getThreads(), consumer.getFabricConnectionConfigAttr(),
@@ -574,7 +574,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     fusedYields.push_back(irMap.lookupOrDefault(y));
   }
   rewriter.setInsertionPointToEnd(&fusedBlock);
-  rewriter.create<YieldOp>(fusedOp.getLoc(), fusedYields);
+  YieldOp::create(rewriter, fusedOp.getLoc(), fusedYields);
 
   // Tag inner linalg.generic ops with their output blocking map so that the
   // allocator's reblocking can derive the correct shape for intermediate

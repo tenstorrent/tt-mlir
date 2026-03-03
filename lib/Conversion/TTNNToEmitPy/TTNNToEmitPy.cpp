@@ -2680,13 +2680,14 @@ public:
 
     // The `update_index` is modeled as a tensor in the IR, but the
     // `ttnn.update_cache` expects a `int` scalar.
-    auto updateIndex = rewriter
-                           .create<emitpy::CallOpaqueOp>(
-                               srcOp.getLoc(), rewriter.getI32Type(),
-                               ttnn_to_emitpy::kGetScalarFromTensorFunctionName,
-                               adaptor.getUpdateIndex(),
-                               /*args=*/nullptr,
-                               /*keyword_args=*/nullptr)
+    auto updateIndex = emitpy::CallOpaqueOp::create(
+                           rewriter,
+
+                           srcOp.getLoc(), rewriter.getI32Type(),
+                           ttnn_to_emitpy::kGetScalarFromTensorFunctionName,
+                           adaptor.getUpdateIndex(),
+                           /*args=*/nullptr,
+                           /*keyword_args=*/nullptr)
                            .getResult(0);
 
     llvm::SmallVector<mlir::Attribute> args{
@@ -3524,8 +3525,8 @@ public:
       configKeywordArgs.push_back(rewriter.getStringAttr(""));
     }
 
-    auto mapperConfigOp = rewriter.create<emitpy::CallOpaqueOp>(
-        srcOp.getLoc(),
+    auto mapperConfigOp = emitpy::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(),
         emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.MeshMapperConfig"),
         "ttnn.MeshMapperConfig", llvm::SmallVector<mlir::Value>{},
         rewriter.getArrayAttr(configArgs),
@@ -3533,8 +3534,8 @@ public:
 
     auto meshMapperType =
         emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.TensorToMesh");
-    auto createMapperOp = rewriter.create<emitpy::CallOpaqueOp>(
-        srcOp.getLoc(), meshMapperType, "ttnn.create_mesh_mapper",
+    auto createMapperOp = emitpy::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(), meshMapperType, "ttnn.create_mesh_mapper",
         llvm::SmallVector<mlir::Value>{adaptor.getMeshDevice(),
                                        mapperConfigOp.getResult(0)});
 
@@ -3591,8 +3592,8 @@ public:
       configKeywordArgs.push_back(rewriter.getStringAttr(""));
     }
 
-    auto composerConfigOp = rewriter.create<emitpy::CallOpaqueOp>(
-        srcOp.getLoc(),
+    auto composerConfigOp = emitpy::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(),
         emitpy::OpaqueType::get(rewriter.getContext(),
                                 "ttnn.MeshComposerConfig"),
         "ttnn.MeshComposerConfig", llvm::SmallVector<mlir::Value>{},
@@ -3601,8 +3602,8 @@ public:
 
     auto meshComposerType =
         emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.MeshToTensor");
-    auto createComposerOp = rewriter.create<emitpy::CallOpaqueOp>(
-        srcOp.getLoc(), meshComposerType, "ttnn.create_mesh_composer",
+    auto createComposerOp = emitpy::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(), meshComposerType, "ttnn.create_mesh_composer",
         llvm::SmallVector<mlir::Value>{adaptor.getMeshDevice(),
                                        composerConfigOp.getResult(0)});
 

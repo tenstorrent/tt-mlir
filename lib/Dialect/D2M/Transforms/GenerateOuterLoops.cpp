@@ -29,7 +29,7 @@ public:
     SmallVector<Value> ubs;
     for (unsigned i = 0; i < numDims; ++i) {
       ubs.push_back(
-          rewriter.create<GetBlockFactorOp>(loc, static_cast<int64_t>(i)));
+          GetBlockFactorOp::create(rewriter, loc, static_cast<int64_t>(i)));
     }
 
     // Upper bound map: ()[s0] -> (s0).
@@ -54,7 +54,7 @@ public:
     rewriter.eraseOp(innerBody->getTerminator());
     rewriter.mergeBlocks(regionBlock, innerBody, loopedBlock->getArguments());
     rewriter.setInsertionPointToEnd(innerBody);
-    rewriter.create<affine::AffineYieldOp>(loc);
+    affine::AffineYieldOp::create(rewriter, loc);
 
     return loops;
   }
@@ -125,9 +125,10 @@ public:
     // Create a new GenericOp with the same structure
     // After generating loops, preserve all attributes including block_factors
     // (needed by LowerLoadStoreOpsToDMA for stream index computation).
-    auto loopedGeneric = rewriter.create<GenericOp>(
-        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
+    auto loopedGeneric = GenericOp::create(
+        rewriter, generic->getLoc(), generic.getResultTypes(),
+        generic.getInputs(), generic.getOutputs(), generic.getAdditionalArgs(),
+        generic.getGrid(),
         /* block_factors */ generic.getBlockFactors(),
         /* indexing_maps */ generic.getIndexingMaps(),
         /* iterator_types */ generic.getIteratorTypes(), generic.getThreads(),

@@ -118,8 +118,9 @@ Value materializeTensorView(OpBuilder &builder, Location loc,
   // Create a datamovement generic op that materializes the view.
   auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
   AffineMap indexingMap = indexingMapAttr.getValue();
-  auto genericOp = builder.create<GenericOp>(
-      loc, viewResult, emptyOp.getResult(), /*additionalArgs=*/ValueRange(),
+  auto genericOp = GenericOp::create(
+      builder, loc, viewResult, emptyOp.getResult(),
+      /*additionalArgs=*/ValueRange(),
       [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
         SmallVector<Value> indices =
             utils::buildGridIndices(builder, innerLoc, indexingMap);
@@ -129,16 +130,14 @@ Value materializeTensorView(OpBuilder &builder, Location loc,
         Value inputBuffer = blockArgs[0];
 
         Value loadedData =
-            builder
-                .create<RemoteLoadOp>(innerLoc, inputShardType, inputBuffer,
-                                      viewResult, indices)
+            RemoteLoadOp::create(builder, innerLoc, inputShardType, inputBuffer,
+                                 viewResult, indices)
                 .getResult();
         Value storeResult =
-            builder
-                .create<RemoteStoreOp>(innerLoc, emptyOp.getType(),
-                                       emptyOp.getResult(), indices, loadedData)
+            RemoteStoreOp::create(builder, innerLoc, emptyOp.getType(),
+                                  emptyOp.getResult(), indices, loadedData)
                 .getResult();
-        builder.create<d2m::YieldOp>(innerLoc, storeResult);
+        d2m::YieldOp::create(builder, innerLoc, storeResult);
       },
       ThreadType::Unified, grid, SmallVector<int64_t>(rank, 1));
 

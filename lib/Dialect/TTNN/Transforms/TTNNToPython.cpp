@@ -17,7 +17,7 @@ namespace mlir::tt::ttnn {
 
 LogicalResult emitTTNNAsPython(ModuleOp origOp, llvm::raw_ostream &os) {
   ModuleOp op = cast<ModuleOp>(origOp->clone());
-  auto cleanupDispatchClone = llvm::make_scope_exit([&op] { op->erase(); });
+  auto cleanupDispatchClone = llvm::scope_exit([&op] { op->erase(); });
 
   auto pm = PassManager::on<ModuleOp>(op.getContext());
   pm.addPass(createConvertTTNNToEmitPyPass());
