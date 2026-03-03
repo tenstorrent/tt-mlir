@@ -231,7 +231,7 @@ SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
   SmallVector<Value> dimValues;
   for (unsigned i = 0; i < indexingMap.getNumDims(); ++i) {
     dimValues.push_back(
-        builder.create<BlockIndexOp>(loc, static_cast<int64_t>(i)));
+        BlockIndexOp::create(builder, loc, static_cast<int64_t>(i)));
   }
 
   // For each result expression, use expandAffineExpr to translate to arith ops

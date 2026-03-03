@@ -339,15 +339,15 @@ public:
 
       // Replace memref.alloc with reserve
       rewriter.setInsertionPoint(allocOp);
-      auto reserveOp = rewriter.create<ReserveOp>(loc, assocCb);
+      auto reserveOp = ReserveOp::create(rewriter, loc, assocCb);
       rewriter.replaceAllUsesWith(allocOp.getResult(), reserveOp.getResult());
       rewriter.eraseOp(allocOp);
 
       // At remote_store location, insert: push, wait, pop
       rewriter.setInsertionPoint(remoteStore);
-      rewriter.create<PushOp>(loc, assocCb);
-      rewriter.create<WaitOp>(loc, assocCb);
-      rewriter.create<PopOp>(loc, assocCb);
+      PushOp::create(rewriter, loc, assocCb);
+      WaitOp::create(rewriter, loc, assocCb);
+      PopOp::create(rewriter, loc, assocCb);
 
       // Erase the original remote_store operation
       rewriter.eraseOp(remoteStore);
@@ -361,8 +361,8 @@ public:
 
     for (GetScratchFromCBOp getScratchOp : scratchOpsToConvert) {
       rewriter.setInsertionPoint(getScratchOp);
-      auto reserveOp = rewriter.create<ReserveOp>(getScratchOp.getLoc(),
-                                                  getScratchOp.getCb());
+      auto reserveOp = ReserveOp::create(rewriter, getScratchOp.getLoc(),
+                                         getScratchOp.getCb());
       rewriter.replaceAllUsesWith(getScratchOp.getResult(),
                                   reserveOp.getResult());
       rewriter.eraseOp(getScratchOp);

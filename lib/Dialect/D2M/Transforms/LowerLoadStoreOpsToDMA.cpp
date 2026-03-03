@@ -90,10 +90,10 @@ public:
       mcastVolume *= dimSize;
     }
 
-    Value zero = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
-    Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
-                                                   rewriter.getIndexAttr(1));
+    Value zero = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    Value one = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getIndexType(), rewriter.getIndexAttr(1));
 
     // Get pre-allocated semaphores for synchronization.
     // These must have been set by D2MPreallocateMcastSemaphores pass.
@@ -103,8 +103,9 @@ public:
 
     // Number of receivers is mcastVolume - 1 (excluding sender itself).
     // The sender waits for this many semaphore increments before multicasting.
-    Value numReceiversVal = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIndexType(), rewriter.getIndexAttr(mcastVolume - 1));
+    Value numReceiversVal =
+        arith::ConstantOp::create(rewriter, loc, rewriter.getIndexType(),
+                                  rewriter.getIndexAttr(mcastVolume - 1));
 
     // Determine if this core is the sender.
     // The sender is at position mcastStartIndex[i] for each multicast
@@ -115,13 +116,13 @@ public:
     ValueRange mcastStartIndex = remoteLoad.getMcastStartIndex();
     for (size_t i = 0; i < isMcastDim.size(); ++i) {
       if (isMcastDim[i]) {
-        Value coreIdx = rewriter.create<CoreIndexOp>(
-            loc, static_cast<int64_t>(i), gridMapping);
-        Value condition = rewriter.create<arith::CmpIOp>(
-            loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreIdx,
-            mcastStartIndex[i]);
+        Value coreIdx = CoreIndexOp::create(
+            rewriter, loc, static_cast<int64_t>(i), gridMapping);
+        Value condition = arith::CmpIOp::create(
+            rewriter, loc, rewriter.getI1Type(), arith::CmpIPredicate::eq,
+            coreIdx, mcastStartIndex[i]);
         if (isSender) {
-          isSender = rewriter.create<arith::AndIOp>(loc, isSender, condition)
+          isSender = arith::AndIOp::create(rewriter, loc, isSender, condition)
                          .getResult();
         } else {
           isSender = condition;
@@ -157,20 +158,20 @@ public:
           Value mcastTx = builder.create<DMAWriteOp>(
               loc, localMemref, localMemref, remoteLoad.getMcastStartIndex(),
               remoteLoad.getMcastShape());
-          builder.create<DMAWaitOp>(loc, mcastTx);
+          DMAWaitOp::create(builder, loc, mcastTx);
 
           // Signal receivers that sender is finished.
           builder.create<SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
                                          remoteLoad.getMcastStartIndex(),
                                          remoteLoad.getMcastShape());
 
-          builder.create<scf::YieldOp>(loc);
+          scf::YieldOp::create(builder, loc);
         },
         [&](OpBuilder &builder, Location loc) {
           // Receiver: signal ready and wait for sender to finish.
           SmallVector<Value> senderCoreIndex;
-          Value zeroIdx = builder.create<arith::ConstantOp>(
-              loc, builder.getIndexType(), builder.getIndexAttr(0));
+          Value zeroIdx = arith::ConstantOp::create(
+              builder, loc, builder.getIndexType(), builder.getIndexAttr(0));
 
           // Build sender core index by reading actual core positions.
           // For dimensions that are multicast, sender is at mcastStartIndex.
@@ -188,17 +189,17 @@ public:
             }
           }
 
-          builder.create<SemaphoreIncOp>(loc, receiversReadySemaphore, one,
-                                         senderCoreIndex);
-          builder.create<SemaphoreWaitOp>(loc, senderFinishedSemaphore, one,
-                                          zeroIdx);
+          SemaphoreIncOp::create(builder, loc, receiversReadySemaphore, one,
+                                 senderCoreIndex);
+          SemaphoreWaitOp::create(builder, loc, senderFinishedSemaphore, one,
+                                  zeroIdx);
 
           // Note: CB already reserved before the if/else, so receiver has
           // proper access to the multicast data.
 
-          builder.create<scf::YieldOp>(loc);
+          scf::YieldOp::create(builder, loc);
         });
-    rewriter.create<PushOp>(loc, cb);
+    PushOp::create(rewriter, loc, cb);
 
     rewriter.eraseOp(remoteLoad);
     return success();

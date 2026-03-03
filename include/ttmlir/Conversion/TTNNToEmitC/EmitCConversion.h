@@ -2170,8 +2170,8 @@ public:
       // ttnn::distributed::MeshDevice does not support copy/move constructor.
       // So a reference variable is created to be used as function argument.
       // ::ttnn::distributed::MeshDevice& deviceRef = *devicePtr;
-      emitc::ApplyOp meshDeviceOp = rewriter.create<emitc::ApplyOp>(
-          op.getLoc(),
+      emitc::ApplyOp meshDeviceOp = emitc::ApplyOp::create(
+          rewriter, op.getLoc(),
           emitc::OpaqueType::get(rewriter.getContext(),
                                  TypeNameV<TargetTy> +
                                      "&"), // ::ttnn::distributed::MeshDevice&
@@ -2187,8 +2187,8 @@ public:
       mlir::Value deviceValueFromOperandsList = adaptor.getOperands()[index];
 
       // optional<reference_wrapper<MeshDevice>> x = *device_ptr
-      emitc::ApplyOp meshDeviceOp = rewriter.create<emitc::ApplyOp>(
-          op.getLoc(),
+      emitc::ApplyOp meshDeviceOp = emitc::ApplyOp::create(
+          rewriter, op.getLoc(),
           rewriter.getType<emitc::OpaqueType>(
               TypeNameV<
                   ::ttnn::operations::creation::detail::OptionalMeshDevice>),
@@ -2223,26 +2223,27 @@ public:
               ::ttnn::Tensor, std::tuple<OutputHeight, OutputWidth>,
               std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>>;
 
-      emitc::ExpressionOp conv2dExpr = rewriter.create<emitc::ExpressionOp>(
-          op.getLoc(),
+      emitc::ExpressionOp conv2dExpr = emitc::ExpressionOp::create(
+          rewriter, op.getLoc(),
           rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
           adaptor.getOperands());
 
       mlir::Block &bodyBlock = conv2dExpr.createBody();
       rewriter.setInsertionPointToStart(&bodyBlock);
 
-      auto conv2dOp = rewriter.create<emitc::CallOpaqueOp>(
-          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+      auto conv2dOp = emitc::CallOpaqueOp::create(
+          rewriter, op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
           opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
           /*template_args=*/nullptr, bodyBlock.getArguments());
-      auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
-          op.getLoc(),
+      auto getTensorOp = emitc::CallOpaqueOp::create(
+          rewriter, op.getLoc(),
           rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
           "::std::get", /*args=*/nullptr,
           /*template_args=*/
           rewriter.getArrayAttr({rewriter.getI32IntegerAttr(0)}),
           conv2dOp.getResult(0));
-      rewriter.create<emitc::YieldOp>(op.getLoc(), getTensorOp.getResult(0));
+      emitc::YieldOp::create(rewriter, op.getLoc(), getTensorOp.getResult(0));
 
       rewriter.replaceOp(op, conv2dExpr);
 
@@ -2259,15 +2260,16 @@ public:
       assert(op->getNumResults() == 1 &&
              "Expected single output for MaxPool2dOp.");
       using ReturnTy = std::vector<::ttnn::Tensor>;
-      auto maxPool2dOp = rewriter.create<emitc::CallOpaqueOp>(
-          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+      auto maxPool2dOp = emitc::CallOpaqueOp::create(
+          rewriter, op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
           opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
           /*template_args=*/nullptr, operands);
 
       // Create index to access first/single element.
       auto indexType = rewriter.getIndexType();
       auto indexOp =
-          rewriter.create<emitc::LiteralOp>(op.getLoc(), indexType, "0");
+          emitc::LiteralOp::create(rewriter, op.getLoc(), indexType, "0");
       Value indexVal = indexOp.getResult();
 
       // Create LValue type for the tensor reference.
@@ -2275,12 +2277,13 @@ public:
           rewriter.getContext(), TypeNameV<ReturnTy::value_type>));
 
       // Get reference to the first/single element in the result vector.
-      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
-          op.getLoc(), lvalueType, maxPool2dOp.getResult(0), indexVal);
+      auto subscriptOp =
+          emitc::SubscriptOp::create(rewriter, op.getLoc(), lvalueType,
+                                     maxPool2dOp.getResult(0), indexVal);
 
       // Load the actual tensor value from the reference.
-      auto loadOp = rewriter.create<emitc::LoadOp>(
-          op.getLoc(),
+      auto loadOp = emitc::LoadOp::create(
+          rewriter, op.getLoc(),
           emitc::OpaqueType::get(rewriter.getContext(),
                                  TypeNameV<ReturnTy::value_type>),
           subscriptOp.getResult());
@@ -2297,8 +2300,9 @@ public:
       assert(op.getNumResults() == 2 &&
              "Expected two outputs (values tensor and indices).");
       using ReturnTy = std::vector<::ttnn::Tensor>;
-      auto callOp = rewriter.create<emitc::CallOpaqueOp>(
-          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+      auto callOp = emitc::CallOpaqueOp::create(
+          rewriter, op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
           opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
           /*template_args=*/nullptr, operands);
 
@@ -2306,8 +2310,8 @@ public:
       for (unsigned i = 0; i < op.getNumResults(); ++i) {
         // Create index to access i-th element.
         auto indexType = rewriter.getIndexType();
-        auto indexOp = rewriter.create<emitc::LiteralOp>(op.getLoc(), indexType,
-                                                         std::to_string(i));
+        auto indexOp = emitc::LiteralOp::create(rewriter, op.getLoc(),
+                                                indexType, std::to_string(i));
         Value indexVal = indexOp.getResult();
 
         // Create LValue type for the tensor reference.
@@ -2315,12 +2319,12 @@ public:
             rewriter.getContext(), TypeNameV<ReturnTy::value_type>));
 
         // Get reference to the i-th element in the result vector.
-        auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
-            op.getLoc(), lvalueType, callOp.getResult(0), indexVal);
+        auto subscriptOp = emitc::SubscriptOp::create(
+            rewriter, op.getLoc(), lvalueType, callOp.getResult(0), indexVal);
 
         // Load the actual tensor value from the reference.
-        auto loadOp = rewriter.create<emitc::LoadOp>(
-            op.getLoc(),
+        auto loadOp = emitc::LoadOp::create(
+            rewriter, op.getLoc(),
             emitc::OpaqueType::get(rewriter.getContext(),
                                    TypeNameV<ReturnTy::value_type>),
             subscriptOp.getResult());
@@ -2396,11 +2400,12 @@ public:
   // pointers.
   mlir::Value dereferenceToRef(mlir::Value ptrValue,
                                const std::string &refTypeName) {
-    return rewriter
-        .create<emitc::ApplyOp>(
-            op.getLoc(),
-            emitc::OpaqueType::get(rewriter.getContext(), refTypeName), "*",
-            ptrValue)
+    return emitc::ApplyOp::create(
+               rewriter,
+
+               op.getLoc(),
+               emitc::OpaqueType::get(rewriter.getContext(), refTypeName), "*",
+               ptrValue)
         .getResult();
   }
 
@@ -2419,22 +2424,23 @@ public:
     // Create reference variable
     auto refType = emitc::OpaqueType::get(rewriter.getContext(), refTypeName);
     std::string verbatimCode = "auto& " + varName + " = *{};";
-    rewriter.create<emitc::VerbatimOp>(
-        op.getLoc(), rewriter.getStringAttr(verbatimCode),
-        llvm::SmallVector<mlir::Value>{uniquePtrValue});
+    emitc::VerbatimOp::create(rewriter, op.getLoc(),
+                              rewriter.getStringAttr(verbatimCode),
+                              llvm::SmallVector<mlir::Value>{uniquePtrValue});
 
-    return rewriter.create<emitc::LiteralOp>(op.getLoc(), refType, varName)
+    return emitc::LiteralOp::create(rewriter, op.getLoc(), refType, varName)
         .getResult();
   }
 
 private:
   mlir::Value createVector(ValueRange operands) {
-    return rewriter
-        .create<emitc::CallOpaqueOp>(
-            op.getLoc(),
-            emitc::OpaqueType::get(rewriter.getContext(),
-                                   TypeNameV<std::vector<::ttnn::Tensor>>),
-            kCreateVectorFunctionName, nullptr, nullptr, operands)
+    return emitc::CallOpaqueOp::create(
+               rewriter,
+
+               op.getLoc(),
+               emitc::OpaqueType::get(rewriter.getContext(),
+                                      TypeNameV<std::vector<::ttnn::Tensor>>),
+               kCreateVectorFunctionName, nullptr, nullptr, operands)
         ->getResult(0);
   }
 
