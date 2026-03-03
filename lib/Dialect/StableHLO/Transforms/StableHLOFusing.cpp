@@ -77,8 +77,8 @@ private:
     // Create broadcast_in_dim op with concatenate input and broadcast dims.
     // Replace reshape op with broadcast_in_dim op.
     ::mlir::stablehlo::BroadcastInDimOp broadcastInDimOp =
-        rewriter.create<::mlir::stablehlo::BroadcastInDimOp>(
-            concatOp.getLoc(), reshapeOp.getResult().getType(),
+        ::mlir::stablehlo::BroadcastInDimOp::create(
+            rewriter, concatOp.getLoc(), reshapeOp.getResult().getType(),
             concatOp.getInputs()[0], broadcastDims);
     rewriter.replaceOp(reshapeOp, broadcastInDimOp.getResult());
     return success();

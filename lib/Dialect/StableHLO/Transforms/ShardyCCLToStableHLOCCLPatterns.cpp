@@ -130,9 +130,9 @@ static void addReductionBlock(PatternRewriter &rewriter, SrcOp &srcOp,
   mlir::Block *block =
       rewriter.createBlock(&srcOp.getRegion(), /*insertPt*/ {},
                            {reductionType, reductionType}, {loc, loc});
-  ReductionOp reductionOp = rewriter.create<ReductionOp>(
-      loc, block->getArgument(0), block->getArgument(1));
-  rewriter.create<mlir::stablehlo::ReturnOp>(loc, reductionOp.getResult());
+  ReductionOp reductionOp = ReductionOp::create(
+      rewriter, loc, block->getArgument(0), block->getArgument(1));
+  mlir::stablehlo::ReturnOp::create(rewriter, loc, reductionOp.getResult());
 }
 
 // AllGatherOp
@@ -292,8 +292,8 @@ public:
       mlir::RankedTensorType newOutputType =
           mlir::cast<mlir::RankedTensorType>(result.getType());
       mlir::stablehlo::AllReduceOp allReduceOp =
-          rewriter.create<mlir::stablehlo::AllReduceOp>(
-              srcOp.getLoc(), newOutputType, result,
+          mlir::stablehlo::AllReduceOp::create(
+              rewriter, srcOp.getLoc(), newOutputType, result,
               createDenseAttrFromReplicaGroups(
                   context, populateReplicaGroups(meshMap, meshAxis)),
               channelHandleAttr);

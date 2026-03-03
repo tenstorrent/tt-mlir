@@ -27,7 +27,7 @@ public:
     SmallVector<Value> ubs;
     for (unsigned i = 0; i < numDims; ++i) {
       ubs.push_back(
-          rewriter.create<GetBlockFactorOp>(loc, static_cast<int64_t>(i)));
+          GetBlockFactorOp::create(rewriter, loc, static_cast<int64_t>(i)));
     }
 
     // Upper bound map: ()[s0] -> (s0).
@@ -52,7 +52,7 @@ public:
     rewriter.eraseOp(innerBody->getTerminator());
     rewriter.mergeBlocks(regionBlock, innerBody, loopedBlock->getArguments());
     rewriter.setInsertionPointToEnd(innerBody);
-    rewriter.create<affine::AffineYieldOp>(loc);
+    affine::AffineYieldOp::create(rewriter, loc);
 
     return loops;
   }
@@ -71,10 +71,10 @@ public:
     for (BlockIndexOp blockIndex : blockIndices) {
       rewriter.setInsertionPoint(blockIndex);
       int64_t dim = blockIndex.getDim();
-      Value offset = rewriter.create<BlockOffsetOp>(loc, dim);
-      Value iterIndex = rewriter.create<IterIndexOp>(loc, dim);
-      Value index = rewriter.create<affine::AffineApplyOp>(
-          loc, addMap, ValueRange{iterIndex, offset});
+      Value offset = BlockOffsetOp::create(rewriter, loc, dim);
+      Value iterIndex = IterIndexOp::create(rewriter, loc, dim);
+      Value index = affine::AffineApplyOp::create(
+          rewriter, loc, addMap, ValueRange{iterIndex, offset});
       rewriter.replaceOp(blockIndex, index);
     }
   }
@@ -133,9 +133,10 @@ public:
     // Create a new GenericOp with the same structure
     // After generating loops, preserve all attributes including block_factors
     // (needed by LowerLoadStoreOpsToDMA for stream index computation).
-    auto loopedGeneric = rewriter.create<GenericOp>(
-        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
+    auto loopedGeneric = GenericOp::create(
+        rewriter, generic->getLoc(), generic.getResultTypes(),
+        generic.getInputs(), generic.getOutputs(), generic.getAdditionalArgs(),
+        generic.getGrid(),
         /* block_factors */ generic.getBlockFactors(),
         /* indexing_maps */ generic.getIndexingMaps(),
         /* iterator_types */ generic.getIteratorTypes(), generic.getThreads(),
