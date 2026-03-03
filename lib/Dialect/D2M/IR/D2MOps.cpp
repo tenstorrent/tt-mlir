@@ -2781,8 +2781,6 @@ SmallVector<Value> d2m::GenericOp::getOperandAllocs(Region &region,
       if (result.size() == numOperands) {
         break;
       }
-    } else {
-      break;
     }
   }
   return result;
