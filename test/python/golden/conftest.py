@@ -70,6 +70,7 @@ def _get_device_for_target(
     For efficiency, this device is reused from the last test if possible via
     the `_current_device`, `_current_device_target`, `_current_device_mesh_shape` & `_current_fabric_config` caches
     """
+    print("_get_device_for_target")
     global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
     print(
         _current_device,
@@ -88,6 +89,15 @@ def _get_device_for_target(
             and _current_device_mesh_shape == mesh_shape
             and _current_fabric_config == fabric_config
         ):
+            print("AAA")
+            return _current_device
+        elif (
+            _current_device_target == "ttnn"
+            and target == "emitc"
+            and _current_device_mesh_shape == mesh_shape
+            and _current_fabric_config == fabric_config
+        ):
+            print("BBB")
             return _current_device
         elif _current_device_target == "emitpy":
             print("CLOSING EMITPY DEVICE")
@@ -159,6 +169,7 @@ def clear_device_cache():
     so that the next test does not receive a stale (closed) handle and can
     open a new device (e.g. after compile with mock opmodel).
     """
+    print("clear_device_cache")
     global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
     _current_device = None
     _current_device_target = None
@@ -219,12 +230,14 @@ def device(request, pytestconfig):
     runtime mode needs to be switched from the last test, i.e. the device must
     be reinitialized
     """
+    print("Device function opened")
     # default target is ttnn elsewhere, if no "target" is supplied it will compile to ttnn
     target = "ttnn"
     mesh_shape = (1, 1)
     fabric_config = None
 
     if hasattr(request.node, "callspec"):
+        print("Callspec found")
         target = request.node.callspec.params.get("target", "ttnn")
 
         # Support for other backends coming soon.
@@ -731,6 +744,7 @@ def _mark_item_for_skip(
 
 
 def pytest_collection_modifyitems(config, items):
+    print("pytest_collection_modifyitems")
     valid_items = []
     deselected = []
     system_desc = fbb_as_dict(
@@ -834,6 +848,7 @@ def pytest_collection_modifyitems(config, items):
 
 
 def pytest_sessionfinish(session):
+    print("pytest_sessionfinish")
     global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
     if _current_device is not None:
         print("\nClosing device for end of session")

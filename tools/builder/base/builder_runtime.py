@@ -293,6 +293,12 @@ def check_outputs(
     if raise_exception:
         if check_pcc:
             if cal_pcc < pcc:
+
+                print(golden_tensor.shape, output_tensor.shape)
+                print("golden_tensor:")
+                print(golden_tensor)
+                print("output_tensor:")
+                print(output_tensor)
                 raise TTBuilderGoldenException(
                     f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
                 )
@@ -742,7 +748,8 @@ def execute_fb(
                     ),
                 )
                 golden_inputs_torch.append(torch_tensor)
-
+        print("golden_inputs_torch:")
+        print(golden_inputs_torch)
         golden_outputs_torch = []
         outputs_torch = []
         for i, o_dict in enumerate(output_dict):
@@ -758,6 +765,8 @@ def execute_fb(
                 ),
             )
             outputs_torch.append(torch_tensor)
+        print("golden_outputs_torch:")
+        print(golden_outputs_torch)
 
         inputs = []
         outputs = []
