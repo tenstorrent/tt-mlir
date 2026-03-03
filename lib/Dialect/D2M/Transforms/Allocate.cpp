@@ -1761,9 +1761,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         getStreamType(bufferType.getShape(), reblockingMap,
                       oldOperandType.getElementType(), remappedMemspace);
 
-    auto streamOp = rewriter.create<d2m::StreamLayoutOp>(
-        op.getLoc(), /* result */ streamType, /* input */ operand.get(),
-        AffineMapAttr::get(reblockingMap), /* storage */ bufferAllocOp);
+    auto streamOp = d2m::StreamLayoutOp::create(
+        rewriter, op.getLoc(), /* result */ streamType,
+        /* input */ operand.get(), AffineMapAttr::get(reblockingMap),
+        /* storage */ bufferAllocOp);
 
     rewriter.startOpModification(op);
     {
@@ -1851,8 +1852,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       OpBuilder::InsertionGuard guard(rewriter);
       {
         rewriter.setInsertionPointAfter(lastOp);
-        rewriter.create<memref::DeallocOp>(lastOp->getLoc(),
-                                           allocOp.getResult());
+        memref::DeallocOp::create(rewriter, lastOp->getLoc(),
+                                  allocOp.getResult());
       }
     }
   }

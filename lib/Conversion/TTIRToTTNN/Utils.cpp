@@ -26,9 +26,9 @@ ttnn::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
       ttnn::utils::RankedTensorTypeFactory::create(inputType, newShape);
 
   llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
-  return rewriter.create<ttnn::ReshapeOp>(newLoc, outputType, input,
-                                          rewriter.getI32ArrayAttr(newShapeI32),
-                                          /* memory_config */ nullptr);
+  return ttnn::ReshapeOp::create(rewriter, newLoc, outputType, input,
+                                 rewriter.getI32ArrayAttr(newShapeI32),
+                                 /* memory_config */ nullptr);
 }
 
 ttnn::ReshapeOp
@@ -53,9 +53,10 @@ ttnn::PermuteOp generatePermute(mlir::TypedValue<mlir::RankedTensorType> input,
   RankedTensorType outputType =
       ttnn::utils::RankedTensorTypeFactory::create(inputType, outputShape);
 
-  return rewriter.create<ttnn::PermuteOp>(
-      newLoc, outputType, input, rewriter.getDenseI64ArrayAttr(permutation),
-      /* memory_config */ nullptr, /* pad_value */ mlir::FloatAttr());
+  return ttnn::PermuteOp::create(rewriter, newLoc, outputType, input,
+                                 rewriter.getDenseI64ArrayAttr(permutation),
+                                 /* memory_config */ nullptr,
+                                 /* pad_value */ mlir::FloatAttr());
 }
 
 ttnn::PadOp generatePad(mlir::TypedValue<mlir::RankedTensorType> input,
@@ -75,10 +76,11 @@ ttnn::PadOp generatePad(mlir::TypedValue<mlir::RankedTensorType> input,
   RankedTensorType outputType =
       ttnn::utils::RankedTensorTypeFactory::create(inputType, outputShape);
 
-  return rewriter.create<ttnn::PadOp>(
-      newLoc, outputType, input, rewriter.getDenseI32ArrayAttr(padding),
-      rewriter.getF32FloatAttr(0.0f), rewriter.getBoolAttr(true),
-      /*memory_config=*/nullptr);
+  return ttnn::PadOp::create(rewriter, newLoc, outputType, input,
+                             rewriter.getDenseI32ArrayAttr(padding),
+                             rewriter.getF32FloatAttr(0.0f),
+                             rewriter.getBoolAttr(true),
+                             /*memory_config=*/nullptr);
 }
 } // namespace ttir_to_ttnn::utils
 } // namespace tt

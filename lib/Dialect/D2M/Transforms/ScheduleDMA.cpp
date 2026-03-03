@@ -288,10 +288,10 @@ public:
     threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
 
     // Create new generic op with N+1 regions.
-    auto newGeneric = rewriter.create<GenericOp>(
-        generic.getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
-        generic.getBlockFactors(), generic.getIndexingMaps(),
+    auto newGeneric = GenericOp::create(
+        rewriter, generic.getLoc(), generic.getResultTypes(),
+        generic.getInputs(), generic.getOutputs(), generic.getAdditionalArgs(),
+        generic.getGrid(), generic.getBlockFactors(), generic.getIndexingMaps(),
         generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
         generic.getScratchInputsAttr(),
         /*numRegions*/ numThreadsToUse + 1);

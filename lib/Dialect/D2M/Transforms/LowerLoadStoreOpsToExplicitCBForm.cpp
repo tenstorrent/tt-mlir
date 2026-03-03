@@ -153,12 +153,12 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
     if (!isRemoteStore) {
       // Create the explicit CB form of remote_load (no localBuffer, has CB
       // operand)
-      rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(),
-                                    outputCB, loadOp.getMcastStartIndex(),
-                                    loadOp.getMcastShape());
+      RemoteLoadOp::create(rewriter, loc, loadMemref, loadOp.getIndices(),
+                           outputCB, loadOp.getMcastStartIndex(),
+                           loadOp.getMcastShape());
     } else {
-      rewriter.create<RemoteStoreOp>(loc, storeMemref, loadOp.getIndices(),
-                                     inputCB);
+      RemoteStoreOp::create(rewriter, loc, storeMemref, loadOp.getIndices(),
+                            inputCB);
     }
 
     // Get the shared localBuffer before erasing operations
@@ -240,13 +240,13 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
 
     // Create the explicit CB form of remote_load (no localBuffer, no result,
     // has CB operand) d2m.remote_load %memref[indices] into %cb
-    rewriter.create<RemoteLoadOp>(loc, memref, remoteLoad.getIndices(), assocCb,
-                                  remoteLoad.getMcastStartIndex(),
-                                  remoteLoad.getMcastShape());
+    RemoteLoadOp::create(rewriter, loc, memref, remoteLoad.getIndices(),
+                         assocCb, remoteLoad.getMcastStartIndex(),
+                         remoteLoad.getMcastShape());
 
     // Create wait operation to produce the result value
     // %in = d2m.wait %cb
-    auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
+    auto waitOp = WaitOp::create(rewriter, loc, assocCb);
 
     // Move any operations that use localBuffer and come before remoteLoad
     // to after waitOp. This handles cases like collapse_shape ops that were
@@ -344,7 +344,7 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
 
     // Create reserve operation
     // %out = d2m.reserve %cb
-    auto reserveOp = rewriter.create<ReserveOp>(loc, assocCb);
+    auto reserveOp = ReserveOp::create(rewriter, loc, assocCb);
 
     // Replace all uses of memref.alloc result with reserve result
     rewriter.replaceAllUsesWith(allocOp.getResult(), reserveOp.getResult());
@@ -404,8 +404,8 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
 
       // Create the explicit CB form of remote_store (no local buffer, has CB)
       // d2m.remote_store %memref[indices] from %cb
-      rewriter.create<RemoteStoreOp>(loc, memref, remoteStore.getIndices(),
-                                     assocCb);
+      RemoteStoreOp::create(rewriter, loc, memref, remoteStore.getIndices(),
+                            assocCb);
 
       // Track the reserve op for push insertion (avoid duplicates).
       if (reserveOp && cbsWithReserveOps.insert(assocCb).second) {
@@ -443,7 +443,7 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
       // Create reserve op before the store (avoid duplicates)
       if (cbsWithReserveOps.insert(assocCb).second) {
         rewriter.setInsertionPoint(remoteStore);
-        auto reserveOp = rewriter.create<ReserveOp>(loc, assocCb);
+        auto reserveOp = ReserveOp::create(rewriter, loc, assocCb);
         info.reserveOpsNeedingPush.push_back({reserveOp, assocCb});
       }
     }
@@ -505,7 +505,7 @@ static void insertPushAndPopOps(ModuleOp moduleOp, IRRewriter &rewriter,
       } else {
         rewriter.setInsertionPointToEnd(topLevelBlock);
       }
-      rewriter.create<PushOp>(loc, assocCb);
+      PushOp::create(rewriter, loc, assocCb);
     } else {
       reserveOp.emitWarning(
           "could not find top-level region block for push insertion");

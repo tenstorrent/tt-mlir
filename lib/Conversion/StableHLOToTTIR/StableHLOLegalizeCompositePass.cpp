@@ -375,8 +375,8 @@ public:
       auto resultType =
           mlir::RankedTensorType::get(newShape, currInputType.getElementType(),
                                       currInputType.getEncoding());
-      currInput = rewriter.create<ttir::MeshPartitionOp>(
-          srcOp->getLoc(), resultType, currInput,
+      currInput = ttir::MeshPartitionOp::create(
+          rewriter, srcOp->getLoc(), resultType, currInput,
           rewriter.getSI32IntegerAttr(tensorDims[i]),
           rewriter.getUI32IntegerAttr(clusterAxes[i]));
     }

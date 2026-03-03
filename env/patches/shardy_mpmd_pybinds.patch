@@ -1670,6 +1670,8 @@ index 0000000..9bcab92
 +#include <variant>
 +#include <vector>
 +
++#include "llvm/ADT/STLExtras.h"
++
 +#include "mlir-c/BuiltinAttributes.h"
 +#include "mlir-c/IR.h"
 +#include "mlir-c/Support.h"
@@ -3581,6 +3583,8 @@ index 0000000..58ce9e1
 ++#include <string>
 ++#include <variant>
 ++#include <vector>
++
++#include "llvm/ADT/STLExtras.h"
 ++
 ++#include "mlir-c/BuiltinAttributes.h"
 ++#include "mlir-c/IR.h"

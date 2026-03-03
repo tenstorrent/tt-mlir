@@ -142,7 +142,7 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
   // Create memref.alloc for the scratch buffer before the generic.
   OpBuilder builder(genericOp);
   auto scratchAlloc =
-      builder.create<memref::AllocOp>(genericOp.getLoc(), scratchMemRefType);
+      memref::AllocOp::create(builder, genericOp.getLoc(), scratchMemRefType);
 
   // Build new inputs with scratch added at the end.
   unsigned numOldInputs = genericOp.getInputs().size();
@@ -175,8 +175,8 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
   auto scratchInputsAttr = builder.getDenseI64ArrayAttr({scratchInputIndex});
 
   // Create the new GenericOp with empty regions.
-  auto newGenericOp = builder.create<GenericOp>(
-      genericOp.getLoc(), genericOp.getResultTypes(), newInputs,
+  auto newGenericOp = GenericOp::create(
+      builder, genericOp.getLoc(), genericOp.getResultTypes(), newInputs,
       genericOp.getOutputs(), genericOp.getAdditionalArgs(),
       genericOp.getGrid(), genericOp.getBlockFactors(),
       builder.getArrayAttr(newIndexingMaps), genericOp.getIteratorTypes(),
