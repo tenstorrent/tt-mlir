@@ -19,9 +19,10 @@ void run(const ::tt::target::ttnn::CreateGlobalSemaphoreOp *op,
       ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*op->core_range_set());
   ::ttnn::MeshDevice *meshDevice = context.getMeshDevicePtr().get();
   ::ttnn::GlobalSemaphore globalSemaphore =
-      tt_metal::experimental::CreateGlobalSemaphore(meshDevice, coreRangeSet,
-                                                    op->initial_value(),
-                                                    tt_metal::BufferType::L1);
+      ::ttnn::global_semaphore::create_global_semaphore(
+          meshDevice, coreRangeSet,
+          op->initial_value().has_value() ? op->initial_value().value() : 0,
+          tt_metal::BufferType::L1);
   globalSemaphorePool.insertTTNNGlobalSemaphoreAndValidate(op->out(),
                                                            globalSemaphore);
 }

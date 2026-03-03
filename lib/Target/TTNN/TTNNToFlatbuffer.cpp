@@ -20,6 +20,7 @@
 #include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
 #include "ttmlir/Target/TTNN/operations/global_semaphore_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
@@ -3181,18 +3182,20 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
         getOperandThroughDPSOps(operand)));
   }
 
-  std::vector<target::ttnn::ArgRef> additional_args_types;
+  std::vector<::tt::target::ttnn::ArgRef> additional_args_types;
   std::vector<flatbuffers::Offset<void>> additional_args;
   additional_args_types.reserve(op.getAdditionalArgs().size());
   additional_args.reserve(op.getAdditionalArgs().size());
   for (auto arg : op.getAdditionalArgs()) {
     if (mlir::isa<MemRefType>(arg.getType())) {
-      additional_args_types.push_back(target::ttnn::ArgRef::BufferRef);
-      additional_args.push_back(cache.at<target::ttnn::BufferRef>(arg).Union());
-    } else if (mlir::isa<GlobalSemaphoreType>(arg.getType())) {
-      additional_args_types.push_back(target::ttnn::ArgRef::GlobalSemaphoreRef);
+      additional_args_types.push_back(::tt::target::ttnn::ArgRef::TensorRef);
       additional_args.push_back(
-          cache.at<target::ttnn::GlobalSemaphoreRef>(arg).Union());
+          cache.at<::tt::target::ttnn::TensorRef>(arg).Union());
+    } else if (mlir::isa<GlobalSemaphoreType>(arg.getType())) {
+      additional_args_types.push_back(
+          ::tt::target::ttnn::ArgRef::GlobalSemaphoreRef);
+      additional_args.push_back(
+          cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(arg).Union());
     }
   }
 

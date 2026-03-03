@@ -152,8 +152,8 @@ union ProgramType {
 }
 
 union ArgRef {
-  tt.target.ttnn.TensorRef,
-  tt.target.ttnn.GlobalSemaphoreRef,
+  TensorRef,
+  GlobalSemaphoreRef,
 }
 
 table GenericOp {
