@@ -479,45 +479,82 @@ def test_unaligned_shapes_neg(
 
 # Hoisted unary ops
 
-# Create hoisted versions of operations by currying the unit_attrs parameter
-def create_hoisted_unary_op(op_func, name):
-    """Create a hoisted version of a unary operation by adding the should_hoist unit attribute"""
 
-    def hoisted_op(in0, builder, **kwargs):
-        # For unary ops
-        return op_func(in0, builder, unit_attrs=["ttir.should_hoist"], **kwargs)
-
-    # Set the name for better test identification
-    hoisted_op.__name__ = f"hoisted_{name}"
-    return hoisted_op
-
-
-hoisted_unary_ops = [
-    exp,
-    abs,
+hoisted_unary_ops_float = [
+    atan,
+    cbrt,
     ceil,
-    floor,
-    tanh,
-    reciprocal,
-    neg,
-    sigmoid,
-    sin,
     cos,
+    erf,
+    erfc,
+    exp,
+    expm1,
+    floor,
+    gelu,
+    hardsigmoid,
+    is_finite,
+    log,
+    log1p,
+    logical_not,
+    mish,
+    reciprocal,
+    relu6,
+    rsqrt,
+    sigmoid,
+    sign,
+    silu,
+    sin,
+    sqrt,
+    tan,
+    tanh,
+]
+
+hoisted_unary_ops_float_integer = [
+    abs,
+    neg,
     relu,
 ]
 
 
+hoisted_shapes = [
+    (128, 128),
+    (1, 32),
+    (7, 41, 43, 11),
+]
+
+
 @x86_only
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("test_fn", hoisted_unary_ops)
+@pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("test_fn", hoisted_unary_ops_float)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_cpu_hoistable_unary_ops(
-    test_fn: Callable,
-    shape: Shape,
-    request,
-    target: str,
-    device,
-    dtype: torch.dtype = torch.float32,
+def test_cpu_hoistable_unary_ops_float(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def wrapper_func(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return test_fn(in0, builder, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=f"{request.node.name}",
+        target=target,
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("test_fn", hoisted_unary_ops_float_integer)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_cpu_hoistable_unary_ops_float_integer(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
 ):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
