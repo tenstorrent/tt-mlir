@@ -1728,7 +1728,7 @@ def D2M_SpatialYieldOp : D2M_GenericRegionOp<"spatial_yield", [
   ]> {
     let summary = "Yield op for spatial op.";
     let description = [{
-      Yield operation for spatial op. Return control flow to another thread. Corresponds to a circular buffer push.
+      Yield operation for spatial op.
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$values);
