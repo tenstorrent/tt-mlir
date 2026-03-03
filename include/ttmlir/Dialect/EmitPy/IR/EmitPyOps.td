@@ -130,7 +130,7 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
     ```
 
     ```python
-    // Code emitted:
+    # Code emitted:
     var_0 = subscript_arg[0]
     ...
     tensors = _CONST_EVAL_CACHE[5]
