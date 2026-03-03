@@ -233,8 +233,8 @@ private:
         RankedTensorType::get(newReduceShape, op.getType().getElementType(),
                               op.getType().getEncoding());
 
-    return rewriter.create<ReduceOpType>(op->getLoc(), newReduceType, newInput,
-                                         op.getKeepDimAttr(), newDimArgAttrs);
+    return ReduceOpType::create(rewriter, op->getLoc(), newReduceType, newInput,
+                                op.getKeepDimAttr(), newDimArgAttrs);
   }
 
   bool isCommuteUpwardsViable(ReduceOpType op, PermuteOp) const override {

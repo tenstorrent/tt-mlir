@@ -197,13 +197,13 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
   auto [virtualGridInverseMapping, virtualGridForwardMapping] =
       deriveVirtualGridAttrs(optimalGrid, effectiveTargetGridRange, builder);
 
-  auto newEmptyOp = builder.create<d2m::EmptyOp>(
-      emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
+  auto newEmptyOp = d2m::EmptyOp::create(
+      builder, emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
       virtualGridForwardMapping);
 
   builder.setInsertionPoint(toLayoutOp);
-  auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
-      toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
+  auto newToLayoutOp = d2m::ToLayoutOp::create(
+      builder, toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
 
   // Reblock it back to original shape to preserve IR correctness.
   // The view chain that applyViews composes through depends on this
@@ -214,8 +214,8 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
   auto reblockMap = ttmlir::utils::calculateReblockMap(
       newTensorType.getShape(), viewOutputType.getShape(),
       builder.getContext());
-  auto view = builder.create<d2m::ViewLayoutOp>(
-      toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0),
+  auto view = d2m::ViewLayoutOp::create(
+      builder, toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0),
       reblockMap, /*reinterpretLayout=*/false);
 
   // We expect the ToLayout to be used in one of two ways:

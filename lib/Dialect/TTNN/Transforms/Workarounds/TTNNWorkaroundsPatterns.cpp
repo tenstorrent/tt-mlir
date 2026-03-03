@@ -507,8 +507,8 @@ private:
     RankedTensorType allGatherOutputType =
         ttnn::utils::RankedTensorTypeFactory::create(reshapedInputType,
                                                      expandedInputShape);
-    ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
+    ttnn::AllGatherOp allGatherOp = ttnn::AllGatherOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
         allGatherOutputType, leadingReshapeOp.getResult(), 0, clusterAxis,
         nullptr /*sub_device_id*/, nullptr /*num_links*/, nullptr /*topology*/);
     // Create a new reduce op.

@@ -133,7 +133,7 @@ public:
           Value mcastTx = builder.create<DMAWriteOp>(
               loc, localMemref, localMemref, mcastStartIndex,
               remoteLoad.getMcastShape());
-          builder.create<DMAWaitOp>(loc, mcastTx);
+          DMAWaitOp::create(builder, loc, mcastTx);
 
           // Signal receivers that sender is finished.
           builder.create<SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
@@ -142,7 +142,7 @@ public:
                                          /*startDevice=*/ValueRange(),
                                          /*deviceMcastShape=*/ValueRange());
 
-          builder.create<scf::YieldOp>(loc);
+          scf::YieldOp::create(builder, loc);
         },
         [&](OpBuilder &builder, Location loc) {
           builder.create<SemaphoreIncOp>(loc, receiversReadySemaphore, one,
@@ -153,9 +153,9 @@ public:
           // Note: CB already reserved before the if/else, so receiver has
           // proper access to the multicast data.
 
-          builder.create<scf::YieldOp>(loc);
+          scf::YieldOp::create(builder, loc);
         });
-    rewriter.create<PushOp>(loc, cb);
+    PushOp::create(rewriter, loc, cb);
 
     rewriter.eraseOp(remoteLoad);
     return success();
