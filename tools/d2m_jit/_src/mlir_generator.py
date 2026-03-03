@@ -3,9 +3,61 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ast
+from numbers import Integral
 from ttmlir.ir import *
 from ttmlir.dialects import func, scf, arith
 from ttmlir.dialects import _d2m_ops_gen as d2m
+
+TILE_SIZE = 32
+
+
+def _normalize_int_dim(value, tensor_name, axis):
+    if isinstance(value, bool) or not isinstance(value, Integral):
+        raise ValueError(
+            f"Tensor '{tensor_name}' has non-integer dimension at axis {axis}: {value!r}"
+        )
+    dim = int(value)
+    if dim <= 0:
+        raise ValueError(
+            f"Tensor '{tensor_name}' has non-positive dimension at axis {axis}: {dim}"
+        )
+    return dim
+
+
+def _get_validated_layout_dims(tensor_name, shape):
+    if not isinstance(shape, (list, tuple)):
+        raise ValueError(f"Tensor '{tensor_name}' shape must be a list/tuple, got {type(shape)}")
+    if len(shape) < 2:
+        raise ValueError(
+            f"Tensor '{tensor_name}' must have rank >= 2 for tiled lowering, got rank {len(shape)}"
+        )
+
+    normalized = [_normalize_int_dim(dim, tensor_name, axis) for axis, dim in enumerate(shape)]
+    height = normalized[-2]
+    width = normalized[-1]
+    if height % TILE_SIZE != 0 or width % TILE_SIZE != 0:
+        raise ValueError(
+            f"Tensor '{tensor_name}' spatial dims ({height}, {width}) must be divisible by {TILE_SIZE}"
+        )
+
+    tiled_shape = list(normalized)
+    tiled_shape[-2] = height // TILE_SIZE
+    tiled_shape[-1] = width // TILE_SIZE
+
+    return {
+        "shape": normalized,
+        "rank": len(normalized),
+        "height": height,
+        "width": width,
+        "tiled_shape": tiled_shape,
+        "tile_h": tiled_shape[-2],
+        "tile_w": tiled_shape[-1],
+    }
+
+
+def _is_placeholder_shape(shape):
+    return all(dim == 1 for dim in shape)
+
 
 class D2MASTVisitor(ast.NodeVisitor):
     def __init__(self, ctx, block, tensor_metadata, grid):
@@ -19,6 +71,27 @@ class D2MASTVisitor(ast.NodeVisitor):
         self.scratch_slot = 0 # Tracks slot index for scratch_allocate
         self.output_names = [name for name, meta in tensor_metadata.items() if meta["is_output"]]
         self.outputs = [None] * len(self.output_names) # Tracks output values to yield
+        self.tensor_layout_dims = {
+            name: _get_validated_layout_dims(name, meta["shape"])
+            for name, meta in tensor_metadata.items()
+        }
+
+    def _require_compile_time_int(self, value, expr_name):
+        if isinstance(value, bool) or not isinstance(value, Integral):
+            raise ValueError(
+                f"{expr_name} must be a compile-time integer, got {value!r} ({type(value).__name__})"
+            )
+        return int(value)
+
+    def _get_ranked_shape_and_elem(self, value_type):
+        from ttmlir.ir import RankedTensorType, MemRefType
+
+        try:
+            ranked = RankedTensorType(value_type)
+            return list(ranked.shape), ranked.element_type, True, None
+        except ValueError:
+            ranked = MemRefType(value_type)
+            return list(ranked.shape), ranked.element_type, False, ranked.memory_space
             
     def _resolve_slice(self, slice_node):
         """Resolves a python slice [start:end] to (offset, size)"""
@@ -71,8 +144,22 @@ class D2MASTVisitor(ast.NodeVisitor):
         except ValueError:
             rhs = MemRefType(rhs_type)
             
-        if lhs.shape == rhs.shape and lhs.element_type == rhs.element_type:
+        if lhs.element_type != rhs.element_type:
+            raise ValueError(
+                f"d2m.add requires matching element types, got {lhs.element_type} and {rhs.element_type}"
+            )
+        lhs_shape = list(lhs.shape)
+        rhs_shape = list(rhs.shape)
+        if lhs_shape == rhs_shape:
             return lhs
+        if _is_placeholder_shape(lhs_shape):
+            return rhs
+        if _is_placeholder_shape(rhs_shape):
+            return lhs
+        if lhs_shape != rhs_shape:
+            raise ValueError(
+                f"d2m.add requires identical operand shapes, got {lhs_shape} and {rhs_shape}"
+            )
         return lhs
 
     def _infer_matmul_result_type(self, lhs_type, rhs_type):
@@ -88,18 +175,40 @@ class D2MASTVisitor(ast.NodeVisitor):
         except ValueError:
             rhs = MemRefType(rhs_type)
             
-        if len(lhs.shape) >= 2 and len(rhs.shape) >= 2 and lhs.element_type == rhs.element_type:
-            prefix = list(lhs.shape[:-2])
-            m_dim = lhs.shape[-2]
-            n_dim = rhs.shape[-1]
-            if is_tensor:
-                return RankedTensorType.get(prefix + [m_dim, n_dim], lhs.element_type)
-            else:
-                return MemRefType.get(prefix + [m_dim, n_dim], lhs.element_type, memory_space=lhs.memory_space)
-        return lhs
+        if lhs.element_type != rhs.element_type:
+            raise ValueError(
+                f"d2m.matmul requires matching element types, got {lhs.element_type} and {rhs.element_type}"
+            )
+        if len(lhs.shape) < 2 or len(rhs.shape) < 2:
+            raise ValueError(
+                f"d2m.matmul requires rank >= 2 operands, got {len(lhs.shape)} and {len(rhs.shape)}"
+            )
+        if len(lhs.shape) != len(rhs.shape):
+            raise ValueError(
+                f"d2m.matmul requires equal ranks, got {len(lhs.shape)} and {len(rhs.shape)}"
+            )
+        if list(lhs.shape[:-2]) != list(rhs.shape[:-2]):
+            raise ValueError(
+                f"d2m.matmul requires matching batch dims, got {list(lhs.shape[:-2])} and {list(rhs.shape[:-2])}"
+            )
+        if lhs.shape[-1] != rhs.shape[-2]:
+            raise ValueError(
+                f"d2m.matmul requires contracting dims lhs[-1] == rhs[-2], got {lhs.shape[-1]} and {rhs.shape[-2]}"
+            )
+
+        prefix = list(lhs.shape[:-2])
+        m_dim = lhs.shape[-2]
+        n_dim = rhs.shape[-1]
+        if is_tensor:
+            return RankedTensorType.get(prefix + [m_dim, n_dim], lhs.element_type)
+        return MemRefType.get(prefix + [m_dim, n_dim], lhs.element_type, memory_space=lhs.memory_space)
 
     def _emit_linalg_generic_tile_op(self, op_name, lhs, rhs, out_val, out_type):
         from ttmlir.ir import RankedTensorType, MemRefType
+
+        lhs_shape, lhs_elem, _, _ = self._get_ranked_shape_and_elem(lhs.type)
+        rhs_shape, rhs_elem, _, _ = self._get_ranked_shape_and_elem(rhs.type)
+        out_val_shape, out_val_elem, _, _ = self._get_ranked_shape_and_elem(out_val.type)
 
         is_tensor = True
         try:
@@ -108,8 +217,47 @@ class D2MASTVisitor(ast.NodeVisitor):
             out_type = MemRefType(out_type)
             is_tensor = False
 
-        # out_type is the res_type inferred. We just use out_val
-        rank = len(lhs.type.shape)
+        out_shape = list(out_type.shape)
+        rank = len(lhs_shape)
+        if rank != len(rhs_shape):
+            raise ValueError(f"{op_name} rank mismatch between lhs/rhs: {rank} vs {len(rhs_shape)}")
+        if lhs_elem != rhs_elem or lhs_elem != out_val_elem:
+            raise ValueError(
+                f"{op_name} requires matching element types across lhs/rhs/out, got {lhs_elem}, {rhs_elem}, {out_val_elem}"
+            )
+        out_val_is_placeholder = _is_placeholder_shape(out_val_shape)
+
+        if op_name == "add":
+            lhs_effective = rhs_shape if _is_placeholder_shape(lhs_shape) else lhs_shape
+            rhs_effective = lhs_shape if _is_placeholder_shape(rhs_shape) else rhs_shape
+            if lhs_effective != rhs_effective or lhs_effective != out_shape:
+                raise ValueError(
+                    f"d2m.add shape mismatch lhs={lhs_shape}, rhs={rhs_shape}, out_type={out_shape}"
+                )
+            if not out_val_is_placeholder and out_shape != out_val_shape:
+                raise ValueError(
+                    f"d2m.add output buffer shape mismatch expected={out_shape}, got out_val={out_val_shape}"
+                )
+        elif op_name == "matmul":
+            if rank < 2:
+                raise ValueError(f"d2m.matmul requires rank >= 2, got rank {rank}")
+            if lhs_shape[:-2] != rhs_shape[:-2]:
+                raise ValueError(
+                    f"d2m.matmul batch dims mismatch lhs={lhs_shape[:-2]} rhs={rhs_shape[:-2]}"
+                )
+            if lhs_shape[-1] != rhs_shape[-2]:
+                raise ValueError(
+                    f"d2m.matmul contracting dim mismatch lhs[-1]={lhs_shape[-1]} rhs[-2]={rhs_shape[-2]}"
+                )
+            expected_out = list(lhs_shape[:-2]) + [lhs_shape[-2], rhs_shape[-1]]
+            if out_shape != expected_out:
+                raise ValueError(
+                    f"d2m.matmul output shape mismatch expected={expected_out} out_type={out_shape}"
+                )
+            if not out_val_is_placeholder and out_val_shape != expected_out:
+                raise ValueError(
+                    f"d2m.matmul output buffer shape mismatch expected={expected_out}, got out_val={out_val_shape}"
+                )
         
         from ttmlir.ir import AffineMap, AffineMapAttr, ArrayAttr, Attribute
 
@@ -252,13 +400,14 @@ class D2MASTVisitor(ast.NodeVisitor):
             step_val = self._eval_expr(args[2])
             
         from ttmlir.dialects import affine
-        from ttmlir.ir import IntegerAttr, IntegerType, IndexType
         
         with Location.unknown(self.ctx), InsertionPoint(self.block):
             # AffineForOp takes integer bounds directly
-            start_int = int(start_val)
-            end_int = int(end_val) if isinstance(end_val, int) else 128
-            step_int = int(step_val)
+            start_int = self._require_compile_time_int(start_val, "range start")
+            end_int = self._require_compile_time_int(end_val, "range end")
+            step_int = self._require_compile_time_int(step_val, "range step")
+            if step_int == 0:
+                raise ValueError("range step must be non-zero")
             
             loop = affine.AffineForOp(start_int, end_int, step_int)
             
@@ -308,10 +457,23 @@ class D2MASTVisitor(ast.NodeVisitor):
                 l1_space = Attribute.parse("#ttcore.memory_space<l1>", context=self.ctx)
                 
                 # Ensure sizes are evaluated if they are constants
-                y_dim = 1
-                x_dim = 1
-                if isinstance(y_size, int): y_dim = max(1, y_size // 32)
-                if isinstance(x_size, int): x_dim = max(1, x_size // 32)
+                src_layout = self.tensor_layout_dims.get(src_name)
+                y_dim = src_layout["tile_h"] if src_layout else 1
+                x_dim = src_layout["tile_w"] if src_layout else 1
+                if isinstance(y_size, Integral):
+                    y_size_int = int(y_size)
+                    if y_size_int <= 0 or y_size_int % TILE_SIZE != 0:
+                        raise ValueError(
+                            f"remote_load y-slice size must be positive and divisible by {TILE_SIZE}, got {y_size_int}"
+                        )
+                    y_dim = max(1, y_size_int // TILE_SIZE)
+                if isinstance(x_size, Integral):
+                    x_size_int = int(x_size)
+                    if x_size_int <= 0 or x_size_int % TILE_SIZE != 0:
+                        raise ValueError(
+                            f"remote_load x-slice size must be positive and divisible by {TILE_SIZE}, got {x_size_int}"
+                        )
+                    x_dim = max(1, x_size_int // TILE_SIZE)
                 
                 # Get the memref logical shape to match the shard shape!
                 # Since physical tensor is 6D, we make local buffer 6D. Wait, getDeviceLayout failed!
@@ -497,22 +659,21 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                 outputs = []
                 
                 for name, meta in tensor_metadata.items():
-                    shape = meta["shape"]
+                    layout_dims = _get_validated_layout_dims(name, meta["shape"])
+                    shape = layout_dims["shape"]
                     # Hardcode types for now to get skeletal structure
                     f32 = F32Type.get()
-                    h = shape[2] if len(shape) > 2 else shape[0]
-                    w = shape[3] if len(shape) > 3 else shape[1] if len(shape) > 1 else shape[0]
+                    h = layout_dims["height"]
+                    w = layout_dims["width"]
                     
                     grid_attr = Attribute.parse(f"#ttcore.grid<{grid[0]}x{grid[1]}>", context=ctx)
                     
                     # Create ttnn.ttnn_layout tensor type for function signature
-                    rank = len(shape)
+                    rank = layout_dims["rank"]
                     dims = ", ".join([f"d{i}" for i in range(rank)])
                     affine_map_str = f"({dims}) -> ({dims})"
                     
-                    memref_shape = list(shape)
-                    memref_shape[-2] = memref_shape[-2] // 32
-                    memref_shape[-1] = memref_shape[-1] // 32
+                    memref_shape = layout_dims["tiled_shape"]
                     memref_shape_str = "x".join(map(str, memref_shape))
                     
                     ttnn_layout_str = f"#ttnn.ttnn_layout<{affine_map_str}, <1x1>, memref<{memref_shape_str}x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>"
@@ -521,16 +682,16 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                     func_arg_type = Type.parse(func_arg_type_str, context=ctx)
                     
                     # Prepare ttcore.metal_layout memref type for d2m.generic
-                    t_shape = [1, 1, h // 32, w // 32]
+                    t_shape = [1, 1, layout_dims["tile_h"], layout_dims["tile_w"]]
                     logical_shape_str = f"logical_shape={grid[0]}x{grid[1]}x{t_shape[0]}x{t_shape[1]}x{h}x{w}"
                     dim_alignments_str = f"dim_alignments=1x1x1x1x32x32"
                     
                     # Create tensor with metal layout
-                    metal_type_str = f"tensor<{grid[0]}x{grid[1]}x1x1x{h // 32}x{w // 32}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4, d5)>>"
+                    metal_type_str = f"tensor<{grid[0]}x{grid[1]}x1x1x{layout_dims['tile_h']}x{layout_dims['tile_w']}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4, d5)>>"
                     metal_type = Type.parse(metal_type_str, context=ctx)
                     
                     # Create memref with metal layout
-                    memref_type_str = f"memref<{grid[0]}x{grid[1]}x1x1x{h // 32}x{w // 32}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4, d5)>>"
+                    memref_type_str = f"memref<{grid[0]}x{grid[1]}x1x1x{layout_dims['tile_h']}x{layout_dims['tile_w']}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4, d5)>>"
                     memref_type = Type.parse(memref_type_str, context=ctx)
                     
                     if meta["is_output"]:
