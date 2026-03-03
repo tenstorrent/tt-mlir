@@ -592,6 +592,42 @@ public:
 };
 } // namespace
 
+// SparseMatmulOp conversion pattern
+//
+namespace {
+class SparseMatmulOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::SparseMatmulOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::SparseMatmulOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SparseMatmulOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::SparseMatmulOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getA(), "a"),
+        emitter.emit(srcOp.getB(), "b"),
+        emitter.emit(srcOp.getSparsity(), "sparsity"),
+        emitter.emit(srcOp.getIsInputASparse(), "is_input_a_sparse"),
+        emitter.emit(srcOp.getIsInputBSparse(), "is_input_b_sparse"),
+        emitter.emit(srcOp.getNnz(), "nnz"),
+        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getDtype(), "dtype"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Linear op conversion pattern
 //
 namespace {
@@ -3359,6 +3395,107 @@ public:
 };
 } // namespace
 
+// AllToAllDispatchOp conversion pattern
+//
+namespace {
+class AllToAllDispatchOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::AllToAllDispatchOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AllToAllDispatchOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllToAllDispatchOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AllToAllDispatchOp>
+        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor(), "input_tensor"),
+        emitter.emit(srcOp.getExpertIndices(), "expert_indices"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping"),
+        emitter.emit(srcOp.getNumDevices(), "num_devices"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// AllToAllCombineOp conversion pattern
+//
+namespace {
+class AllToAllCombineOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::AllToAllCombineOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AllToAllCombineOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllToAllCombineOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AllToAllCombineOp>
+        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor(), "input_tensor"),
+        emitter.emit(srcOp.getExpertMetadata(), "expert_metadata"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping"),
+        emitter.emit(srcOp.getNumDevices(), "num_devices"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getNumExpertsPerTok(), "num_experts_per_tok"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// MoeExpertTokenRemapOp conversion pattern
+//
+namespace {
+class MoeExpertTokenRemapOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::MoeExpertTokenRemapOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::MoeExpertTokenRemapOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MoeExpertTokenRemapOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MoeExpertTokenRemapOp>
+        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getTopkTensor(), "topk_tensor"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping"),
+        emitter.emit(srcOp.getExpertMetadata(), "expert_metadata"),
+        emitter.emit(srcOp.getReductionSize(), "reduction_size"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // RMSNormOp conversion pattern
 //
 namespace {
@@ -3920,7 +4057,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Matmul ops
   //
   // clang-format off
-  patterns.add<MatmulOpConversionPattern, LinearOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+  patterns.add<MatmulOpConversionPattern, LinearOpConversionPattern,
+               SparseMatmulOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
   // clang-format on
 
   // Reduction ops
@@ -4106,7 +4244,10 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                MeshShardOpConversionPattern,
                DistributeTensorOpConversionPattern,
                AggregateTensorOpConversionPattern,
-               TopKOpConversionPattern
+               TopKOpConversionPattern,
+               AllToAllDispatchOpConversionPattern,
+               AllToAllCombineOpConversionPattern,
+               MoeExpertTokenRemapOpConversionPattern
               >(typeConverter, ctx, enableGoldenMode);
   // clang-format on
 
