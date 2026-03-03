@@ -1339,7 +1339,9 @@ def load_mlir_file(
         )
     elif target == "ttnn":
         module, builder = TTNNBuilder.from_module(
-            ctx, mlir_text, golden_inputs, split_on_demand
+            ctx,
+            mlir_text,
+            golden_inputs,
         )
     else:
         raise NotImplementedError(

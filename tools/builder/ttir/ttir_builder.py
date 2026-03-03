@@ -6327,9 +6327,12 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
+                    old_golden = self._get_golden_tensor(old_op.result)
+                    print(old_golden.shard_map)
                     dot_general_builder._set_golden_tensor(
                         new_op_result, self._goldens[old_op.result]
                     )
+                    print(self._goldens[old_op.result])
                     dot_general_builder._set_golden_tensor(in0, input0)
                     dot_general_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])

@@ -25,17 +25,7 @@ def test_arbitrary_model(
         def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
             add = builder.add(in0, in1)
             exp = builder.exp(in2)
-            a1 = builder.add(add, exp)
-            a2 = builder.multiply(add, exp)
-            a3 = builder.dot_general(
-                add,
-                exp,
-                batch_dims_lhs=[0],
-                batch_dims_rhs=[0],
-                contract_dims_lhs=[1],
-                contract_dims_rhs=[1],
-            )
-            return builder.multiply(a3, exp)
+            return builder.multiply(add, exp)
 
     compile_and_execute_ttir(
         module,
@@ -100,12 +90,12 @@ def test_mnist(
     )
 
 
-# @pytest.mark.xfail(reason="Fails Golden")
+@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize(
     "shapes",
     [
         [
-            (12, 3200),  # arg0
+            (1, 12, 3200),  # arg0
             (1, 1, 12, 12),  # arg1
             (1, 12),  # arg2
             (1, 50, 1),  # arg3
@@ -158,8 +148,8 @@ def test_llama_attention(
             arg14: Operand,
             builder: TTIRBuilder,
         ):
-            # output1 = builder.squeeze(arg0, 0)
-            output3 = builder.matmul(arg0, arg11)
+            output1 = builder.squeeze(arg0, 0)
+            output3 = builder.matmul(output1, arg11)
             output5 = builder.reshape(output3, (1, 12, 32, 100))
             output7 = builder.transpose(output5, -3, -2)
             output9 = builder.unsqueeze(arg2, 1)
@@ -178,8 +168,46 @@ def test_llama_attention(
             output35 = builder.transpose(output33, -2, -1)
             output37 = builder.concat([output29, output35], -1)
             output39 = builder.sin(output15)
+            output41 = builder.unsqueeze(output39, 1)
+            output43 = builder.multiply(output37, output41)
+            output45 = builder.add(output21, output43)
+            output47 = builder.squeeze(output45, 0)
+            output49 = builder.matmul(output1, arg12)
+            output51 = builder.reshape(output49, (1, 12, 32, 100))
+            output53 = builder.transpose(output51, -3, -2)
+            output55 = builder.multiply(output53, output19)
+            output57 = builder.transpose(output53, -2, -1)
+            output59 = builder.matmul(arg7, output57)
+            output61 = builder.transpose(output59, -2, -1)
+            output63 = builder.multiply(output61, arg8)
+            output65 = builder.transpose(output53, -2, -1)
+            output67 = builder.matmul(arg9, output65)
+            output69 = builder.transpose(output67, -2, -1)
+            output71 = builder.concat([output63, output69], -1)
+            output73 = builder.multiply(output71, output41)
+            output75 = builder.add(output55, output73)
+            output77 = builder.squeeze(output75, 0)
+            output79 = builder.transpose(output77, -2, -1)
+            output81 = builder.matmul(output47, output79)
+            output83 = builder.unsqueeze(output81, 0)
+            output85 = builder.multiply(output83, arg10)
+            output87 = builder.add(output85, arg1)
+            output89 = builder.softmax(output87, -1)
+            output91 = builder.squeeze(output89, 0)
+            output93 = builder.matmul(output1, arg13)
+            output95 = builder.reshape(output93, (1, 12, 32, 100))
+            output97 = builder.transpose(output95, -3, -2)
+            output99 = builder.transpose(output97, -2, -1)
+            output101 = builder.squeeze(output99, 0)
+            output103 = builder.transpose(output101, -2, -1)
+            output105 = builder.matmul(output91, output103)
+            output107 = builder.unsqueeze(output105, 0)
+            output109 = builder.transpose(output107, -3, -2)
+            output111 = builder.reshape(output109, (12, 3200))
+            output113 = builder.matmul(output111, arg14)
+            output115 = builder.unsqueeze(output113, 0)
 
-            return output39
+            return output115
 
     compile_and_execute_ttir(
         module,

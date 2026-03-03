@@ -8212,6 +8212,7 @@ class StableHLOBuilder(Builder):
                 break
 
             stablehlo_builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_shape)
+            stablehlo_builder._split_on_demand = split_on_demand
             new_module = stablehlo_builder.parse_root_module(root_module, golden_inputs)
             new_module.body.append(stablehlo_builder._get_mesh())
 
