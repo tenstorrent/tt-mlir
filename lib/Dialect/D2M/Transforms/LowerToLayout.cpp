@@ -847,10 +847,32 @@ public:
       }
 
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(type.getEncoding());
-      return rewriter
-          .create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
-                                type.getElementType(), layout)
-          .getResult();
+      auto emptyOp = rewriter.create<d2m::EmptyOp>(
+          op.getLoc(), type.getShape(), type.getElementType(), layout);
+
+      // If the grid is ND or exceeds device bounds, set virtual grid
+      // mappings so that downstream GenericOp::build can derive a correct
+      // grid with an inverse mapping to physical cores.
+      if (layout) {
+        auto gridShape = llvm::to_vector(layout.getGridShape(type));
+        if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
+                                                           targetGridShape)) {
+          auto squareGrid = utils::getSquareTargetGrid(targetGridShape);
+          auto physGrid = utils::findLegalPhysicalGridForVolume(
+              ttmlir::utils::volume<int64_t>(gridShape), squareGrid);
+          if (!physGrid.empty()) {
+            auto [fwdMap, invMap] =
+                ttmlir::d2m::utils::grids::createCoreVirtMaps(
+                    rewriter.getContext(), gridShape, physGrid);
+            emptyOp.setVirtualGridInverseMappingAttr(
+                AffineMapAttr::get(invMap));
+            emptyOp.setVirtualGridForwardMappingAttr(
+                AffineMapAttr::get(fwdMap));
+          }
+        }
+      }
+
+      return emptyOp.getResult();
     };
 
     // 1. SYSTEM→DEVICE: Transfer to L1/DRAM with same element type as input.
@@ -924,11 +946,28 @@ public:
       // buffers via createEmpty().
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(
           currentInfo.type.getEncoding());
-      auto maskedEmpty =
-          rewriter
-              .create<d2m::EmptyOp>(op.getLoc(), currentInfo.type.getShape(),
-                                    currentInfo.type.getElementType(), layout)
-              .getResult();
+      auto maskedEmptyOp = rewriter.create<d2m::EmptyOp>(
+          op.getLoc(), currentInfo.type.getShape(),
+          currentInfo.type.getElementType(), layout);
+      if (layout) {
+        auto gridShape = llvm::to_vector(layout.getGridShape(currentInfo.type));
+        if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
+                                                           targetGridShape)) {
+          auto squareGrid = utils::getSquareTargetGrid(targetGridShape);
+          auto physGrid = utils::findLegalPhysicalGridForVolume(
+              ttmlir::utils::volume<int64_t>(gridShape), squareGrid);
+          if (!physGrid.empty()) {
+            auto [fwdMap, invMap] =
+                ttmlir::d2m::utils::grids::createCoreVirtMaps(
+                    rewriter.getContext(), gridShape, physGrid);
+            maskedEmptyOp.setVirtualGridInverseMappingAttr(
+                AffineMapAttr::get(invMap));
+            maskedEmptyOp.setVirtualGridForwardMappingAttr(
+                AffineMapAttr::get(fwdMap));
+          }
+        }
+      }
+      auto maskedEmpty = maskedEmptyOp.getResult();
       currentValue =
           lowerMaskingGeneric(rewriter, currentValue, maskedEmpty, op.getLoc(),
                               currentInfo.layout->getLogicalShape(),
