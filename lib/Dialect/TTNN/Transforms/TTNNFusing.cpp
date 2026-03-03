@@ -196,8 +196,9 @@ private:
 //      |
 //   matmul (Q @ K^T)
 //
-// Uses skipTransparent() to handle type conversions and layout ops that don't
-// change semantics, making the pattern robust to variations in the IR.
+// Uses ttmlir::utils::lookThrough to skip transparent ops (ToLayoutOp,
+// ToMemoryConfigOp, TypecastOp) that don't change semantics, making the
+// pattern robust to variations in the IR.
 //
 class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
   using SDPAFusing::OpRewritePattern<MatmulOp>::OpRewritePattern;
@@ -257,26 +258,6 @@ private:
     SoftmaxOp softmax;
     Operation *scoreOp = nullptr;
   };
-
-  // ============================================================================
-  // Transparent Op Utilities
-  // ============================================================================
-
-  // Operations that don't change semantic meaning - can be traced through.
-  static bool isTransparentOp(Operation *op) {
-    return isa<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(op);
-  }
-
-  // Skip through transparent ops to find the semantic operation.
-  Value skipTransparent(Value v) const {
-    while (Operation *defOp = v.getDefiningOp()) {
-      if (!isTransparentOp(defOp)) {
-        break;
-      }
-      v = defOp->getOperand(0);
-    }
-    return v;
-  }
 
   // ============================================================================
   // Layout / Transpose Utilities
@@ -349,7 +330,7 @@ private:
 
   std::optional<float> extractConstant(Value v) const {
     // Skip transparent ops to find the actual constant.
-    v = skipTransparent(v);
+    v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
 
     // Direct FullOp.
     if (auto fullOp = v.getDefiningOp<FullOp>()) {
@@ -397,7 +378,8 @@ private:
     std::optional<float> scale;
 
     // Check if transparent ops lead to a multiply (scale applied to tensor).
-    Value skipped = skipTransparent(v);
+    Value skipped =
+        ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
     if (auto mulOp = skipped.getDefiningOp<MultiplyOp>()) {
       if (auto s = extractConstant(mulOp.getRhs())) {
         scale = s;
@@ -446,11 +428,13 @@ private:
 
   // Match: [Typecast] -> [where(cond, zeros, softmax)] -> softmax
   bool matchSoftmaxPath(Value v, SDPAComponents &c) const {
-    v = skipTransparent(v);
+    v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
 
     // Try where(cond, zeros, softmax) pattern first
     if (auto whereOp = v.getDefiningOp<WhereOp>()) {
-      Value softmaxCandidate = skipTransparent(whereOp.getThird());
+      Value softmaxCandidate =
+          ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(
+              whereOp.getThird());
       if (auto softmax = softmaxCandidate.getDefiningOp<SoftmaxOp>()) {
         c.softmax = softmax;
         return true;
@@ -472,7 +456,7 @@ private:
   //   2. [transparent] -> add(score_chain, mask)
   //   3. [transparent] -> score_chain (no mask)
   bool matchScoreComputation(Value v, SDPAComponents &c) const {
-    v = skipTransparent(v);
+    v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
 
     // Try linear(Q_scaled, K_scaled, mask) first
     if (auto linearOp = v.getDefiningOp<LinearOp>()) {
@@ -509,16 +493,18 @@ private:
   //        [transparent] -> matmul
   // Extracts scale if present, then matches the Q@K matmul.
   bool matchScoreChain(Value v, SDPAComponents &c) const {
-    v = skipTransparent(v);
+    v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
 
     // Optional multiply for scale (post-matmul scaling)
     if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
       if (auto scale = extractConstant(mulOp.getRhs())) {
         c.scale = scale;
-        v = skipTransparent(mulOp.getLhs());
+        v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp,
+                                       TypecastOp>(mulOp.getLhs());
       } else if (auto scale = extractConstant(mulOp.getLhs())) {
         c.scale = scale;
-        v = skipTransparent(mulOp.getRhs());
+        v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp,
+                                       TypecastOp>(mulOp.getRhs());
       }
     }
 
@@ -528,7 +514,8 @@ private:
       if (auto divisor = extractConstant(divOp.getRhs())) {
         if (*divisor != 0.0f) {
           c.scale = 1.0f / *divisor;
-          v = skipTransparent(divOp.getLhs());
+          v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp,
+                                         TypecastOp>(divOp.getLhs());
         }
       }
     }
@@ -1145,25 +1132,15 @@ class NLPConcatHeadsDecodeFusing : public mlir::OpRewritePattern<ReshapeOp> {
   static constexpr std::array<int64_t, 4> kConcatHeadsDecodePermutation = {
       1, 2, 0, 3};
 
-  // Skip through transparent ops (typecast) that don't alter the semantic
-  // meaning of the data. Note: ToLayoutOp and ToMemoryConfigOp are not expected
-  // in the graph at this point since the optimizer pass hasn't run yet.
-  static Value skipTransparent(Value v) {
-    while (Operation *defOp = v.getDefiningOp()) {
-      if (!isa<TypecastOp>(defOp)) {
-        break;
-      }
-      v = defOp->getOperand(0);
-    }
-    return v;
-  }
-
 public:
   mlir::LogicalResult
   matchAndRewrite(ReshapeOp reshapeOp,
                   mlir::PatternRewriter &rewriter) const override {
-    // Skip through transparent ops to find the permute.
-    Value reshapeInput = skipTransparent(reshapeOp.getInput());
+    // Skip through transparent ops (typecast) to find the permute.
+    // Note: ToLayoutOp and ToMemoryConfigOp are not expected in the graph at
+    // this point since the optimizer pass hasn't run yet.
+    Value reshapeInput =
+        ttmlir::utils::lookThrough<TypecastOp>(reshapeOp.getInput());
     auto permuteOp = reshapeInput.getDefiningOp<PermuteOp>();
     if (!permuteOp) {
       return failure();
@@ -1179,9 +1156,6 @@ public:
     // Validate permute input is a 4D tensor.
     Value input = permuteOp.getInput();
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    if (inputType.getRank() != 4) {
-      return failure();
-    }
 
     auto inputShape = inputType.getShape();
     int64_t seqLen = inputShape[0];

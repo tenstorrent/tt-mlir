@@ -325,31 +325,11 @@ inline Value flattenTensor(PatternRewriter &rewriter, Location loc,
   return flattenedTensor;
 }
 
-// Traces backward from a value through specified ops to find the source value.
-template <typename... Ops>
-mlir::Value lookThrough(mlir::Value value) {
-  while (auto *op = value.getDefiningOp()) {
-    if (llvm::isa<Ops...>(op)) {
-      value = op->getOperand(0);
-    } else {
-      break;
-    }
-  }
-  return value;
-}
-
-// Traces backward from a value through specified ops to find an operation of
-// type OpTy.
-template <typename OpTy, typename... Ops>
-OpTy findOpThrough(mlir::Value value) {
-  return lookThrough<Ops...>(value).template getDefiningOp<OpTy>();
-}
-
 // Traces backward through all layout ops (typecast, reshape, broadcast,
 // repeat_interleave) to find the source value.
 inline mlir::Value lookThroughLayoutOps(mlir::Value value) {
-  return lookThrough<TypecastOp, ReshapeOp, BroadcastOp, RepeatInterleaveOp>(
-      value);
+  return ttmlir::utils::lookThrough<TypecastOp, ReshapeOp, BroadcastOp,
+                                    RepeatInterleaveOp>(value);
 }
 
 // Traces backward through all layout ops, but only looks through ops that
