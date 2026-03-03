@@ -114,7 +114,7 @@ module {
 module {
   emitpy.global @_cached = #emitpy.opaque<"None">
 
-  func.func @elif_with_else(%arg0: !emitpy.opaque<"dict">,
+  func.func @else_with_nested_if_else(%arg0: !emitpy.opaque<"dict">,
                               %arg1: !emitpy.opaque<"int">,
                               %arg2: !emitpy.opaque<"dict">) -> () {
     // CHECK: emitpy.if "{} is None" args %{{.*}} : (!emitpy.opaque<"dict">) {
