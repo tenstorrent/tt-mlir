@@ -364,8 +364,8 @@ def EmitPy_IfOp : EmitPy_Op<"if", [NoTerminator]> {
     placeholders that are replaced by the condition arguments.
 
     An `elif` chain is represented by nesting an `emitpy.if` as the sole
-    operation inside the else region; the Python emitter detects this pattern
-    and emits `elif` instead of `else: if`.
+    operation inside the else region without its own else clause. The Python
+    emitter detects this pattern and emits `elif` instead of `else: if`.
 
     Example:
 
@@ -381,6 +381,15 @@ def EmitPy_IfOp : EmitPy_Op<"if", [NoTerminator]> {
       // else body
     }
     ```
+    ```mlir
+    emitpy.if "{}" args %a : (!emitpy.opaque<"dict">) {
+      // then body
+    } else {
+      emitpy.if "{} > 0" args %b : (!emitpy.opaque<"int">) {
+        // elif body
+      }
+    }
+    ```
     ```python
     # Code emitted:
     if not dict:
@@ -390,6 +399,11 @@ def EmitPy_IfOp : EmitPy_Op<"if", [NoTerminator]> {
         # then body
     else:
         # else body
+
+    if a:
+        # then body
+    elif b > 0:
+        # elif body
     ```
   }];
 
