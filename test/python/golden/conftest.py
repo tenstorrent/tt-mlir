@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Tuple, Optional
 import math
 import sys
 from pathlib import Path
+import signal
+import threading
 
 # Add tt-alchemist utils.py to path for EmitPy tests
 TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
@@ -43,6 +45,17 @@ _current_device = None
 _current_device_target: Optional[str] = None
 _current_device_mesh_shape: Optional[Tuple[int, int]] = None
 _current_fabric_config: Optional[str] = None
+
+
+# Test timeout handling
+TEST_TIMEOUT_SECONDS = 180  # 3 minutes
+_timeout_timer: Optional[threading.Timer] = None
+
+
+def _timeout_handler():
+    """Handler called when test exceeds timeout limit"""
+    print(f"\n\nTest exceeded {TEST_TIMEOUT_SECONDS} second timeout - terminating")
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 def json_string_as_dict(json_string):
@@ -656,7 +669,17 @@ def pytest_runtest_setup(item: pytest.Item):
     Note that the above example excludes the "failure_stage" entry. This is
     handled by the hookwrapper for `pytest_runtest_makereport` below
     """
+    global _timeout_timer
+
+    # Start timeout timer for this test
+    _timeout_timer = threading.Timer(TEST_TIMEOUT_SECONDS, _timeout_handler)
+    _timeout_timer.daemon = True
+    _timeout_timer.start()
+
     yield
+
+    # Don't cancel the timer here - it needs to stay active through the test execution
+    # It will be cancelled in pytest_runtest_call after the test completes
 
     if hasattr(item, "callspec"):
         params = item.callspec.params
@@ -683,6 +706,7 @@ def pytest_runtest_call(item: pytest.Item):
     downstream schemas to support future features once pytest itself
     orchestrates the running of the generated flatbuffers
     """
+    global _timeout_timer
 
     TTBUILDER_EXCEPTIONS = {
         "TTBuilderCompileException": "compile",
@@ -704,7 +728,30 @@ def pytest_runtest_call(item: pytest.Item):
             )
         failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
     finally:
+        # Ensure timeout timer is cancelled
+        if _timeout_timer is not None:
+            _timeout_timer.cancel()
+            _timeout_timer = None
+
         _safe_add_property(item, "failure_stage", failure_stage)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_teardown(item: pytest.Item):
+    """
+    Ensure timeout timer is cancelled during teardown phase.
+
+    This provides an additional safety net to cancel the timer even if
+    something went wrong in earlier phases.
+    """
+    global _timeout_timer
+
+    yield
+
+    # Final safety check to cancel timer
+    if _timeout_timer is not None:
+        _timeout_timer.cancel()
+        _timeout_timer = None
 
 
 def _mark_item_for_skip(
