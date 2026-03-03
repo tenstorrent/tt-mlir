@@ -3245,7 +3245,9 @@ createOp(FlatbufferObjectCache &cache, NLPCreateQKVHeadsDecodeOp op) {
 
                                   /*local_shape*/ std::nullopt);
 
-  auto memoryConfig = getMemoryConfigIfNeeded(cache, op, op.getQuery());
+  auto memoryConfig = op.getMemoryConfig()
+                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                          : 0;
 
   return ::tt::target::ttnn::CreateNLPCreateQKVHeadsDecodeOp(
       *cache.fbb, in, outQuery, outKey, outValue, numHeads, numKVHeads,
