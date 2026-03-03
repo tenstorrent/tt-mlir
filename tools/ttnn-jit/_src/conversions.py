@@ -16,7 +16,36 @@ This includes:
 """
 from ttmlir.ir import BF16Type, F32Type, IntegerType
 from ttmlir.dialects import ttcore
-from ttmlir.dialects import ttnn
+import ttnn
+
+import ttnn as ttnn_lib
+
+
+def ttnn_dtype_from_mlir_element_type(element_type):
+    """
+    Convert MLIR element type to TTNN dtype.
+
+    Args:
+        element_type: MLIR element type (e.g., bf16, f32, i32)
+
+    Returns:
+        TTNN dtype enum (from ttnn library)
+    """
+    type_str = str(element_type)
+    if "bf16" in type_str:
+        return ttnn_lib.bfloat16
+    elif "f32" in type_str:
+        return ttnn_lib.float32
+    elif "i32" in type_str:
+        return ttnn_lib.int32
+    elif "ui32" in type_str:
+        return ttnn_lib.uint32
+    elif "ui16" in type_str:
+        return ttnn_lib.uint16
+    elif "ui8" in type_str:
+        return ttnn_lib.uint8
+    else:
+        return ttnn_lib.bfloat16  # Default fallback
 
 
 def mlir_dtype_from_ttnn_dtype(dtype, ctx):
@@ -98,6 +127,30 @@ def ttcore_dtype_from_mlir_dtype(dtype):
             return ttcore.DataType.Int32
         case _:
             raise ValueError(f"Unsupported MLIR dtype: {dtype}")
+
+
+def ttnn_dtype_from_mlir_dtype(dtype):
+    """
+    Convert MLIR dtype to TTNN dtype.
+
+    Args:
+        dtype: MLIR dtype object
+
+    Returns:
+        TTNN dtype (integer enum)
+    """
+    dtype_str = str(dtype)
+    match dtype_str:
+        case "f32":
+            return ttnn.DataType.FLOAT32
+        case "bf16":
+            return ttnn.DataType.BFLOAT16
+        case s if "bfp_bf8" in s.lower():
+            return ttnn.DataType.BFLOAT8_B
+        case "i32":
+            return ttnn.DataType.INT32
+        case _:
+            raise ValueError(f"Unsupported MLIR dtype for TTNN: {dtype}")
 
 
 def buffer_type_from_string(buffer_type_str: str):

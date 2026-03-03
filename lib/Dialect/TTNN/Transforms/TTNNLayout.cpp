@@ -606,15 +606,20 @@ private:
   }
 
   bool shouldForceInputRowMajor(BlockArgument arg) const {
+    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
+
+    // KV cache arguments should not be forced to row major.
+    if (owningFunc.getArgAttr(arg.getArgNumber(), ttcore::g_kvCacheAttrName)) {
+      return false;
+    }
+
     for (Operation *user : arg.getUsers()) {
-      // MeshShardOp/UpdateCacheOp/PagedUpdateCacheOp inputs should be tiled.
-      if (mlir::isa<ttir::MeshShardOp, ttir::UpdateCacheOp,
-                    ttir::PagedUpdateCacheOp>(user)) {
+      // MeshShardOp inputs should be tiled.
+      if (mlir::isa<ttir::MeshShardOp>(user)) {
         return false;
       }
     }
 
-    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
     if (auto typeAttr = owningFunc.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
             arg.getArgNumber(), ttcore::ArgumentTypeAttr::name)) {
       return typeAttr.getValue() == ttcore::ArgumentType::Input;

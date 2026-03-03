@@ -102,7 +102,7 @@ module {
       emitpy.assign_global @_cached = %arg2 : !emitpy.opaque<"dict">
     } else {
       emitpy.if "{} > 0" args %arg1 : (!emitpy.opaque<"int">) {
-        emitpy.call_opaque "refresh"(%arg2) : (!emitpy.opaque<"dict">) -> ()
+        emitpy.call_opaque "refresh"(%arg1) : (!emitpy.opaque<"int">) -> ()
       }
     }
     return
@@ -114,7 +114,7 @@ module {
 module {
   emitpy.global @_cached = #emitpy.opaque<"None">
 
-  func.func @elif_with_else(%arg0: !emitpy.opaque<"dict">,
+  func.func @else_with_nested_if_else(%arg0: !emitpy.opaque<"dict">,
                               %arg1: !emitpy.opaque<"int">,
                               %arg2: !emitpy.opaque<"dict">) -> () {
     // CHECK: emitpy.if "{} is None" args %{{.*}} : (!emitpy.opaque<"dict">) {
@@ -130,7 +130,7 @@ module {
       emitpy.assign_global @_cached = %arg2 : !emitpy.opaque<"dict">
     } else {
       emitpy.if "{} > 0" args %arg1 : (!emitpy.opaque<"int">) {
-        emitpy.call_opaque "refresh"(%arg2) : (!emitpy.opaque<"dict">) -> ()
+        emitpy.call_opaque "refresh"(%arg1) : (!emitpy.opaque<"int">) -> ()
       } else {
         emitpy.call_opaque "fallback"() : () -> ()
       }

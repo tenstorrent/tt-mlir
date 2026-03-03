@@ -39,7 +39,6 @@ def create_reductions_constrained_inputs(input_shape, reduce_type, dim_arg, keep
     return module
 
 
-@pytest.mark.skip_config(["p150"], ["p300"])
 @pytest.mark.parametrize("m", [4, 8, 16])
 @pytest.mark.parametrize("n", [2, 4, 8])
 @pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
@@ -69,7 +68,73 @@ def test_sum(
     )
 
 
-@pytest.mark.skip_config(["p150"], ["p300"])
+@pytest.mark.parametrize("b", [1, 2])
+@pytest.mark.parametrize("m", [4, 8])
+@pytest.mark.parametrize("n", [2, 4])
+@pytest.mark.parametrize("dim_arg", [[1], [2], [1, 2]])
+@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_sum_3d(
+    b: int,
+    m: int,
+    n: int,
+    dim_arg: List[int],
+    keep_dim: bool,
+    target: str,
+    request,
+    device,
+):
+    tile_size = 32
+    shape = (
+        b,
+        m * tile_size,
+        n * tile_size,
+    )
+
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=shape[0] * shape[1] * shape[2] * 0.0005,  # 5e-4
+    )
+
+
+@pytest.mark.parametrize("a", [1, 2])
+@pytest.mark.parametrize("b", [1, 2])
+@pytest.mark.parametrize("m", [4, 8])
+@pytest.mark.parametrize("n", [2, 4])
+@pytest.mark.parametrize("dim_arg", [[2], [3], [2, 3]])
+@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_sum_4d(
+    a: int,
+    b: int,
+    m: int,
+    n: int,
+    dim_arg: List[int],
+    keep_dim: bool,
+    target: str,
+    request,
+    device,
+):
+    tile_size = 32
+    shape = (
+        a,
+        b,
+        m * tile_size,
+        n * tile_size,
+    )
+
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=shape[0] * shape[1] * shape[2] * shape[3] * 0.0005,  # 5e-4
+    )
+
+
 @pytest.mark.parametrize("m", [4, 8, 16])
 @pytest.mark.parametrize("n", [2, 4, 8])
 @pytest.mark.parametrize("dim_arg", [[0], [1]])

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -41,6 +42,7 @@ private:
     shouldHoist &= !::mlir::isa<mlir::tt::ttcore::LoadCachedOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::CaptureOrExecuteTraceOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::GetDeviceOp>(op);
+    shouldHoist &= !::mlir::isa<mlir::tt::ttnn::MeshShardOp>(op);
     shouldHoist &=
         !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>());
     return shouldHoist;
@@ -87,6 +89,19 @@ private:
       }
     }
     return false;
+  }
+
+  // KV cache tensors are device-native and updated in-place by cache
+  // operations. They should not get empty slots allocated or be round-tripped
+  // through host during trace capture.
+  bool isKVCache(func::FuncOp op, size_t argIndex) {
+    return op.getArgAttr(argIndex, ttcore::g_kvCacheAttrName) != nullptr;
+  }
+
+  // Returns true if the argument should be used directly without allocating an
+  // empty slot or transferring through host during trace capture.
+  bool shouldUseArgDirectly(func::FuncOp op, size_t argIndex) {
+    return isConstantOrParameter(op, argIndex) || isKVCache(op, argIndex);
   }
 
   // Collect all inputs and outputs outside the operation set to hoist
@@ -357,14 +372,16 @@ private:
             "Input type must be a ranked tensor type");
       }
 
-      // Don't create empty slots for constants/parameters
-      if (isConstantOrParameter(runAndCaptureTraceFunc, i)) {
+      // Don't create empty slots for constants/parameters/kv_cache.
+      // These are used directly without host round-trip.
+      if (shouldUseArgDirectly(runAndCaptureTraceFunc, i)) {
         inputSlots.push_back(runAndCaptureTraceFunc.getArgument(i));
         continue;
       }
 
       RankedTensorType inputTensorType =
           mlir::cast<RankedTensorType>(inputType);
+
       ttnn::TTNNLayoutAttr ttnnLayoutAttr =
           mlir::cast<ttnn::TTNNLayoutAttr>(inputTensorType.getEncoding());
       ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
@@ -374,7 +391,7 @@ private:
                                          device.getWorkerGrid()));
 
       auto emptyOp = builder.create<ttnn::EmptyOp>(
-          runAndCaptureTraceFunc.getLoc(), inputType, deviceOp,
+          runAndCaptureTraceFunc.getLoc(), inputTensorType, deviceOp,
           ttnn::ShapeAttr::get(context, inputTensorType.getShape()),
           ttcore::DataTypeAttr::get(context, ttnnLayoutAttr.getDataType()),
           ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()),
@@ -385,8 +402,8 @@ private:
 
     // move inputs to host and copy into input slots
     for (size_t i = 0; i < inputSlots.size(); i++) {
-      // Skip inputs that are constants/parameters
-      if (isConstantOrParameter(runAndCaptureTraceFunc, i)) {
+      // Skip inputs that are constants/parameters/kv_cache
+      if (shouldUseArgDirectly(runAndCaptureTraceFunc, i)) {
         continue;
       }
       mlir::Value input = runAndCaptureTraceFunc.getArgument(i);
@@ -596,20 +613,50 @@ private:
 
     llvm::SmallVector<Operation *> opsToHoist;
 
-    bool seenHoistableOp = false;
     mlir::Block &block = funcOp.getBlocks().front();
+
+    // Collect all hoistable ops, but skip the first non-hoistable ops and the
+    // last non-hoistable ops. Non-hoistable ops at the boundaries should remain
+    // outside the trace
+    bool startedCollecting = false;
+    llvm::SmallVector<Operation *> allOps;
     for (mlir::Operation &op : block.getOperations()) {
-      if (shouldHoistOp(&op)) {
-        // Hoist all ops starting from this op into a new func
-        seenHoistableOp = true;
-        opsToHoist.push_back(&op);
-        continue;
+      if (!::mlir::isa<func::ReturnOp>(op)) {
+        allOps.push_back(&op);
       }
-      // If a non-hoistable op is found after a hoistable op, it must be a
-      // return op
-      if (seenHoistableOp && !::mlir::isa<func::ReturnOp>(op)) {
-        return op.emitError(
-            "Non-hoistable op found after seeing a hoistable op");
+    }
+
+    // Find the first hoistable op
+    size_t firstHoistable = 0;
+    for (size_t i = 0; i < allOps.size(); i++) {
+      if (shouldHoistOp(allOps[i])) {
+        firstHoistable = i;
+        startedCollecting = true;
+        break;
+      }
+    }
+
+    // If we found hoistable ops, collect them until we hit non-hoistable ops at
+    // the end
+    if (startedCollecting) {
+      // Find the last hoistable op (before any trailing non-hoistable ops)
+      size_t lastHoistable = firstHoistable;
+      for (size_t i = allOps.size() - 1; i > firstHoistable; i--) {
+        if (shouldHoistOp(allOps[i])) {
+          lastHoistable = i;
+          break;
+        }
+      }
+
+      // Collect all hoistable ops between first and last
+      for (size_t i = firstHoistable; i <= lastHoistable; i++) {
+        if (shouldHoistOp(allOps[i])) {
+          opsToHoist.push_back(allOps[i]);
+        } else {
+          // We found a non-hoistable op in the middle - this is an error
+          return allOps[i]->emitError(
+              "Non-hoistable op found in the middle of hoistable ops");
+        }
       }
     }
 

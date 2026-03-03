@@ -372,61 +372,6 @@ public:
     return loopNest.results.front();
   }
 
-  // Calculate which dimensions are multicast dimensions based on the parent
-  // GenericOp's indexing maps and iterator types. This matches the logic in
-  // GenericGenerateDatamovement::calculateMcastIterators.
-  // Returns a vector of bools indicating which grid dimensions are multicast.
-  static SmallVector<bool> calculateMcastDimensions(Operation *op,
-                                                    Value operand,
-                                                    ttcore::GridAttr grid) {
-    auto genericOp = op->getParentOfType<GenericOp>();
-    TT_assertv(genericOp, "RemoteLoad/Store must be inside a GenericOp");
-
-    // Find the operand index in the generic op
-    unsigned operandIdx = 0;
-    for (OpOperand &genericOperand : genericOp->getOpOperands()) {
-      // The operand we're looking for is the remote memref, which should
-      // match one of the generic op's operands
-      if (genericOperand.get() == operand) {
-        break;
-      }
-      operandIdx++;
-    }
-
-    // Get the indexing map for this operand
-    ArrayAttr indexingMaps = genericOp.getIndexingMaps();
-    TT_assertv(operandIdx < indexingMaps.size(),
-               "Operand not found in generic op");
-    AffineMap operandIndexingMap =
-        mlir::cast<AffineMapAttr>(indexingMaps[operandIdx]).getValue();
-
-    // Get iterator types
-    ArrayAttr iteratorTypes = genericOp.getIteratorTypes();
-
-    // Determine multicast dimensions based on indexing map and iterator types
-    SmallVector<bool> isMcastDim;
-    isMcastDim.reserve(grid.getShape().size());
-
-    for (unsigned dim = 0; dim < grid.getShape().size(); dim++) {
-      AffineExpr result = operandIndexingMap.getResult(dim);
-
-      bool isReduction = false;
-      if (mlir::isa<AffineConstantExpr>(result)) {
-        // Constant expression means this operand doesn't vary with this grid
-        // dimension - treat as parallel (not multicast)
-        isReduction = false;
-      } else if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(result)) {
-        unsigned dimPosition = dimExpr.getPosition();
-        auto iterType =
-            mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[dimPosition]);
-        isReduction = iterType.getValue() == ttcore::IteratorType::Reduction;
-      }
-      isMcastDim.push_back(isReduction);
-    }
-
-    return isMcastDim;
-  }
-
   // Handle multicast gather pattern for RemoteLoadOp
   static LogicalResult
   handleMcastRemoteLoad(PatternRewriter &rewriter, Location loc,
@@ -438,22 +383,24 @@ public:
     Value cb = remoteLoad.getCb();
     Value remoteMemref = remoteLoad.getMemref();
 
-    // Get parent generic op and calculate multicast dimensions
+    // Get parent generic op for grid mapping (needed for CoreIndexOp).
     auto genericOp = remoteLoad->getParentOfType<GenericOp>();
     TT_assertv(genericOp, "RemoteLoad must be inside a GenericOp");
 
-    // Determine which dimensions are multicast based on iterator types
-    SmallVector<bool> isMcastDim =
-        calculateMcastDimensions(remoteLoad, remoteMemref, genericOp.getGrid());
-
-    // Calculate mcast volume from mcastShape
+    // Derive which dimensions are multicast from mcastShape.
+    // A dimension is multicast if mcastShape[i] > 1.
+    // Also calculate mcast volume.
+    SmallVector<bool> isMcastDim;
     size_t mcastVolume = 1;
-    for (Value mcastDim : remoteLoad.getMcastShape()) {
-      if (auto constantOp = mcastDim.getDefiningOp<arith::ConstantOp>()) {
+    for (Value mcastDimVal : remoteLoad.getMcastShape()) {
+      int64_t dimSize = 1; // Default: not multicast
+      if (auto constantOp = mcastDimVal.getDefiningOp<arith::ConstantOp>()) {
         if (auto intAttr = mlir::dyn_cast<IntegerAttr>(constantOp.getValue())) {
-          mcastVolume *= intAttr.getInt();
+          dimSize = intAttr.getInt();
         }
       }
+      isMcastDim.push_back(dimSize > 1);
+      mcastVolume *= dimSize;
     }
 
     Value zero = rewriter.create<arith::ConstantOp>(
@@ -473,17 +420,19 @@ public:
         loc, rewriter.getIndexType(), rewriter.getIndexAttr(mcastVolume - 1));
 
     // Determine if this core is the sender.
-    // By convention, core 0 along each multicast dimension is the sender.
-    // We need to check that ALL multicast dimensions have core_index == 0.
-    // Pass grid mapping for proper virtualization support.
+    // The sender is at position mcastStartIndex[i] for each multicast
+    // dimension. We need to check that ALL multicast dimensions have core_index
+    // == mcastStartIndex. Pass grid mapping for proper virtualization support.
     Value isSender = nullptr;
     AffineMap gridMapping = genericOp.getGrid().getMapping();
+    ValueRange mcastStartIndex = remoteLoad.getMcastStartIndex();
     for (size_t i = 0; i < isMcastDim.size(); ++i) {
       if (isMcastDim[i]) {
         Value coreIdx = rewriter.create<CoreIndexOp>(
             loc, static_cast<int64_t>(i), gridMapping);
         Value condition = rewriter.create<arith::CmpIOp>(
-            loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreIdx, zero);
+            loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreIdx,
+            mcastStartIndex[i]);
         if (isSender) {
           isSender = rewriter.create<arith::AndIOp>(loc, isSender, condition)
                          .getResult();
@@ -551,13 +500,13 @@ public:
               loc, builder.getIndexType(), builder.getIndexAttr(0));
 
           // Build sender core index by reading actual core positions
-          // For dimensions that are multicast, sender is at position 0
+          // For dimensions that are multicast, sender is at mcastStartIndex
           // For non-multicast dimensions, use current core position
           // Pass grid mapping for proper virtualization support.
           for (size_t i = 0; i < isMcastDim.size(); ++i) {
             if (isMcastDim[i]) {
-              // Multicast dimension - sender is at 0
-              senderCoreIndex.push_back(zeroIdx);
+              // Multicast dimension - sender is at mcastStartIndex
+              senderCoreIndex.push_back(mcastStartIndex[i]);
             } else {
               // Non-multicast dimension - use current core's position
               Value currentCoreIdx = builder.create<CoreIndexOp>(

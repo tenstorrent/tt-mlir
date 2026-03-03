@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Target/Common/Target.h"
@@ -295,8 +296,6 @@ toFlatbuffer(FlatbufferObjectCache &,
 inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &,
                                        ttcore::ArchAttr arch) {
   switch (arch.getValue()) {
-  case ttcore::Arch::Grayskull:
-    return ::tt::target::Arch::Grayskull;
   case ttcore::Arch::WormholeB0:
     return ::tt::target::Arch::Wormhole_b0;
   case ttcore::Arch::Blackhole:
@@ -1183,6 +1182,28 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
     break;
   }
   return fbTopology;
+}
+
+inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
+                                           ttmetal::NocIndex nocIndex) {
+  switch (nocIndex) {
+  case ttmetal::NocIndex::Noc0:
+    return ::tt::target::NocIndex::Noc0;
+  case ttmetal::NocIndex::Noc1:
+    return ::tt::target::NocIndex::Noc1;
+  }
+  assert(false && "Unsupported NocIndex");
+}
+
+inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
+                                           ttnn::NocIndex nocIndex) {
+  switch (nocIndex) {
+  case ttnn::NocIndex::Noc0:
+    return ::tt::target::NocIndex::Noc0;
+  case ttnn::NocIndex::Noc1:
+    return ::tt::target::NocIndex::Noc1;
+  }
+  assert(false && "Unsupported NocIndex");
 }
 
 } // namespace mlir::tt

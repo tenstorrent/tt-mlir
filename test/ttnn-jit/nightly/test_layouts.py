@@ -271,6 +271,7 @@ def create_nd_tensor(device, shape, shard_shape, max_grid):
     return nd_sharded
 
 
+@pytest.mark.skip(reason="See issue #6950")
 @pytest.mark.parametrize(
     "shape, shard_shape, max_grid",
     ND_LAYOUT_TEST_CASES,

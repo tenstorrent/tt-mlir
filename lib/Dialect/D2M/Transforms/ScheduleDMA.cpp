@@ -216,7 +216,8 @@ public:
         generic.getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
         generic.getIndexingMaps(), generic.getIteratorTypes(),
-        rewriter.getArrayAttr(threads), /*numRegions*/ numThreadsToUse + 1);
+        rewriter.getArrayAttr(threads), generic.getScratchInputsAttr(),
+        /*numRegions*/ numThreadsToUse + 1);
 
     // Get the original DM block's argument types.
     SmallVector<Type> argTypes(dmBlock->getArgumentTypes().begin(),

@@ -551,10 +551,6 @@ getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
   const DeviceComputeKernelConfigAttr &devConfig =
       deviceComputeKernelConfig.value();
 
-  // Note: Currently, we only support creating WormholeComputeKernelConfig.
-  // If we need to support GrayskullComputeKernelConfig in the future, we
-  // need to pass in the device information to this function or include it in
-  // DeviceComputeKernelConfigAttr.
   ::ttnn::WormholeComputeKernelConfig config;
   if (devConfig.getFp32DestAccEn()) {
     config.fp32_dest_acc_en = devConfig.getFp32DestAccEn().getValue();

@@ -65,12 +65,14 @@ def TTKernel_BcastType : I32EnumAttr<"BcastType", "TTKernel Broadcast Types",
 def TTKernel_ArgTypeCBPort : I32EnumAttrCase<"CBPort", 0, "cb_port">;
 def TTKernel_ArgTypeBufferAddress : I32EnumAttrCase<"BufferAddress", 1, "buffer_address">;
 def TTKernel_ArgTypeSemaphore : I32EnumAttrCase<"Semaphore", 2, "semaphore">;
+def TTKernel_ArgTypeNamedArgument : I32EnumAttrCase<"NamedArgument", 3, "named_argument">;
 
 def TTKernel_ArgType : I32EnumAttr<"ArgType", "TTKernel Argument Types",
                          [
                            TTKernel_ArgTypeCBPort,
                            TTKernel_ArgTypeBufferAddress,
-                           TTKernel_ArgTypeSemaphore
+                           TTKernel_ArgTypeSemaphore,
+                           TTKernel_ArgTypeNamedArgument
                          ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttkernel";

@@ -48,9 +48,6 @@ LayoutConverter::convertTensorLayout(const ::ttnn::Tensor &input,
   if (!shouldTypecast) {
     return input;
   }
-  if (utils::isOnHost(input.storage_type())) {
-    return ::ttnn::to_dtype(input, outputDesc.dataType);
-  }
   return ::ttnn::typecast(input, outputDesc.dataType);
 }
 

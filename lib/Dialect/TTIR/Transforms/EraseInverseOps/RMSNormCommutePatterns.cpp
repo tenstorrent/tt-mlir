@@ -4,9 +4,8 @@
 
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
-#include "mlir/IR/BuiltinTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "llvm/ADT/SmallVector.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 namespace mlir::tt::ttir {
 
@@ -68,12 +67,9 @@ public:
 private:
   bool isCommuteUpwardsViable(RMSNormOp op,
                               ReshapeOp reshapeUser) const override {
-    auto inputType = cast<RankedTensorType>(op.getInput().getType());
-    auto outputReshapeType = cast<RankedTensorType>(reshapeUser.getType());
-
-    // RMSNorm normalizes along the last dim, so it must be unchanged by the
+    // RMSNorm normalizes along the last dim, so it must be preserved by the
     // reshape.
-    return inputType.getShape().back() == outputReshapeType.getShape().back();
+    return utils::preservesDim(reshapeUser, -1);
   }
 
   bool isCommuteUpwardsFavorable(RMSNormOp op,

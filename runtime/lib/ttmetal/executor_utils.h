@@ -442,6 +442,11 @@ std::vector<std::uint32_t> processKernelArgs(
                                           toCoreType(arg->core_type())));
       break;
     }
+    case target::metal::KernelArgType::KernelArgNamedArgument: {
+      const auto *arg = kernelArg->arg_as_KernelArgNamedArgument();
+      argsVec.push_back(arg->value());
+      break;
+    }
     case target::metal::KernelArgType::NONE:
       LOG_FATAL("Unsupported runtime arg type");
     }
@@ -483,10 +488,10 @@ createKernelConfig(
   switch (kernelConfig->type_type()) {
   case target::metal::KernelConfigType::NocConfig: {
     switch (kernelConfig->type_as_NocConfig()->noc_index()) {
-    case tt::target::metal::NocIndex::Noc0: {
+    case tt::target::NocIndex::Noc0: {
       return tt_metal::ReaderDataMovementConfig(compileArgs);
     }
-    case tt::target::metal::NocIndex::Noc1: {
+    case tt::target::NocIndex::Noc1: {
       return tt_metal::WriterDataMovementConfig(compileArgs);
     }
     }
@@ -506,11 +511,11 @@ createKernelConfig(
     }
 
     switch (kernelConfig->type_as_EthernetConfig()->noc_index()) {
-    case tt::target::metal::NocIndex::Noc0: {
+    case tt::target::NocIndex::Noc0: {
       ethernetConfig.noc = tt_metal::NOC::NOC_0;
       break;
     }
-    case tt::target::metal::NocIndex::Noc1: {
+    case tt::target::NocIndex::Noc1: {
       ethernetConfig.noc = tt_metal::NOC::NOC_1;
       break;
     }

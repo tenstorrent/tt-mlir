@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTIR_TRANSFORMS_PASSES_H
 #define TTMLIR_DIALECT_TTIR_TRANSFORMS_PASSES_H
 
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 

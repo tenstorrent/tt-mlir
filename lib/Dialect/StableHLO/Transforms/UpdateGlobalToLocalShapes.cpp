@@ -44,18 +44,32 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                 mlir::cast<mlir::DenseElementsAttr>(
                     attrDict.get(valueAttrName));
 
-            // If the element is not a splat value (ie. the same value
-            // for the entire constant) we fail as this is currently
-            // not supported.
-            if (!denseElementsAttr.isSplat()) {
-              constantOp->emitError(
-                  "Shardy automatic parallelization currently does "
-                  "not support non-splat constant tensors");
-              return mlir::failure();
+            mlir::DenseElementsAttr newAttr;
+
+            // Handle splat constants (Optimization for all-same values)
+            if (denseElementsAttr.isSplat()) {
+              newAttr = mlir::DenseElementsAttr::get(
+                  newTypes[0],
+                  denseElementsAttr.getSplatValue<mlir::Attribute>());
+            } else {
+              // Try to slice the constant if it is periodic across shards
+              std::optional<mlir::DenseElementsAttr> periodicAttr =
+                  mlir::tt::shardy_utils::tryGetPeriodicShardSlice(
+                      denseElementsAttr, newTypes[0], tensorShardings[0],
+                      globalMeshOp);
+
+              if (periodicAttr.has_value()) {
+                newAttr = periodicAttr.value();
+              } else {
+                constantOp->emitError("Shardy automatic parallelization "
+                                      "currently does not support "
+                                      "non-splat constant tensors, and the "
+                                      "values are not periodic "
+                                      "across the sharding dimension.");
+                return mlir::failure();
+              }
             }
-            mlir::DenseElementsAttr newAttr = mlir::DenseElementsAttr::get(
-                newTypes[0],
-                denseElementsAttr.getSplatValue<mlir::Attribute>());
+
             auto namedAttrIt = llvm::find_if(
                 namedAttrs, [&](const mlir::NamedAttribute &attr) {
                   return attr.getName() == valueAttrName;

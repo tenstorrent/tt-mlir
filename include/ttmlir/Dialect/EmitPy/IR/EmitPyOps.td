@@ -112,49 +112,39 @@ def EmitPy_LiteralOp : EmitPy_Op<"literal", [Pure, PyExpressionInterface]> {
 def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
   let summary = "Subscript operation";
   let description = [{
-    With the `emitpy.subscript` operation the subscript operator `[]` can be applied
-    to variables or arguments of opaque type.
+    The `emitpy.subscript` operation represents Python subscript access.
+    This is the read counterpart to `emitpy.assign`.
+
+    Supports reading from any subscriptable object (e.g. arrays, dicts)
+    with integer or string keys.
 
     Example:
 
     ```mlir
     %0 = emitpy.literal "0" : index
     %1 = emitpy.subscript %arg0[%0] : (!emitpy.opaque<"[ttnn.Tensor]">, index) -> !emitpy.opaque<"ttnn.Tensor">
+    ...
+    %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
+    %key = emitpy.literal "5" : index
+    %tensors = emitpy.subscript %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+    ```
+
+    ```python
+    # Code emitted:
+    var_0 = subscript_arg[0]
+    ...
+    tensors = _CONST_EVAL_CACHE[5]
     ```
   }];
 
   let arguments = (ins
-    Arg<EmitPy_OpaqueType, "the value to subscript">:$value,
-    Index:$index);
+    Arg<AnyTypeOf<[EmitPy_OpaqueType, EmitPy_DictType]>, "the value to subscript">:$value,
+    Arg<AnyTypeOf<[Index, EmitPy_StringType]>, "index or key value">:$index);
 
-  let results = (outs EmitPy_OpaqueType:$result);
+  let results = (outs EmitPy_Type:$result);
 
-  // TODO (amilovanovic) : add custom verify method
+  let hasVerifier = 1;
   let assemblyFormat = "$value `[` $index `]` attr-dict `:` functional-type(operands, results)";
-}
-
-def EmitPy_AssignOp : EmitPy_Op<"assign"> {
-  let summary = "Assign operation";
-  let description = [{
-    The `emitpy.assign` operation represents a Python variable assignment.
-    This models `new_var = old_var` or `var = constant`.
-
-    Example:
-
-    ```mlir
-    %2 = emitpy.assign %1 : <!emitpy.opaque<"ttnn.Tensor">>
-    ```
-    ```Python
-    // Code emitted for the operation above.
-    v2 = v1;
-    ```
-  }];
-
-  let arguments = (ins
-    EmitPy_OpaqueType:$value);
-
-  let results = (outs AnyType:$result);
-  let assemblyFormat = "$value attr-dict `:` functional-type(operands, results)";
 }
 
 def EmitPy_GetAttrOp : EmitPy_Op<"get_attr", [Pure, PyExpressionInterface]> {
@@ -276,7 +266,7 @@ def EmitPy_CreateDictOp : EmitPy_Op<"create_dict", [Pure]> {
     ```
 
     ```python
-    // Code emitted for the operations above:
+    # Code emitted for the operations above:
     my_dict = {}
     cache = {0: None}
     _CONST_EVAL_CACHE = {i: None for i in range(133)}
@@ -297,63 +287,120 @@ def EmitPy_CreateDictOp : EmitPy_Op<"create_dict", [Pure]> {
   }];
 }
 
-def EmitPy_SetValueForDictKeyOp : EmitPy_Op<"set_value_for_dict_key"> {
-  let summary = "Set dictionary value for a given key";
+def EmitPy_AssignOp : EmitPy_Op<"assign",
+    [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Assign operation";
   let description = [{
-    Changes or inserts a value in the dictionary for a given key.
-    The key must be either an index type or an opaque type representing a string.
+    The `emitpy.assign` operation represents Python variable assignment.
 
-    Example:
+    For subscript assignment (e.g., `dict[5] = value`), wrap both the subscript
+    and assign operations inside an `emitpy.expression` block.
+
+    Examples:
+
     ```mlir
-    %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
+    // Simple assignment
+    emitpy.assign %target = %value : (!emitpy.opaque<"int">, !emitpy.opaque<"int">)
+    ...
+    // Subscript assignment (wrap subscript and assign in expression op)
+    %dict = emitpy.create_dict "dict" {literal_expr = "{}"} : () -> !emitpy.dict
     %key = emitpy.literal "5" : index
-    emitpy.set_value_for_dict_key %dict[%key] = %tensors : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
+    %res = emitpy.expression(%dict, %key, %value) : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"None"> {
+    ^bb0(%d: !emitpy.dict, %k: index, %v: !emitpy.opaque<"[ttnn.Tensor]">):
+      %sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+      emitpy.assign %sub = %v : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
+      %none = "emitpy.constant"() <{value = #emitpy.opaque<"None">}> : () -> !emitpy.opaque<"None">
+      emitpy.yield %none : !emitpy.opaque<"None">
+    }
     ```
+
     ```python
-    // Code emitted:
-    _CONST_EVAL_CACHE[5] = tensors
+    # Code emitted:
+    target = value
+    ...
+    dict[5] = value
     ```
   }];
 
   let arguments = (ins
-    EmitPy_DictType:$dict,
-    AnyTypeOf<[Index, EmitPy_OpaqueType]>:$key,
-    EmitPy_Type:$value
+    Arg<EmitPy_Type, "target">:$target,
+    Arg<EmitPy_Type, "value to set">:$value
   );
 
   let hasVerifier = 1;
-
-  let assemblyFormat = "$dict `[` $key `]` `=` $value attr-dict `:` `(` type($dict) `,` type($key) `,` type($value) `)`";
+  let hasCustomAssemblyFormat = 1;
 }
 
-def EmitPy_GetValueForDictKeyOp : EmitPy_Op<"get_value_for_dict_key", [Pure]> {
-  let summary = "Get dictionary value for a given key";
+def EmitPy_IfOp : EmitPy_Op<"if", [NoTerminator]> {
+  let summary = "If statement with optional else";
   let description = [{
-    Retrieves a value for a given key in a dictionary.
-    The key must be either an index type or an opaque type representing a string.
+    The `emitpy.if` operation represents a Python `if` statement with an
+    optional `else` clause. The condition is a format string with `{}`
+    placeholders that are replaced by the condition arguments.
+
+    An `elif` chain is represented by nesting an `emitpy.if` as the sole
+    operation inside the else region without its own else clause. The Python
+    emitter detects this pattern and emits `elif` instead of `else: if`.
 
     Example:
+
     ```mlir
-    %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
-    %key = emitpy.literal "5" : index
-    %tensors = emitpy.get_value_for_dict_key %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+    emitpy.if "not {}" args %dict : (!emitpy.dict) {
+      // then body
+    }
+    ```
+    ```mlir
+    emitpy.if "{} > {}" args %a, %b : (index, index) {
+      // then body
+    } else {
+      // else body
+    }
+    ```
+    ```mlir
+    emitpy.if "{}" args %a : (!emitpy.opaque<"dict">) {
+      // then body
+    } else {
+      emitpy.if "{} > 0" args %b : (!emitpy.opaque<"int">) {
+        // elif body
+      }
+    }
     ```
     ```python
-    // Code emitted:
-    tensors = _CONST_EVAL_CACHE[5]
+    # Code emitted:
+    if not dict:
+        # then body
+
+    if a > b:
+        # then body
+    else:
+        # else body
+
+    if a:
+        # then body
+    elif b > 0:
+        # elif body
     ```
   }];
 
   let arguments = (ins
-    EmitPy_DictType:$dict,
-    AnyTypeOf<[Index, EmitPy_OpaqueType]>:$key
+    StrAttr:$condition,
+    Variadic<AnyType>:$cond_args
   );
 
-  let results = (outs EmitPy_Type:$result);
+  let regions = (region
+    SizedRegion<1>:$thenRegion,
+    MaxSizedRegion<1>:$elseRegion
+  );
+
+  let extraClassDeclaration = [{
+    FailureOr<SmallVector<::mlir::tt::emitpy::ReplacementItem>> parseFormatString();
+  }];
 
   let hasVerifier = 1;
-
-  let assemblyFormat = "$dict `[` $key `]` attr-dict `:` functional-type(operands, results)";
+  let assemblyFormat = [{
+    $condition (`args` $cond_args^ `:` `(` type($cond_args) `)`)? $thenRegion
+    (`else` $elseRegion^)? attr-dict
+  }];
 }
 
 def EmitPy_IfOp : EmitPy_Op<"if", [NoTerminator]> {
@@ -456,7 +503,6 @@ def EmitPy_ConstantOp : EmitPy_Op<"constant", [ConstantLike]> {
 
   let hasVerifier = 1;
 }
-
 
 def EmitPy_GlobalOp : EmitPy_Op<"global", [Symbol]> {
   let summary = "A global variable";

@@ -162,6 +162,7 @@ def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure, D
     let arguments = (ins TTCore_Tile:$lhs,
                          TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
 def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
@@ -174,6 +175,7 @@ def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure, D
     let arguments = (ins TTCore_Tile:$lhs,
                          TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
 def D2M_TileMulOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_mul", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
@@ -186,6 +188,7 @@ def D2M_TileMulOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_mul", [Pure, D
     let arguments = (ins TTCore_Tile:$lhs,
                          TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
 def D2M_TileDivOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_div", D2M_TileComputeOpTraitBundle> {
@@ -198,6 +201,7 @@ def D2M_TileDivOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_di
     let arguments = (ins TTCore_Tile:$lhs,
                          TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
 def D2M_TileRecipOp : D2M_GenericRegionComputeUnaryDstOp<"tile_recip", D2M_TileComputeOpTraitBundle> {
@@ -220,6 +224,7 @@ def D2M_TilePowOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_po
     let arguments = (ins TTCore_Tile:$lhs,
                          TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
 def D2M_TileExpOp : D2M_GenericRegionComputeUnaryDstOp<"tile_exp", D2M_TileComputeOpTraitBundle> {
@@ -639,14 +644,6 @@ def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast", [Pure, D2M_SkipOp
   let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_PackerMaskResetOp : D2M_GenericRegionComputeOp<"packer_mask_reset"> {
-  let summary = "D2M Packer Mask Reset Op";
-  let description = [{
-        The `packer_mask_reset` operation resets the packer mask. This should be removed once LLK refactors the reduce API.
-        See tt-metal#22904 and tt-metal -> reduce.h.
-    }];
-}
-
 def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul"> {
   let summary = "D2M Tile Matmul Op";
   let description = [{
@@ -750,6 +747,37 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
 // D2M Masking Ops
 //===----------------------------------------------------------------------===//
 
+def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
+    let summary = "D2M Tile Fill Op";
+    let description = [{
+        The `tile_fill` operation creates a tile filled with a constant scalar value.
+        All elements in the resulting tile will have the same value as the input scalar.
+
+        This operation abstracts away the complexity of creating a constant-filled tile,
+        providing a simple interface that takes a scalar value and produces a tile suitable
+        for element-wise operations.
+    }];
+
+    let arguments = (ins AnyFloat:$value);
+    let results = (outs TTCore_Tile:$result);
+
+    let assemblyFormat = [{
+        `(` $value `)` attr-dict `:` type($value) `->` type($result)
+    }];
+
+    let extraClassDeclaration = [{
+        // This operation doesn't load from DST (it generates a new tile)
+        mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+          return {};
+        }
+        bool getDstRegInPlace() { return false; }
+        // The operand is a scalar (float), not a tile
+        bool isScalarOperand(int64_t operandIdx) {
+          return true;
+        }
+    }];
+}
+
 def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
   [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
@@ -759,6 +787,7 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
                                                        , "getBufferType"
                                                        ]>
   , D2M_SkipOpEltwiseFusionTrait
+  , AttrSizedOperandSegments
   ]> {
     let summary = "Mask block elements outside logical bounds with fill value";
     let description = [{
@@ -773,33 +802,40 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
         dimensions for this core's shard. These can be computed dynamically based on
         the core's position in the grid, enabling multicore support.
 
-        This is a high-level op that gets decomposed in a later pass into tile iteration
-        with per-tile masking logic.
+        For partial tile masking, row_mask_cb and col_mask_cb contain scratch mask
+        tiles written by a corresponding BlockMaskWriteOp in the DM region. These are
+        single-tile CBs where each element is 1.0 if valid or 0.0 if OOB.
+
+        This is a high-level op that gets decomposed in a later pass into multiple
+        loop nests that handle interior tiles, edge tiles, and corner tiles separately.
 
         Example:
         ```mlir
-        %result = d2m.block_mask %input, %output, %logical_rows, %logical_cols, <zero>
-            : (memref<2x3x!ttcore.tile<32x32, f32>>, memref<2x3x!ttcore.tile<32x32, f32>>)
-            -> memref<2x3x!ttcore.tile<32x32, f32>>
+        // With mask CBs for partial masking:
+        d2m.block_mask %input, %output, %row_mask_cb, %col_mask_cb,
+                       %logical_rows, %logical_cols, <zero>
+            : (memref<2x3x!ttcore.tile<32x32, f32>>, memref<2x3x!ttcore.tile<32x32, f32>>,
+               memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
         ```
     }];
 
     let arguments = (ins
         AnyRankedTensorOrMemRef:$input,
         AnyRankedTensorOrMemRef:$output,
+        Optional<AnyRankedTensorOrMemRef>:$row_mask_cb,
+        Optional<AnyRankedTensorOrMemRef>:$col_mask_cb,
         Index:$logical_rows,
         Index:$logical_cols,
         TTCore_OOBValAttr:$fill_value);
 
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
-    let assemblyFormat = [{
-        $input `,` $output `,` $logical_rows `,` $logical_cols `,` $fill_value attr-dict
-        `:` `(` type($input) `,` type($output) `)` `->` type($result)
-    }];
+    // Use default format with AttrSizedOperandSegments - the operand_segment_sizes
+    // attribute is automatically added/parsed to track optional operand presence.
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      bool hasMaskCBs() { return getRowMaskCb() != nullptr && getColMaskCb() != nullptr; }
     }];
 
     let hasVerifier = 1;
@@ -1379,7 +1415,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
       }
     }];
-  }
+}
 
 //===----------------------------------------------------------------------===//
 // D2M Generic Region Semaphore Ops (Used in TTMetal Lowering)
@@ -1749,6 +1785,88 @@ def D2M_PopOp : D2M_GenericRegionOp<"pop",
   }];
 }
 
+def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
+    MemoryEffects<[MemAlloc]>
+  ]> {
+  let summary = "Allocate scratch memory for intermediate spilling.";
+  let description = [{
+    Allocate a scratch buffer from the L1 scratchpad region for storing
+    intermediate results.
+
+    The `slot` attribute is a unique identifier for this scratch allocation
+    within the enclosing scope, used for tracking and debugging.
+
+    This op is lowered by `LowerScratchAllocate` to a `memref.subview` into
+    the scratch CB buffer.
+
+    Example:
+    ```mlir
+    %scratch = d2m.scratch_allocate {slot = 0 : i64}
+               : memref<1x!ttcore.tile<32x32xbf16>, #ttcore.memory_space<l1>>
+    ```
+  }];
+
+  let arguments = (ins I64Attr:$slot);
+  let results = (outs AnyMemRef:$result);
+
+  let assemblyFormat = [{
+    attr-dict `:` type($result)
+  }];
+}
+
+def D2M_GetScratchFromCBOp : D2M_GenericRegionOp<"get_scratch_from_cb",
+  [MemoryEffects<[MemRead]>]> {
+  let summary = "Unwrap scratch circular buffer into a memref.";
+  let description = [{
+    The `get_scratch_from_cb` operation extracts the underlying memref from
+    a scratch circular buffer (CB) block argument. This op is inserted by the
+    LowerScratchAllocate pass at the beginning of the `d2m.generic` region to
+    make the scratch buffer available as a plain memref for use by downstream
+    scratch allocation ops (e.g. `d2m.scratch_allocate` lowered to
+    `memref.subview`).
+
+    The result type matches the CB's underlying memref type.
+
+    Example:
+    ```mlir
+    %scratch = d2m.get_scratch_from_cb %cb_scratch
+        : !d2m.cb<memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+        -> memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+    ```
+  }];
+
+  let arguments = (ins D2M_CB:$cb);
+  let results = (outs DeviceL1MemRef:$result);
+
+  let assemblyFormat = [{ $cb attr-dict `:` type($cb) `->` type($result) }];
+
+  let builders = [
+    OpBuilder<(ins "Value":$cb), [{
+      auto cbType = mlir::cast<CBType>(cb.getType());
+      build($_builder, $_state, cbType.getUnderlying(), cb);
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    CBType getCbType() {
+      return mlir::cast<CBType>(getCb().getType());
+    }
+  }];
+
+  let extraClassDefinition = [{
+    mlir::LogicalResult $cppClass::verify() {
+      auto cbType = mlir::cast<CBType>(getCb().getType());
+      if (cbType.getUnderlying() != getResult().getType()) {
+        return emitOpError() << "result type does not match circular buffer's "
+                                "underlying memref type";
+      }
+      return ::mlir::success();
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def D2M_StoreOp : D2M_GenericRegionOp<"store",
   [ SameTypeOperands
   , MemoryEffects<[MemRead, MemWrite]>
@@ -1950,4 +2068,127 @@ def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
     let assemblyFormat = [{ `(` $operand_index `)` attr-dict `:` type($result) }];
 }
 
+//===----------------------------------------------------------------------===//
+// D2M Write Mask Tile Ops (Used for partial tile masking)
+//===----------------------------------------------------------------------===//
+
+def D2M_WriteRowMaskTileOp : D2M_GenericRegionOp<"write_row_mask_tile",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+    let summary = "Write row mask pattern to a tile CB";
+    let description = [{
+        The `write_row_mask_tile` operation writes a row mask pattern
+        to a tile CB, where element[i,j] = 1.0 if i < validRows, else 0.0.
+
+        This is used for partial tile OOB masking. The operation writes directly
+        to L1 memory, avoiding DST register pressure.
+    }];
+
+    let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validRows,
+                         AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
+
+    let assemblyFormat = [{ `(` $validRows `)` `to` $output attr-dict `:` type($validRows) `,` type($output) }];
+}
+
+def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+    let summary = "Write column mask pattern to a tile CB";
+    let description = [{
+        The `write_col_mask_tile` operation writes a column mask pattern
+        to a tile CB, where element[i,j] = 1.0 if j < validCols, else 0.0.
+
+        This is used for partial tile OOB masking. The operation writes directly
+        to L1 memory, avoiding DST register pressure.
+    }];
+
+    let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validCols,
+                         AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
+
+    let assemblyFormat = [{ `(` $validCols `)` `to` $output attr-dict `:` type($validCols) `,` type($output) }];
+}
+
+//===----------------------------------------------------------------------===//
+// D2M Arange Ops
+//===----------------------------------------------------------------------===//
+
+def D2M_FillArangeTileOp : D2M_GenericRegionOp<"fill_arange_tile",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Write full linear index pattern to a tile CB";
+  let description = [{
+      The `fill_arange_tile` operation writes a linear index pattern
+      to a tile CB, where element[i,j] = i * 32 + j (the linear index as float).
+
+      This is used for arange operations. Each element gets its linear index value
+      (0-1023) within the tile, which can be used to compute global indices.
+
+      The resulting tile looks like:
+      [[  0,   1,   2, ...,  31],
+        [ 32,  33,  34, ...,  63],
+        [ 64,  65,  66, ...,  95],
+        ...
+        [992, 993, 994, ..., 1023]]
+  }];
+
+  let arguments = (ins AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
+
+  let assemblyFormat = [{ `to` $output attr-dict `:` type($output) }];
+}
+
+def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
+  [DestinationStyleOpInterface,
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+  DeclareOpInterfaceMethods<BufferizableOpInterface,
+    ["bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
+    "getAliasingValues", "getBufferType"]>,
+  D2M_SkipOpEltwiseFusionTrait]> {
+  let summary = "Generate arange values in a block/memref";
+  let description = [{
+      The `arange_block` operation fills a block/memref with arange values:
+      output[i] = start + step * i, where i is the linear index.
+
+      This op operates at the block level (memref of tiles).
+
+      The index_tile_tensor is a scratch tensor (1x1 tile) handled by
+      the FillArangeTileOp.
+
+      For each tile at position (tile_row, tile_col), the computation is:
+      1. tile_offset = (tile_row * num_tile_cols * 32 + tile_col) * 32
+      2. global_idx = tile_add(tile_offset, local_idx)
+      3. result = tile_add(tile_mul(global_idx, step), start)
+
+      Example:
+      ```mlir
+      %result = d2m.arange_block %output, %index_tile
+                        {num_elements = 64, start = 0, step = 1}
+          : (tensor<1x2x!ttcore.tile<32x32, f32>>,
+              tensor<1x1x!ttcore.tile<32x32, f32>>) -> tensor<1x2x!ttcore.tile<32x32, f32>>
+      ```
+  }];
+
+  let arguments = (ins
+      AnyRankedTensorOrMemRef:$index_tile_tensor,
+      AnyRankedTensorOrMemRef:$output,
+      I64Attr:$num_elements,
+      I64Attr:$start,
+      I64Attr:$step);
+
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let builders = [
+    OpBuilder<(ins "Value":$indexTileTensor, "Value":$output,
+                    "int64_t":$numElements, "int64_t":$start, "int64_t":$step), [{
+      // Result type is the same as the output type.
+      Type resultType = output.getType();
+      build($_builder, $_state, resultType, indexTileTensor, output,
+            $_builder.getI64IntegerAttr(numElements),
+            $_builder.getI64IntegerAttr(start),
+            $_builder.getI64IntegerAttr(step));
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

@@ -34,5 +34,6 @@ add_mlir_translation_library(TTLLVMToDynamicLib
 
     LINK_LIBS PUBLIC
     MLIRLLVMDialect
+    lldELF
     ${LLVM_LIBS}
 )

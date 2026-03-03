@@ -72,7 +72,6 @@ set(INCLUDE_DIRS
     ${METAL_SRC_DIR}/tt_metal/api
     ${METAL_SRC_DIR}/tt_metal/hostdevcommon/api
     ${METAL_SRC_DIR}/tt_metal/hw/inc
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/grayskull
     ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole/wormhole_b0_defines
     ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole
     ${METAL_SRC_DIR}/tt_metal/hw/inc/blackhole
@@ -85,7 +84,6 @@ set(INCLUDE_DIRS
     ${METAL_SRC_DIR}/tt_metal/third_party/tracy/public
     ${METAL_SRC_DIR}/tt_metal/third_party/umd
     ${METAL_SRC_DIR}/tt_metal/third_party/umd/device/api
-    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/grayskull
     ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/wormhole
     ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/blackhole
 

@@ -1150,6 +1150,19 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   return ::llvm::success();
 }
 
+::llvm::LogicalResult MeshProgramAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    MeshRangeAttr meshRange, ProgramAttr program) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult MeshProgramDescriptorAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<MeshProgramAttr> meshPrograms,
+    FabricConnectionConfigAttr fabricConnectionConfig) {
+  return ::llvm::success();
+}
+
 ::llvm::LogicalResult KernelCBAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     uint32_t totalSize, CoreRangeSetAttr coreRanges,
@@ -1178,7 +1191,8 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   for (auto arg : args) {
     if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
                    mlir::tt::ttnn::KernelArgAddressOfTensorAttr,
-                   mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
+                   mlir::tt::ttnn::KernelArgSemaphoreAtAttr,
+                   mlir::tt::ttnn::KernelArgNamedArgAttr>(arg)) {
       return emitError() << "Unexpected common runtime argument";
     }
   }

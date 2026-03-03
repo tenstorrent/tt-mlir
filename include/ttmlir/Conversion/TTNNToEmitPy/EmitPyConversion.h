@@ -82,7 +82,6 @@ struct MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig;
 
 // Compute kernel config types
 struct WormholeComputeKernelConfig;
-struct GrayskullComputeKernelConfig;
 
 // Math fidelity enum (mock for EmitPy conversion)
 struct MathFidelity;

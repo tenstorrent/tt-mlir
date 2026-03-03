@@ -485,7 +485,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               op)) {
         // Skip memref.alloc operations that have a genericOp as parent
         if (llvm::isa<memref::AllocOp>(op) &&
-            llvm::isa<d2m::GenericOp>(op->getParentOp())) {
+            op->getParentOfType<d2m::GenericOp>()) {
           return;
         }
 
@@ -1435,7 +1435,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                      uint32_t operandIndex) {
     TT_debug(!genericOp.isExplicitDatamovementForm());
 
+    // Scratch inputs (e.g., mask tiles) don't need streaming - they're
+    // allocated locally and written to within the generic op.
+    if (genericOp.isScratchInput(operandIndex)) {
+      return false;
+    }
+
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
+
     const auto broadcastDims = indexingMap.getBroadcastDims();
     const auto iteratorTypes = genericOp.getIteratorTypesValue();
 

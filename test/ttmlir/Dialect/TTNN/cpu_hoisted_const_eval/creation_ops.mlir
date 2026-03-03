@@ -13,7 +13,9 @@ module {
   // CHECK: builtin.module
 
   // Const-eval function with zeros op.
-  // CHECK-LABEL: func.func private @forward_with_zeros_const_eval_0{{.*}} -> (tensor<32x32xbf16{{.*}}>, tensor<32x32xbf16{{.*}}>)
+  // Zeros op shouldn't be CPU-hoisted, as it is returned from the const-eval function.
+  // CHECK-LABEL: func.func private @forward_with_zeros_const_eval_0{{.*}} -> (tensor<1x1xbf16{{.*}}>, tensor<32x32xbf16{{.*}}>)
+  // CHECK: ttnn.zeros
   // CHECK: call @cpu_hoisted_const_eval_{{.*}}
 
   // CHECK-LABEL: func.func @forward_with_zeros
@@ -21,6 +23,7 @@ module {
                                 %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}) -> tensor<32x32xbf16> {
     // CHECK: [[CE:%[0-9]+]]:2 = ttcore.load_cached{{.*}}%arg1
 
+    // CHECK-NOT: ttnn.zeros
     %0 = "ttir.zeros"() <{shape = array<i32:32, 32>}> : () -> tensor<32x32xbf16>
     // CHECK-NOT: "ttnn.add"(%arg1,
     %1 = "ttir.add"(%arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
@@ -34,7 +37,9 @@ module {
   }
 
   // Const-eval function with full op.
+  // Full op should be CPU-hoisted.
   // CHECK-LABEL: func.func private @forward_with_full_const_eval_0{{.*}} -> tensor<32x32xbf16
+  // CHECK-NOT: ttnn.full
   // CHECK: call @cpu_hoisted_const_eval_{{.*}}
 
   // CHECK-LABEL: func.func @forward_with_full
@@ -51,7 +56,7 @@ module {
     return %2 : tensor<32x32xbf16>
   }
 
-  // CHECK-LABEL: func.func private @cpu_hoisted_const_eval_{{.*}} -> (tensor<32x32xf32{{.*}}>, tensor<32x32xf32{{.*}}>)
+  // CHECK-LABEL: func.func private @cpu_hoisted_const_eval_{{.*}} -> tensor<32x32xf32
   // CHECK-LABEL: func.func private @cpu_hoisted_const_eval_{{.*}} -> tensor<32x32xf32
 
   // CHECK: ttcore.cpu_module {

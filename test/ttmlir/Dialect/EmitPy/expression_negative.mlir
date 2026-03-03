@@ -13,7 +13,7 @@ func.func @test_expression_no_terminator(%arg0: !emitpy.opaque<"int">) -> !emitp
 // -----
 
 // Test: Yield must provide a value
-// Note: This test actually triggers a different error since yield is defined within expression
+// Note: This test triggers compiler heap overflow since yield is defined within expression
 func.func @test_expression_yield_no_value(%arg0: !emitpy.opaque<"float">) -> !emitpy.opaque<"float"> {
   // expected-error @+1 {{yielded value not defined within expression}}
   %0 = "emitpy.expression"(%arg0) ({
@@ -69,9 +69,10 @@ func.func @test_expression_unsupported_op(%arg0: !emitpy.opaque<"int">) -> !emit
   // expected-error @+1 {{contains an unsupported operation}}
   %0 = emitpy.expression(%arg0) : (!emitpy.opaque<"int">) -> !emitpy.opaque<"int"> {
   ^bb0(%a: !emitpy.opaque<"int">):
-    // emitpy.assign doesn't implement PyExpressionInterface
-    %1 = emitpy.assign %a : (!emitpy.opaque<"int">) -> !emitpy.opaque<"int">
-    emitpy.yield %1 : !emitpy.opaque<"int">
+    %result = emitpy.call_opaque "identity"(%a) : (!emitpy.opaque<"int">) -> !emitpy.opaque<"int">
+    // emitpy.assign doesn't implement PyExpressionInterface (it's a statement operation)
+    emitpy.assign %a = %result : (!emitpy.opaque<"int">, !emitpy.opaque<"int">)
+    emitpy.yield %result : !emitpy.opaque<"int">
   }
   return %0 : !emitpy.opaque<"int">
 }

@@ -208,3 +208,30 @@ def test_hoisted_clamp_scalar(
         target=target,
         device=device,
     )
+
+
+# 1D tensor test for ttmetal
+@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape, shape], [dtype, dtype, dtype])
+        def ternary_1d(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # in0 is the condition tensor, should be filled with 0s or 1s
+            condition_tensor = torch.randint(0, 2, shape, dtype=dtype)
+            builder.set_goldens(inputs={in0: condition_tensor})
+            return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )

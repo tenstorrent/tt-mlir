@@ -92,6 +92,12 @@ toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet);
 fromTTNNCoreRangeSet(::flatbuffers::FlatBufferBuilder &fbb,
                      const tt::tt_metal::CoreRangeSet &coreRangeSet);
 
+tt::tt_metal::distributed::MeshCoordinate
+toTTNNMeshCoordinate(const ::tt::target::ttnn::MeshCoord &meshCoord);
+
+tt::tt_metal::distributed::MeshCoordinateRange toTTNNMeshCoordinateRange(
+    const ::tt::target::ttnn::MeshCoordRange &meshCoordRange);
+
 ::ttnn::ShardOrientation
 toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation);
 

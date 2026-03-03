@@ -135,3 +135,12 @@ table MeshComposerConfig {
   dims: [int32];
   mesh_shape_override: [uint32];
 }
+
+table MeshCoord {
+  coords: [uint32];
+}
+
+table MeshCoordRange {
+  start: MeshCoord;
+  end: MeshCoord;
+}

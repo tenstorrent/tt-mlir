@@ -110,7 +110,7 @@ public:
           generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
           generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
           generic.getIndexingMaps(), generic.getIteratorTypes(),
-          builder.getArrayAttr(threads),
+          builder.getArrayAttr(threads), generic.getScratchInputsAttr(),
           /*numRegions*/ 0);
 
       generic.replaceAllUsesWith(symbolicGeneric);

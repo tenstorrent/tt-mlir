@@ -358,6 +358,21 @@ toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange) {
   return tt::tt_metal::CoreRange(start, end);
 }
 
+tt::tt_metal::distributed::MeshCoordinate
+toTTNNMeshCoordinate(const tt::target::ttnn::MeshCoord &meshCoord) {
+  return tt::tt_metal::distributed::MeshCoordinate(meshCoord.coords()->Get(0),
+                                                   meshCoord.coords()->Get(1));
+}
+
+tt::tt_metal::distributed::MeshCoordinateRange toTTNNMeshCoordinateRange(
+    const tt::target::ttnn::MeshCoordRange &meshCoordRange) {
+  tt::tt_metal::distributed::MeshCoordinate start =
+      toTTNNMeshCoordinate(*meshCoordRange.start());
+  tt::tt_metal::distributed::MeshCoordinate end =
+      toTTNNMeshCoordinate(*meshCoordRange.end());
+  return tt::tt_metal::distributed::MeshCoordinateRange(start, end);
+}
+
 ::tt::target::ttnn::CoreRange
 fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange) {
   return tt::target::ttnn::CoreRange(fromTTNNCoreCoord(coreRange.start_coord),
