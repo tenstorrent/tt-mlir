@@ -519,12 +519,16 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                     metal_type_str = f"tensor<{grid[0]}x{grid[1]}x1x1x{h // 32}x{w // 32}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4, d5)>>"
                     metal_type = Type.parse(metal_type_str, context=ctx)
                     
+                    # Create memref with metal layout
+                    memref_type_str = f"memref<{grid[0]}x{grid[1]}x1x1x{h // 32}x{w // 32}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4, d5)>>"
+                    memref_type = Type.parse(memref_type_str, context=ctx)
+                    
                     if meta["is_output"]:
                         output_types.append(func_arg_type)
-                        output_metal_types.append(metal_type)
+                        output_metal_types.append((metal_type, memref_type))
                     else:
                         input_types.append(func_arg_type)
-                        input_metal_types.append(metal_type)
+                        input_metal_types.append((metal_type, memref_type))
                         
                 func_type = FunctionType.get(input_types + output_types, [])
                 func_op = func.FuncOp(func_ast.name, func_type, loc=Location.unknown(ctx))
@@ -535,17 +539,23 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                     all_metal_types = input_metal_types + output_metal_types
                     for i in range(len(input_types) + len(output_types)):
                         arg = func_bb.arguments[i]
-                        metal_type = all_metal_types[i]
+                        metal_type, memref_type = all_metal_types[i]
                         cast_op = Operation.create(
                             "ttir.ttnn_metal_layout_cast",
                             results=[metal_type],
                             operands=[arg],
                             loc=Location.unknown(ctx)
                         )
+                        to_memref_op = Operation.create(
+                            "bufferization.to_memref",
+                            results=[memref_type],
+                            operands=[cast_op.result],
+                            loc=Location.unknown(ctx)
+                        )
                         if i < len(input_types):
-                            inputs.append(cast_op.result)
+                            inputs.append(to_memref_op.result)
                         else:
-                            outputs.append(cast_op.result)
+                            outputs.append(to_memref_op.result)
                         
                         
                     grid_attr = Attribute.parse(f"#ttcore.grid<{grid[0]}x{grid[1]}>", context=ctx)
