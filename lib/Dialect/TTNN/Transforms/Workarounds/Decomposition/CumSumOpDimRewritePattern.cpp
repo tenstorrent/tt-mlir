@@ -36,8 +36,8 @@ CumSumOpDimRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
       ttmlir::utils::applyPermutation(originalShape, permutation);
   RankedTensorType adaptedInputType =
       utils::RankedTensorTypeFactory::create(inputType, adaptedShape);
-  auto adaptedInput = rewriter.create<ttnn::PermuteOp>(
-      ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute"),
+  auto adaptedInput = ttnn::PermuteOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute"),
       adaptedInputType, srcOp.getInput(),
       rewriter.getDenseI64ArrayAttr(permutation),
       /*memory_config=*/ttnn::MemoryConfigAttr(),
@@ -46,8 +46,8 @@ CumSumOpDimRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
   mlir::RankedTensorType outputType = srcOp.getResult().getType();
   RankedTensorType adaptedOutputType =
       utils::RankedTensorTypeFactory::create(outputType, adaptedShape);
-  auto adaptedCumSumOp = rewriter.create<mlir::tt::ttnn::MorehCumSumOp>(
-      srcOp->getLoc(), adaptedOutputType, adaptedInput, /*dim=*/0,
+  auto adaptedCumSumOp = mlir::tt::ttnn::MorehCumSumOp::create(
+      rewriter, srcOp->getLoc(), adaptedOutputType, adaptedInput, /*dim=*/0,
       /*memory_config=*/nullptr);
 
   auto permute = rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(

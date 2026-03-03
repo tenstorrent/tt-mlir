@@ -409,13 +409,13 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
     virtualGridForwardMapping = AffineMapAttr::get(forwardMap);
   }
 
-  auto newEmptyOp = builder.create<d2m::EmptyOp>(
-      emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
+  auto newEmptyOp = d2m::EmptyOp::create(
+      builder, emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
       virtualGridForwardMapping);
 
   builder.setInsertionPoint(toLayoutOp);
-  auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
-      toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
+  auto newToLayoutOp = d2m::ToLayoutOp::create(
+      builder, toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
 
   // Reblock it back to original shape to preserve IR correctness.
   // The view chain that applyViews composes through depends on this
@@ -426,8 +426,8 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   auto reblockMap = ttmlir::utils::calculateReblockMap(
       newTensorType.getShape(), viewOutputType.getShape(),
       builder.getContext());
-  auto view = builder.create<d2m::ViewLayoutOp>(
-      toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0),
+  auto view = d2m::ViewLayoutOp::create(
+      builder, toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0),
       reblockMap, /*reinterpretLayout=*/false);
 
   // We expect the ToLayout to be used in one of two ways:
@@ -938,8 +938,8 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
       }
     }
 
-    auto newStorageEmpty = builder.create<d2m::EmptyOp>(
-        storageEmpty.getLoc(),
+    auto newStorageEmpty = d2m::EmptyOp::create(
+        builder, storageEmpty.getLoc(),
         RankedTensorType::get(newStorageShape, elementType, newStorageLayout),
         virtualGridInverseMapping, virtualGridForwardMapping);
 
@@ -961,9 +961,10 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
         newStorageShape, outputStreamType.getElementType(), newOutputLayout);
 
     builder.setInsertionPoint(streamLayout);
-    auto newStreamLayout = builder.create<d2m::StreamLayoutOp>(
-        streamLayout.getLoc(), newStreamOutputType, streamLayout.getInput(),
-        AffineMapAttr::get(newOutputMap), newStorageEmpty);
+    auto newStreamLayout = d2m::StreamLayoutOp::create(
+        builder, streamLayout.getLoc(), newStreamOutputType,
+        streamLayout.getInput(), AffineMapAttr::get(newOutputMap),
+        newStorageEmpty);
 
     // We expect the StreamLayout to be used only by the GenericOp we're
     // optimizing. Check that all uses are either the GenericOp itself or
@@ -1024,8 +1025,8 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
       }
     }
 
-    auto newEmptyOp = builder.create<d2m::EmptyOp>(
-        emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
+    auto newEmptyOp = d2m::EmptyOp::create(
+        builder, emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
         virtualGridForwardMapping);
     emptyOp.getResult().replaceAllUsesWith(newEmptyOp.getResult());
     emptyOp.erase();
@@ -1083,8 +1084,8 @@ recreateGenericOp(d2m::GenericOp genericOp,
     auto viewTensorType = utils::reblockTensor(tensorType, optimalGrid);
     auto reblockMap = ttmlir::utils::calculateReblockMap(
         tensorType.getShape(), viewTensorType.getShape(), builder.getContext());
-    auto view = builder.create<d2m::ViewLayoutOp>(
-        genericOp.getLoc(), viewTensorType, operand.get(), reblockMap,
+    auto view = d2m::ViewLayoutOp::create(
+        builder, genericOp.getLoc(), viewTensorType, operand.get(), reblockMap,
         /*reinterpretLayout=*/false);
     newOperands.push_back(view.getResult());
   }
@@ -1100,8 +1101,8 @@ recreateGenericOp(d2m::GenericOp genericOp,
     Region &oldRegion = genericOp.getRegion(0);
     auto newAdditionalArgs = genericOp.getAdditionalArgs();
 
-    auto newGenericOp = builder.create<d2m::GenericOp>(
-        genericOp.getLoc(), newInputs, newOutputs, newAdditionalArgs,
+    auto newGenericOp = d2m::GenericOp::create(
+        builder, genericOp.getLoc(), newInputs, newOutputs, newAdditionalArgs,
         genericOp.getIndexingMaps(), genericOp.getIteratorTypes(),
         [&](OpBuilder &b, Location loc, ValueRange blockArgs) {
           IRMapping mapping;

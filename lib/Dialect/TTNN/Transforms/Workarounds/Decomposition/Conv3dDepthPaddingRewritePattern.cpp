@@ -57,12 +57,13 @@ LogicalResult Conv3dDepthPaddingRewritePattern::matchAndRewrite(
                                 .withTensorShape(paddedInputShape));
 
   auto paddedInput =
-      rewriter.create<PadOp>(ttmlir::utils::appendLocationSuffix(
-                                 srcOp.getInput().getLoc(), "_pad_conv3d"),
-                             paddedInputType, srcOp.getInput(), inputPadding,
-                             /*pad_value=*/mlir::APFloat(0.0f),
-                             /*use_multicore=*/false,
-                             /*memory_config=*/nullptr);
+      PadOp::create(rewriter,
+                    ttmlir::utils::appendLocationSuffix(
+                        srcOp.getInput().getLoc(), "_pad_conv3d"),
+                    paddedInputType, srcOp.getInput(), inputPadding,
+                    /*pad_value=*/mlir::APFloat(0.0f),
+                    /*use_multicore=*/false,
+                    /*memory_config=*/nullptr);
 
   rewriter.modifyOpInPlace(srcOp, [&]() {
     srcOp.getInputMutable().assign(paddedInput);

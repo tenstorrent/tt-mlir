@@ -106,8 +106,8 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       ttnn::MemoryConfigAttr::get(desiredInputLayout, grid);
   RankedTensorType memoryConfigedInputType =
       inputType.cloneWithEncoding(desiredInputLayout);
-  auto inputToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-      op.getLoc(), memoryConfigedInputType, op.getInput(),
+  auto inputToLayoutOp = ttnn::ToLayoutOp::create(
+      rewriter, op.getLoc(), memoryConfigedInputType, op.getInput(),
       tt::ttnn::Layout::Tile,
       ttcore::DataTypeAttr::get(
           rewriter.getContext(),
@@ -139,8 +139,8 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
                                           reshapedShape.end());
     RankedTensorType reshapedWeightType =
         ttnn::utils::RankedTensorTypeFactory::create(weightType, reshapedShape);
-    auto reshapeOp = rewriter.create<ttnn::ReshapeOp>(
-        op.getLoc(), reshapedWeightType, weight,
+    auto reshapeOp = ttnn::ReshapeOp::create(
+        rewriter, op.getLoc(), reshapedWeightType, weight,
         rewriter.getI32ArrayAttr(reshapedShapeI32), ttnn::MemoryConfigAttr());
     weight = reshapeOp.getResult();
 
@@ -160,8 +160,9 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
           ttnn::BufferTypeAttr::get(rewriter.getContext(),
                                     weightLayout.getBufferType()),
           /*shardSpec=*/std::nullopt);
-      auto weightToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-          op.getLoc(), rowMajorWeightType, weight, tt::ttnn::Layout::RowMajor,
+      auto weightToLayoutOp = ttnn::ToLayoutOp::create(
+          rewriter, op.getLoc(), rowMajorWeightType, weight,
+          tt::ttnn::Layout::RowMajor,
           ttcore::DataTypeAttr::get(
               rewriter.getContext(),
               ttcore::elementTypeToDataType(weightElementType)),
@@ -181,8 +182,9 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
     if (residualLayout != desiredInputLayout) {
       RankedTensorType shardedResidualType =
           residualType.cloneWithEncoding(desiredInputLayout);
-      auto residualToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-          op.getLoc(), shardedResidualType, residual, tt::ttnn::Layout::Tile,
+      auto residualToLayoutOp = ttnn::ToLayoutOp::create(
+          rewriter, op.getLoc(), shardedResidualType, residual,
+          tt::ttnn::Layout::Tile,
           ttcore::DataTypeAttr::get(
               rewriter.getContext(),
               ttcore::elementTypeToDataType(inputElementType)),
@@ -243,9 +245,9 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       RankedTensorType::get(statsShape, statsElementType, statsLayout);
 
   auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-  auto statsEmptyOp = rewriter.create<ttnn::EmptyOp>(
-      op.getLoc(), statsResultType, device, statsShapeAttr, statsDtypeAttr,
-      statsLayoutAttr, statsMemConfig);
+  auto statsEmptyOp = ttnn::EmptyOp::create(
+      rewriter, op.getLoc(), statsResultType, device, statsShapeAttr,
+      statsDtypeAttr, statsLayoutAttr, statsMemConfig);
 
   // The fused kernel output shape == input shape (only stats are all-gathered,
   // not data). Use the input's width-sharded memory config for the output too
@@ -267,9 +269,9 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
           ttnn::CoreCoordAttr::get(rewriter.getContext(), gridW, gridH),
           /*subblock_w=*/1, blockH, blockW, /*inplace=*/false);
 
-  auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
-      op.getLoc(), shardedOutputType, inputToLayoutOp.getResult(), weight,
-      residual, statsEmptyOp.getResult(), op.getDevice(),
+  auto newOp = ttnn::DistributedRMSNormOp::create(
+      rewriter, op.getLoc(), shardedOutputType, inputToLayoutOp.getResult(),
+      weight, residual, statsEmptyOp.getResult(), op.getDevice(),
       static_cast<uint32_t>(op.getClusterAxis()), op.getEpsilon(),
       op.getSubDeviceIdAttr(), inputMemoryConfig, op.getNumLinksAttr(),
       op.getTopologyAttr(), computeConfigAttr, programConfigAttr);
@@ -283,8 +285,9 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   if (originalOutputLayout && originalOutputLayout != desiredInputLayout) {
     auto originalMemConfig = ttnn::MemoryConfigAttr::get(
         originalOutputLayout, originalOutputLayout.getGrid());
-    auto toMemConfigOp = rewriter.create<ttnn::ToMemoryConfigOp>(
-        op.getLoc(), originalOutputType, newOp.getResult(), originalMemConfig);
+    auto toMemConfigOp = ttnn::ToMemoryConfigOp::create(
+        rewriter, op.getLoc(), originalOutputType, newOp.getResult(),
+        originalMemConfig);
     rewriter.replaceOp(op, toMemConfigOp.getResult());
   } else {
     rewriter.replaceOp(op, newOp.getResult());

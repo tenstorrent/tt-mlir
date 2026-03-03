@@ -70,9 +70,10 @@ public:
         MemRefType::get(memref.getShape(), memref.getElementType(), storageAttr,
                         rewriter.getAttr<ttcore::MemorySpaceAttr>(
                             ttcore::MemorySpace::DeviceL1));
-    auto storage = rewriter.create<memref::AllocOp>(op.getLoc(), storageMemref);
-    auto streamLayout = rewriter.create<d2m::StreamLayoutOp>(
-        op.getLoc(), streamMemref, operand.get(),
+    auto storage =
+        memref::AllocOp::create(rewriter, op.getLoc(), storageMemref);
+    auto streamLayout = d2m::StreamLayoutOp::create(
+        rewriter, op.getLoc(), streamMemref, operand.get(),
         AffineMapAttr::get(rewriter.getMultiDimIdentityMap(memref.getRank())),
         storage);
     rewriter.modifyOpInPlace(

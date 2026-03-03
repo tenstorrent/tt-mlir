@@ -144,7 +144,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     MLIRTestToLLVMIRTranslation
     MLIRVCIXToLLVMIRTranslation
     MLIRX86VectorTransforms
-  PYTHON_BINDINGS_LIBRARY nanobind
+
 )
 
 # Create a separate library for PassTracker compiled with -fno-rtti to match MLIR
