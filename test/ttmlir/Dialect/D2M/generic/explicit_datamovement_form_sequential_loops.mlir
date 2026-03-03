@@ -1,7 +1,4 @@
-// TODO(#CB-removal): Re-enable full pipeline run after LowerLoadStoreOpsToExplicitCBForm
-// handles remote_store conversion for explicit datamovement form IR.
-// DISABLED: ttmlir-opt --split-input-file --ttcore-register-device --ttir-to-ttmetal-me-pipeline --ttir-to-ttmetal-be-pipeline %s
-// RUN: true
+// RUN: ttmlir-opt --split-input-file --ttcore-register-device --ttir-to-ttmetal-me-pipeline --ttir-to-ttmetal-be-pipeline %s
 
 // Test for explicit datamovement form of d2m.generic with abs operation
 // using split loop nests and stream_layout. The first loop nest processes
@@ -61,8 +58,6 @@ func.func @explicit_datamovement_split_loops_with_streams(
     operandSegmentSizes = array<i32: 1, 1, 0>,
     threads = [#d2m.thread<unified>]
   }> ({
-  ^unified0(%cb_in: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>,
-            %cb_out: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
     // Define loop bounds: M=2, N=3 (grid dimensions)
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index

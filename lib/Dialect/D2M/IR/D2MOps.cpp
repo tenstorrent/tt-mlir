@@ -2741,8 +2741,9 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
   }
 
   // Walk the region looking for tensor.empty/memref.alloc ops, stepping into
-  // blocking loops (affine.for with d2m.blocking_loop) but NOT into compute
-  // regions (linalg.generic, scf.for without blocking_loop, etc.).
+  // blocking loops only. Do NOT walk into compute loops (scf.for without
+  // d2m.blocking_loop) — allocs inside those are local working buffers, not
+  // operand allocations.
   Value result;
   unsigned idx = 0;
   std::function<void(Block &)> scanBlock = [&](Block &block) {
@@ -2760,14 +2761,12 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
         if (forOp->hasAttr("d2m.blocking_loop")) {
           scanBlock(*forOp.getBody());
         }
-      } else if (auto scfFor = mlir::dyn_cast<mlir::scf::ForOp>(&op)) {
-        scanBlock(*scfFor.getBody());
       }
     }
   };
   scanBlock(region.front());
 
-  // Fall back to CB block arguments (old form) if no tensor.empty was found.
+  // Fall back to CB block arguments (old form).
   if (!result) {
     unsigned cbIdx = 0;
     for (BlockArgument arg : region.front().getArguments()) {
@@ -2791,7 +2790,7 @@ SmallVector<Value> d2m::GenericOp::getOperandAllocs(Region &region,
   }
 
   // Walk the region looking for tensor.empty/memref.alloc ops, stepping into
-  // nested loops (same traversal as getOperandAlloc).
+  // blocking loops only (same traversal as getOperandAlloc).
   std::function<void(Block &)> scanBlock = [&](Block &block) {
     for (Operation &op : block) {
       if (result.size() == numOperands) {
@@ -2803,8 +2802,6 @@ SmallVector<Value> d2m::GenericOp::getOperandAllocs(Region &region,
         if (forOp->hasAttr("d2m.blocking_loop")) {
           scanBlock(*forOp.getBody());
         }
-      } else if (auto scfFor = mlir::dyn_cast<mlir::scf::ForOp>(&op)) {
-        scanBlock(*scfFor.getBody());
       }
     }
   };
