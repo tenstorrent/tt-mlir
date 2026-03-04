@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 
+#include "ttmlir/Conversion/TTIRToLinalg/EltwiseBinary.h"
 #include "ttmlir/Conversion/TTIRToLinalg/EltwiseUnary.h"
 #include "ttmlir/Conversion/TTIRToLinalg/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
@@ -232,35 +233,6 @@ static Value unflattenInput(Value input, ttir::FlattenedCompatInfoAttr flatInfo,
 //===----------------------------------------------------------------------===//
 
 namespace {
-template <typename TTIROpTy, typename TosaOpTy>
-class TosaElementwiseBinaryOpConversionPattern
-    : public OpConversionPattern<TTIROpTy> {
-public:
-  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Value lhs = adaptor.getLhs();
-    Value rhs = adaptor.getRhs();
-
-    auto resultType = dyn_cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getType()));
-    if (!resultType) {
-      return rewriter.notifyMatchFailure(
-          op, "Result type must be a ranked tensor type.");
-    }
-
-    auto result = rewriter.create<TosaOpTy>(op.getLoc(), resultType,
-                                            ValueRange{lhs, rhs});
-
-    rewriter.replaceOp(op, result);
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 class WhereOpConversionPattern : public OpConversionPattern<ttir::WhereOp> {
 public:
   using OpConversionPattern<ttir::WhereOp>::OpConversionPattern;
@@ -400,119 +372,6 @@ public:
     // Concatenate all inputs at once using the final result type.
     Value result =
         rewriter.create<tosa::ConcatOp>(op.getLoc(), resultType, inputs, dim);
-
-    rewriter.replaceOp(op, result);
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-// Direct comparison operations (where TTIR and TOSA ops match directly)
-template <typename TTIROpTy, typename TosaOpTy>
-class DirectComparisonOpConversionPattern
-    : public OpConversionPattern<TTIROpTy> {
-public:
-  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Value lhs = adaptor.getLhs();
-    Value rhs = adaptor.getRhs();
-
-    auto resultType = dyn_cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult().getType()));
-    if (!resultType) {
-      return rewriter.notifyMatchFailure(
-          op, "Result type must be a ranked tensor type.");
-    }
-
-    // Create the TOSA comparison operation
-    auto boolType = RankedTensorType::get(resultType.getShape(),
-                                          rewriter.getIntegerType(1));
-    auto boolResult =
-        rewriter.create<TosaOpTy>(op.getLoc(), boolType, lhs, rhs);
-
-    // Convert boolean result to original type using cast.
-    auto result =
-        rewriter.create<tosa::CastOp>(op.getLoc(), resultType, boolResult);
-
-    rewriter.replaceOp(op, result);
-    return success();
-  }
-};
-
-// Swapped comparison operations (where TTIR and TOSA ops have swapped operands
-// e.g. ttir.lt must use inverted tosa.greater).
-template <typename TTIROpTy, typename TosaOpTy>
-class SwappedComparisonOpConversionPattern
-    : public OpConversionPattern<TTIROpTy> {
-public:
-  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Value lhs = adaptor.getLhs();
-    Value rhs = adaptor.getRhs();
-
-    auto resultType = dyn_cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult().getType()));
-    if (!resultType) {
-      return rewriter.notifyMatchFailure(
-          op, "Result type must be a ranked tensor type.");
-    }
-
-    // Create the TOSA comparison operation with swapped operands
-    auto boolType = RankedTensorType::get(resultType.getShape(),
-                                          rewriter.getIntegerType(1));
-    auto boolResult =
-        rewriter.create<TosaOpTy>(op.getLoc(), boolType, rhs, lhs);
-
-    // Convert boolean result to original type using cast.
-    auto result =
-        rewriter.create<tosa::CastOp>(op.getLoc(), resultType, boolResult);
-
-    rewriter.replaceOp(op, result);
-    return success();
-  }
-};
-
-// Negated comparison operations (where TTIR op is the negation of a TOSA op,
-// e.g. ttir.not_equal)
-template <typename TTIROpTy, typename TosaOpTy>
-class NegatedComparisonOpConversionPattern
-    : public OpConversionPattern<TTIROpTy> {
-public:
-  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Value lhs = adaptor.getLhs();
-    Value rhs = adaptor.getRhs();
-
-    auto resultType = dyn_cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult().getType()));
-    if (!resultType) {
-      return rewriter.notifyMatchFailure(
-          op, "Result type must be a ranked tensor type.");
-    }
-
-    // Create the TOSA comparison operation
-    auto boolType = RankedTensorType::get(resultType.getShape(),
-                                          rewriter.getIntegerType(1));
-    auto boolResult =
-        rewriter.create<TosaOpTy>(op.getLoc(), boolType, lhs, rhs);
-
-    // Negate the boolean result
-    auto notResult =
-        rewriter.create<tosa::LogicalNotOp>(op.getLoc(), boolType, boolResult);
-
-    // Convert boolean result to original type using cast.
-    auto result =
-        rewriter.create<tosa::CastOp>(op.getLoc(), resultType, notResult);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -1870,52 +1729,6 @@ public:
 } // namespace
 
 namespace {
-// Logical binary operations pattern (LogicalAnd, LogicalOr, LogicalXor)
-// These operations:
-// 1. Convert float inputs to boolean (non-zero = true)
-// 2. Apply the TOSA logical operation
-// 3. Convert boolean result back to float (true = 1.0, false = 0.0)
-template <typename TTIROpTy, typename TosaOpTy>
-class LogicalBinaryOpConversionPattern : public OpConversionPattern<TTIROpTy> {
-public:
-  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Value lhs = adaptor.getLhs();
-    Value rhs = adaptor.getRhs();
-
-    auto resultType = dyn_cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult().getType()));
-    if (!resultType) {
-      return rewriter.notifyMatchFailure(
-          op, "Result type must be a ranked tensor type.");
-    }
-
-    // Convert both inputs to boolean tensors.
-    Value boolLhs = convertToBooleanTensor(lhs, op.getLoc(), rewriter);
-    Value boolRhs = convertToBooleanTensor(rhs, op.getLoc(), rewriter);
-
-    // Get the boolean type for the intermediate result.
-    auto boolType = RankedTensorType::get(resultType.getShape(),
-                                          rewriter.getIntegerType(1));
-
-    // Apply the logical operation to the boolean tensors.
-    auto logicalResult =
-        rewriter.create<TosaOpTy>(op.getLoc(), boolType, boolLhs, boolRhs);
-
-    // Convert boolean result back to original type using cast.
-    auto result =
-        rewriter.create<tosa::CastOp>(op.getLoc(), resultType, logicalResult);
-
-    rewriter.replaceOp(op, result);
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 class MinOpConversionPattern : public OpConversionPattern<ttir::MinOp> {
 public:
   using OpConversionPattern<ttir::MinOp>::OpConversionPattern;
@@ -2377,94 +2190,6 @@ public:
 //===----------------------------------------------------------------------===//
 // Linalg Conversions Patterns
 //===----------------------------------------------------------------------===//
-namespace {
-// Conversion pattern of operations which have exactly 2 input and 1 output
-// operands.
-template <typename TTIROpTy, typename LinalgOpTy,
-          typename OpAdaptor = typename TTIROpTy::Adaptor>
-class ElementwiseBinaryOpConversionPattern
-    : public OpConversionPattern<TTIROpTy> {
-public:
-  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-
-    RankedTensorType lhsType =
-        cast<RankedTensorType>(adaptor.getLhs().getType());
-    RankedTensorType rhsType =
-        cast<RankedTensorType>(adaptor.getRhs().getType());
-
-    // First, compute broadcasted shape from operands.
-
-    ArrayRef<int64_t> lhsShape = lhsType.getShape();
-    ArrayRef<int64_t> rhsShape = rhsType.getShape();
-
-    SmallVector<int64_t> broadcastedShape;
-    if (!OpTrait::util::getBroadcastedShape(lhsShape, rhsShape,
-                                            broadcastedShape)) {
-      return rewriter.notifyMatchFailure(op, "Operands are not broadcastable!");
-    }
-
-    // Rewrite inputs to target dims with broadcast and collapse shape ops, as
-    // needed.
-    SmallVector<Value, 2> inputs{adaptor.getLhs(), adaptor.getRhs()};
-    SmallVector<Value, 2> broadcastedInputs;
-    for (Value input : inputs) {
-      auto inputRankedTensorType = dyn_cast<RankedTensorType>(input.getType());
-      if (!inputRankedTensorType) {
-        return rewriter.notifyMatchFailure(
-            op, "Binary element-wise operations must be ranked tensor types!");
-      }
-
-      // Insert and use a broadcast op if input does not perfectly match target
-      // shape.
-      SmallVector<int64_t, 2> broadcastDims =
-          getBroadcastDims(inputRankedTensorType.getShape(), broadcastedShape);
-
-      // If we need to broadcast along all dims, then we need to collapse to a
-      // scalar via empty collapseDimGroups.
-      SmallVector<SmallVector<int64_t, 2>, 2> collapseDimGroups =
-          (broadcastDims.size() != broadcastedShape.size())
-              ? getCollapseDims(inputRankedTensorType.getShape(),
-                                broadcastedShape)
-              : SmallVector<SmallVector<int64_t, 2>, 2>();
-
-      if (!broadcastDims.empty()) {
-        Value broadcastInput = input;
-        // The broadcast op requires we actually collapse any dimensions with
-        // size 1 we want to broadcast along.
-        if (collapseDimGroups.size() !=
-            inputRankedTensorType.getShape().size()) {
-          broadcastInput = rewriter.create<tensor::CollapseShapeOp>(
-              loc, input, collapseDimGroups);
-        }
-        auto initTensor = rewriter.create<ttir::EmptyOp>(
-            loc, broadcastedShape, inputRankedTensorType.getElementType());
-        auto broadcastOp = rewriter.create<linalg::BroadcastOp>(
-            loc, broadcastInput, initTensor.getResult(), broadcastDims);
-        broadcastedInputs.push_back(broadcastOp.getResults().front());
-      } else {
-        broadcastedInputs.push_back(input);
-      }
-    }
-
-    // Perform the actual op substitution, using broadcasted operands when
-    // needed.
-    auto resultType = mlir::cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getType()));
-
-    auto output = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultType.getShape(), resultType.getElementType());
-    rewriter.replaceOpWithNewOp<LinalgOpTy>(op, resultType, broadcastedInputs,
-                                            output.getResult());
-    return success();
-  }
-};
-} // namespace
-
 namespace {
 // Decomposes softmax into elementary operations that can be lowered through
 // linalg-to-loops. linalg.softmax cannot be lowered directly because it
@@ -3579,52 +3304,22 @@ public:
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter) {
   populateTTIRToLinalgEltwiseUnaryPatterns(ctx, patterns, typeConverter);
+  populateTTIRToLinalgEltwiseBinaryPatterns(ctx, patterns, typeConverter);
 
-  patterns.add<
-      ElementwiseBinaryOpConversionPattern<ttir::AddOp, linalg::AddOp>,
-      ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, linalg::SubOp>,
-      ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
-      ElementwiseBinaryOpConversionPattern<ttir::DivOp, linalg::DivOp>,
-      ElementwiseBinaryOpConversionPattern<ttir::PowOp, linalg::PowFOp>,
-      SoftmaxOpConversionPattern, EmptyOpConversionPattern,
-      PermuteOpConversionPattern, SliceStaticOpConversionPattern,
-      PadOpConversionPattern, ConstantOpConversionPattern,
-      NamedFillOpConversionPattern<ttir::ZerosOp, 0>,
-      NamedFillOpConversionPattern<ttir::OnesOp, 1>, FullOpConversionPattern,
-      ArangeOpConversionPattern, MeshShardOpConversionPattern,
-      CumSumOpConversionPattern, ConcatenateHeadsOpConversionPattern>(
-      typeConverter, ctx);
+  patterns.add<SoftmaxOpConversionPattern, EmptyOpConversionPattern,
+               PermuteOpConversionPattern, SliceStaticOpConversionPattern,
+               PadOpConversionPattern, ConstantOpConversionPattern,
+               NamedFillOpConversionPattern<ttir::ZerosOp, 0>,
+               NamedFillOpConversionPattern<ttir::OnesOp, 1>,
+               FullOpConversionPattern, ArangeOpConversionPattern,
+               MeshShardOpConversionPattern, CumSumOpConversionPattern,
+               ConcatenateHeadsOpConversionPattern>(typeConverter, ctx);
 }
 
 void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                 TypeConverter &typeConverter) {
   populateTTIRToTosaEltwiseUnaryPatterns(ctx, patterns, typeConverter);
-
-  // Comparison operations
-  patterns.add<
-      DirectComparisonOpConversionPattern<ttir::EqualOp, tosa::EqualOp>,
-      DirectComparisonOpConversionPattern<ttir::GreaterThanOp, tosa::GreaterOp>,
-      DirectComparisonOpConversionPattern<ttir::GreaterEqualOp,
-                                          tosa::GreaterEqualOp>,
-      SwappedComparisonOpConversionPattern<ttir::LessThanOp, tosa::GreaterOp>,
-      SwappedComparisonOpConversionPattern<ttir::LessEqualOp,
-                                           tosa::GreaterEqualOp>,
-      NegatedComparisonOpConversionPattern<ttir::NotEqualOp, tosa::EqualOp>>(
-      typeConverter, ctx);
-
-  // Logical binary operations
-  patterns.add<
-      LogicalBinaryOpConversionPattern<ttir::LogicalAndOp, tosa::LogicalAndOp>,
-      LogicalBinaryOpConversionPattern<ttir::LogicalOrOp, tosa::LogicalOrOp>,
-      LogicalBinaryOpConversionPattern<ttir::LogicalXorOp, tosa::LogicalXorOp>>(
-      typeConverter, ctx);
-
-  // Elementwise binary operations (via TOSA)
-  patterns.add<TosaElementwiseBinaryOpConversionPattern<ttir::MinimumOp,
-                                                        tosa::MinimumOp>,
-               TosaElementwiseBinaryOpConversionPattern<ttir::MaximumOp,
-                                                        tosa::MaximumOp>>(
-      typeConverter, ctx);
+  populateTTIRToTosaEltwiseBinaryPatterns(ctx, patterns, typeConverter);
 
   patterns.add<BroadcastOpConversionPattern, MatmulOpConversionPattern,
                LinearOpConversionPattern, ClampScalarOpConversionPattern,
