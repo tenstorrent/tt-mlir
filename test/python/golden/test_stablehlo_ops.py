@@ -525,7 +525,9 @@ def test_sort(
         (3, 3, 3),
         pytest.param(
             (32, 64, 128),
-            marks=pytest.mark.xfail(reason="Larger shapes fail on accuracy because is_stable=False gives different results expectedly"),
+            marks=pytest.mark.xfail(
+                reason="Larger shapes fail on accuracy because is_stable=False gives different results expectedly"
+            ),
         ),
     ],
     ids=shape_str,
