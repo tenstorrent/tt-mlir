@@ -94,9 +94,7 @@ module {
   // Test 3D convolution with non-tile-aligned output channels (NCDHW layout)
   func.func @conv3d_non_tile_aligned_out_channels(%arg0: tensor<1x128x11x34x34xbf16>, %arg1: tensor<48x128x3x3x3xbf16>) -> tensor<1x48x9x32x32xbf16> {
     // CHECK: "ttnn.permute"
-    // CHECK: "ttnn.pad"
     // CHECK: "ttnn.conv3d"
-    // CHECK: "ttnn.slice_static"
     // CHECK: "ttnn.permute"
     %0 = "ttir.conv3d"(%arg0, %arg1)
             <{
@@ -113,13 +111,8 @@ module {
     return %0 : tensor<1x48x9x32x32xbf16>
   }
 
-  // Test 3D convolution with depth padding workaround (NCDHW layout).
+  // Test 3D convolution with depth padding (NCDHW layout).
   func.func @conv3d_depth_padding_workaround(%arg0: tensor<1x128x2x4x4xbf16>, %arg1: tensor<1024x128x3x3x3xbf16>) -> tensor<1x1024x2x4x4xbf16> {
-    // CHECK: "ttnn.permute"
-    // CHECK: "ttnn.permute"
-    // CHECK: "ttnn.reshape"
-    // CHECK: "ttnn.pad"
-    // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.permute"
     // CHECK: "ttnn.conv3d"
     // CHECK: "ttnn.permute"
