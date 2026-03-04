@@ -20,17 +20,10 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Helper function to check if an operand is local (i.e., NOT a stream op
-// and NOT in a DMA-only generic op)
-static bool isLocalOperand(Value operand, Operation *op) {
+// Helper function to check if an operand is local (i.e., NOT a stream op).
+static bool isLocalOperand(Value operand) {
   // Check if operand comes from stream_layout op
   if (mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp())) {
-    return false;
-  }
-
-  // Check if the operation is inside a DMA-only generic op
-  GenericOp generic = op->getParentOfType<GenericOp>();
-  if (generic && generic.isDMAOnlyForm()) {
     return false;
   }
 
@@ -188,7 +181,7 @@ public:
     SmallVector<RemoteLoadOp> remoteLoadsToConvert;
     moduleOp->walk([&](RemoteLoadOp remoteLoad) {
       Value memref = remoteLoad.getMemref();
-      if (isLocalOperand(memref, remoteLoad.getOperation())) {
+      if (isLocalOperand(memref)) {
         // Skip if multicast is present (shouldn't happen for local operands,
         // but verify)
         if (remoteLoad.isMcast()) {
@@ -291,7 +284,7 @@ public:
     SmallVector<RemoteStoreOp> remoteStoresToConvert;
     moduleOp->walk([&](RemoteStoreOp remoteStore) {
       Value memref = remoteStore.getMemref();
-      if (isLocalOperand(memref, remoteStore.getOperation())) {
+      if (isLocalOperand(memref)) {
         remoteStoresToConvert.push_back(remoteStore);
       }
     });
