@@ -1987,16 +1987,11 @@ public:
     TypeConverter::SignatureConversion signatureConverter(op.getNumArguments());
     OpBuilder::InsertionGuard funcInsertionGuard(rewriter);
     rewriter.setInsertionPointToStart(block);
+    // Block arguments are semaphores only. CB args have been replaced by
+    // d2m.get_cb ops, which are lowered by D2MGetCBRewriter.
     for (auto arg : blockArgs) {
       Type argType = getTypeConverter()->convertType(arg.getType());
-      if (mlir::isa<CBType>(argType)) {
-        auto cb = rewriter.create<GetCompileArgValOp>(
-            op.getLoc(), argType,
-            rewriter.getI32IntegerAttr(arg.getArgNumber()));
-        signatureConverter.remapInput(arg.getArgNumber(), {cb});
-        ctArgSpecVector.push_back(
-            rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
-      } else if (mlir::isa<SemaphoreType>(argType)) {
+      if (mlir::isa<SemaphoreType>(argType)) {
         if (getTTKernelThreadType(op) != ThreadType::Noc) {
           continue;
         }

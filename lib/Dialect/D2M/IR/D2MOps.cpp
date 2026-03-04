@@ -1885,28 +1885,10 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     }
   }
 
-  ValueTypeRange<OperandRange> inputOutputOperandTypes =
-      getInputsAndOutputs().getTypes();
   auto *firstRegion = getRegions().begin();
   for (Region &region : getRegions()) {
     if (!region.hasOneBlock()) {
       return emitOpError("region must have a single block");
-    }
-
-    // Count CB block arguments.
-    unsigned numCBArgs = 0;
-    for (BlockArgument arg : region.getArguments()) {
-      if (mlir::isa<d2m::CBType>(arg.getType())) {
-        ++numCBArgs;
-      }
-    }
-
-    // If CB block args exist (old form), they must cover all operands.
-    // If there are 0 CB block args (new tensor.empty form), that's valid.
-    if (numCBArgs > 0 &&
-        region.getNumArguments() < inputOutputOperandTypes.size()) {
-      return emitOpError("region must have at least as many "
-                         "arguments as the number of top-level operands");
     }
 
     // All regions must have the same number of arguments and signature.
@@ -1914,13 +1896,12 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       return emitOpError("all regions must have the same number of arguments");
     }
 
-    // Block arguments may only be semaphore type or CB type.
-    // CB block args are materialized by the explicit CB form pass;
-    // semaphore block args are added by PreallocateMcastSemaphores.
+    // Block arguments may only be semaphore type.
+    // Semaphore block args are added by PreallocateMcastSemaphores.
     for (BlockArgument arg : region.getArguments()) {
-      if (!mlir::isa<d2m::SemaphoreType, d2m::CBType>(arg.getType())) {
+      if (!mlir::isa<d2m::SemaphoreType>(arg.getType())) {
         return emitOpError(
-            "region block arguments must be of 'semaphore' or 'cb' type");
+            "region block arguments must be of 'semaphore' type");
       }
 
       if (arg.getType() !=
@@ -1940,42 +1921,6 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
           "indexing_maps must be non-empty unless in explicit "
           "datamovement form (all of block_factors, indexing_maps, "
           "and iterator_types are empty)");
-    }
-
-    // Validate CB block arg shapes against operand shard shapes (old form
-    // only). In the new form, CBs are tensor.empty/memref.alloc ops inside
-    // the region body.
-    if (numCBArgs > 0) {
-      auto valueArguments =
-          region.getArguments().take_front(inputOutputOperandTypes.size());
-      for (BlockArgument arg : valueArguments) {
-        mlir::ShapedType operandType = mlir::cast<mlir::ShapedType>(
-            inputOutputOperandTypes[arg.getArgNumber()]);
-        ttcore::DeviceLayoutInterface layout =
-            ttcore::getDeviceLayout(operandType);
-        if (!layout) {
-          continue;
-        }
-
-        mlir::ShapedType blockArgType =
-            mlir::cast<mlir::ShapedType>(arg.getType());
-
-        ArrayRef<int64_t> expectedShardShape =
-            layout.getShardShape(operandType);
-        if (expectedShardShape != blockArgType.getShape()) {
-          return emitOpError("region argument shape must match the "
-                             "shape of the corresponding operand");
-        }
-      }
-
-      auto additionalArguments =
-          region.getArguments().drop_front(inputOutputOperandTypes.size());
-      for (BlockArgument arg : additionalArguments) {
-        if (!mlir::isa<SemaphoreType>(arg.getType())) {
-          return emitOpError(
-              "additional region arguments must be of 'semaphore' type");
-        }
-      }
     }
   }
 
@@ -2423,12 +2368,9 @@ std::optional<SmallVector<int64_t>> d2m::GenericOp::computeGridDimConstraints(
 
 void d2m::GenericOp::getAsmBlockArgumentNames(
     Region &region, function_ref<void(Value, StringRef)> setNameFn) {
-  int cbIndex = 0;
   int semIndex = 0;
   for (BlockArgument arg : region.getArguments()) {
-    if (mlir::isa<CBType>(arg.getType())) {
-      setNameFn(arg, "cb" + std::to_string(cbIndex++));
-    } else if (mlir::isa<SemaphoreType>(arg.getType())) {
+    if (mlir::isa<SemaphoreType>(arg.getType())) {
       setNameFn(arg, "sem" + std::to_string(semIndex++));
     }
   }
@@ -2487,23 +2429,20 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
     region.takeBody(getRegion(region.getRegionNumber()));
   }
 
-  // Bufferize CB block arguments: convert from cb<tensor<...>> to
-  // cb<memref<...>>. CB block args are materialized by the explicit CB form
-  // pass before bufferization.
+  // Bufferize get_cb ops: convert from cb<tensor<...>> to cb<memref<...>>.
   for (Region &region : bufferGeneric.getRegions()) {
-    Block &block = region.front();
-    for (BlockArgument arg : block.getArguments()) {
-      auto cbType = mlir::dyn_cast<CBType>(arg.getType());
+    region.walk([&](d2m::GetCBOp getCbOp) {
+      auto cbType = mlir::dyn_cast<CBType>(getCbOp.getResult().getType());
       if (!cbType || !cbType.hasTensorType()) {
-        continue;
+        return;
       }
       auto bufferType =
           cbType.getBufferType(options, [&]() { return this->emitError(); });
       if (failed(bufferType)) {
-        return failure();
+        return;
       }
-      arg.setType(mlir::cast<Type>(*bufferType));
-    }
+      getCbOp.getResult().setType(mlir::cast<CBType>(*bufferType));
+    });
   }
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
