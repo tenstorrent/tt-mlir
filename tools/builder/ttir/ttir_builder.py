@@ -10559,6 +10559,74 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    @parse(ttir.LogicalLeftShiftOp)
+    def logical_left_shift_parser(
+        self,
+        old_op: ttir.LogicalLeftShiftOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.logical_left_shift_parser)
+        in0 = global_dict[old_op.lhs]
+        in1 = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, input1)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.LogicalLeftShiftOp)
+    def logical_left_shift_split(
+        self,
+        old_op: ttir.LogicalLeftShiftOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.logical_left_shift_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            lls_module = Module.create()
+            lls_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.lhs.type, old_op.rhs.type]
+
+            with InsertionPoint(lls_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="logical_left_shift_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    in1 = inputs[1]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(result, in0, in1, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    ordered_inputs.extend(inputs)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op_result
+
+            lls_builder._ordered_input_values = ordered_inputs
+            lls_builder._ordered_output_values = ordered_outputs
+
+            return lls_module, lls_builder
+
     def logical_or(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
