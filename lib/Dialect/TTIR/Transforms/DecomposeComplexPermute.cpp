@@ -2,15 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/PatternMatch.h"
 
-namespace mlir::tt::d2m {
-#define GEN_PASS_DEF_D2MDECOMPOSECOMPLEXPERMUTE
-#include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
+namespace mlir::tt::ttir {
+#define GEN_PASS_DEF_TTIRDECOMPOSECOMPLEXPERMUTE
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
 
@@ -125,11 +125,12 @@ decomposePermutation(llvm::ArrayRef<int64_t> permutation) {
   return result;
 }
 
-class D2MDecomposeComplexPermute
-    : public impl::D2MDecomposeComplexPermuteBase<D2MDecomposeComplexPermute> {
+class TTIRDecomposeComplexPermute
+    : public impl::TTIRDecomposeComplexPermuteBase<
+          TTIRDecomposeComplexPermute> {
 public:
-  using impl::D2MDecomposeComplexPermuteBase<
-      D2MDecomposeComplexPermute>::D2MDecomposeComplexPermuteBase;
+  using impl::TTIRDecomposeComplexPermuteBase<
+      TTIRDecomposeComplexPermute>::TTIRDecomposeComplexPermuteBase;
 
   void runOnOperation() final {
     // Collect all permute ops that need to be decomposed.
@@ -181,4 +182,4 @@ public:
 
 } // namespace
 
-} // namespace mlir::tt::d2m
+} // namespace mlir::tt::ttir
