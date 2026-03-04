@@ -115,6 +115,30 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
     clonedOps.push_back(cloned);
   }
 
+  // 4b) Annotate cloned ops with original composite operand indices.
+  llvm::DenseMap<mlir::Value, int64_t> captureToArgIndex;
+  for (int64_t i = 0; i < static_cast<int64_t>(comp->getNumOperands()); ++i) {
+    captureToArgIndex.try_emplace(comp->getOperand(i), i);
+  }
+
+  for (mlir::Operation *cloned : clonedOps) {
+    bool hasCapture = false;
+    llvm::SmallVector<int64_t> argIndices;
+    argIndices.reserve(cloned->getNumOperands());
+    for (mlir::Value operand : cloned->getOperands()) {
+      if (captureToArgIndex.find(operand) != captureToArgIndex.end()) {
+        argIndices.push_back(captureToArgIndex.find(operand)->second);
+        hasCapture = true;
+      } else {
+        argIndices.push_back(-1);
+      }
+    }
+    if (hasCapture) {
+      cloned->setAttr(utils::kReoutlineArgOperandIndicesAttr,
+                      builder.getDenseI64ArrayAttr(argIndices));
+    }
+  }
+
   // 5) Handle callee terminator: replace composite results with mapped return
   // values. We expect a func.return with N operands, matching the composite's
   // results.
