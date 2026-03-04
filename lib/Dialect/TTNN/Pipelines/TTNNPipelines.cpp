@@ -55,6 +55,7 @@ void createTTNNPipelineTTIRPasses(
   }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
   if (options.enableFusing) {
+    pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
   pm.addPass(mlir::createCanonicalizerPass());

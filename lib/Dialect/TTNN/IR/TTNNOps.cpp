@@ -2267,9 +2267,9 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
            << ") must have matching inner dimensions";
   }
 
-  llvm::SmallVector<int64_t> expectedOutputShape;
+  llvm::SmallVector<int64_t> matmulOutputShape;
   // Verify that the batch dimensions are broadcast compatible and construct the
-  // expected output shape. If either of input A or input B is at most 2D
+  // matmul output shape. If either of input A or input B is at most 2D
   // tensors, the batch dimensions are trivially broadcast compatible.
   if (inputAShape.size() > 2 || inputBShape.size() > 2) {
     llvm::SmallVector<int64_t> inputABatchDims(inputAShape.begin(),
@@ -2289,20 +2289,34 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
                          ") are not broadcast compatible");
     }
 
-    // Insert the broadcasted batch dimensions in the expected output shape.
-    expectedOutputShape = std::move(broadcastedShape);
+    // Insert the broadcasted batch dimensions in the matmul output shape.
+    matmulOutputShape = std::move(broadcastedShape);
   }
 
-  // Insert the input A and B inner dimensions in expected output shape
+  // Insert the input A and B inner dimensions in matmul output shape.
   // Consider the case where input A and B are vectors. In that case,
-  // the dimension 1 is ommited from the output shape.
+  // the dimension 1 is omitted from the output shape.
   if (inputAType.getRank() > 1) {
-    expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
+    matmulOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
   }
 
   if (inputBType.getRank() > 1) {
-    expectedOutputShape.push_back(inputBShape[inputBShape.size() - 1]);
+    matmulOutputShape.push_back(inputBShape[inputBShape.size() - 1]);
   }
+
+  // For vector-vector products, the matmul output is a scalar. MLIR doesn't
+  // support rank-0 tensors, so represent as tensor<1>.
+  if (matmulOutputShape.empty()) {
+    matmulOutputShape.push_back(1);
+  }
+
+  // The expected output shape is a pair of valid shapes:
+  // - broadcastShape: broadcast(matmul(A,B), bias), always valid.
+  // - matmulShape: matmul(A,B), only valid when tt-metal uses the fused
+  //   LinearOp kernel (bias padded second-to-last dim == TILE_HEIGHT).
+  // Without bias, both are equal to the matmul output shape.
+  std::pair<llvm::SmallVector<int64_t>, llvm::SmallVector<int64_t>>
+      expectedOutputShape = {matmulOutputShape, {}};
 
   if (biasType) {
     // Verify that the input bias is at least 1D tensor.
@@ -2315,66 +2329,42 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     // Verify that the dimensions of the matmul of A and B are broadcast
     // compatible with input bias.
     llvm::SmallVector<int64_t> broadcastShape;
-    if (!mlir::OpTrait::util::getBroadcastedShape(expectedOutputShape,
-                                                  biasShape, broadcastShape)) {
+    if (!mlir::OpTrait::util::getBroadcastedShape(matmulOutputShape, biasShape,
+                                                  broadcastShape)) {
       return emitOpError("Bias shape(")
              << ttmlir::utils::join(biasShape, ",")
              << ") is not broadcast compatible with the matmul output shape("
-             << ttmlir::utils::join(expectedOutputShape, ",") << ")";
+             << ttmlir::utils::join(matmulOutputShape, ",") << ")";
     }
 
-    // tt-metal uses a composite LinearOp where the bias is added after the
-    // matmul, and ttnn.add supports broadcasting of both operands. Otherwise,
-    // tt-metal lowers to a fused LinearOp, which uses the matmul result shape
-    // as the output shape. The composite LinearOp requires that the bias
-    // second-to-last dim (of padded shape) does not match the tile height.
-    // Update the expected output shape to the fully broadcasted shape when:
-    // 1) The matmul result is a scalar (vector x vector), so the inferred
-    //    output shape is empty and must be derived from the bias via
-    //    broadcasting, or
-    // 2) The bias second-to-last dim (of padded shape) does not match the
-    //    tile height, indicating the composite LinearOp is used.
+    expectedOutputShape.first = broadcastShape;
+
+    // The matmul result shape is also a valid output shape when:
+    // 1) tt-metal uses a fused LinearOp kernel (bias padded second-to-last
+    //    dim matches tile height), or
+    // 2) The matmul is a vector-vector dot product (scalar output), where
+    //    TTNN lowering produces tensor<1> regardless of bias shape.
     llvm::SmallVector<int64_t> paddedBiasShape =
         ttnn::utils::getTilePaddedShape(biasShape);
-    if (expectedOutputShape.empty() ||
-        (paddedBiasShape.size() > 1 &&
-         paddedBiasShape[paddedBiasShape.size() - 2] != ttnn::TILE_HEIGHT)) {
-      expectedOutputShape = broadcastShape;
+    if ((paddedBiasShape.size() > 1 &&
+         paddedBiasShape[paddedBiasShape.size() - 2] == ttnn::TILE_HEIGHT)) {
+      expectedOutputShape.second = matmulOutputShape;
     }
   }
 
-  // Check the case of a vector-vector product. At this moment we don't support
-  // scalars in IR, hence check that the output is at least 1D tensor of size 1.
-  if (expectedOutputShape.size() == 0) {
-    if (outputType.getRank() < 1) {
-      return emitOpError("Scalar output is not supported, output must be at "
-                         "least a 1D tensor");
-    }
+  auto &[broadcastExpected, matmulExpected] = expectedOutputShape;
 
-    if (outputType.getRank() > 1 || outputType.getShape()[0] != 1) {
-      return emitOpError("Scalar output must be a 1D tensor of size 1");
-    }
-
-    return success();
-  }
-
-  // Verify that the output shape is correct.
-  if (outputShape.size() != expectedOutputShape.size()) {
-    return emitOpError("Output shape rank(")
-           << outputShape.size()
-           << ") must match the expected output shape rank("
-           << expectedOutputShape.size() << ")";
-  }
-
-  // Verify each dim of the output shape.
-  for (auto [index, outputDim, expectedDim] : llvm::zip(
-           llvm::seq(outputShape.size()), outputShape, expectedOutputShape)) {
-    if (outputDim != expectedDim) {
-      return emitOpError("Output shape dimension[")
-             << index << "](" << outputDim
-             << ") doesn't match the expected output shape dimension[" << index
-             << "](" << expectedDim << ")";
-    }
+  // Verify that the output shape matches one of the valid expected shapes.
+  if (!llvm::equal(outputShape, broadcastExpected) &&
+      (matmulExpected.empty() || !llvm::equal(outputShape, matmulExpected))) {
+    return emitOpError("Output shape(")
+           << ttmlir::utils::join(outputShape, ",")
+           << ") must match the broadcasted shape("
+           << ttmlir::utils::join(broadcastExpected, ",") << ")"
+           << (matmulExpected.empty()
+                   ? ""
+                   : " or the matmul output shape(" +
+                         ttmlir::utils::join(matmulExpected, ",") + ")");
   }
 
   return success();

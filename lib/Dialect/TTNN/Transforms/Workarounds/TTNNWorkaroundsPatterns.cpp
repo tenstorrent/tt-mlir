@@ -23,6 +23,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PadHighDimRewritePattern.h"
@@ -581,6 +582,7 @@ public:
           workarounds::decomposition::ArgMaxOpRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
           workarounds::decomposition::RotaryEmbeddingOpRewritePattern,
+          workarounds::decomposition::LinearOpOutputShapeRewritePattern,
           workarounds::decomposition::LinearOpRewritePattern,
           workarounds::decomposition::MultiplyOpDecompositionRewritePattern,
           workarounds::decomposition::SubtractOpImplicitBroadcastRewritePattern,
