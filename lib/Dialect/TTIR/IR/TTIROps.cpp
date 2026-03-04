@@ -5702,28 +5702,31 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   }
 
   // Get dimensions
-  int64_t numExperts = inputBType.getShape()[1];
-  int64_t K = inputBType.getShape()[2];
-  (void)inputBType.getShape()[3]; // N - used for output shape validation
+  llvm::ArrayRef<int64_t> aShape = inputAType.getShape();
+  llvm::ArrayRef<int64_t> bShape = inputBType.getShape();
+  int64_t E = bShape[1];
+  int64_t K = bShape[2];
+  int64_t N = bShape[3];
+  int64_t M = aShape[aShape.size() - 2];
 
   // Verify input B first dimension is 1
-  if (inputBType.getShape()[0] != 1) {
+  if (bShape[0] != 1) {
     return emitOpError("Input B first dimension must be 1");
   }
 
   // Verify inner dimensions match
-  if (inputAType.getShape()[inputAType.getRank() - 1] != K) {
+  if (aShape[aShape.size() - 1] != K) {
     return emitOpError(
         "Input A inner dimension must match Input B K dimension");
   }
 
   // Verify sparsity tensor has correct number of experts
-  if (sparsityType.getShape()[sparsityType.getRank() - 1] != numExperts) {
+  if (sparsityType.getShape()[sparsityType.getRank() - 1] != E) {
     return emitOpError("Sparsity tensor last dimension must match number of "
                        "experts in Input B");
   }
 
-  // Verify output shape based on sparse mode
+  // Verify output shape based on sparse mode (including batch dimensions)
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
   if (isInputASparse && isInputBSparse) {
@@ -5731,15 +5734,33 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
     if (outputShape.size() != 4) {
       return emitOpError("Output must be 4D for sparse-sparse mode");
     }
+    if (outputShape[0] != 1 || outputShape[1] != E || outputShape[2] != M ||
+        outputShape[3] != N) {
+      return emitOpError(
+          "Output shape must be [1, E, M, N] for sparse-sparse mode");
+    }
   } else if (!isInputASparse && isInputBSparse) {
     // [A, B, M, K] @ [1, E, K, N] -> [A, B, 1, E, M, N]
     if (outputShape.size() != 6) {
       return emitOpError("Output must be 6D for dense-sparse mode");
     }
+    int64_t A = aShape[0];
+    int64_t B = aShape[1];
+    if (outputShape[0] != A || outputShape[1] != B || outputShape[2] != 1 ||
+        outputShape[3] != E || outputShape[4] != M || outputShape[5] != N) {
+      return emitOpError(
+          "Output shape must be [A, B, 1, E, M, N] for dense-sparse mode");
+    }
   } else if (isInputASparse && !isInputBSparse) {
     // [A, E, M, K] @ [1, E, K, N] -> [A, E, M, N]
     if (outputShape.size() != 4) {
       return emitOpError("Output must be 4D for sparse-dense mode");
+    }
+    int64_t A = aShape[0];
+    if (outputShape[0] != A || outputShape[1] != E || outputShape[2] != M ||
+        outputShape[3] != N) {
+      return emitOpError(
+          "Output shape must be [A, E, M, N] for sparse-dense mode");
     }
   }
 

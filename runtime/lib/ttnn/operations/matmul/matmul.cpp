@@ -94,64 +94,6 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
-namespace {
-// Helper function to create program config for sparse_matmul
-// Following GPT-OSS demo pattern for dynamic per_core_N calculation
-::ttnn::operations::matmul::MatmulProgramConfig
-createSparseMatmulProgramConfig(const ::ttnn::Tensor &inputA,
-                                const ::ttnn::Tensor &inputB) {
-  constexpr uint32_t tileH = 32;
-  constexpr uint32_t tileW = 32;
-
-  // Get compute grid from device
-  auto gridSize = inputA.device()->compute_with_storage_grid_size();
-  uint32_t coreX = gridSize.x;
-  uint32_t coreY = gridSize.y;
-
-  const auto &shapeA = inputA.logical_shape();
-  const auto &shapeB = inputB.logical_shape();
-
-  // Get dimensions: A is [..., M, K], B is [..., K, N]
-  uint32_t M = shapeA[-2];
-  uint32_t N = shapeB[-1];
-
-  // uint32_t MTiles = (M + tileH - 1) / tileH;
-  uint32_t NTiles = (N + tileW - 1) / tileW;
-
-  uint32_t perCoreM = std::max(1u, M / tileH);
-
-  // For sparse_matmul, we need num_blocks_total to form a rectangular grid
-  // that matches the core grid allocation.
-  // num_blocks_y = ceil(MTiles / perCoreM)
-  // num_blocks_x = ceil(NTiles / perCoreN)
-  // num_blocks_total = num_blocks_y * num_blocks_x
-  //
-  // The simplest approach: set perCoreN so that num_blocks_x <= coreX
-  // This ensures num_blocks_total <= coreX * num_blocks_y <= coreX * coreY
-
-  // perCoreN = ceil(NTiles / coreX) ensures num_blocks_x <= coreX
-  uint32_t perCoreN = std::max(1u, (NTiles + coreX - 1) / coreX);
-
-  ::ttnn::operations::matmul::MatmulMultiCoreReuseMultiCast1DProgramConfig
-      config;
-  config.compute_with_storage_grid_size = tt::tt_metal::CoreCoord(coreX, coreY);
-  config.in0_block_w = 1;
-  config.out_subblock_h = 1;
-  config.out_subblock_w = 1;
-  config.out_block_h = 1;
-  config.out_block_w = 1;
-  config.per_core_M = perCoreM;
-  config.per_core_N = perCoreN;
-  config.fuse_batch = false;
-  config.fused_activation = std::nullopt;
-  config.mcast_in0 = true;
-  config.gather_in0 = false;
-  config.num_global_cb_receivers = 0;
-  config.untilize_out = false;
-  return config;
-}
-} // namespace
-
 void run(const ::tt::target::ttnn::SparseMatmulOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -177,7 +119,37 @@ void run(const ::tt::target::ttnn::SparseMatmulOp *op,
       op->nnz() != 0 ? std::make_optional(static_cast<uint32_t>(op->nnz()))
                      : std::nullopt;
 
-  auto programConfig = createSparseMatmulProgramConfig(a, b);
+  // Read program config from the flatbuffer (populated at compile time by
+  // TTIRToTTNN lowering).
+  LOG_ASSERT(op->program_config(),
+             "SparseMatmulOp requires program_config to be set at compile "
+             "time");
+  auto *config = op->program_config();
+  ::ttnn::operations::matmul::MatmulMultiCoreReuseMultiCast1DProgramConfig
+      programConfig{
+          .compute_with_storage_grid_size =
+              ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+                  *config->compute_with_storage_grid_size()),
+          .in0_block_w = config->in0_block_w(),
+          .out_subblock_h = config->out_subblock_h(),
+          .out_subblock_w = config->out_subblock_w(),
+          .out_block_h = config->out_block_h(),
+          .out_block_w = config->out_block_w(),
+          .per_core_M = config->per_core_m(),
+          .per_core_N = config->per_core_n(),
+          .fuse_batch = config->fuse_batch(),
+          .fused_activation =
+              config->fused_activation()
+                  ? std::optional<::ttnn::operations::unary::UnaryWithParam>(
+                        utils::toTTNNUnaryWithParam(
+                            *config->fused_activation()))
+                  : std::nullopt,
+          .mcast_in0 = config->mcast_in0(),
+          .gather_in0 = config->gather_in0(),
+          .hop_cores = ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
+              *config->hop_cores()),
+          .num_global_cb_receivers = config->num_global_cb_receivers(),
+          .untilize_out = config->untilize_out()};
 
   ::ttnn::Tensor output =
       ::ttnn::sparse_matmul(a, b, sparsity,
@@ -187,7 +159,6 @@ void run(const ::tt::target::ttnn::SparseMatmulOp *op,
                             /*is_input_b_sparse=*/op->is_input_b_sparse(),
                             /*memory_config=*/outputMemoryConfig,
                             /*dtype=*/std::nullopt,
-
                             /*compute_kernel_config=*/computeConfig,
                             /*core_grid=*/std::nullopt,
                             /*output_tile=*/std::nullopt);

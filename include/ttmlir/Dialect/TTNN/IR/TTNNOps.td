@@ -1533,35 +1533,31 @@ def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
 def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul"> {
-    let summary = "Sparse matrix multiplication for MoE (Mixture of Experts).";
+    let summary = "Sparse block matrix multiplication with sparsity mask.";
     let description = [{
-      The `sparse_matmul` operation computes matrix multiplication where computation
-      is skipped for sparse (zero) blocks based on the sparsity tensor.
-
-      This operation is designed for Mixture of Experts (MoE) models where only a
-      subset of experts are activated for each token. The sparsity tensor indicates
-      which expert-token combinations should be computed.
-
-      Based on `is_input_a_sparse`, `is_input_b_sparse` and the sparsity tensor,
-      some parts of the output computation is skipped.
+      The `sparse_matmul` operation performs batched matrix multiplication where
+      computation is selectively skipped for blocks marked as zero in the sparsity
+      tensor. Input `b` is organized as a collection of weight matrices indexed by
+      a block dimension (dim 1), and the sparsity tensor controls which blocks
+      participate in the computation.
 
       Supported Modes:
-      - is_input_a_sparse=true, is_input_b_sparse=true:
-        input_a: [1, E, M, K], input_b: [1, E, K, N], sparsity: [1, 1, 1, E] -> output: [1, E, M, N]
-      - is_input_a_sparse=false, is_input_b_sparse=true:
-        input_a: [A, B, M, K], input_b: [1, E, K, N], sparsity: [A, B, 1, E] -> output: [A, B, 1, E, M, N]
-      - is_input_a_sparse=true, is_input_b_sparse=false:
-        input_a: [A, E, M, K], input_b: [1, E, K, N], sparsity: [1, 1, A, E] -> output: [A, E, M, N]
+      - is_input_a_sparse=false, is_input_b_sparse=true (column-parallel):
+        a: [A, B, M, K], b: [1, E, K, N], sparsity: [A, B, 1, E]
+        -> output: [A, B, 1, E, M, N]
+      - is_input_a_sparse=true, is_input_b_sparse=false (row-parallel):
+        a: [A, E, M, K], b: [1, E, K, N], sparsity: [1, 1, A, E]
+        -> output: [A, E, M, N]
+      - is_input_a_sparse=true, is_input_b_sparse=true (both sparse):
+        a: [1, E, M, K], b: [1, E, K, N], sparsity: [1, 1, 1, E]
+        -> output: [1, E, M, N]
 
       Example:
       ```mlir
-      // Sparse matmul with input_b sparse (typical MoE gate/up projection)
-      %result = ttnn.sparse_matmul(%input, %weight, %sparsity) {
-          is_input_a_sparse = false,
-          is_input_b_sparse = true,
-          nnz = 2
-      } : (tensor<1x128x1x4096xbf16>, tensor<1x8x4096x11008xbf16>, tensor<1x128x1x8xbf16>)
-          -> tensor<1x128x1x8x1x11008xbf16>
+      %result = "ttnn.sparse_matmul"(%activations, %weights, %sparsity) <{
+          is_input_a_sparse = false, is_input_b_sparse = true, nnz = 2
+      }> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>,
+            tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
       ```
     }];
 
