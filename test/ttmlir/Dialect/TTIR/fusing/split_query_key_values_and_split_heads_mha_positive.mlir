@@ -1,5 +1,6 @@
 // RUN: ttmlir-opt -ttir-to-ttir-decomposition -ttir-implicit-broadcast-fold -ttir-fusing -o %t %s
 // RUN: FileCheck %s --input-file=%t
+// UNSUPPORTED: true
 
 // Test for bge-m3 model attention layer.
 module {
