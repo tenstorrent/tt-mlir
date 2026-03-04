@@ -10,6 +10,16 @@ from ttmlir.dialects import _d2m_ops_gen as d2m
 
 TILE_SIZE = 32
 
+_DTYPE_MAP = {
+    "bfloat16": "bf16", "bf16": "bf16",
+    "float32": "f32",   "f32": "f32",
+    "float16": "f16",   "f16": "f16",
+}
+
+
+def _dtype_to_mlir_str(dtype: str) -> str:
+    return _DTYPE_MAP.get(str(dtype), "f32")
+
 
 def _normalize_int_dim(value, tensor_name, axis):
     if isinstance(value, bool) or not isinstance(value, Integral):
@@ -60,11 +70,13 @@ def _is_placeholder_shape(shape):
 
 
 class D2MASTVisitor(ast.NodeVisitor):
-    def __init__(self, ctx, block, tensor_metadata, grid):
+    def __init__(self, ctx, block, tensor_metadata, grid, tile_type_str="!ttcore.tile<32x32, f32>", mlir_dtype="f32"):
         self.ctx = ctx
         self.block = block
         self.tensor_metadata = tensor_metadata
         self.grid = grid
+        self.tile_type_str = tile_type_str
+        self.mlir_dtype = mlir_dtype
 
         self.symbol_table = {}
         self.core_indices = {} # Tracks core_y, core_x
@@ -138,6 +150,36 @@ class D2MASTVisitor(ast.NodeVisitor):
             # If it's symbolic, return a tuple representing the expression
             return (left, type(node.op).__name__, right)
         return 0 # Fallback
+
+    def _emit_index_expr(self, node):
+        """Emit arith MLIR ops for an index/scalar expression. Returns a MLIR Value.
+        Must be called inside an active InsertionPoint + Location context."""
+        from ttmlir.ir import IndexType, IntegerAttr
+        idx_type = IndexType.get(self.ctx)
+        if isinstance(node, ast.Constant) and isinstance(node.value, int):
+            return arith.ConstantOp(idx_type, IntegerAttr.get(idx_type, node.value)).result
+        if isinstance(node, ast.Name):
+            if node.id in self.core_indices:
+                return self.core_indices[node.id]
+            if node.id in self.symbol_table:
+                return self.symbol_table[node.id]
+            return arith.ConstantOp(idx_type, IntegerAttr.get(idx_type, 0)).result
+        if isinstance(node, ast.BinOp):
+            lhs = self._emit_index_expr(node.left)
+            rhs = self._emit_index_expr(node.right)
+            if isinstance(node.op, ast.Add):  return arith.AddIOp(lhs, rhs).result
+            if isinstance(node.op, ast.Sub):  return arith.SubIOp(lhs, rhs).result
+            if isinstance(node.op, ast.Mult): return arith.MulIOp(lhs, rhs).result
+        return arith.ConstantOp(idx_type, IntegerAttr.get(idx_type, 0)).result
+
+    def _emit_slice_start(self, slice_node):
+        """Emit the start index of a slice as a MLIR Value.
+        Must be called inside an active InsertionPoint + Location context."""
+        from ttmlir.ir import IndexType, IntegerAttr
+        idx_type = IndexType.get(self.ctx)
+        if isinstance(slice_node, ast.Slice) and slice_node.lower is not None:
+            return self._emit_index_expr(slice_node.lower)
+        return arith.ConstantOp(idx_type, IntegerAttr.get(idx_type, 0)).result
 
     def _infer_add_result_type(self, lhs_type, rhs_type):
         from ttmlir.ir import RankedTensorType, MemRefType
@@ -384,12 +426,18 @@ class D2MASTVisitor(ast.NodeVisitor):
                 # The actual shape is determined when the buffer is used.
                 with Location.unknown(self.ctx), InsertionPoint(self.block):
                     from ttmlir.ir import Type
-                    tile_type = Type.parse("!ttcore.tile<32x32, f32>", context=self.ctx)
+                    tile_type = Type.parse(self.tile_type_str, context=self.ctx)
                     rank = len(self.shard_shape)
                     placeholder_shape = [1] * rank
                     from ttmlir.dialects import tensor as tensor_dialect
                     op = tensor_dialect.EmptyOp(placeholder_shape, tile_type)
                     self.symbol_table[name] = op.result
+
+        else:
+            # General scalar / index expression (e.g. core_offset_y = core_y * 128)
+            with Location.unknown(self.ctx), InsertionPoint(self.block):
+                result = self._emit_index_expr(val)
+                self.symbol_table[name] = result
 
     def _collect_matmul_writes(self, stmts):
         """Pre-scan loop body statements to find variables written by matmul ops.
@@ -450,7 +498,7 @@ class D2MASTVisitor(ast.NodeVisitor):
             # placeholder (all-1s) would cause a type mismatch with the linalg.generic
             # result (shard-shaped), so we emit a fresh tensor.empty with the shard shape.
             from ttmlir.ir import Type
-            _tile_type = Type.parse("!ttcore.tile<32x32, f32>", context=self.ctx)
+            _tile_type = Type.parse(self.tile_type_str, context=self.ctx)
             from ttmlir.dialects import tensor as tensor_dialect
             iter_arg_init_values = [
                 tensor_dialect.EmptyOp(
@@ -514,7 +562,7 @@ class D2MASTVisitor(ast.NodeVisitor):
                 src_val = self.symbol_table[src_name]
 
                 from ttmlir.ir import Type
-                tile_type = Type.parse("!ttcore.tile<32x32, f32>", context=self.ctx)
+                tile_type = Type.parse(self.tile_type_str, context=self.ctx)
 
                 # Compute slice dimensions in tiles
                 src_layout = self.tensor_layout_dims.get(src_name)
@@ -552,7 +600,7 @@ class D2MASTVisitor(ast.NodeVisitor):
                 op = d2m_dialect.RemoteLoadOp(
                     local_buf_op.result.type,
                     src_val,
-                    [self.core_indices["core_y"], self.core_indices["core_x"]],
+                    [self._emit_slice_start(y_slice), self._emit_slice_start(x_slice)],
                     mcast_start_index,
                     mcast_shape_attr,
                     mcast_dims_attr,
@@ -581,7 +629,7 @@ class D2MASTVisitor(ast.NodeVisitor):
                 store_op = d2m_dialect.RemoteStoreOp(
                     dest_val.type,
                     dest_val,
-                    [self.core_indices["core_y"], self.core_indices["core_x"]],
+                    [self._emit_slice_start(y_slice), self._emit_slice_start(x_slice)],
                     localBuffer=src_val,
                 )
 
@@ -630,6 +678,11 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                 input_names = []
                 output_names = []
 
+                # Extract dtype from the first tensor entry
+                _first_meta = next(iter(tensor_metadata.values()))
+                _mlir_dtype = _dtype_to_mlir_str(_first_meta.get("dtype", "f32"))
+                _tile_type_str = f"!ttcore.tile<32x32, {_mlir_dtype}>"
+
                 for name, meta in tensor_metadata.items():
                     layout_dims = _get_validated_layout_dims(name, meta["shape"])
                     shape = layout_dims["shape"]
@@ -648,7 +701,7 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                     affine_map_str = f"({dims}) -> ({dims})"
                     memref_shape = layout_dims["tiled_shape"]
                     memref_shape_str = "x".join(map(str, memref_shape))
-                    ttnn_layout_str = f"#ttnn.ttnn_layout<{affine_map_str}, <1x1>, memref<{memref_shape_str}x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>"
+                    ttnn_layout_str = f"#ttnn.ttnn_layout<{affine_map_str}, <1x1>, memref<{memref_shape_str}x{_tile_type_str}, #ttnn.buffer_type<dram>>, <interleaved>>"
                     shape_str = "x".join(map(str, shape))
                     func_arg_type_str = f"tensor<{shape_str}xf32, {ttnn_layout_str}>"
                     func_arg_type = Type.parse(func_arg_type_str, context=ctx)
@@ -666,7 +719,7 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                     metal_shape_str = "x".join(map(str, metal_shape))
 
                     metal_type_str = (
-                        f"tensor<{metal_shape_str}x!ttcore.tile<32x32, f32>, "
+                        f"tensor<{metal_shape_str}x{_tile_type_str}, "
                         f"#ttcore.metal_layout<logical_shape={logical_shape_str}, "
                         f"dim_alignments={dim_alignments_str}, "
                         f"collapsed_intervals=dense<[[0, -1]]> : tensor<1x2xi64>, "
@@ -752,7 +805,7 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
 
                     region = generic_op.regions[0]
 
-                    # CB block arg types: !d2m.cb<tensor<shard_shape x !ttcore.tile<32x32, f32>>>
+                    # CB block arg types: !d2m.cb<tensor<shard_shape x tile_type>>
                     # Shard shape = metal tensor shape without the grid dims (first 2 dims)
                     block_arg_types = []
                     for metal_val in inputs + outputs:
@@ -761,13 +814,13 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                         inner_shard = metal_shape_list[2:]  # drop grid dims (first 2)
                         shard_tensor_str = "x".join(map(str, inner_shard))
                         cb_type = Type.parse(
-                            f"!d2m.cb<tensor<{shard_tensor_str}x!ttcore.tile<32x32, f32>>>",
+                            f"!d2m.cb<tensor<{shard_tensor_str}x{_tile_type_str}>>",
                             context=ctx
                         )
                         block_arg_types.append(cb_type)
                     generic_bb = region.blocks.append(*block_arg_types)
 
-                    visitor = D2MASTVisitor(ctx, generic_bb, tensor_metadata, grid)
+                    visitor = D2MASTVisitor(ctx, generic_bb, tensor_metadata, grid, _tile_type_str, _mlir_dtype)
 
                     # Map tensor names to outer metal tensor Values (not CB block args)
                     # remote_load/remote_store use these outer operands
