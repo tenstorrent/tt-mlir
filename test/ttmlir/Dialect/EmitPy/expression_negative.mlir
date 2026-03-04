@@ -15,7 +15,7 @@ func.func @test_expression_no_terminator(%arg0: !emitpy.opaque<"int">) -> !emitp
 // Test: Yield must provide a value
 // Note: This test triggers compiler heap overflow since yield is defined within expression
 func.func @test_expression_yield_no_value(%arg0: !emitpy.opaque<"float">) -> !emitpy.opaque<"float"> {
-  // expected-error @+1 {{must yield a value at termination}}
+  // expected-error @+1 {{yielded value not defined within expression}}
   %0 = "emitpy.expression"(%arg0) ({
   ^bb0(%a: !emitpy.opaque<"float">):
     %1 = emitpy.call_opaque "relu"(%a) : (!emitpy.opaque<"float">) -> !emitpy.opaque<"float">
