@@ -64,7 +64,6 @@ def test_d2m_fusion_with_optimizer(request, target, snippet):
             "optimization-level=1",
             "enable-d2m-fusing-pass=true",
         ],
-        print_ir=True,
     )
     # Open device only after compile so the pipeline can use mock context for opmodel.
     # If this is not done, we'll get this error: "Cannot switch to real hardware while 1 device(s) are active."
