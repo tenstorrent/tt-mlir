@@ -280,7 +280,8 @@ void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
         if (isConstantZero(op.getLhs()) || isConstantZero(op.getRhs())) {
           rewriter.replaceOpWithNewOp<mlir::tt::ttir::ZerosOp>(
               op, resultType,
-              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
+              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)),
+              /*dtype=*/nullptr);
           return mlir::success();
         }
 
@@ -298,7 +299,8 @@ void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
         if (isConstantNonZero(op.getLhs()) && isConstantNonZero(op.getRhs())) {
           rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(
               op, resultType,
-              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
+              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)),
+              /*dtype=*/nullptr);
           return mlir::success();
         }
 
@@ -327,7 +329,8 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
         if (isConstantNonZero(op.getLhs()) || isConstantNonZero(op.getRhs())) {
           rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(
               op, resultType,
-              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
+              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)),
+              /*dtype=*/nullptr);
           return mlir::success();
         }
 
@@ -345,7 +348,8 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
         if (isConstantZero(op.getLhs()) && isConstantZero(op.getRhs())) {
           rewriter.replaceOpWithNewOp<mlir::tt::ttir::ZerosOp>(
               op, resultType,
-              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
+              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)),
+              /*dtype=*/nullptr);
           return mlir::success();
         }
 
@@ -643,10 +647,10 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
   }
 
   if (auto dtype = getDtype()) {
-    if (dtype != getType().getElementType()) {
+    if (*dtype != getType().getElementType()) {
       return emitOpError()
              << "dtype does not match with output tensor element type [dtype = "
-             << dtype << ", output tensor element type = "
+             << *dtype << ", output tensor element type = "
              << getType().getElementType() << "].";
     }
   }
@@ -664,10 +668,10 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
 
 ::mlir::LogicalResult mlir::tt::ttir::ZerosOp::verify() {
   if (auto dtype = getDtype()) {
-    if (dtype != getType().getElementType()) {
+    if (*dtype != getType().getElementType()) {
       return emitOpError()
              << "dtype does not match with output tensor element type [dtype = "
-             << dtype << ", output tensor element type = "
+             << *dtype << ", output tensor element type = "
              << getType().getElementType() << "].";
     }
   }
@@ -681,10 +685,10 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
 
 ::mlir::LogicalResult mlir::tt::ttir::OnesOp::verify() {
   if (auto dtype = getDtype()) {
-    if (dtype != getType().getElementType()) {
+    if (*dtype != getType().getElementType()) {
       return emitOpError()
              << "dtype does not match with output tensor element type [dtype = "
-             << dtype << ", output tensor element type = "
+             << *dtype << ", output tensor element type = "
              << getType().getElementType() << "].";
     }
   }
@@ -802,7 +806,7 @@ void mlir::tt::ttir::ConstantOp::getCanonicalizationPatterns(
         op, op.getType(),
         rewriter.getDenseI32ArrayAttr(
             llvm::to_vector_of<int32_t>(op.getType().getShape())),
-        fillValueAttr);
+        fillValueAttr, /*dtype=*/nullptr);
 
     return success();
   });
@@ -4865,10 +4869,10 @@ mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {
   }
 
   if (auto dtype = getDtype()) {
-    if (dtype != getType().getElementType()) {
+    if (*dtype != getType().getElementType()) {
       return emitOpError()
              << "dtype does not match with output tensor element type [dtype = "
-             << dtype << ", output tensor element type = "
+             << *dtype << ", output tensor element type = "
              << getType().getElementType() << "].";
     }
   }

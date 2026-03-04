@@ -198,7 +198,8 @@ public:
     auto shapeI32 = llvm::to_vector_of<int32_t>(srcOp.getShape().getShape());
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
-        srcOp, outputType, shapeI32, adaptor.getFillValue());
+        srcOp, outputType, shapeI32, adaptor.getFillValue(),
+        /*dtype=*/nullptr);
 
     return mlir::success();
   }

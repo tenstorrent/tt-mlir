@@ -184,7 +184,8 @@ class NamedFullToScalarRewriter : public CreationToScalarRewriter<OpTy> {
                         PatternRewriter &rewriter) const override {
     return rewriter
         .create<OpTy>(op.getLoc(), scalarType,
-                      SmallVector<int32_t>(scalarType.getRank(), 1))
+                      SmallVector<int32_t>(scalarType.getRank(), 1),
+                      /*dtype=*/nullptr)
         .getResult();
   }
 };
