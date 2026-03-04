@@ -629,14 +629,19 @@ class D2MASTVisitor(ast.NodeVisitor):
             end_val = self._eval_expr(args[1])
             step_val = self._eval_expr(args[2])
 
-        from ttmlir.dialects import affine
-
         with Location.unknown(self.ctx), InsertionPoint(self.block):
+            from ttmlir.ir import IndexType, IntegerAttr
+            idx_type = IndexType.get(self.ctx)
+
             start_int = self._require_compile_time_int(start_val, "range start")
             end_int = self._require_compile_time_int(end_val, "range end")
             step_int = self._require_compile_time_int(step_val, "range step")
             if step_int == 0:
                 raise ValueError("range step must be non-zero")
+
+            start_v = arith.ConstantOp(idx_type, IntegerAttr.get(idx_type, start_int)).result
+            end_v   = arith.ConstantOp(idx_type, IntegerAttr.get(idx_type, end_int)).result
+            step_v  = arith.ConstantOp(idx_type, IntegerAttr.get(idx_type, step_int)).result
 
             # Find matmul output variables inside the loop body.  These accumulate across
             # loop iterations and must be loop-carried via iter_args to avoid SSA dominance
@@ -658,10 +663,8 @@ class D2MASTVisitor(ast.NodeVisitor):
                 for _ in iter_arg_names
             ]
 
-            loop = affine.AffineForOp(
-                start_int, end_int, step_int,
-                iter_args=iter_arg_init_values if iter_arg_names else None,
-            )
+            loop = scf.ForOp(start_v, end_v, step_v,
+                             iter_args=iter_arg_init_values if iter_arg_names else None)
 
             if isinstance(node.target, ast.Name):
                 self.symbol_table[node.target.id] = loop.induction_variable
@@ -678,7 +681,7 @@ class D2MASTVisitor(ast.NodeVisitor):
                     self.visit(stmt)
                 # Yield the (potentially updated) iter_arg values so the loop can carry them.
                 yield_vals = [self.symbol_table[n] for n in iter_arg_names]
-                affine.AffineYieldOp(yield_vals)
+                scf.YieldOp(yield_vals)
             self.block = prev_block
 
             # After the loop, update symbol_table with the loop's result values
