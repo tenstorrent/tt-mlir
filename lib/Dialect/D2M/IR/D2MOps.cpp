@@ -1986,7 +1986,7 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           return mlir::failure();
         }
 
-        auto replaceWithOutputCb =
+        auto replaceWithOutputAlloc =
             [op](PatternRewriter &rewriter, Region &region, Operation *regionOp,
                  OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
           Operation *origDefiningOp = initOperand.get().getDefiningOp();
@@ -1995,14 +1995,10 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
             return false;
           }
 
-          // Find the output CB value: try tracing through load/store ops first,
-          // then fall back to positional alloc matching for pre-CB IR.
-          Value outputCb = GenericOp::findCBForOperandIndex(op, dpsIOBoundary);
-          if (!outputCb) {
-            outputCb = GenericOp::getOperandAlloc(region, dpsIOBoundary);
-          }
+          // Find the output alloc by positional counting.
+          Value outputAlloc = GenericOp::getOperandAlloc(region, dpsIOBoundary);
 
-          if (!outputCb || outputCb.use_empty()) {
+          if (!outputAlloc || outputAlloc.use_empty()) {
             return false;
           }
 
@@ -2019,14 +2015,11 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
 
           // Use DominanceInfo for cross-block dominance checking.
           DominanceInfo domInfo(parentOp);
-          for (Operation *user : outputCb.getUsers()) {
-            if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp, d2m::PushOp,
-                           d2m::PopOp>(user)) {
+          for (Operation *user : outputAlloc.getUsers()) {
+            if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) {
               continue;
             }
             // Check if this wait/reserve dominates the regionOp.
-            // Note: push/pop don't have results, so they won't be selected
-            // here.
             if (domInfo.dominates(user, regionOp)) {
               waitOrReserve = user;
               break;
@@ -2066,15 +2059,15 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
                 assert(op.getNumDpsInits() == dps.getNumDpsInits());
                 assert(op.getNumDpsInits() == 1);
 
-                updated |= replaceWithOutputCb(rewriter, region, regionOp,
-                                               initOperand, dpsIOBoundary);
+                updated |= replaceWithOutputAlloc(rewriter, region, regionOp,
+                                                  initOperand, dpsIOBoundary);
               }
             } else if (TileMatmulBlockOp tmb =
                            mlir::dyn_cast<TileMatmulBlockOp>(regionOp);
                        tmb) {
               updated |=
-                  replaceWithOutputCb(rewriter, region, regionOp,
-                                      tmb.getOutputMutable(), dpsIOBoundary);
+                  replaceWithOutputAlloc(rewriter, region, regionOp,
+                                         tmb.getOutputMutable(), dpsIOBoundary);
             }
           });
         }
@@ -2628,55 +2621,6 @@ Value d2m::GenericOp::findAssocOperand(mlir::tensor::EmptyOp emptyOp) {
   return associatedOperand;
 }
 
-Value d2m::GenericOp::findCBForOperand(Region &region, Value operand) {
-  if (region.empty()) {
-    return Value();
-  }
-
-  // Walk the region for remote_load/remote_store ops in explicit CB form.
-  // The CB-to-operand binding is: loadOp.getMemref() == operand &&
-  // loadOp.getCb() is present.
-  for (Operation &op : region.front()) {
-    if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(&op)) {
-      if (loadOp.getCb() && loadOp.getMemref() == operand) {
-        return loadOp.getCb();
-      }
-    }
-    if (auto storeOp = mlir::dyn_cast<RemoteStoreOp>(&op)) {
-      if (storeOp.getCb() && storeOp.getMemref() == operand) {
-        return storeOp.getCb();
-      }
-    }
-    // Step into blocking loops.
-    if (auto forOp = mlir::dyn_cast<mlir::affine::AffineForOp>(&op)) {
-      if (forOp->hasAttr("d2m.blocking_loop")) {
-        Value result = findCBForOperand(*forOp.getBody()->getParent(), operand);
-        if (result) {
-          return result;
-        }
-      }
-    }
-  }
-  return Value();
-}
-
-Value d2m::GenericOp::findCBForOperandIndex(GenericOp generic,
-                                            unsigned operandIndex) {
-  if (operandIndex >= generic->getNumOperands()) {
-    return Value();
-  }
-  Value operand = generic->getOperand(operandIndex);
-
-  // Search all regions of the generic.
-  for (Region &region : generic->getRegions()) {
-    Value cb = findCBForOperand(region, operand);
-    if (cb) {
-      return cb;
-    }
-  }
-  return Value();
-}
-
 Value d2m::GenericOp::findAssocCBByOperandIndex(Operation *op,
                                                 unsigned operandIndex) {
   GenericOp generic = op->getParentOfType<GenericOp>();
@@ -2696,13 +2640,6 @@ Value d2m::GenericOp::findAssocCBByOperandIndex(Operation *op,
     return Value();
   }
 
-  // Prefer tracing through remote_load/remote_store ops (explicit CB form).
-  Value cb = findCBForOperandIndex(generic, operandIndex);
-  if (cb) {
-    return cb;
-  }
-
-  // Fall back to positional alloc matching for pre-CB IR.
   return getOperandAlloc(*genericRegion, operandIndex);
 }
 
