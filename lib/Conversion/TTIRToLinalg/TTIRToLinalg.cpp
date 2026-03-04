@@ -2648,11 +2648,11 @@ public:
       const bool useUnsignedCast =
           intType.isUnsigned() || intType.getWidth() == 1;
       if (useUnsignedCast) {
-        input = rewriter.create<arith::UIToFPOp>(op.getLoc(), floatInputType,
-                                                 input);
+        input = arith::UIToFPOp::create(rewriter, op.getLoc(), floatInputType,
+                                        input);
       } else {
-        input = rewriter.create<arith::SIToFPOp>(op.getLoc(), floatInputType,
-                                                 input);
+        input = arith::SIToFPOp::create(rewriter, op.getLoc(), floatInputType,
+                                        input);
       }
       inputType = cast<RankedTensorType>(input.getType());
     }
