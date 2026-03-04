@@ -71,6 +71,42 @@ mlir::tt::ttcore::DeviceAttr d2m::GenericOp::getDevice() {
 }
 
 //===----------------------------------------------------------------------===//
+// EmptyOp Builder
+//===----------------------------------------------------------------------===//
+
+void d2m::EmptyOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
+                         ArrayRef<int64_t> shape, Type elementType,
+                         Attribute encoding,
+                         ArrayRef<int64_t> targetGridShape) {
+  auto resultType = RankedTensorType::get(shape, elementType, encoding);
+  AffineMapAttr invAttr = nullptr;
+  AffineMapAttr fwdAttr = nullptr;
+
+  if (auto metalLayout =
+          mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(encoding)) {
+    auto gridShape = llvm::to_vector(metalLayout.getGridShape(resultType));
+    if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
+                                                       targetGridShape)) {
+      auto squareGrid = utils::getSquareTargetGrid(targetGridShape);
+      auto physGrid = utils::findLegalPhysicalGridForVolume(
+          ttmlir::utils::volume<int64_t>(gridShape), squareGrid);
+      TT_assertv(!physGrid.empty(),
+                 "Virtual grid required but no legal physical grid found for "
+                 "volume {}; target grid [{},{}]",
+                 ttmlir::utils::volume<int64_t>(gridShape), targetGridShape[0],
+                 targetGridShape[1]);
+      auto *ctx = builder.getContext();
+      auto [fwdMap, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+          ctx, gridShape, physGrid);
+      invAttr = AffineMapAttr::get(invMap);
+      fwdAttr = AffineMapAttr::get(fwdMap);
+    }
+  }
+
+  build(builder, state, resultType, invAttr, fwdAttr);
+}
+
+//===----------------------------------------------------------------------===//
 // EmptyOp Bufferization Interface Implementation
 //===----------------------------------------------------------------------===//
 

@@ -538,30 +538,6 @@ public:
     return false;
   }
 
-  // Set virtual grid mapping attributes on an EmptyOp when its grid is ND
-  // or exceeds device bounds.  This ensures downstream GenericOp::build can
-  // derive a correct grid with an inverse mapping to physical cores.
-  void setVirtualGridMappingIfNeeded(d2m::EmptyOp emptyOp,
-                                     ttcore::MetalLayoutAttr layout,
-                                     RankedTensorType type) const {
-    auto gridShape = llvm::to_vector(layout.getGridShape(type));
-    if (!ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
-                                                        targetGridShape)) {
-      return;
-    }
-    auto squareGrid = utils::getSquareTargetGrid(targetGridShape);
-    auto physGrid = utils::findLegalPhysicalGridForVolume(
-        ttmlir::utils::volume<int64_t>(gridShape), squareGrid);
-    if (physGrid.empty()) {
-      return;
-    }
-    auto *ctx = emptyOp.getContext();
-    auto [fwdMap, invMap] =
-        ttmlir::d2m::utils::grids::createCoreVirtMaps(ctx, gridShape, physGrid);
-    emptyOp.setVirtualGridInverseMappingAttr(AffineMapAttr::get(invMap));
-    emptyOp.setVirtualGridForwardMappingAttr(AffineMapAttr::get(fwdMap));
-  }
-
   Value lowerDatamovementGeneric(PatternRewriter &rewriter, Value input,
                                  Value output, Location loc) const {
     auto inputInfo = TensorInfo::from(input);
@@ -871,11 +847,9 @@ public:
       }
 
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(type.getEncoding());
-      auto emptyOp = rewriter.create<d2m::EmptyOp>(
-          op.getLoc(), type.getShape(), type.getElementType(), layout);
-      if (layout) {
-        setVirtualGridMappingIfNeeded(emptyOp, layout, type);
-      }
+      auto emptyOp = rewriter.create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
+                                                   type.getElementType(),
+                                                   layout, targetGridShape);
       return emptyOp.getResult();
     };
 
@@ -952,10 +926,7 @@ public:
           currentInfo.type.getEncoding());
       auto maskedEmptyOp = rewriter.create<d2m::EmptyOp>(
           op.getLoc(), currentInfo.type.getShape(),
-          currentInfo.type.getElementType(), layout);
-      if (layout) {
-        setVirtualGridMappingIfNeeded(maskedEmptyOp, layout, currentInfo.type);
-      }
+          currentInfo.type.getElementType(), layout, targetGridShape);
       auto maskedEmpty = maskedEmptyOp.getResult();
       currentValue =
           lowerMaskingGeneric(rewriter, currentValue, maskedEmpty, op.getLoc(),
