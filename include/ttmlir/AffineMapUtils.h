@@ -24,15 +24,23 @@ namespace ttmlir::utils {
 /// Returns a new shape by applying `map` to the input shape.
 template <typename Vector>
 llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
-  mlir::SmallVector<int64_t> lastIndex;
+  // End point of the input box: (shape[0]-1, shape[1]-1, ...).
+  llvm::SmallVector<int64_t, 4> endCoord;
   for (auto dim : shape) {
-    lastIndex.push_back(dim - 1);
+    endCoord.push_back(dim - 1);
+  }
+  // Start (0,0,...); the other corner used for the extent formula.
+  llvm::SmallVector<int64_t, 4> startCoord(endCoord.size(), 0);
+
+  auto mappedEndCoord = map.compose(endCoord);
+  auto mappedStartCoord = map.compose(startCoord);
+
+  // Size in each dimension = (mapped end) - (mapped start) + 1.
+  llvm::SmallVector<int64_t, 4> result;
+  for (size_t i = 0; i < mappedEndCoord.size(); ++i) {
+    result.push_back(mappedEndCoord[i] - mappedStartCoord[i] + 1);
   }
 
-  auto result = map.compose(lastIndex);
-  for (auto &dim : result) {
-    dim += 1;
-  }
   return result;
 }
 
