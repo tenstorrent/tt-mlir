@@ -35,8 +35,17 @@ class StableHLOBuilder(Builder):
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
         ] = OrderedDict([("x", 1), ("y", 1)]),
+        split_on_demand: bool = False,
+        deallocated_goldens_dir: Optional[str] = "./deallocated_goldens",
     ):
-        super().__init__(ctx, location, mesh_name, mesh_dict)
+        super().__init__(
+            ctx,
+            location,
+            mesh_name,
+            mesh_dict,
+            split_on_demand=split_on_demand,
+            deallocated_goldens_dir=deallocated_goldens_dir,
+        )
 
     # ----- Class helper methods -----
 
@@ -5631,28 +5640,14 @@ class StableHLOBuilder(Builder):
                     new_op_grad_scale = new_op.grad_scale
                     new_op_grad_offset = new_op.grad_offset
 
-                    op_golden_function = get_golden_function(stablehlo_op)
                     operand_golden = self._get_golden_tensor(old_op.operand)
                     scale_golden = self._get_golden_tensor(old_op.scale)
                     mean_golden = self._get_golden_tensor(old_op.mean)
                     variance_golden = self._get_golden_tensor(old_op.variance)
                     grad_output_golden = self._get_golden_tensor(old_op.grad_output)
-                    (
-                        grad_operand_golden,
-                        grad_scale_golden,
-                        grad_offset_golden,
-                    ) = op_golden_function(
-                        operand_golden,
-                        scale_golden,
-                        mean_golden,
-                        variance_golden,
-                        grad_output_golden,
-                        epsilon_attr,
-                        feature_index_attr,
-                        new_op_grad_operand.type.element_type,
-                        new_op_grad_scale.type.element_type,
-                        new_op_grad_offset.type.element_type,
-                    )
+                    grad_operand_golden = self._get_golden_tensor(old_op.grad_operand)
+                    grad_scale_golden = self._get_golden_tensor(old_op.grad_scale)
+                    grad_offset_golden = self._get_golden_tensor(old_op.grad_offset)
                     batch_norm_grad_builder._set_golden_tensor(
                         new_op_grad_operand, grad_operand_golden
                     )
@@ -5843,24 +5838,12 @@ class StableHLOBuilder(Builder):
                     new_op_batch_mean = new_op.batch_mean
                     new_op_batch_var = new_op.batch_var
 
-                    op_golden_function = get_golden_function(stablehlo_op)
                     operand_golden = self._get_golden_tensor(old_op.operand)
                     scale_golden = self._get_golden_tensor(old_op.scale)
                     offset_golden = self._get_golden_tensor(old_op.offset)
-                    (
-                        output_golden,
-                        batch_mean_golden,
-                        batch_var_golden,
-                    ) = op_golden_function(
-                        operand_golden,
-                        scale_golden,
-                        offset_golden,
-                        epsilon_attr,
-                        feature_index_attr,
-                        new_op_output.type.element_type,
-                        new_op_batch_mean.type.element_type,
-                        new_op_batch_var.type.element_type,
-                    )
+                    output_golden = self._get_golden_tensor(old_op.output)
+                    batch_mean_golden = self._get_golden_tensor(old_op.batch_mean)
+                    batch_var_golden = self._get_golden_tensor(old_op.batch_var)
                     batch_norm_training_builder._set_golden_tensor(
                         new_op_output, output_golden
                     )
@@ -7842,6 +7825,8 @@ class StableHLOBuilder(Builder):
         ctx: Context,
         mlir_text: str,
         golden_inputs: Dict[str, List[torch.tensor]] = None,
+        split_on_demand: bool = False,
+        deallocated_goldens_dir: Optional[str] = ".",
     ) -> Tuple(Module, StableHLOBuilder):
         if golden_inputs is None:
             golden_inputs = {}
@@ -7868,7 +7853,14 @@ class StableHLOBuilder(Builder):
                 )
                 break
 
-            stablehlo_builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_shape)
+            stablehlo_builder = StableHLOBuilder(
+                ctx,
+                loc,
+                mesh_name,
+                mesh_shape,
+                split_on_demand=split_on_demand,
+                deallocated_goldens_dir=deallocated_goldens_dir,
+            )
             new_module = stablehlo_builder.parse_root_module(root_module, golden_inputs)
             new_module.body.append(stablehlo_builder._get_mesh())
 
