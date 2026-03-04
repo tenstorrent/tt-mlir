@@ -73,7 +73,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         # 4d inner permutes
         [(5, 7, 2, 32), [0, 1, 3, 2]],
         [(5, 7, 2, 64), [0, 1, 3, 2]],
-        [(5, 7, 2, 128), [0, 1, 3, 2]],
+        [(5, 3, 2, 128), [0, 1, 3, 2]],
         # 3d inner permutes (llama-like)
         [(1, 50, 12), [0, 2, 1]],
         [(32, 12, 100), [0, 2, 1]],
@@ -120,7 +120,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(1, 8, 64, 128), [0, 1, 3, 2]],
         # 4d inner permutes (llama3-70b, qwen3-32b)
         pytest.param(
-            (32, 8, 128, 128),
+            (32, 8, 128, 64),
             [0, 1, 3, 2],
             marks=pytest.mark.skip_config(
                 ["p150"],

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/AffineMapUtils.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -17,6 +18,47 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
+// Insert collapse_shape in the buffer's defining block, but keep it after the
+// last remote_load that targets the same buffer and still dominates the user
+// being linearized. This handles loads/stores nested under loop regions whose
+// parent block contains the corresponding remote_load.
+static Operation *findLatestPrecedingRemoteLoad(Value memref,
+                                                Operation *userOp) {
+  Block *insertionBlock = nullptr;
+  if (Operation *definingOp = memref.getDefiningOp()) {
+    insertionBlock = definingOp->getBlock();
+  } else if (auto blockArg = mlir::dyn_cast<BlockArgument>(memref)) {
+    insertionBlock = blockArg.getOwner();
+  }
+  if (!insertionBlock) {
+    return nullptr;
+  }
+
+  // Hoist nested users to the insertion block before checking ordering.
+  Operation *anchorUser = userOp;
+  while (anchorUser && anchorUser->getBlock() != insertionBlock) {
+    anchorUser = anchorUser->getParentOp();
+  }
+  if (!anchorUser) {
+    return nullptr;
+  }
+
+  Operation *latestRemoteLoad = nullptr;
+  for (Operation *user : memref.getUsers()) {
+    auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(user);
+    if (!remoteLoad || user->getBlock() != insertionBlock ||
+        !user->isBeforeInBlock(anchorUser)) {
+      continue;
+    }
+
+    if (!latestRemoteLoad || latestRemoteLoad->isBeforeInBlock(user)) {
+      latestRemoteLoad = user;
+    }
+  }
+
+  return latestRemoteLoad;
+}
+
 template <typename LoadStoreOp>
 struct D2MLinearizeMemrefAccessRewriter final
     : public OpRewritePattern<LoadStoreOp> {
@@ -63,7 +105,11 @@ public:
     // Create or get collapsed memref
     memref::CollapseShapeOp linearizedArg = collapseOps->lookup(val);
     if (!linearizedArg) {
-      rewriter.setInsertionPointAfterValue(val);
+      if (Operation *anchor = findLatestPrecedingRemoteLoad(val, op)) {
+        rewriter.setInsertionPointAfter(anchor);
+      } else {
+        rewriter.setInsertionPointAfterValue(val);
+      }
       SmallVector<ReassociationIndices, 4> collapsedDims = {
           llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
       assert(memref::CollapseShapeOp::isGuaranteedCollapsible(memref,

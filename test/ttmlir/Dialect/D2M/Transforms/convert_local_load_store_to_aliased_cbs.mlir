@@ -4,13 +4,13 @@
 // CHECK-DAG: %[[CB0:.*]] = d2m.get_cb(0)
 // CHECK-DAG: %[[CB1:.*]] = d2m.get_cb(1)
 // CHECK-DAG: %[[CB2:.*]] = d2m.get_cb(2)
+// CHECK-DAG: d2m.reserve %[[CB2]]
 // CHECK: d2m.reserve %[[CB0]]
 // CHECK: d2m.push %[[CB0]]
 // CHECK: d2m.wait %[[CB0]]
 // CHECK: d2m.reserve %[[CB1]]
 // CHECK: d2m.push %[[CB1]]
 // CHECK: d2m.wait %[[CB1]]
-// CHECK: d2m.reserve %[[CB2]]
 // CHECK: linalg.generic
 // CHECK: d2m.tile_add
 // CHECK: d2m.pop %[[CB1]]
@@ -48,13 +48,13 @@ module attributes {ttcore.system_desc = #system_desc} {
           %buffer0 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>>
           %buffer1 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>>
           %buffer = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>>
-          %2 = d2m.remote_load %buffer0 %alloc[%0, %1] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>>
-          %5 = d2m.remote_load %buffer1 %alloc_0[%0, %1] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>>
+          d2m.remote_load %buffer0 %alloc[%0, %1] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>>
+          d2m.remote_load %buffer1 %alloc_0[%0, %1] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>>
 
           linalg.generic {
             indexing_maps = [#map, #map, #map],
             iterator_types = ["parallel", "parallel"]
-          } ins(%2, %5 : memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
+          } ins(%buffer0, %buffer1 : memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
             outs(%buffer : memref<1x1x!ttcore.tile<32x32, f32>>) {
           ^bb0(%in0: !ttcore.tile<32x32, f32>, %in1: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %add = "d2m.tile_add"(%in0, %in1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
@@ -67,4 +67,57 @@ module attributes {ttcore.system_desc = #system_desc} {
     }
     return
   }
+
+  // CHECK-LABEL: func.func @test_remote_load_alias_view_last_use
+  // CHECK-DAG: %[[CB0:.*]] = d2m.get_cb(0)
+  // CHECK: d2m.reserve %[[CB0]]
+  // CHECK: d2m.push %[[CB0]]
+  // CHECK: %[[WAIT:.*]] = d2m.wait %[[CB0]]
+  // CHECK: %[[VIEW:.*]] = memref.collapse_shape %[[WAIT]] {{.*}} : memref<2x2x!ttcore.tile<32x32, f32>, #l1> into memref<4x!ttcore.tile<32x32, f32>, #l1>
+  // CHECK: %[[TILE:.*]] = memref.load %[[VIEW]][%{{.*}}] : memref<4x!ttcore.tile<32x32, f32>, #l1>
+  // CHECK: d2m.pop %[[CB0]]
+  // CHECK: memref.store %[[TILE]], %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}] : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1>
+  // CHECK-NOT: d2m.remote_load
+  func.func @test_remote_load_alias_view_last_use() {
+    %alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1>
+    %alloc_0 = memref.alloc() {address = 9216 : i64, alignment = 16 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%alloc : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1>)
+        outs(%alloc_0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1>) {
+    ^unified0:
+      %c0 = arith.constant 0 : index
+      %buffer = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      d2m.remote_load %buffer %alloc[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %view = memref.collapse_shape %buffer [[0, 1]] : memref<2x2x!ttcore.tile<32x32, f32>, #l1> into memref<4x!ttcore.tile<32x32, f32>, #l1>
+      %tile = memref.load %view[%c0] : memref<4x!ttcore.tile<32x32, f32>, #l1>
+      memref.store %tile, %alloc_0[%c0, %c0, %c0, %c0] : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1>
+    }
+    return
+  }
+
+  // CHECK-LABEL: func.func @test_skip_local_remote_load_with_multicast
+  // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%{{.*}}, %{{.*}}] mshape[%{{.*}}, %{{.*}}]
+  // CHECK-NOT: d2m.reserve
+  // CHECK-NOT: d2m.push
+  // CHECK-NOT: d2m.wait
+  // CHECK-NOT: d2m.pop
+  func.func @test_skip_local_remote_load_with_multicast() {
+    %alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x16384, 1>, #l1>
+    %alloc_0 = memref.alloc() {address = 9216 : i64, alignment = 16 : i64} : memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x16384, 1>, #l1>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%alloc : memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x16384, 1>, #l1>)
+        outs(%alloc_0 : memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x16384, 1>, #l1>) {
+    ^unified0:
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c4 = arith.constant 4 : index
+      %buffer = memref.alloc() : memref<1x4x!ttcore.tile<32x32, f32>>
+      %sink = memref.alloc() : memref<1x4x!ttcore.tile<32x32, f32>>
+      %in = d2m.remote_load %buffer %alloc[%c0, %c0] mcore[%c0, %c0] mshape[%c1, %c4] : memref<1x4x!ttcore.tile<32x32, f32>>, memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x16384, 1>, #l1> -> memref<1x4x!ttcore.tile<32x32, f32>>
+      %tile = memref.load %in[%c0, %c0] : memref<1x4x!ttcore.tile<32x32, f32>>
+      memref.store %tile, %sink[%c0, %c0] : memref<1x4x!ttcore.tile<32x32, f32>>
+    }
+    return
+  }
+
 }

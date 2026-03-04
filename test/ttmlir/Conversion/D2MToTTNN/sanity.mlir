@@ -66,14 +66,14 @@ module {
     // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>]
     // CHECK-SAME: common_rt_args = []
     // CHECK-SAME: page_size = 4096
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @read_kernel>, #d2m.thread<datamovement, @write_kernel>, #d2m.thread<compute, @compute_kernel0>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, noc = 0, @read_kernel>, #d2m.thread<datamovement, noc = 1, @write_kernel>, #d2m.thread<compute, noc = 0, @compute_kernel0>]}
         ins(%stream_input : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>)
         outs(%stream_output : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>)
 
     // CHECK: "ttnn.generic"(%[[T1]], %[[T2]])
     // CHECK-SAME: buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>
     // CHECK-SAME: buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<1>>
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @read_kernel>, #d2m.thread<datamovement, @write_kernel>, #d2m.thread<compute, @compute_kernel0>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, noc = 0, @read_kernel>, #d2m.thread<datamovement, noc = 1, @write_kernel>, #d2m.thread<compute, noc = 0, @compute_kernel0>]}
         ins(%metal_input_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>)
         outs(%metal_output_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>)
 
