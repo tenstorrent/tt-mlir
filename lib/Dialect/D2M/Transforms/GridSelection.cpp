@@ -629,7 +629,6 @@ struct GridAnalysisResult {
   llvm::SmallVector<EmptyUpdateInfo> emptyOps;
 };
 
-
 // This function normalizes the operand grids for a generic operation by
 // ensuring that the grids are consistent across all operands that share the
 // same loop dimension. We also need to make sure that the grids respect any
