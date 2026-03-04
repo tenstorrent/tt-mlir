@@ -666,8 +666,7 @@ private:
     // Replace all GetDeviceOp operations with the new device argument.
     //
     SmallVector<ttnn::GetDeviceOp> getDeviceOps;
-    funcOp.walk(
-        [&](ttnn::GetDeviceOp op) { getDeviceOps.push_back(op); });
+    funcOp.walk([&](ttnn::GetDeviceOp op) { getDeviceOps.push_back(op); });
     for (ttnn::GetDeviceOp op : getDeviceOps) {
       rewriter.replaceOp(op, deviceArg);
     }
@@ -697,7 +696,7 @@ private:
       SmallVector<Value> newOperands(callOp.getOperands());
       newOperands.push_back(deviceOp);
       rewriter.replaceOpWithNewOp<func::CallOp>(callOp, forwardFuncOp,
-                                                 newOperands);
+                                                newOperands);
     }
   }
 
@@ -729,8 +728,8 @@ private:
     Block *block = moduleOp.getBody(0);
     rewriter.setInsertionPointToEnd(block);
 
-    func::FuncOp mainForTestOp = rewriter.create<func::FuncOp>(
-        loc, "main_for_test", forwardFuncType);
+    func::FuncOp mainForTestOp =
+        rewriter.create<func::FuncOp>(loc, "main_for_test", forwardFuncType);
 
     // Set emitpy.name attributes for parameters.
     //
