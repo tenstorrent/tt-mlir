@@ -2,9 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/IR/D2M.h"
-#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -14,9 +13,9 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-namespace mlir::tt::d2m {
-#define GEN_PASS_DEF_D2MRANKNORMALIZATION
-#include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
+namespace mlir::tt::ttir {
+#define GEN_PASS_DEF_TTIRRANKNORMALIZATION
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
 
@@ -219,10 +218,10 @@ public:
   }
 };
 
-class D2MRankNormalization
-    : public impl::D2MRankNormalizationBase<D2MRankNormalization> {
+class TTIRRankNormalization
+    : public impl::TTIRRankNormalizationBase<TTIRRankNormalization> {
 public:
-  using D2MRankNormalizationBase::D2MRankNormalizationBase;
+  using TTIRRankNormalizationBase::TTIRRankNormalizationBase;
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
@@ -261,4 +260,4 @@ public:
 
 } // namespace
 
-} // namespace mlir::tt::d2m
+} // namespace mlir::tt::ttir

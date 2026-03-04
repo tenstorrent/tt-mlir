@@ -342,10 +342,8 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       tt::tt_metal::CoreRangeSet coreRangeSet =
           common::toCoreRangeSet(kernelConfig->core_range_set());
 
-      auto createSemaphore = [&](std::uint32_t initialValue,
-                                 CoreType coreType) -> std::uint32_t {
-        return tt_metal::CreateSemaphore(program, coreRangeSet, initialValue,
-                                         coreType);
+      auto createSemaphore = [&](std::uint32_t initialValue) -> std::uint32_t {
+        return tt_metal::CreateSemaphore(program, coreRangeSet, initialValue);
       };
 
       tt_metal::KernelHandle handle = createKernel(

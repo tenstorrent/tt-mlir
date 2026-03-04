@@ -677,6 +677,11 @@ def test_dropout(
     request,
     device,
 ):
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def dropout(
@@ -1501,6 +1506,38 @@ def test_unary_ops_int32(
         target=target,
         device=device,
         pipeline_options=pipeline_options,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttnn", "emitc", "emitpy"])
+def test_topk(
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def topk(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.topk(
+                in0, k=10, dim=-1, largest=True, sorted=True, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
     )
 
 
@@ -3050,4 +3087,37 @@ def test_hoisted_split_query_key_value_and_split_heads_gqa(
         **get_request_kwargs(request),
         target=target,
         device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
+def test_presharded_arg(target, mesh_shape, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([(1, 1, 256, 512)], [torch.float32])
+        def model(in0: Operand, builder: TTIRBuilder):
+            builder.preshard_arg(in0, shard_dims=(-1, 3))
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Identity.value,
+                shard_shape=(1, 1, 1, 2),
+                shard_dims=(-1, 3),
+            )
+            exp = builder.exp(in_shard)
+            out_shard = builder.mesh_shard(
+                exp,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=(1, 1, 1, 2),
+                shard_dims=(-1, 3),
+            )
+            return out_shard
+
+    compile_and_execute_ttir(
+        module,
+        mesh_name="mesh",
+        device=device,
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        **get_request_kwargs(request),
     )

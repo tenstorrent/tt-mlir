@@ -5,7 +5,7 @@
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 2304 + d1 * 256 + d2, d3), <1x1>, memref<504x8x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
 #matmul_program_config = #ttnn.matmul_multi_core_reuse_program_config<
-  compute_with_storage_grid_size = #ttnn.core_coord<7, 9>,
+  compute_with_storage_grid_size = #ttnn.core_coord<8, 8>,
   in0_block_w = 8,
   out_subblock_h = 1,
   out_subblock_w = 8,

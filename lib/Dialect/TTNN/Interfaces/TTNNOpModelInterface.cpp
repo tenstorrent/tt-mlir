@@ -4816,7 +4816,7 @@ D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ValueToLayoutMap valueToLayout =
       buildValueToLayoutMap(inputs, block, opConfig);
 
-  op_model::OpConstraints ret(0, 0, 0, 0, opConfig.outputLayout);
+  op_model::OpConstraints ret(0, 0, 0, 0, {opConfig.outputLayout});
 
   for (mlir::Operation &op : block.getOperations()) {
     auto backend = mlir::dyn_cast<OpModel>(&op);
@@ -4843,7 +4843,7 @@ D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
         valueToLayout.lookup(op.getResult(0));
     OpConfig internalOpConfig(internalOpOutputLayout);
 
-    op_model::OpConstraints c(0, 0, 0, 0, internalOpOutputLayout);
+    op_model::OpConstraints c(0, 0, 0, 0, {internalOpOutputLayout});
 
     llvm::Expected<op_model::OpConstraints> expectedConstraints =
         backend.getOpConstraints(internalOpInputLayouts, internalOpConfig);
@@ -4912,5 +4912,37 @@ D2MSubgraphOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   return ret;
+}
+
+//===----------------------------------------------------------------------===//
+// TopKOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+TopKOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+  const auto inputShape = getInputTensor().getType().getShape();
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::TopKOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], getK(), getDim(), getLargest(),
+      getSorted(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+TopKOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  const auto inputShape = getInputTensor().getType().getShape();
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::TopKOp>::getOpRuntime, *this,
+      inputShape, inputs[0], getK(), getDim(), getLargest(), getSorted(),
+      opConfig.outputLayout);
 }
 } // namespace mlir::tt::ttnn

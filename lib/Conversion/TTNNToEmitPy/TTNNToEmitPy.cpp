@@ -260,7 +260,7 @@ public:
         emitter.emit(eltwiseUnaryOp.getInput()),
         emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC),
                      "vector_mode"),
-        /*parameter=*/emitter.emit(false, "fast_and_approximate_mode"),
+        emitter.emitExpression("ttnn.SigmoidMode.Accurate", "mode"),
         emitter.emit(eltwiseUnaryOp.getMemoryConfig() |
                          emitter.getMemoryConfig(eltwiseUnaryOp.getResult()),
                      "memory_config"),
@@ -545,7 +545,10 @@ public:
 
     if (constantOp.getDevice()) {
       args.push_back(emitter.emit(constantOp.getDevice()));
-      args.push_back(emitter.emit(constantOp.getMemoryConfig()));
+      args.push_back(
+          emitter.emit(constantOp.getMemoryConfig() |
+                           emitter.getMemoryConfig(constantOp.getResult()),
+                       "memory_config"));
     }
 
     emitter.replaceOp(*this, args);
@@ -734,7 +737,8 @@ public:
         emitter.template emit<std::vector<uint32_t>>(
             maxPool2dOp.getDilationAttr()),
         emitter.emit(maxPool2dOp.getCeilMode(), "ceil_mode"),
-        emitter.emit(emitter.getMemoryConfig(maxPool2dOp.getResult()),
+        emitter.emit(maxPool2dOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(maxPool2dOp.getResult()),
                      "memory_config"),
         emitter.emit(maxPool2dOp.getAppliedShardScheme(),
                      "applied_shard_scheme"),
@@ -2018,6 +2022,9 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(repeatOp.getInput()),
         emitter.emit(repeatOp.getRepeatDims()),
+        emitter.emit(repeatOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(repeatOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2082,7 +2089,9 @@ public:
         emitter.emit(srcOp.getDim(), "dim"),
         emitter.emit(srcOp.getIndex(), "index"),
         emitter.emit(srcOp.getSource(), "src"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3248,7 +3257,9 @@ public:
         emitter.emit(srcOp.getAllGatherDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -3282,7 +3293,9 @@ public:
         emitter.emit(srcOp.getScatterDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -3314,7 +3327,9 @@ public:
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -3520,7 +3535,9 @@ public:
         emitter.emit(srcOp.getOverlapQkCoregrid(), "overlap_qk_coregrid"),
         emitter.emit(srcOp.getBatchOffset(), "batch_offset"),
         emitter.emit(srcOp.getSliceSize(), "slice_size"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config")};
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult(0)),
+                     "memory_config")};
 
     emitter.replaceOp(*this, args);
 
@@ -3562,7 +3579,9 @@ public:
         emitter.emit(srcOp.getNumHeads(), "num_heads"),
         emitter.emit(srcOp.getNumKvHeads(), "num_kv_heads"),
         emitter.emit(srcOp.getTransposeKey(), "transpose_key"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config")};
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult(0)),
+                     "memory_config")};
 
     emitter.replaceOp(*this, args);
 
@@ -3855,6 +3874,38 @@ public:
 };
 } // namespace
 
+// TopK op conversion pattern
+//
+namespace {
+class TopKOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::TopKOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::TopKOp>::TTNNToEmitPyBaseOpConversionPattern;
+  LogicalResult
+  matchAndRewrite(tt::ttnn::TopKOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::TopKOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getK()),
+        emitter.template emit<int32_t>(srcOp.getDim()),
+        emitter.emit(srcOp.getLargest()),
+        emitter.emit(srcOp.getSorted()),
+        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getValues()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -4073,7 +4124,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                PointToPointOpConversionPattern,
                MeshShardOpConversionPattern,
                DistributeTensorOpConversionPattern,
-               AggregateTensorOpConversionPattern
+               AggregateTensorOpConversionPattern,
+               TopKOpConversionPattern
               >(typeConverter, ctx, enableGoldenMode);
   // clang-format on
 

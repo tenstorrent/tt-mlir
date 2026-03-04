@@ -159,6 +159,202 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// LessEqualOp
+//===----------------------------------------------------------------------===//
+
+// LessEqualOp canonicalization: le(a, b) -> ge(b, a)
+void mlir::tt::ttir::LessEqualOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(
+      +[](mlir::tt::ttir::LessEqualOp op, mlir::PatternRewriter &rewriter) {
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::GreaterEqualOp>(
+            op, op.getResult().getType(), op.getRhs(), op.getLhs());
+        return mlir::success();
+      });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+//===----------------------------------------------------------------------===//
+// LessThanOp
+//===----------------------------------------------------------------------===//
+
+// LessThanOp canonicalization: lt(a, b) -> gt(b, a)
+void mlir::tt::ttir::LessThanOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(
+      +[](mlir::tt::ttir::LessThanOp op, mlir::PatternRewriter &rewriter) {
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::GreaterThanOp>(
+            op, op.getResult().getType(), op.getRhs(), op.getLhs());
+        return mlir::success();
+      });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+//===----------------------------------------------------------------------===//
+// Constant value helpers
+//===----------------------------------------------------------------------===//
+
+// Helper to create a scalar attribute from an element type and a double value.
+static mlir::Attribute makeScalarAttr(mlir::Type elemType, double val) {
+  if (auto floatType = mlir::dyn_cast<mlir::FloatType>(elemType)) {
+    return mlir::FloatAttr::get(floatType, val);
+  }
+  if (auto intType = mlir::dyn_cast<mlir::IntegerType>(elemType)) {
+    return mlir::IntegerAttr::get(intType, static_cast<int64_t>(val));
+  }
+  return {};
+}
+
+// Extract constant fill value by looking through layout ops (broadcast,
+// reshape, typecast, repeat_interleave) to find a FullOp, ZerosOp, or OnesOp.
+static mlir::Attribute getConstantValue(mlir::Value value) {
+  mlir::Operation *op =
+      mlir::tt::ttir::utils::lookThroughLayoutOps(value).getDefiningOp();
+
+  if (auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(op)) {
+    return fullOp.getFillValueAttr();
+  }
+
+  if (mlir::isa_and_present<mlir::tt::ttir::ZerosOp>(op)) {
+    return makeScalarAttr(
+        mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType())
+            .getElementType(),
+        0.0);
+  }
+  if (mlir::isa_and_present<mlir::tt::ttir::OnesOp>(op)) {
+    return makeScalarAttr(
+        mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType())
+            .getElementType(),
+        1.0);
+  }
+
+  return {};
+}
+
+// Check if the attribute represents zero.
+static bool isZeroAttr(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValue().isZero();
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return intAttr.getValue().isZero();
+  }
+  return false;
+}
+
+static bool isConstantZero(mlir::Value value) {
+  mlir::Attribute attr = getConstantValue(value);
+  return attr && isZeroAttr(attr);
+}
+
+static bool isConstantNonZero(mlir::Value value) {
+  mlir::Attribute attr = getConstantValue(value);
+  return attr && !isZeroAttr(attr);
+}
+
+// Helper to extract the shape of a RankedTensorType as a vector of i32.
+static llvm::SmallVector<int32_t>
+getShapeAsI32(mlir::RankedTensorType tensorType) {
+  return llvm::to_vector_of<int32_t>(tensorType.getShape());
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalAndOp
+//===----------------------------------------------------------------------===//
+
+// LogicalAndOp canonicalization:
+//   and(zero, x)    -> ZerosOp        (absorbing)
+//   and(nonzero, x) -> x (i1) or OnesOp (identity, both const nonzero)
+void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(
+      +[](mlir::tt::ttir::LogicalAndOp op, mlir::PatternRewriter &rewriter) {
+        auto resultType =
+            mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+        bool isI1 = resultType.getElementType().isInteger(1);
+
+        // Absorbing: and(zero, x) -> 0
+        if (isConstantZero(op.getLhs()) || isConstantZero(op.getRhs())) {
+          rewriter.replaceOpWithNewOp<mlir::tt::ttir::ZerosOp>(
+              op, resultType,
+              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
+          return mlir::success();
+        }
+
+        // Identity: and(nonzero, x) -> x when x is guaranteed boolean (i1)
+        if (isConstantNonZero(op.getLhs()) && isI1) {
+          rewriter.replaceOp(op, op.getRhs());
+          return mlir::success();
+        }
+        if (isConstantNonZero(op.getRhs()) && isI1) {
+          rewriter.replaceOp(op, op.getLhs());
+          return mlir::success();
+        }
+
+        // Both constant nonzero -> OnesOp
+        if (isConstantNonZero(op.getLhs()) && isConstantNonZero(op.getRhs())) {
+          rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(
+              op, resultType,
+              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
+          return mlir::success();
+        }
+
+        return mlir::failure();
+      });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalOrOp
+//===----------------------------------------------------------------------===//
+
+// LogicalOrOp canonicalization:
+//   or(nonzero, x) -> OnesOp          (absorbing)
+//   or(zero, x)    -> x (i1) or ZerosOp (identity, both const zero)
+void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(
+      +[](mlir::tt::ttir::LogicalOrOp op, mlir::PatternRewriter &rewriter) {
+        auto resultType =
+            mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+        bool isI1 = resultType.getElementType().isInteger(1);
+
+        // Absorbing: or(nonzero, x) -> 1
+        if (isConstantNonZero(op.getLhs()) || isConstantNonZero(op.getRhs())) {
+          rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(
+              op, resultType,
+              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
+          return mlir::success();
+        }
+
+        // Identity: or(zero, x) -> x when x is guaranteed boolean (i1)
+        if (isConstantZero(op.getLhs()) && isI1) {
+          rewriter.replaceOp(op, op.getRhs());
+          return mlir::success();
+        }
+        if (isConstantZero(op.getRhs()) && isI1) {
+          rewriter.replaceOp(op, op.getLhs());
+          return mlir::success();
+        }
+
+        // Both constant zero -> ZerosOp
+        if (isConstantZero(op.getLhs()) && isConstantZero(op.getRhs())) {
+          rewriter.replaceOpWithNewOp<mlir::tt::ttir::ZerosOp>(
+              op, resultType,
+              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
+          return mlir::success();
+        }
+
+        return mlir::failure();
+      });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+//===----------------------------------------------------------------------===//
 // BroadcastOp
 //===----------------------------------------------------------------------===//
 
@@ -346,31 +542,6 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
   }
 
   return success();
-}
-
-// Helper function to extract constant value.
-static mlir::Attribute getConstantValue(mlir::Value value) {
-  mlir::Operation *op = value.getDefiningOp();
-  while (mlir::isa_and_present<mlir::tt::ttir::BroadcastOp,
-                               mlir::tt::ttir::ReshapeOp,
-                               mlir::tt::ttir::TypecastOp>(op)) {
-    op = op->getOperand(0).getDefiningOp();
-  }
-
-  auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(op);
-  if (!fullOp) {
-    return {};
-  }
-
-  mlir::Attribute fillValueAttr = fullOp.getFillValueAttr();
-
-  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(fillValueAttr)) {
-    return floatAttr;
-  }
-  if (auto integerAttr = mlir::dyn_cast<mlir::IntegerAttr>(fillValueAttr)) {
-    return integerAttr;
-  }
-  return {};
 }
 
 // ClampTensorOp canonicalization
@@ -3110,11 +3281,12 @@ void mlir::tt::ttir::TTNNMetalLayoutCastOp::getCanonicalizationPatterns(
       return failure();
     }
 
-    // Don't fold when either cast carries a virtualGridMapping.
+    // Don't fold when either cast carries a virtualGridInverseMapping.
     // Different TTNN shard strategies (e.g. height_sharded vs block_sharded)
     // can map to the same MetalLayoutAttr, so a cast with a VGM represents
     // a meaningful shard strategy that must be preserved.
-    if (producerOp.getVirtualGridMapping() || op.getVirtualGridMapping()) {
+    if (producerOp.getVirtualGridInverseMapping() ||
+        op.getVirtualGridInverseMapping()) {
       return failure();
     }
 
@@ -3153,8 +3325,9 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
     if (failed(maybeInputBuf)) {
       return maybeInputBuf;
     }
-    rewriter.replaceOpWithNewOp<TTNNMetalLayoutCastOp>(*this, outputTensor,
-                                                       *maybeInputBuf);
+    rewriter.replaceOpWithNewOp<TTNNMetalLayoutCastOp>(
+        *this, outputTensor, *maybeInputBuf, getVirtualGridInverseMappingAttr(),
+        getVirtualGridForwardMappingAttr());
   } else if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(outputEncoding)) {
     // ttnn_layout -> metal_layout becomes ttnn_layout -> memref
     bool isTTNNLayout =
@@ -3169,7 +3342,8 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
     }
     MemRefType outputMemrefType = mlir::cast<mlir::MemRefType>(*bufferType);
     mlir::bufferization::replaceOpWithNewBufferizedOp<TTNNMetalLayoutCastOp>(
-        rewriter, *this, outputMemrefType, getInput());
+        rewriter, *this, outputMemrefType, getInput(),
+        getVirtualGridInverseMappingAttr(), getVirtualGridForwardMappingAttr());
 
   } else {
     return emitOpError("Neither input or output uses metal_layout");
@@ -3615,12 +3789,19 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
       return mlir::failure();
     }
 
-    // For >= 2D inputs, matmul output rank == max(rankA, rankB) because batch
-    // dims are broadcast-padded with leading 1s. The inner dims and batch
-    // values are guaranteed compatible by the existing valid matmul (squeeze
-    // only removes leading 1s). So a rank check is sufficient.
-    if (std::max(newAType.getRank(), newBType.getRank()) !=
-        unsqueezeOp.getType().getRank()) {
+    // Bail out if the transformed inputs would have different ranks.
+    // When only one input had a leading squeeze, absorbing it promotes that
+    // input to a higher rank while the other stays unchanged, producing a
+    // matmul with mismatched input ranks (e.g. rank 3 vs rank 4) that TTNN
+    // rejects at runtime.
+    if (newAType.getRank() != newBType.getRank()) {
+      return mlir::failure();
+    }
+
+    // For same-rank >= 2D inputs, verify the rank matches the unsqueeze output.
+    // The inner dims and batch values are guaranteed compatible by the existing
+    // valid matmul (squeeze only removes leading 1s).
+    if (newAType.getRank() != unsqueezeOp.getType().getRank()) {
       return mlir::failure();
     }
 
@@ -4858,6 +5039,34 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
                         getDimArg(), getKeepDim(), getType().getShape());
+}
+
+//===----------------------------------------------------------------------===//
+// TopKOp
+//===----------------------------------------------------------------------===//
+
+// TopKOp verification
+::mlir::LogicalResult mlir::tt::ttir::TopKOp::verify() {
+  RankedTensorType inputType = getInputTensor().getType();
+  int64_t inputRank = inputType.getRank();
+  int32_t dim = getDim();
+  int32_t K = getK();
+
+  // Normalize dim to check if it's effectively the last dimension
+  int normalizedDim = dim < 0 ? dim + inputRank : dim;
+  if (normalizedDim < 0 || normalizedDim >= inputRank) {
+    return emitOpError() << "specified dimension should be between "
+                         << -inputRank << " and " << (inputRank - 1)
+                         << ", but got: " << dim;
+  }
+
+  if (K <= 0 || K > inputType.getDimSize(normalizedDim)) {
+    return emitOpError() << "K should be between 1 and the size of the "
+                            "specified dimension ("
+                         << normalizedDim << "), but got: " << K;
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
