@@ -582,6 +582,96 @@ def conv2d_golden(
     return result
 
 
+def conv3d_golden(
+    input_tensor: GoldenMapTensor,
+    weight: GoldenMapTensor,
+    bias: Optional[GoldenMapTensor],
+    stride: Union[IntegerAttr, DenseI32ArrayAttr],
+    padding: Union[IntegerAttr, DenseI32ArrayAttr],
+    groups: IntegerAttr,
+    batch_dim: IntegerAttr,
+    depth_dim: IntegerAttr,
+    height_dim: IntegerAttr,
+    width_dim: IntegerAttr,
+    channel_dim: IntegerAttr,
+    padding_mode: StringAttr,
+) -> GoldenMapTensor:
+    """
+    Custom golden function for conv3d with layout transformation.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor in (N, D, H, W, C) format
+    weight : GoldenMapTensor
+        Weight tensor in (C_out, C_in, K_D, K_H, K_W) format
+    bias : Optional[GoldenMapTensor]
+        Optional bias tensor in (1, 1, 1, 1, C_out) format
+    stride : Union[IntegerAttr, DenseI32ArrayAttr]
+        Stride for depth, height, width
+    padding : Union[IntegerAttr, DenseI32ArrayAttr]
+        Padding for depth, height, width (symmetric)
+    groups : IntegerAttr
+        Number of groups for grouped convolution
+    batch_dim : IntegerAttr
+        Batch dimension index
+    depth_dim : IntegerAttr
+        Depth dimension index
+    height_dim : IntegerAttr
+        Height dimension index
+    width_dim : IntegerAttr
+        Width dimension index
+    channel_dim : IntegerAttr
+        Channel dimension index
+    padding_mode : StringAttr
+        Padding mode ("zeros" or "replicate")
+
+    Returns
+    -------
+    GoldenMapTensor
+        Result of 3D convolution with layout transformation
+    """
+    if bias is not None:
+        bias = bias.squeeze()
+
+    stride = unpack_mlir_attr(stride)
+    padding = unpack_mlir_attr(padding)
+    groups = unpack_mlir_attr(groups)
+    padding_mode_str = unpack_mlir_attr(padding_mode)
+
+    batch_dim = unpack_mlir_attr(batch_dim)
+    depth_dim = unpack_mlir_attr(depth_dim)
+    height_dim = unpack_mlir_attr(height_dim)
+    width_dim = unpack_mlir_attr(width_dim)
+    channel_dim = unpack_mlir_attr(channel_dim)
+
+    # Compute permutation to convert any layout to NCDHW
+    to_ncdhw_perm = [batch_dim, channel_dim, depth_dim, height_dim, width_dim]
+
+    is_ncdhw = to_ncdhw_perm == [0, 1, 2, 3, 4]
+
+    copied_input_tensor = input_tensor.clone()
+    if not is_ncdhw:
+        copied_input_tensor = copied_input_tensor.permute(to_ncdhw_perm)
+
+    result = torch.nn.functional.conv3d(
+        copied_input_tensor,
+        weight,
+        bias=bias,
+        stride=stride,
+        padding=padding,
+        dilation=1,
+        groups=groups,
+    )
+
+    if not is_ncdhw:
+        from_ncdhw_perm = [0] * 5
+        for i, p in enumerate(to_ncdhw_perm):
+            from_ncdhw_perm[p] = i
+        result = result.permute(from_ncdhw_perm)
+    return result
+
+
 def conv_transpose2d_golden(
     input_tensor: GoldenMapTensor,
     weight: GoldenMapTensor,
@@ -6068,6 +6158,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.CbrtOp: cbrt_golden,
     ttir.ConcatenateHeadsOp: ttir_concatenate_heads_golden,
     ttir.Conv2dOp: conv2d_golden,
+    ttir.Conv3dOp: conv3d_golden,
     ttir.ConvTranspose2dOp: conv_transpose2d_golden,
     ttir.MaxPool2dOp: ttir_max_pool2d_golden,
     ttir.AvgPool2dOp: avg_pool2d_golden,

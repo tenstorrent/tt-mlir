@@ -11137,6 +11137,282 @@ class TTIRBuilder(Builder):
 
         return conv2d_module, conv2d_builder
 
+    @tag(ttir.Conv3dOp)
+    def conv3d(
+        self,
+        in0: Operand,
+        weight: Operand,
+        bias: Optional[Operand],
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        groups: int,
+        padding_mode: str = "zeros",
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Creates ``ttir.conv3d``.
+
+        *Conv3d operation.*
+
+        Applies a 3D convolution over an input volume composed of several input planes.
+        This operation performs a 3D convolution on the input tensor using the provided weight tensor
+        and optional bias. It supports configurable stride, padding, and grouping parameters.
+
+        .. code-block:: mlir
+
+            // Basic 3D convolution
+            %input = ... : tensor<1x8x28x28x4xf32>     // Batch=1, Depth=8, H=28, W=28, Channels=4
+            %weight = ... : tensor<16x4x3x3x3xf32>     // 16 output channels, 4 input channels, 3x3x3 kernel
+            %bias = ... : tensor<1x1x1x1x16xf32>       // Bias for 16 output channels
+            %result = ttir.conv3d(%input, %weight, %bias) {
+                stride = [1, 1, 1],
+                padding = [0, 0, 0],
+                groups = 1,
+                padding_mode = "zeros"
+            }
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor in (N, D, H, W, C) format
+        weight : Operand
+            Weight tensor in (C_out, C_in/G, K_D, K_H, K_W) format
+        bias : *Optional[Operand]*
+            Optional bias tensor in (1, 1, 1, 1, C_out) format
+        stride : *Union[int, List[int]]*
+            Stride for depth, height, and width dimensions
+        padding : *Union[int, List[int]]*
+            Padding for depth, height, and width dimensions (symmetric)
+        groups : int
+            Number of blocked connections from input to output channels
+        padding_mode : str, optional
+            Padding fill strategy: "zeros" or "replicate" (default: "zeros")
+        output_type : *Optional[torch.dtype]*, optional
+            Optional output data type (default: None, uses input type)
+        loc : *Optional[str]*, optional
+            Optional location string for debugging
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpResult*)
+            Output tensor after 3D convolution
+        """
+        ttir_op = self.get_opview_from_method(TTIRBuilder.conv3d)
+
+        if not bias:
+            bias = None
+
+        stride_attr = (
+            IntegerAttr.get(IntegerType.get_signless(32), stride)
+            if isinstance(stride, int)
+            else DenseI32ArrayAttr.get(stride)
+        )
+        padding_attr = (
+            IntegerAttr.get(IntegerType.get_signless(32), padding)
+            if isinstance(padding, int)
+            else DenseI32ArrayAttr.get(padding)
+        )
+
+        groups_attr = IntegerAttr.get(IntegerType.get_signless(32), groups)
+        padding_mode_attr = StringAttr.get(padding_mode)
+
+        batch_dim_attr = IntegerAttr.get(IntegerType.get_signless(32), 0)
+        depth_dim_attr = IntegerAttr.get(IntegerType.get_signless(32), 1)
+        height_dim_attr = IntegerAttr.get(IntegerType.get_signless(32), 2)
+        width_dim_attr = IntegerAttr.get(IntegerType.get_signless(32), 3)
+        channel_dim_attr = IntegerAttr.get(IntegerType.get_signless(32), 4)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        weight0 = self._get_golden_tensor(weight)
+        bias0 = self._get_golden_tensor(bias) if bias is not None else None
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            weight0,
+            bias0,
+            stride_attr,
+            padding_attr,
+            groups_attr,
+            batch_dim_attr,
+            depth_dim_attr,
+            height_dim_attr,
+            width_dim_attr,
+            channel_dim_attr,
+            padding_mode_attr,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            weight,
+            stride_attr,
+            padding_attr,
+            groups_attr,
+            bias=bias,
+            padding_mode=padding_mode_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.Conv3dOp)
+    def conv3d_parser(
+        self,
+        old_op: ttir.Conv3dOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.conv3d_parser)
+
+        in0 = global_dict[old_op.input]
+        weight = global_dict[old_op.weight]
+        bias = global_dict[old_op.bias] if old_op.bias is not None else None
+        result = old_op.result.type
+
+        stride_attr = old_op.stride
+        padding_attr = old_op.padding
+        groups_attr = old_op.groups
+
+        new_op = ttir_op(
+            result,
+            in0,
+            weight,
+            stride_attr,
+            padding_attr,
+            groups_attr,
+            bias=bias,
+            batch_dim=old_op.batch_dim,
+            depth_dim=old_op.depth_dim,
+            height_dim=old_op.height_dim,
+            width_dim=old_op.width_dim,
+            channel_dim=old_op.channel_dim,
+            padding_mode=old_op.padding_mode,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input_weight = self._get_golden_tensor(weight)
+        input_bias = self._get_golden_tensor(bias) if bias is not None else None
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            input_weight,
+            input_bias,
+            stride_attr,
+            padding_attr,
+            groups_attr,
+            old_op.batch_dim,
+            old_op.depth_dim,
+            old_op.height_dim,
+            old_op.width_dim,
+            old_op.channel_dim,
+            old_op.padding_mode,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.Conv3dOp)
+    def conv3d_split(
+        self,
+        old_op: ttir.Conv3dOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.conv3d_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            conv3d_module = Module.create()
+            conv3d_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type, old_op.weight.type]
+            if old_op.bias is not None:
+                op_input_types.append(old_op.bias.type)
+
+            with InsertionPoint(conv3d_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="conv3d_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    weight = inputs[1]
+                    bias = inputs[2] if len(inputs) > 2 else None
+                    result = old_op.result.type
+
+                    stride_attr = old_op.stride
+                    padding_attr = old_op.padding
+                    groups_attr = old_op.groups
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        weight,
+                        stride_attr,
+                        padding_attr,
+                        groups_attr,
+                        bias=bias,
+                        batch_dim=old_op.batch_dim,
+                        depth_dim=old_op.depth_dim,
+                        height_dim=old_op.height_dim,
+                        width_dim=old_op.width_dim,
+                        channel_dim=old_op.channel_dim,
+                        padding_mode=old_op.padding_mode,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    input_weight = self._get_golden_tensor(old_op.weight)
+                    input_bias = (
+                        self._get_golden_tensor(old_op.bias)
+                        if old_op.bias is not None
+                        else None
+                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    conv3d_builder._set_golden_tensor(new_op_result, old_op_result)
+                    conv3d_builder._set_golden_tensor(in0, input0)
+                    conv3d_builder._set_golden_tensor(weight, input_weight)
+                    ordered_inputs.extend([in0, weight])
+                    if bias is not None:
+                        conv3d_builder._set_golden_tensor(bias, input_bias)
+                        ordered_inputs.append(bias)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                conv3d_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return conv3d_module, conv3d_builder
+
     @tag(ttir.ConvTranspose2dOp)
     def conv_transpose2d(
         self,
