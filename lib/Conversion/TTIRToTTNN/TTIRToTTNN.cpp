@@ -1914,19 +1914,12 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Compute optimal C_in blocking for weight preparation.
-    // Uses the padded (tile-aligned) channel count since reshapeWeightForConv3d
-    // pads C/G to TILE_WIDTH internally.
-    constexpr int64_t TILE_WIDTH_CONST = ttcore::TileType::getDefaultShape()[1];
-    uint32_t paddedInChann =
-        llvm::divideCeil(static_cast<int64_t>(weightTy.getDimSize(1)),
-                         TILE_WIDTH_CONST) *
-        TILE_WIDTH_CONST;
-    uint32_t cInBlock = ttnn::utils::calculateOptimalCInBlock(paddedInChann);
-
-    // Permute + block + reshape weight
-    Value reshapedWeight = reshapeWeightForConv3d(
-        adaptor.getWeight(), weightTy, rewriter, op.getLoc(), cInBlock);
+    // Preserve TT-Metal's default conv3d behavior when no config is attached to
+    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
+    // otherwise the weights are pre-blocked differently from runtime defaults.
+    Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
+                                                  rewriter, op.getLoc(),
+                                                  /*cInBlock=*/0);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();

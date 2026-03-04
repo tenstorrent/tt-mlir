@@ -1581,6 +1581,10 @@ struct EmitPyTypeConverter<::ttnn::experimental::prim::Conv3dConfig> {
   }
 
   static std::string convert(ttnn::Conv3dConfigAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
     std::string buf;
     llvm::raw_string_ostream rso(buf);
 
