@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-lower-load-store-ops-to-explicit-cb-form %s --split-input-file | FileCheck %s --check-prefix=CHECK-POS
+// RUN: awk '/^\/\/ -----/{exit} {print}' %s | ttmlir-opt --ttcore-register-device --d2m-lower-load-store-ops-to-explicit-cb-form - | FileCheck %s --check-prefix=CHECK-POS
 // RUN: ttmlir-opt --ttcore-register-device --d2m-lower-load-store-ops-to-explicit-cb-form %s --split-input-file -verify-diagnostics
 
 #l1 = #ttcore.memory_space<l1>
