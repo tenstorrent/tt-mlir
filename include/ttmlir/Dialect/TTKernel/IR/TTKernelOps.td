@@ -2204,9 +2204,11 @@ def TTKernel_PackUntilizeInitOp : TTKernel_Op<"pack_untilize_init"> {
       Initializes UNPACK, MATH, and PACK threads for the pack untilize
       operation.  Maps to the official tt-metal
       `pack_untilize_init<block_ct_dim, full_ct_dim>(icb, ocb)` API.
-      block_ct_dim is the number of column tiles processed per DST pass,
-      full_ct_dim is the total number of column tiles. For correctness,
-      `block_ct_dim` must divide `full_ct_dim`, and `block_ct_dim` must fit
+      `cols_per_dst_pass` is the number of column tiles processed per DST pass
+      (`block_ct_dim` in the tt-metal template), and `total_col_tiles` is the
+      total number of column tiles (`full_ct_dim` in the tt-metal template).
+      For correctness, `cols_per_dst_pass` must divide `total_col_tiles`, and
+      `cols_per_dst_pass` must fit
       in DST capacity for the target data type. Both default to 1.
       This op is expected to be paired with
       `experimental::pack_untilize_block` and finalized by
@@ -2214,8 +2216,8 @@ def TTKernel_PackUntilizeInitOp : TTKernel_Op<"pack_untilize_init"> {
     }];
 
     let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut,
-                         DefaultValuedAttr<I32Attr, "1">:$blockCtDim,
-                         DefaultValuedAttr<I32Attr, "1">:$fullCtDim);
+                         DefaultValuedAttr<I32Attr, "1">:$colsPerDstPass,
+                         DefaultValuedAttr<I32Attr, "1">:$totalColTiles);
 
     let hasVerifier = 1;
 
@@ -2243,19 +2245,20 @@ def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_u
     let description = [{
       Custom pack untilize block LLK that takes the dimensions of the block.
       Uses `pack_untilize_init` for initialization and calls
-      `pack_untilize_block<block_ct_dim, full_ct_dim>(icb, ocb, block_r, block_c)`.
-      `block_ct_dim` is the number of column tiles processed per DST pass
-      (constrained by DST capacity), and `full_ct_dim` is the total number of
-      column tiles in the untilized row.
-      For correctness, `block_ct_dim` must divide `full_ct_dim`, and
-      `block_c` is expected to be compatible with the chosen `block_ct_dim`
-      (the implementation processes `block_c / block_ct_dim` column blocks).
+      `pack_untilize_block<cols_per_dst_pass, total_col_tiles>(icb, ocb, block_r, block_c)`.
+      `cols_per_dst_pass` is the number of column tiles processed per DST pass
+      (constrained by DST capacity), and `total_col_tiles` is the total number
+      of column tiles in the untilized row.
+      For correctness, `cols_per_dst_pass` must divide `total_col_tiles`, and
+      `block_c` is expected to be compatible with the chosen
+      `cols_per_dst_pass` (the implementation processes
+      `block_c / cols_per_dst_pass` column blocks).
       Use this op in the sequence:
       `pack_untilize_init -> experimental::pack_untilize_block -> pack_untilize_uninit`.
     }];
 
     let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC,
-                         I32Attr:$blockCtDim, I32Attr:$fullCtDim);
+                         I32Attr:$colsPerDstPass, I32Attr:$totalColTiles);
 
     let hasVerifier = 1;
 

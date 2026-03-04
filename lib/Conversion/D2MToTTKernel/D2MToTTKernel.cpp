@@ -1176,7 +1176,7 @@ public:
     } else if constexpr (std::is_same_v<
                              BlockOp,
                              ttkernel::ExperimentalPackUntilizeBlockOp>) {
-      const int64_t fullCtDim = collapsed2DShape[1];
+      const int64_t totalColTiles = collapsed2DShape[1];
 
       auto chipDesc = ttcore::getOpChipDescAttr(op);
       auto tileType = mlir::cast<ttcore::TileType>(
@@ -1186,20 +1186,20 @@ public:
       const int64_t dstCapacity =
           chipDesc.getDstLogicalSizeTiles(scalarType, /*fullSyncEn=*/false);
 
-      // block_ct_dim must divide full_ct_dim and fit in DST.
-      int64_t blockCtDim = std::min(dstCapacity, fullCtDim);
-      while (blockCtDim > 1 && fullCtDim % blockCtDim != 0) {
-        blockCtDim--;
+      // cols_per_dst_pass must divide total_col_tiles and fit in DST.
+      int64_t colsPerDstPass = std::min(dstCapacity, totalColTiles);
+      while (colsPerDstPass > 1 && totalColTiles % colsPerDstPass != 0) {
+        colsPerDstPass--;
       }
-      auto blockCtDimAttr =
-          rewriter.getI32IntegerAttr(static_cast<int32_t>(blockCtDim));
-      auto fullCtDimAttr =
-          rewriter.getI32IntegerAttr(static_cast<int32_t>(fullCtDim));
+      auto colsPerDstPassAttr =
+          rewriter.getI32IntegerAttr(static_cast<int32_t>(colsPerDstPass));
+      auto totalColTilesAttr =
+          rewriter.getI32IntegerAttr(static_cast<int32_t>(totalColTiles));
 
       rewriter.create<ttkernel::PackUntilizeInitOp>(
-          op->getLoc(), src, dst, blockCtDimAttr, fullCtDimAttr);
+          op->getLoc(), src, dst, colsPerDstPassAttr, totalColTilesAttr);
       rewriter.create<BlockOp>(op->getLoc(), src, dst, blockR, blockC,
-                               blockCtDimAttr, fullCtDimAttr);
+                               colsPerDstPassAttr, totalColTilesAttr);
       rewriter.create<ttkernel::PackUntilizeUninitOp>(op->getLoc(), dst);
     } else {
       llvm_unreachable("unsupported tilize/untilize op");

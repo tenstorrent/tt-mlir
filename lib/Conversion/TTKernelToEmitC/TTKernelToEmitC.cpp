@@ -376,9 +376,9 @@ public:
                              ttkernel::ExperimentalPackUntilizeBlockOp>) {
       SmallVector<Attribute, 2> template_args;
       template_args.push_back(emitc::OpaqueAttr::get(
-          op.getContext(), std::to_string(op.getBlockCtDim())));
+          op.getContext(), std::to_string(op.getColsPerDstPass())));
       template_args.push_back(emitc::OpaqueAttr::get(
-          op.getContext(), std::to_string(op.getFullCtDim())));
+          op.getContext(), std::to_string(op.getTotalColTiles())));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp,
                                         ttkernel::ExperimentalTileFillOp>) {

@@ -81,6 +81,19 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   return std::string();
 }
 
+static ::mlir::LogicalResult verifyPackUntilizeDims(Operation *op,
+                                                    int32_t colsPerDstPass,
+                                                    int32_t totalColTiles) {
+  if (colsPerDstPass <= 0 || totalColTiles <= 0) {
+    return op->emitOpError(
+        "cols_per_dst_pass and total_col_tiles must both be positive");
+  }
+  if (totalColTiles % colsPerDstPass != 0) {
+    return op->emitOpError("cols_per_dst_pass must divide total_col_tiles");
+  }
+  return success();
+}
+
 ::mlir::LogicalResult TilizeInitOp::verify() {
   if (!insideEnqueueProgramOpRegion(getOperation())) {
     return emitOpError(
@@ -168,6 +181,10 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   if (!err.empty()) {
     return emitOpError(err);
   }
+  if (failed(verifyPackUntilizeDims(getOperation(), getColsPerDstPass(),
+                                    getTotalColTiles()))) {
+    return failure();
+  }
   return success();
 }
 
@@ -180,6 +197,22 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
       verifyTilizeUntilizeCBs(getCbIn().getType(), getCbOut().getType());
   if (!err.empty()) {
     return emitOpError(err);
+  }
+  if (failed(verifyPackUntilizeDims(getOperation(), getColsPerDstPass(),
+                                    getTotalColTiles()))) {
+    return failure();
+  }
+
+  // block_c is an SSA operand. If it is constant here, validate the additional
+  // compatibility requirement used by the LLK implementation.
+  if (auto blockC = getConstantIntValue(getBlockC())) {
+    int64_t blockColTiles = *blockC;
+    if (blockColTiles <= 0) {
+      return emitOpError("block_c must be positive");
+    }
+    if (blockColTiles % static_cast<int64_t>(getColsPerDstPass()) != 0) {
+      return emitOpError("block_c must be divisible by cols_per_dst_pass");
+    }
   }
   return success();
 }
