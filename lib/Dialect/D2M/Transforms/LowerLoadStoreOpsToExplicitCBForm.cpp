@@ -210,7 +210,7 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
 
     rewriter.setInsertionPoint(remoteLoad);
 
-    if (forwardableStore && eraseForwardableStoreWithoutReplacement) {
+    if (forwardableStore) {
       rewriter.create<ReserveOp>(loc, loadTargetCb);
     }
 
