@@ -12377,6 +12377,365 @@ class TTIRBuilder(Builder):
 
         return matmul_module, matmul_builder
 
+    ############### ttir.SparseMatmulOp ###############
+
+    def sparse_matmul(
+        self,
+        a: Operand,
+        b: Operand,
+        sparsity: Operand,
+        is_input_a_sparse: bool = False,
+        is_input_b_sparse: bool = True,
+        nnz: int = 0,
+        output_shape: Optional[Shape] = None,
+        output_type: Optional[torch.dtype] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        assert (
+            output_shape is not None
+        ), "output_shape must be provided for sparse_matmul"
+        assert output_type is not None, "output_type must be provided for sparse_matmul"
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        ttir_kwargs = {
+            "is_input_a_sparse": is_input_a_sparse,
+            "is_input_b_sparse": is_input_b_sparse,
+            "nnz": nnz if nnz != 0 else None,
+        }
+        return self._op_proxy(
+            ttir.SparseMatmulOp,
+            [a, b, sparsity],
+            output_shape=output_shape,
+            output_type=mlir_output_type,
+            ttir_kwargs=ttir_kwargs,
+            unit_attrs=unit_attrs,
+        )
+
+    ############### ttir.AllToAllDispatchOp ###############
+
+    def all_to_all_dispatch(
+        self,
+        input_tensor: Operand,
+        expert_indices: Operand,
+        expert_mapping: Operand,
+        num_devices: int = 2,
+        cluster_axis: int = 0,
+        dispatched_shape: Optional[Shape] = None,
+        dispatched_type: Optional[torch.dtype] = None,
+        metadata_shape: Optional[Shape] = None,
+        metadata_type: Optional[torch.dtype] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpResult, OpResult]:
+        assert (
+            dispatched_shape is not None
+        ), "dispatched_shape must be provided for all_to_all_dispatch"
+        assert (
+            dispatched_type is not None
+        ), "dispatched_type must be provided for all_to_all_dispatch"
+        assert (
+            metadata_shape is not None
+        ), "metadata_shape must be provided for all_to_all_dispatch"
+        assert (
+            metadata_type is not None
+        ), "metadata_type must be provided for all_to_all_dispatch"
+
+        mlir_dispatched_type = self._get_type_from_torch_dtype(dispatched_type)
+        mlir_metadata_type = self._get_type_from_torch_dtype(metadata_type)
+
+        dispatched_result = self._create_ranked_tensor_type(
+            dispatched_shape, mlir_dispatched_type
+        )
+        metadata_result = self._create_ranked_tensor_type(
+            metadata_shape, mlir_metadata_type
+        )
+
+        num_devices_attr = IntegerAttr.get(IntegerType.get_signless(64), num_devices)
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_signless(64), cluster_axis)
+
+        loc = self._get_location()
+
+        op = ttir.AllToAllDispatchOp(
+            dispatched_result,
+            metadata_result,
+            input_tensor,
+            expert_indices,
+            expert_mapping,
+            num_devices_attr,
+            cluster_axis_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        in0 = self._get_golden_tensor(input_tensor)
+        in1 = self._get_golden_tensor(expert_indices)
+
+        # Support both legacy [B, S, 1, H] and current [B, 1, S, H] layouts.
+        def _to_dispatch_layout(tensor):
+            if tensor.shape[1] == 1:
+                # [B, 1, S, C] -> [1, B, S, C]
+                return tensor.permute(1, 0, 2, 3)
+            if tensor.shape[2] == 1:
+                # [B, S, 1, C] -> [1, B, S, C]
+                return tensor.permute(2, 0, 1, 3)
+            # Fallback to preserve historical behavior when no singleton axis is present.
+            return tensor.unsqueeze(0)
+
+        golden_dispatched = _to_dispatch_layout(in0).repeat(1, num_devices, 1, 1)
+        golden_metadata = _to_dispatch_layout(in1).repeat(1, num_devices, 1, 1)
+        self._set_golden_tensor(op.dispatched, golden_dispatched)
+        self._set_golden_tensor(op.metadata, golden_metadata)
+
+        return op.dispatched, op.metadata
+
+    ############### ttir.AllToAllCombineOp ###############
+
+    def all_to_all_combine(
+        self,
+        input_tensor: Operand,
+        expert_metadata: Operand,
+        expert_mapping: Operand,
+        num_devices: int = 2,
+        cluster_axis: int = 0,
+        num_experts_per_tok: int = 4,
+        output_shape: Optional[Shape] = None,
+        output_type: Optional[torch.dtype] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        assert (
+            output_shape is not None
+        ), "output_shape must be provided for all_to_all_combine"
+        assert (
+            output_type is not None
+        ), "output_type must be provided for all_to_all_combine"
+
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        result = self._create_ranked_tensor_type(output_shape, mlir_output_type)
+
+        num_devices_attr = IntegerAttr.get(IntegerType.get_signless(64), num_devices)
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_signless(64), cluster_axis)
+        num_experts_per_tok_attr = IntegerAttr.get(
+            IntegerType.get_signless(64), num_experts_per_tok
+        )
+
+        loc = self._get_location()
+
+        op = ttir.AllToAllCombineOp(
+            result,
+            input_tensor,
+            expert_metadata,
+            expert_mapping,
+            num_devices_attr,
+            cluster_axis_attr,
+            num_experts_per_tok_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        in0 = self._get_golden_tensor(input_tensor)
+        metadata = self._get_golden_tensor(expert_metadata)
+        mapping = self._get_golden_tensor(expert_mapping)
+
+        if isinstance(in0, GoldenMapTensor):
+            golden = in0.zeros_like_builder(output_shape)
+        else:
+            golden = torch.zeros(
+                output_shape,
+                dtype=in0.dtype,
+                device=in0.device,
+            )
+
+        # Metadata-aware golden: route expert outputs by metadata slots when
+        # mapping is valid (one owner per referenced expert in a group).
+        # If mapping is ambiguous/invalid, keep the zero output fallback.
+        if (
+            isinstance(in0, GoldenMapTensor)
+            and isinstance(metadata, GoldenMapTensor)
+            and isinstance(mapping, GoldenMapTensor)
+            and cluster_axis in (0, 1)
+        ):
+            output_shards = {
+                device_id: torch.zeros(
+                    output_shape,
+                    dtype=shard.dtype,
+                    device=shard.device,
+                )
+                for device_id, shard in in0.shard_map.items()
+            }
+
+            grouped_inputs = in0.group_by_axis(cluster_axis)
+            grouped_metadata = metadata.group_by_axis(cluster_axis)
+            mapping_ref = next(iter(mapping.shard_map.values()))
+            num_experts = int(mapping_ref.shape[2])
+            num_mapping_devices = int(mapping_ref.shape[3])
+
+            valid_mapping = True
+
+            for group_idx, group_inputs in enumerate(grouped_inputs):
+                group_ids = list(group_inputs.keys())
+                if len(group_ids) == 0:
+                    continue
+
+                group_metadata = grouped_metadata[group_idx]
+                metadata_ref = next(iter(group_metadata.values()))
+                batch_global = int(metadata_ref.shape[1])
+                seq_global = int(metadata_ref.shape[2])
+                k_slots = min(int(metadata_ref.shape[3]), int(output_shape[0]))
+
+                local_experts_by_device = {}
+                for src_id in group_ids:
+                    mapping_device_idx = (
+                        src_id
+                        if src_id < num_mapping_devices
+                        else src_id % num_mapping_devices
+                    )
+                    local_experts = []
+                    for expert_idx in range(num_experts):
+                        if (
+                            int(
+                                mapping_ref[0, 0, expert_idx, mapping_device_idx].item()
+                            )
+                            == 1
+                        ):
+                            local_experts.append(expert_idx)
+                    local_experts_by_device[src_id] = local_experts
+
+                experts_in_metadata = set()
+                for md_shard in group_metadata.values():
+                    for val in md_shard[0, :, :, :k_slots].reshape(-1):
+                        expert_idx = int(val.item())
+                        if 0 <= expert_idx < num_experts:
+                            experts_in_metadata.add(expert_idx)
+
+                expert_owner = {}
+                for expert_idx in experts_in_metadata:
+                    owners = [
+                        src_id
+                        for src_id in group_ids
+                        if expert_idx in local_experts_by_device[src_id]
+                    ]
+                    if len(owners) != 1:
+                        valid_mapping = False
+                        break
+                    expert_owner[expert_idx] = owners[0]
+                if not valid_mapping:
+                    break
+
+                group_size = len(group_ids)
+                if group_size == 0:
+                    continue
+
+                for dest_pos, dest_id in enumerate(group_ids):
+                    dest_output = output_shards[dest_id]
+                    dest_metadata = group_metadata[dest_id]
+                    dest_batch = int(dest_output.shape[1])
+                    dest_seq = int(dest_output.shape[2])
+
+                    for b_local in range(dest_batch):
+                        global_b = dest_pos * dest_batch + b_local
+                        if global_b >= batch_global:
+                            continue
+                        for s in range(min(dest_seq, seq_global)):
+                            for k in range(k_slots):
+                                expert_idx = int(
+                                    dest_metadata[0, global_b, s, k].item()
+                                )
+                                src_id = expert_owner.get(expert_idx)
+                                if src_id is None:
+                                    continue
+                                src_input = in0.shard_map[src_id]
+                                src_local_experts = local_experts_by_device[src_id]
+                                local_idx = src_local_experts.index(expert_idx)
+                                if local_idx >= int(src_input.shape[0]):
+                                    continue
+                                src_b = min(b_local, int(src_input.shape[1]) - 1)
+                                src_s = min(s, int(src_input.shape[2]) - 1)
+                                dest_output[k, b_local, s, :] = src_input[
+                                    local_idx, src_b, src_s, :
+                                ]
+
+            if valid_mapping:
+                golden = GoldenMapTensor(output_shards, in0.mesh_shape)
+
+        self._set_golden_tensor(op_result, golden)
+
+        return op_result
+
+    ############### ttir.MoeExpertTokenRemapOp ###############
+
+    def moe_expert_token_remap(
+        self,
+        topk_tensor: Operand,
+        expert_mapping: Operand,
+        expert_metadata: Operand,
+        reduction_size: int = 32,
+        mapping_shape: Optional[Shape] = None,
+        mapping_type: Optional[torch.dtype] = None,
+        reduced_shape: Optional[Shape] = None,
+        reduced_type: Optional[torch.dtype] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpResult, OpResult]:
+        assert (
+            mapping_shape is not None
+        ), "mapping_shape must be provided for moe_expert_token_remap"
+        assert (
+            mapping_type is not None
+        ), "mapping_type must be provided for moe_expert_token_remap"
+        assert (
+            reduced_shape is not None
+        ), "reduced_shape must be provided for moe_expert_token_remap"
+        assert (
+            reduced_type is not None
+        ), "reduced_type must be provided for moe_expert_token_remap"
+
+        mlir_mapping_type = self._get_type_from_torch_dtype(mapping_type)
+        mlir_reduced_type = self._get_type_from_torch_dtype(reduced_type)
+
+        mapping_result = self._create_ranked_tensor_type(
+            mapping_shape, mlir_mapping_type
+        )
+        reduced_result = self._create_ranked_tensor_type(
+            reduced_shape, mlir_reduced_type
+        )
+
+        reduction_size_attr = IntegerAttr.get(
+            IntegerType.get_signless(64), reduction_size
+        )
+
+        loc = self._get_location()
+
+        op = ttir.MoeExpertTokenRemapOp(
+            mapping_result,
+            reduced_result,
+            topk_tensor,
+            expert_mapping,
+            expert_metadata,
+            reduction_size_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        golden_mapping = GoldenMapTensor(
+            {0: torch.zeros(mapping_shape, dtype=mapping_type)},
+            mesh_shape=self._mesh_shape,
+        )
+        golden_reduced = GoldenMapTensor(
+            {0: torch.zeros(reduced_shape, dtype=reduced_type)},
+            mesh_shape=self._mesh_shape,
+        )
+        self._set_golden_tensor(op.mapping, golden_mapping)
+        self._set_golden_tensor(op.reduced, golden_reduced)
+
+        return op.mapping, op.reduced
+
     def upsample2d(
         self,
         in0: Operand,

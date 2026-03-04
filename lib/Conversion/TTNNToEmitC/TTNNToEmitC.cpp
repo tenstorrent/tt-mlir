@@ -3578,7 +3578,7 @@ public:
 };
 } // namespace
 
-// AllToAllDispatchOp conversion pattern
+// AllToAllDispatchOp conversion pattern (multi-result: dispatched + metadata)
 //
 namespace {
 class AllToAllDispatchOpConversionPattern
@@ -3603,7 +3603,32 @@ public:
         emitter.emit(srcOp.getMemoryConfig()),
     };
 
-    emitter.replaceOp(*this, args);
+    // Multi-result: returns std::vector<ttnn::Tensor> with 2 elements.
+    using ReturnTy = std::vector<::ttnn::Tensor>;
+    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        this->convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    SmallVector<Value> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
+      auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
+          rewriter.getContext(),
+          ttnn_to_emitc::TypeNameV<ReturnTy::value_type>));
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, callOp.getResult(0), indexOp.getResult());
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(
+              rewriter.getContext(),
+              ttnn_to_emitc::TypeNameV<ReturnTy::value_type>),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+    rewriter.replaceOp(srcOp, results);
     return success();
   }
 };
@@ -3666,7 +3691,32 @@ public:
         emitter.emit(srcOp.getMemoryConfig()),
     };
 
-    emitter.replaceOp(*this, args);
+    // Multi-result: returns std::vector<ttnn::Tensor> with 2 elements.
+    using ReturnTy = std::vector<::ttnn::Tensor>;
+    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        this->convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    SmallVector<Value> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
+      auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
+          rewriter.getContext(),
+          ttnn_to_emitc::TypeNameV<ReturnTy::value_type>));
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, callOp.getResult(0), indexOp.getResult());
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(
+              rewriter.getContext(),
+              ttnn_to_emitc::TypeNameV<ReturnTy::value_type>),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+    rewriter.replaceOp(srcOp, results);
     return success();
   }
 };
