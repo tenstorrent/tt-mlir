@@ -176,6 +176,69 @@ def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRGlobalDataFormatConversion: Pass<"ttir-global-data-format-conversion", "::mlir::ModuleOp"> {
+  let summary = "Convert all tensor data types to a target format.";
+  let description = [{
+    This pass converts all tensor element types in the function body
+    to a specified target format. Function signatures are preserved, and typecast operations
+    are automatically inserted at boundaries where type conversions are needed.
+
+    Supported target formats:
+      - "f32" (Float32)
+      - "bf16" (BFloat16, default)
+      - "bfp_bf8" (BFP_BFloat8)
+
+    Example:
+      Before:
+       func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+        %0 = ttir.empty() : tensor<64x128xf32>
+        %1 = "ttir.exp"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+        return %1 : tensor<64x128xf32>
+       }
+
+      After (with target-format="bf16"):
+        func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+          %0 = ttir.empty() : tensor<64x128xbf16>
+          %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = false}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+          %2 = ttir.empty() : tensor<64x128xbf16>
+          %3 = "ttir.exp"(%1, %2) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+          %4 = ttir.empty() : tensor<64x128xf32>
+          %5 = "ttir.typecast"(%3, %4) <{conservative_folding = false}> : (tensor<64x128xbf16>, tensor<64x128xf32>) -> tensor<64x128xf32>
+          return %5 : tensor<64x128xf32>
+        }
+  }];
+  let options = [
+    Option<"targetFormat", "target-format", "std::string", /*default=*/"\"bf16\"",
+           "Target data format for conversion: f32, bf16 (default), or bfp_bf8">
+  ];
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRDecomposeComplexPermute: Pass<"ttir-decompose-complex-permute", "::mlir::ModuleOp"> {
+  let summary = "Decompose complex permute operations into inner/outer permutes.";
+  let description = [{
+    This pass decomposes complex permute operations into a sequence of inner and outer
+    permutes. An inner permute swaps only the last two dimensions, while an outer permute
+    handles any other permutation on the outer dimensions.
+
+    The permute will at most be decomposed into an Outer -> Inner -> Outer permute.
+  }];
+}
+
+def TTIRRankNormalization: Pass<"ttir-rank-normalization", "::mlir::ModuleOp"> {
+  let summary = "Normalize tensor ranks by promoting low-rank tensors to 2D.";
+  let description = [{
+    This pass destructively rewrites tensor ranks to ensure all tensors have at
+    least rank 2. This is needed because the device compute kernels work with
+    2D+ tensors.
+
+    The pass directly modifies types in place - no reshape operations are inserted.
+    This is safe because adding 1's to the outer dimensions doesn't change the
+    memory layout in any way; a scalar is packed the same way regardless of rank.
+  }];
+  let dependentDialects = ["::mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert integer data types in quantized types to a specified bit width";
   let description = [{
