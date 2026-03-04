@@ -28,6 +28,13 @@ struct StableHLOPipelineOptions
       *this, OptionNames::meshShape,
       llvm::cl::desc("Set the multi-device mesh shape.")};
 
+  ListOption<int64_t> resultPresharded{
+      *this, OptionNames::resultPresharded,
+      llvm::cl::desc(
+          "Set whether each result is presharded or not. True means the "
+          "framework will expect a list of tensors for the result, while false "
+          "means the framework will expect a single tensor for the result.")};
+
   Option<bool> automaticArgAnalysis{
       *this, OptionNames::automaticArgAnalysis,
       llvm::cl::desc("Automatically determine argument shardings.")};
