@@ -1201,7 +1201,7 @@ class StableHLOBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
         sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
-    ):
+    ) -> Union[OpResult, List[OpResult]]:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.sort)
 
         all_inputs = [in0] + (value_inputs or [])
@@ -1302,7 +1302,7 @@ class StableHLOBuilder(Builder):
             if descending:
                 break
 
-        result_types = [r.type for r in old_op.results_]
+        result_types = [r.type for r in old_op.results]
 
         new_op = stablehlo_op(
             result_types,
@@ -1355,7 +1355,7 @@ class StableHLOBuilder(Builder):
                 self._set_golden_tensor(result, golden)
 
         op_map_dictionary = {}
-        for old_r, new_r in zip(old_op.results_, new_op.results):
+        for old_r, new_r in zip(old_op.results, new_op.results):
             op_map_dictionary[old_r] = new_r
         return new_op, op_map_dictionary
 
@@ -1449,7 +1449,7 @@ class StableHLOBuilder(Builder):
                     )
 
                     for result, old_result in zip(new_op.results, old_op.results):
-                        sort_builder._set_golden_tensor(result, self._goldens(old_result))
+                        sort_builder._set_golden_tensor(result, self._goldens[old_result])
                     for inp_operand, inp_golden in zip(inputs, input_goldens):
                         sort_builder._set_golden_tensor(inp_operand, inp_golden)
                         ordered_inputs.append(inp_operand)
