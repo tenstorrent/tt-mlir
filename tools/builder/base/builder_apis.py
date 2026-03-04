@@ -1307,6 +1307,8 @@ def load_mlir_file(
     golden_inputs: Dict[str, List[torch.tensor]] = None,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
     split_on_demand: bool = False,
+    test_base: str = "test",
+    output_root: str = ".",
 ) -> (Module, Builder):
     """
     Load an MLIR module text into a `Module` and reconstruct the corresponding builder.
@@ -1330,12 +1332,18 @@ def load_mlir_file(
     ctx = Context()
 
     if target == "ttir":
+        artifact_dir = get_artifact_dir(output_root, "TTIRBuilder", test_base, True)
+        deallocated_goldens_dir = os.path.join(artifact_dir, "deallocated_goldens")
         module, builder = TTIRBuilder.from_module(
-            ctx, mlir_text, golden_inputs, split_on_demand
+            ctx, mlir_text, golden_inputs, split_on_demand, deallocated_goldens_dir
         )
     elif target == "stablehlo":
+        artifact_dir = get_artifact_dir(
+            output_root, "StableHLOBuilder", test_base, True
+        )
+        deallocated_goldens_dir = os.path.join(artifact_dir, "deallocated_goldens")
         module, builder = StableHLOBuilder.from_module(
-            ctx, mlir_text, golden_inputs, split_on_demand
+            ctx, mlir_text, golden_inputs, split_on_demand, deallocated_goldens_dir
         )
     elif target == "ttnn":
         module, builder = TTNNBuilder.from_module(

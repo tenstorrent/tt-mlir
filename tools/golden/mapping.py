@@ -18,6 +18,7 @@ import operator
 import einops
 import torch
 import torch.nn.functional
+import os
 from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore, sdy, debug
 from ttmlir.ir import *
 from ttmlir.passes import DataType
@@ -86,7 +87,11 @@ class GoldenMapTensor:
 
     # ----- Methods -----
 
-    def __init__(self, shard_map: Dict[int, torch.Tensor], mesh_shape: Tuple[int, int]):
+    def __init__(
+        self,
+        shard_map: Dict[int, Union[torch.Tensor, str]],
+        mesh_shape: Tuple[int, int],
+    ):
         it = iter(shard_map.values())
         first = next(it)
 
@@ -100,6 +105,7 @@ class GoldenMapTensor:
 
         self._shard_map = shard_map
         self._mesh_shape = mesh_shape
+        self._is_loaded = all(isinstance(v, torch.Tensor) for v in shard_map.values())
 
     def _get_runtime_compatible_torch_dtype(self, dtype: torch.dtype) -> torch.dtype:
         compatible_dtypes = [
@@ -121,46 +127,6 @@ class GoldenMapTensor:
         else:
             return torch.float32
 
-    def deallocate(self, filepath: str):
-        import os
-
-        for device_id, shard in self._shard_map.items():
-            filename = f"{filepath}_device{device_id}.pt"
-            if os.path.exists(filename):
-                print("WARNING: Found existing file at deallocation path: ", filename)
-            torch.save(shard, filename)
-            self._shard_map[device_id] = filename
-            print(f"Deallocated shard for device {device_id} saved to {filename}.")
-
-    def load_goldens_if_needed(self):
-        for device_id, shard in self._shard_map.items():
-            if isinstance(shard, str):
-                filename = shard
-                if not os.path.exists(filename):
-                    raise FileNotFoundError(
-                        f"Expected golden file not found: {filename}"
-                    )
-                self._shard_map[device_id] = torch.load(filename)
-                print(f"Loaded golden shard for device {device_id} from {filename}.")
-
-    def golden_map_tensor_as_torch_tensors(self) -> Dict[int, torch.Tensor]:
-        """
-        Return shard tensors as plain torch.Tensor per device, ensuring:
-          - each shard is contiguous in memory
-          - quantized tensors are converted to their integer representation (int_repr)
-          - int64 shards are downcast to int32 for compatibility with borrowed tensor creation.
-        """
-        self.load_goldens_if_needed()
-        torch_goldens: Dict[int, torch.Tensor] = dict(self.contiguous().shard_map)
-        for device_id, torch_golden in torch_goldens.items():
-            dtype = self._get_runtime_compatible_torch_dtype(torch_golden.dtype)
-            if getattr(torch_golden, "is_quantized", False):
-                # For quantized tensors, use the underlying integer representation
-                torch_goldens[device_id] = torch_golden.int_repr()
-            else:
-                torch_goldens[device_id] = torch_golden.to(dtype)
-        return torch_goldens
-
     # ----- Private static methods -----
     def __getitem__(self, key: int) -> GoldenMapTensor:
         out_shards = {k: v.__getitem__(key) for k, v in self._shard_map.items()}
@@ -180,6 +146,13 @@ class GoldenMapTensor:
             out_shards = {k: op(t, other) for k, t in self._shard_map.items()}
         # Always wrap (even 0-D)
         return GoldenMapTensor(out_shards, self._mesh_shape)
+
+    def _load_all_shards(self):
+        """Load all file-backed shards into memory."""
+        for device_id, shard in self._shard_map.items():
+            if isinstance(shard, str):
+                self._shard_map[device_id] = torch.load(shard)
+        self._is_loaded = True
 
     def __lt__(self, other):
         return self._binary_map(other, operator.lt)
@@ -302,6 +275,9 @@ class GoldenMapTensor:
 
     @property
     def shard_map(self) -> Dict[int, torch.Tensor]:
+        """Lazily load shards from disk if needed."""
+        if not self._is_loaded:
+            self._load_all_shards()
         return self._shard_map
 
     @property
@@ -360,6 +336,60 @@ class GoldenMapTensor:
                 grouped.append(col_group)
 
         return grouped
+
+    """
+    def deallocate(self, filepath: str):
+        import os
+
+        for device_id, shard in self._shard_map.items():
+            filename = f"{filepath}_device{device_id}.pt"
+            if os.path.exists(filename):
+                print("WARNING: Found existing file at deallocation path: ", filename)
+            torch.save(shard, filename)
+            self._shard_map[device_id] = filename
+            print(f"Deallocated shard for device {device_id} saved to {filename}.")
+    """
+
+    def deallocate(self, filepath: str):
+        """Save shards to disk and replace with file paths."""
+        for device_id, shard in self._shard_map.items():
+            filename = f"{filepath}_device{device_id}.pt"
+            torch.save(shard, filename)
+            self._shard_map[device_id] = filename
+        self._is_loaded = False
+
+    def load_goldens_if_needed(self):
+        for device_id, shard in self._shard_map.items():
+            if isinstance(shard, str):
+                filename = shard
+                if not os.path.exists(filename):
+                    raise FileNotFoundError(
+                        f"Expected golden file not found: {filename}"
+                    )
+                self._shard_map[device_id] = torch.load(filename)
+                print(f"Loaded golden shard for device {device_id} from {filename}.")
+
+    def is_file_backed(self) -> bool:
+        """Check if tensor is currently stored on disk."""
+        return not self._is_loaded
+
+    def golden_map_tensor_as_torch_tensors(self) -> Dict[int, torch.Tensor]:
+        """
+        Return shard tensors as plain torch.Tensor per device, ensuring:
+          - each shard is contiguous in memory
+          - quantized tensors are converted to their integer representation (int_repr)
+          - int64 shards are downcast to int32 for compatibility with borrowed tensor creation.
+        """
+        # self.load_goldens_if_needed()
+        torch_goldens: Dict[int, torch.Tensor] = dict(self.contiguous().shard_map)
+        for device_id, torch_golden in torch_goldens.items():
+            dtype = self._get_runtime_compatible_torch_dtype(torch_golden.dtype)
+            if getattr(torch_golden, "is_quantized", False):
+                # For quantized tensors, use the underlying integer representation
+                torch_goldens[device_id] = torch_golden.int_repr()
+            else:
+                torch_goldens[device_id] = torch_golden.to(dtype)
+        return torch_goldens
 
 
 def unpack_mlir_attr(attr):

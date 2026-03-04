@@ -34,8 +34,17 @@ class TTIRBuilder(Builder):
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
         ] = OrderedDict([("x", 1), ("y", 1)]),
+        split_on_demand: bool = False,
+        deallocated_goldens_dir: Optional[str] = "./deallocated_goldens",
     ):
-        super().__init__(ctx, location, mesh_name, mesh_dict)
+        super().__init__(
+            ctx,
+            location,
+            mesh_name,
+            mesh_dict,
+            split_on_demand=split_on_demand,
+            deallocated_goldens_dir=deallocated_goldens_dir,
+        )
 
     # ----- Private methods ----
 
@@ -892,9 +901,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    to_layout_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    to_layout_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     to_layout_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -1018,9 +1026,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    rearrange_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    rearrange_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     rearrange_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -1156,9 +1163,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    reduce_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    reduce_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     reduce_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -1283,9 +1289,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    repeat_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    repeat_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     repeat_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -1437,9 +1442,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    arange_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    arange_builder._set_golden_tensor(new_op_result, old_op_result)
                     ordered_outputs.append(new_op_result)
 
                     return new_op
@@ -1549,9 +1553,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, old_op.dim, loc=old_op.location)
                     new_op_result = new_op.result
 
-                    cumsum_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    cumsum_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     cumsum_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -1749,9 +1752,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     input1 = self._get_golden_tensor(old_op.start_indices)
-                    gather_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    gather_builder._set_golden_tensor(new_op_result, old_op_result)
                     gather_builder._set_golden_tensor(in0, input0)
                     gather_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])
@@ -1861,9 +1863,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, old_op.shape, loc=old_op.location)
                     new_op_result = new_op.result
 
-                    ones_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    ones_builder._set_golden_tensor(new_op_result, old_op_result)
                     ordered_outputs.append(new_op_result)
 
                     return new_op
@@ -1974,9 +1975,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    zeros_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    zeros_builder._set_golden_tensor(new_op_result, old_op_result)
                     ordered_outputs.append(new_op_result)
 
                     return new_op
@@ -2129,9 +2129,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    rand_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    rand_builder._set_golden_tensor(new_op_result, old_op_result)
                     ordered_outputs.append(new_op_result)
 
                     rand_builder.bypass(new_op_result)
@@ -2277,9 +2276,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    dropout_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    dropout_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     dropout_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -2385,9 +2383,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, loc=old_op.location)
                     new_op_result = new_op.result
 
-                    cos_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    cos_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     cos_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -2492,9 +2489,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, loc=old_op.location)
                     new_op_result = new_op.result
 
-                    sin_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    sin_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     sin_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -2599,9 +2595,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, loc=old_op.location)
                     new_op_result = new_op.result
 
-                    sqrt_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    sqrt_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     sqrt_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -2714,9 +2709,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    ge_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    ge_builder._set_golden_tensor(new_op_result, old_op_result)
                     ge_builder._set_golden_tensor(in0, input0)
                     ge_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])
@@ -2829,9 +2823,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    lt_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    lt_builder._set_golden_tensor(new_op_result, old_op_result)
                     lt_builder._set_golden_tensor(in0, input0)
                     lt_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])
@@ -2944,9 +2937,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    le_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    le_builder._set_golden_tensor(new_op_result, old_op_result)
                     le_builder._set_golden_tensor(in0, input0)
                     le_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])
@@ -3059,9 +3051,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    bitwise_and_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    bitwise_and_builder._set_golden_tensor(new_op_result, old_op_result)
                     bitwise_and_builder._set_golden_tensor(in0, input0)
                     bitwise_and_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])
@@ -3174,9 +3165,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    pow_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    pow_builder._set_golden_tensor(new_op_result, old_op_result)
                     pow_builder._set_golden_tensor(in0, input0)
                     pow_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])
@@ -3289,9 +3279,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    min_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    min_builder._set_golden_tensor(new_op_result, old_op_result)
                     min_builder._set_golden_tensor(in0, input0)
                     min_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])
@@ -3404,9 +3393,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    lrs_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    lrs_builder._set_golden_tensor(new_op_result, old_op_result)
                     lrs_builder._set_golden_tensor(in0, input0)
                     lrs_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])
@@ -3519,9 +3507,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    logical_and_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    logical_and_builder._set_golden_tensor(new_op_result, old_op_result)
                     logical_and_builder._set_golden_tensor(in0, input0)
                     logical_and_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])
@@ -3704,9 +3691,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    reverse_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    reverse_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     reverse_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -3871,9 +3857,8 @@ class TTIRBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.input)
                     input_index = self._get_golden_tensor(old_op.index)
                     input_source = self._get_golden_tensor(old_op.source)
-                    scatter_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    scatter_builder._set_golden_tensor(new_op_result, old_op_result)
                     scatter_builder._set_golden_tensor(in0, input0)
                     scatter_builder._set_golden_tensor(index, input_index)
                     scatter_builder._set_golden_tensor(source, input_source)
@@ -4057,9 +4042,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    max_pool2d_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    max_pool2d_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     max_pool2d_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -4403,9 +4387,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    log1p_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    log1p_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     log1p_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -4524,9 +4507,8 @@ class TTIRBuilder(Builder):
                     input_tensors = tuple(
                         [self._get_golden_tensor(inp) for inp in old_op.inputs]
                     )
-                    concat_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    concat_builder._set_golden_tensor(new_op_result, old_op_result)
                     for input_operand, input_golden_tensor in zip(
                         inputs, input_tensors
                     ):
@@ -4658,9 +4640,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    full_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    full_builder._set_golden_tensor(new_op_result, old_op_result)
                     ordered_outputs.append(new_op_result)
 
                     return new_op
@@ -4945,9 +4926,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    reduce_or_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    reduce_or_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     reduce_or_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -5083,9 +5063,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    max_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    max_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     max_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -5196,9 +5175,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, loc=old_op.location)
                     new_op_result = new_op.result
 
-                    logical_not_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    logical_not_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     logical_not_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -5309,9 +5287,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, loc=old_op.location)
                     new_op_result = new_op.result
 
-                    log_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    log_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     log_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -5431,9 +5408,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    gt_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    gt_builder._set_golden_tensor(new_op_result, old_op_result)
                     gt_builder._set_golden_tensor(in0, input0)
                     gt_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])
@@ -5870,23 +5846,10 @@ class TTIRBuilder(Builder):
                     running_mean0 = self._get_golden_tensor(old_op.running_mean)
                     running_variance0 = self._get_golden_tensor(old_op.running_variance)
 
-                    op_golden_function = get_golden_function(ttir_op)
-                    (
-                        golden_output,
-                        golden_batch_mean,
-                        golden_batch_variance,
-                    ) = op_golden_function(
-                        input0,
-                        scale0,
-                        offset0,
-                        running_mean0,
-                        running_variance0,
-                        old_op.epsilon,
-                        old_op.dimension,
-                        old_op.momentum,
-                        result_type.element_type,
-                        batch_mean_type.element_type,
-                        batch_variance_type.element_type,
+                    golden_output = self._get_golden_tensor(old_op.result)
+                    golden_batch_mean = self._get_golden_tensor(old_op.batch_mean)
+                    golden_batch_variance = self._get_golden_tensor(
+                        old_op.batch_variance
                     )
                     batch_norm_training_builder._set_golden_tensor(
                         new_op_result, golden_output
@@ -6017,9 +5980,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, value_attr, loc=old_op.location)
                     new_op_result = new_op.result
 
-                    constant_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    constant_builder._set_golden_tensor(new_op_result, old_op_result)
                     ordered_outputs.append(new_op_result)
 
                     return new_op
@@ -6155,9 +6117,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    pad_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    pad_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     pad_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -6327,12 +6288,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    old_golden = self._get_golden_tensor(old_op.result)
-                    print(old_golden.shard_map)
-                    dot_general_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
-                    print(self._goldens[old_op.result])
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    dot_general_builder._set_golden_tensor(new_op_result, old_op_result)
                     dot_general_builder._set_golden_tensor(in0, input0)
                     dot_general_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])
@@ -6456,9 +6413,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, permutation_attr, loc=old_op.location)
                     new_op_result = new_op.result
 
-                    permute_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    permute_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     permute_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -6592,9 +6548,8 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    broadcast_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    broadcast_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     broadcast_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -6714,9 +6669,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    reshape_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    reshape_builder._set_golden_tensor(new_op_result, old_op_result)
                     reshape_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -6953,9 +6907,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    maximum_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    maximum_builder._set_golden_tensor(new_op_result, old_op_result)
                     maximum_builder._set_golden_tensor(lhs, input0)
                     maximum_builder._set_golden_tensor(rhs, input1)
                     ordered_inputs.extend([lhs, rhs])
@@ -7075,9 +7028,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    multiply_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    multiply_builder._set_golden_tensor(new_op_result, old_op_result)
                     multiply_builder._set_golden_tensor(lhs, input0)
                     multiply_builder._set_golden_tensor(rhs, input1)
                     ordered_inputs.extend([lhs, rhs])
@@ -7203,9 +7155,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    eq_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    eq_builder._set_golden_tensor(new_op_result, old_op_result)
                     eq_builder._set_golden_tensor(lhs, input0)
                     eq_builder._set_golden_tensor(rhs, input1)
                     ordered_inputs.extend([lhs, rhs])
@@ -7347,9 +7298,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    sum_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    sum_builder._set_golden_tensor(new_op_result, old_op_result)
                     sum_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -7471,9 +7421,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    add_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    add_builder._set_golden_tensor(new_op_result, old_op_result)
                     add_builder._set_golden_tensor(lhs, input0)
                     add_builder._set_golden_tensor(rhs, input1)
                     ordered_inputs.extend([lhs, rhs])
@@ -7585,9 +7534,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    sigmoid_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    sigmoid_builder._set_golden_tensor(new_op_result, old_op_result)
                     sigmoid_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -7698,9 +7646,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    hardsigmoid_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    hardsigmoid_builder._set_golden_tensor(new_op_result, old_op_result)
                     hardsigmoid_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -7822,9 +7769,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    subtract_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    subtract_builder._set_golden_tensor(new_op_result, old_op_result)
                     subtract_builder._set_golden_tensor(lhs, input0)
                     subtract_builder._set_golden_tensor(rhs, input1)
                     ordered_inputs.extend([lhs, rhs])
@@ -7937,9 +7883,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    tanh_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    tanh_builder._set_golden_tensor(new_op_result, old_op_result)
                     tanh_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -8051,9 +7996,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    rsqrt_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    rsqrt_builder._set_golden_tensor(new_op_result, old_op_result)
                     rsqrt_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -8165,9 +8109,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    neg_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    neg_builder._set_golden_tensor(new_op_result, old_op_result)
                     neg_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -8290,9 +8233,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    ne_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    ne_builder._set_golden_tensor(new_op_result, old_op_result)
                     ne_builder._set_golden_tensor(lhs, input0)
                     ne_builder._set_golden_tensor(rhs, input1)
                     ordered_inputs.extend([lhs, rhs])
@@ -8442,9 +8384,8 @@ class TTIRBuilder(Builder):
                     first_tensor = self._get_golden_tensor(old_op.first)
                     input1 = self._get_golden_tensor(old_op.second)
                     input2 = self._get_golden_tensor(old_op.third)
-                    where_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    where_builder._set_golden_tensor(new_op_result, old_op_result)
                     where_builder._set_golden_tensor(first, first_tensor)
                     where_builder._set_golden_tensor(second, input1)
                     where_builder._set_golden_tensor(third, input2)
@@ -8558,9 +8499,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    abs_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    abs_builder._set_golden_tensor(new_op_result, old_op_result)
                     abs_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -8672,9 +8612,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    erf_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    erf_builder._set_golden_tensor(new_op_result, old_op_result)
                     erf_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -8786,9 +8725,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    floor_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    floor_builder._set_golden_tensor(new_op_result, old_op_result)
                     floor_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -8897,9 +8835,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     output_dtype = self._get_torch_dtype_from_type(result.element_type)
-                    typecast_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    typecast_builder._set_golden_tensor(new_op_result, old_op_result)
                     typecast_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -9011,9 +8948,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    exp_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    exp_builder._set_golden_tensor(new_op_result, old_op_result)
                     exp_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -9136,9 +9072,8 @@ class TTIRBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
-                    div_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    div_builder._set_golden_tensor(new_op_result, old_op_result)
                     div_builder._set_golden_tensor(lhs, input0)
                     div_builder._set_golden_tensor(rhs, input1)
                     ordered_inputs.extend([lhs, rhs])
@@ -9301,9 +9236,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    slice_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    slice_builder._set_golden_tensor(new_op_result, old_op_result)
                     slice_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -9442,8 +9376,9 @@ class TTIRBuilder(Builder):
                     input_tensor = self._get_golden_tensor(old_op.input)
                     weight_tensor = self._get_golden_tensor(old_op.weight)
                     in_gradient_tensor = self._get_golden_tensor(old_op.in_gradient)
+                    old_op_result = self._get_golden_tensor(old_op.result)
                     embedding_backward_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, old_op_result
                     )
                     embedding_backward_builder._set_golden_tensor(input, input_tensor)
                     embedding_backward_builder._set_golden_tensor(weight, weight_tensor)
@@ -9745,9 +9680,8 @@ class TTIRBuilder(Builder):
                     new_op_result = new_op.result
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    is_finite_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    is_finite_builder._set_golden_tensor(new_op_result, old_op_result)
                     is_finite_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.extend([in0])
                     ordered_outputs.append(new_op_result)
@@ -11179,9 +11113,8 @@ class TTIRBuilder(Builder):
                         if old_op.bias is not None
                         else None
                     )
-                    conv2d_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    conv2d_builder._set_golden_tensor(new_op_result, old_op_result)
                     conv2d_builder._set_golden_tensor(in0, input0)
                     conv2d_builder._set_golden_tensor(weight, input_weight)
                     ordered_inputs.extend([in0, weight])
@@ -11904,9 +11837,8 @@ class TTIRBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.b)
                     transpose_a = unpack_mlir_attr(old_op.transpose_a)
                     transpose_b = unpack_mlir_attr(old_op.transpose_b)
-                    matmul_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    matmul_builder._set_golden_tensor(new_op_result, old_op_result)
                     matmul_builder._set_golden_tensor(in0, input0)
                     matmul_builder._set_golden_tensor(in1, input1)
                     ordered_inputs.extend([in0, in1])
@@ -12426,9 +12358,8 @@ class TTIRBuilder(Builder):
                         else None
                     )
 
-                    rms_norm_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    rms_norm_builder._set_golden_tensor(new_op_result, old_op_result)
                     rms_norm_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     if weight is not None:
@@ -13018,9 +12949,8 @@ class TTIRBuilder(Builder):
                         else None
                     )
 
-                    layer_norm_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
-                    )
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    layer_norm_builder._set_golden_tensor(new_op_result, old_op_result)
                     layer_norm_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
                     if weight is not None:
@@ -13049,6 +12979,7 @@ class TTIRBuilder(Builder):
         mlir_text: str,
         golden_inputs: Dict[str, List[torch.tensor]] = None,
         split_on_demand: bool = False,
+        deallocated_goldens_dir: Optional[str] = ".",
     ) -> Tuple(Module, TTIRBuilder):
         if golden_inputs is None:
             golden_inputs = {}
@@ -13073,8 +13004,14 @@ class TTIRBuilder(Builder):
                 )
                 break
 
-            ttir_builder = TTIRBuilder(ctx, loc, mesh_name, mesh_shape)
-            ttir_builder._split_on_demand = split_on_demand
+            ttir_builder = TTIRBuilder(
+                ctx,
+                loc,
+                mesh_name,
+                mesh_shape,
+                split_on_demand=split_on_demand,
+                deallocated_goldens_dir=deallocated_goldens_dir,
+            )
             new_module = ttir_builder.parse_root_module(root_module, golden_inputs)
 
         return new_module, ttir_builder

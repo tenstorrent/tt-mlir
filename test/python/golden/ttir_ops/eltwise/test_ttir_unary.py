@@ -288,6 +288,47 @@ def test_unary_ops(
     )
 
 
+@pytest.mark.parametrize("shape", [(1, 2048, 64)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("test_fn", [sin])
+def test_sin(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    if dtype == torch.int32 and test_fn not in [
+        abs,
+        neg,
+        relu,
+    ]:
+        pytest.skip("int32 unary op is not supported yet for this operation")
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def unary_op(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            input_golden = torch.load(
+                './deallocated_goldens/golden_140395503215728_loc("sine.84")_device0.pt'
+            )
+            builder.set_goldens(inputs={in0: torch.arcsin(input_golden)})
+            x = test_fn(in0, builder, unit_attrs=unit_attrs)
+            builder.set_goldens(
+                inputs={in0: torch.arcsin(input_golden)}, outputs={x: input_golden}
+            )
+            return x
+
+    pipeline_options = []
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=pipeline_options,
+    )
+
+
 # Bitwise unary ops (int only)
 def bitwise_not(
     in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
