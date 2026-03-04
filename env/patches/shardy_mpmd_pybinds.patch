@@ -1648,7 +1648,7 @@ new file mode 100644
 index 0000000..9bcab92
 --- /dev/null
 +++ b/shardy/integrations/python/ir/mpmd_module.cc
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,167 @@
 +/* Copyright 2025 The Shardy Authors.
 +
 +Licensed under the Apache License, Version 2.0 (the "License");
