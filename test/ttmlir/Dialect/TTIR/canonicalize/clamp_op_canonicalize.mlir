@@ -43,6 +43,20 @@ module @jit_clamp {
     return %11 : tensor<1x32xbf16>
   }
 
+  // Regression test for https://github.com/tenstorrent/tt-mlir/issues/7496:
+  // i64 MAX_INT64 constant was truncated to -1 during ConstantOp→FullOp
+  // canonicalization, making clamp(min=1, max=-1) always return -1.
+  func.func public @test_clamp_i64_max_no_overflow(%arg0: tensor<4xi64>) -> tensor<4xi64> {
+    // CHECK-LABEL: @test_clamp_i64_max_no_overflow
+    %0 = "ttir.constant"() <{value = dense<9223372036854775807> : tensor<4xi64>}> : () -> tensor<4xi64>
+    %1 = "ttir.constant"() <{value = dense<1> : tensor<4xi64>}> : () -> tensor<4xi64>
+    // CHECK: %{{[0-9]+}} = "ttir.clamp_scalar"(%arg0)
+    // CHECK-SAME: <{max = 2147483647 : i32, min = 1 : i32}>
+    // CHECK-SAME: (tensor<4xi64>) -> tensor<4xi64>
+    %2 = "ttir.clamp_tensor"(%arg0, %1, %0) : (tensor<4xi64>, tensor<4xi64>, tensor<4xi64>) -> tensor<4xi64>
+    return %2 : tensor<4xi64>
+  }
+
   func.func public @test_clamp_tensor(%arg0: tensor<4xf32>, %arg1: tensor<4xf32>, %arg2: tensor<4xf32>) -> tensor<4xf32> {
     // CHECK-LABEL: @test_clamp_tensor
     // CHECK: %{{[0-9]+}} = "ttir.clamp_tensor"(%arg0, %arg1, %arg2)
