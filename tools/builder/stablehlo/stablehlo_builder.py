@@ -7914,3 +7914,112 @@ class StableHLOBuilder(Builder):
                                 sub_modules_and_builders.append(sub_op_module_builder)
 
         return sub_modules_and_builders
+
+    ############### stablehlo.CompareOp (EQ) ###############
+
+    @tag(stablehlo.CompareOp)
+    def eq(
+        self,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        return self._compare_op("EQ", in0, in1, loc, unit_attrs, sharding_attr)
+
+    ############### stablehlo.CompareOp (NE) ###############
+
+    @tag(stablehlo.CompareOp)
+    def ne(
+        self,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        return self._compare_op("NE", in0, in1, loc, unit_attrs, sharding_attr)
+
+    ############### stablehlo.CompareOp (GT) ###############
+
+    @tag(stablehlo.CompareOp)
+    def gt(
+        self,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        return self._compare_op("GT", in0, in1, loc, unit_attrs, sharding_attr)
+
+    ############### stablehlo.CompareOp (LT) ###############
+
+    @tag(stablehlo.CompareOp)
+    def lt(
+        self,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        return self._compare_op("LT", in0, in1, loc, unit_attrs, sharding_attr)
+
+    ############### stablehlo.CompareOp (GE) ###############
+
+    @tag(stablehlo.CompareOp)
+    def ge(
+        self,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        return self._compare_op("GE", in0, in1, loc, unit_attrs, sharding_attr)
+
+    ############### stablehlo.CompareOp (LE) ###############
+
+    @tag(stablehlo.CompareOp)
+    def le(
+        self,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        return self._compare_op("LE", in0, in1, loc, unit_attrs, sharding_attr)
+
+    def _compare_op(
+        self,
+        direction: str,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """Helper for stablehlo comparison operations."""
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+        
+        compare_direction = stablehlo.ComparisonDirectionAttr.get(direction, self._ctx)
+        compare_type = stablehlo.ComparisonTypeAttr.get("TOTALORDER", self._ctx)
+        
+        op = stablehlo.CompareOp(
+            in0,
+            in1,
+            compare_direction,
+            compare_type=compare_type,
+            loc=loc,
+        )
+        
+        if sharding_attr:
+            op.result.attributes["sdy.sharding"] = sharding_attr
+        
+        return op.result
