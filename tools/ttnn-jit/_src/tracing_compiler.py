@@ -90,7 +90,7 @@ class TracingCompiler:
         # Create JIT context with device core grid and mesh shape
         core_grid = get_core_grid_from_tensor_args(self.tensor_args)
         mesh_shape = get_mesh_shape_from_tensor_args(self.tensor_args)
-        jit_ctx = JitContext(func_bb, ctx, mesh_shape=mesh_shape, core_grid)
+        jit_ctx = JitContext(func_bb, ctx, mesh_shape, core_grid)
 
         # Map original function arguments to MLIR block arguments
         for i, arg in enumerate(self.args):
