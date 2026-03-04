@@ -1355,6 +1355,68 @@ public:
 // ANCHOR_END: adding_an_op_matmul_op_rewriter
 
 namespace {
+
+// Generate a default MatmulMultiCoreReuseMultiCast1DProgramConfig for
+// sparse_matmul based on tensor shapes and device grid size.
+// Mirrors the runtime logic in createSparseMatmulProgramConfig.
+static ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr
+createSparseMatmulProgramConfigAttr(MLIRContext *ctx, RankedTensorType aType,
+                                    RankedTensorType bType,
+                                    ttcore::DeviceAttr deviceAttr) {
+  constexpr int64_t tileH = 32;
+  constexpr int64_t tileW = 32;
+
+  // Get compute grid from device
+  auto gridShape = deviceAttr.getWorkerGrid().getShape();
+  int64_t coreY = gridShape[0];
+  int64_t coreX = gridShape[1];
+
+  auto aShape = aType.getShape();
+  auto bShape = bType.getShape();
+
+  // A is [..., M, K], B is [..., K, N]
+  int64_t M = aShape[aShape.size() - 2];
+  int64_t N = bShape[bShape.size() - 1];
+
+  int64_t NTiles = (N + tileW - 1) / tileW;
+
+  // For 1D multicast (mcast_in0=true), Y rows replicate and X columns
+  // distribute N tiles. The runtime requires ceil(NTiles / perCoreN) to equal
+  // usedCoreX (all X-columns must have work). Reduce coreX until this holds.
+  int64_t usedCoreX = std::min(coreX, NTiles);
+  while (usedCoreX > 1) {
+    int64_t pcn = (NTiles + usedCoreX - 1) / usedCoreX;
+    if ((NTiles + pcn - 1) / pcn == usedCoreX) {
+      break;
+    }
+    --usedCoreX;
+  }
+
+  int64_t perCoreM = std::max(static_cast<int64_t>(1), M / tileH);
+  int64_t perCoreN =
+      std::max(static_cast<int64_t>(1), (NTiles + usedCoreX - 1) / usedCoreX);
+
+  auto gridAttr = ttnn::CoreCoordAttr::get(ctx, usedCoreX, coreY);
+  auto hopCoresAttr = ttnn::CoreRangeSetAttr::get(ctx, {});
+
+  return ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
+      ctx, gridAttr,
+      /*in0_block_w=*/1,
+      /*out_subblock_h=*/1,
+      /*out_subblock_w=*/1,
+      /*out_block_h=*/1,
+      /*out_block_w=*/1,
+      /*per_core_m=*/static_cast<uint64_t>(perCoreM),
+      /*per_core_n=*/static_cast<uint64_t>(perCoreN),
+      /*fuse_batch=*/false,
+      /*fused_activation=*/nullptr,
+      /*mcast_in0=*/true,
+      /*gather_in0=*/false,
+      /*hop_cores=*/hopCoresAttr,
+      /*num_global_cb_receivers=*/0,
+      /*untilize_out=*/false);
+}
+
 class SparseMatmulOpConversionPattern
     : public OpConversionPattern<ttir::SparseMatmulOp> {
 public:
@@ -1369,11 +1431,18 @@ public:
       nnzAttr = rewriter.getI64IntegerAttr(*nnz);
     }
 
+    // Generate program config from tensor shapes and device grid
+    auto aType = mlir::cast<RankedTensorType>(adaptor.getA().getType());
+    auto bType = mlir::cast<RankedTensorType>(adaptor.getB().getType());
+    auto deviceAttr = ttcore::lookupDevice(op);
+    auto programConfigAttr = createSparseMatmulProgramConfigAttr(
+        rewriter.getContext(), aType, bType, deviceAttr);
+
     rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getSparsity(), op.getIsInputASparse(),
         op.getIsInputBSparse(), nnzAttr,
-        /*program_config=*/nullptr,
+        /*program_config=*/programConfigAttr,
         /*memory_config=*/nullptr,
         /*dtype=*/nullptr,
         /*compute_config=*/nullptr);

@@ -613,13 +613,14 @@ public:
         srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getA(), "a"),
-        emitter.emit(srcOp.getB(), "b"),
+        emitter.emit(srcOp.getA(), "input_tensor_a"),
+        emitter.emit(srcOp.getB(), "input_tensor_b"),
         emitter.emit(srcOp.getSparsity(), "sparsity"),
+        emitter.emit<ttnn_to_emitpy::MatmulProgramConfig>(
+            srcOp.getProgramConfig(), "program_config"),
+        emitter.emit(srcOp.getNnz(), "nnz"),
         emitter.emit(srcOp.getIsInputASparse(), "is_input_a_sparse"),
         emitter.emit(srcOp.getIsInputBSparse(), "is_input_b_sparse"),
-        emitter.emit(srcOp.getNnz(), "nnz"),
-        emitter.emit(std::nullopt, "program_config"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getDtype(), "dtype"),
     };
@@ -3430,9 +3431,8 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputTensor(), "input_tensor"),
-        emitter.emit(srcOp.getExpertIndices(), "expert_indices"),
-        emitter.emit(srcOp.getExpertMapping(), "expert_mapping"),
-        emitter.emit(srcOp.getNumDevices(), "num_devices"),
+        emitter.emit(srcOp.getExpertIndices(), "expert_indices_tensor"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping_tensor"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
     };
@@ -3463,11 +3463,9 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputTensor(), "input_tensor"),
-        emitter.emit(srcOp.getExpertMetadata(), "expert_metadata"),
-        emitter.emit(srcOp.getExpertMapping(), "expert_mapping"),
-        emitter.emit(srcOp.getNumDevices(), "num_devices"),
+        emitter.emit(srcOp.getExpertMetadata(), "expert_metadata_tensor"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping_tensor"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
-        emitter.emit(srcOp.getNumExpertsPerTok(), "num_experts_per_tok"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
     };
 

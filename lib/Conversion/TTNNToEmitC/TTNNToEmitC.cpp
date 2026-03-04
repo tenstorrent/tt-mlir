@@ -765,10 +765,11 @@ public:
         emitter.emit(srcOp.getA()),
         emitter.emit(srcOp.getB()),
         emitter.emit(srcOp.getSparsity()),
+        emitter.template emit<ttnn_to_emitc::SparseMatmulProgramConfig>(
+            srcOp.getProgramConfig()),
+        emitter.emit(srcOp.getNnz()),
         emitter.emit(srcOp.getIsInputASparse()),
         emitter.emit(srcOp.getIsInputBSparse()),
-        emitter.emit(srcOp.getNnz()),
-        /*program_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(srcOp.getDtype()),
         emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
@@ -3578,7 +3579,7 @@ public:
 };
 } // namespace
 
-// AllToAllDispatchOp conversion pattern
+// AllToAllDispatchOp conversion pattern (multi-result: dispatched + metadata)
 //
 namespace {
 class AllToAllDispatchOpConversionPattern
@@ -3598,12 +3599,37 @@ public:
         emitter.emit(srcOp.getInputTensor()),
         emitter.emit(srcOp.getExpertIndices()),
         emitter.emit(srcOp.getExpertMapping()),
-        emitter.emit(srcOp.getNumDevices()),
-        emitter.emit(srcOp.getClusterAxis()),
+        /*axis=*/emitter.emit(srcOp.getClusterAxis()),
+        /*optional_output_tensors=*/emitter.emit(std::nullopt),
+        /*num_links=*/emitter.emit(std::nullopt),
+        /*topology=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getMemoryConfig()),
     };
 
-    emitter.replaceOp(*this, args);
+    // Multi-result: returns std::array<ttnn::Tensor, 2>.
+    static constexpr llvm::StringLiteral kReturnTypeName =
+        "::std::array<::ttnn::Tensor, 2>";
+    static constexpr llvm::StringLiteral kElemTypeName = "::ttnn::Tensor";
+    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), rewriter.getType<emitc::OpaqueType>(kReturnTypeName),
+        this->convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    SmallVector<Value> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
+      auto lvalueType = emitc::LValueType::get(
+          emitc::OpaqueType::get(rewriter.getContext(), kElemTypeName));
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, callOp.getResult(0), indexOp.getResult());
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(), kElemTypeName),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+    rewriter.replaceOp(srcOp, results);
     return success();
   }
 };
@@ -3627,13 +3653,14 @@ public:
         srcOp, adaptor, rewriter);
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputTensor()),
-        emitter.emit(srcOp.getExpertMetadata()),
         emitter.emit(srcOp.getExpertMapping()),
-        emitter.emit(srcOp.getNumDevices()),
-        emitter.emit(srcOp.getClusterAxis()),
-        emitter.emit(srcOp.getNumExpertsPerTok()),
+        emitter.emit(srcOp.getExpertMetadata()),
+        /*locally_reduced=*/emitter.emit(false),
+        /*num_links=*/emitter.emit(std::nullopt),
+        /*topology=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getMemoryConfig()),
-    };
+        /*axis=*/emitter.emit(srcOp.getClusterAxis()),
+        /*output_shard_dim=*/emitter.emit(std::nullopt)};
 
     emitter.replaceOp(*this, args);
     return success();
@@ -3666,7 +3693,32 @@ public:
         emitter.emit(srcOp.getMemoryConfig()),
     };
 
-    emitter.replaceOp(*this, args);
+    // Multi-result: returns std::vector<ttnn::Tensor> with 2 elements.
+    using ReturnTy = std::vector<::ttnn::Tensor>;
+    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        this->convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    SmallVector<Value> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
+      auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
+          rewriter.getContext(),
+          ttnn_to_emitc::TypeNameV<ReturnTy::value_type>));
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, callOp.getResult(0), indexOp.getResult());
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(
+              rewriter.getContext(),
+              ttnn_to_emitc::TypeNameV<ReturnTy::value_type>),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+    rewriter.replaceOp(srcOp, results);
     return success();
   }
 };

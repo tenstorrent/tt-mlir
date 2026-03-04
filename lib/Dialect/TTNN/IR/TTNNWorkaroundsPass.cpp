@@ -882,6 +882,7 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 
 // Factory method to create workarounds for sparse_matmul op operands.
 // The sparsity tensor (3rd input) must be in ROW_MAJOR layout.
+// Issue page: https://github.com/tenstorrent/tt-metal/issues/39126
 // Inputs: a (input 0), b (input 1), sparsity (input 2)
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSparseMatmulOpOperandsWorkarounds() {
@@ -897,6 +898,7 @@ TTNNOperandsWorkaroundsFactory::createSparseMatmulOpOperandsWorkarounds() {
 }
 
 // Factory method to create workarounds for all_to_all_dispatch op operands.
+// Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
 // tt-metal CCL requirements:
 //   input_tensor:    ROW_MAJOR, BFLOAT16
 //   expert_indices:  ROW_MAJOR, UINT16
@@ -922,6 +924,7 @@ TTNNOperandsWorkaroundsFactory::createAllToAllDispatchOpOperandsWorkarounds() {
 }
 
 // Factory method to create workarounds for all_to_all_combine op operands.
+// Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
 // tt-metal CCL requirements:
 //   input_tensor:      ROW_MAJOR, BFLOAT16
 //   expert_metadata:   ROW_MAJOR, UINT16
@@ -945,6 +948,7 @@ TTNNOperandsWorkaroundsFactory::createAllToAllCombineOpOperandsWorkarounds() {
 }
 
 // Factory method to create workarounds for moe_expert_token_remap op operands.
+// Issue page: https://github.com/tenstorrent/tt-metal/issues/39128
 // tt-metal data_movement requirements:
 //   topk_tensor:      ROW_MAJOR, BFLOAT16
 //   expert_mapping:   ROW_MAJOR, UINT16
