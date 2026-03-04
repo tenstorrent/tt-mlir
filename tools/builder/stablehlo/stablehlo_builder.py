@@ -7824,7 +7824,7 @@ class StableHLOBuilder(Builder):
     def from_module(
         ctx: Context,
         mlir_text: str,
-        golden_inputs: Dict[str, List[torch.tensor]] = None,
+        golden_inputs: Dict[str, List[Dict[int, torch.tensor]]] = None,
         deallocate_goldens: bool = False,
         deallocated_goldens_dir: Optional[str] = ".",
     ) -> Tuple(Module, StableHLOBuilder):
