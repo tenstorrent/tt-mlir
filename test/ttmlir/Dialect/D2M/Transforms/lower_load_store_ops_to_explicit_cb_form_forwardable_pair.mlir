@@ -10,12 +10,12 @@
 
 module attributes {ttcore.system_desc = #system_desc} {
   // CHECK-POS-LABEL: func.func @test_forwardable_remote_load_store_pair
-  // CHECK-POS: d2m.remote_load %{{.*}}[%{{.*}}, %{{.*}}] into %cb0
+  // CHECK-POS: d2m.reserve %cb0
+  // CHECK-POS-NEXT: d2m.remote_load %{{.*}}[%{{.*}}, %{{.*}}] into %cb0
   // CHECK-POS-NEXT: d2m.push %cb0
   // CHECK-POS-NEXT: %[[WAIT:.*]] = d2m.wait %cb0
   // CHECK-POS-NEXT: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %cb0
   // CHECK-POS: d2m.pop %cb0
-  // CHECK-POS-NOT: d2m.reserve %cb0
   // CHECK-POS-NOT: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] %{{.*}} :
   func.func @test_forwardable_remote_load_store_pair(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
                                                       %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
