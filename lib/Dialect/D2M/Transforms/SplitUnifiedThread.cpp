@@ -65,14 +65,13 @@ public:
     Block *datamovementBlock = &newGeneric.getRegion(0).emplaceBlock();
     Block *computeBlock = &newGeneric.getRegion(1).emplaceBlock();
 
-    // Add all block arguments to both new blocks and create mappings.
-    // In the normal pipeline, only semaphore args exist as block args
-    // (CB args have been replaced with tensor.empty ops in the body).
-    // However, for robustness, we handle any block arg types present.
+    // Copy semaphore block arguments to both new blocks.
     IRMapping datamovementMapping;
     IRMapping computeMapping;
     for (unsigned i = 0; i < originalBlock->getNumArguments(); ++i) {
       BlockArgument origArg = originalBlock->getArgument(i);
+      assert(mlir::isa<d2m::SemaphoreType>(origArg.getType()) &&
+             "region block arguments must be of semaphore type");
       auto dmArg =
           datamovementBlock->addArgument(origArg.getType(), generic.getLoc());
       auto cmpArg =

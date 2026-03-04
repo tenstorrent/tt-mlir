@@ -2189,18 +2189,12 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
 def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
     let summary = "Get a circular buffer for the given port.";
     let description = [{
-      Obtain a CB handle for the specified port number.  This is the canonical
-      way to introduce CB-typed values inside a generic region body.  Each
-      unique port maps to exactly one physical circular buffer; multiple calls
-      with the same port are expected to be CSE'd.
+      Obtain a CB handle for the specified port number.  Each unique port maps
+      to exactly one physical circular buffer.
 
       The port number is a local identifier — it does not correspond to the
       parent generic op's operand index.  The binding between a CB port and a
       generic operand is established by `remote_load`/`remote_store` ops.
-
-      During D2M -> TTKernel lowering the op is replaced with a compile-time
-      argument access (`ttkernel.get_compile_arg_val`) with bump-allocated CB
-      port indices.
 
       ```mlir
       %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>

@@ -33,18 +33,22 @@ struct DMAThreadAssignment {
   int32_t nocIndex = -1;
 };
 
-// Find the generic operand index for a DMA op's memref operand.
-static unsigned findOperandIndex(Operation *dmaOp, Value memref) {
-  GenericOp generic = dmaOp->getParentOfType<GenericOp>();
-  if (!generic) {
+// Get the CB port number from a DMA op's CB operand.
+static unsigned getCBPort(Operation *dmaOp) {
+  Value cb;
+  if (auto load = mlir::dyn_cast<RemoteLoadOp>(dmaOp)) {
+    cb = load.getCb();
+  } else if (auto store = mlir::dyn_cast<RemoteStoreOp>(dmaOp)) {
+    cb = store.getCb();
+  }
+  if (!cb) {
     return UINT_MAX;
   }
-  for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
-    if (generic->getOperand(i) == memref) {
-      return i;
-    }
+  auto getCBOp = cb.getDefiningOp<GetCBOp>();
+  if (!getCBOp) {
+    return UINT_MAX;
   }
-  return UINT_MAX;
+  return getCBOp.getPort();
 }
 
 // Collect all remote_load and remote_store operations from a block,
@@ -58,15 +62,10 @@ collectDMAOps(Block *block,
       continue;
     }
 
-    if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(&op)) {
-      unsigned idx = findOperandIndex(&op, remoteLoad.getMemref());
-      if (idx != UINT_MAX) {
-        dmaOps.push_back({&op, idx});
-      }
-    } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(&op)) {
-      unsigned idx = findOperandIndex(&op, remoteStore.getMemref());
-      if (idx != UINT_MAX) {
-        dmaOps.push_back({&op, idx});
+    if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(&op)) {
+      unsigned port = getCBPort(&op);
+      if (port != UINT_MAX) {
+        dmaOps.push_back({&op, port});
       }
     }
   }
@@ -171,12 +170,9 @@ assignCBsToThreads(const DenseMap<unsigned, size_t> &cbWorkloads,
 // Returns true if the operation uses a CB assigned to this thread.
 static bool shouldKeepOpForThread(Operation *op,
                                   const DenseSet<unsigned> &assignedCBs) {
-  if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(op)) {
-    unsigned idx = findOperandIndex(op, remoteLoad.getMemref());
-    return idx != UINT_MAX && assignedCBs.contains(idx);
-  } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(op)) {
-    unsigned idx = findOperandIndex(op, remoteStore.getMemref());
-    return idx != UINT_MAX && assignedCBs.contains(idx);
+  if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(op)) {
+    unsigned port = getCBPort(op);
+    return port != UINT_MAX && assignedCBs.contains(port);
   }
   return false;
 }
