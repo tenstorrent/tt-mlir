@@ -302,10 +302,9 @@ layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
 
     // Set dim alignments: all 1s except last two are tile default shape.
     newDimAlignments.assign(oldLayout.getLogicalShape().size(), 1);
-    newDimAlignments[newDimAlignments.size() - 1] =
-        ttcore::TileType::getDefaultShape()[0];
-    newDimAlignments[newDimAlignments.size() - 2] =
-        ttcore::TileType::getDefaultShape()[1];
+    auto defaultTileShape = ttcore::TileType::getDefaultShape();
+    newDimAlignments[newDimAlignments.size() - 1] = defaultTileShape[0];
+    newDimAlignments[newDimAlignments.size() - 2] = defaultTileShape[1];
   } else {
     collapsedIntervals = oldLayout.getCollapsedIntervals();
     newDimAlignments = ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
@@ -518,20 +517,17 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
 }
 
 static bool isTTNNOperand(Value operand) {
-  if (operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-    return true;
+  while (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+    operand = view.getInput();
   }
-  if (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
-    return view.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
-  }
-  return false;
+  return operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>() != nullptr;
 }
 
 static void insertViewForTTNNDRAMTensor(Value operand,
                                         const GridSelectionConfig &config,
                                         ArrayRef<int64_t> optimalGrid,
                                         OpBuilder &builder) {
-  if (auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+  while (auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
     auto originalOperand = viewOp.getInput();
     viewOp.getResult().replaceAllUsesWith(originalOperand);
     viewOp.erase();
@@ -877,7 +873,7 @@ static void updateToLayoutOps(ArrayRef<ToLayoutUpdateInfo> toLayoutsToUpdate,
   }
 }
 
-// Phase 2b: Update TTNN tensors with their optimal grids.
+// Phase 3: Update TTNN tensors with their optimal grids.
 static void
 updateTTNNTensors(ArrayRef<TTNNTensorUpdateInfo> TTNNTensorsToUpdate,
                   const GridSelectionConfig &config) {
@@ -913,7 +909,7 @@ updateTTNNTensors(ArrayRef<TTNNTensorUpdateInfo> TTNNTensorsToUpdate,
   }
 }
 
-// Phase 3: Update StreamLayoutOps by recreating their storage with the new
+// Phase 4: Update StreamLayoutOps by recreating their storage with the new
 // grid. StreamLayoutOps perform reblocking and may have index_maps that
 // transpose dimensions, requiring special handling.
 static void
@@ -1099,7 +1095,7 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
   }
 }
 
-// Phase 4: Recreate the d2m.generic with updated operands.
+// Phase 5: Recreate the d2m.generic with updated operands.
 // After updating all ToLayout and StreamLayout ops, the generic's operands
 // now have new types with optimized grids. We must recreate the generic to
 // reflect these type changes, including updating the region body and any

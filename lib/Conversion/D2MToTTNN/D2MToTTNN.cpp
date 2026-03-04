@@ -30,7 +30,7 @@ namespace mlir::tt {
 
 namespace detail {
 
-static SmallVector<int64_t> getLogicalShape(MemRefType memrefType) {
+static SmallVector<int64_t> getTensorShape(MemRefType memrefType) {
   auto deviceLayout = ttcore::getDeviceLayout(memrefType);
   ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(memrefType);
   ArrayRef<int64_t> shardShape = deviceLayout.getShardShape(memrefType);
@@ -42,7 +42,7 @@ static SmallVector<int64_t> getLogicalShape(MemRefType memrefType) {
     tileDims[1] = tileType.getWidth();
   }
 
-  // Compute logical shape in elements: (grid * shard * tileDims). If dims have
+  // Compute tensor shape in elements: (grid * shard * tileDims). If dims have
   // been collapsed, we cannot recover the original uncollapsed shape.
   SmallVector<int64_t> tensorShape;
   for (size_t i = 0; i < gridShape.size(); ++i) {
@@ -103,11 +103,11 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
     }
   }
 
-  size_t rank = 2;
+  constexpr size_t kRank = 2;
   // This affine map only describes dim collapsing for rank > 2 tensors. Since
   // we can only recover the collapsed shape here, we can just set it to
   // identity.
-  auto linearMap = AffineMap::getMultiDimIdentityMap(rank, ctx);
+  auto linearMap = AffineMap::getMultiDimIdentityMap(kRank, ctx);
   auto memLayout = ttnn::TensorMemoryLayoutAttr::get(ctx, memLayoutEnum);
 
   return {ttnn::TTNNLayoutAttr::get(
@@ -124,7 +124,7 @@ static RankedTensorType convertMemrefToTTNNTensor(MLIRContext *ctx,
   auto ttnnLayoutAttr = getTTNNLayoutFromDeviceLayout(ctx, memrefValue);
 
   // Use scalar element type (unwrap tile if present) and logical element shape.
-  return RankedTensorType::get(getLogicalShape(memrefType),
+  return RankedTensorType::get(getTensorShape(memrefType),
                                getScalarElementType(memrefType),
                                ttnnLayoutAttr);
 }
@@ -329,9 +329,9 @@ public:
 
       ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
 
-      // This is brittle. Ideally we should specifically identify outputs and
-      // handle them separately from inputs, but that will require a larger
-      // refactor of this pass. Issue #7158
+      // TODO (#7158): This is brittle. Ideally we should specifically identify
+      // outputs and handle them separately from inputs, but that will require a
+      // larger refactor of this pass.
       bool isAliasedOutput =
           mlir::dyn_cast_if_present<memref::AllocOp>(cb.getDefiningOp()) &&
           llvm::none_of(cb.getUsers(), [](Operation *user) {
@@ -395,9 +395,9 @@ public:
 
       if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
               viewOp.getInput().getDefiningOp())) {
-        // This is a view on top of the output of a previous generic. This
-        // happens for the generic that implements the to_layout for the
-        // user-selected output layout.
+        // This is a view on top of the output of a previous generic. This case
+        // applies to the generic that implements the final ttir.to_layout and
+        // converts the output tensor to the user-selected output layout.
         return {convertedOperand, origOperand};
       }
     }
@@ -419,7 +419,7 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     // The ttnn.generic op requires ttnn tensor operands. Defer rewriting until
     // memref.alloc operands are converted so we have the memref->ttnn
-    // tensor translations
+    // tensor translations.
     for (auto [orig, converted] :
          llvm::zip(op->getOperands(), adaptor.getOperands())) {
       if (mlir::isa_and_present<memref::AllocOp>(orig.getDefiningOp()) &&
