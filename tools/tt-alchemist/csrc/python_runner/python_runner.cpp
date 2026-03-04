@@ -163,16 +163,6 @@ PythonModelRunner::forward(const std::vector<tt::runtime::Tensor> &inputs,
       device.as<::ttnn::MeshDevice>(tt::runtime::DeviceRuntime::TTNN);
   nb::object pyDevice = nb::cast(&meshDevice, nb::rv_policy::reference);
 
-  // Pre-set the device singleton in utils.DeviceGetter so that any internal
-  // DeviceGetter.get_device() calls (e.g. from const-eval functions) reuse the
-  // externally-provided device instead of trying to open a new one.
-  try {
-    nb::module_ utils = nb::module_::import_("utils");
-    utils.attr("DeviceGetter").attr("set_external_device")(pyDevice);
-  } catch (...) {
-    // utils module may not be available — OK to skip.
-  }
-
   nb::object result = pImpl->forwardFunc(pyInputs, pyDevice);
 
   // Convert TTNN outputs back to runtime tensors for the C++ API.
