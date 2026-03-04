@@ -81,11 +81,10 @@ class Builder(metaclass=BuilderMeta):
         # List of op locations to bypass golden comparison.
         self._bypass_ops: List[str] = []
 
-        # Dict of ops and operands to deallocate after each op
+        # Dict of ops mapped to the operands to deallocate after each op
         self._op_deallocations: Dict[
             Union[OpView, Operand], List[Union[OpView, Operand]]
         ] = {}
-        self._operand_deallocations: Dict[Operand, List[Union[OpView, Operand]]] = {}
 
         # Set torch seed for reproducibility.
         torch.manual_seed(0)
@@ -841,8 +840,7 @@ class Builder(metaclass=BuilderMeta):
 
     def read_module(self, module):
         """
-        Parse the given module and build the _operand_deallocations and _op_deallocations mappings.
-        - _operand_deallocations: maps each operand to the last operation that uses it
+        Parse the given module and build the _op_deallocations mapping.
         - _op_deallocations: maps each operation to the list of operands that can be deallocated after it
         """
         # Track the last operation that uses each operand
@@ -867,14 +865,7 @@ class Builder(metaclass=BuilderMeta):
         for entry in module.body.operations:
             process_operation(entry)
 
-        # Build the _operand_deallocations mapping
-        # Map each operand to a list containing its last use operation
-        for operand, last_op in operand_last_use.items():
-            if operand not in self._operand_deallocations:
-                self._operand_deallocations[operand] = []
-            self._operand_deallocations[operand].append(last_op)
-
-        # Build the _op_deallocations mapping (inverse of _operand_deallocations)
+        # Build the _op_deallocations mapping
         # Map each operation to the list of operands that should be deallocated after it
         for operand, last_op in operand_last_use.items():
             if last_op not in self._op_deallocations:
