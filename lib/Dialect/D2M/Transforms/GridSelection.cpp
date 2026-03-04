@@ -60,23 +60,6 @@ findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
   return {maxDimIndex, aspectRatio};
 }
 
-static llvm::SmallVector<int64_t> computeOptimalTTNNCompatibleBlockShardedGrid(
-    ArrayRef<int64_t> physicalShape, ArrayRef<int64_t> targetSquareGridShape) {
-  // Find the highest factor for each physical dimension that fits in that grid
-  // dimension. Implicit padding or wrap around is not allowed.
-  llvm::SmallVector<int64_t> grid(physicalShape.size(), 1);
-  for (size_t i = 0; i < physicalShape.size(); ++i) {
-    for (int64_t factor :
-         llvm::reverse(ttmlir::utils::getFactors(physicalShape[i]))) {
-      if (factor <= targetSquareGridShape[i]) {
-        grid[i] = factor;
-        break;
-      }
-    }
-  }
-  return grid;
-}
-
 static llvm::SmallVector<int64_t>
 computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetSquareGridShape);
@@ -254,11 +237,8 @@ static bool shouldImplementAsVirtualGrid(RankedTensorType tensorType,
   if (physicalShape.size() != 2) {
     return true;
   }
-  auto blockShardedGrid =
-      config.ttnnMode ? computeOptimalTTNNCompatibleBlockShardedGrid(
-                            physicalShape, config.targetSquareGridShape)
-                      : computeOptimalBlockShardedGrid(
-                            physicalShape, config.targetSquareGridShape);
+  auto blockShardedGrid = computeOptimalBlockShardedGrid(
+      physicalShape, config.targetSquareGridShape);
   auto blockShardedGridVolume =
       ttmlir::utils::volume<int64_t>(blockShardedGrid);
   int64_t targetGridVolume =
@@ -278,10 +258,8 @@ computeOptimalGrid(mlir::RankedTensorType tensorType,
       return virtualGrid;
     }
   }
-  return config.ttnnMode ? computeOptimalTTNNCompatibleBlockShardedGrid(
-                               physicalShape, config.targetSquareGridShape)
-                         : computeOptimalBlockShardedGrid(
-                               physicalShape, config.targetSquareGridShape);
+  return computeOptimalBlockShardedGrid(physicalShape,
+                                        config.targetSquareGridShape);
 }
 
 static ttcore::MetalLayoutAttr
@@ -583,7 +561,6 @@ static void insertViewForTTNNDRAMTensor(Value operand,
 static void optimizeTTNNMetalLayoutCastOpGrid(
     ttir::TTNNMetalLayoutCastOp castOp, const GridSelectionConfig &config,
     ArrayRef<int64_t> optimalGrid, OpBuilder &builder) {
-
   auto outputType =
       mlir::cast<mlir::RankedTensorType>(castOp.getResult().getType());
   auto outputLayout =
