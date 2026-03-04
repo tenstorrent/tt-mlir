@@ -1757,8 +1757,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return true;
     }
 
+    // DMA-only generics are expected to stream all operands.
     if (genericOp.isDMAOnlyForm()) {
-      return false;
+      return true;
     }
 
     // Non-trivial views need a stream to represent the implied data movement.
