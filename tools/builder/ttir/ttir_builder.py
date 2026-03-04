@@ -13113,7 +13113,7 @@ class TTIRBuilder(Builder):
     def from_module(
         ctx: Context,
         mlir_text: str,
-        golden_inputs: Dict[str, List[torch.tensor]] = None,
+        golden_inputs: Dict[str, List[Dict[int, torch.tensor]]] = None,
         deallocate_goldens: bool = False,
         deallocated_goldens_dir: Optional[str] = ".",
     ) -> Tuple(Module, TTIRBuilder):
@@ -13149,6 +13149,11 @@ class TTIRBuilder(Builder):
                 deallocated_goldens_dir=deallocated_goldens_dir,
             )
             new_module = ttir_builder.parse_root_module(root_module, golden_inputs)
+            new_mesh = ttcore.ir.MeshAttr.get(
+                ttir_builder._ctx, ttir_builder._mesh_name, ttir_builder._mesh_shape
+            )
+            new_meshes = ttcore.ir.MeshesAttr.get(ttir_builder._ctx, [new_mesh])
+            new_module.operation.attributes["ttcore.meshes"] = new_meshes
 
         return new_module, ttir_builder
 
