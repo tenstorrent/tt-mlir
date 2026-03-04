@@ -1007,12 +1007,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 continue;
               }
 
-              if (operandCtx.hasStream) {
-                continue;
-              }
-
-              if (useAlwaysStreamPolicy() ||
-                  inferStreamRequirement(user, operandCtx, placementMemspace)) {
+              if (inferStreamRequirement(user, operandCtx, placementMemspace)) {
                 TT_debug(operandCtx.bufferType != nullptr);
                 const AllocSizeT bufferSize = ttmlir::utils::alignUp(
                     getStreamBufferSizeBytes(operandCtx.bufferType, device),
@@ -1216,9 +1211,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         // DRAM operands always need streams regardless of indexing map
         // patterns, because data must physically move between DRAM and L1.
 
-        if (!operandCtx.hasStream &&
-            (useAlwaysStreamPolicy() ||
-             inferStreamRequirement(genericOp, operandCtx, remappedMemSpace))) {
+        if (inferStreamRequirement(genericOp, operandCtx, remappedMemSpace)) {
 
           // Save the old operand value before stream insertion so we can map
           // from it to the new stream value for updating remote_load/store ops.
@@ -1291,9 +1284,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_assert(cbType != nullptr);
         Type cbUnderlyingType = cbType.getUnderlying();
 
-        if (!operandCtx.hasStream &&
-            (useAlwaysStreamPolicy() ||
-             inferStreamRequirement(genericOp, operandCtx, operandMemSpace))) {
+        if (inferStreamRequirement(genericOp, operandCtx, operandMemSpace)) {
           if (!isOperandExemptFromStreaming(operandCtx, operandMemSpace)) {
             auto preStreamIt =
                 preStreamOperandValues.find(operandCtx.operandIndex());
@@ -1510,13 +1501,24 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// @return `true` if `genericOp` requires a stream
   /// for operand @`operandIndex` based on the available indexing space
   /// information
-  static bool inferStreamRequirement(d2m::GenericOp genericOp,
-                                     const OperandContext &operandCtx,
-                                     MemorySpace memspace) {
-    TT_debug(!genericOp.isExplicitDatamovementForm());
+  bool inferStreamRequirement(d2m::GenericOp genericOp,
+                              const OperandContext &operandCtx,
+                              MemorySpace memspace) const {
+    if (operandCtx.hasStream) {
+      return false;
+    }
+
+    if (useAlwaysStreamPolicy()) {
+      return true;
+    }
 
     if (genericOp.isDMAOnlyForm()) {
       return false;
+    }
+
+    // Non-trivial views need a stream to represent the implied data movement.
+    if (isNonTrivialView(operandCtx)) {
+      return true;
     }
 
     const uint32_t operandIndex = operandCtx.operandIndex();
@@ -1548,11 +1550,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         return true;
       }
     };
-
-    // Non-trivial views need a stream to represent the implied data movement.
-    if (isNonTrivialView(operandCtx)) {
-      return true;
-    }
 
     return false;
   }
