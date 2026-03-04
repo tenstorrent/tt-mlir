@@ -94,25 +94,38 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
     return emitOpError("mcast start index defined but mcast shape is not");
   }
 
-  constexpr int64_t kExpectedIndicesRemote = 3;
-  constexpr int64_t kExpectedIndicesLocal = 1;
-
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();
 
-  if (isDstRemote()) {
-    if (numDstIndices != kExpectedIndicesRemote) {
-      return emitOpError("Must have 3 dst indices for remote dst operand");
+  if (isShardLevel()) {
+    // Shard-level form: no src indices, variable dst grid indices (or none for
+    // mcast).
+    if (numSrcIndices != 0) {
+      return emitOpError("Shard-level DMAWrite must have 0 src indices");
+    }
+    if (isMcast() && numDstIndices != 0) {
+      return emitOpError("Shard-level mcast DMAWrite must have 0 dst indices");
     }
   } else {
-    if (numDstIndices != kExpectedIndicesLocal) {
-      return emitOpError("Must have 1 dst index for local dst operand");
+    // Fully indexed form: original verification rules.
+    constexpr int64_t kExpectedIndicesRemote = 3;
+    constexpr int64_t kExpectedIndicesLocal = 1;
+
+    if (isDstRemote()) {
+      if (numDstIndices != kExpectedIndicesRemote) {
+        return emitOpError("Must have 3 dst indices for remote dst operand");
+      }
+    } else {
+      if (numDstIndices != kExpectedIndicesLocal) {
+        return emitOpError("Must have 1 dst index for local dst operand");
+      }
+    }
+
+    if (numSrcIndices != kExpectedIndicesLocal) {
+      return emitOpError("Must have 1 src index for local src operand");
     }
   }
 
-  if (numSrcIndices != kExpectedIndicesLocal) {
-    return emitOpError("Must have 1 src index for local src operand");
-  }
   return success();
 }
 
@@ -127,18 +140,29 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
     return emitOpError("For DMARead, src must be remote and dst must be local");
   }
   if (srcType.getElementType() != dstType.getElementType()) {
-    return emitOpError("Operands to DMAWrite must have the same element type");
+    return emitOpError("Operands to DMARead must have the same element type");
   }
-  constexpr int64_t kExpectedIndicesRemote = 3;
-  constexpr int64_t kExpectedIndicesLocal = 1;
+
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();
-  if (numSrcIndices != kExpectedIndicesRemote) {
-    return emitOpError("Must have 3 src indices for remote src operand");
+
+  if (isShardLevel()) {
+    // Shard-level form: grid indices on src, no indices on dst.
+    if (numDstIndices != 0) {
+      return emitOpError("Shard-level DMARead must have 0 dst indices");
+    }
+  } else {
+    // Fully indexed form: original verification rules.
+    constexpr int64_t kExpectedIndicesRemote = 3;
+    constexpr int64_t kExpectedIndicesLocal = 1;
+    if (numSrcIndices != kExpectedIndicesRemote) {
+      return emitOpError("Must have 3 src indices for remote src operand");
+    }
+    if (numDstIndices != kExpectedIndicesLocal) {
+      return emitOpError("Must have 1 dst index for local dst operand");
+    }
   }
-  if (numDstIndices != kExpectedIndicesLocal) {
-    return emitOpError("Must have 1 dst index for local dst operand");
-  }
+
   return success();
 }
 

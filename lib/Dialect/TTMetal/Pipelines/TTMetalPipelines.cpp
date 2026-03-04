@@ -230,6 +230,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MPreallocateMcastSemaphores());
   pm.addPass(d2m::createD2MScheduleDMA());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
+  pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
 
   pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
