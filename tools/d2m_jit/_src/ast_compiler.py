@@ -75,7 +75,8 @@ class AstCompiler:
         
         pass_pipeline = [
             "ttir-bufferization-pipeline{ttnn-mode=true}",
-            "d2m-linalg-to-affine",
+            "ttcore-register-device",
+            "d2m-linalg-to-affine{use-tile-matmul=true}",
             "d2m-insert-dst-register-access",
         ]
 

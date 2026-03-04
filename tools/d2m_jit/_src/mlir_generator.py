@@ -379,7 +379,7 @@ class D2MASTVisitor(ast.NodeVisitor):
                     self.core_indices[name] = op.result
 
             elif isinstance(val.func, ast.Name) and val.func.id == "alloc":
-                # Handle alloc() -> tensor.empty placeholder (pre-bufferized form)
+                # Handle alloc() -> tensor.empty placeholder (pre-bufferized form).
                 # Use all-1s shape so _is_placeholder_shape returns True.
                 # The actual shape is determined when the buffer is used.
                 with Location.unknown(self.ctx), InsertionPoint(self.block):
@@ -390,6 +390,27 @@ class D2MASTVisitor(ast.NodeVisitor):
                     from ttmlir.dialects import tensor as tensor_dialect
                     op = tensor_dialect.EmptyOp(placeholder_shape, tile_type)
                     self.symbol_table[name] = op.result
+
+    def _collect_matmul_writes(self, stmts):
+        """Pre-scan loop body statements to find variables written by matmul ops.
+
+        Matmul accumulates into its output across loop iterations (k-loop), so the
+        output must be carried as a loop iter_arg to avoid SSA dominance violations
+        when the accumulated result is used after the loop.  Add/eltwise ops do NOT
+        accumulate, so they do not need iter_args.
+        """
+        written = set()
+        for stmt in stmts:
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+                call = stmt.value
+                if isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name) and call.func.value.id == "d2m":
+                    op = call.func.attr
+                    if op == "matmul" and len(call.args) >= 3:
+                        if isinstance(call.args[2], ast.Name):
+                            written.add(call.args[2].id)
+            elif isinstance(stmt, ast.For):
+                written.update(self._collect_matmul_writes(stmt.body))
+        return written
 
     def visit_For(self, node):
         if not isinstance(node.iter, ast.Call) or node.iter.func.id != "range":
@@ -412,26 +433,59 @@ class D2MASTVisitor(ast.NodeVisitor):
         from ttmlir.dialects import affine
 
         with Location.unknown(self.ctx), InsertionPoint(self.block):
-            # AffineForOp takes integer bounds directly
             start_int = self._require_compile_time_int(start_val, "range start")
             end_int = self._require_compile_time_int(end_val, "range end")
             step_int = self._require_compile_time_int(step_val, "range step")
             if step_int == 0:
                 raise ValueError("range step must be non-zero")
 
-            loop = affine.AffineForOp(start_int, end_int, step_int)
+            # Find matmul output variables inside the loop body.  These accumulate across
+            # loop iterations and must be loop-carried via iter_args to avoid SSA dominance
+            # violations when the accumulated result is used after the loop.
+            # (Elementwise ops like add completely overwrite their outputs each iteration
+            # and are not needed outside the loop, so they don't require iter_args.)
+            matmul_written = self._collect_matmul_writes(node.body)
+            iter_arg_names = [n for n in matmul_written if n in self.symbol_table]
+            # Create correctly-typed init tensors for each iter_arg.  The alloc()
+            # placeholder (all-1s) would cause a type mismatch with the linalg.generic
+            # result (shard-shaped), so we emit a fresh tensor.empty with the shard shape.
+            from ttmlir.ir import Type
+            _tile_type = Type.parse("!ttcore.tile<32x32, f32>", context=self.ctx)
+            from ttmlir.dialects import tensor as tensor_dialect
+            iter_arg_init_values = [
+                tensor_dialect.EmptyOp(
+                    [self.per_core_tile_h, self.per_core_tile_w], _tile_type
+                ).result
+                for _ in iter_arg_names
+            ]
 
-            # The induction variable is named node.target.id
+            loop = affine.AffineForOp(
+                start_int, end_int, step_int,
+                iter_args=iter_arg_init_values if iter_arg_names else None,
+            )
+
             if isinstance(node.target, ast.Name):
                 self.symbol_table[node.target.id] = loop.induction_variable
 
-            # Visit the body inside the loop
+            # Map iter_arg names to the loop's inner_iter_args so that uses inside
+            # the loop body see the loop-carried values rather than the pre-loop values.
+            for i, name in enumerate(iter_arg_names):
+                self.symbol_table[name] = loop.inner_iter_args[i]
+
             prev_block = self.block
             self.block = loop.body
             with InsertionPoint(self.block):
                 for stmt in node.body:
                     self.visit(stmt)
+                # Yield the (potentially updated) iter_arg values so the loop can carry them.
+                yield_vals = [self.symbol_table[n] for n in iter_arg_names]
+                affine.AffineYieldOp(yield_vals)
             self.block = prev_block
+
+            # After the loop, update symbol_table with the loop's result values
+            # (the final carried values after all iterations).
+            for i, name in enumerate(iter_arg_names):
+                self.symbol_table[name] = loop.results[i]
 
     def visit_Call(self, node):
         if not isinstance(node.func, ast.Attribute):
@@ -481,9 +535,9 @@ class D2MASTVisitor(ast.NodeVisitor):
                         )
                     x_dim = max(1, x_size_int // TILE_SIZE)
 
-                # Local buffer type: batch_dims + [y_dim, x_dim] tile tensor (no memory space)
-                batch_dims = list(src_layout["shape"][:-2]) if src_layout else [1, 1]
-                local_shape = batch_dims + [y_dim, x_dim]
+                # Local buffer type: 2D [y_dim, x_dim] tile tensor (no memory space).
+                # The metal tensor is rank-4 (grid + 2D shard) so the CB shard is 2D.
+                local_shape = [y_dim, x_dim]
 
                 # Create tensor.empty() as local buffer
                 from ttmlir.dialects import tensor as tensor_dialect
@@ -605,8 +659,10 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                     aligns = ["1"] * (rank - 2) + ["32", "32"]
                     dim_alignments_str = "x".join(aligns)
 
-                    # Metal tensor shape: grid_y x grid_x x batch_dims x per_core_tile_h x per_core_tile_w
-                    metal_shape = [grid[0], grid[1]] + list(shape[:-2]) + [per_core_tile_h, per_core_tile_w]
+                    # Metal tensor shape: grid_y x grid_x x per_core_tile_h x per_core_tile_w
+                    # Rank-4 (2D grid + 2D shard); collapsed_intervals=[[0,-1]] folds batch dims
+                    # into the physical height dimension so getGridShape returns 2D [grid_y, grid_x].
+                    metal_shape = [grid[0], grid[1], per_core_tile_h, per_core_tile_w]
                     metal_shape_str = "x".join(map(str, metal_shape))
 
                     metal_type_str = (
@@ -675,10 +731,8 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                         Attribute.parse("#ttcore.iterator_type<parallel>", context=ctx)
                         for _ in range(2)
                     ])
-                    # block_factors: one entry per shard dimension (metal rank - grid rank)
-                    first_metal = (inputs + outputs)[0]
-                    shard_rank = len(RankedTensorType(first_metal.type).shape) - 2
-                    block_factors = DenseI64ArrayAttr.get([1] * shard_rank)
+                    # block_factors: one entry per iterator (must match iterator_types length = 2)
+                    block_factors = [1, 1]
                     threads = ArrayAttr.get([Attribute.parse("#d2m.thread<unified>", context=ctx)])
 
                     generic_op = d2m_dialect.GenericOp(
