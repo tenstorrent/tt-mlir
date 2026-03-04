@@ -21,6 +21,143 @@ def _dtype_to_mlir_str(dtype: str) -> str:
     return _DTYPE_MAP.get(str(dtype), "f32")
 
 
+# ── AST pre-scan helpers ─────────────────────────────────────────────────────
+
+def _slice_size_from_ast(slice_node):
+    """Return the static element count of a slice node, or None.
+
+    Handles patterns like ``k:k+128`` or ``(off+y):(off+y+64)``.
+    """
+    if not isinstance(slice_node, ast.Slice) or slice_node.upper is None:
+        return None
+    upper = slice_node.upper
+    # Pattern: upper = lower + N  (BinOp whose right or left child is a literal)
+    if isinstance(upper, ast.BinOp) and isinstance(upper.op, ast.Add):
+        if isinstance(upper.right, ast.Constant) and isinstance(upper.right.value, int):
+            return upper.right.value
+        if isinstance(upper.left, ast.Constant) and isinstance(upper.left.value, int):
+            return upper.left.value
+    # Pattern: constant upper (possibly with constant lower)
+    if isinstance(upper, ast.Constant) and isinstance(upper.value, int):
+        lower = slice_node.lower
+        if lower is None:
+            return upper.value
+        if isinstance(lower, ast.Constant) and isinstance(lower.value, int):
+            return upper.value - lower.value
+    return None
+
+
+def _extract_remote_op_slice_sizes(subscript_node, sizes):
+    """Update *sizes* with the (y_tiles, x_tiles) for the tensor in *subscript_node*.
+
+    *subscript_node* is the AST node ``src[y_slice][x_slice]``.  We take the
+    minimum observed slice size per tensor (handles mixed access patterns).
+    """
+    if not (isinstance(subscript_node, ast.Subscript) and
+            isinstance(subscript_node.value, ast.Subscript)):
+        return
+    x_slice = subscript_node.slice
+    y_slice = subscript_node.value.slice
+    name_node = subscript_node.value.value
+    if not isinstance(name_node, ast.Name):
+        return
+    name = name_node.id
+    y_sz = _slice_size_from_ast(y_slice)
+    x_sz = _slice_size_from_ast(x_slice)
+    if y_sz is None or x_sz is None:
+        return
+    y_tiles = y_sz // TILE_SIZE
+    x_tiles = x_sz // TILE_SIZE
+    if name in sizes:
+        prev_y, prev_x = sizes[name]
+        sizes[name] = (min(prev_y, y_tiles), min(prev_x, x_tiles))
+    else:
+        sizes[name] = (y_tiles, x_tiles)
+
+
+def _scan_stmts_for_slices(stmts, sizes):
+    """Recursively walk *stmts* collecting remote_load/store slice sizes."""
+    for stmt in stmts:
+        if isinstance(stmt, ast.For):
+            _scan_stmts_for_slices(stmt.body, sizes)
+        elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+            call = stmt.value
+            if (isinstance(call.func, ast.Attribute) and
+                    isinstance(call.func.value, ast.Name) and
+                    call.func.value.id == "d2m"):
+                op = call.func.attr
+                if op == "remote_load" and len(call.args) >= 2:
+                    _extract_remote_op_slice_sizes(call.args[1], sizes)
+                elif op == "remote_store" and len(call.args) >= 1:
+                    _extract_remote_op_slice_sizes(call.args[0], sizes)
+
+
+def _scan_required_slice_sizes(func_body):
+    """Return ``{tensor_name: (y_tiles, x_tiles)}`` for every remotely-accessed tensor."""
+    sizes = {}
+    _scan_stmts_for_slices(func_body, sizes)
+    return sizes
+
+
+# ── View-layout emission helper ───────────────────────────────────────────────
+
+def _emit_view_layout(ctx, metal_val, f_y, f_x, sub_h, sub_w, tile_type_str,
+                      logical_shape_str, dim_alignments_str,
+                      memory_space_str="dram"):
+    """Emit a ``d2m.view_layout`` that reblocks a metal tensor to finer virtual shards.
+
+    Args:
+        metal_val:           MLIR Value of type ``tensor<GY x GX x SH x SW x tile>``
+        f_y, f_x:            Reblock factors (GY*f_y, GX*f_x is the new virtual grid)
+        sub_h, sub_w:        New shard tile dimensions (SH/f_y, SW/f_x)
+        tile_type_str:       e.g. ``!ttcore.tile<32x32, bf16>``
+        logical_shape_str:   e.g. ``1x1x256x256``
+        dim_alignments_str:  e.g. ``1x1x32x32``
+        memory_space_str:    e.g. ``dram``
+
+    The result type uses a MetalLayoutAttr (required by ViewLayoutOp::verify for
+    tensor operands) with the same logical_shape, oob_val, and memory_space as the
+    input.  Bufferization converts this to ``memref<...#ttcore.view<rank>>`` automatically.
+    """
+    metal_ranked = RankedTensorType(metal_val.type)
+    orig_shape = list(metal_ranked.shape)   # [GY, GX, SH, SW]
+    GY, GX = orig_shape[0], orig_shape[1]
+    SH, SW = orig_shape[2], orig_shape[3]
+
+    new_shape_str = f"{GY * f_y}x{GX * f_x}x{sub_h}x{sub_w}"
+
+    # Remapping map: virtual (d0,d1,d2,d3) → physical coords
+    map_str = (
+        f"affine_map<(d0, d1, d2, d3) -> "
+        f"((d0 * {sub_h} + d2) floordiv {SH}, "
+        f"(d1 * {sub_w} + d3) floordiv {SW}, "
+        f"(d0 * {sub_h} + d2) mod {SH}, "
+        f"(d1 * {sub_w} + d3) mod {SW})>"
+    )
+    remapping_attr = Attribute.parse(map_str, context=ctx)
+
+    # Result type: MetalLayoutAttr with same logical_shape, oob_val, memory_space.
+    # ViewLayoutOp::verify() hard-casts result.getEncoding() to MetalLayoutAttr
+    # for tensor operands, so we must use MetalLayoutAttr (not ViewLayoutAttr).
+    # Bufferization later converts this to memref<...#ttcore.view<rank>> via
+    # getBufferType(result, isView=true).
+    result_type_str = (
+        f"tensor<{new_shape_str}x{tile_type_str}, "
+        f"#ttcore.metal_layout<logical_shape={logical_shape_str}, "
+        f"dim_alignments={dim_alignments_str}, "
+        f"collapsed_intervals=dense<[[0, -1]]> : tensor<1x2xi64>, "
+        f"undef, {memory_space_str}, sharded>>"
+    )
+    result_type = Type.parse(result_type_str, context=ctx)
+
+    import ttmlir.dialects.d2m as d2m_dialect
+    return d2m_dialect.ViewLayoutOp(
+        result=result_type,
+        input=metal_val,
+        remapping=remapping_attr,
+    ).result
+
+
 def _normalize_int_dim(value, tensor_name, axis):
     if isinstance(value, bool) or not isinstance(value, Integral):
         raise ValueError(
@@ -70,13 +207,16 @@ def _is_placeholder_shape(shape):
 
 
 class D2MASTVisitor(ast.NodeVisitor):
-    def __init__(self, ctx, block, tensor_metadata, grid, tile_type_str="!ttcore.tile<32x32, f32>", mlir_dtype="f32"):
+    def __init__(self, ctx, block, tensor_metadata, grid,
+                 tile_type_str="!ttcore.tile<32x32, f32>", mlir_dtype="f32",
+                 reblock_info=None):
         self.ctx = ctx
         self.block = block
         self.tensor_metadata = tensor_metadata
         self.grid = grid
         self.tile_type_str = tile_type_str
         self.mlir_dtype = mlir_dtype
+        self.reblock_info = reblock_info or {}
 
         self.symbol_table = {}
         self.core_indices = {} # Tracks core_y, core_x
@@ -180,6 +320,17 @@ class D2MASTVisitor(ast.NodeVisitor):
         if isinstance(slice_node, ast.Slice) and slice_node.lower is not None:
             return self._emit_index_expr(slice_node.lower)
         return arith.ConstantOp(idx_type, IntegerAttr.get(idx_type, 0)).result
+
+    def _emit_virtual_index(self, slice_node, sub_elements):
+        """Compute virtual grid coord = slice_start_elements / sub_elements.
+
+        Must be called inside an active InsertionPoint + Location context.
+        """
+        from ttmlir.ir import IndexType, IntegerAttr
+        idx_type = IndexType.get(self.ctx)
+        start_val = self._emit_slice_start(slice_node)
+        sub_const = arith.ConstantOp(idx_type, IntegerAttr.get(idx_type, sub_elements)).result
+        return arith.DivUIOp(start_val, sub_const).result
 
     def _infer_add_result_type(self, lhs_type, rhs_type):
         from ttmlir.ir import RankedTensorType, MemRefType
@@ -587,6 +738,17 @@ class D2MASTVisitor(ast.NodeVisitor):
                 # The metal tensor is rank-4 (grid + 2D shard) so the CB shard is 2D.
                 local_shape = [y_dim, x_dim]
 
+                # For reblocked tensors: use the sub-shard shape and virtual grid indices.
+                # For non-reblocked tensors: use the slice-derived shape and element offsets.
+                if src_name in self.reblock_info:
+                    rb = self.reblock_info[src_name]
+                    local_shape = [rb["sub_h"], rb["sub_w"]]
+                    y_idx = self._emit_virtual_index(y_slice, rb["sub_h_elements"])
+                    x_idx = self._emit_virtual_index(x_slice, rb["sub_w_elements"])
+                else:
+                    y_idx = self._emit_slice_start(y_slice)
+                    x_idx = self._emit_slice_start(x_slice)
+
                 # Create tensor.empty() as local buffer
                 from ttmlir.dialects import tensor as tensor_dialect
                 local_buf_op = tensor_dialect.EmptyOp(local_shape, tile_type)
@@ -600,7 +762,7 @@ class D2MASTVisitor(ast.NodeVisitor):
                 op = d2m_dialect.RemoteLoadOp(
                     local_buf_op.result.type,
                     src_val,
-                    [self._emit_slice_start(y_slice), self._emit_slice_start(x_slice)],
+                    [y_idx, x_idx],
                     mcast_start_index,
                     mcast_shape_attr,
                     mcast_dims_attr,
@@ -626,10 +788,18 @@ class D2MASTVisitor(ast.NodeVisitor):
                 dest_val = self.symbol_table[dest_name]
                 import ttmlir.dialects.d2m as d2m_dialect
 
+                if dest_name in self.reblock_info:
+                    rb = self.reblock_info[dest_name]
+                    y_idx = self._emit_virtual_index(y_slice, rb["sub_h_elements"])
+                    x_idx = self._emit_virtual_index(x_slice, rb["sub_w_elements"])
+                else:
+                    y_idx = self._emit_slice_start(y_slice)
+                    x_idx = self._emit_slice_start(x_slice)
+
                 store_op = d2m_dialect.RemoteStoreOp(
                     dest_val.type,
                     dest_val,
-                    [self._emit_slice_start(y_slice), self._emit_slice_start(x_slice)],
+                    [y_idx, x_idx],
                     localBuffer=src_val,
                 )
 
@@ -664,6 +834,10 @@ class D2MASTVisitor(ast.NodeVisitor):
                     self.symbol_table[out] = val1
 
 def generate_ir(func_ast, grid, tensor_metadata, debug=False):
+    # Pre-scan the function body to find the smallest slice sizes used in remote ops.
+    # This drives view_layout reblocking when sub-shard access is needed.
+    required_slice_sizes = _scan_required_slice_sizes(func_ast.body)
+
     with Context() as ctx:
         ctx.allow_unregistered_dialects = True
         with Location.unknown(ctx):
@@ -772,24 +946,75 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                         )
                         outputs.append(cast_op.result)
 
+                    # === Reblocking: emit view_layout for sub-shard access patterns ===
+                    # When the user's remote_load/store slices are smaller than one
+                    # physical shard, we wrap the metal tensor in a d2m.view_layout that
+                    # creates a finer virtual grid.  RemoteLoad/Store then use virtual
+                    # grid coordinates derived from the element-level slice starts.
+                    reblock_info = {}
+                    for rb_i, rb_name in enumerate(input_names):
+                        if rb_name not in required_slice_sizes:
+                            continue
+                        sub_h_t, sub_w_t = required_slice_sizes[rb_name]
+                        rb_layout = _get_validated_layout_dims(rb_name, tensor_metadata[rb_name]["shape"])
+                        pc_h = rb_layout["tile_h"] // grid[0]
+                        pc_w = rb_layout["tile_w"] // grid[1]
+                        if sub_h_t >= pc_h and sub_w_t >= pc_w:
+                            continue  # full-shard access — no reblocking needed
+                        f_y = pc_h // sub_h_t
+                        f_x = pc_w // sub_w_t
+                        rb_logical_str = "x".join(map(str, rb_layout["shape"]))
+                        rb_align_str = "x".join(["1"] * (rb_layout["rank"] - 2) + ["32", "32"])
+                        with Location.unknown(ctx):
+                            inputs[rb_i] = _emit_view_layout(
+                                ctx, inputs[rb_i], f_y, f_x, sub_h_t, sub_w_t, _tile_type_str,
+                                rb_logical_str, rb_align_str
+                            )
+                        reblock_info[rb_name] = {
+                            "sub_h": sub_h_t, "sub_w": sub_w_t,
+                            "sub_h_elements": sub_h_t * TILE_SIZE,
+                            "sub_w_elements": sub_w_t * TILE_SIZE,
+                        }
+
+                    for rb_i, rb_name in enumerate(output_names):
+                        if rb_name not in required_slice_sizes:
+                            continue
+                        sub_h_t, sub_w_t = required_slice_sizes[rb_name]
+                        rb_layout = _get_validated_layout_dims(rb_name, tensor_metadata[rb_name]["shape"])
+                        pc_h = rb_layout["tile_h"] // grid[0]
+                        pc_w = rb_layout["tile_w"] // grid[1]
+                        if sub_h_t >= pc_h and sub_w_t >= pc_w:
+                            continue
+                        f_y = pc_h // sub_h_t
+                        f_x = pc_w // sub_w_t
+                        rb_logical_str = "x".join(map(str, rb_layout["shape"]))
+                        rb_align_str = "x".join(["1"] * (rb_layout["rank"] - 2) + ["32", "32"])
+                        with Location.unknown(ctx):
+                            view_val = _emit_view_layout(
+                                ctx, outputs[rb_i], f_y, f_x, sub_h_t, sub_w_t, _tile_type_str,
+                                rb_logical_str, rb_align_str
+                            )
+                        outputs[rb_i] = view_val
+                        output_metal_types[rb_i] = view_val.type
+                        reblock_info[rb_name] = {
+                            "sub_h": sub_h_t, "sub_w": sub_w_t,
+                            "sub_h_elements": sub_h_t * TILE_SIZE,
+                            "sub_w_elements": sub_w_t * TILE_SIZE,
+                        }
+
                     grid_attr = Attribute.parse(f"#ttcore.grid<{grid[0]}x{grid[1]}>", context=ctx)
 
-                    # Build d2m.generic attributes
-                    n_operands = len(inputs) + len(outputs)
-                    identity_2d = AffineMap.get_identity(2)
-                    indexing_maps = ArrayAttr.get(
-                        [AffineMapAttr.get(identity_2d) for _ in range(n_operands)]
-                    )
-                    iterator_types = ArrayAttr.get([
-                        Attribute.parse("#ttcore.iterator_type<parallel>", context=ctx)
-                        for _ in range(2)
-                    ])
-                    # block_factors: one entry per iterator (must match iterator_types length = 2)
-                    block_factors = [1, 1]
+                    # Build d2m.generic in explicit datamovement form:
+                    # empty block_factors, indexing_maps, iterator_types.
+                    # This bypasses verifyAffineBlocking entirely (GenericOp::verify
+                    # skips the affine-blocking checks when indexing_maps is empty).
                     threads = ArrayAttr.get([Attribute.parse("#d2m.thread<unified>", context=ctx)])
+                    indexing_maps = ArrayAttr.get([])
+                    iterator_types = ArrayAttr.get([])
+                    block_factors = []
 
                     generic_op = d2m_dialect.GenericOp(
-                        output_metal_types,  # results_ — one per output tensor
+                        output_metal_types,  # results — one per output tensor
                         inputs,
                         outputs,
                         [],       # additionalArgs
@@ -820,7 +1045,7 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                         block_arg_types.append(cb_type)
                     generic_bb = region.blocks.append(*block_arg_types)
 
-                    visitor = D2MASTVisitor(ctx, generic_bb, tensor_metadata, grid, _tile_type_str, _mlir_dtype)
+                    visitor = D2MASTVisitor(ctx, generic_bb, tensor_metadata, grid, _tile_type_str, _mlir_dtype, reblock_info)
 
                     # Map tensor names to outer metal tensor Values (not CB block args)
                     # remote_load/remote_store use these outer operands
