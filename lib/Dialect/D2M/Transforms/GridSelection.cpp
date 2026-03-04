@@ -281,8 +281,8 @@ layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
     // Set dim alignments: all 1s except last two are tile default shape.
     newDimAlignments.assign(oldLayout.getLogicalShape().size(), 1);
     auto defaultTileShape = ttcore::TileType::getDefaultShape();
-    newDimAlignments[newDimAlignments.size() - 1] = defaultTileShape[0];
-    newDimAlignments[newDimAlignments.size() - 2] = defaultTileShape[1];
+    newDimAlignments[newDimAlignments.size() - 1] = defaultTileShape[1];
+    newDimAlignments[newDimAlignments.size() - 2] = defaultTileShape[0];
   } else {
     collapsedIntervals = oldLayout.getCollapsedIntervals();
     newDimAlignments = ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
@@ -629,23 +629,6 @@ struct GridAnalysisResult {
   llvm::SmallVector<EmptyUpdateInfo> emptyOps;
 };
 
-// After normalization, the per-operand optimal grids may have changed.
-// Propagate the final grids back into all update-plan entries using their
-// stored operand indices.
-static void propagateNormalizedGrids(GridAnalysisResult &result) {
-  for (auto &info : result.ttnnTensors) {
-    info.grid = result.optimalOperandGrids[info.operandIndex];
-  }
-  for (auto &info : result.streamLayouts) {
-    info.grid = result.optimalOperandGrids[info.operandIndex];
-  }
-  for (auto &info : result.toLayouts) {
-    info.grid = result.optimalOperandGrids[info.operandIndex];
-  }
-  for (auto &info : result.emptyOps) {
-    info.grid = result.optimalOperandGrids[info.operandIndex];
-  }
-}
 
 // This function normalizes the operand grids for a generic operation by
 // ensuring that the grids are consistent across all operands that share the
@@ -821,18 +804,6 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
   // this function for details.
   result.optimalOperandGrids =
       normalizeOperandGridsForGeneric(genericOp, result.optimalOperandGrids);
-
-  bool hasTTNNOperand =
-      llvm::any_of(genericOp->getOpOperands(), [](OpOperand &operand) {
-        return isTTNNOperand(operand.get());
-      });
-  if (config.ttnnMode && hasTTNNOperand) {
-    // Propagate normalized grids back into update plans. This is required for
-    // generic ops with DRAM TTNN tensors and L1 outputs. DRAM interleaved
-    // tensors do not support virtual grid reblocking, so we need to make sure
-    // the output grid is set to the normalized grid.
-    propagateNormalizedGrids(result);
-  }
 
   return result;
 }
