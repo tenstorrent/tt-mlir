@@ -176,8 +176,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     return
   }
 
-  // Test DMA-only form where remote_load uses ViewLayoutOp (not StreamLayoutOp)
-  // In DMA-only form, only ViewLayoutOp operands are considered remote
+  // Test DMA-only form where remote_load uses stream-backed operands.
   // CHECK-LABEL: func.func @test_dma_only_form_no_consumers
   // CHECK: d2m.remote_load %{{.*}}[%{{.*}}, %{{.*}}] into %cb0
   // CHECK-NEXT: %[[IN:.*]] = d2m.wait %cb0
@@ -186,9 +185,10 @@ module attributes {ttcore.system_desc = #system_desc} {
                                               %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
     %cb_alloc = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
     %view = d2m.view_layout %arg0 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %stream = "d2m.stream_layout"(%view, %cb_alloc) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
 
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>]}
-        ins(%view : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        ins(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%arg1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
     ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
       %c0 = arith.constant 0 : index
@@ -202,7 +202,7 @@ module attributes {ttcore.system_desc = #system_desc} {
           // Implicit form: remote_load with result, but result is never used (DMA-only, side-effect only)
           // In DMA-only form, remote_load loads into the output CB (cb1)
           %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-          %in = d2m.remote_load %buffer %view[%0, %1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          %in = d2m.remote_load %buffer %stream[%0, %1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
           // No consumers of %in - used purely for side effects
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
@@ -219,10 +219,12 @@ module attributes {ttcore.system_desc = #system_desc} {
   // CHECK: d2m.pop %cb0
   func.func @test_dma_only_form_load_to_output_cb(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
                                                    %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+    %cb_alloc = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
     %view = d2m.view_layout %arg0 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %stream = "d2m.stream_layout"(%view, %cb_alloc) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
 
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>]}
-        ins(%view : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        ins(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%arg1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
     ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
       %c0 = arith.constant 0 : index
@@ -235,7 +237,7 @@ module attributes {ttcore.system_desc = #system_desc} {
           %1 = arith.addi %core1, %arg4 : index
           // In DMA-only form, this remote_load should load into the output CB (cb1), not the input CB (cb0)
           %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-          %out = d2m.remote_load %buffer %view[%0, %1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          %out = d2m.remote_load %buffer %stream[%0, %1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }
@@ -313,37 +315,41 @@ module attributes {ttcore.system_desc = #system_desc} {
     %alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #l1>
     %alloc_0 = memref.alloc() {address = 1024 : i64, alignment = 32 : i64} : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #dram>
     %view = d2m.view_layout %alloc_0 remapping = #map4 : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #dram> -> memref<1x1x128x128xf32, #ttcore.view<4>, #dram>
+    %cb_alloc = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #l1>
+    %stream = "d2m.stream_layout"(%view, %cb_alloc) <{remapping = #map4}> : (memref<1x1x128x128xf32, #ttcore.view<4>, #dram>, memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #l1>) -> memref<1x1x128x128xf32, #ttcore.view<4>, #dram>
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%alloc : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #l1>)
-        outs(%view : memref<1x1x128x128xf32, #ttcore.view<4>, #dram>)  {
+        outs(%stream : memref<1x1x128x128xf32, #ttcore.view<4>, #dram>)  {
     ^unified0(%cb0: !d2m.cb<memref<128x128xf32, #l1>>, %cb1: !d2m.cb<memref<128x128xf32, #l1>>):
       %core0 = d2m.core_index(0) {phys_to_virt_map = affine_map<() -> ()>} : index
       %core1 = d2m.core_index(1) {phys_to_virt_map = affine_map<() -> ()>} : index
       %buffer = memref.alloc() {operand_index = 1 : i64} : memref<128x128xf32>
-      d2m.remote_store %view[%core0, %core1] %buffer : memref<1x1x128x128xf32, #ttcore.view<4>, #dram>, memref<128x128xf32> -> memref<1x1x128x128xf32, #ttcore.view<4>, #dram>
+      d2m.remote_store %stream[%core0, %core1] %buffer : memref<1x1x128x128xf32, #ttcore.view<4>, #dram>, memref<128x128xf32> -> memref<1x1x128x128xf32, #ttcore.view<4>, #dram>
     }
     memref.dealloc %alloc : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #l1>
     %alloc_1 = memref.alloc() {address = 66560 : i64, alignment = 16 : i64} : memref<2x2x64x64xf32, #ttcore.shard<256x4, 1>, #l1>
     %alloc_2 = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #l1>
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
-        ins(%view : memref<1x1x128x128xf32, #ttcore.view<4>, #dram>)
+        ins(%stream : memref<1x1x128x128xf32, #ttcore.view<4>, #dram>)
         outs(%alloc_2 : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #l1>)  {
     ^unified0(%cb0: !d2m.cb<memref<128x128xf32, #l1>>, %cb1: !d2m.cb<memref<128x128xf32, #l1>>):
       %core0 = d2m.core_index(0) {phys_to_virt_map = affine_map<() -> ()>} : index
       %core1 = d2m.core_index(1) {phys_to_virt_map = affine_map<() -> ()>} : index
       %buffer0 = memref.alloc() : memref<128x128xf32, #l1>
-      %in = d2m.remote_load %buffer0 %view[%core0, %core1] : memref<128x128xf32, #l1>, memref<1x1x128x128xf32, #ttcore.view<4>, #dram> -> memref<128x128xf32, #l1>
+      %in = d2m.remote_load %buffer0 %stream[%core0, %core1] : memref<128x128xf32, #l1>, memref<1x1x128x128xf32, #ttcore.view<4>, #dram> -> memref<128x128xf32, #l1>
     }
     memref.dealloc %alloc_0 : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #dram>
     %view_3 = d2m.view_layout %alloc_2 remapping = #reblock_map : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #l1> -> memref<2x2x64x64xf32, #ttcore.view<4>, #l1>
+    %cb_alloc_3 = memref.alloc() {address = 10240 : i64, alignment = 16 : i64} : memref<2x2x64x64xf32, #ttcore.shard<256x4, 1>, #l1>
+    %stream_3 = "d2m.stream_layout"(%view_3, %cb_alloc_3) <{remapping = #map4}> : (memref<2x2x64x64xf32, #ttcore.view<4>, #l1>, memref<2x2x64x64xf32, #ttcore.shard<256x4, 1>, #l1>) -> memref<2x2x64x64xf32, #ttcore.view<4>, #l1>
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x2>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
-        ins(%view_3 : memref<2x2x64x64xf32, #ttcore.view<4>, #l1>)
+        ins(%stream_3 : memref<2x2x64x64xf32, #ttcore.view<4>, #l1>)
         outs(%alloc_1 : memref<2x2x64x64xf32, #ttcore.shard<256x4, 1>, #l1>)  {
     ^unified0(%cb0: !d2m.cb<memref<64x64xf32, #l1>>, %cb1: !d2m.cb<memref<64x64xf32, #l1>>):
       %core0 = d2m.core_index(0) {phys_to_virt_map = affine_map<() -> ()>} : index
       %core1 = d2m.core_index(1) {phys_to_virt_map = affine_map<() -> ()>} : index
       %buffer1 = memref.alloc() : memref<64x64xf32, #l1>
-      %in2 = d2m.remote_load %buffer1 %view_3[%core0, %core1] : memref<64x64xf32, #l1>, memref<2x2x64x64xf32, #ttcore.view<4>, #l1> -> memref<64x64xf32, #l1>
+      %in2 = d2m.remote_load %buffer1 %stream_3[%core0, %core1] : memref<64x64xf32, #l1>, memref<2x2x64x64xf32, #ttcore.view<4>, #l1> -> memref<64x64xf32, #l1>
     }
     memref.dealloc %alloc_2 : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #l1>
     %alloc_4 = memref.alloc() : memref<128x128xf32>

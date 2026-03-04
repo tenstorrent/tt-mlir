@@ -73,6 +73,69 @@ struct PushPopInfo {
   SmallVector<std::pair<ReserveOp, Value>> reserveOpsNeedingPush;
 };
 
+// Validate shared local-buffer forwarding legality between an implicit
+// remote_load and implicit remote_store users. If forwarding is legal, returns
+// the unique store user that can be folded into the forward-able pair path.
+static LogicalResult getLegalForwardableStore(RemoteLoadOp remoteLoad,
+                                              Value localBuffer,
+                                              RemoteStoreOp &forwardableStore) {
+  forwardableStore = nullptr;
+  if (!localBuffer) {
+    return success();
+  }
+
+  int64_t userCount = 0;
+  int64_t implicitLoadUserCount = 0;
+  SmallVector<RemoteStoreOp> implicitStoreUsers;
+  Type localBufferType = localBuffer.getType();
+
+  for (Operation *user : localBuffer.getUsers()) {
+    ++userCount;
+
+    if (auto loadUser = mlir::dyn_cast<RemoteLoadOp>(user)) {
+      if (loadUser.isImplicitForm() &&
+          loadUser.getLocalBuffer() == localBuffer) {
+        ++implicitLoadUserCount;
+      }
+      continue;
+    }
+
+    auto storeUser = mlir::dyn_cast<RemoteStoreOp>(user);
+    if (!storeUser) {
+      continue;
+    }
+
+    if (!storeUser.isImplicitForm() ||
+        storeUser.getLocalBuffer() != localBuffer) {
+      continue;
+    }
+
+    // Forwarding requires identical local buffer types so shard/layout
+    // semantics are preserved exactly between producer and consumer.
+    if (storeUser.getLocalBuffer().getType() != localBufferType) {
+      return remoteLoad.emitOpError(
+          "shared local buffer between d2m.remote_load and d2m.remote_store "
+          "must preserve shard/layout type");
+    }
+    implicitStoreUsers.push_back(storeUser);
+  }
+
+  if (implicitStoreUsers.empty()) {
+    return success();
+  }
+
+  bool isForwardablePair = implicitLoadUserCount == 1 &&
+                           implicitStoreUsers.size() == 1 && userCount == 2;
+  if (!isForwardablePair) {
+    return remoteLoad.emitOpError("local buffer shared between "
+                                  "d2m.remote_load and d2m.remote_store must "
+                                  "form an exclusive forward-able pair");
+  }
+
+  forwardableStore = implicitStoreUsers.front();
+  return success();
+}
+
 // Pass A: Convert all remote_load and remote_store into explicit CB form.
 // Returns information needed for push/pop insertion.
 static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
@@ -113,10 +176,15 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
     // Downstream operations may reference this buffer directly
     Value localBuffer = remoteLoad.getLocalBuffer();
     memref::AllocOp allocToErase = nullptr;
+    RemoteStoreOp forwardableStore = nullptr;
     if (localBuffer) {
       if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
               localBuffer.getDefiningOp())) {
         allocToErase = allocOp;
+      }
+      if (failed(getLegalForwardableStore(remoteLoad, localBuffer,
+                                          forwardableStore))) {
+        return failure();
       }
     }
 
@@ -128,7 +196,35 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
                                   remoteLoad.getMcastStartIndex(),
                                   remoteLoad.getMcastShape());
 
-    // Create wait operation to produce the result value
+    // Forward-able pair:
+    //   remote_load %buf %in[...]
+    //   remote_store %out[...] %buf
+    // Lower both to the same load-associated CB.
+    if (forwardableStore) {
+      auto pushOp = rewriter.create<PushOp>(loc, assocCb);
+
+      rewriter.setInsertionPointAfter(pushOp);
+      auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
+
+      rewriter.setInsertionPointAfter(waitOp);
+      rewriter.create<RemoteStoreOp>(forwardableStore.getLoc(),
+                                     forwardableStore.getMemref(),
+                                     forwardableStore.getIndices(), assocCb);
+
+      if (remoteLoad.getResult()) {
+        rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
+      }
+
+      info.cbsNeedingPop.push_back({assocCb, loc});
+      rewriter.eraseOp(forwardableStore);
+      rewriter.eraseOp(remoteLoad);
+      if (allocToErase) {
+        rewriter.eraseOp(allocToErase);
+      }
+      continue;
+    }
+
+    // Create wait operation to produce the result value.
     // %in = d2m.wait %cb
     auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
 
