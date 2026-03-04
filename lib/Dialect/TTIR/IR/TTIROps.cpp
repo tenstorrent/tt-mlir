@@ -39,7 +39,9 @@
 
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/STLExtras.h"
+#include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <numeric>
 #include <string>
 
@@ -568,18 +570,28 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
         castedMax = rewriter.getFloatAttr(
             mlir::Float32Type::get(rewriter.getContext()), maxVal);
       } else {
-        // For integer types, convert via APFloat for proper rounding
-        llvm::APFloat minAPFloat = ttmlir::utils::attributeToAPFloat(minValue);
-        llvm::APFloat maxAPFloat = ttmlir::utils::attributeToAPFloat(maxValue);
-        bool ignored;
-        llvm::APSInt minInt(32, false);
-        llvm::APSInt maxInt(32, false);
-        minAPFloat.convertToInteger(minInt, llvm::APFloat::rmTowardZero,
-                                    &ignored);
-        maxAPFloat.convertToInteger(maxInt, llvm::APFloat::rmTowardZero,
-                                    &ignored);
-        castedMin = rewriter.getI32IntegerAttr(minInt.getExtValue());
-        castedMax = rewriter.getI32IntegerAttr(maxInt.getExtValue());
+        // For integer types, extract value directly and clamp to i32 range.
+        // Going through float conversion (attributeToAPFloat) is lossy for
+        // large i64 values (e.g. INT64_MAX overflows float32 precision and
+        // produces -1 when converted back to i32).
+        auto clampToI32 = [&](Attribute attr) -> int32_t {
+          if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+            int64_t val = intAttr.getValue().getSExtValue();
+            constexpr int64_t kMin =
+                static_cast<int64_t>(std::numeric_limits<int32_t>::min());
+            constexpr int64_t kMax =
+                static_cast<int64_t>(std::numeric_limits<int32_t>::max());
+            return static_cast<int32_t>(std::clamp(val, kMin, kMax));
+          }
+          // Float constant used as integer clamp bound — round toward zero.
+          llvm::APFloat apf = mlir::cast<mlir::FloatAttr>(attr).getValue();
+          bool ignored;
+          llvm::APSInt result(32, /*isUnsigned=*/false);
+          apf.convertToInteger(result, llvm::APFloat::rmTowardZero, &ignored);
+          return static_cast<int32_t>(result.getExtValue());
+        };
+        castedMin = rewriter.getI32IntegerAttr(clampToI32(minValue));
+        castedMax = rewriter.getI32IntegerAttr(clampToI32(maxValue));
       }
 
       rewriter.replaceOpWithNewOp<ttir::ClampScalarOp>(
@@ -732,37 +744,47 @@ void mlir::tt::ttir::ConstantOp::getCanonicalizationPatterns(
 
   // Canonicalize ConstantOp to FullOp when the value is a splat value (i.e. all
   // elements are the same).
-  patterns.add(+[](mlir::tt::ttir::ConstantOp op,
-                   mlir::PatternRewriter &rewriter) {
-    auto valueAttr = op.getValueAttr();
-    if (!valueAttr.isSplat()) {
-      return failure();
-    }
+  patterns.add(
+      +[](mlir::tt::ttir::ConstantOp op, mlir::PatternRewriter &rewriter) {
+        auto valueAttr = op.getValueAttr();
+        if (!valueAttr.isSplat()) {
+          return failure();
+        }
 
-    mlir::Attribute fillValueAttr;
-    if (auto integerType =
-            mlir::dyn_cast<mlir::IntegerType>(valueAttr.getElementType())) {
-      auto fillValue = valueAttr.getSplatValue<llvm::APInt>();
-      if (integerType.isSigned()) {
-        fillValueAttr = rewriter.getI32IntegerAttr(fillValue.getSExtValue());
-      } else {
-        fillValueAttr = rewriter.getI32IntegerAttr(fillValue.getZExtValue());
-      }
-    } else if (valueAttr.getElementType().isIntOrFloat()) {
-      auto fillValue = valueAttr.getSplatValue<mlir::APFloat>();
-      fillValueAttr = rewriter.getF32FloatAttr(fillValue.convertToDouble());
-    } else {
-      return failure();
-    }
+        mlir::Attribute fillValueAttr;
+        if (auto integerType =
+                mlir::dyn_cast<mlir::IntegerType>(valueAttr.getElementType())) {
+          auto fillValue = valueAttr.getSplatValue<llvm::APInt>();
+          // Clamp to i32 range to prevent overflow when narrowing from wider
+          // integer types (e.g. i64 MAX_INT64 → i32 wraps to -1).
+          constexpr int64_t kI32Min =
+              static_cast<int64_t>(std::numeric_limits<int32_t>::min());
+          constexpr int64_t kI32Max =
+              static_cast<int64_t>(std::numeric_limits<int32_t>::max());
+          if (integerType.isSigned()) {
+            int64_t val = fillValue.getSExtValue();
+            fillValueAttr = rewriter.getI32IntegerAttr(
+                static_cast<int32_t>(std::clamp(val, kI32Min, kI32Max)));
+          } else {
+            uint64_t val = fillValue.getZExtValue();
+            fillValueAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(
+                std::min(val, static_cast<uint64_t>(kI32Max))));
+          }
+        } else if (valueAttr.getElementType().isIntOrFloat()) {
+          auto fillValue = valueAttr.getSplatValue<mlir::APFloat>();
+          fillValueAttr = rewriter.getF32FloatAttr(fillValue.convertToDouble());
+        } else {
+          return failure();
+        }
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
-        op, op.getType(),
-        rewriter.getDenseI32ArrayAttr(
-            llvm::to_vector_of<int32_t>(op.getType().getShape())),
-        fillValueAttr);
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
+            op, op.getType(),
+            rewriter.getDenseI32ArrayAttr(
+                llvm::to_vector_of<int32_t>(op.getType().getShape())),
+            fillValueAttr);
 
-    return success();
-  });
+        return success();
+      });
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::ConstantOp::verify() {
