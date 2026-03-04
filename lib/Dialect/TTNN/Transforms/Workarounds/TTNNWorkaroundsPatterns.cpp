@@ -571,7 +571,6 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
-          TTNNAllReduceWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
