@@ -63,9 +63,10 @@ func.func @explicit_datamovement_matmul_mcast(
     operandSegmentSizes = array<i32: 2, 1, 0>,
     threads = [#d2m.thread<unified>]
   }> ({
-  ^unified0(%cb_a: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>,
-            %cb_b: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>,
-            %cb_c: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
+  ^unified0:
+    %cb_a = d2m.get_cb(0) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
+    %cb_b = d2m.get_cb(1) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
+    %cb_c = d2m.get_cb(2) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %c2 = arith.constant 2 : index  // M - output grid dim 0
