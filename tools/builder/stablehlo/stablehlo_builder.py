@@ -1259,11 +1259,8 @@ class StableHLOBuilder(Builder):
             BoolAttr.get(descending),
             output_types,
         )
-        if len(all_inputs) == 1:
-            self._set_golden_tensor(op.results[0], golden_output)
-        else:
-            for result, golden in zip(op.results, golden_output):
-                self._set_golden_tensor(result, golden)
+        for result, golden in zip(op.results, golden_output):
+            self._set_golden_tensor(result, golden)
 
         if len(all_inputs) == 1:
             return op.results[0]
@@ -1348,11 +1345,8 @@ class StableHLOBuilder(Builder):
             BoolAttr.get(descending),
             output_types,
         )
-        if len(all_input_operands) == 1:
-            self._set_golden_tensor(new_op.results[0], golden_output)
-        else:
-            for result, golden in zip(new_op.results, golden_output):
-                self._set_golden_tensor(result, golden)
+        for result, golden in zip(new_op.results, golden_output):
+            self._set_golden_tensor(result, golden)
 
         op_map_dictionary = {}
         for old_r, new_r in zip(old_op.results, new_op.results):
@@ -1449,7 +1443,9 @@ class StableHLOBuilder(Builder):
                     )
 
                     for result, old_result in zip(new_op.results, old_op.results):
-                        sort_builder._set_golden_tensor(result, self._goldens[old_result])
+                        sort_builder._set_golden_tensor(
+                            result, self._goldens[old_result]
+                        )
                     for inp_operand, inp_golden in zip(inputs, input_goldens):
                         sort_builder._set_golden_tensor(inp_operand, inp_golden)
                         ordered_inputs.append(inp_operand)
