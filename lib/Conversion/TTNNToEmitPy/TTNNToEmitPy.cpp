@@ -1151,9 +1151,7 @@ public:
         emitter.emit(toLayoutOp.getInput()),
         emitter.emit(toLayoutOp.getLayout()),
         emitter.emit(toLayoutOp.getDtype()),
-        emitter.emit(toLayoutOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(toLayoutOp.getResult()),
-                     "memory_config"),
+        emitter.emit(toLayoutOp.getMemoryConfig(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
