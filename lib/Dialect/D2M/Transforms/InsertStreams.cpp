@@ -30,11 +30,6 @@ public:
                                 PatternRewriter &rewriter) const final {
     TT_assertv(!allowL1OutputSpilling, "L1 output spilling is not allowed");
 
-    // For DMA-only form, stream insertion will break semantics.
-    if (op.isDMAOnlyForm()) {
-      return failure();
-    }
-
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
       bool isOutput = !op.isDpsInput(&operand);

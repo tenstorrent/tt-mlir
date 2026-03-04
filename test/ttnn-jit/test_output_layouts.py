@@ -34,8 +34,8 @@ SHAPE_INPUT_GRID_OUTPUT_GRID_SHARD_STRATEGY = [
 
 # parameters for l1 -> l1 change shard strategy
 SHAPE_INPUT_GRID_OUTPUT_GRID_INPUT_SHARD_STRATEGY_OUTPUT_SHARD_STRATEGY = [
-    ((1024, 1024), (7, 7), (0, 7), ttnn.ShardStrategy.BLOCK, ttnn.ShardStrategy.HEIGHT),
-    ((1024, 1024), (7, 7), (7, 0), ttnn.ShardStrategy.BLOCK, ttnn.ShardStrategy.WIDTH),
+    ((768, 768), (7, 7), (0, 7), ttnn.ShardStrategy.BLOCK, ttnn.ShardStrategy.HEIGHT),
+    ((768, 768), (7, 7), (7, 0), ttnn.ShardStrategy.BLOCK, ttnn.ShardStrategy.WIDTH),
     ((512, 256), (0, 7), (7, 7), ttnn.ShardStrategy.HEIGHT, ttnn.ShardStrategy.BLOCK),
     ((512, 512), (0, 7), (7, 0), ttnn.ShardStrategy.HEIGHT, ttnn.ShardStrategy.WIDTH),
     ((256, 512), (7, 0), (7, 7), ttnn.ShardStrategy.WIDTH, ttnn.ShardStrategy.BLOCK),

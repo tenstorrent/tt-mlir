@@ -26,6 +26,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <optional>
+
 namespace mlir::tt {
 
 namespace detail {
@@ -137,6 +139,7 @@ namespace {
 struct IOAndCB {
   Value io;
   Value cb;
+  std::optional<unsigned> aliasedTensorIndex;
 };
 
 static ttnn::ComputeKernelMathFidelity
@@ -304,13 +307,16 @@ public:
     return kernelConfigs;
   }
 
-  static SmallVector<ttnn::KernelCBAttr>
-  createCBDescriptors(Builder &builder, const llvm::SmallVector<Value> &cbs,
-                      const ttcore::DeviceAttr &device,
-                      const ttnn::CoreRangeSetAttr &coreRangeSet) {
+  static SmallVector<ttnn::KernelCBAttr> createCBDescriptors(
+      Builder &builder, const llvm::SmallVector<Value> &cbs,
+      const llvm::SmallVector<std::optional<unsigned>> &cbTensorBindings,
+      const ttcore::DeviceAttr &device,
+      const ttnn::CoreRangeSetAttr &coreRangeSet) {
     if (cbs.empty()) {
       llvm_unreachable("Expected circular buffers.");
     }
+    TT_assertv(cbs.size() == cbTensorBindings.size(),
+               "CB tensor binding metadata must align with CB descriptors");
 
     MLIRContext *ctx = builder.getContext();
     llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors(cbs.size());
@@ -328,29 +334,11 @@ public:
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
 
       ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-
-      // TODO (#7158): This is brittle. Ideally we should specifically identify
-      // outputs and handle them separately from inputs, but that will require a
-      // larger refactor of this pass.
-      // Hoisted CB allocs (CBLayoutAttr) are streaming buffers, not aliased
-      // to a global tensor — exclude them from the aliased-output check.
-      bool isHoistedCB =
-          mlir::isa_and_present<ttcore::CBLayoutAttr>(cb_memref.getLayout());
-      bool isAliasedOutput =
-          !isHoistedCB &&
-          mlir::dyn_cast_if_present<memref::AllocOp>(cb.getDefiningOp()) &&
-          llvm::none_of(cb.getUsers(), [](Operation *user) {
-            return mlir::isa<d2m::StreamLayoutOp>(user);
-          });
-
-      if ((mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-               cb.getDefiningOp()) ||
-           isAliasedOutput) &&
-          ttcore::getMemorySpace(cb_memref) !=
-              ttcore::MemorySpace::DeviceDRAM) {
-
+      if (cbTensorBindings[i] && ttcore::getMemorySpace(cb_memref) !=
+                                     ttcore::MemorySpace::DeviceDRAM) {
         globalCBIndexOfTensor =
-            ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
+            ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(
+                ctx, *cbTensorBindings[i]);
       }
       cbDescriptors[i] = ttnn::KernelCBAttr::get(
           ctx, totalSize, coreRangeSet, {cbFormat}, globalCBIndexOfTensor);
@@ -365,19 +353,26 @@ public:
   // IO comes from converted operands (e.g., ttnn.empty results).
   // CB comes from original operands (memref types for CB descriptors).
   static IOAndCB extractIOAndCBFromGenericOperand(Value origOperand,
-                                                  Value convertedOperand) {
+                                                  Value convertedOperand,
+                                                  unsigned operandIndex) {
     if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
             origOperand.getDefiningOp())) {
-      auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-          streamLayoutOp.getInput().getDefiningOp());
-      TT_assertv(castOp,
-                 "Expected TTNNMetalLayoutCastOp producing stream input.");
-      return {castOp.getOperand(), streamLayoutOp.getStorage()};
+      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+              streamLayoutOp.getInput().getDefiningOp())) {
+        return {castOp.getOperand(), streamLayoutOp.getStorage(), std::nullopt};
+      }
+      if (mlir::isa_and_present<memref::AllocOp>(
+              streamLayoutOp.getInput().getDefiningOp())) {
+        return {convertedOperand, streamLayoutOp.getStorage(), std::nullopt};
+      }
+      llvm_unreachable(
+          "Expected TTNNMetalLayoutCastOp or memref.alloc producing stream "
+          "input.");
     }
 
     if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
             origOperand.getDefiningOp())) {
-      return {castOp.getOperand(), origOperand};
+      return {castOp.getOperand(), origOperand, operandIndex};
     }
 
     if (auto viewOp = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
@@ -386,7 +381,7 @@ public:
               viewOp.getInput().getDefiningOp())) {
         TT_assertv(castOp,
                    "Expected TTNNMetalLayoutCastOp producing view input.");
-        return {castOp.getOperand(), origOperand};
+        return {castOp.getOperand(), origOperand, operandIndex};
       }
       if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
               viewOp.getInput().getDefiningOp())) {
@@ -395,7 +390,7 @@ public:
                 streamLayoutOp.getInput().getDefiningOp());
         TT_assertv(innerCastOp,
                    "Expected TTNNMetalLayoutCastOp producing stream input.");
-        return {innerCastOp.getOperand(), viewOp.getInput()};
+        return {innerCastOp.getOperand(), viewOp.getInput(), std::nullopt};
       }
 
       if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
@@ -403,7 +398,7 @@ public:
         // This is a view on top of the output of a previous generic. This case
         // applies to the generic that implements the final ttir.to_layout and
         // converts the output tensor to the user-selected output layout.
-        return {convertedOperand, origOperand};
+        return {convertedOperand, origOperand, operandIndex};
       }
     }
 
@@ -411,7 +406,7 @@ public:
             origOperand.getDefiningOp())) {
       // There are intermediate tensors that have been bufferized. The operand
       // will have a DeviceLayout, not a TTNNLayout.
-      return {convertedOperand, origOperand};
+      return {convertedOperand, origOperand, operandIndex};
     }
 
     llvm_unreachable(
@@ -466,15 +461,18 @@ public:
 
     llvm::SmallVector<Value> ios(ioSize);
     llvm::SmallVector<Value> cbs(ioSize);
+    llvm::SmallVector<std::optional<unsigned>> cbTensorBindings(ioSize);
     llvm::SmallVector<Value> adaptorInputsAndOutputs(
         adaptor.getOperands().begin(), adaptor.getOperands().begin() +
                                            adaptor.getInputs().size() +
                                            adaptor.getOutputs().size());
     for (auto [i, orig, converted] :
          llvm::enumerate(op.getInputsAndOutputs(), adaptorInputsAndOutputs)) {
-      auto [io, cb] = extractIOAndCBFromGenericOperand(orig, converted);
+      auto [io, cb, aliasedTensorIndex] =
+          extractIOAndCBFromGenericOperand(orig, converted, i);
       ios[i] = io;
       cbs[i] = cb;
+      cbTensorBindings[i] = aliasedTensorIndex;
     }
 
     // Process additionalArgs: semaphores/tensors go to the GenericOp,
@@ -496,10 +494,12 @@ public:
         unsigned idx = static_cast<unsigned>(cbForOp.getInt());
         TT_assertv(idx < cbs.size(), "d2m.cb_for_operand out of range");
         cbs[idx] = origOperand;
+        cbTensorBindings[idx] = std::nullopt;
         continue;
       }
       if (mlir::isa<MemRefType>(operand.getType())) {
         cbs.push_back(operand);
+        cbTensorBindings.push_back(std::nullopt);
       } else if (mlir::isa<ttnn::GlobalSemaphoreType>(operand.getType())) {
         additionalArgs.push_back(operand);
       } else if (mlir::isa<RankedTensorType>(operand.getType())) {
@@ -513,8 +513,8 @@ public:
     }
 
     // Create CB descriptors.
-    llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors =
-        createCBDescriptors(rewriter, cbs, device, coreRangeSet);
+    llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors = createCBDescriptors(
+        rewriter, cbs, cbTensorBindings, device, coreRangeSet);
 
     // Create KernelDescriptors.
     SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
