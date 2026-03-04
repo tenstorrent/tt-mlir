@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=2097152 test-buffer-size-policy=min" -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=5242880 test-buffer-size-policy=min" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // This test uses a tight L1 capacity limit but succeeds by using min-sized stream buffers.

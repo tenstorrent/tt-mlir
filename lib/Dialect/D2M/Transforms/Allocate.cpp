@@ -158,6 +158,11 @@ struct MemrefValueContext {
 
   int32_t varIndex = -1; // Needed to retrieve `Planner::Variable::placement`.
   int32_t reqIndex = -1; // Needed to retrieve `Planner::Request::offset`.
+
+  // `true` iff this alloc is defined inside a d2m::GenericOp region.
+  // Such allocs are L1-only (no spilling) and do not participate in
+  // stream insertion or dealloc insertion at the func-body level.
+  bool isInsideGeneric = false;
 };
 
 using OperandDefChain = llvm::SmallVector<Operation *, 4>;
@@ -357,6 +362,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
 
     if (failed(analyzeLiveness(funcOp, analysis))) {
+      return failure();
+    }
+
+    if (failed(analyzeGenericRegionAllocs(funcOp, analysis))) {
       return failure();
     }
 
@@ -569,6 +578,39 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     TT_ALLOC_DEBUG("collected {} memref context(s)", analysis.memrefs.size());
     TT_debug(analysis.sequencing.valid());
+
+    return success();
+  }
+
+  /// Walk all GenericOp regions and register every memref.alloc found inside
+  /// them in `analysis.memrefs`.  These allocs are pinned to L1 (no spilling)
+  /// and use the parent GenericOp's sequence position as their live range.
+  LogicalResult analyzeGenericRegionAllocs(func::FuncOp funcOp,
+                                           FuncAnalysisData &analysis) {
+    IRRewriter rewriter(funcOp->getContext());
+    ttcore::DeviceAttr device = ttcore::lookupDevice(funcOp);
+    Block &funcBody = funcOp.getBody().front();
+
+    funcBody.walk([&](d2m::GenericOp genericOp) {
+      SequenceT genericSeqPos = analysis.sequencing[genericOp];
+
+      for (Region &region : genericOp->getRegions()) {
+        region.walk([&](memref::AllocOp allocOp) {
+          auto memrefType =
+              mlir::cast<MemRefType>(allocOp->getResultTypes().front());
+          MemrefValueContext &ctx = addMemrefValueContext(
+              rewriter, analysis, allocOp.getResult(), memrefType, device);
+          ctx.live = {genericSeqPos, genericSeqPos};
+          ctx.isInsideGeneric = true;
+          ctx.isMemspaceBound = true;
+        });
+      }
+    });
+
+    TT_ALLOC_DEBUG("collected {} in-generic memref alloc(s)",
+                   llvm::count_if(analysis.memrefs, [](const auto &entry) {
+                     return entry.second.isInsideGeneric;
+                   }));
 
     return success();
   }
@@ -1383,6 +1425,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     IRRewriter rewriter(funcOp->getContext());
 
     for (auto &[memref, memrefCtx] : analysis.memrefs) {
+      // In-generic allocs are bounded by the enclosing region, not
+      // the func body — skip func-level dealloc insertion.
+      // NB: must check before getDefiningOp because insertOperandStreams
+      // may have erased the original alloc and replaced it with a new one.
+      if (memrefCtx.isInsideGeneric) {
+        continue;
+      }
       memref::AllocOp allocOp = memref.getDefiningOp<memref::AllocOp>();
       if (!allocOp) {
         continue;

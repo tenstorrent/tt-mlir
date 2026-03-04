@@ -1866,8 +1866,7 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
     Type cbType = getTypeConverter()->convertType(op.getResult().getType());
-    ArgAttr arg =
-        rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getOperandIndex());
+    ArgAttr arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getPort());
     size_t argIndex;
 
     if (ttnnMode) {

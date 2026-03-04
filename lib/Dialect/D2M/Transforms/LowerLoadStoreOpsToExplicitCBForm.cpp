@@ -35,12 +35,42 @@ static bool isRemoteOperand(Value operand, Operation *op) {
 // Cache for CB values: maps (GenericOp pointer, operand index) -> CB value.
 using CBCache = DenseMap<std::pair<Operation *, unsigned>, Value>;
 
+// Track the next available CB port number per generic op.
+using PortCounter = DenseMap<Operation *, unsigned>;
+
+// Find the next available port number for a generic by scanning existing
+// d2m.get_cb ops in the region.
+static unsigned getNextAvailablePort(Region &region, PortCounter &portCounters,
+                                     Operation *genericOp) {
+  auto it = portCounters.find(genericOp);
+  if (it != portCounters.end()) {
+    return it->second;
+  }
+
+  // Scan existing get_cb ops to find the max port in use.
+  unsigned maxPort = 0;
+  bool found = false;
+  if (!region.empty()) {
+    region.front().walk([&](GetCBOp getCbOp) {
+      found = true;
+      unsigned port = static_cast<unsigned>(getCbOp.getPort());
+      if (port >= maxPort) {
+        maxPort = port + 1;
+      }
+    });
+  }
+  unsigned next = found ? maxPort : 0;
+  portCounters[genericOp] = next;
+  return next;
+}
+
 // Compute the CBType and create a d2m.get_cb op for a given operand of a
 // generic op.  Results are cached to ensure each (generic, operand) pair gets
-// exactly one CB value.
+// exactly one CB value.  Port numbers are assigned sequentially and do NOT
+// correspond to operand indices.
 static Value getOrCreateCB(GenericOp generic, Region &region,
                            unsigned operandIndex, IRRewriter &rewriter,
-                           CBCache &cache) {
+                           CBCache &cache, PortCounter &portCounters) {
   auto key = std::make_pair(generic.getOperation(), operandIndex);
   auto it = cache.find(key);
   if (it != cache.end()) {
@@ -59,10 +89,13 @@ static Value getOrCreateCB(GenericOp generic, Region &region,
       mlir::tt::ttcore::MemorySpaceAttr::get(
           generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1)));
 
+  unsigned port =
+      getNextAvailablePort(region, portCounters, generic.getOperation());
+  portCounters[generic.getOperation()] = port + 1;
+
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointToStart(&region.front());
-  auto getCBOp =
-      rewriter.create<GetCBOp>(generic.getLoc(), cbType, operandIndex);
+  auto getCBOp = rewriter.create<GetCBOp>(generic.getLoc(), cbType, port);
   Value result = getCBOp.getResult();
   cache[key] = result;
   return result;
@@ -71,7 +104,8 @@ static Value getOrCreateCB(GenericOp generic, Region &region,
 // Helper function to find the CB value that corresponds to a memref operand
 // in a generic op. Creates CB values on demand via unrealized_conversion_cast.
 static Value findAssociatedCB(Operation *op, Value memrefOperand,
-                              IRRewriter &rewriter, CBCache &cache) {
+                              IRRewriter &rewriter, CBCache &cache,
+                              PortCounter &portCounters) {
   GenericOp generic = op->getParentOfType<GenericOp>();
   if (!generic) {
     return Value();
@@ -100,7 +134,8 @@ static Value findAssociatedCB(Operation *op, Value memrefOperand,
     return Value();
   }
 
-  return getOrCreateCB(generic, *genericRegion, operandIndex, rewriter, cache);
+  return getOrCreateCB(generic, *genericRegion, operandIndex, rewriter, cache,
+                       portCounters);
 }
 
 // Helper function to find the ReserveOp that produces a given value,
@@ -139,7 +174,7 @@ static ReserveOp findReserveOp(Value value) {
 // always be simplified to either a load or a store to a local CB, eliminating
 // the other op and avoiding a redundant copy.
 static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
-                                   CBCache &cache) {
+                                   CBCache &cache, PortCounter &portCounters) {
   SmallVector<std::pair<RemoteLoadOp, RemoteStoreOp>> loadStorePairsToSimplify;
   moduleOp->walk([&](GenericOp generic) {
     // Collect all candidate load-store pairs in the generic region
@@ -199,10 +234,10 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
     TT_assert(generic.getNumRegions() == 1u);
 
     // Get CB values for the input and output operands.
-    Value inputCB =
-        findAssociatedCB(loadOp.getOperation(), loadMemref, rewriter, cache);
-    Value outputCB =
-        findAssociatedCB(storeOp.getOperation(), storeMemref, rewriter, cache);
+    Value inputCB = findAssociatedCB(loadOp.getOperation(), loadMemref,
+                                     rewriter, cache, portCounters);
+    Value outputCB = findAssociatedCB(storeOp.getOperation(), storeMemref,
+                                      rewriter, cache, portCounters);
     TT_assert((inputCB && outputCB));
 
     rewriter.setInsertionPoint(loadOp);
@@ -259,12 +294,12 @@ struct PushPopInfo {
 // Pass A: Convert all remote_load and remote_store into explicit CB form.
 // Returns information needed for push/pop insertion.
 static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
-                                           IRRewriter &rewriter,
-                                           CBCache &cache) {
+                                           IRRewriter &rewriter, CBCache &cache,
+                                           PortCounter &portCounters) {
   PushPopInfo info;
 
   // Pre-process generics with load-store idiom
-  simplifyLoadStorePairs(moduleOp, rewriter, cache);
+  simplifyLoadStorePairs(moduleOp, rewriter, cache, portCounters);
 
   // Transform RemoteLoadOp (implicit form -> explicit CB form)
   SmallVector<RemoteLoadOp> remoteLoadsToConvert;
@@ -281,7 +316,7 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     Value memref = remoteLoad.getMemref();
     Value assocCb = remoteLoad.isImplicitForm()
                         ? findAssociatedCB(remoteLoad.getOperation(), memref,
-                                           rewriter, cache)
+                                           rewriter, cache, portCounters)
                         : remoteLoad.getCb();
 
     if (!assocCb) {
@@ -395,8 +430,8 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     }
 
     // Find the CB for the associated operand
-    Value assocCb =
-        findAssociatedCB(allocOp.getOperation(), assocOperand, rewriter, cache);
+    Value assocCb = findAssociatedCB(allocOp.getOperation(), assocOperand,
+                                     rewriter, cache, portCounters);
     if (!assocCb) {
       allocOp.emitWarning("could not find associated CB, skipping conversion");
       continue;
@@ -558,9 +593,11 @@ public:
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
     CBCache cbCache;
+    PortCounter portCounters;
 
     // Pass A: Convert all remote_load and remote_store into explicit CB form
-    PushPopInfo info = convertToExplicitCBForm(moduleOp, rewriter, cbCache);
+    PushPopInfo info =
+        convertToExplicitCBForm(moduleOp, rewriter, cbCache, portCounters);
 
     // Pass B: Insert push and pop operations
     insertPushAndPopOps(moduleOp, rewriter, info);

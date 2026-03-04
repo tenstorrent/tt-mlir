@@ -1169,8 +1169,8 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         -> memref<SY x SX x f32, ...>
       ```
 
-      The explicit CB form takes a CB block arg as additional input; the load is
-      produced into the CB. The CB provided must be the CB block arg associated
+      The explicit CB form takes a CB (from `d2m.get_cb`) as additional input;
+      the load is produced into the CB. The CB provided must be the CB associated
       with the operand. In explicit CB form, no local buffer is required.
 
       ```mlir
@@ -1431,7 +1431,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         -> memref<GY x GX x SY x SX x f32, ...>
       ```
 
-      - Explicit CB form stores data from a concrete CB block arg to the remote operand.
+      - Explicit CB form stores data from a concrete CB (from `d2m.get_cb`) to the remote operand.
 
       ```mlir
       d2m.remote_store %generic_operand[%i, %j] from %cb
@@ -1969,9 +1969,10 @@ def D2M_GetScratchFromCBOp : D2M_GenericRegionOp<"get_scratch_from_cb",
   let summary = "Unwrap scratch circular buffer into a memref.";
   let description = [{
     The `get_scratch_from_cb` operation extracts the underlying memref from
-    a scratch circular buffer (CB) block argument. This op is inserted by the
-    LowerScratchAllocate pass at the beginning of the `d2m.generic` region to
-    make the scratch buffer available as a plain memref for use by downstream
+    a scratch circular buffer (CB) obtained via `d2m.get_cb`. This op is
+    inserted by the LowerScratchAllocate pass at the beginning of the
+    `d2m.generic` region to make the scratch buffer available as a plain memref
+    for use by downstream
     scratch allocation ops (e.g. `d2m.scratch_allocate` lowered to
     `memref.subview`).
 
@@ -2191,13 +2192,16 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
 //===----------------------------------------------------------------------===//
 
 def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
-    let summary = "Get a circular buffer for the given operand index.";
+    let summary = "Get a circular buffer for the given port.";
     let description = [{
-      Obtain a CB handle for the parent generic op's operand at the specified
-      index.  This is the canonical way to introduce CB-typed values inside a
-      generic region body.  Each unique operand index maps to exactly one
-      physical circular buffer; multiple calls with the same index are expected
-      to be CSE'd.
+      Obtain a CB handle for the specified port number.  This is the canonical
+      way to introduce CB-typed values inside a generic region body.  Each
+      unique port maps to exactly one physical circular buffer; multiple calls
+      with the same port are expected to be CSE'd.
+
+      The port number is a local identifier — it does not correspond to the
+      parent generic op's operand index.  The binding between a CB port and a
+      generic operand is established by `remote_load`/`remote_store` ops.
 
       During D2M -> TTKernel lowering the op is replaced with a compile-time
       argument access (`ttkernel.get_compile_arg_val`) with bump-allocated CB
@@ -2209,10 +2213,10 @@ def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
       ```
     }];
 
-    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$operand_index);
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$port);
     let results = (outs D2M_CB:$result);
 
-    let assemblyFormat = [{ `(` $operand_index `)` attr-dict `:` type($result) }];
+    let assemblyFormat = [{ `(` $port `)` attr-dict `:` type($result) }];
 }
 
 def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
