@@ -2740,10 +2740,13 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
     return Value();
   }
 
-  // Walk the region looking for tensor.empty/memref.alloc ops, stepping into
-  // blocking loops only. Do NOT walk into compute loops (scf.for without
-  // d2m.blocking_loop) — allocs inside those are local working buffers, not
-  // operand allocations.
+  // Walk the region looking for tensor.empty/memref.alloc/d2m.get_cb ops,
+  // stepping into blocking loops only. Do NOT walk into compute loops
+  // (scf.for without d2m.blocking_loop) — allocs inside those are local
+  // working buffers, not operand allocations.
+  //
+  // d2m.get_cb ops carry an explicit operand_index attribute and are matched
+  // directly.  tensor.empty/memref.alloc ops are matched by positional order.
   Value result;
   unsigned idx = 0;
   std::function<void(Block &)> scanBlock = [&](Block &block) {
@@ -2751,7 +2754,12 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
       if (result) {
         return;
       }
-      if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
+      if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&op)) {
+        if (static_cast<unsigned>(getCbOp.getOperandIndex()) == operandIndex) {
+          result = getCbOp.getResult();
+          return;
+        }
+      } else if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
         if (idx == operandIndex) {
           result = op.getResult(0);
           return;
@@ -2766,19 +2774,6 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
   };
   scanBlock(region.front());
 
-  // Fall back to CB block arguments (old form).
-  if (!result) {
-    unsigned cbIdx = 0;
-    for (BlockArgument arg : region.front().getArguments()) {
-      if (mlir::isa<d2m::CBType>(arg.getType())) {
-        if (cbIdx == operandIndex) {
-          return arg;
-        }
-        ++cbIdx;
-      }
-    }
-  }
-
   return result;
 }
 
@@ -2789,15 +2784,29 @@ SmallVector<Value> d2m::GenericOp::getOperandAllocs(Region &region,
     return result;
   }
 
-  // Walk the region looking for tensor.empty/memref.alloc ops, stepping into
-  // blocking loops only (same traversal as getOperandAlloc).
+  // Walk the region looking for tensor.empty/memref.alloc/d2m.get_cb ops,
+  // stepping into blocking loops only (same traversal as getOperandAlloc).
+  //
+  // d2m.get_cb ops are placed by operand_index into the correct slot.
+  // tensor.empty/memref.alloc ops are collected by positional order.
+  result.resize(numOperands);
+  unsigned idx = 0;
   std::function<void(Block &)> scanBlock = [&](Block &block) {
     for (Operation &op : block) {
-      if (result.size() == numOperands) {
-        return;
-      }
-      if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
-        result.push_back(op.getResult(0));
+      if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&op)) {
+        auto cbIdx = static_cast<unsigned>(getCbOp.getOperandIndex());
+        if (cbIdx < numOperands) {
+          result[cbIdx] = getCbOp.getResult();
+        }
+      } else if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
+        // Skip slots already filled by get_cb ops.
+        while (idx < numOperands && result[idx]) {
+          ++idx;
+        }
+        if (idx < numOperands) {
+          result[idx] = op.getResult(0);
+          ++idx;
+        }
       } else if (auto forOp = mlir::dyn_cast<mlir::affine::AffineForOp>(&op)) {
         if (forOp->hasAttr("d2m.blocking_loop")) {
           scanBlock(*forOp.getBody());

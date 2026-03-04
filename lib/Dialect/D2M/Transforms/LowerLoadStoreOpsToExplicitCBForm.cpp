@@ -32,53 +32,52 @@ static bool isRemoteOperand(Value operand, Operation *op) {
   return mlir::isa<ViewOpInterface>(defOp);
 }
 
-// Ensure that CB block arguments are materialized for all operands in the
-// generic op's region. This pass is the transition point where CB block args
-// are introduced. Returns the CB block arg for the given operand index.
-static void materializeCBBlockArgs(GenericOp generic, Region &region) {
-  Block &block = region.front();
-  // Only count inputs + outputs, not additionalArgs (which may not be
-  // ShapedType, e.g., global semaphores).
-  unsigned numOperands =
-      generic.getInputs().size() + generic.getOutputs().size();
+// Cache for CB values: maps (GenericOp pointer, operand index) -> CB value.
+using CBCache = DenseMap<std::pair<Operation *, unsigned>, Value>;
 
-  // Check if CB block args already exist (idempotent).
-  unsigned numExistingCBArgs = 0;
-  for (BlockArgument arg : block.getArguments()) {
-    if (mlir::isa<CBType>(arg.getType())) {
-      ++numExistingCBArgs;
-    }
-  }
-  if (numExistingCBArgs >= numOperands) {
-    return;
+// Compute the CBType and create a d2m.get_cb op for a given operand of a
+// generic op.  Results are cached to ensure each (generic, operand) pair gets
+// exactly one CB value.
+static Value getOrCreateCB(GenericOp generic, Region &region,
+                           unsigned operandIndex, IRRewriter &rewriter,
+                           CBCache &cache) {
+  auto key = std::make_pair(generic.getOperation(), operandIndex);
+  auto it = cache.find(key);
+  if (it != cache.end()) {
+    return it->second;
   }
 
-  // Compute CB types from operand layouts and add block args.
-  for (unsigned i = 0; i < numOperands; ++i) {
-    auto operandType = mlir::cast<ShapedType>(generic->getOperand(i).getType());
-    auto layout = mlir::tt::ttcore::getDeviceLayout(operandType);
-    if (!layout) {
-      continue;
-    }
-    auto shardShape = layout.getShardShape(operandType);
-    auto cbType = CBType::get(MemRefType::get(
-        shardShape, operandType.getElementType(), nullptr,
-        mlir::tt::ttcore::MemorySpaceAttr::get(
-            generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1)));
-    block.addArgument(cbType, generic.getLoc());
+  auto operandType =
+      mlir::cast<ShapedType>(generic->getOperand(operandIndex).getType());
+  auto layout = mlir::tt::ttcore::getDeviceLayout(operandType);
+  if (!layout) {
+    return Value();
   }
+  auto shardShape = layout.getShardShape(operandType);
+  auto cbType = CBType::get(MemRefType::get(
+      shardShape, operandType.getElementType(), nullptr,
+      mlir::tt::ttcore::MemorySpaceAttr::get(
+          generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1)));
+
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointToStart(&region.front());
+  auto getCBOp =
+      rewriter.create<GetCBOp>(generic.getLoc(), cbType, operandIndex);
+  Value result = getCBOp.getResult();
+  cache[key] = result;
+  return result;
 }
 
-// Helper function to find the CB block argument that corresponds to a memref
-// operand in a generic op. Returns the CB block argument if found, null
-// otherwise. Materializes CB block args if they don't exist yet.
-static Value findAssociatedCB(Operation *op, Value memrefOperand) {
+// Helper function to find the CB value that corresponds to a memref operand
+// in a generic op. Creates CB values on demand via unrealized_conversion_cast.
+static Value findAssociatedCB(Operation *op, Value memrefOperand,
+                              IRRewriter &rewriter, CBCache &cache) {
   GenericOp generic = op->getParentOfType<GenericOp>();
   if (!generic) {
     return Value();
   }
 
-  // Find which operand index this memref corresponds to
+  // Find which operand index this memref corresponds to.
   unsigned operandIndex = UINT_MAX;
   for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
     if (generic->getOperand(i) == memrefOperand) {
@@ -86,40 +85,22 @@ static Value findAssociatedCB(Operation *op, Value memrefOperand) {
       break;
     }
   }
-
   if (operandIndex == UINT_MAX) {
     return Value();
   }
 
-  // Find the generic op's thread region that contains this operation
+  // Find the generic op's thread region that contains this operation.
   Region *genericRegion = nullptr;
   if (generic.getNumRegions() == 1) {
     genericRegion = &generic.getRegion(0);
   } else {
     genericRegion = ttmlir::utils::getRegionWithParentOfType<GenericOp>(op);
   }
-
   if (!genericRegion || genericRegion->empty()) {
     return Value();
   }
 
-  // Materialize CB block args if not already present.
-  materializeCBBlockArgs(generic, *genericRegion);
-
-  Block *threadBlock = &genericRegion->front();
-
-  // Find the CB block arg at the operand index. CB args may be offset
-  // by existing semaphore args.
-  unsigned cbIdx = 0;
-  for (BlockArgument arg : threadBlock->getArguments()) {
-    if (mlir::isa<CBType>(arg.getType())) {
-      if (cbIdx == operandIndex) {
-        return arg;
-      }
-      ++cbIdx;
-    }
-  }
-  return Value();
+  return getOrCreateCB(generic, *genericRegion, operandIndex, rewriter, cache);
 }
 
 // Helper function to find the ReserveOp that produces a given value,
@@ -157,7 +138,8 @@ static ReserveOp findReserveOp(Value value) {
 // One of the operands is always a local CB, so this load-store pair can
 // always be simplified to either a load or a store to a local CB, eliminating
 // the other op and avoiding a redundant copy.
-static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter) {
+static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
+                                   CBCache &cache) {
   SmallVector<std::pair<RemoteLoadOp, RemoteStoreOp>> loadStorePairsToSimplify;
   moduleOp->walk([&](GenericOp generic) {
     // Collect all candidate load-store pairs in the generic region
@@ -214,14 +196,13 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter) {
     });
     TT_assert((loadOperandIt != opOperands.end() &&
                storeOperandIt != opOperands.end()));
-    // Ensure CB block args are materialized for this region.
     TT_assert(generic.getNumRegions() == 1u);
-    Region *genericRegion = &generic.getRegion(0);
-    materializeCBBlockArgs(generic, *genericRegion);
 
-    // Get CB block arguments by finding CB-typed args at the operand indices.
-    Value inputCB = findAssociatedCB(loadOp.getOperation(), loadMemref);
-    Value outputCB = findAssociatedCB(storeOp.getOperation(), storeMemref);
+    // Get CB values for the input and output operands.
+    Value inputCB =
+        findAssociatedCB(loadOp.getOperation(), loadMemref, rewriter, cache);
+    Value outputCB =
+        findAssociatedCB(storeOp.getOperation(), storeMemref, rewriter, cache);
     TT_assert((inputCB && outputCB));
 
     rewriter.setInsertionPoint(loadOp);
@@ -278,11 +259,12 @@ struct PushPopInfo {
 // Pass A: Convert all remote_load and remote_store into explicit CB form.
 // Returns information needed for push/pop insertion.
 static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
-                                           IRRewriter &rewriter) {
+                                           IRRewriter &rewriter,
+                                           CBCache &cache) {
   PushPopInfo info;
 
   // Pre-process generics with load-store idiom
-  simplifyLoadStorePairs(moduleOp, rewriter);
+  simplifyLoadStorePairs(moduleOp, rewriter, cache);
 
   // Transform RemoteLoadOp (implicit form -> explicit CB form)
   SmallVector<RemoteLoadOp> remoteLoadsToConvert;
@@ -298,7 +280,8 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     Location loc = remoteLoad.getLoc();
     Value memref = remoteLoad.getMemref();
     Value assocCb = remoteLoad.isImplicitForm()
-                        ? findAssociatedCB(remoteLoad.getOperation(), memref)
+                        ? findAssociatedCB(remoteLoad.getOperation(), memref,
+                                           rewriter, cache)
                         : remoteLoad.getCb();
 
     if (!assocCb) {
@@ -413,10 +396,9 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
 
     // Find the CB for the associated operand
     Value assocCb =
-        GenericOp::findAssocCBByOperand(allocOp.getOperation(), assocOperand);
+        findAssociatedCB(allocOp.getOperation(), assocOperand, rewriter, cache);
     if (!assocCb) {
-      allocOp.emitWarning(
-          "could not find associated CB block argument, skipping conversion");
+      allocOp.emitWarning("could not find associated CB, skipping conversion");
       continue;
     }
 
@@ -575,9 +557,10 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
+    CBCache cbCache;
 
     // Pass A: Convert all remote_load and remote_store into explicit CB form
-    PushPopInfo info = convertToExplicitCBForm(moduleOp, rewriter);
+    PushPopInfo info = convertToExplicitCBForm(moduleOp, rewriter, cbCache);
 
     // Pass B: Insert push and pop operations
     insertPushAndPopOps(moduleOp, rewriter, info);

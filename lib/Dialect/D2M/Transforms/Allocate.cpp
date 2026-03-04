@@ -1283,6 +1283,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             d2m::GenericOp::getOperandAlloc(region, operandIndex);
         TT_assert(operandAlloc);
         Type cbUnderlyingType = operandAlloc.getType();
+        // Unwrap CBType to get the underlying memref/tensor type.
+        if (auto cbType = mlir::dyn_cast<d2m::CBType>(cbUnderlyingType)) {
+          cbUnderlyingType = cbType.getUnderlying();
+        }
 
         if (inferStreamRequirement(genericOp, operandCtx, operandMemSpace)) {
           if (!isOperandExemptFromStreaming(operandCtx, operandMemSpace)) {
@@ -1447,23 +1451,39 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           // the type category (tensor.empty vs memref.alloc).
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPoint(oldTensor.getDefiningOp());
-          Value newValue;
-          if (mlir::isa<memref::AllocOp>(oldTensor.getDefiningOp())) {
-            // Preserve memory space from the old memref type.
-            auto oldMemRefType = mlir::cast<MemRefType>(oldTensor.getType());
-            auto newAllocOp = rewriter.create<memref::AllocOp>(
-                oldTensor.getLoc(),
+          if (auto getCbOp =
+                  mlir::dyn_cast<d2m::GetCBOp>(oldTensor.getDefiningOp())) {
+            // Update the get_cb op's result type to reflect the new shard
+            // shape, preserving it as a CBType.
+            auto oldCbType =
+                mlir::cast<d2m::CBType>(getCbOp.getResult().getType());
+            auto oldUnderlying =
+                oldCbType.template getUnderlyingAs<MemRefType>();
+            auto newUnderlying =
                 MemRefType::get(shardShape, streamType.getElementType(),
                                 /*layout=*/MemRefLayoutAttrInterface{},
-                                oldMemRefType.getMemorySpace()));
-            newValue = newAllocOp.getResult();
+                                oldUnderlying.getMemorySpace());
+            getCbOp.getResult().setType(
+                d2m::CBType::get(getCbOp.getContext(), newUnderlying));
           } else {
-            auto newEmptyOp = rewriter.create<mlir::tensor::EmptyOp>(
-                oldTensor.getLoc(), shardShape, streamType.getElementType());
-            newValue = newEmptyOp.getResult();
+            Value newValue;
+            if (mlir::isa<memref::AllocOp>(oldTensor.getDefiningOp())) {
+              // Preserve memory space from the old memref type.
+              auto oldMemRefType = mlir::cast<MemRefType>(oldTensor.getType());
+              auto newAllocOp = rewriter.create<memref::AllocOp>(
+                  oldTensor.getLoc(),
+                  MemRefType::get(shardShape, streamType.getElementType(),
+                                  /*layout=*/MemRefLayoutAttrInterface{},
+                                  oldMemRefType.getMemorySpace()));
+              newValue = newAllocOp.getResult();
+            } else {
+              auto newEmptyOp = rewriter.create<mlir::tensor::EmptyOp>(
+                  oldTensor.getLoc(), shardShape, streamType.getElementType());
+              newValue = newEmptyOp.getResult();
+            }
+            rewriter.replaceAllUsesWith(oldTensor, newValue);
+            rewriter.eraseOp(oldTensor.getDefiningOp());
           }
-          rewriter.replaceAllUsesWith(oldTensor, newValue);
-          rewriter.eraseOp(oldTensor.getDefiningOp());
         }
       }
     }

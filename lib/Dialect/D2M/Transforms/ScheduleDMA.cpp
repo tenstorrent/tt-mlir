@@ -23,7 +23,7 @@ namespace {
 // Represents the assignment of DMA operations to a hardware thread.
 // Each thread is responsible for a set of circular buffers (CBs).
 struct DMAThreadAssignment {
-  // Set of CB indices (block argument indices) assigned to this thread.
+  // Set of CB indices (generic operand indices) assigned to this thread.
   DenseSet<unsigned> assignedCBs;
 
   // Estimated workload for this thread (number of DMA ops).
@@ -32,6 +32,20 @@ struct DMAThreadAssignment {
   // Assigned NoC index for this thread (0 = DRAM reader, 1 = DRAM writer).
   int32_t nocIndex = -1;
 };
+
+// Find the generic operand index for a DMA op's memref operand.
+static unsigned findOperandIndex(Operation *dmaOp, Value memref) {
+  GenericOp generic = dmaOp->getParentOfType<GenericOp>();
+  if (!generic) {
+    return UINT_MAX;
+  }
+  for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
+    if (generic->getOperand(i) == memref) {
+      return i;
+    }
+  }
+  return UINT_MAX;
+}
 
 // Collect all remote_load and remote_store operations from a block,
 // recursively walking into nested scf.for loops.
@@ -45,15 +59,14 @@ collectDMAOps(Block *block,
     }
 
     if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(&op)) {
-      // Get the CB operand and find which block argument it corresponds to.
-      Value cb = remoteLoad.getCb();
-      if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
-        dmaOps.push_back({&op, blockArg.getArgNumber()});
+      unsigned idx = findOperandIndex(&op, remoteLoad.getMemref());
+      if (idx != UINT_MAX) {
+        dmaOps.push_back({&op, idx});
       }
     } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(&op)) {
-      Value cb = remoteStore.getCb();
-      if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
-        dmaOps.push_back({&op, blockArg.getArgNumber()});
+      unsigned idx = findOperandIndex(&op, remoteStore.getMemref());
+      if (idx != UINT_MAX) {
+        dmaOps.push_back({&op, idx});
       }
     }
   }
@@ -159,15 +172,11 @@ assignCBsToThreads(const DenseMap<unsigned, size_t> &cbWorkloads,
 static bool shouldKeepOpForThread(Operation *op,
                                   const DenseSet<unsigned> &assignedCBs) {
   if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(op)) {
-    Value cb = remoteLoad.getCb();
-    if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
-      return assignedCBs.contains(blockArg.getArgNumber());
-    }
+    unsigned idx = findOperandIndex(op, remoteLoad.getMemref());
+    return idx != UINT_MAX && assignedCBs.contains(idx);
   } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(op)) {
-    Value cb = remoteStore.getCb();
-    if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
-      return assignedCBs.contains(blockArg.getArgNumber());
-    }
+    unsigned idx = findOperandIndex(op, remoteStore.getMemref());
+    return idx != UINT_MAX && assignedCBs.contains(idx);
   }
   return false;
 }

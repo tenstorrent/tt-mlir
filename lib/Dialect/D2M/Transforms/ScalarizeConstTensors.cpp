@@ -316,23 +316,10 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
        llvm::zip(genericOp.getRegions(), newGenericOp.getRegions())) {
     Block *oldBlock = &oldRegion.front();
 
-    // Copy block args, skipping CB args that correspond to scalarized inputs.
+    // Copy all block arguments.
     SmallVector<Type> newBlockArgTypes;
     SmallVector<Location> newBlockArgLocs;
-    SmallVector<unsigned> oldToNewArgMap;
-    unsigned cbIdx = 0;
-    for (unsigned i = 0; i < oldBlock->getNumArguments(); ++i) {
-      BlockArgument arg = oldBlock->getArgument(i);
-      if (mlir::isa<CBType>(arg.getType())) {
-        // CB block arg: skip if it maps to a scalarized input.
-        if (llvm::is_contained(scalarizedInputIndices, cbIdx)) {
-          ++cbIdx;
-          oldToNewArgMap.push_back(UINT_MAX); // sentinel: skipped
-          continue;
-        }
-        ++cbIdx;
-      }
-      oldToNewArgMap.push_back(newBlockArgTypes.size());
+    for (BlockArgument arg : oldBlock->getArguments()) {
       newBlockArgTypes.push_back(arg.getType());
       newBlockArgLocs.push_back(arg.getLoc());
     }
@@ -342,10 +329,7 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
 
     IRMapping mapping;
     for (unsigned i = 0; i < oldBlock->getNumArguments(); ++i) {
-      if (oldToNewArgMap[i] != UINT_MAX) {
-        mapping.map(oldBlock->getArgument(i),
-                    newBlock->getArgument(oldToNewArgMap[i]));
-      }
+      mapping.map(oldBlock->getArgument(i), newBlock->getArgument(i));
     }
 
     rewriter.setInsertionPointToStart(newBlock);
