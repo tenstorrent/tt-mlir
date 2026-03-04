@@ -2758,6 +2758,44 @@ def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTe
         return torch.bitwise_not(input_tensor)
 
 
+def stablehlo_compare_golden(
+    input_tensor: GoldenMapTensor,
+    other_tensor: GoldenMapTensor,
+    direction: str,
+    **kwargs,
+) -> GoldenMapTensor:
+    """
+    Golden function for StableHLO compare operation.
+
+    Performs elementwise comparison between two tensors according to the
+    specified comparison direction, returning a boolean tensor.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Left-hand side tensor.
+    other_tensor : GoldenMapTensor
+        Right-hand side tensor.
+    direction : str
+        Comparison direction: one of "EQ", "NE", "GT", "LT", "GE", "LE".
+
+    Returns
+    -------
+    GoldenMapTensor
+        Boolean tensor containing the elementwise comparison results.
+    """
+    _compare_ops = {
+        "EQ": torch.eq,
+        "NE": torch.ne,
+        "GT": torch.gt,
+        "LT": torch.lt,
+        "GE": torch.ge,
+        "LE": torch.le,
+    }
+    assert direction in _compare_ops, f"Unsupported comparison direction: {direction}"
+    return _compare_ops[direction](input_tensor, other_tensor)
+
+
 ################ Golden Utilities ###############
 
 
@@ -6120,6 +6158,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.OrOp: stablehlo_or_golden,
     stablehlo.XorOp: stablehlo_xor_golden,
     stablehlo.NotOp: stablehlo_not_golden,
+    stablehlo.CompareOp: stablehlo_compare_golden,
     stablehlo.SliceOp: stablehlo_slice_golden,
     stablehlo.GetDimensionSizeOp: stablehlo_get_dimension_size_golden,
     stablehlo.MaxOp: stablehlo_maximum_golden,
