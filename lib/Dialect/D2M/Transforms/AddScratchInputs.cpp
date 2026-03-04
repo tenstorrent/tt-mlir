@@ -192,12 +192,6 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
 
     Block *oldBlock = &oldRegion.front();
 
-    // Determine if the old block uses CB block args or tensor.empty form.
-    bool hasCBBlockArgs =
-        llvm::any_of(oldBlock->getArguments(), [](BlockArgument arg) {
-          return mlir::isa<CBType>(arg.getType());
-        });
-
     SmallVector<Type> newBlockArgTypes;
     SmallVector<Location> newBlockArgLocs;
     for (BlockArgument arg : oldBlock->getArguments()) {
@@ -205,69 +199,46 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
       newBlockArgLocs.push_back(arg.getLoc());
     }
 
-    // In CB block arg form, add a CB arg for the scratch input.
-    if (hasCBBlockArgs) {
-      auto scratchCBType = CBType::get(scratchShardMemRefType);
-      // Insert scratch CB before the output CB args (after input CBs).
-      newBlockArgTypes.insert(newBlockArgTypes.begin() + numOldInputs,
-                              scratchCBType);
-      newBlockArgLocs.insert(newBlockArgLocs.begin() + numOldInputs,
-                             genericOp.getLoc());
-    }
-
     Block *newBlock = builder.createBlock(&newRegion, newRegion.end(),
                                           newBlockArgTypes, newBlockArgLocs);
     builder.setInsertionPointToStart(newBlock);
 
-    // Map old block args to new block args (accounting for scratch insertion).
+    // Map old block args to new block args.
     IRMapping mapping;
     for (unsigned i = 0; i < oldBlock->getNumArguments(); ++i) {
-      unsigned newIdx = i;
-      if (hasCBBlockArgs && i >= numOldInputs) {
-        // Shift by 1 to account for the inserted scratch CB arg.
-        newIdx = i + 1;
-      }
-      mapping.map(oldBlock->getArgument(i), newBlock->getArgument(newIdx));
+      mapping.map(oldBlock->getArgument(i), newBlock->getArgument(i));
     }
 
-    // Collect pointers to old ops (Operation is non-copyable).
+    // Clone all ops up through the numOldInputs-th
+    // tensor.empty/memref.alloc, insert scratch, then clone the rest.
+    // Note: alloc ops may be interleaved with non-alloc ops (e.g.,
+    // remote_load), so we must not break on non-alloc ops.
     SmallVector<Operation *> oldOps;
     for (Operation &op : oldBlock->without_terminator()) {
       oldOps.push_back(&op);
     }
 
-    if (!hasCBBlockArgs) {
-      // New form: clone all ops up through the numOldInputs-th
-      // tensor.empty/memref.alloc, insert scratch, then clone the rest.
-      // Note: alloc ops may be interleaved with non-alloc ops (e.g.,
-      // remote_load), so we must not break on non-alloc ops.
-      unsigned emptyIdx = 0;
-      unsigned clonedUpTo = 0;
-      for (unsigned i = 0; i < oldOps.size(); ++i) {
-        builder.clone(*oldOps[i], mapping);
-        clonedUpTo = i + 1;
-        if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(oldOps[i])) {
-          ++emptyIdx;
-          if (emptyIdx == numOldInputs) {
-            break;
-          }
+    unsigned emptyIdx = 0;
+    unsigned clonedUpTo = 0;
+    for (unsigned i = 0; i < oldOps.size(); ++i) {
+      builder.clone(*oldOps[i], mapping);
+      clonedUpTo = i + 1;
+      if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(oldOps[i])) {
+        ++emptyIdx;
+        if (emptyIdx == numOldInputs) {
+          break;
         }
       }
+    }
 
-      // Insert the scratch tensor.empty with the shard shape.
-      builder.create<mlir::tensor::EmptyOp>(
-          genericOp.getLoc(), scratchShardMemRefType.getShape(),
-          scratchShardMemRefType.getElementType());
+    // Insert the scratch tensor.empty with the shard shape.
+    builder.create<mlir::tensor::EmptyOp>(
+        genericOp.getLoc(), scratchShardMemRefType.getShape(),
+        scratchShardMemRefType.getElementType());
 
-      // Clone remaining ops (output tensor.empties and all other ops).
-      for (unsigned i = clonedUpTo; i < oldOps.size(); ++i) {
-        builder.clone(*oldOps[i], mapping);
-      }
-    } else {
-      // Old form: CB block args handle operand mapping, just clone all ops.
-      for (Operation *op : oldOps) {
-        builder.clone(*op, mapping);
-      }
+    // Clone remaining ops (output tensor.empties and all other ops).
+    for (unsigned i = clonedUpTo; i < oldOps.size(); ++i) {
+      builder.clone(*oldOps[i], mapping);
     }
 
     // Clone terminator if present.

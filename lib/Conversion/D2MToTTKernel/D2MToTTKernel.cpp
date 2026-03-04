@@ -1903,6 +1903,42 @@ public:
 private:
   bool ttnnMode;
 };
+
+class D2MGetCBRewriter : public OpConversionPattern<d2m::GetCBOp> {
+public:
+  D2MGetCBRewriter(TypeConverter &typeConverter, MLIRContext *context,
+                   bool ttnnMode)
+      : OpConversionPattern<d2m::GetCBOp>(typeConverter, context),
+        ttnnMode(ttnnMode) {}
+
+  LogicalResult
+  matchAndRewrite(d2m::GetCBOp op, d2m::GetCBOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    func::FuncOp entry = op->getParentOfType<func::FuncOp>();
+    Type cbType = getTypeConverter()->convertType(op.getResult().getType());
+    ArgAttr arg =
+        rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getOperandIndex());
+    size_t argIndex;
+
+    if (ttnnMode) {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendRuntimeArg(entry, arg);
+      });
+      rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
+          op, cbType, index(rewriter, op->getLoc(), argIndex));
+    } else {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
+      });
+      rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(op, cbType,
+                                                                argIndex);
+    }
+    return success();
+  }
+
+private:
+  bool ttnnMode;
+};
 } // namespace
 
 namespace {
@@ -1975,17 +2011,28 @@ public:
   LogicalResult
   matchAndRewrite(func::FuncOp op, func::FuncOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (!op->hasAttr(d2m::ThreadAttr::name) ||
-        (op.getFunctionType().getNumInputs() == 0)) {
+    if (!op->hasAttr(d2m::ThreadAttr::name)) {
       return failure();
+    }
+
+    SmallVector<ArgAttr> rtArgSpecVector;
+    SmallVector<ArgAttr> ctArgSpecVector;
+
+    // Zero-input functions: just convert attrs and set function type.
+    // The D2MGetCBRewriter will append CB entries to the ArgSpec as it
+    // processes get_cb ops within the function body.
+    if (op.getFunctionType().getNumInputs() == 0) {
+      rewriter.modifyOpInPlace(op, [&]() {
+        op.setType(rewriter.getFunctionType(TypeRange(), TypeRange()));
+        convertFunctionAttrs(rewriter, op, rtArgSpecVector, ctArgSpecVector);
+      });
+      return success();
     }
 
     Block *block = &op.getCallableRegion()->front();
     auto blockArgs = block->getArguments();
     assert(!blockArgs.empty());
 
-    SmallVector<ArgAttr> rtArgSpecVector;
-    SmallVector<ArgAttr> ctArgSpecVector;
     size_t currentSemaphoreIndex = 0;
     TypeConverter::SignatureConversion signatureConverter(op.getNumArguments());
     OpBuilder::InsertionGuard funcInsertionGuard(rewriter);
@@ -2234,7 +2281,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,
                ttkernel::D2MSemaphoreWaitRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx, ttnnMode);
+  patterns.add<ttkernel::D2MGetGlobalOperandRewriter,
+               ttkernel::D2MGetCBRewriter>(typeConverter, ctx, ttnnMode);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
 

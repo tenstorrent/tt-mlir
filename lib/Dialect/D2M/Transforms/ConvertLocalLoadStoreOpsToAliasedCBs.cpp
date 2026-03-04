@@ -36,91 +36,75 @@ static bool isLocalOperand(Value operand, Operation *op) {
   return true;
 }
 
-// Helper function to find the CB block argument that corresponds to a memref
-// operand in a generic op. Returns the CB block argument if found, null
-// otherwise.
-// Assumes that the operand index in the generic op equals the CB block arg
-// index.
-// Ensure that CB block arguments are materialized for all operands.
-static void materializeCBBlockArgs(GenericOp generic, Region &region) {
-  Block &block = region.front();
-  unsigned numOperands = generic->getNumOperands();
+// Cache for CB values: maps (GenericOp pointer, operand index) -> CB value.
+using CBCache = DenseMap<std::pair<Operation *, unsigned>, Value>;
 
-  // Check if CB block args already exist (idempotent).
-  unsigned numExistingCBArgs = 0;
-  for (BlockArgument arg : block.getArguments()) {
-    if (mlir::isa<CBType>(arg.getType())) {
-      ++numExistingCBArgs;
-    }
-  }
-  if (numExistingCBArgs >= numOperands) {
-    return;
+// Compute the CBType and create a d2m.get_cb op for a given operand of a
+// generic op.  Results are cached to ensure each (generic, operand) pair gets
+// exactly one CB value.
+static Value getOrCreateCB(GenericOp generic, Region &region,
+                           unsigned operandIndex, IRRewriter &rewriter,
+                           CBCache &cache) {
+  auto key = std::make_pair(generic.getOperation(), operandIndex);
+  auto it = cache.find(key);
+  if (it != cache.end()) {
+    return it->second;
   }
 
-  // Compute CB types from operand layouts and add block args.
-  for (unsigned i = 0; i < numOperands; ++i) {
-    auto operandType = mlir::cast<ShapedType>(generic->getOperand(i).getType());
-    auto layout = mlir::tt::ttcore::getDeviceLayout(operandType);
-    if (!layout) {
-      continue;
-    }
-    auto shardShape = layout.getShardShape(operandType);
-    auto cbType = CBType::get(MemRefType::get(
-        shardShape, operandType.getElementType(), nullptr,
-        mlir::tt::ttcore::MemorySpaceAttr::get(
-            generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1)));
-    block.addArgument(cbType, generic.getLoc());
+  auto operandType =
+      mlir::cast<ShapedType>(generic->getOperand(operandIndex).getType());
+  auto layout = mlir::tt::ttcore::getDeviceLayout(operandType);
+  if (!layout) {
+    return Value();
   }
+  auto shardShape = layout.getShardShape(operandType);
+  auto cbType = CBType::get(MemRefType::get(
+      shardShape, operandType.getElementType(), nullptr,
+      mlir::tt::ttcore::MemorySpaceAttr::get(
+          generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1)));
+
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointToStart(&region.front());
+  auto getCBOp =
+      rewriter.create<GetCBOp>(generic.getLoc(), cbType, operandIndex);
+  Value result = getCBOp.getResult();
+  cache[key] = result;
+  return result;
 }
 
-static Value findAssociatedCB(Operation *op, Value memrefOperand) {
+// Helper function to find the CB value that corresponds to a memref operand
+// in a generic op. Creates CB values on demand via d2m.get_cb.
+static Value findAssociatedCB(Operation *op, Value memrefOperand,
+                              IRRewriter &rewriter, CBCache &cache) {
   GenericOp generic = op->getParentOfType<GenericOp>();
   if (!generic) {
     return Value();
   }
 
   // Find which operand index this memref corresponds to.
-  std::optional<unsigned> operandIndex;
+  unsigned operandIndex = UINT_MAX;
   for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
     if (generic->getOperand(i) == memrefOperand) {
       operandIndex = i;
       break;
     }
   }
-
-  if (!operandIndex.has_value()) {
+  if (operandIndex == UINT_MAX) {
     return Value();
   }
 
-  // Find the generic op's thread region that contains this operation
+  // Find the generic op's thread region that contains this operation.
   Region *genericRegion = nullptr;
   if (generic.getNumRegions() == 1) {
     genericRegion = &generic.getRegion(0);
   } else {
     genericRegion = ttmlir::utils::getRegionWithParentOfType<GenericOp>(op);
   }
-
   if (!genericRegion || genericRegion->empty()) {
     return Value();
   }
 
-  // Materialize CB block args if not already present.
-  materializeCBBlockArgs(generic, *genericRegion);
-
-  Block *threadBlock = &genericRegion->front();
-
-  // Find the CB block arg at the operand index.
-  unsigned cbIdx = 0;
-  for (BlockArgument arg : threadBlock->getArguments()) {
-    if (mlir::isa<CBType>(arg.getType())) {
-      if (cbIdx == *operandIndex) {
-        return arg;
-      }
-      ++cbIdx;
-    }
-  }
-
-  return Value();
+  return getOrCreateCB(generic, *genericRegion, operandIndex, rewriter, cache);
 }
 
 // Helper function to recursively walk a block and find the last operation that
@@ -267,6 +251,7 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
+    CBCache cbCache;
 
     // Collect remote_load operations to convert
     SmallVector<RemoteLoadOp> remoteLoadsToConvert;
@@ -289,11 +274,12 @@ public:
     for (RemoteLoadOp remoteLoad : remoteLoadsToConvert) {
       Location loc = remoteLoad.getLoc();
       Value memref = remoteLoad.getMemref();
-      Value assocCb = findAssociatedCB(remoteLoad.getOperation(), memref);
+      Value assocCb = findAssociatedCB(remoteLoad.getOperation(), memref,
+                                       rewriter, cbCache);
 
       if (!assocCb) {
         remoteLoad.emitWarning(
-            "could not find associated CB block argument, skipping conversion");
+            "could not find associated CB, skipping conversion");
         continue;
       }
 
@@ -383,11 +369,12 @@ public:
     for (RemoteStoreOp remoteStore : remoteStoresToConvert) {
       Location loc = remoteStore.getLoc();
       Value memref = remoteStore.getMemref();
-      Value assocCb = findAssociatedCB(remoteStore.getOperation(), memref);
+      Value assocCb = findAssociatedCB(remoteStore.getOperation(), memref,
+                                       rewriter, cbCache);
 
       if (!assocCb) {
         remoteStore.emitWarning(
-            "could not find associated CB block argument, skipping conversion");
+            "could not find associated CB, skipping conversion");
         continue;
       }
 

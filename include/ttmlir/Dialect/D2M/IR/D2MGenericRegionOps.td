@@ -2185,6 +2185,31 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
 // D2M Remote Access ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
+def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
+    let summary = "Get a circular buffer for the given operand index.";
+    let description = [{
+      Obtain a CB handle for the parent generic op's operand at the specified
+      index.  This is the canonical way to introduce CB-typed values inside a
+      generic region body.  Each unique operand index maps to exactly one
+      physical circular buffer; multiple calls with the same index are expected
+      to be CSE'd.
+
+      During D2M -> TTKernel lowering the op is replaced with a compile-time
+      argument access (`ttkernel.get_compile_arg_val`) with bump-allocated CB
+      port indices.
+
+      ```mlir
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
+      %buf = d2m.wait %cb0 : !d2m.cb<memref<...>> -> memref<...>
+      ```
+    }];
+
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$operand_index);
+    let results = (outs D2M_CB:$result);
+
+    let assemblyFormat = [{ `(` $operand_index `)` attr-dict `:` type($result) }];
+}
+
 def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
     let summary = "Get global operand op.";
     let description = [{

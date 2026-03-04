@@ -20,7 +20,7 @@ module {
     %3 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%arg0, %1 : tensor<1x1x4x4x!ttype_f32, #layout>, tensor<1x1x4x4x!ttype_f32, #layout>)
         outs(%2 : tensor<1x1x4x4x!ttype_f32, #layout>)  {
-    ^unified0(%cb0: !d2m.cb<tensor<4x4x!ttype_f32>>, %cb1: !d2m.cb<tensor<4x4x!ttype_f32>>, %cb2: !d2m.cb<tensor<4x4x!ttype_f32>>):
+    ^unified0:
       // CHECK: %[[SCALAR:.*]] = arith.constant 2.500000e+00 : f32
       %iter0 = d2m.block_index(0) : index
       %iter1 = d2m.block_index(1) : index
@@ -28,7 +28,7 @@ module {
       %buffer1 = tensor.empty() : tensor<4x4x!ttype_f32>
       %10 = d2m.remote_load %buffer0 %arg0[%iter0, %iter1] : tensor<4x4x!ttype_f32>, tensor<1x1x4x4x!ttype_f32, #layout> -> tensor<4x4x!ttype_f32>
       %11 = d2m.remote_load %buffer1 %1[%iter0, %iter1] : tensor<4x4x!ttype_f32>, tensor<1x1x4x4x!ttype_f32, #layout> -> tensor<4x4x!ttype_f32>
-      %12 = d2m.reserve %cb2 : <tensor<4x4x!ttype_f32>> -> tensor<4x4x!ttype_f32>
+      %12 = tensor.empty() : tensor<4x4x!ttype_f32>
       %13 = linalg.generic {indexing_maps = [#map, #map, #map], iterator_types = ["parallel", "parallel"]} ins(%10, %11 : tensor<4x4x!ttype_f32>, tensor<4x4x!ttype_f32>) outs(%12 : tensor<4x4x!ttype_f32>) {
       ^bb0(%in: !ttype_f32, %in_0: !ttype_f32, %out: !ttype_f32):
         // CHECK: "d2m.tile_add"(%{{.*}}, %[[SCALAR]]) : (!ttcore.tile<32x32, f32>, f32)
@@ -51,7 +51,7 @@ module {
     %3 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%arg0, %1 : tensor<1x1x4x4x!ttype_f32, #layout>, tensor<1x1x4x4x!ttype_f32, #layout>)
         outs(%2 : tensor<1x1x4x4x!ttype_f32, #layout>)  {
-    ^unified0(%cb0: !d2m.cb<tensor<4x4x!ttype_f32>>, %cb1: !d2m.cb<tensor<4x4x!ttype_f32>>, %cb2: !d2m.cb<tensor<4x4x!ttype_f32>>):
+    ^unified0:
       // CHECK: %[[SCALAR:.*]] = arith.constant 3.000000e+00 : f32
       %iter0 = d2m.block_index(0) : index
       %iter1 = d2m.block_index(1) : index
@@ -59,7 +59,7 @@ module {
       %buffer1 = tensor.empty() : tensor<4x4x!ttype_f32>
       %10 = d2m.remote_load %buffer0 %arg0[%iter0, %iter1] : tensor<4x4x!ttype_f32>, tensor<1x1x4x4x!ttype_f32, #layout> -> tensor<4x4x!ttype_f32>
       %11 = d2m.remote_load %buffer1 %1[%iter0, %iter1] : tensor<4x4x!ttype_f32>, tensor<1x1x4x4x!ttype_f32, #layout> -> tensor<4x4x!ttype_f32>
-      %12 = d2m.reserve %cb2 : <tensor<4x4x!ttype_f32>> -> tensor<4x4x!ttype_f32>
+      %12 = tensor.empty() : tensor<4x4x!ttype_f32>
       %13 = linalg.generic {indexing_maps = [#map, #map, #map], iterator_types = ["parallel", "parallel"]} ins(%10, %11 : tensor<4x4x!ttype_f32>, tensor<4x4x!ttype_f32>) outs(%12 : tensor<4x4x!ttype_f32>) {
       ^bb0(%in: !ttype_f32, %in_0: !ttype_f32, %out: !ttype_f32):
         // CHECK: "d2m.tile_mul"(%{{.*}}, %[[SCALAR]]) : (!ttcore.tile<32x32, f32>, f32)
@@ -83,14 +83,14 @@ module {
     %3 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%arg0, %1 : tensor<1x1x4x4x!ttype_f32, #layout>, tensor<1x1x4x4x!ttype_f32, #layout>)
         outs(%2 : tensor<1x1x4x4x!ttype_f32, #layout>)  {
-    ^unified0(%cb0: !d2m.cb<tensor<4x4x!ttype_f32>>, %cb1: !d2m.cb<tensor<4x4x!ttype_f32>>, %cb2: !d2m.cb<tensor<4x4x!ttype_f32>>):
+    ^unified0:
       %iter0 = d2m.block_index(0) : index
       %iter1 = d2m.block_index(1) : index
       %buffer0 = tensor.empty() : tensor<4x4x!ttype_f32>
       %buffer1 = tensor.empty() : tensor<4x4x!ttype_f32>
       %10 = d2m.remote_load %buffer0 %arg0[%iter0, %iter1] : tensor<4x4x!ttype_f32>, tensor<1x1x4x4x!ttype_f32, #layout> -> tensor<4x4x!ttype_f32>
       %11 = d2m.remote_load %buffer1 %1[%iter0, %iter1] : tensor<4x4x!ttype_f32>, tensor<1x1x4x4x!ttype_f32, #layout> -> tensor<4x4x!ttype_f32>
-      %12 = d2m.reserve %cb2 : <tensor<4x4x!ttype_f32>> -> tensor<4x4x!ttype_f32>
+      %12 = tensor.empty() : tensor<4x4x!ttype_f32>
       %13 = linalg.generic {indexing_maps = [#map, #map, #map], iterator_types = ["parallel", "parallel"]} ins(%10, %11 : tensor<4x4x!ttype_f32>, tensor<4x4x!ttype_f32>) outs(%12 : tensor<4x4x!ttype_f32>) {
       ^bb0(%in: !ttype_f32, %in_0: !ttype_f32, %out: !ttype_f32):
         // Use an operation that doesn't support scalars (e.g., maximum)
@@ -119,8 +119,7 @@ module {
     %2 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
         ins(%view, %view_0 : tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded>>, tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded>>)
         outs(%view_1 : tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded>>)  {
-    // CHECK: ^unified0(%cb0: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>, %cb1: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>)
-    ^unified0(%cb0: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>, %cb1: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>, %cb2: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>):
+    ^unified0:
       // CHECK: %[[SCALAR:.*]] = arith.constant 5.000000e-01 : f32
       %iter0 = d2m.block_index(0) : index
       %iter1 = d2m.block_index(1) : index
@@ -130,7 +129,7 @@ module {
       %4 = d2m.remote_load %buffer1 %view_0[%iter0, %iter1] : tensor<8x8x!ttcore.tile<32x32, bf16>>, tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded>> -> tensor<8x8x!ttcore.tile<32x32, bf16>>
       // CHECK: d2m.remote_load %{{.*}} %view
       // CHECK-NOT: d2m.remote_load
-      %5 = d2m.reserve %cb2 : <tensor<8x8x!ttcore.tile<32x32, bf16>>> -> tensor<8x8x!ttcore.tile<32x32, bf16>>
+      %5 = tensor.empty() : tensor<8x8x!ttcore.tile<32x32, bf16>>
       %6 = linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%3, %4 : tensor<8x8x!ttcore.tile<32x32, bf16>>, tensor<8x8x!ttcore.tile<32x32, bf16>>) outs(%5 : tensor<8x8x!ttcore.tile<32x32, bf16>>) {
       ^bb0(%in: !ttcore.tile<32x32, bf16>, %in_171: !ttcore.tile<32x32, bf16>, %out: !ttcore.tile<32x32, bf16>):
         // CHECK: "d2m.tile_mul"(%{{.*}}, %[[SCALAR]]) : (!ttcore.tile<32x32, bf16>, f32) -> !ttcore.tile<32x32, bf16>
