@@ -407,7 +407,6 @@ class D2MASTVisitor(ast.NodeVisitor):
 
         lhs_shape, lhs_elem, _, _ = self._get_ranked_shape_and_elem(lhs.type)
         rhs_shape, rhs_elem, _, _ = self._get_ranked_shape_and_elem(rhs.type)
-        out_val_shape, out_val_elem, _, _ = self._get_ranked_shape_and_elem(out_val.type)
 
         is_tensor = True
         try:
@@ -420,11 +419,15 @@ class D2MASTVisitor(ast.NodeVisitor):
         rank = len(lhs_shape)
         if rank != len(rhs_shape):
             raise ValueError(f"{op_name} rank mismatch between lhs/rhs: {rank} vs {len(rhs_shape)}")
-        if lhs_elem != rhs_elem or lhs_elem != out_val_elem:
-            raise ValueError(
-                f"{op_name} requires matching element types across lhs/rhs/out, got {lhs_elem}, {rhs_elem}, {out_val_elem}"
-            )
-        out_val_is_placeholder = _is_placeholder_shape(out_val_shape)
+
+        # out_val is None when alloc() was used — the actual buffer is allocated here.
+        out_val_is_deferred = out_val is None
+        if not out_val_is_deferred:
+            out_val_shape, out_val_elem, _, _ = self._get_ranked_shape_and_elem(out_val.type)
+            if lhs_elem != rhs_elem or lhs_elem != out_val_elem:
+                raise ValueError(
+                    f"{op_name} requires matching element types across lhs/rhs/out, got {lhs_elem}, {rhs_elem}, {out_val_elem}"
+                )
 
         if op_name == "add":
             lhs_effective = rhs_shape if _is_placeholder_shape(lhs_shape) else lhs_shape
@@ -433,7 +436,7 @@ class D2MASTVisitor(ast.NodeVisitor):
                 raise ValueError(
                     f"d2m.add shape mismatch lhs={lhs_shape}, rhs={rhs_shape}, out_type={out_shape}"
                 )
-            if not out_val_is_placeholder and out_shape != out_val_shape:
+            if not out_val_is_deferred and out_shape != out_val_shape:
                 raise ValueError(
                     f"d2m.add output buffer shape mismatch expected={out_shape}, got out_val={out_val_shape}"
                 )
@@ -453,14 +456,13 @@ class D2MASTVisitor(ast.NodeVisitor):
                 raise ValueError(
                     f"d2m.matmul output shape mismatch expected={expected_out} out_type={out_shape}"
                 )
-            if not out_val_is_placeholder and out_val_shape != expected_out:
+            if not out_val_is_deferred and out_val_shape != expected_out:
                 raise ValueError(
                     f"d2m.matmul output buffer shape mismatch expected={expected_out}, got out_val={out_val_shape}"
                 )
 
-        # When out_val is a placeholder (from alloc()), create a correctly-typed tensor.empty
-        # with the actual output shape so linalg.GenericOp gets the right init tensor.
-        if is_tensor and out_val_is_placeholder:
+        # Allocate the output buffer when alloc() was used (deferred allocation).
+        if is_tensor and out_val_is_deferred:
             from ttmlir.dialects import tensor as tensor_dialect
             out_val = tensor_dialect.EmptyOp(out_shape, out_type.element_type).result
 
@@ -572,17 +574,10 @@ class D2MASTVisitor(ast.NodeVisitor):
                     self.core_indices[name] = op.result
 
             elif isinstance(val.func, ast.Name) and val.func.id == "alloc":
-                # Handle alloc() -> tensor.empty placeholder (pre-bufferized form).
-                # Use all-1s shape so _is_placeholder_shape returns True.
-                # The actual shape is determined when the buffer is used.
-                with Location.unknown(self.ctx), InsertionPoint(self.block):
-                    from ttmlir.ir import Type
-                    tile_type = Type.parse(self.tile_type_str, context=self.ctx)
-                    rank = len(self.shard_shape)
-                    placeholder_shape = [1] * rank
-                    from ttmlir.dialects import tensor as tensor_dialect
-                    op = tensor_dialect.EmptyOp(placeholder_shape, tile_type)
-                    self.symbol_table[name] = op.result
+                # Defer allocation — no IR emitted here. The actual tensor.empty is
+                # emitted at the first use site (remote_load or compute op) where the
+                # correct shape is known.
+                self.symbol_table[name] = None
 
         else:
             # General scalar / index expression (e.g. core_offset_y = core_y * 128)
