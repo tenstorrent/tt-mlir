@@ -525,7 +525,7 @@ def test_sort(
         (3, 3, 3),
         pytest.param(
             (32, 64, 128),
-            marks=pytest.mark.xfail(reason="Larger shapes not yet supported"),
+            marks=pytest.mark.xfail(reason="Larger shapes fail on accuracy because is_stable=False gives different results expectedly"),
         ),
     ],
     ids=shape_str,
@@ -535,7 +535,7 @@ def test_sort(
 @pytest.mark.parametrize("num_values", [1, 3], ids=["1val", "3val"])
 @pytest.mark.parametrize("dimension", [2, 1, 0], ids=["dim2", "dim1", "dim0"])
 @pytest.mark.parametrize("descending", [True, False])
-@pytest.mark.parametrize("is_stable", [True])
+@pytest.mark.parametrize("is_stable", [False])
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sort_key_value(
     shape: Shape,

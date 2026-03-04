@@ -3963,8 +3963,6 @@ def stablehlo_sort_golden(
         sorted_value = torch.gather(input_tensors[i], dimension, indices)
         results.append(sorted_value.to(mlir_type_to_torch_dtype(output_types_mlir[i])))
 
-    if len(results) == 1:
-        return results[0]
     return tuple(results)
 
 
