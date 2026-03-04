@@ -2863,9 +2863,11 @@ mlir::LogicalResult d2m::SpatialOp::bufferize(
     }
     bufferOutputs.push_back(*maybeValue);
   }
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   auto bufferSpatial = rewriter.create<d2m::SpatialOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGridRanges(),
       getNumRegions());
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
   for (mlir::Region &region : bufferSpatial.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }
