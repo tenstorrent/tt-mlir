@@ -188,12 +188,36 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
       }
     }
 
+    Value loadTargetCb = assocCb;
+    bool eraseForwardableStoreWithoutReplacement = false;
+    if (forwardableStore) {
+      Value storeMemref = forwardableStore.getMemref();
+      bool storeMemrefIsStreamBacked =
+          mlir::isa_and_nonnull<StreamLayoutOp>(storeMemref.getDefiningOp());
+      if (!storeMemrefIsStreamBacked) {
+        // If the forwardable store targets a local generic operand (no stream),
+        // load directly into that output operand's CB and drop the store.
+        loadTargetCb = GenericOp::findAssocCBByOperand(
+            forwardableStore.getOperation(), storeMemref);
+        if (!loadTargetCb) {
+          forwardableStore.emitError(
+              "could not find associated CB block argument for memref operand");
+          return failure();
+        }
+        eraseForwardableStoreWithoutReplacement = true;
+      }
+    }
+
     rewriter.setInsertionPoint(remoteLoad);
+
+    if (forwardableStore && eraseForwardableStoreWithoutReplacement) {
+      rewriter.create<ReserveOp>(loc, loadTargetCb);
+    }
 
     // Create the explicit CB form of remote_load (no localBuffer, no result,
     // has CB operand) d2m.remote_load %memref[indices] into %cb
-    rewriter.create<RemoteLoadOp>(loc, memref, remoteLoad.getIndices(), assocCb,
-                                  remoteLoad.getMcastStartIndex(),
+    rewriter.create<RemoteLoadOp>(loc, memref, remoteLoad.getIndices(),
+                                  loadTargetCb, remoteLoad.getMcastStartIndex(),
                                   remoteLoad.getMcastShape());
 
     // Forward-able pair:
@@ -201,21 +225,23 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
     //   remote_store %out[...] %buf
     // Lower both to the same load-associated CB.
     if (forwardableStore) {
-      auto pushOp = rewriter.create<PushOp>(loc, assocCb);
+      auto pushOp = rewriter.create<PushOp>(loc, loadTargetCb);
 
       rewriter.setInsertionPointAfter(pushOp);
-      auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
+      auto waitOp = rewriter.create<WaitOp>(loc, loadTargetCb);
 
       rewriter.setInsertionPointAfter(waitOp);
-      rewriter.create<RemoteStoreOp>(forwardableStore.getLoc(),
-                                     forwardableStore.getMemref(),
-                                     forwardableStore.getIndices(), assocCb);
+      if (!eraseForwardableStoreWithoutReplacement) {
+        rewriter.create<RemoteStoreOp>(
+            forwardableStore.getLoc(), forwardableStore.getMemref(),
+            forwardableStore.getIndices(), loadTargetCb);
+      }
 
       if (remoteLoad.getResult()) {
         rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
       }
 
-      info.cbsNeedingPop.push_back({assocCb, loc});
+      info.cbsNeedingPop.push_back({loadTargetCb, loc});
       rewriter.eraseOp(forwardableStore);
       rewriter.eraseOp(remoteLoad);
       if (allocToErase) {
