@@ -235,6 +235,8 @@ public:
 
   MultiProcessArgs &withControllerHostname(std::string_view hostname);
 
+  MultiProcessArgs &withTcpInterface(std::string_view interfaceName);
+
   std::optional<std::string> getControllerHostname() const;
 
   std::string toArgString() const;
@@ -258,6 +260,8 @@ private:
   std::vector<std::string> extraMpiArgs_;
 
   std::optional<std::string> controllerHostname_;
+
+  std::optional<std::string> tcpInterface_;
 };
 
 struct DistributedOptions {

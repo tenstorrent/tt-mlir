@@ -2,15 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Transforms/DialectConversion.h"
 
-namespace mlir::tt::d2m {
-#define GEN_PASS_DEF_D2MGLOBALDATAFORMATCONVERSION
-#include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
+namespace mlir::tt::ttir {
+#define GEN_PASS_DEF_TTIRGLOBALDATAFORMATCONVERSION
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
 
@@ -92,11 +92,11 @@ public:
   }
 };
 
-struct D2MGlobalDataFormatConversion
-    : public impl::D2MGlobalDataFormatConversionBase<
-          D2MGlobalDataFormatConversion> {
-  using impl::D2MGlobalDataFormatConversionBase<
-      D2MGlobalDataFormatConversion>::D2MGlobalDataFormatConversionBase;
+struct TTIRGlobalDataFormatConversion
+    : public impl::TTIRGlobalDataFormatConversionBase<
+          TTIRGlobalDataFormatConversion> {
+  using impl::TTIRGlobalDataFormatConversionBase<
+      TTIRGlobalDataFormatConversion>::TTIRGlobalDataFormatConversionBase;
 
   void runOnOperation() final {
     auto targetDataType = parseTargetFormat(targetFormat);
@@ -140,4 +140,4 @@ struct D2MGlobalDataFormatConversion
 
 } // namespace
 
-} // namespace mlir::tt::d2m
+} // namespace mlir::tt::ttir

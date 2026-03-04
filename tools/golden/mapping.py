@@ -2265,6 +2265,9 @@ def mean_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     dim_arg = kwargs.get("dim_arg", [0])
     keep_dim = kwargs.get("keep_dim", True)
+    # torch.mean requires floating point input, cast if needed.
+    if not input_tensor.is_floating_point():
+        input_tensor = input_tensor.to(torch.float32)
     return torch.mean(input_tensor, dim=dim_arg, keepdim=keep_dim)
 
 

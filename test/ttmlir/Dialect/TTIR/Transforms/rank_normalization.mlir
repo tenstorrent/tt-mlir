@@ -1,7 +1,7 @@
-// RUN: ttmlir-opt --d2m-rank-normalization %s | FileCheck %s
-// RUN: ttmlir-opt --d2m-rank-normalization --canonicalize %s | FileCheck %s --check-prefix=CHECK-CANON
+// RUN: ttmlir-opt --ttir-rank-normalization %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-rank-normalization --canonicalize %s | FileCheck %s --check-prefix=CHECK-CANON
 //
-// The d2m-rank-normalization pass promotes tensor types with rank < 2 to rank 2
+// The ttir-rank-normalization pass promotes tensor types with rank < 2 to rank 2
 // by prepending 1s to the shape (e.g. tensor<128xf32> -> tensor<1x128xf32>).
 // After promotion, some reshapes become identity (same type in and out).
 // The canonicalizer folds these away.
