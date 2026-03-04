@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --d2m-global-data-format-conversion="target-format=bf16" %s | FileCheck %s --check-prefix=BF16
-// RUN: ttmlir-opt --d2m-global-data-format-conversion="target-format=f32" %s | FileCheck %s --check-prefix=F32
-// RUN: ttmlir-opt --d2m-global-data-format-conversion="target-format=bfp_bf8" %s | FileCheck %s --check-prefix=BFP8
+// RUN: ttmlir-opt --ttir-global-data-format-conversion="target-format=bf16" %s | FileCheck %s --check-prefix=BF16
+// RUN: ttmlir-opt --ttir-global-data-format-conversion="target-format=f32" %s | FileCheck %s --check-prefix=F32
+// RUN: ttmlir-opt --ttir-global-data-format-conversion="target-format=bfp_bf8" %s | FileCheck %s --check-prefix=BFP8
 
 // BF16-LABEL: func.func @test_add_f32_to_bf16
 // F32-LABEL: func.func @test_add_f32_to_bf16

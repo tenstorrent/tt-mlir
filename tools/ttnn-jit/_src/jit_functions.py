@@ -419,7 +419,11 @@ class MatmulOpHandler(BaseOpHandler):
         """Infer result type for matmul using create_output_tensor."""
         # Use create_output_tensor which handles matmul output layout inference.
         return create_output_tensor(
-            self.jit_ctx.ctx, "matmul", [lhs_type, rhs_type], CREATE_INTERMEDIATE_LAYOUT
+            self.jit_ctx.ctx,
+            "matmul",
+            [lhs_type, rhs_type],
+            CREATE_INTERMEDIATE_LAYOUT,
+            self.jit_ctx.core_grid,
         )
 
     def create_operation(self, *args, **kwargs):

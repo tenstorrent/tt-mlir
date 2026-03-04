@@ -4,7 +4,8 @@
 module attributes {} {
   func.func @less_than(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {
     %1 = "ttir.lt"(%arg0, %arg1) : (tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
-    // CHECK: "ttnn.lt"
+    // Canonicalization of less_than to greater_than with swapped operands.
+    // CHECK: "ttnn.gt"
     // CHECK-SAME: tensor<13x31xf32
     // CHECK-SAME: tensor<13x31xf32
     // CHECK-SAME: -> tensor<13x31xf32

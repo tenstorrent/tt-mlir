@@ -42,13 +42,14 @@ import ttnn
 class JitContext:
     """Context for tracking MLIR values during tracing."""
 
-    def __init__(self, func_bb, ctx, mesh_shape):
+    def __init__(self, func_bb, ctx, mesh_shape, core_grid):
         self.func_bb = func_bb
         self.ctx = ctx
         self.value_map = {}  # Maps id(python_obj) -> MLIR value
         self.func_arg_ids = set()  # Track IDs of original function arguments
         # Mesh shape (rows, cols) from device; (1, 1) for single device. Used by CCL ops.
         self.mesh_shape = mesh_shape
+        self.core_grid = core_grid
 
 
 class TracingCompiler:
@@ -86,9 +87,10 @@ class TracingCompiler:
                 )
                 func_bb = func_op.add_entry_block()
 
-        # Create JIT context with mesh shape from device (for CCL output shape inference)
+        # Create JIT context with device core grid and mesh shape
+        core_grid = get_core_grid_from_tensor_args(self.tensor_args)
         mesh_shape = get_mesh_shape_from_tensor_args(self.tensor_args)
-        jit_ctx = JitContext(func_bb, ctx, mesh_shape=mesh_shape)
+        jit_ctx = JitContext(func_bb, ctx, mesh_shape=mesh_shape, core_grid)
 
         # Map original function arguments to MLIR block arguments
         for i, arg in enumerate(self.args):
