@@ -1306,7 +1306,7 @@ def load_mlir_file(
     mlir_text: str,
     golden_inputs: Dict[str, List[torch.tensor]] = None,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
-    split_on_demand: bool = False,
+    deallocate_goldens: bool = False,
     test_base: str = "test",
     output_root: str = ".",
 ) -> (Module, Builder):
@@ -1321,7 +1321,7 @@ def load_mlir_file(
         Optional map of input names to lists of torch tensors used to seed builder goldens.
     target : Literal["ttir", "ttnn", "d2m", "stablehlo"]
         Which dialect to interpret the module as, controls which builder is reconstructed.
-    split_on_demand : bool, optional
+    deallocate_goldens : bool, optional
         Whether to split the module on demand (default: False).
 
     Returns
@@ -1335,7 +1335,7 @@ def load_mlir_file(
         artifact_dir = get_artifact_dir(output_root, "TTIRBuilder", test_base, True)
         deallocated_goldens_dir = os.path.join(artifact_dir, "deallocated_goldens")
         module, builder = TTIRBuilder.from_module(
-            ctx, mlir_text, golden_inputs, split_on_demand, deallocated_goldens_dir
+            ctx, mlir_text, golden_inputs, deallocate_goldens, deallocated_goldens_dir
         )
     elif target == "stablehlo":
         artifact_dir = get_artifact_dir(
@@ -1343,7 +1343,7 @@ def load_mlir_file(
         )
         deallocated_goldens_dir = os.path.join(artifact_dir, "deallocated_goldens")
         module, builder = StableHLOBuilder.from_module(
-            ctx, mlir_text, golden_inputs, split_on_demand, deallocated_goldens_dir
+            ctx, mlir_text, golden_inputs, deallocate_goldens, deallocated_goldens_dir
         )
     elif target == "ttnn":
         module, builder = TTNNBuilder.from_module(

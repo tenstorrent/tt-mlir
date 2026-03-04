@@ -35,7 +35,7 @@ class StableHLOBuilder(Builder):
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
         ] = OrderedDict([("x", 1), ("y", 1)]),
-        split_on_demand: bool = False,
+        deallocate_goldens: bool = False,
         deallocated_goldens_dir: Optional[str] = "./deallocated_goldens",
     ):
         super().__init__(
@@ -43,7 +43,7 @@ class StableHLOBuilder(Builder):
             location,
             mesh_name,
             mesh_dict,
-            split_on_demand=split_on_demand,
+            deallocate_goldens=deallocate_goldens,
             deallocated_goldens_dir=deallocated_goldens_dir,
         )
 
@@ -7825,7 +7825,7 @@ class StableHLOBuilder(Builder):
         ctx: Context,
         mlir_text: str,
         golden_inputs: Dict[str, List[torch.tensor]] = None,
-        split_on_demand: bool = False,
+        deallocate_goldens: bool = False,
         deallocated_goldens_dir: Optional[str] = ".",
     ) -> Tuple(Module, StableHLOBuilder):
         if golden_inputs is None:
@@ -7858,7 +7858,7 @@ class StableHLOBuilder(Builder):
                 loc,
                 mesh_name,
                 mesh_shape,
-                split_on_demand=split_on_demand,
+                deallocate_goldens=deallocate_goldens,
                 deallocated_goldens_dir=deallocated_goldens_dir,
             )
             new_module = stablehlo_builder.parse_root_module(root_module, golden_inputs)

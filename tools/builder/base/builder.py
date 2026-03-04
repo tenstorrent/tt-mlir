@@ -49,14 +49,14 @@ class Builder(metaclass=BuilderMeta):
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
         ] = OrderedDict([("x", 1), ("y", 1)]),
-        split_on_demand: bool = False,
+        deallocate_goldens: bool = False,
         deallocated_goldens_dir: Optional[str] = "./deallocated_goldens",
     ):
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
         self._force_graph_level_check = False
-        self._split_on_demand = split_on_demand
+        self._deallocate_goldens = deallocate_goldens
         self._deallocated_goldens_dir = deallocated_goldens_dir
         os.makedirs(self._deallocated_goldens_dir, exist_ok=True)
 
@@ -929,7 +929,7 @@ class Builder(metaclass=BuilderMeta):
                 self._cpu_module_insertion_point = cloned_op.regions[0].blocks[0]
 
             for entry in parsed_root_module.body.operations:
-                if self._split_on_demand:
+                if self._deallocate_goldens:
                     self.read_module(parsed_root_module)
 
                 if isinstance(entry, ttcore.DeviceModuleOp):
@@ -1034,7 +1034,7 @@ class Builder(metaclass=BuilderMeta):
                         ) = self._build_op_from_parsed_op(op, global_dict)
                         global_dict.update(op_golden_dictionary)
 
-                        if self._split_on_demand:
+                        if self._deallocate_goldens:
                             # Check if this operation has operands to deallocate
                             if op in self._op_deallocations:
                                 operands_to_deallocate = self._op_deallocations[op]
