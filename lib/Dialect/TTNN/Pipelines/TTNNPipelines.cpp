@@ -44,7 +44,6 @@ void createTTNNPipelineTTIRPasses(
   pm.addPass(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::tt::ttir::createTTIRComplexDataTypeConversionPass());
   ttir::TTIRFusingOptions fusingOptions{
       options.enableFusingConv2dWithMultiplyPattern,
       options.enablePermuteMatmulFusion};
