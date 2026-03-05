@@ -16,8 +16,9 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include "gtest/gtest.h"
+
 #include <cstdint>
-#include <gtest/gtest.h>
 
 namespace mlir::tt::ttnn {
 
