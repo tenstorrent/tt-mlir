@@ -111,6 +111,10 @@ target_link_libraries(TTMLIRCompiler PRIVATE
     flatbuffers
 )
 
+if(NOT APPLE)
+  target_link_libraries(TTMLIRCompiler PRIVATE -l:libatomic.a)
+endif()
+
 target_link_libraries(TTMLIRCompiler PUBLIC coverage_config)
 
 target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
