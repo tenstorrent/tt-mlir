@@ -1987,12 +1987,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
 
       if (auto op = mlir::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
-        if (previousWasViewLayout) {
-          genericOp.emitOpError()
-              << "operand #" << operandIndex
-              << " has a defining chain with back-to-back d2m.view_layout ops";
-          return failure();
-        }
+        TT_assertv(!previousWasViewLayout,
+                   "operand #{} has a defining chain with back-to-back "
+                   "d2m.view_layout ops",
+                   operandIndex);
         analysis.containsViewLayout = true;
         previousWasViewLayout = true;
         value = op.getInput();
