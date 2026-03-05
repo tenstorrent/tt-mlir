@@ -1332,13 +1332,12 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         return mlir::cast<CBType>(cb.getType());
       }
 
-      /// Return the CB port number from this op's CB operand, or UINT_MAX if
-      /// no CB is present or its defining op is not a GetCBOp.
+      /// Return the CB port number from this op's CB operand.
+      /// The op must be in explicit CB form with a GetCBOp-defined CB.
       unsigned getCBPort() {
-        Value cb = getCb();
-        if (!cb) return UINT_MAX;
-        auto getCBOp = cb.getDefiningOp<GetCBOp>();
-        if (!getCBOp) return UINT_MAX;
+        assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
+        auto getCBOp = getCb().getDefiningOp<GetCBOp>();
+        assert(getCBOp && "CB operand must be defined by a GetCBOp");
         return getCBOp.getPort();
       }
 
@@ -1518,12 +1517,12 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       }
 
       /// Return the CB port number from this op's CB operand, or UINT_MAX if
-      /// no CB is present or its defining op is not a GetCBOp.
+      /// Return the CB port number from this op's CB operand.
+      /// The op must be in explicit CB form with a GetCBOp-defined CB.
       unsigned getCBPort() {
-        Value cb = getCb();
-        if (!cb) return UINT_MAX;
-        auto getCBOp = cb.getDefiningOp<GetCBOp>();
-        if (!getCBOp) return UINT_MAX;
+        assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
+        auto getCBOp = getCb().getDefiningOp<GetCBOp>();
+        assert(getCBOp && "CB operand must be defined by a GetCBOp");
         return getCBOp.getPort();
       }
 
