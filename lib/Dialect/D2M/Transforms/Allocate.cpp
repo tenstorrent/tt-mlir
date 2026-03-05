@@ -938,15 +938,18 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// Each `analysis.memrefs` entry defines an allocation planner decision
   /// variable. These can be of different origins:
   ///
-  /// (1) A memref defined by a `memref.alloc` backing a generic op operand
-  ///     and potentially associated with a stream and its buffer.
+  /// (1) A memref defined by a `memref.alloc` backing a generic op operand.
   /// (2) A memref that backs a generic op operand but is not defined by an
-  ///     op inside `funcOp` (i.e. passed in as a block argument). We may
-  ///     insert a stream for this operand and will therefore need to
-  ///     allocate this stream's buffer.
+  ///     op inside `funcOp` (i.e. passed in as a block argument).
   /// (3) A memref defined by a "standalone" `memref.alloc` that needs no
   ///     generic op streaming but will still need a valid L1/DRAM memory
   ///     address assigned.
+  ///
+  /// Note: Stream buffer storage allocs are currently skipped by the planner
+  /// (no L1 space reserved). `insertStream` still creates the alloc and
+  /// `stream_layout` for IR correctness, but without an address; both are
+  /// expected to be DCE'd before conversion to TTMetal.  Ticket: #6613 tracks
+  /// the removal of stream buffer storage allocs entirely.
   ///
   LogicalResult prepareMemoryPlanner(func::FuncOp funcOp,
                                      FuncAnalysisData &analysis) {
@@ -1048,7 +1051,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               }
 
               if (inferStreamRequirement(user, operandCtx, placementMemspace)) {
-                // TODO: Stream storage allocs will be removed entirely
+                // TODO(#6613): Stream storage allocs will be removed entirely
                 // in a follow-up PR.  For now, skip the planner request
                 // so the buffer doesn't compete for L1 space.
                 // insertStream() still creates the alloc + stream_layout
