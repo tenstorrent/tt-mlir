@@ -116,7 +116,7 @@ def gptoss_gateup_subgraph_not_jit(
 
 def test_oss_gateup_subgraph(device):
     shape = (2, 32, 3072)
-    dtype = torch.float32
+    dtype = torch.bfloat16
     limit = 7.0
     bias = 1.0
     alpha = 1.702
