@@ -574,6 +574,12 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MatmulOp> emitter(
         matmulOp, adaptor, rewriter, this->isGoldenModeEnabled());
 
+    auto resultLayoutAttr = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(matmulOp.getResult().getType())
+            .getEncoding());
+    auto outputDtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
+        matmulOp.getContext(), resultLayoutAttr.getDataType());
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(matmulOp.getA()),
         emitter.emit(matmulOp.getB()),
@@ -582,10 +588,11 @@ public:
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(matmulOp.getResult()),
                      "memory_config"),
-        emitter.emit(std::nullopt, "dtype"),
+        emitter.emit(outputDtypeAttr, "dtype"),
         emitter.emit<ttnn_to_emitpy::MatmulProgramConfig>(
             matmulOp.getMatmulProgramConfig(), "program_config"),
         emitter.emit(matmulOp.getActivation(), "activation"),
+        emitter.emit(matmulOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -613,6 +620,12 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LinearOp> emitter(
         srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
 
+    auto resultLayoutAttr = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType())
+            .getEncoding());
+    auto outputDtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
+        srcOp.getContext(), resultLayoutAttr.getDataType());
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getA()),
         emitter.emit(srcOp.getB()),
@@ -621,10 +634,11 @@ public:
         emitter.emit(srcOp.getTransposeB(), "transpose_b"),
         emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
-        emitter.emit(std::nullopt, "dtype"),
+        emitter.emit(outputDtypeAttr, "dtype"),
         emitter.emit<ttnn_to_emitpy::MatmulProgramConfig>(
             srcOp.getMatmulProgramConfig(), "program_config"),
         emitter.emit(srcOp.getActivation(), "activation"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -929,6 +943,8 @@ public:
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(softmaxOp.getResult()),
                      "memory_config"),
+        emitter.emit(softmaxOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(softmaxOp.getNumericStable(), "numeric_stable"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1485,7 +1501,9 @@ public:
         emitter.emit(reductionOp.getKeepDim()),
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(reductionOp.getResult()),
-                     "memory_config")};
+                     "memory_config"),
+        emitter.emit(reductionOp.getComputeConfig(), "compute_kernel_config"),
+    };
 
     emitter.replaceOp(*this, args);
 
@@ -1568,7 +1586,7 @@ public:
         emitter.emit(conv2dOp.getGroups(), "groups"),
         emitter.emit(conv2dOp.getBias(), "bias_tensor"),
         emitter.emit(conv2dOp.getConv2dConfig(), "conv_config"),
-        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(conv2dOp.getComputeConfig(), "compute_config"),
         emitter.emit(conv2dOp.getConv2dSliceConfig(), "slice_config"),
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(conv2dOp.getResult()),
@@ -1658,7 +1676,7 @@ public:
         emitter.emit(srcOp.getDtype(), "dtype"),
         emitter.emit(srcOp.getBias(), "bias_tensor"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
-        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_config"),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
@@ -1724,7 +1742,7 @@ public:
         emitter.emit(srcOp.getInputDtype(), "input_dtype"),
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
-        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_config"),
         emitter.emit(std::nullopt, "slice_config"),
     };
 
@@ -1784,7 +1802,7 @@ public:
         emitter.emit(srcOp.getInputDtype(), "input_dtype"),
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
-        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1847,7 +1865,7 @@ public:
         emitter.emit(srcOp.getInputDtype(), "input_dtype"),
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
-        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_config"),
         emitter.emit(srcOp.getMirrorKernel(), "mirror_kernel"),
         emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
     };
@@ -1910,7 +1928,7 @@ public:
         emitter.emit(srcOp.getInputDtype(), "input_dtype"),
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
-        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_config"),
         emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
     };
 
@@ -2250,11 +2268,18 @@ public:
         embeddingOp.getContext(), resultLayoutAttr.isTiled()
                                       ? mlir::tt::ttnn::Layout::Tile
                                       : mlir::tt::ttnn::Layout::RowMajor);
+    auto outputDtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
+        embeddingOp.getContext(), resultLayoutAttr.getDataType());
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(embeddingOp.getInput()),
         emitter.emit(embeddingOp.getWeight()),
+        emitter.emit(std::nullopt, "padding_idx"),
         emitter.emit(layoutAttr, "layout"),
+        emitter.emit(outputDtypeAttr, "dtype"),
+        emitter.emit(std::nullopt |
+                         emitter.getMemoryConfig(embeddingOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3004,6 +3029,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3053,6 +3079,7 @@ public:
 
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3296,6 +3323,7 @@ public:
                      "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3624,6 +3652,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3666,6 +3695,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
