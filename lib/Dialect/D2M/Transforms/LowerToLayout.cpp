@@ -913,7 +913,34 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 4. MASKING: Apply boundary masking after tilization if needed.
+    // 4. UNTILIZE: Before L1→DRAM or Device→System.
+    bool needsUntilize =
+        ttcore::isTiled(currentInfo.type) && !ttcore::isTiled(targetInfo.type);
+    if (needsUntilize) {
+      Type scalarType = targetInfo.type.getElementType();
+      // Avoid reblocking virtual grid shapes here. Output type here retains
+      // input's virtual grid shape; only transformation is to scalar dtype.
+      auto existingRemapping =
+          utils::getAssociatedRemapping(currentValue).value_or(AffineMap());
+      auto scalarType_ranked = typeBuilder.modifyDeviceType(
+          currentInfo.type, *currentInfo.layout, targetGridShape,
+          existingRemapping, /*memSpace=*/{}, /*newTensorGrid=*/{}, scalarType,
+          /*newTileShape=*/std::nullopt, /*reblockVirtualGridShapes=*/false);
+      auto scalarEmpty = createEmpty(scalarType_ranked);
+      currentValue = lowerFormatConversionGeneric(rewriter, currentValue,
+                                                  scalarEmpty, op.getLoc());
+      currentInfo = TensorInfo::from(currentValue);
+    }
+
+    // 5. L1→DRAM (lowerDatamovementGeneric handles grid mismatch via views).
+    if (currentInfo.hasLayout() && !currentInfo.isDRAM() &&
+        targetInfo.hasLayout() && targetInfo.isDRAM()) {
+      currentValue = lowerDatamovementGeneric(rewriter, currentValue,
+                                              op.getOutput(), op.getLoc());
+      currentInfo = TensorInfo::from(currentValue);
+    }
+
+    // 6. MASKING: Apply boundary masking after tilization if needed.
     // Insert TileMaskBoundaryOp when the target layout has non-Undef OOBVal
     // and padding exists.
     if (currentInfo.hasLayout() && ttcore::isTiled(currentInfo.type) &&
@@ -935,7 +962,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 5. MAPPING CHANGE: Grid/index_map/logical_shape/dim_alignments (after
+    // 7. MAPPING CHANGE: Grid/index_map/logical_shape/dim_alignments (after
     // tilize). Includes all reblocking (both virtual and normal grids). Must
     // happen in L1 (can't reblock in DRAM). Only when element type formats
     // match (tilize/untilize should happen first).
@@ -983,7 +1010,7 @@ public:
           // shapes don't divide evenly into tiles. Decompose via scalar space:
           // untilize → map in scalar space → tilize back.
 
-          // 5a. Untilize to scalar space (preserve current layout properties).
+          // 7a. Untilize to scalar space (preserve current layout properties).
           // Reblock virtual grid shape here to align with earlier splitting
           // phases that use reblocked intermediates to bounce virtual grid
           // shapes from host to device.
@@ -999,7 +1026,7 @@ public:
               rewriter, currentValue, untilizedEmpty, op.getLoc());
           currentInfo = TensorInfo::from(currentValue);
 
-          // 5b. Apply complex mapping change in scalar space.
+          // 7b. Apply complex mapping change in scalar space.
           // Build scalar target with ALL target's layout properties.
           auto scalarTargetLayout = ttcore::MetalLayoutAttr::get(
               rewriter.getContext(), targetInfo.layout->getLogicalShape(),
@@ -1021,7 +1048,7 @@ public:
                                  op.getLoc(), targetGridShape);
           currentInfo = TensorInfo::from(currentValue);
 
-          // 5c. Tilize back to match target format.
+          // 7c. Tilize back to match target format.
           ArrayRef<int64_t> tileShape =
               ttcore::getTensorTileShape(targetInfo.type);
           auto tiledDeviceShape = targetInfo.layout->getDeviceShape(
@@ -1059,33 +1086,6 @@ public:
           currentInfo = TensorInfo::from(currentValue);
         }
       }
-    }
-
-    // 6. UNTILIZE: Before L1→DRAM or Device→System.
-    bool needsUntilize =
-        ttcore::isTiled(currentInfo.type) && !ttcore::isTiled(targetInfo.type);
-    if (needsUntilize) {
-      Type scalarType = targetInfo.type.getElementType();
-      // Avoid reblocking virtual grid shapes here. Output type here retains
-      // input's virtual grid shape; only transformation is to scalar dtype.
-      auto existingRemapping =
-          utils::getAssociatedRemapping(currentValue).value_or(AffineMap());
-      auto scalarType_ranked = typeBuilder.modifyDeviceType(
-          currentInfo.type, *currentInfo.layout, targetGridShape,
-          existingRemapping, /*memSpace=*/{}, /*newTensorGrid=*/{}, scalarType,
-          /*newTileShape=*/std::nullopt, /*reblockVirtualGridShapes=*/false);
-      auto scalarEmpty = createEmpty(scalarType_ranked);
-      currentValue = lowerFormatConversionGeneric(rewriter, currentValue,
-                                                  scalarEmpty, op.getLoc());
-      currentInfo = TensorInfo::from(currentValue);
-    }
-
-    // 7. L1→DRAM (lowerDatamovementGeneric handles grid mismatch via views).
-    if (currentInfo.hasLayout() && !currentInfo.isDRAM() &&
-        targetInfo.hasLayout() && targetInfo.isDRAM()) {
-      currentValue = lowerDatamovementGeneric(rewriter, currentValue,
-                                              op.getOutput(), op.getLoc());
-      currentInfo = TensorInfo::from(currentValue);
     }
 
     // 8. VIRTUAL GRID COLLAPSE: If current has virtual grid but target doesn't
