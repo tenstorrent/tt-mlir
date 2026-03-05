@@ -298,6 +298,14 @@ protected:
           rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
           ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
 
+    } else if (ttnnMode) {
+      auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
+      auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
+      auto collapsedIntervals = DenseIntElementsAttr::get(
+          intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
+      layout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), logicalShape, oobVal, memSpace,
+          ttcore::TensorMemoryLayout::Sharded, collapsedIntervals);
     } else {
       layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, oobVal, memSpace,
