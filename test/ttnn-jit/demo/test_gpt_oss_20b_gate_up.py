@@ -76,15 +76,15 @@ def gptoss_gateup_subgraph(
     left_max,
     right_min,
     right_max,
-    add_value,
-    mul_value,
+    bias_value,
+    alpha_value,
 ):
 
     left_clamp = ttnn.clamp(left_input, min=left_min, max=left_max)
-    left_out = ttnn.add(left_clamp, add_value)
+    left_out = ttnn.add(left_clamp, bias_value)
 
     right_clamp = ttnn.clamp(right_input, min=right_min, max=right_max)
-    right_temp = ttnn.multiply(right_clamp, mul_value)
+    right_temp = ttnn.multiply(right_clamp, alpha_value)
     right_temp = ttnn.sigmoid(right_temp)
     right_out = ttnn.multiply(right_clamp, right_temp)
 
@@ -99,14 +99,14 @@ def gptoss_gateup_subgraph_not_jit(
     left_max,
     right_min,
     right_max,
-    add_value,
-    mul_value,
+    bias_value,
+    alpha_value,
 ):
     left_clamp = ttnn.clamp(left_input, min=left_min, max=left_max)
-    left_out = ttnn.add(left_clamp, add_value)
+    left_out = ttnn.add(left_clamp, bias_value)
 
     right_clamp = ttnn.clamp(right_input, min=right_min, max=right_max)
-    right_temp = ttnn.multiply(right_clamp, mul_value)
+    right_temp = ttnn.multiply(right_clamp, alpha_value)
     right_temp = ttnn.sigmoid(right_temp)
     right_out = ttnn.multiply(right_clamp, right_temp)
 
@@ -117,27 +117,30 @@ def gptoss_gateup_subgraph_not_jit(
 def test_oss_gateup_subgraph(device):
     shape = (2, 32, 3072)
     dtype = torch.float32
+    limit = 7.0
+    bias = 1.0
+    alpha = 1.702
 
     left_input = create_dram_tensor(device, shape, dtype)
     right_input = create_dram_tensor(device, shape, dtype)
 
     left_min = create_dram_tensor(
-        device, shape, dtype, input_transform=lambda t: t.fill_(-7.0)
+        device, shape, dtype, input_transform=lambda t: t.fill_(-limit)
     )
     left_max = create_dram_tensor(
-        device, shape, dtype, input_transform=lambda t: t.fill_(7.0)
+        device, shape, dtype, input_transform=lambda t: t.fill_(limit)
     )
     right_min = create_dram_tensor(
         device, shape, dtype, input_transform=lambda t: t.fill_(float("-inf"))
     )
     right_max = create_dram_tensor(
-        device, shape, dtype, input_transform=lambda t: t.fill_(7.0)
+        device, shape, dtype, input_transform=lambda t: t.fill_(limit)
     )
-    add_value = create_dram_tensor(
-        device, shape, dtype, input_transform=lambda t: t.fill_(1.0)
+    bias_value = create_dram_tensor(
+        device, shape, dtype, input_transform=lambda t: t.fill_(bias)
     )
-    mul_value = create_dram_tensor(
-        device, shape, dtype, input_transform=lambda t: t.fill_(2.0)
+    alpha_value = create_dram_tensor(
+        device, shape, dtype, input_transform=lambda t: t.fill_(alpha)
     )
 
     output = gptoss_gateup_subgraph(
@@ -147,8 +150,8 @@ def test_oss_gateup_subgraph(device):
         left_max,
         right_min,
         right_max,
-        add_value,
-        mul_value,
+        bias_value,
+        alpha_value,
     )
     output_not_jit = gptoss_gateup_subgraph_not_jit(
         left_input,
@@ -157,7 +160,7 @@ def test_oss_gateup_subgraph(device):
         left_max,
         right_min,
         right_max,
-        add_value,
-        mul_value,
+        bias_value,
+        alpha_value,
     )
     assert all_close_check(output, output_not_jit)
