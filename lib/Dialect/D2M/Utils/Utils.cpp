@@ -174,7 +174,7 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     outputGridShape = llvm::to_vector(ttcore::getGridShape(tensorOrMemref));
 
     bool rankMismatch = outputGridShape.size() != deviceGridShape.size();
-    bool outOfDeviceGridBounds = (outputGridShape[0] > deviceGridShape[0]) &&
+    bool outOfDeviceGridBounds = (outputGridShape[0] > deviceGridShape[0]) ||
                                  (outputGridShape[1] > deviceGridShape[1]);
 
     // For views, assume that if direct 1:1 mapping to device grid shape is

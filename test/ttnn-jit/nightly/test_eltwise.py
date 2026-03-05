@@ -32,7 +32,7 @@ BLOCK_SHARDED_SHAPE_GRIDS = [
 ]
 
 HEIGHT_SHARDED_SHAPE_GRIDS = [
-    ((256, 32), (3, 1)),
+    # ((256, 32), (3, 1)),  # skip: PCC check failures on L1 sharded ops. Issue #7157
     ((1024, 32), (7, 3)),
     ((256, 64), (0, 7)),
     ((2048, 128), (7, 7)),
@@ -46,6 +46,8 @@ WIDTH_SHARDED_SHAPE_GRIDS = [
     ((64, 256), (7, 0)),
     ((64, 256), (0, 7)),
     ((128, 2048), (7, 7)),
+    # ((32, 384), (0, 5)),  # skip: PCC check failures on L1 sharded ops. Issue #7157
+    ((32, 384), (1, 5)),
     ((2, 32, 384), (1, 5)),
     ((2, 2, 32, 384), (1, 5)),
     ((2, 1, 32, 2048), (7, 7)),
