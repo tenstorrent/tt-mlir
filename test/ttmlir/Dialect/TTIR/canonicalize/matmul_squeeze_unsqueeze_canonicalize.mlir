@@ -15,30 +15,41 @@ module {
     return %3 : tensor<1x5x64x64xbf16>
   }
 
-  // Only input A squeezed -- pattern fires via batch broadcasting.
+  // Only input A squeezed -- pattern does not fire (rank mismatch).
   func.func @matmul_one_input_squeezed(%arg0: tensor<1x64x128xbf16>, %arg1: tensor<128x32xbf16>) -> tensor<1x64x32xbf16> {
     // CHECK-LABEL: @matmul_one_input_squeezed
-    // CHECK-NOT: "ttir.reshape"
-    // CHECK: "ttir.matmul"(%arg0, %arg1)
-    // CHECK-SAME: -> tensor<1x64x32xbf16>
-    // CHECK-NOT: "ttir.reshape"
+    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.reshape"
     %0 = "ttir.reshape"(%arg0) <{shape = [64 : i32, 128 : i32]}> : (tensor<1x64x128xbf16>) -> tensor<64x128xbf16>
     %1 = "ttir.matmul"(%0, %arg1) : (tensor<64x128xbf16>, tensor<128x32xbf16>) -> tensor<64x32xbf16>
     %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 64 : i32, 32 : i32]}> : (tensor<64x32xbf16>) -> tensor<1x64x32xbf16>
     return %2 : tensor<1x64x32xbf16>
   }
 
-  // Only input B squeezed -- pattern fires via batch broadcasting.
+  // Only input B squeezed -- pattern does not fire (rank mismatch).
   func.func @matmul_one_input_b_squeezed(%arg0: tensor<64x128xbf16>, %arg1: tensor<1x128x32xbf16>) -> tensor<1x64x32xbf16> {
     // CHECK-LABEL: @matmul_one_input_b_squeezed
-    // CHECK-NOT: "ttir.reshape"
-    // CHECK: "ttir.matmul"(%arg0, %arg1)
-    // CHECK-SAME: -> tensor<1x64x32xbf16>
-    // CHECK-NOT: "ttir.reshape"
+    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.reshape"
     %0 = "ttir.reshape"(%arg1) <{shape = [128 : i32, 32 : i32]}> : (tensor<1x128x32xbf16>) -> tensor<128x32xbf16>
     %1 = "ttir.matmul"(%arg0, %0) : (tensor<64x128xbf16>, tensor<128x32xbf16>) -> tensor<64x32xbf16>
     %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 64 : i32, 32 : i32]}> : (tensor<64x32xbf16>) -> tensor<1x64x32xbf16>
     return %2 : tensor<1x64x32xbf16>
+  }
+
+  // Only one input squeezed, batch dim > 1 -- pattern does not fire (rank
+  // mismatch would produce mixed-rank matmul that TTNN rejects).
+  func.func @matmul_one_input_squeezed_batch_gt1(%arg0: tensor<1x12x577x64xbf16>, %arg1: tensor<12x577x577xbf16>) -> tensor<1x12x577x64xbf16> {
+    // CHECK-LABEL: @matmul_one_input_squeezed_batch_gt1
+    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.reshape"
+    %0 = "ttir.reshape"(%arg0) <{shape = [12 : i32, 577 : i32, 64 : i32]}> : (tensor<1x12x577x64xbf16>) -> tensor<12x577x64xbf16>
+    %1 = "ttir.matmul"(%arg1, %0) : (tensor<12x577x577xbf16>, tensor<12x577x64xbf16>) -> tensor<12x577x64xbf16>
+    %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 12 : i32, 577 : i32, 64 : i32]}> : (tensor<12x577x64xbf16>) -> tensor<1x12x577x64xbf16>
+    return %2 : tensor<1x12x577x64xbf16>
   }
 
   // No squeeze/unsqueeze reshapes -- pattern does not fire.

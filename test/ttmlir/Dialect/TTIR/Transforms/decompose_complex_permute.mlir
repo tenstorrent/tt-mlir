@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --d2m-decompose-complex-permute %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-decompose-complex-permute %s | FileCheck %s
 
 // inner -> outer
 // CHECK-LABEL: @permute_4d_0312
