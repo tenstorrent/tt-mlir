@@ -198,10 +198,10 @@ func.func @test(
   auto it = packing.perResult.find(outputValues.front());
   ASSERT_NE(it, packing.perResult.end());
   ASSERT_EQ(packing.perResult.size(), 1u);
-  EXPECT_EQ(it->second.numTilesPerFlip, 1);
+  EXPECT_EQ(it->second.numTilesPerFlip, 2);
   EXPECT_EQ(it->second.numDstFlips, 2);
-  EXPECT_EQ(packing.numTilesPerResult, 2);
-  EXPECT_EQ(packing.numOuterLoopIters, 4);
+  EXPECT_EQ(packing.numTilesPerResult, 4);
+  EXPECT_EQ(packing.numOuterLoopIters, 2);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPU) {
@@ -248,10 +248,10 @@ func.func @test(
   auto it = packing.perResult.find(outputValues.front());
   ASSERT_NE(it, packing.perResult.end());
   ASSERT_EQ(packing.perResult.size(), 1u);
-  EXPECT_EQ(it->second.numTilesPerFlip, 1);
+  EXPECT_EQ(it->second.numTilesPerFlip, 4);
   EXPECT_EQ(it->second.numDstFlips, 2);
-  EXPECT_EQ(packing.numTilesPerResult, 2);
-  EXPECT_EQ(packing.numOuterLoopIters, 4);
+  EXPECT_EQ(packing.numTilesPerResult, 8);
+  EXPECT_EQ(packing.numOuterLoopIters, 1);
 }
 
 TEST_F(GenericOpAnalysisTest, RejectsDifferentImmediateParentBlockingLoops) {
@@ -371,19 +371,19 @@ func.func @test(
   ASSERT_EQ(outputValues.size(), 4u);
   ASSERT_EQ(packing.perResult.size(), 4u);
   EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numTilesPerFlip,
-            1); // tile_abs => SFPU fp32
+            2); // tile_abs => SFPU fp32
   EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numTilesPerFlip,
-            1); // tile_add(tile,tile) => FPU fp32
+            4); // tile_add(tile,tile) => FPU fp32
   EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numTilesPerFlip,
-            1); // tile_mul(tile,scalar) => SFPU fp32
+            2); // tile_mul(tile,scalar) => SFPU fp32
   EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numTilesPerFlip,
-            1); // tile_sub(tile,tile) => FPU fp32
-  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numDstFlips, 2);
+            4); // tile_sub(tile,tile) => FPU fp32
+  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numDstFlips, 4);
   EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numDstFlips, 2);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numDstFlips, 2);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numDstFlips, 4);
   EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numDstFlips, 2);
-  EXPECT_EQ(packing.numTilesPerResult, 2);
-  EXPECT_EQ(packing.numOuterLoopIters, 4);
+  EXPECT_EQ(packing.numTilesPerResult, 8);
+  EXPECT_EQ(packing.numOuterLoopIters, 1);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingPrimeShardShapes) {
@@ -540,19 +540,70 @@ func.func @test(
   ASSERT_EQ(outputValues.size(), 4u);
   ASSERT_EQ(packing.perResult.size(), 4u);
   EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numTilesPerFlip,
-            1); // tile_abs => SFPU fp32
+            1); // tile_abs => SFPU fp32, maxDst=2, only factor of 15 <= 2 is 1
   EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numTilesPerFlip,
-            1); // tile_add(tile,tile) => FPU fp32
+            3); // tile_add(tile,tile) => FPU fp32, maxDst=4, largest factor of
+                // 15 <= 4 is 3
   EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numTilesPerFlip,
             1); // tile_mul(tile,scalar) => SFPU fp32
   EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numTilesPerFlip,
-            1); // tile_sub(tile,tile) => FPU fp32
-  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numDstFlips, 3);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numDstFlips, 3);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numDstFlips, 3);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numDstFlips, 3);
-  EXPECT_EQ(packing.numTilesPerResult, 3);
-  EXPECT_EQ(packing.numOuterLoopIters, 5);
+            3); // tile_sub(tile,tile) => FPU fp32
+  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numDstFlips, 15);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numDstFlips, 5);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numDstFlips, 15);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numDstFlips, 5);
+  EXPECT_EQ(packing.numTilesPerResult, 15);
+  EXPECT_EQ(packing.numOuterLoopIters, 1);
+}
+
+TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPUBf16_8x8) {
+  constexpr llvm::StringLiteral moduleText = R"mlir(
+func.func @test(
+    %in0: memref<1x1x8x8x!ttcore.tile<32x32, bf16>>,
+    %in1: memref<1x1x8x8x!ttcore.tile<32x32, bf16>>,
+    %out: memref<1x1x8x8x!ttcore.tile<32x32, bf16>>) {
+  d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+    ins(%in0, %in1 : memref<1x1x8x8x!ttcore.tile<32x32, bf16>>, memref<1x1x8x8x!ttcore.tile<32x32, bf16>>)
+    outs(%out : memref<1x1x8x8x!ttcore.tile<32x32, bf16>>) {
+    ^unified0(%cb0: !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>>,
+              %cb1: !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>>,
+              %cb2: !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>>):
+      %in0_m = d2m.wait %cb0 : !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>> -> memref<8x8x!ttcore.tile<32x32, bf16>>
+      %in1_m = d2m.wait %cb1 : !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>> -> memref<8x8x!ttcore.tile<32x32, bf16>>
+      %out_m = d2m.reserve %cb2 : !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>> -> memref<8x8x!ttcore.tile<32x32, bf16>>
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c64 = arith.constant 64 : index
+      scf.for %i = %c0 to %c64 step %c1 {
+        linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
+          ins(%in0_m, %in1_m : memref<8x8x!ttcore.tile<32x32, bf16>>, memref<8x8x!ttcore.tile<32x32, bf16>>)
+          outs(%out_m : memref<8x8x!ttcore.tile<32x32, bf16>>) {
+        ^bb0(%arg0: !ttcore.tile<32x32, bf16>, %arg1: !ttcore.tile<32x32, bf16>, %arg2: !ttcore.tile<32x32, bf16>):
+          %sum = "d2m.tile_add"(%arg0, %arg1) : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+          linalg.yield %sum : !ttcore.tile<32x32, bf16>
+        }
+      }
+    }
+  return
+}
+)mlir";
+
+  auto module = parseModule(moduleText);
+  ASSERT_TRUE(module);
+  d2m::GenericOp generic = getSingleGenericOp(*module);
+  ASSERT_TRUE(generic);
+  markAllForLoopsAsBlocking(generic);
+
+  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
+  ASSERT_EQ(outputValues.size(), 1u);
+  auto it = packing.perResult.find(outputValues.front());
+  ASSERT_NE(it, packing.perResult.end());
+  ASSERT_EQ(packing.perResult.size(), 1u);
+  EXPECT_EQ(it->second.numTilesPerFlip, 8);
+  EXPECT_EQ(it->second.numDstFlips, 2);
+  EXPECT_EQ(packing.numTilesPerResult, 16);
+  EXPECT_EQ(packing.numOuterLoopIters, 4);
 }
 
 } // namespace mlir::tt::d2m

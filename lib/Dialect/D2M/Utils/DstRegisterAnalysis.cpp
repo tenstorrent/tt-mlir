@@ -103,14 +103,11 @@ static std::optional<int64_t> getMaxDstTilesForLinalgOp(linalg::GenericOp op) {
   return maxDstTiles;
 }
 
-static std::optional<int64_t> getSmallestLegalChunkSize(int64_t shardSizeTiles,
-                                                        int64_t maxDstTiles) {
+static std::optional<int64_t> getLargestLegalChunkSize(int64_t shardSizeTiles,
+                                                       int64_t maxDstTiles) {
   int64_t largestCandidate = std::min(maxDstTiles, shardSizeTiles / 2);
-  for (int64_t numTilesPerFlip = 1; numTilesPerFlip <= largestCandidate;
-       ++numTilesPerFlip) {
-    if ((2 * numTilesPerFlip) > shardSizeTiles) {
-      continue;
-    }
+  for (int64_t numTilesPerFlip = largestCandidate; numTilesPerFlip >= 1;
+       --numTilesPerFlip) {
     if ((shardSizeTiles % numTilesPerFlip) != 0) {
       continue;
     }
@@ -210,7 +207,7 @@ DSTPackingInfo analyzeGenericForDSTPacking(d2m::GenericOp generic) {
     }
 
     std::optional<int64_t> numTilesPerFlip =
-        getSmallestLegalChunkSize(shardSizeTiles, *maxDstTiles);
+        getLargestLegalChunkSize(shardSizeTiles, *maxDstTiles);
     if (!numTilesPerFlip) {
       linalgOp.emitOpError("failed to find legal tiles per DST flip");
       return DSTPackingInfo();
