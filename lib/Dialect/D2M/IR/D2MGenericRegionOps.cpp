@@ -1316,6 +1316,9 @@ void GetBlockFactorOp::inferResultRanges(
   setResultRange(getResult(),
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
+//===----------------------------------------------------------------------===//
+// CoreIndexOp
+//===----------------------------------------------------------------------===//
 
 void CoreIndexOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
@@ -1326,8 +1329,16 @@ void CoreIndexOp::getAsmResultNames(
 void CoreIndexOp::inferResultRanges(
     ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
     mlir::SetIntRangeFn setResultRange) {
-  setResultRange(getResult(),
-                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+  auto genericOp = getOperation()->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    setResultRange(getResult(),
+                   getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+    return;
+  }
+
+  auto gridShape = genericOp.getGrid().getShape();
+  int64_t dim = getDim();
+  setResultRange(getResult(), getIndexRange(0, gridShape[dim] - 1));
 }
 
 // TileMatmulBlockOp verification
