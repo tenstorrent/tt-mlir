@@ -603,6 +603,14 @@ struct EmitPyTypeConverter<::ttnn::DataType> {
     return {};
   }
 
+  static std::string convert(ttcore::DataTypeAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    return convert(attr.getValue());
+  }
+
   static std::string convert(ttcore::DataType attr) {
     std::string buf;
     llvm::raw_string_ostream rso(buf);
