@@ -12,8 +12,11 @@ namespace tt::runtime::ttnn::operations::debug {
 
 void run(const ::tt::target::ttnn::AnnotateOp *op, ProgramContext &context);
 void run(const ::tt::target::ttnn::BreakpointOp *op, ProgramContext &context);
+void run(const ::tt::target::ttnn::PrintOp *op, ProgramContext &context);
 void run(const ::tt::target::ttnn::MemorySnapshotOp *op,
          ProgramContext &context);
+void run(const ::tt::target::ttnn::RegionStartOp *op, ProgramContext &context);
+void run(const ::tt::target::ttnn::RegionEndOp *op, ProgramContext &context);
 
 } // namespace tt::runtime::ttnn::operations::debug
 

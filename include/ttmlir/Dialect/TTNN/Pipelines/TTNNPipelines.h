@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
+#include "ttmlir/Dialect/TTCore/IR/TopologyParser.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
@@ -217,7 +218,9 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Set the per-axis topology for the mesh."),
       llvm::cl::values(
           clEnumValN(ttcore::Topology::Ring, "ring", "Ring topology"),
-          clEnumValN(ttcore::Topology::Linear, "linear", "Linear topology"))};
+          clEnumValN(ttcore::Topology::Linear, "linear", "Linear topology"),
+          clEnumValN(ttcore::Topology::Disabled, "disabled",
+                     "Disabled topology"))};
 
   Option<bool> rowMajorEnabled{
       *this, "row-major-enabled",

@@ -233,3 +233,12 @@ print(
         mesh_topology=[ttcore.ir.Topology.Ring, ttcore.ir.Topology.Ring],
     ),
 )
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<8x16, (d0, d1) -> (d1 floordiv 8, d0, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1x2, chipIds = [0, 1], meshTopology = [ring, disabled]>
+print(
+    "1x2 mesh with ring and disabled topology\n",
+    createDeviceAttr(
+        [8, 16],
+        mesh_shape=[1, 2],
+        mesh_topology=[ttcore.ir.Topology.Ring, ttcore.ir.Topology.Disabled],
+    ),
+)

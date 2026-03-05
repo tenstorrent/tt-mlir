@@ -11,7 +11,7 @@ func.func @missing_device_layout_memref() {
   %bad = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
   %out = memref.alloc() : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
 
-  // expected-error @+1 {{memref operand must have a device layout attribute (e.g., #ttcore.shard, #ttcore.view, or #ttcore.interleaved), but got: 'memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>'}}
+  // expected-error @+1 {{memref operand must have a device layout attribute (e.g., #ttcore.shard or #ttcore.interleaved), but got: 'memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>'}}
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>,
                indexing_maps = [#map, #map],
                iterator_types = [#parallel, #parallel],

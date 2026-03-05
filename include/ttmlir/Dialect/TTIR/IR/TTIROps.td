@@ -130,7 +130,9 @@ def TTIR_TTNNMetalLayoutCastOp : TTIR_Op<"ttnn_metal_layout_cast",
     ```
   }];
 
-  let arguments = (ins AnyRankedTensorOrMemRef:$input);
+  let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                       OptionalAttr<AffineMapAttr>:$virtual_grid_inverse_mapping,
+                       OptionalAttr<AffineMapAttr>:$virtual_grid_forward_mapping);
   let results   = (outs AnyRankedTensorOrMemRef:$result);
 
   let assemblyFormat = [{
@@ -1340,6 +1342,8 @@ def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le"> {
 
       Mathematical definition: less_equal(x, y) = x <= y
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 // TODO (azecevic): NaN != NaN, otherwise lt(x, x) == 0.
@@ -1373,6 +1377,8 @@ def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt"> {
 
       Mathematical definition: less_than(x, y) = x < y
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdempotence]> {
@@ -1405,6 +1411,8 @@ def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdem
 
       Mathematical definition: logical_and(x, y) = x && y
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempotence]> {
@@ -1437,6 +1445,8 @@ def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempo
 
       Mathematical definition: logical_or(x, y) = x || y
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
@@ -2072,6 +2082,50 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
                        Optional<AnyRankedTensor>:$weight,
                        Optional<AnyRankedTensor>:$bias,
                        DenseI64ArrayAttr:$normalized_shape,
+                       DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
+  let summary = "Distributed RMS normalization with all-gather operation";
+  let description = [{
+    Fused distributed RMS normalization across mesh devices. Each device
+    computes local RMS statistics (E(x²)), the statistics are all-gathered
+    along cluster_axis to obtain globally-correct values, and each device
+    then normalizes its local shard. The steps are:
+    1. Optional residual addition (input + residual)
+    2. Compute local E(x²) and all-gather statistics across cluster_axis
+    3. RMS normalization: output = input * rsqrt(E(x²) + epsilon) * weight
+
+    Only statistics are communicated across devices — the input data itself
+    is not all-gathered. Each device's output shape equals its input shape.
+
+    This is a multi-device operation that requires the tensor to be sharded
+    across a device mesh.
+
+    Inputs:
+    - `input` (Tensor): The input tensor to be normalized.
+    - `weight` (Optional Tensor): The scale parameter (gamma).
+    - `residual` (Optional Tensor): Residual tensor for fused add before
+        normalization.
+
+    Attributes:
+    - `cluster_axis` specifies which mesh dimension to all-gather the
+        statistics across (0 or 1).
+    - `epsilon` is a small constant added for numerical stability
+        (default: 1e-05).
+
+    Output:
+    - `result` (Tensor): The normalized output tensor (same shape as input).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$residual,
+                       UI32Attr:$cluster_axis,
                        DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
 
   let results = (outs AnyRankedTensor:$result);
@@ -4405,8 +4459,8 @@ def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         F32Attr:$min,
-                         F32Attr:$max);
+                         AnyAttrOf<[F32Attr, I32Attr]>:$min,
+                         AnyAttrOf<[F32Attr, I32Attr]>:$max);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -4628,6 +4682,8 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
@@ -5241,6 +5297,18 @@ def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
     let hasVerifier = 1;
 }
 
+def TTIR_MeshPartitionOp: TTIR_NamedOp<"mesh_partition"> {
+  let summary = "Mesh partition operation.";
+  let description = [{
+    Mesh partition op.
+  }];
+  let arguments = (ins AnyRankedTensor:$input,
+                       SI32Attr:$dim,
+                       OptionalAttr<UI32Attr>:$cluster_axis);
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
+
 def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
   [ Pure
   , TTIROpInterface
@@ -5728,5 +5796,26 @@ def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_value_
     }];
 
     let hasVerifier = 1;
+}
+
+def TTIR_TopKOp : TTIR_NamedOp<"topk"> {
+  let summary = "Top-K selection operation.";
+  let description = [{
+    Returns the `k` largest or `k` smallest elements of the `input_tensor` along a given dimension `dim`.
+    If `dim` is not provided, the last dimension of the input_tensor is used.
+    If `largest` is True, the `k` largest elements are returned. Otherwise, the `k` smallest elements are returned.
+    The boolean option `sorted` if True, will make sure that the returned `k` elements are sorted.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input_tensor,
+                       I32Attr:$k,
+                       DefaultValuedAttr<I32Attr, "-1">:$dim,
+                       DefaultValuedAttr<BoolAttr, "true">:$largest,
+                       DefaultValuedAttr<BoolAttr, "false">:$sorted);
+
+  let results = (outs AnyRankedTensor:$values,
+                      AnyRankedTensor:$indices);
+
+  let hasVerifier = 1;
 }
 #endif

@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Value.h"
@@ -98,14 +99,36 @@ public:
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(
         srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getMin()),
-        emitter.emit(srcOp.getMax()),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
-    };
+
+    llvm::SmallVector<mlir::Attribute> args;
+    args.push_back(emitter.emit(srcOp.getInput()));
+
+    if constexpr (std::is_same_v<SourceOp, mlir::tt::ttnn::ClampScalarOp>) {
+      // Emit int or float attribute based on output element type
+      auto outputType =
+          mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType());
+      auto elementType = outputType.getElementType();
+
+      if (mlir::isa<mlir::IntegerType>(elementType)) {
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::IntegerAttr>(srcOp.getMin()).getInt()));
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::IntegerAttr>(srcOp.getMax()).getInt()));
+      } else {
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::FloatAttr>(srcOp.getMin()).getValueAsDouble()));
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::FloatAttr>(srcOp.getMax()).getValueAsDouble()));
+      }
+    } else {
+      // ClampTensorOp uses tensor values
+      args.push_back(emitter.emit(srcOp.getMin()));
+      args.push_back(emitter.emit(srcOp.getMax()));
+    }
+
+    args.push_back(emitter.emit(srcOp.getMemoryConfig() |
+                                    emitter.getMemoryConfig(srcOp.getResult()),
+                                "memory_config"));
 
     emitter.replaceOp(*this, args);
 
@@ -237,7 +260,7 @@ public:
         emitter.emit(eltwiseUnaryOp.getInput()),
         emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC),
                      "vector_mode"),
-        /*parameter=*/emitter.emit(false, "fast_and_approximate_mode"),
+        emitter.emitExpression("ttnn.SigmoidMode.Accurate", "mode"),
         emitter.emit(eltwiseUnaryOp.getMemoryConfig() |
                          emitter.getMemoryConfig(eltwiseUnaryOp.getResult()),
                      "memory_config"),
@@ -522,7 +545,10 @@ public:
 
     if (constantOp.getDevice()) {
       args.push_back(emitter.emit(constantOp.getDevice()));
-      args.push_back(emitter.emit(constantOp.getMemoryConfig()));
+      args.push_back(
+          emitter.emit(constantOp.getMemoryConfig() |
+                           emitter.getMemoryConfig(constantOp.getResult()),
+                       "memory_config"));
     }
 
     emitter.replaceOp(*this, args);
@@ -711,7 +737,8 @@ public:
         emitter.template emit<std::vector<uint32_t>>(
             maxPool2dOp.getDilationAttr()),
         emitter.emit(maxPool2dOp.getCeilMode(), "ceil_mode"),
-        emitter.emit(emitter.getMemoryConfig(maxPool2dOp.getResult()),
+        emitter.emit(maxPool2dOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(maxPool2dOp.getResult()),
                      "memory_config"),
         emitter.emit(maxPool2dOp.getAppliedShardScheme(),
                      "applied_shard_scheme"),
@@ -1128,9 +1155,10 @@ public:
         emitter.emit(toLayoutOp.getInput()),
         emitter.emit(toLayoutOp.getLayout()),
         emitter.emit(toLayoutOp.getDtype()),
-        emitter.emit(toLayoutOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(toLayoutOp.getResult()),
-                     "memory_config"),
+        // Emit MemoryConfig only if it exists as an argument to the op.
+        // Most other ops will read the TTNNLayout object on the output tensor
+        // as well, but we are skipping that here as runtime skips it as well.
+        emitter.emit(toLayoutOp.getMemoryConfig(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1995,6 +2023,9 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(repeatOp.getInput()),
         emitter.emit(repeatOp.getRepeatDims()),
+        emitter.emit(repeatOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(repeatOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2059,7 +2090,9 @@ public:
         emitter.emit(srcOp.getDim(), "dim"),
         emitter.emit(srcOp.getIndex(), "index"),
         emitter.emit(srcOp.getSource(), "src"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3225,7 +3258,9 @@ public:
         emitter.emit(srcOp.getAllGatherDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -3259,7 +3294,9 @@ public:
         emitter.emit(srcOp.getScatterDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -3291,7 +3328,9 @@ public:
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -3372,6 +3411,63 @@ public:
 };
 } // namespace
 
+// DistributedRMSNormOp conversion pattern
+//
+namespace {
+class DistributedRMSNormOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::DistributedRMSNormOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.distributed_rms_norm";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.fused_rms_minimal";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::DistributedRMSNormOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DistributedRMSNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DistributedRMSNormOp>
+        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    auto opaqueType =
+        emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor");
+
+    auto globalSemaphoreOp = rewriter.create<emitpy::CallOpaqueOp>(
+        srcOp.getLoc(), opaqueType, "utils.create_global_semaphore",
+        llvm::SmallVector<mlir::Value>{adaptor.getInput()});
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(globalSemaphoreOp.getResult(0), "", 2),
+        emitter.emit(srcOp.getStats(), "stats"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(srcOp.getResidual(), "residual_input_tensor"),
+        emitter.emit(srcOp.getEpsilon(), "epsilon"),
+        emitter.emit(srcOp.getWeight(), "weight"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // LayerNormOp conversion pattern
 //
 namespace {
@@ -3440,7 +3536,9 @@ public:
         emitter.emit(srcOp.getOverlapQkCoregrid(), "overlap_qk_coregrid"),
         emitter.emit(srcOp.getBatchOffset(), "batch_offset"),
         emitter.emit(srcOp.getSliceSize(), "slice_size"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config")};
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult(0)),
+                     "memory_config")};
 
     emitter.replaceOp(*this, args);
 
@@ -3482,7 +3580,9 @@ public:
         emitter.emit(srcOp.getNumHeads(), "num_heads"),
         emitter.emit(srcOp.getNumKvHeads(), "num_kv_heads"),
         emitter.emit(srcOp.getTransposeKey(), "transpose_key"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config")};
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult(0)),
+                     "memory_config")};
 
     emitter.replaceOp(*this, args);
 
@@ -3775,6 +3875,38 @@ public:
 };
 } // namespace
 
+// TopK op conversion pattern
+//
+namespace {
+class TopKOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::TopKOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::TopKOp>::TTNNToEmitPyBaseOpConversionPattern;
+  LogicalResult
+  matchAndRewrite(tt::ttnn::TopKOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::TopKOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getK()),
+        emitter.template emit<int32_t>(srcOp.getDim()),
+        emitter.emit(srcOp.getLargest()),
+        emitter.emit(srcOp.getSorted()),
+        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getValues()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -3949,10 +4081,11 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Normalization ops
   //
-  patterns.add<BatchNormInferenceOpConversionPattern,
-               BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-               LayerNormOpConversionPattern>(typeConverter, ctx,
-                                             enableGoldenMode);
+  patterns
+      .add<BatchNormInferenceOpConversionPattern,
+           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+           DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern>(
+          typeConverter, ctx, enableGoldenMode);
 
   // Transformers ops
   //
@@ -3992,7 +4125,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                PointToPointOpConversionPattern,
                MeshShardOpConversionPattern,
                DistributeTensorOpConversionPattern,
-               AggregateTensorOpConversionPattern
+               AggregateTensorOpConversionPattern,
+               TopKOpConversionPattern
               >(typeConverter, ctx, enableGoldenMode);
   // clang-format on
 

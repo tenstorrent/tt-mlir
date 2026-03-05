@@ -53,10 +53,10 @@ jobs:
       - name: Git safe dir
         run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Build ttmlir Wheel (manylinux)
         uses: pypa/cibuildwheel@v3.2
@@ -96,10 +96,10 @@ jobs:
       - name: Git safe dir
         run: git config --global --add safe.directory $(pwd)
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Download wheel
         uses: actions/download-artifact@v4

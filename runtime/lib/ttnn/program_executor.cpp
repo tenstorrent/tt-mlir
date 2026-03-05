@@ -9,6 +9,7 @@
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/all_reduce.h"
 #include "operations/ccl/distribute_tensor.h"
+#include "operations/ccl/mesh_partition.h"
 #include "operations/ccl/mesh_shard.h"
 #include "operations/ccl/point_to_point.h"
 #include "operations/ccl/reduce_scatter.h"
@@ -64,6 +65,7 @@
 #include "operations/mlir_native/func_call.h"
 #include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/batch_norm.h"
+#include "operations/normalization/distributed_rms_norm.h"
 #include "operations/normalization/layer_norm.h"
 #include "operations/normalization/rms_norm.h"
 #include "operations/normalization/softmax.h"
@@ -73,6 +75,7 @@
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
+#include "operations/reduction/topk.h"
 #include "operations/tensor_serialization/dump_tensor.h"
 #include "operations/tensor_serialization/load_tensor.h"
 #include "operations/trace/begin_trace_capture.h"
@@ -351,6 +354,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::RMSNormOp: {
     return operations::rms_norm::run(op->type_as_RMSNormOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    return operations::distributed_rms_norm::run(
+        op->type_as_DistributedRMSNormOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::LayerNormOp: {
     return operations::layer_norm::run(op->type_as_LayerNormOp(), getContext());
   }
@@ -407,6 +414,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     return operations::ccl::run(op->type_as_ReduceScatterOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
+    return operations::ccl::run(op->type_as_MeshPartitionOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     return operations::ccl::run(op->type_as_MeshShardOp(), getContext());
@@ -501,8 +511,20 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::BreakpointOp: {
     return operations::debug::run(op->type_as_BreakpointOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::PrintOp: {
+    return operations::debug::run(op->type_as_PrintOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
     return operations::debug::run(op->type_as_MemorySnapshotOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::RegionStartOp: {
+    return operations::debug::run(op->type_as_RegionStartOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::RegionEndOp: {
+    return operations::debug::run(op->type_as_RegionEndOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::TopKOp: {
+    return operations::reduction::topk::run(op->type_as_TopKOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",

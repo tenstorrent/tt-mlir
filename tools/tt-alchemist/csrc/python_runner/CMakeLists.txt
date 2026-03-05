@@ -39,14 +39,19 @@ target_include_directories(${PYTHON_RUNNER_LIBRARY_NAME}
     ${TTMETAL_INCLUDE_DIRS}
 )
 
+target_link_directories(${PYTHON_RUNNER_LIBRARY_NAME}
+  PUBLIC
+    ${TTMETAL_LIBRARY_DIR}
+)
+
 target_link_libraries(${PYTHON_RUNNER_LIBRARY_NAME}
   PUBLIC
     nanobind-static
     Python::Python
-    ${TTMETAL_LIBRARY_DIR}/libtt_metal.so
-    ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so
-    ${TTMETAL_LIBRARY_DIR}/libtt_stl.so
-    ${TTMETAL_LIBRARY_DIR}/libfmt$<IF:$<CONFIG:Debug>,d,>.so
+    TTMETAL_LIBRARY
+    TTNN_LIBRARY
+    TT_STL_LIBRARY
+    fmt$<IF:$<CONFIG:Debug>,d,>
 )
 
 set_target_properties(${PYTHON_RUNNER_LIBRARY_NAME} PROPERTIES

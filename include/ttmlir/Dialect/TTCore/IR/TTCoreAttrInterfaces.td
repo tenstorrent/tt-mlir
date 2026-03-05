@@ -53,28 +53,6 @@ def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface"> {
       }]
     >,
     InterfaceMethod<
-      "Returns the virtualization affine map associated with the layout if defined, otherwise returns an empty map.",
-      "std::optional<mlir::AffineMap>", "getVirtualizationMapIfExists", (ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{ return std::nullopt; }]
-    >,
-    InterfaceMethod<
-      "Return true if the layout is a view on top of a physical layout",
-      "bool", "isView", (ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
-        return false;
-      }]
-    >,
-    InterfaceMethod<
-      "Return true if the layout is physical rather than a view",
-      "bool", "isPhysical", (ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
-        return !isView();
-      }]
-    >,
-    InterfaceMethod<
       "Get the full rank of the layout (including grid dimensions)",
       "unsigned", "getRank", (ins),
       /*methodBody=*/"",

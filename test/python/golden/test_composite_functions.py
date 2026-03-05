@@ -408,6 +408,11 @@ def test_polygamma(
     request,
     device,
 ):
+    if k == 1:
+        pytest.skip(
+            "Failing PCC. Issue: https://github.com/tenstorrent/tt-mlir/issues/7089"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         # choose

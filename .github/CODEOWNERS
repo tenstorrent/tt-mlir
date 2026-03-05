@@ -41,9 +41,10 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttmlir/Silicon/StableHLO/ @tenstorrent/forge-developers-mlir-stablehlo
 
 # Linalg Conversion
-/include/ttmlir/Conversion/TTIRToLinalg/ @vwellsTT @nsmithTT
-/lib/Conversion/TTIRToLinalg/ @vwellsTT @nsmithTT
-/test/ttmlir/Conversion/TTIRToLinalg/ @vwellsTT @nsmithTT
+/include/ttmlir/Conversion/TTIRToLinalg/ @tenstorrent/forge-developers-mlir-core
+/lib/Conversion/TTIRToLinalg/ @tenstorrent/forge-developers-mlir-core
+/test/ttmlir/Conversion/TTIRToLinalg/ @tenstorrent/forge-developers-mlir-core
+/test/ttmlir/Conversion/LinalgToLLVM/ @tenstorrent/forge-developers-mlir-core
 
 # Tosa Conversion
 /include/ttmlir/Conversion/TosaToTTIR/ @tenstorrent/forge-developers-mlir-tosa
@@ -90,9 +91,9 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttmlir/Dialect/SFPI/ @tenstorrent/forge-developers-mlir-d2m
 
 # LLVM Dialect
-/include/ttmlir/Dialect/LLVM/ @vwellsTT @mtopalovicTT
-/lib/Dialect/LLVM/ @vwellsTT @mtopalovicTT
-/test/ttmlir/Dialect/LLVM/ @vwellsTT @mtopalovicTT
+/include/ttmlir/Dialect/LLVM/ @tenstorrent/forge-developers-mlir-core
+/lib/Dialect/LLVM/ @tenstorrent/forge-developers-mlir-core
+/test/ttmlir/Dialect/LLVM/ @tenstorrent/forge-developers-mlir-core
 
 # TT Dialect
 /include/ttmlir/Dialect/TTCore/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
@@ -147,8 +148,8 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttmlir/Dialect/TTNN/fusing/ @tenstorrent/forge-developers-mlir-core @odjuricicTT @mvasiljevicTT
 
 # LLVM Target
-/include/ttmlir/Target/LLVM/ @vwellsTT @mtopalovicTT
-/lib/Target/LLVM/ @vwellsTT @mtopalovicTT
+/include/ttmlir/Target/LLVM/ @tenstorrent/forge-developers-mlir-core
+/lib/Target/LLVM/ @tenstorrent/forge-developers-mlir-core
 
 # Metal Target
 /include/ttmlir/Target/TTKernel/ @tenstorrent/forge-developers-mlir-d2m

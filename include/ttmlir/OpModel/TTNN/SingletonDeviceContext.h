@@ -6,10 +6,16 @@
 #define TTMLIR_OPMODEL_TTNN_SINGLETONDEVICECONTEXT_H
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-#include "hostdevcommon/common_values.hpp"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+
 #include <cassert>
 #include <cstddef>
 #include <memory>
+
+namespace mlir {
+class Operation;
+} // namespace mlir
 
 namespace tt::tt_metal::distributed {
 class MeshDevice;
@@ -61,10 +67,21 @@ public:
   static void setExternalDevice(
       std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> device);
 
-  // Opens a new (owned) device. Users need to ensure that we don't have an
-  // active device in the current context, otherwise this method will assert.
+  // Sets the system descriptor attribute. This is used extract architecture
+  // info for mock mode.
+  static void setSystemDesc(ttcore::SystemDescAttr systemDesc);
+
+  // Opens a new (owned) device. When isMock is true, configures mock mode
+  // using the system descriptor (setSystemDesc must be called first).
+  // When isMock is false (default), opens a real device connected to hardware.
+  // Users need to ensure that we don't have an active device in the current
+  // context, otherwise this method will assert.
+  void openDevice(const size_t traceRegionSize = opModelDefaultTraceRegionSize,
+                  bool isMock = false);
+
+  // Convenience method that opens a mock device.
   void
-  openDevice(const size_t trace_region_size = opModelDefaultTraceRegionSize);
+  openMockDevice(const size_t traceRegionSize = opModelDefaultTraceRegionSize);
 
   // Returns a pointer to the device. Asserts that we have an active device in
   // our context.
@@ -76,6 +93,10 @@ public:
   // Returns true if the device is initialized.
   bool isDeviceInitialized() const { return m_device != nullptr; }
 
+  // Returns true if the device was opened via the mock path
+  // (no real HW).
+  bool isMockDevice() const { return m_isMockDevice; }
+
 private:
   SingletonDeviceContext() = default;
   ~SingletonDeviceContext();
@@ -84,11 +105,13 @@ private:
   SingletonDeviceContext &operator=(const SingletonDeviceContext &) = delete;
 
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> m_device;
+  ttcore::SystemDescAttr m_systemDesc;
 
   // This field is technically not needed, but is there to assert that
   // `resetInstance()` is legal. If we are using an external device, we cannot
   // reset the instance.
   bool m_isExternalDevice = false;
+  bool m_isMockDevice = false;
 
   // todo(arminaleTT): look into dynamically adjusting this
   // getOpRuntime() uses trace capture to run and measure the runtime of an op.
@@ -111,9 +134,11 @@ private:
 //
 class ScopedSingletonDeviceGuard {
 public:
-  ScopedSingletonDeviceGuard() {
+  explicit ScopedSingletonDeviceGuard(mlir::Operation *op) {
+    SingletonDeviceContext::setSystemDesc(
+        ttcore::getCurrentScopeSystemDesc(op));
     if (!SingletonDeviceContext::getInstance().isDeviceInitialized()) {
-      SingletonDeviceContext::getInstance().openDevice();
+      SingletonDeviceContext::getInstance().openMockDevice();
       m_deviceOpenedByGuard = true;
     }
   }

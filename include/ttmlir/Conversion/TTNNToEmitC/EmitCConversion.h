@@ -253,14 +253,12 @@ struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
 
 template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
-  inline static const std::string value =
-      "::ttnn::operations::conv::conv2d::Conv2dConfig";
+  inline static const std::string value = "::ttnn::Conv2dConfig";
 };
 
 template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
-  inline static const std::string value =
-      "::ttnn::operations::conv::conv2d::Conv2dSliceConfig";
+  inline static const std::string value = "::ttnn::Conv2dSliceConfig";
 };
 
 template <>
@@ -772,6 +770,8 @@ struct EmitCTypeConverter<::mlir::tt::ttcore::Topology> {
     case mlir::tt::ttcore::Topology::Torus:
       rso << "Torus";
       return buf;
+    case mlir::tt::ttcore::Topology::Disabled:
+      llvm_unreachable("Disabled topology is not supported in tt_fabric");
     }
 
     llvm_unreachable("Unknown mlir::tt::ttcore::Topology");
@@ -1625,15 +1625,15 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
     // Convert enum to proper C++ enum value instead of integer
     switch (attr.getSliceType()) {
     case ttnn::Conv2dSliceType::DramHeight:
-      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::"
+      rso << "ttnn::Conv2dSliceConfig::SliceType::"
              "DRAM_HEIGHT";
       break;
     case ttnn::Conv2dSliceType::DramWidth:
-      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::"
+      rso << "ttnn::Conv2dSliceConfig::SliceType::"
              "DRAM_WIDTH";
       break;
     case ttnn::Conv2dSliceType::L1Full:
-      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_"
+      rso << "ttnn::Conv2dSliceConfig::SliceType::L1_"
              "FULL";
       break;
     }
@@ -2142,14 +2142,15 @@ public:
       return loadOp.getResult();
     }
 
-    // SortOp returns a std::vector<ttnn::Tensor> containing two elements:
-    // [0] = sorted tensor, [1] = corresponding indices.
-    // Extract both elements to replace the original SortOp.
-    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::SortOp>) {
+    // SortOp and TopKOp returns a std::vector<ttnn::Tensor> containing two
+    // elements: [0] = values tensor, [1] = corresponding indices. Extract both
+    // elements to replace the original Op.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::SortOp> ||
+                  std::is_same_v<TTNNOp, tt::ttnn::TopKOp>) {
       assert(op.getNumResults() == 2 &&
-             "Expected two outputs for SortOp (sorted tensor and indices).");
+             "Expected two outputs (values tensor and indices).");
       using ReturnTy = std::vector<::ttnn::Tensor>;
-      auto sortOp = rewriter.create<emitc::CallOpaqueOp>(
+      auto callOp = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
           opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
           /*template_args=*/nullptr, operands);
@@ -2168,7 +2169,7 @@ public:
 
         // Get reference to the i-th element in the result vector.
         auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
-            op.getLoc(), lvalueType, sortOp.getResult(0), indexVal);
+            op.getLoc(), lvalueType, callOp.getResult(0), indexVal);
 
         // Load the actual tensor value from the reference.
         auto loadOp = rewriter.create<emitc::LoadOp>(
@@ -2180,7 +2181,7 @@ public:
       }
 
       rewriter.replaceOp(op, results);
-      return sortOp.getResult(0);
+      return callOp.getResult(0);
     }
 
     auto resultTypes = llvm::to_vector(

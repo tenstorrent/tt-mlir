@@ -23,7 +23,8 @@ def jit(
         debug: If True, print debug information during compilation and execution.
         enable_cache: If True, enables caching for compiled JIT graphs.
         math_fidelity: Set the math fidelity level for computations. Options are "LoFi", "HiFi2", "HiFi3", and "HiFi4".
-        memory_config: output memory configuration for the function. Defaults to None.
+        memory_config: Output memory configuration for the function. If specified, the output tensor will use this exact layout.
+                      If unspecified (None), the output will use a maximally L1 block sharded layout.
 
     Returns:
         A wrapped version of the function that when invoked, will JIT compile through D2M and execute the resulting flatbuffer.

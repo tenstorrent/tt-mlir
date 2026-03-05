@@ -5,17 +5,20 @@
 #ifndef TTMLIR_DIALECT_TTIR_TRANSFORMS_ERASEINVERSEOPS_ERASEINVERSEOPS_H
 #define TTMLIR_DIALECT_TTIR_TRANSFORMS_ERASEINVERSEOPS_ERASEINVERSEOPS_H
 
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
-
-#include "mlir/Analysis/TopologicalSortUtils.h"
 
 namespace mlir::tt::ttir {
 
 enum CommuteDirection { DOWNWARDS, UPWARDS };
+
+// Reshapes from high-rank tensors (6D+) are not likely to have inverse, and
+// moving them around will likely decrease performance.
+inline bool isHighRankReductionReshape(ReshapeOp reshapeOp) {
+  const int64_t inputRank = reshapeOp.getInput().getType().getShape().size();
+  const int64_t outputRank = reshapeOp.getShape().size();
+  return inputRank >= 6 && outputRank < inputRank;
+}
 
 template <typename TMOpType, typename CommutableOpOrInterface,
           CommuteDirection commuteDirection>
@@ -41,6 +44,11 @@ protected:
         auto tmUser = dyn_cast<TMOpType>(user);
         if (!tmUser) {
           continue;
+        }
+        if constexpr (std::is_same_v<TMOpType, ttir::ReshapeOp>) {
+          if (isHighRankReductionReshape(tmUser)) {
+            continue;
+          }
         }
 
         if (!isCommuteUpwardsViable(op, tmUser)) {
@@ -71,6 +79,11 @@ protected:
         auto tmOperand = operand.getDefiningOp<TMOpType>();
         if (!tmOperand) {
           continue;
+        }
+        if constexpr (std::is_same_v<TMOpType, ttir::ReshapeOp>) {
+          if (isHighRankReductionReshape(tmOperand)) {
+            continue;
+          }
         }
 
         // We do not want to attempt to commute any TM downwards which itself

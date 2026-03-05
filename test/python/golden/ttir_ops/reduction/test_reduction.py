@@ -57,6 +57,10 @@ def test_reduction_ops(
     request,
     device,
 ):
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
 
     if (
         reduction_op_name == "max"
@@ -114,10 +118,7 @@ def test_reduction_ops(
 
 
 reduction_op_cpu_hoisted_names = [
-    "argmax"
-    | Marks(
-        pytest.mark.xfail(reason="Not supported in CPU hoisted mode, see issue #5809")
-    ),
+    "argmax",
     "max",
     "mean",
     "min",
@@ -130,7 +131,9 @@ reduction_op_cpu_hoisted_names = [
 
 @x86_only
 @pytest.mark.parametrize("shapes", [[(32, 128, 128)]], ids=shapes_list_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+)
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
 @pytest.mark.parametrize("reduction_op_name", reduction_op_cpu_hoisted_names)

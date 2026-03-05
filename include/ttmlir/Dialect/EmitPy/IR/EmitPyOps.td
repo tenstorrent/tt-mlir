@@ -316,9 +316,13 @@ def EmitPy_AssignOp : EmitPy_Op<"assign",
 
     ```python
     # Code emitted:
+<<<<<<< HEAD
     target = value
     ...
     dict[5] = value
+=======
+    _CONST_EVAL_CACHE[5] = tensors
+>>>>>>> main
     ```
   }];
 

@@ -13,7 +13,7 @@ from collections import OrderedDict
 from ttmlir.ir import *
 from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn, debug
 from ttmlir.passes import GoldenTensor, DataType
-from golden import GoldenMapTensor, get_golden_function
+from golden import GoldenMapTensor, get_golden_function, apply_sharding
 
 from builder.base.builder_utils import (
     process_multi_return_result,
@@ -48,12 +48,10 @@ class Builder(metaclass=BuilderMeta):
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
         ] = OrderedDict([("x", 1), ("y", 1)]),
-        disable_golden_check: bool = False,
     ):
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
-        self._disable_golden_check = disable_golden_check
         self._force_graph_level_check = False
 
         # Keep a list of inputs and outputs in order so we know how to store them in golden map.
@@ -92,6 +90,7 @@ class Builder(metaclass=BuilderMeta):
             self._meshes[name] = mesh
 
         self._mesh_shape = tuple(mesh_dict[0].values())
+        self._mesh_name = mesh_name[0]
 
         # Internal values to keep track
         self._root_module_insertion_point = None
@@ -178,9 +177,6 @@ class Builder(metaclass=BuilderMeta):
         # { program_index: {loc: {device_id: GoldenMapTensor} } }
         input_output_golden_info: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = {}
         intermediate_golden_info: Dict[str, Dict[int, GoldenMapTensor]] = {}
-
-        if self._disable_golden_check:
-            return input_output_golden_info, intermediate_golden_info
 
         # If no specific golden is marked to be stored, store all goldens.
         if len(self._goldens_to_store) == 0:
@@ -298,13 +294,33 @@ class Builder(metaclass=BuilderMeta):
             if arg_number == operand.arg_number:
                 new_arg_attr = {}
                 for attr in arg_attrs:
-                    new_arg_attr[attr.name.value] = attr
+                    new_arg_attr[attr.name] = attr.attr
                 new_arg_attr[new_attr_name] = new_attr
                 new_arg_attr_list.append(DictAttr.get(new_arg_attr))
             else:
                 new_arg_attr_list.append(arg_attrs)
 
         func_op.arg_attrs = ArrayAttr.get(new_arg_attr_list)
+
+    def preshard_arg(self, operand: Operand, shard_dims: List[int]):
+        golden_tensor = self._get_golden_tensor(operand)
+        sharded_golden_tensor = apply_sharding(
+            golden_tensor, self._mesh_shape, shard_dims
+        )
+
+        # Generate new multi-device golden if it's presharded
+        self._set_golden_tensor(operand, sharded_golden_tensor)
+
+        local_shape = sharded_golden_tensor.shape
+        element_type = self._get_type(operand).element_type
+        local_shape_rtt = RankedTensorType.get(local_shape, element_type)
+        local_shape_attr = ttcore.ir.LocalShapeAttr.get(self._ctx, local_shape_rtt)
+        shard_status_attr = ttcore.ir.ShardStatusAttr.get(
+            self._ctx, ttcore.ir.ShardStatus.Presharded
+        )
+
+        self.set_arg_attribute(operand, "ttcore.shard_status", shard_status_attr)
+        self.set_arg_attribute(operand, "ttcore.local_shape", local_shape_attr)
 
     # ----- Private methods -----
 
@@ -796,8 +812,73 @@ class Builder(metaclass=BuilderMeta):
             )
         ]
 
+    def generate_golden_tensors(
+        self, parsed_func: func.FuncOp
+    ) -> List[Dict[int, torch.Tensor]]:
+        golden_inputs = []
+
+        arg_attr_list = parsed_func.arg_attrs
+        for arg_number, arg_attrs in enumerate(arg_attr_list):
+            arg = parsed_func.arguments[arg_number]
+            ranked_tensor_type = arg.type
+            is_presharded = False
+            local_shape = ranked_tensor_type.shape
+
+            for named_attr in arg_attrs:
+                if named_attr.name == "ttcore.shard_status":
+                    shard_status_attr = ttcore.ir.ShardStatusAttr.maybe_downcast(
+                        named_attr.attr
+                    )
+                    if shard_status_attr.value == ttcore.ir.ShardStatus.Presharded:
+                        is_presharded = True
+                    break
+
+            if is_presharded:
+                for named_attr in arg_attrs:
+                    if named_attr.name == "ttcore.local_shape":
+                        local_shape_attr = ttcore.ir.LocalShapeAttr.maybe_downcast(
+                            named_attr.attr
+                        )
+                        local_shape = local_shape_attr.local_shape
+                        break
+
+                device_golden_info = {}
+                for device_id in range(self._mesh_shape[0] * self._mesh_shape[1]):
+                    device_golden_info[device_id] = self.generate_random_tensor(
+                        local_shape, ranked_tensor_type.element_type
+                    )
+                golden_inputs.append(device_golden_info)
+            else:
+                golden_input = self.generate_random_tensor(
+                    local_shape, ranked_tensor_type.element_type
+                )
+                golden_inputs.append({0: golden_input})
+
+        return golden_inputs
+
+    def generate_random_tensor(self, shape: Shape, dtype: Type) -> torch.Tensor:
+        torch_dtype = self._get_torch_dtype_from_type(dtype)
+
+        if torch_dtype.is_floating_point or torch_dtype.is_complex:
+            if len(shape) == 0:
+                return torch.randn(1, dtype=torch_dtype).squeeze()
+            else:
+                return torch.randn(*shape, dtype=torch_dtype)
+        elif torch_dtype == torch.bool:
+            if len(shape) == 0:
+                return torch.randint(0, 2, (), dtype=torch.bool)
+            else:
+                return torch.randint(0, 2, shape, dtype=torch.bool)
+        else:
+            if len(shape) == 0:
+                return torch.randint(0, 256, (), dtype=torch_dtype)
+            else:
+                return torch.randint(0, 256, shape, dtype=torch_dtype)
+
     def parse_root_module(
-        self, parsed_root_module: Module, golden_inputs: Dict[str, [List[torch.tensor]]]
+        self,
+        parsed_root_module: Module,
+        golden_inputs: Dict[str, [List[Dict[int, torch.tensor]]]],
     ):
         found_cpu_module = False
 
@@ -864,7 +945,7 @@ class Builder(metaclass=BuilderMeta):
     def parse_builtin_module(
         self,
         parsed_builtin_module: Module,
-        golden_inputs: Dict[str, [List[torch.tensor]]],
+        golden_inputs: Dict[str, [List[Dict[int, torch.tensor]]]],
     ):
         new_builtin_module = Module.create()
         cloned_op = new_builtin_module.operation.clone()
@@ -880,36 +961,17 @@ class Builder(metaclass=BuilderMeta):
         return cloned_op
 
     def parse_func(
-        self, parsed_func: func.FuncOp, golden_inputs: Dict[str, [List[torch.tensor]]]
+        self,
+        parsed_func: func.FuncOp,
+        golden_inputs: Dict[str, [List[Dict[int, torch.tensor]]]],
     ):
         fn_input_types = self.get_input_types(parsed_func)
 
         parsed_func_golden_inputs = []
         if parsed_func.name.value in golden_inputs.keys():
-            parsed_func_golden_inputs = golden_inputs[parsed_func.name.value]
+            parsed_func_golden_inputs.extend(golden_inputs[parsed_func.name.value])
         else:
-            for ttype in fn_input_types:
-                shape = ttype.shape
-                dtype = self._get_torch_dtype_from_type(ttype.element_type)
-
-                if dtype.is_floating_point or dtype.is_complex:
-                    if len(shape) == 0:
-                        golden_input = torch.randn(1, dtype=dtype).squeeze()
-                    else:
-                        golden_input = torch.randn(*shape, dtype=dtype)
-                    parsed_func_golden_inputs.append(golden_input)
-                elif dtype == torch.bool:
-                    if len(shape) == 0:
-                        golden_input = torch.randint(0, 2, (), dtype=dtype)
-                    else:
-                        golden_input = torch.randint(0, 2, shape, dtype=dtype)
-                    parsed_func_golden_inputs.append(golden_input)
-                else:
-                    if len(shape) == 0:
-                        golden_input = torch.randint(0, 256, (), dtype=dtype)
-                    else:
-                        golden_input = torch.randint(0, 256, shape, dtype=dtype)
-                    parsed_func_golden_inputs.append(golden_input)
+            parsed_func_golden_inputs.extend(self.generate_golden_tensors(parsed_func))
 
         ordered_inputs = []
         ordered_outputs = []
@@ -917,8 +979,10 @@ class Builder(metaclass=BuilderMeta):
         @func.func(*fn_input_types, name=parsed_func.name.value)
         def decorated_func(*inputs):
             golden_dict = {}
-            for operand, torch_golden in zip(inputs, parsed_func_golden_inputs):
-                golden_dict[operand] = torch_golden
+            for operand, torch_golden_dictionary in zip(
+                inputs, parsed_func_golden_inputs
+            ):
+                golden_dict[operand] = torch_golden_dictionary
 
             input_goldens: Dict[
                 Operand, GoldenMapTensor
@@ -961,6 +1025,16 @@ class Builder(metaclass=BuilderMeta):
 
         new_func_op = decorated_func.func_op
         self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
+
+        parsed_func_op_arg_attr_list = parsed_func.arg_attrs
+        new_func_op_arg_attr_list = []
+        for arg_number, arg_attrs in enumerate(parsed_func_op_arg_attr_list):
+            new_arg_attr = {}
+            for attr in arg_attrs:
+                new_arg_attr[attr.name] = attr.attr
+            new_func_op_arg_attr_list.append(DictAttr.get(new_arg_attr))
+        new_func_op.arg_attrs = ArrayAttr.get(new_func_op_arg_attr_list)
+
         return new_func_op
 
     def parse_nested_func(
@@ -1165,24 +1239,22 @@ class Builder(metaclass=BuilderMeta):
 
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                if not self._disable_golden_check:
-                    input_goldens: Dict[Operand, GoldenMapTensor] = {}
-                    for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
-                        input_goldens[operand] = self._generate_golden_tensor(
-                            operand, dtype
-                        )
-                    self._set_goldens(input_goldens)
+                input_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
+                    input_goldens[operand] = self._generate_golden_tensor(
+                        operand, dtype
+                    )
+                self._set_goldens(input_goldens)
                 ordered_inputs.extend(inputs)
 
                 result = fn(*inputs, self)
 
                 outputs = result if hasattr(result, "__iter__") else [result]
 
-                if not self._disable_golden_check:
-                    output_goldens: Dict[Operand, GoldenMapTensor] = {}
-                    for op in outputs:
-                        output_goldens[op] = self._get_golden_tensor(op)
-                    self._set_goldens(output_goldens)
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = self._get_golden_tensor(op)
+                self._set_goldens(output_goldens)
                 ordered_outputs.extend(outputs)
 
                 return process_multi_return_result(result)
@@ -1251,11 +1323,10 @@ class Builder(metaclass=BuilderMeta):
         )
         op_result = op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(operand)
-            op_golden_function = get_golden_function(debug_op)
-            golden_output = op_golden_function(input0, annotation_attr)
-            self._set_golden_tensor(op_result, golden_output)
+        input0 = self._get_golden_tensor(operand)
+        op_golden_function = get_golden_function(debug_op)
+        golden_output = op_golden_function(input0, annotation_attr)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1264,7 +1335,7 @@ class Builder(metaclass=BuilderMeta):
         self,
         operand: Operand,
         loc: Optional[str] = None,
-    ) -> OpResult:
+    ):
         debug_op = self.get_opview_from_method(Builder.breakpoint)
 
         if loc is None:
@@ -1272,19 +1343,28 @@ class Builder(metaclass=BuilderMeta):
         else:
             loc = Location.name(loc)
 
-        op = debug_op(
-            operand,
-            loc=loc,
-        )
-        op_result = op.result
+        debug_op(operand, loc=loc)
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(operand)
-            op_golden_function = get_golden_function(debug_op)
-            golden_output = op_golden_function(input0)
-            self._set_golden_tensor(op_result, golden_output)
+        return
 
-        return op_result
+    @tag(debug.PrintOp)
+    def print(
+        self,
+        operand: Operand,
+        message: str,
+        loc: Optional[str] = None,
+    ):
+        debug_op = self.get_opview_from_method(Builder.print)
+        message_attr = StringAttr.get(message)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        debug_op(operand, message=message_attr, loc=loc)
+
+        return
 
     @tag(debug.MemorySnapshotOp)
     def memory_snapshot(
@@ -1292,7 +1372,7 @@ class Builder(metaclass=BuilderMeta):
         operand: Operand,
         file_path: str,
         loc: Optional[str] = None,
-    ) -> OpResult:
+    ):
         debug_op = self.get_opview_from_method(Builder.memory_snapshot)
         file_path_attr = StringAttr.get(file_path)
 
@@ -1301,17 +1381,83 @@ class Builder(metaclass=BuilderMeta):
         else:
             loc = Location.name(loc)
 
+        debug_op(operand, file_path=file_path_attr, loc=loc)
+
+        return
+
+    @tag(debug.DumpOp)
+    def dump(
+        self,
+        operand: Operand,
+        file_path: str,
+        loc: Optional[str] = None,
+    ):
+        debug_op = self.get_opview_from_method(Builder.dump)
+        file_path_attr = StringAttr.get(file_path)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        debug_op(operand, file_path=file_path_attr, loc=loc)
+
+        return
+
+    @tag(debug.RegionStartOp)
+    def region_start(
+        self,
+        operand: Operand,
+        region_id: str,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.region_start)
+        region_id_attr = StringAttr.get(region_id)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
         op = debug_op(
             operand,
-            file_path=file_path_attr,
+            region_id=region_id_attr,
             loc=loc,
         )
         op_result = op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(operand)
-            op_golden_function = get_golden_function(debug_op)
-            golden_output = op_golden_function(input0, file_path_attr)
-            self._set_golden_tensor(op_result, golden_output)
+        input0 = self._get_golden_tensor(operand)
+        op_golden_function = get_golden_function(debug_op)
+        golden_output = op_golden_function(input0, region_id_attr)
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @tag(debug.RegionEndOp)
+    def region_end(
+        self,
+        operand: Operand,
+        region_id: str,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.region_end)
+        region_id_attr = StringAttr.get(region_id)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = debug_op(
+            operand,
+            region_id=region_id_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        input0 = self._get_golden_tensor(operand)
+        op_golden_function = get_golden_function(debug_op)
+        golden_output = op_golden_function(input0, region_id_attr)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result

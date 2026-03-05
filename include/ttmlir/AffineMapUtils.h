@@ -251,12 +251,11 @@ inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   return flatToInput.compose(outputToFlat);
 }
 
-/// Calculate a reblock affine map given a shape and new grid shape.
-/// Returns the new tensor shape and the reblock affine map.
-inline std::pair<mlir::SmallVector<int64_t>, mlir::AffineMap>
-calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
-                           mlir::ArrayRef<int64_t> newGridShape,
-                           mlir::MLIRContext *context) {
+/// Calculate the new tensor shape when reblocking to a new grid shape.
+/// This is the shape-only variant of calculateReblockMapForGrid.
+inline mlir::SmallVector<int64_t>
+calculateReblockShapeForGrid(mlir::ArrayRef<int64_t> tensorShape,
+                             mlir::ArrayRef<int64_t> newGridShape) {
   assert(tensorShape.size() % 2 == 0 &&
          "Expected even rank for grid + shard dimensions");
   assert(newGridShape.size() == tensorShape.size() / 2 &&
@@ -269,6 +268,16 @@ calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
     newTensorShape[j] = tensorShape[i] * tensorShape[j] / newGridShape[i];
     newTensorShape[i] = newGridShape[i];
   }
+  return newTensorShape;
+}
+
+/// Calculate a reblock affine map given a shape and new grid shape.
+/// Returns the new tensor shape and the reblock affine map.
+inline std::pair<mlir::SmallVector<int64_t>, mlir::AffineMap>
+calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
+                           mlir::ArrayRef<int64_t> newGridShape,
+                           mlir::MLIRContext *context) {
+  auto newTensorShape = calculateReblockShapeForGrid(tensorShape, newGridShape);
   return {newTensorShape,
           calculateReblockMap(tensorShape, newTensorShape, context)};
 }
@@ -372,6 +381,48 @@ buildPhysicalToDeviceMap(mlir::ArrayRef<int64_t> physicalShape,
   }
 
   return mlir::AffineMap::get(rank, 0, deviceExprs, context);
+}
+
+/// Creates an affine map that collapses an ND grid (> 2D) to a 2D grid while
+/// preserving shard dimensions as identity pass-throughs.
+///
+/// The map linearizes ND grid coordinates to a 1D row-major index, then
+/// re-expands to the target 2D physical grid. Shard dimensions are appended
+/// as identity.
+///
+/// Example: gridShape=[7,1,1], physGrid=[7,1], shardRank=3:
+///   (d0,d1,d2,d3,d4,d5) -> ((d0+d1+d2)%7, 0, d3, d4, d5)
+inline mlir::AffineMap
+createNDGridCollapseMap(mlir::ArrayRef<int64_t> gridShape,
+                        mlir::ArrayRef<int64_t> physGrid, unsigned shardRank,
+                        mlir::MLIRContext *context) {
+  assert(physGrid.size() == 2 && "Physical grid must be 2D");
+  unsigned gridRank = gridShape.size();
+
+  // Linearize ND grid → 1D (row-major).
+  mlir::AffineExpr linearExpr = mlir::getAffineConstantExpr(0, context);
+  mlir::AffineExpr stride = mlir::getAffineConstantExpr(1, context);
+  for (int64_t i = static_cast<int64_t>(gridRank) - 1; i >= 0; --i) {
+    linearExpr = linearExpr + mlir::getAffineDimExpr(i, context) * stride;
+    stride = stride * mlir::getAffineConstantExpr(gridShape[i], context);
+  }
+
+  // Expand 1D → 2D physical grid.
+  mlir::SmallVector<mlir::AffineExpr> results;
+  mlir::AffineExpr divisor = mlir::getAffineConstantExpr(1, context);
+  for (int64_t dim = 1; dim >= 0; --dim) {
+    mlir::AffineExpr sizeExpr =
+        mlir::getAffineConstantExpr(physGrid[dim], context);
+    results.insert(results.begin(), linearExpr.floorDiv(divisor) % sizeExpr);
+    divisor = divisor * sizeExpr;
+  }
+
+  // Append identity pass-throughs for shard dims.
+  for (unsigned i = 0; i < shardRank; ++i) {
+    results.push_back(mlir::getAffineDimExpr(gridRank + i, context));
+  }
+
+  return mlir::AffineMap::get(gridRank + shardRank, 0, results, context);
 }
 
 /// Calculates the coalescing factor for an affine map by sampling over the
