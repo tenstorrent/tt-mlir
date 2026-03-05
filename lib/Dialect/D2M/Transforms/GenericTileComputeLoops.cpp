@@ -3,13 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/AffineMapUtils.h"
-#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/DstRegisterAnalysis.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "llvm/Support/Debug.h"
+
+#define DEBUG_TYPE "d2m-generic-tile-compute-loops"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
@@ -18,63 +19,6 @@
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERICTILECOMPUTELOOPS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
-
-// Analyze the compute ops in a region to determine the DST capacity divisor
-// for Phase 2 tiling. This determines how much of DST each inner iteration
-// can use:
-// - FPU ops (add, sub, mul with tile operands): divisor=1 (full DST per
-// iteration)
-// - SFPU unary ops: divisor=1 (in-place, full DST per iteration)
-// - SFPU binary ops: divisor=2 (half DST per iteration, need space for 2
-// operands)
-// - SFPU ternary ops: divisor=4 (quarter DST per iteration, need space for 3
-// operands)
-//
-// Returns the worst-case divisor across all ops in the region.
-static unsigned getDstCapacityDivisor(Region &region) {
-  unsigned maxDivisor = 1; // Default for FPU/unary
-
-  region.walk([&](Operation *op) {
-    // Check if this is a D2M compute op with DST operands
-    auto dstInterface = dyn_cast<OperandLoadStoreRegisterOpInterface>(op);
-    if (!dstInterface) {
-      return;
-    }
-
-    // Get the operands that load from DST register
-    SmallVector<int64_t> dstOperands =
-        dstInterface.getOperandsLoadFromDstRegister();
-
-    // FPU binary ops (TileAddOp, TileSubOp, TileMulOp with tile-tile operands)
-    // use the FPU and don't need extra DST space for operands
-    if (isa<TileAddOp, TileSubOp, TileMulOp>(op)) {
-      // Check if it's actually using FPU (no DST operands) or SFPU path
-      if (dstOperands.empty()) {
-        // FPU path - no DST operands needed, divisor stays at 1
-        return;
-      }
-    }
-
-    // Determine divisor based on number of DST operands
-    size_t numDstOperands = dstOperands.size();
-    unsigned requiredDivisor = 1; // Default
-
-    if (numDstOperands <= 1) {
-      // Unary SFPU op - in-place, can use full DST
-      requiredDivisor = 1;
-    } else if (numDstOperands == 2) {
-      // Binary SFPU op - need space for 2 operands, use half DST
-      requiredDivisor = 2;
-    } else if (numDstOperands >= 3) {
-      // Ternary SFPU op - need space for 3 operands, use quarter DST
-      requiredDivisor = 4;
-    }
-
-    maxDivisor = std::max(maxDivisor, requiredDivisor);
-  });
-
-  return maxDivisor;
-}
 
 // Determines the subblocking of the output block shape within the constraint of
 // the DST capacity.
@@ -172,171 +116,187 @@ static SmallVector<int64_t> calculateOptimalSubblockSizes(
 }
 
 namespace {
-struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
-  D2MGenericComputeRewriter(MLIRContext *context,
-                            unsigned maxDstPhysicalSizeTiles,
-                            bool enableTwoPhaseDestTiling)
-      : OpRewritePattern<linalg::GenericOp>(context),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
-        enableTwoPhaseDestTiling(enableTwoPhaseDestTiling) {}
 
-  LogicalResult matchAndRewrite(linalg::GenericOp op,
+// Convert an scf.for with constant bounds to affine.for in-place.
+// Returns the new affine.for, or nullptr if conversion is not possible.
+static affine::AffineForOp convertScfForToAffine(scf::ForOp scfForOp,
+                                                 PatternRewriter &rewriter) {
+  auto lb = getConstantIntValue(scfForOp.getLowerBound());
+  auto ub = getConstantIntValue(scfForOp.getUpperBound());
+  auto step = getConstantIntValue(scfForOp.getStep());
+  if (!lb || !ub || !step) {
+    return nullptr;
+  }
+
+  rewriter.setInsertionPoint(scfForOp);
+  auto affineForOp =
+      rewriter.create<affine::AffineForOp>(scfForOp.getLoc(), *lb, *ub, *step);
+
+  Block *scfBody = scfForOp.getBody();
+  Block *affineBody = affineForOp.getBody();
+
+  scfBody->getArgument(0).replaceAllUsesWith(affineForOp.getInductionVar());
+
+  auto &scfOps = scfBody->getOperations();
+  auto &affineOps = affineBody->getOperations();
+  affineOps.splice(affineOps.begin(), scfOps, scfOps.begin(),
+                   std::prev(scfOps.end()));
+
+  rewriter.eraseOp(scfForOp);
+  return affineForOp;
+}
+
+struct D2MGenericComputeRewriter : public OpRewritePattern<GenericOp> {
+  using OpRewritePattern<GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(GenericOp genericOp,
                                 PatternRewriter &rewriter) const final {
-    TT_assert(op.getRegion().hasOneBlock());
-    TT_assertv(op.getOutputs().size() == 1u,
-               "Only one output tensor is supported");
-    auto outputTensor =
-        mlir::cast<MemRefType>(op.getOutputs().front().getType());
-
-    Type largestDstType = utils::getRegionLargestDstElemType(op.getRegion());
-    const unsigned baseDstCapacity =
-        ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
-            largestDstType, false, maxDstPhysicalSizeTiles);
-
-    // Phase 1 always tiles to 2x DST capacity (when two-phase tiling is
-    // enabled)
-    SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(),
-                                       enableTwoPhaseDestTiling ? 2 : 1);
-    unsigned dstCapacity = baseDstCapacity * (enableTwoPhaseDestTiling ? 2 : 1);
-    subblockSizes =
-        calculateOptimalSubblockSizes(op.getIndexingMapsArray(), op.getInputs(),
-                                      outputTensor.getShape(), dstCapacity);
-
-    linalg::LinalgTilingOptions tilingOptions;
-    tilingOptions.setTileSizes(subblockSizes);
-    // The use of linalg::LinalgTilingLoopType::AffineLoops was disabled because
-    // it caused unexpected behavior where tiling was not applied correctly.
-    // Further investigation is needed to determine the root cause before
-    // re-enabling it.
-    // tilingOptions.setLoopType(linalg::LinalgTilingLoopType::AffineLoops);
-    FailureOr<linalg::TiledLinalgOp> tiledGeneric =
-        linalg::tileLinalgOp(rewriter, op, tilingOptions);
-    if (failed(tiledGeneric)) {
+    utils::DSTPackingInfo packingInfo =
+        utils::analyzeGenericForDSTPacking(genericOp);
+    if (packingInfo.perResult.empty()) {
       return failure();
     }
 
-    // Phase 2: If two-phase tiling is enabled, tile the inner linalg.generic
-    // based on the compute op type:
-    // - FPU/SFPU unary: tile to 1×DST (1 inner iteration, 2 total)
-    // - SFPU binary: tile to 1/2×DST (2 inner iterations, 4 total)
-    // - SFPU ternary: tile to 1/4×DST (4 inner iterations, 8 total)
-    if (enableTwoPhaseDestTiling) {
-      auto innerOp =
-          dyn_cast<linalg::GenericOp>(tiledGeneric.value().op.getOperation());
-      if (!innerOp) {
-        return failure();
-      }
+    SmallVector<linalg::GenericOp> linalgOps;
+    genericOp.getRegion(0).walk(
+        [&](linalg::GenericOp op) { linalgOps.push_back(op); });
 
-      auto innerOutputTensor =
-          mlir::cast<MemRefType>(innerOp.getOutputs().front().getType());
-
-      // Determine the DST capacity divisor based on the ops in the region:
-      // - FPU/SFPU unary: divisor=1 → phase2DstCapacity=DST → 2 inner
-      // iterations
-      // - SFPU binary: divisor=2 → phase2DstCapacity=DST/2 → 4 inner iterations
-      // - SFPU ternary: divisor=4 → phase2DstCapacity=DST/4 → 8 inner
-      // iterations
-      unsigned dstDivisor = getDstCapacityDivisor(innerOp.getRegion());
-      unsigned phase2DstCapacity = baseDstCapacity / dstDivisor;
-      unsigned expectedInnerIterations = 2 * dstDivisor;
-
-      SmallVector<int64_t> phase2SubblockSizes = calculateOptimalSubblockSizes(
-          innerOp.getIndexingMapsArray(), innerOp.getInputs(),
-          innerOutputTensor.getShape(), phase2DstCapacity);
-
-      // Verify that two-phase tiling is valid: the inner output shape must
-      // divide evenly by the subblock sizes.
-      // TODO(jdesousa): Implement iteration peeling for non-divisible cases.
-      int64_t totalIterations = 1;
-      ArrayRef<int64_t> innerShape = innerOutputTensor.getShape();
-      for (size_t i = 0; i < innerShape.size(); ++i) {
-        TT_assertv(
-            innerShape[i] % phase2SubblockSizes[i] == 0,
-            "Two-phase dest tiling requires output shape to divide evenly by "
-            "subblock sizes. Iteration peeling not yet implemented.");
-        totalIterations *= innerShape[i] / phase2SubblockSizes[i];
-      }
-      TT_assertv(totalIterations ==
-                     static_cast<int64_t>(expectedInnerIterations),
-                 "Two-phase dest tiling expects {0} inner iterations based on "
-                 "op type (got {1}). Iteration peeling not yet implemented.",
-                 expectedInnerIterations, totalIterations);
-
-      linalg::LinalgTilingOptions phase2TilingOptions;
-      phase2TilingOptions.setTileSizes(phase2SubblockSizes);
-      // Note: linalg::LinalgTilingLoopType::AffineLoops has known issues where
-      // TiledLinalgOp::loops may be empty and the inner linalg shape may not
-      // be reduced. Using SCF loops and converting to affine immediately after
-      // ensures correct tiling behavior with affine-compatible IVs.
-      FailureOr<linalg::TiledLinalgOp> phase2TiledGeneric =
-          linalg::tileLinalgOp(rewriter, innerOp, phase2TilingOptions);
-      if (failed(phase2TiledGeneric)) {
-        return failure();
-      }
-
-      rewriter.eraseOp(innerOp);
-
-      // Convert all phase 2 SCF loops to affine.for so their IVs are usable
-      // with affine.store/load in downstream scratch allocation. Tag the
-      // outermost loop with d2m.scratch_space_loop for downstream passes.
-      if (!phase2TiledGeneric.value().loops.empty()) {
-        affine::AffineForOp outermostAffineLoop;
-
-        for (Operation *loopOp : phase2TiledGeneric.value().loops) {
-          auto scfForOp = dyn_cast<scf::ForOp>(loopOp);
-          if (!scfForOp) {
-            continue;
-          }
-
-          auto lb = getConstantIntValue(scfForOp.getLowerBound());
-          auto ub = getConstantIntValue(scfForOp.getUpperBound());
-          auto step = getConstantIntValue(scfForOp.getStep());
-          if (!lb || !ub || !step) {
-            continue;
-          }
-
-          rewriter.setInsertionPoint(scfForOp);
-          auto affineForOp = rewriter.create<affine::AffineForOp>(
-              scfForOp.getLoc(), *lb, *ub, *step);
-
-          Block *scfBody = scfForOp.getBody();
-          Block *affineBody = affineForOp.getBody();
-
-          scfBody->getArgument(0).replaceAllUsesWith(
-              affineForOp.getInductionVar());
-
-          auto &scfOps = scfBody->getOperations();
-          auto &affineOps = affineBody->getOperations();
-          affineOps.splice(affineOps.begin(), scfOps, scfOps.begin(),
-                           std::prev(scfOps.end()));
-
-          rewriter.eraseOp(scfForOp);
-
-          if (!outermostAffineLoop) {
-            outermostAffineLoop = affineForOp;
-          }
-        }
-
-        if (outermostAffineLoop) {
-          outermostAffineLoop->setAttr("d2m.scratch_space_loop",
-                                       rewriter.getUnitAttr());
-        } else {
-          phase2TiledGeneric.value().loops.front()->setAttr(
-              "d2m.scratch_space_loop", rewriter.getUnitAttr());
-        }
-      }
-
-      // Replace the original op with the tiled version from phase 2.
-      rewriter.replaceOp(op, phase2TiledGeneric.value().op);
-      return success();
+    if (linalgOps.empty()) {
+      return failure();
     }
 
-    rewriter.replaceOp(op, tiledGeneric.value().op);
+    for (linalg::GenericOp linalgOp : linalgOps) {
+      if (failed(tileLinalgOp(linalgOp, packingInfo, rewriter))) {
+        return failure();
+      }
+    }
+
     return success();
   }
 
-  unsigned maxDstPhysicalSizeTiles = 0;
-  bool enableTwoPhaseDestTiling = false;
+private:
+  LogicalResult tileLinalgOp(linalg::GenericOp linalgOp,
+                             const utils::DSTPackingInfo &packingInfo,
+                             PatternRewriter &rewriter) const {
+    Value outputValue = linalgOp.getOutputs().front();
+    auto it = packingInfo.perResult.find(outputValue);
+    if (it == packingInfo.perResult.end()) {
+      return failure();
+    }
+    const utils::DSTPackingPerResultInfo &perResult = it->second;
+
+    auto outputType = mlir::cast<MemRefType>(outputValue.getType());
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "=== DST Packing for linalg.generic ===\n";
+      llvm::dbgs() << "  loc: " << linalgOp.getLoc() << "\n";
+      llvm::dbgs() << "  output shape: [";
+      llvm::interleaveComma(outputType.getShape(), llvm::dbgs());
+      llvm::dbgs() << "]\n";
+      llvm::dbgs() << "  numOuterLoopIters: " << packingInfo.numOuterLoopIters
+                   << "\n";
+      llvm::dbgs() << "  numTilesPerResult: " << packingInfo.numTilesPerResult
+                   << "\n";
+      llvm::dbgs() << "  numDstFlips: " << perResult.numDstFlips << "\n";
+      llvm::dbgs() << "  numTilesPerFlip: " << perResult.numTilesPerFlip
+                   << "\n";
+    });
+
+    // Phase 1: Tile to produce numOuterLoopIters outer iterations.
+    // Using numTilesPerResult as the effective capacity determines tile
+    // sizes that yield the correct number of outer iterations.
+    SmallVector<int64_t> phase1TileSizes = calculateOptimalSubblockSizes(
+        linalgOp.getIndexingMapsArray(), linalgOp.getInputs(),
+        outputType.getShape(),
+        static_cast<unsigned>(packingInfo.numTilesPerResult));
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "  phase1 tile sizes: [";
+      llvm::interleaveComma(phase1TileSizes, llvm::dbgs());
+      llvm::dbgs() << "]\n";
+    });
+
+    linalg::LinalgTilingOptions phase1Options;
+    phase1Options.setTileSizes(phase1TileSizes);
+    FailureOr<linalg::TiledLinalgOp> phase1Tiled =
+        linalg::tileLinalgOp(rewriter, linalgOp, phase1Options);
+    if (failed(phase1Tiled)) {
+      return failure();
+    }
+
+    // Phase 2: Tile the inner linalg.generic to produce numDstFlips
+    // iterations per outer iteration.
+    auto innerOp =
+        dyn_cast<linalg::GenericOp>(phase1Tiled.value().op.getOperation());
+    if (!innerOp) {
+      return failure();
+    }
+
+    auto innerOutputType =
+        mlir::cast<MemRefType>(innerOp.getOutputs().front().getType());
+
+    SmallVector<int64_t> phase2TileSizes = calculateOptimalSubblockSizes(
+        innerOp.getIndexingMapsArray(), innerOp.getInputs(),
+        innerOutputType.getShape(),
+        static_cast<unsigned>(perResult.numTilesPerFlip));
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "  phase1 inner shape: [";
+      llvm::interleaveComma(innerOutputType.getShape(), llvm::dbgs());
+      llvm::dbgs() << "]\n";
+      llvm::dbgs() << "  phase2 tile sizes: [";
+      llvm::interleaveComma(phase2TileSizes, llvm::dbgs());
+      llvm::dbgs() << "]\n";
+    });
+
+    linalg::LinalgTilingOptions phase2Options;
+    phase2Options.setTileSizes(phase2TileSizes);
+    // Note: linalg::LinalgTilingLoopType::AffineLoops has known issues where
+    // TiledLinalgOp::loops may be empty and the inner linalg shape may not
+    // be reduced. Using SCF loops and converting to affine immediately after
+    // ensures correct tiling behavior with affine-compatible IVs.
+    FailureOr<linalg::TiledLinalgOp> phase2Tiled =
+        linalg::tileLinalgOp(rewriter, innerOp, phase2Options);
+    if (failed(phase2Tiled)) {
+      return failure();
+    }
+
+    rewriter.eraseOp(innerOp);
+
+    // Convert all phase 2 SCF loops to affine.for so their IVs are usable
+    // with affine.store/load in downstream scratch allocation. Tag the
+    // outermost loop with d2m.scratch_space_loop for downstream passes.
+    if (!phase2Tiled.value().loops.empty()) {
+      affine::AffineForOp outermostAffineLoop;
+
+      for (Operation *loopOp : phase2Tiled.value().loops) {
+        auto scfForOp = dyn_cast<scf::ForOp>(loopOp);
+        if (!scfForOp) {
+          continue;
+        }
+
+        auto affineForOp = convertScfForToAffine(scfForOp, rewriter);
+        if (!affineForOp) {
+          continue;
+        }
+
+        if (!outermostAffineLoop) {
+          outermostAffineLoop = affineForOp;
+        }
+      }
+
+      if (outermostAffineLoop) {
+        outermostAffineLoop->setAttr("d2m.scratch_space_loop",
+                                     rewriter.getUnitAttr());
+      } else {
+        phase2Tiled.value().loops.front()->setAttr("d2m.scratch_space_loop",
+                                                   rewriter.getUnitAttr());
+      }
+    }
+
+    rewriter.eraseOp(linalgOp);
+    return success();
+  }
 };
 } // namespace
 
@@ -350,9 +310,7 @@ public:
   void runOnOperation() final {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<D2MGenericComputeRewriter>(
-        ctx, maxDstPhysicalSizeTiles.getValue(),
-        enableTwoPhaseDestTiling.getValue());
+    patterns.add<D2MGenericComputeRewriter>(ctx);
     walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };
