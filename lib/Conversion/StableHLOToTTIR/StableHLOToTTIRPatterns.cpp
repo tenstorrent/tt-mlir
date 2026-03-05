@@ -824,8 +824,7 @@ public:
         loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()),
         mlir::TypeAttr::get(meanType.getElementType()));
     auto runningVariance = rewriter.create<ttir::OnesOp>(
-        loc, varianceType,
-        llvm::to_vector_of<int32_t>(varianceType.getShape()),
+        loc, varianceType, llvm::to_vector_of<int32_t>(varianceType.getShape()),
         mlir::TypeAttr::get(varianceType.getElementType()));
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormTrainingOp>(

@@ -650,8 +650,9 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
     if (*dtype != getType().getElementType()) {
       return emitOpError()
              << "dtype does not match with output tensor element type [dtype = "
-             << *dtype << ", output tensor element type = "
-             << getType().getElementType() << "].";
+             << *dtype
+             << ", output tensor element type = " << getType().getElementType()
+             << "].";
     }
   }
 
@@ -671,8 +672,9 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
     if (*dtype != getType().getElementType()) {
       return emitOpError()
              << "dtype does not match with output tensor element type [dtype = "
-             << *dtype << ", output tensor element type = "
-             << getType().getElementType() << "].";
+             << *dtype
+             << ", output tensor element type = " << getType().getElementType()
+             << "].";
     }
   }
 
@@ -688,8 +690,9 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
     if (*dtype != getType().getElementType()) {
       return emitOpError()
              << "dtype does not match with output tensor element type [dtype = "
-             << *dtype << ", output tensor element type = "
-             << getType().getElementType() << "].";
+             << *dtype
+             << ", output tensor element type = " << getType().getElementType()
+             << "].";
     }
   }
 
@@ -4872,8 +4875,9 @@ mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {
     if (*dtype != getType().getElementType()) {
       return emitOpError()
              << "dtype does not match with output tensor element type [dtype = "
-             << *dtype << ", output tensor element type = "
-             << getType().getElementType() << "].";
+             << *dtype
+             << ", output tensor element type = " << getType().getElementType()
+             << "].";
     }
   }
 
