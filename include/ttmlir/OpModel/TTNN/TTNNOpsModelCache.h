@@ -185,6 +185,10 @@ llvm::hash_code hash_value(const std::vector<T> &arg) {
 namespace llvm {
 // The following definitions are not found by compiler in any header file. LLVM
 // needs to know how to hash all argument types of TTNN ops.
+inline hash_code hash_value(mlir::Attribute attr) {
+  return hash_value(attr.getAsOpaquePointer());
+}
+
 template <typename T>
 hash_code hash_value(const llvm::SmallVector<T> &arg) {
   return hash_combine_range(arg);
