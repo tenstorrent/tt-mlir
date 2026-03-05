@@ -65,6 +65,38 @@ Value createTosaConst(ConversionPatternRewriter &rewriter, Location loc,
 // Helper to create the TOSA mul shift operand (i8 zero tensor).
 Value createTosaMulShift(ConversionPatternRewriter &rewriter, Location loc);
 
+//===----------------------------------------------------------------------===//
+// Sliding-window / pooling helpers
+//===----------------------------------------------------------------------===//
+
+// Calculate extra padding needed for ceil_mode in pooling/conv ops.
+int64_t calculateExtraPadding(int64_t dim, int64_t kernel, int64_t stride,
+                              int64_t padding1, int64_t padding2,
+                              int64_t dilation);
+
+// Create a tosa.reshape to the given target type.
+Value createTosaReshape(Value input, RankedTensorType targetType,
+                        ConversionPatternRewriter &rewriter, Location loc);
+
+// Unflatten input from (1, 1, N*H*W, C) to (N, H, W, C) using metadata from
+// FlattenedCompatInfoAttr.
+} // namespace mlir::tt::ttir_to_linalg
+
+// Forward-declare to avoid pulling in the full TTIROps header.
+namespace mlir::tt::ttir {
+class FlattenedCompatInfoAttr;
+} // namespace mlir::tt::ttir
+
+namespace mlir::tt::ttir_to_linalg {
+
+Value unflattenInput(Value input, ttir::FlattenedCompatInfoAttr flatInfo,
+                     ConversionPatternRewriter &rewriter, Location loc);
+
+// Slice a result tensor back to a target shape if they differ. Handles cases
+// where extra padding caused the computed output to be larger than expected.
+Value sliceResultToShape(Value result, RankedTensorType targetType,
+                         ConversionPatternRewriter &rewriter, Location loc);
+
 } // namespace mlir::tt::ttir_to_linalg
 
 #endif // TTMLIR_CONVERSION_TTIRTOLINALG_UTILS_H
