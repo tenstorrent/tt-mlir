@@ -176,7 +176,6 @@ def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
-<<<<<<< HEAD
 def TTIRGlobalDataFormatConversion: Pass<"ttir-global-data-format-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert all tensor data types to a target format.";
   let description = [{
@@ -257,8 +256,6 @@ def TTIRComplexDataTypeConversionPass : Pass<"ttir-complex-data-type-conversion"
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect",
                            "mlir::func::FuncDialect"];
 }
-=======
->>>>>>> dfa80c34f (Move complex data type conversion to stablehlo)
 
 def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert integer data types in quantized types to a specified bit width";

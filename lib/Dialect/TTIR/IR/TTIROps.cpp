@@ -771,10 +771,8 @@ void mlir::tt::ttir::ConstantOp::getCanonicalizationPatterns(
                        "DenseResourceElementsAttr or DenseElementsAttr.");
   }
 
-  if (!getValue().getElementType().isIntOrFloat() &&
-      !mlir::isa<mlir::ComplexType>(getValue().getElementType())) {
-    return emitOpError(
-        "value attribute must be of int, float, or complex type.");
+  if (!getValue().getElementType().isIntOrFloat()) {
+    return emitOpError("value attribute must be of int or float type.");
   }
 
   return success();
