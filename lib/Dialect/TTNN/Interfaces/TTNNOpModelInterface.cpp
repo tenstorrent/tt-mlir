@@ -3966,8 +3966,7 @@ ClampScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ClampScalarOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], ttmlir::utils::attributeToAPFloat(getMin()),
-      ttmlir::utils::attributeToAPFloat(getMax()), opConfig.outputLayout);
+      inputShape, inputs[0], getMinAttr(), getMaxAttr(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3979,8 +3978,7 @@ ClampScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ClampScalarOp>::getOpRuntime, *this, inputShape,
-      inputs[0], ttmlir::utils::attributeToAPFloat(getMin()),
-      ttmlir::utils::attributeToAPFloat(getMax()), opConfig.outputLayout);
+      inputs[0], getMinAttr(), getMaxAttr(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
