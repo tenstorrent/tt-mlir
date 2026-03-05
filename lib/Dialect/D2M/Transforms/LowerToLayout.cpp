@@ -1080,10 +1080,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 6b. DRAM→DRAM: Direct reblocking between DRAM buffers in one step.
-    // Only applies when the transfer is a pure grid reblocking: both tensors
-    // must have matching format (both tiled or both row-major), same element
-    // type, and identical layout properties aside from grid shape.
+    // 6b. DRAM→DRAM: Direct reblocking between DRAM buffers.
     if (currentInfo.hasLayout() && currentInfo.isDRAM() &&
         targetInfo.hasLayout() && targetInfo.isDRAM()) {
       currentValue = lowerDatamovementGeneric(rewriter, currentValue,
