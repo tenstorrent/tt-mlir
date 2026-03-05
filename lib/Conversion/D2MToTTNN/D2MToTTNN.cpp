@@ -787,8 +787,21 @@ public:
       // mapping so that other patterns (like D2MGenericRewriter) can get the
       // converted value through the adaptor.
       rewriter.replaceOp(op, emptyOp.getResult());
+    } else if (mlir::isa_and_present<ttnn::GlobalSemaphoreType>(memrefType)) {
+      // Erase the memref alloc and dealloc since ttnn creates the global
+      // semaphore itself.
+      for (Operation *user :
+           llvm::make_early_inc_range(op.getResult().getUsers())) {
+        if (mlir::isa<memref::DeallocOp>(user)) {
+          rewriter.eraseOp(user);
+        }
+      }
+      rewriter.eraseOp(op);
+      return success();
     }
-    return success();
+    return rewriter.notifyMatchFailure(op,
+                                       "memref alloc does not correspond to a "
+                                       "ttnn tensor or global semaphore");
   }
 };
 } // namespace
@@ -817,15 +830,6 @@ public:
                                  gridShape[1] - 1));
     rewriter.replaceOpWithNewOp<ttnn::CreateGlobalSemaphoreOp>(
         op, adaptor.getValueAttr(), coreRange);
-    // Erase the memref alloc and dealloc since ttnn creates the global
-    // semaphore itself.
-    rewriter.eraseOp(allocOp);
-    for (Operation *user :
-         llvm::make_early_inc_range(op.getInput().getUsers())) {
-      if (user != op) {
-        rewriter.eraseOp(user);
-      }
-    }
     return success();
   }
 };
