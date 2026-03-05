@@ -6275,4 +6275,97 @@ TEST_F(OpModelTest, AssignOp) {
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
+TEST_F(OpModelTest, MeshPartitionOp) {
+  // Close the default {1,1} device and reopen as a {1,8} mock device so that
+  // mesh_partition actually exercises the prim op (cluster_axis_size > 1).
+  SingletonDeviceContext::closeInstance();
+  auto systemDesc = ttcore::SystemDescAttr::getDefault(
+      &context, ttcore::Arch::WormholeB0, {1, 8});
+  SingletonDeviceContext::setSystemDesc(systemDesc);
+  SingletonDeviceContext::getInstance().openMockDevice(
+      /*traceRegionSize=*/6000000, std::make_pair<size_t, size_t>(1, 8));
+
+  const llvm::SmallVector<int64_t> inputShape = {8, 1025};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr layoutDRAMRowMajor = CreateRowMajorLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutDRAMTiled = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1Tiled = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  const int32_t dim = 0;
+  const std::optional<uint32_t> clusterAxis = 1;
+
+  // Row-major layouts should succeed.
+  auto constraintsExp = OpModel<MeshPartitionOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, layoutDRAMRowMajor, dim, clusterAxis,
+      layoutDRAMRowMajor);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  // Tiled layouts should fail validation (not supported by mesh_partition in
+  // this shape).
+  constraintsExp = OpModel<MeshPartitionOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, layoutDRAMTiled, dim, clusterAxis,
+      layoutDRAMTiled);
+  if (constraintsExp) {
+    EXPECT_TRUE(false) << "Expected tiled layout to fail";
+  } else {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  constraintsExp = OpModel<MeshPartitionOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, layoutL1Tiled, dim, clusterAxis,
+      layoutL1Tiled);
+  if (constraintsExp) {
+    EXPECT_TRUE(false) << "Expected tiled layout to fail";
+  } else {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  // Reopen the default device for TearDown.
+  SingletonDeviceContext::closeInstance();
+  SingletonDeviceContext::getInstance().openDevice();
+}
+
+TEST_F(OpModelTest, MeshPartitionOpRuntime) {
+  // Runtime queries require a real multi-chip device.
+  constexpr size_t requiredChips = 8;
+  size_t numDevices = SingletonDeviceContext::getInstance().getNumDevices();
+  if (numDevices < requiredChips) {
+    GTEST_SKIP() << "Requires " << requiredChips << " chips, but only "
+                 << numDevices << " available";
+  }
+
+  // Reopen with a {1,8} mesh to exercise mesh_partition.
+  SingletonDeviceContext::closeInstance();
+  SingletonDeviceContext::getInstance().openDevice(
+      /*traceRegionSize=*/6000000, /*isMock=*/false,
+      std::make_pair<size_t, size_t>(1, 8));
+
+  const llvm::SmallVector<int64_t> inputShape = {8, 1025};
+  const TTNNLayoutAttr layoutDRAMRowMajor = CreateRowMajorLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  const int32_t dim = 0;
+  const std::optional<uint32_t> clusterAxis = 1;
+
+  auto runtimeExp = OpModel<MeshPartitionOp>::getOpRuntime(
+      inputShape, layoutDRAMRowMajor, dim, clusterAxis, layoutDRAMRowMajor);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Missing runtime; Error="
+           << llvm::toString(runtimeExp.takeError()) << std::endl;
+  }
+
+  // Reopen the default device for TearDown.
+  SingletonDeviceContext::closeInstance();
+  SingletonDeviceContext::getInstance().openDevice();
+}
+
 } // namespace mlir::tt::ttnn::op_model
