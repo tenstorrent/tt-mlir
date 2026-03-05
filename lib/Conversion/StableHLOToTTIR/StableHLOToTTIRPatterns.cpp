@@ -1211,16 +1211,13 @@ private:
   LogicalResult
   checkConversionLegality(mlir::stablehlo::ConstantOp &srcOp,
                           ConversionPatternRewriter &rewriter) const {
-    if (!isa<DenseElementsAttr, DenseResourceElementsAttr>(srcOp.getValue())) {
-      return success();
+    if (isa<DenseElementsAttr, DenseResourceElementsAttr>(srcOp.getValue()) &&
+        !srcOp.getValue().getElementType().isIntOrFloat()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ttir.constant only supports DenseElementsAttr or "
+                 "DenseResourceElementsAttr with int or float types.");
     }
-    auto elemType = srcOp.getValue().getElementType();
-    if (elemType.isIntOrFloat() || isa<ComplexType>(elemType)) {
-      return success();
-    }
-    return rewriter.notifyMatchFailure(
-        srcOp, "ttir.constant only supports DenseElementsAttr or "
-               "DenseResourceElementsAttr with int, float, or complex types.");
+    return success();
   }
 };
 } // namespace

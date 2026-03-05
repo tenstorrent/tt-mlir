@@ -176,7 +176,6 @@ def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
-
 def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert integer data types in quantized types to a specified bit width";
   let description = [{
