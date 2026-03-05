@@ -22,19 +22,19 @@ namespace {
 
 enum class DstExecutionClass { FPU, SFPU };
 
-static scf::ForOp getImmediateParentBlockingLoop(linalg::GenericOp op) {
-  Operation *parentOp = op->getParentOp();
-  if (parentOp == nullptr) {
-    return nullptr;
-  }
+// static scf::ForOp getImmediateParentBlockingLoop(linalg::GenericOp op) {
+//   Operation *parentOp = op->getParentOp();
+//   if (parentOp == nullptr) {
+//     return nullptr;
+//   }
 
-  if (auto parentScfFor = mlir::dyn_cast<scf::ForOp>(parentOp)) {
-    if (parentScfFor->hasAttr("d2m.blocking_loop")) {
-      return parentScfFor;
-    }
-  }
-  return nullptr;
-}
+//   if (auto parentScfFor = mlir::dyn_cast<scf::ForOp>(parentOp)) {
+//     if (parentScfFor->hasAttr("d2m.blocking_loop")) {
+//       return parentScfFor;
+//     }
+//   }
+//   return nullptr;
+// }
 
 static DstExecutionClass classifyComputeOp(Operation *op) {
   if (mlir::isa<TileMatmulOp, TileReduceMaxOp, TileReduceSumOp>(op)) {
@@ -44,7 +44,12 @@ static DstExecutionClass classifyComputeOp(Operation *op) {
   if (mlir::isa<TileAddOp, TileSubOp, TileMulOp>(op)) {
     TT_assertv(op->getNumOperands() == 2u,
                "expected binary op for tile add/sub/mul");
+    Type lhsType = op->getOperand(0).getType();
     Type rhsType = op->getOperand(1).getType();
+    if (ttcore::getDataType(lhsType) == ttcore::DataType::Float32 ||
+        ttcore::getDataType(rhsType) == ttcore::DataType::Float32) {
+      return DstExecutionClass::SFPU;
+    }
     if (mlir::isa<ttcore::TileType>(rhsType)) {
       return DstExecutionClass::FPU;
     }
@@ -165,25 +170,26 @@ DSTPackingInfo analyzeGenericForDSTPacking(d2m::GenericOp generic) {
   SmallVector<linalg::GenericOp> linalgOps;
   unifiedRegion.walk([&](linalg::GenericOp op) { linalgOps.push_back(op); });
 
-  scf::ForOp commonImmediateParentBlockingLoop = nullptr;
+  // scf::ForOp commonImmediateParentBlockingLoop = nullptr;
   for (linalg::GenericOp linalgOp : linalgOps) {
-    scf::ForOp immediateParentBlockingLoop =
-        getImmediateParentBlockingLoop(linalgOp);
-    if (immediateParentBlockingLoop == nullptr) {
-      linalgOp.emitOpError(
-          "expected immediate parent to be an scf.for with d2m.blocking_loop");
-      return DSTPackingInfo();
-    }
+    // scf::ForOp immediateParentBlockingLoop =
+    //     getImmediateParentBlockingLoop(linalgOp);
+    // if (immediateParentBlockingLoop == nullptr) {
+    //   linalgOp.emitOpError(
+    //       "expected immediate parent to be an scf.for with
+    //       d2m.blocking_loop");
+    //   return DSTPackingInfo();
+    // }
 
-    if (commonImmediateParentBlockingLoop == nullptr) {
-      commonImmediateParentBlockingLoop = immediateParentBlockingLoop;
-    } else if (commonImmediateParentBlockingLoop !=
-               immediateParentBlockingLoop) {
-      linalgOp.emitOpError(
-          "expected all linalg.generic ops to have the same immediate parent "
-          "scf.for blocking loop");
-      return DSTPackingInfo();
-    }
+    // if (commonImmediateParentBlockingLoop == nullptr) {
+    //   commonImmediateParentBlockingLoop = immediateParentBlockingLoop;
+    // } else if (commonImmediateParentBlockingLoop !=
+    //            immediateParentBlockingLoop) {
+    //   linalgOp.emitOpError(
+    //       "expected all linalg.generic ops to have the same immediate parent
+    //       " "scf.for blocking loop");
+    //   return DSTPackingInfo();
+    // }
 
     if (linalgOp.getOutputs().size() != 1u) {
       linalgOp.emitOpError("expected exactly one output");
