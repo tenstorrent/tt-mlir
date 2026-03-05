@@ -48,7 +48,7 @@ _current_fabric_config: Optional[str] = None
 
 
 # Test timeout handling
-TEST_TIMEOUT_SECONDS = 900  # 3 minutes
+TEST_TIMEOUT_SECONDS = 3  # 3 minutes
 _timeout_timer: Optional[threading.Timer] = None
 
 
@@ -538,16 +538,19 @@ def _get_dtypes_param(params: Dict[str, Any], num_shapes: int) -> List[Any]:
 def _extract_shapes_and_dtypes(item: pytest.Item, params: Dict[str, Any]) -> None:
     """Extract and record shape and dtype information"""
     shapes_param = _get_shapes_param(params)
+    print("aa", shapes_param)
     if shapes_param is None:
         return
+    print("aaa")
 
     if not isinstance(shapes_param, list):
         shapes_param = [shapes_param]
-
+    print("aaaa", shapes_param)
     # Record shapes.
     shapes_success = _safe_add_property(item, "input_shapes", json.dumps(shapes_param))
 
     if shapes_success:
+        print("aaaaa")
         # Only extract dtypes if shapes extraction succeeded.
         dtypes_param = _get_dtypes_param(params, len(shapes_param))
         dtypes_list = [torch_dtype_to_abbrev(dtype) for dtype in dtypes_param]
@@ -557,13 +560,14 @@ def _extract_shapes_and_dtypes(item: pytest.Item, params: Dict[str, Any]) -> Non
 def _extract_operation_name(item: pytest.Item, params: Dict[str, Any]) -> None:
     """Extract and record operation name"""
     op_name = None
+    print("bb", params)
 
     # Try test_fn parameter first.
     if "test_fn" in params:
         test_fn = params["test_fn"]
         if hasattr(test_fn, "__name__"):
             op_name = test_fn.__name__
-
+    print("bbb", op_name)
     # Fall back to test function name.
     if not op_name:
         test_name = item.name.split("[")[0]
@@ -589,7 +593,9 @@ def _extract_backend_and_params(item: pytest.Item, params: Dict[str, Any]) -> No
     # necessitating a singleton parameter in test cases that will never need to
     # test both ttnn and ttmetal (#4518)
     backend = params.get("target", "ttnn")
+    print("cc", backend)
     _safe_add_property(item, "backend", backend)
+    print("ccc")
 
     # Extract remaining parameters.
     covered_params = {
@@ -608,6 +614,7 @@ def _extract_backend_and_params(item: pytest.Item, params: Dict[str, Any]) -> No
         if key not in covered_params:
             value_str = _safe_serialize(value)
             _safe_add_property(item, f"param_{key}", value_str)
+    print("cccc")
 
 
 def _extract_frontend(item: pytest.Item) -> None:
@@ -615,11 +622,11 @@ def _extract_frontend(item: pytest.Item) -> None:
     what IR the builder graph represents). Currently possible values are
     `"ttir"` and `"shlo"` This information is encoded as marks applied by file
     to each test, via `pytestmark`"""
-
+    print("dd", item)
     for m in item.iter_markers(name="frontend"):
         _safe_add_property(item, "frontend", m.args[0])
         return
-
+    print("ddd")
     raise KeyError("No frontend marker found!")
 
 
@@ -675,18 +682,25 @@ def pytest_runtest_setup(item: pytest.Item):
     _timeout_timer = threading.Timer(TEST_TIMEOUT_SECONDS, _timeout_handler)
     _timeout_timer.daemon = True
     _timeout_timer.start()
-
+    print("PRE YIELD")
     yield
+    print("POST YIELD")
 
     # Don't cancel the timer here - it needs to stay active through the test execution
     # It will be cancelled in pytest_runtest_call after the test completes
 
     if hasattr(item, "callspec"):
+        "CALLSPEC FOUND IN PYTEST_RUNTEST_SETUP"
         params = item.callspec.params
+        print("a")
         _extract_shapes_and_dtypes(item, params)
+        print("b")
         _extract_operation_name(item, params)
+        print("c")
         _extract_backend_and_params(item, params)
+        print("d")
         _extract_frontend(item)
+        print("e")
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -706,6 +720,7 @@ def pytest_runtest_call(item: pytest.Item):
     downstream schemas to support future features once pytest itself
     orchestrates the running of the generated flatbuffers
     """
+    print("pytest_runtest_call")
     global _timeout_timer
 
     TTBUILDER_EXCEPTIONS = {
@@ -715,10 +730,13 @@ def pytest_runtest_call(item: pytest.Item):
     }
 
     failure_stage = "success"  # Default to success.
-
+    print("BEFORE YIELD IN PYTEST_RUNTEST_CALL")
     outcome = yield
+    print("AFTER YIELD IN PYTEST_RUNTEST_CALL")
     try:
+        print("GETTING RESULT")
         outcome.get_result()
+        print("GOT RESULT")
     except Exception as exc:
         exc_type = type(exc)
         exc_name = exc_type.__name__
@@ -728,12 +746,14 @@ def pytest_runtest_call(item: pytest.Item):
             )
         failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
     finally:
+        print("Canceled?")
         # Ensure timeout timer is cancelled
         if _timeout_timer is not None:
             _timeout_timer.cancel()
             _timeout_timer = None
 
         _safe_add_property(item, "failure_stage", failure_stage)
+        print("safe add property")
 
 
 @pytest.hookimpl(hookwrapper=True)
