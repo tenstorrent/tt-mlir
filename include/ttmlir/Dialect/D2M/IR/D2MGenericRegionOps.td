@@ -943,7 +943,7 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
       is deferred to D2MLowerDMAToFullyIndexedForm.
 
       ```mlir
-      %tx = d2m.dma_write %src[], %dst[%grid_i, %grid_j], <0>
+      %tx = d2m.dma_write %src, %dst[%grid_i, %grid_j], <0>
         : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>,
            memref<2x2x2x4x!ttcore.tile<32x32, f32>, #dram>) -> !d2m.mem_tx
       ```
@@ -986,7 +986,7 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
       }]>,
     ];
 
-    let assemblyFormat = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)?  `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src (`[` $srcIndices^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)?  `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
@@ -1038,7 +1038,7 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
       D2MLowerDMAToFullyIndexedForm.
 
       ```mlir
-      %tx = d2m.dma_read %src[%grid_i, %grid_j], %dst[], <0>
+      %tx = d2m.dma_read %src[%grid_i, %grid_j], %dst, <0>
         : (memref<2x2x2x4x!ttcore.tile<32x32, f32>, #dram>,
            memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
       ```
@@ -1064,7 +1064,7 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
       }]>,
     ];
 
-    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst (`[` $dstIndices^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
