@@ -164,7 +164,7 @@ using OperandDefChain = llvm::SmallVector<Operation *, 4>;
 struct OperandDefChainAnalysis {
   Value root;
   MemRefType type;
-  bool containsStream = false;
+  bool containsStreamLayout = false;
   bool containsViewLayout = false;
 };
 
@@ -737,7 +737,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
       operandCtx.root = operandDefChainAnalysis->root;
       MemRefType memrefType = operandDefChainAnalysis->type;
-      operandCtx.hasStream = operandDefChainAnalysis->containsStream;
+      operandCtx.hasStream = operandDefChainAnalysis->containsStreamLayout;
       operandCtx.hasViewLayout = operandDefChainAnalysis->containsViewLayout;
       TT_ALLOC_DEBUG(
           "\tadding memref value ctx: root {}, memref type {}, has stream: {}, "
@@ -1768,7 +1768,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         value = op.getInput();
       } else if (auto op = mlir::dyn_cast<d2m::StreamLayoutOp>(definingOp)) {
         value = op.getInput();
-        analysis.containsStream = true;
+        analysis.containsStreamLayout = true;
         previousWasViewLayout = false;
       } else if (auto op =
                      mlir::dyn_cast<d2m::CreateGlobalSemaphoreOp>(definingOp)) {
