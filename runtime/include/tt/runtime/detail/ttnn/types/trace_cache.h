@@ -17,6 +17,8 @@ struct TraceData {
   std::vector<::tt::runtime::Tensor> inputTensors;
   // Output tensor buffers to write the output tensors to
   std::vector<::tt::runtime::Tensor> outputTensors;
+  // Device generation at capture time — used to detect stale traces
+  uint64_t capturedAtGeneration = 0;
 };
 
 class TraceCache {
@@ -40,12 +42,23 @@ public:
   void erase(const MainProgramKey &key);
   void erase(const MainProgramKey &key,
              const CaptureExecuteProgramKey &captureExecuteKey);
+  // Remove trace data from cache without releasing the trace
+  void eraseWithoutRelease(const MainProgramKey &key,
+                           const CaptureExecuteProgramKey &captureExecuteKey);
+
+  // Device generation tracking for trace staleness detection.
+  // Incremented when new device memory is allocated outside of trace lifecycle.
+  uint64_t getDeviceGeneration() const;
+  void incrementDeviceGeneration();
 
 private:
   std::weak_ptr<::ttnn::MeshDevice> meshDevice;
   std::unordered_map<MainProgramKey,
                      std::unordered_map<CaptureExecuteProgramKey, TraceData>>
       cache;
+  // Monotonic counter incremented on device memory allocations outside trace
+  // lifecycle. Used to detect stale captured traces.
+  uint64_t deviceGeneration = 0;
 };
 } // namespace tt::runtime::ttnn
 

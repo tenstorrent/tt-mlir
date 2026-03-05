@@ -76,4 +76,22 @@ void TraceCache::erase(const MainProgramKey &key,
   outerIt->second.erase(captureExecuteKey);
 }
 
+void TraceCache::eraseWithoutRelease(
+    const MainProgramKey &key,
+    const CaptureExecuteProgramKey &captureExecuteKey) {
+  auto outerIt = cache.find(key);
+  if (outerIt == cache.end()) {
+    return;
+  }
+
+  outerIt->second.erase(captureExecuteKey);
+  if (outerIt->second.empty()) {
+    cache.erase(outerIt);
+  }
+}
+
+uint64_t TraceCache::getDeviceGeneration() const { return deviceGeneration; }
+
+void TraceCache::incrementDeviceGeneration() { deviceGeneration++; }
+
 } // namespace tt::runtime::ttnn

@@ -188,6 +188,10 @@ std::pair<TensorPtrMapIterator, bool>
 ProgramTensorPool::insertTTNNTensorAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef,
     const ::ttnn::Tensor &ttnnTensor, bool retain) {
+  if (ttnnTensor.storage_type() == ::ttnn::StorageType::DEVICE ||
+      ttnnTensor.storage_type() == ::ttnn::StorageType::MULTI_DEVICE) {
+    hasNewDeviceAllocations_ = true;
+  }
   ::tt::runtime::Tensor runtimeTensor = utils::createRuntimeTensorFromTTNN(
       ttnnTensor, /*meshEvent=*/std::nullopt, retain);
 

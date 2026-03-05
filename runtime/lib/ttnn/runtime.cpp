@@ -1943,6 +1943,20 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   executor->execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor->gatherOutputTensors();
+
+  // Track device allocations for trace staleness detection.
+  // If this program allocated new device tensors (non-trace programs),
+  // increment the device generation so captured traces know they're stale.
+  if (executor->getContext().getTensorPool().hasNewDeviceAllocations()) {
+    auto traceCache =
+        deviceHandle.getTraceCache()
+            ->asSharedPtr<::tt::runtime::ttnn::TraceCache>(
+                DeviceRuntime::TTNN);
+    if (traceCache) {
+      traceCache->incrementDeviceGeneration();
+    }
+  }
+
   executor.reset();
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1

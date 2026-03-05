@@ -186,11 +186,14 @@ public:
     return programOutputIds;
   }
 
+  bool hasNewDeviceAllocations() const { return hasNewDeviceAllocations_; }
+
 private:
   std::vector<std::uint32_t> programInputIds;
   std::vector<std::uint32_t> programOutputIds;
   TensorMap intermedTensors;
   TensorPtrMap liveTensors;
+  bool hasNewDeviceAllocations_ = false;
 
   const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
   ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);

@@ -15,6 +15,8 @@
 
 namespace tt::runtime::ttnn::operations::trace {
 
+static constexpr const char *kCaptureTracePrefix = "run_and_capture_";
+
 static std::pair<MainProgramKey, CaptureExecuteProgramKey>
 getTraceCacheKeys(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                   ProgramContext &context) {
@@ -114,7 +116,123 @@ static void runTraceProgramAndCaptureTrace(
 
   TraceData traceData{.traceId = meshTraceId,
                       .inputTensors = inputSlots,
-                      .outputTensors = outputSlots};
+                      .outputTensors = outputSlots,
+                      .capturedAtGeneration = traceCache.getDeviceGeneration()};
+  auto [mainProgramKey, captureExecuteKey] = getTraceCacheKeys(op, context);
+  traceCache.insert(mainProgramKey, captureExecuteKey, traceData);
+}
+
+// Find the trace body program index by deriving its name from the capture
+// program name. The capture program is named "run_and_capture_trace_N_func"
+// and the trace body is named "trace_N_func".
+static std::optional<size_t>
+findTraceBodyProgramIndex(Binary &executableHandle, size_t captureProgramId) {
+  std::string captureProgramName =
+      executableHandle.getProgramName(captureProgramId);
+
+  std::string prefix(kCaptureTracePrefix);
+  if (captureProgramName.substr(0, prefix.size()) != prefix) {
+    LOG_WARNING("Capture program name does not have expected prefix: ",
+                captureProgramName);
+    return std::nullopt;
+  }
+  std::string traceBodyName = captureProgramName.substr(prefix.size());
+
+  uint32_t numPrograms = executableHandle.getNumPrograms();
+  for (uint32_t i = 0; i < numPrograms; i++) {
+    if (executableHandle.getProgramName(i) == traceBodyName) {
+      return i;
+    }
+  }
+
+  LOG_WARNING("Could not find trace body program: ", traceBodyName);
+  return std::nullopt;
+}
+
+// Capture a trace reusing pre-allocated input slots from the warmup phase.
+// This avoids deallocating and re-allocating slots, which would produce
+// non-deterministic addresses from the memory allocator.
+static void captureTraceWithExistingSlots(
+    const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
+    ProgramContext &context, ::tt::runtime::ttnn::TraceCache &traceCache,
+    std::vector<::tt::runtime::Tensor> inputSlots) {
+
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  ::tt::runtime::Device deviceHandle = context.getDeviceHandle();
+  ::ttnn::MeshDevice &meshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  Binary &executableHandle = context.getExecutableHandle();
+
+  auto traceBodyIndex =
+      findTraceBodyProgramIndex(executableHandle, op->capture_program_id());
+  LOG_ASSERT(traceBodyIndex.has_value(),
+             "Failed to find trace body program index");
+
+  // Copy current input data into the existing slots so the trace body
+  // operates on fresh data at the warmup-allocated addresses.
+  for (size_t i = 0; i < op->inputs()->size(); i++) {
+    const ::tt::target::ttnn::TensorRef *input = op->inputs()->Get(i);
+    const ::tt::runtime::ttnn::TTNNTensorWrapper &inputTensorWrapper =
+        tensorPool.getTTNNTensorWrapperAndValidate(input);
+
+    ::tt::runtime::ttnn::TTNNTensorWrapper &slotWrapper =
+        inputSlots[i].as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+            DeviceRuntime::TTNN);
+
+    // Skip copy if the slot IS the input (passthrough parameter — same buffer)
+    if (inputTensorWrapper.getTensor().buffer()->address() ==
+        slotWrapper.getTensor().buffer()->address()) {
+      continue;
+    }
+
+    copyTensor(input, inputTensorWrapper.getTensor(), slotWrapper.getTensor());
+  }
+
+  // Run trace body (warmup) — establishes program cache and memory layout
+  {
+    ProgramExecutor executor(deviceHandle, executableHandle, *traceBodyIndex,
+                             inputSlots, /*constEvalProgram=*/false);
+    executor.execute();
+    std::vector<::tt::runtime::Tensor> warmupOutputs =
+        executor.gatherOutputTensors();
+
+    LOG_ASSERT(warmupOutputs.size() == op->outputs()->size(),
+               "Mismatched warmup output count");
+    for (size_t i = 0; i < op->outputs()->size(); i++) {
+      tensorPool.insertRuntimeTensorAndValidate(op->outputs()->Get(i),
+                                                warmupOutputs[i]);
+    }
+  }
+
+  // Begin trace capture
+  ::ttnn::QueueId cqId(0);
+  ::ttnn::MeshTraceId meshTraceId =
+      ::ttnn::operations::trace::begin_trace_capture(&meshDevice, cqId);
+
+  // Run trace body (captured)
+  std::vector<::tt::runtime::Tensor> outputSlots;
+  {
+    ProgramExecutor executor(deviceHandle, executableHandle, *traceBodyIndex,
+                             inputSlots, /*constEvalProgram=*/false);
+    executor.execute();
+    outputSlots = executor.gatherOutputTensors();
+  }
+
+  // End trace capture
+  ::ttnn::operations::trace::end_trace_capture(&meshDevice, meshTraceId, cqId);
+
+  // Retain output slots
+  for (auto &outputSlot : outputSlots) {
+    ::tt::runtime::ttnn::TTNNTensorWrapper &wrapper =
+        outputSlot.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+            DeviceRuntime::TTNN);
+    wrapper.setRetain(true);
+  }
+
+  TraceData traceData{.traceId = meshTraceId,
+                      .inputTensors = std::move(inputSlots),
+                      .outputTensors = std::move(outputSlots),
+                      .capturedAtGeneration = traceCache.getDeviceGeneration()};
   auto [mainProgramKey, captureExecuteKey] = getTraceCacheKeys(op, context);
   traceCache.insert(mainProgramKey, captureExecuteKey, traceData);
 }
@@ -192,7 +310,10 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
   auto [mainProgramKey, captureExecuteKey] = getTraceCacheKeys(op, context);
 
   if (!traceCache->contains(mainProgramKey, captureExecuteKey)) {
-    LOG_DEBUG("Trace cache miss, running program and capturing trace");
+    // FIRST EXECUTION: capture trace directly. The compiler-generated capture
+    // program allocates slots and captures the trace in one shot.
+    LOG_DEBUG("Trace cache miss, capturing trace");
+    traceCache->incrementDeviceGeneration();
     runTraceProgramAndCaptureTrace(op, context, *traceCache);
     debug::Stats::get().incrementStat("TraceCacheMiss");
     debug::Stats::get().incrementStat("CapturedTrace");
@@ -201,6 +322,37 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
 
   TraceData *traceData = traceCache->get(mainProgramKey, captureExecuteKey);
   LOG_ASSERT(traceData, "TraceData must be populated in TraceCache");
+
+  // Staleness check: if device generation advanced since capture, new
+  // allocations may overlap with this trace's intermediate addresses.
+  // Self-invalidate and recapture using existing slots.
+  if (traceData->capturedAtGeneration < traceCache->getDeviceGeneration()) {
+    LOG_DEBUG("Trace is stale (captured at gen ",
+              traceData->capturedAtGeneration, ", current gen ",
+              traceCache->getDeviceGeneration(),
+              "), invalidating and recapturing");
+    ::ttnn::operations::trace::release_trace(&meshDevice, traceData->traceId);
+
+    // Take input slots directly from TraceData for reuse during recapture
+    std::vector<::tt::runtime::Tensor> inputSlots =
+        std::move(traceData->inputTensors);
+    traceCache->eraseWithoutRelease(mainProgramKey, captureExecuteKey);
+
+    // Bump input slot versions to force fresh copies (addresses may have
+    // been corrupted by stale trace replays before this check)
+    for (auto &slot : inputSlots) {
+      slot.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
+          .updateVersion();
+    }
+
+    captureTraceWithExistingSlots(op, context, *traceCache,
+                                  std::move(inputSlots));
+
+    debug::Stats::get().incrementStat("TraceCacheMiss");
+    debug::Stats::get().incrementStat("TraceStaleRecapture");
+    return;
+  }
+
   LOG_DEBUG("Trace cache hit, executing trace directly");
   executeTrace(op, context, *traceData);
   debug::Stats::get().incrementStat("ExecutedTrace");
