@@ -693,9 +693,25 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     MLIRContext *ctx = rewriter.getContext();
     MemRefType memrefType = op.getMemref().getType();
+    bool isBackingGlobalSemaphore =
+        llvm::any_of(op.getResult().getUsers(), [](Operation *user) {
+          return mlir::isa<d2m::CreateGlobalSemaphoreOp>(user);
+        });
 
-    if (mlir::isa_and_present<ttcore::DeviceLayoutInterface>(
-            memrefType.getLayout())) {
+    if (isBackingGlobalSemaphore) {
+      // Check if this is a global semaphore backing buffer (used by
+      // d2m.create_global_semaphore). If so, erase the alloc/dealloc since TTNN
+      // creates the global semaphore buffer itself.
+      for (Operation *user :
+           llvm::make_early_inc_range(op.getResult().getUsers())) {
+        if (mlir::isa<memref::DeallocOp>(user)) {
+          rewriter.eraseOp(user);
+        }
+      }
+      rewriter.eraseOp(op);
+      return success();
+    } else if (mlir::isa_and_present<ttcore::DeviceLayoutInterface>(
+                   memrefType.getLayout())) {
       auto deviceAttr = ttcore::lookupDevice(op);
       if (!deviceAttr) {
         return rewriter.notifyMatchFailure(op,
@@ -787,17 +803,6 @@ public:
       // mapping so that other patterns (like D2MGenericRewriter) can get the
       // converted value through the adaptor.
       rewriter.replaceOp(op, emptyOp.getResult());
-    } else if (mlir::isa_and_present<ttnn::GlobalSemaphoreType>(memrefType)) {
-      // Erase the memref alloc and dealloc since ttnn creates the global
-      // semaphore itself.
-      for (Operation *user :
-           llvm::make_early_inc_range(op.getResult().getUsers())) {
-        if (mlir::isa<memref::DeallocOp>(user)) {
-          rewriter.eraseOp(user);
-        }
-      }
-      rewriter.eraseOp(op);
-      return success();
     }
     return rewriter.notifyMatchFailure(op,
                                        "memref alloc does not correspond to a "
