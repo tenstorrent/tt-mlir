@@ -133,28 +133,6 @@ protected:
     llvm_unreachable("Unsupported layout for TTNN Tensor");
   }
 
-  DenseIntElementsAttr
-  getCollapsedIntervalsForTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
-                                     Attribute ttnnLayout) const {
-    if (mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(ttnnLayout)) {
-      auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
-      auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
-      // This corresponds to collapsing all leading dimensions into the height
-      // dimension.
-      return DenseIntElementsAttr::get(intervalTy,
-                                       llvm::ArrayRef<int64_t>({0, -1}));
-    }
-
-    if (mlir::isa_and_nonnull<ttnn::TTNNNDLayoutAttr>(ttnnLayout)) {
-      auto emptyIntervalType = RankedTensorType::get(
-          {0, 2}, IntegerType::get(rewriter.getContext(), 64));
-      // There is no collapsing of dimensions for ND layouts.
-      return DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
-    }
-
-    llvm_unreachable("Unsupported layout for TTNN Tensor");
-  }
-
   template <typename LayoutAttr>
   std::tuple<ttcore::MemorySpace, Type, ttcore::TensorMemoryLayout>
   extractLayoutInfo(LayoutAttr layout) const {
@@ -185,18 +163,32 @@ protected:
       llvm_unreachable("Unsupported layout for TTNN Tensor");
     }();
 
-    DenseIntElementsAttr collapsedIntervals =
-        getCollapsedIntervalsForTTNNTensor(rewriter, ttnnLayout);
+    auto optimalGrid = getGridForTTNNTensor(tensorType);
+
     llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
     dimAlignments[dimAlignments.size() - 1] =
         ttcore::TileType::getDefaultShape()[0];
     dimAlignments[dimAlignments.size() - 2] =
         ttcore::TileType::getDefaultShape()[1];
-    auto optimalGrid = getGridForTTNNTensor(tensorType);
 
-    auto metalLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
-        memSpace, memLayout, collapsedIntervals, dimAlignments);
+    ttcore::MetalLayoutAttr metalLayout;
+    if (mlir::isa<ttnn::TTNNNDLayoutAttr>(ttnnLayout)) {
+      // There is no dim collapsing for ND layouts.
+      auto emptyIntervalType = RankedTensorType::get(
+          {0, 2}, IntegerType::get(rewriter.getContext(), 64));
+      DenseIntElementsAttr emptyCollapseIntervals =
+          DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+      metalLayout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
+          memSpace, memLayout, emptyCollapseIntervals, dimAlignments);
+    } else {
+      metalLayout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
+          memSpace, memLayout,
+          ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
+              rewriter.getContext(), tensorType.getShape().size()),
+          dimAlignments);
+    }
 
     llvm::SmallVector<int64_t> unshardedShape =
         metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
@@ -298,14 +290,6 @@ protected:
           rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
           ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
 
-    } else if (ttnnMode) {
-      auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
-      auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
-      auto collapsedIntervals = DenseIntElementsAttr::get(
-          intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
-      layout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), logicalShape, oobVal, memSpace,
-          ttcore::TensorMemoryLayout::Sharded, collapsedIntervals);
     } else {
       layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, oobVal, memSpace,
