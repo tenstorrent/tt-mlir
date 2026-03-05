@@ -1342,6 +1342,8 @@ def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le"> {
 
       Mathematical definition: less_equal(x, y) = x <= y
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 // TODO (azecevic): NaN != NaN, otherwise lt(x, x) == 0.
@@ -1375,6 +1377,8 @@ def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt"> {
 
       Mathematical definition: less_than(x, y) = x < y
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdempotence]> {
@@ -1407,6 +1411,8 @@ def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdem
 
       Mathematical definition: logical_and(x, y) = x && y
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempotence]> {
@@ -1439,6 +1445,8 @@ def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempo
 
       Mathematical definition: logical_or(x, y) = x || y
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {

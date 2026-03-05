@@ -33,7 +33,7 @@ module @jit_matmul_shardy0 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_r
 // CHECK-SAME: shard_dims = array<i64: -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<replicate>
 
 // -----
 
@@ -68,7 +68,7 @@ module @jit_matmul_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_r
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -103,7 +103,7 @@ module @jit_matmul_shardy2 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_r
 // CHECK-SAME: shard_dims = array<i64: -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<replicate>
 
 // -----
 
@@ -127,7 +127,7 @@ module @jit_neg_shardy0 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 // CHECK-SAME: shard_dims = array<i64: 1, 3>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 2, 1, 4>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -151,7 +151,7 @@ module @jit_neg_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 // CHECK-SAME: shard_dims = array<i64: 1, -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 2, 1, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -175,7 +175,7 @@ module @jit_neg_shardy2 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 // CHECK-SAME: shard_dims = array<i64: -1, 3>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 1, 1, 4>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -199,7 +199,7 @@ module @jit_neg_shardy3 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 // CHECK-SAME: shard_dims = array<i64: 3, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 4, 1, 2>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -223,7 +223,7 @@ module @jit_neg_shardy4 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 4, 1, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -247,7 +247,7 @@ module @jit_neg_shardy5 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 // CHECK-SAME: shard_dims = array<i64: 3, -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 1, 1, 2>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -271,7 +271,7 @@ module @jit_neg_shardy6 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 // CHECK-SAME: shard_dims = array<i64: -1, 3>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 1, 1, 8>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -294,7 +294,7 @@ module @sdy_manual_computation_constant {
 // CHECK-SAME: shard_dims = array<i64: -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<replicate>
 
 // -----
 
@@ -318,7 +318,7 @@ module @jit_neg_shardy7 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 8, 1, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -340,7 +340,7 @@ module @jit_reshape attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -381,17 +381,17 @@ module @jit__unnamed_wrapped_function_ attributes {mhlo.num_partitions = 8 : i32
 // CHECK-SAME: shard_dims = array<i64: -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<replicate>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<replicate>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -426,7 +426,7 @@ module @jit_matmul_shardy_automatic_test1 attributes {mhlo.num_partitions = 8 : 
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -461,4 +461,4 @@ module @jit_matmul_shardy_automatic_test2 attributes {mhlo.num_partitions = 8 : 
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>

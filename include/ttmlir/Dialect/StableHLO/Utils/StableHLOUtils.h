@@ -19,6 +19,8 @@ inline constexpr llvm::StringLiteral
     kReoutlineOrigNameAttr("reoutline.orig_name");
 inline constexpr llvm::StringLiteral
     kReoutlineCompAttrsAttr("reoutline.comp_attrs");
+inline constexpr llvm::StringLiteral
+    kReoutlineArgOperandIndicesAttr("reoutline.arg_operand_indices");
 
 // Composite op related string definitions.
 inline constexpr llvm::StringLiteral kCompDecompositionKey("decomposition");

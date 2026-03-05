@@ -36,8 +36,8 @@ module @L1InterleavedRuntimeSupportTypecastSlice attributes {} {
     // CHECK: %{{.*}} = "ttnn.typecast"{{.*}} -> tensor<1x32x8400xf32, #[[DRAM_LAYOUT3]]>
     %5 = "ttir.typecast"(%4) : (tensor<1x32x8400xbf16>) -> tensor<1x32x8400xf32>
 
-    // Less than comparison - not upgraded to L1 because not immediately consumed by its user (schedule)
-    // CHECK: %{{.*}} = "ttnn.lt"{{.*}} -> tensor<1x32x8400xf32, #[[DRAM_LAYOUT3]]>
+    // Less than comparison (canonicalized to greater than with swapped operands) - not upgraded to L1 because not immediately consumed by its user (schedule)
+    // CHECK: %{{.*}} = "ttnn.gt"{{.*}} -> tensor<1x32x8400xf32, #[[DRAM_LAYOUT3]]>
     %6 = "ttir.lt"(%3, %5) : (tensor<1x32x8400xf32>, tensor<1x32x8400xf32>) -> tensor<1x32x8400xf32>
 
     // CHECK: %{{.*}} = "ttnn.slice_static"{{.*}} -> tensor<1x32x8400xbf16, #[[DRAM_LAYOUT5]]>
