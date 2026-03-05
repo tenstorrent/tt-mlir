@@ -1906,10 +1906,7 @@ private:
 
 class D2MGetCBRewriter : public OpConversionPattern<d2m::GetCBOp> {
 public:
-  D2MGetCBRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                   bool ttnnMode)
-      : OpConversionPattern<d2m::GetCBOp>(typeConverter, context),
-        ttnnMode(ttnnMode) {}
+  using OpConversionPattern<d2m::GetCBOp>::OpConversionPattern;
 
   LogicalResult
   matchAndRewrite(d2m::GetCBOp op, d2m::GetCBOpAdaptor adaptor,
@@ -1919,24 +1916,13 @@ public:
     ArgAttr arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getPort());
     size_t argIndex;
 
-    if (ttnnMode) {
-      rewriter.modifyOpInPlace(entry, [&]() {
-        argIndex = ArgSpecAttr::appendRuntimeArg(entry, arg);
-      });
-      rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
-          op, cbType, index(rewriter, op->getLoc(), argIndex));
-    } else {
-      rewriter.modifyOpInPlace(entry, [&]() {
-        argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
-      });
-      rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(op, cbType,
-                                                                argIndex);
-    }
+    rewriter.modifyOpInPlace(entry, [&]() {
+      argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
+    });
+    rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(op, cbType,
+                                                              argIndex);
     return success();
   }
-
-private:
-  bool ttnnMode;
 };
 } // namespace
 
@@ -2275,8 +2261,9 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,
                ttkernel::D2MSemaphoreWaitRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::D2MGetGlobalOperandRewriter,
-               ttkernel::D2MGetCBRewriter>(typeConverter, ctx, ttnnMode);
+  patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx,
+                                                      ttnnMode);
+  patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
 
