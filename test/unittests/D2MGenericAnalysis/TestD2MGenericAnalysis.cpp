@@ -100,6 +100,20 @@ protected:
     });
     return outputValues;
   }
+
+  static constexpr llvm::StringLiteral kModuleHeader = R"mlir(
+#system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux-gnu"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 1024, erisc_l1_unreserved_base = 1024, dram_unreserved_base = 1024, dram_unreserved_end = 1073741824, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], dst_physical_size_tiles = 16, num_cbs = 32, num_compute_threads = 1, num_datamovement_threads = 2}], [0], [1 : i32], [ 0x0x0x0]>
+module attributes {ttcore.system_desc = #system_desc} {
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+)mlir";
+
+  static constexpr llvm::StringLiteral kModuleFooter = R"mlir(
+}
+)mlir";
+
+  std::string wrapInModule(llvm::StringRef funcBody) {
+    return (kModuleHeader + funcBody + kModuleFooter).str();
+  }
 };
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeDimConstraintsEltwise) {
@@ -158,7 +172,7 @@ TEST_F(GenericOpAnalysisTest, CanAnalyzeDimConstraintsForIncompatibleShapes) {
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingSFPU) {
-  constexpr llvm::StringLiteral moduleText = R"mlir(
+  std::string moduleText = wrapInModule(R"mlir(
 func.func @test(
     %in: memref<1x1x8x!ttcore.tile<32x32, f32>>,
     %out: memref<1x1x8x!ttcore.tile<32x32, f32>>) {
@@ -184,7 +198,7 @@ func.func @test(
     }
   return
 }
-)mlir";
+)mlir");
 
   auto module = parseModule(moduleText);
   ASSERT_TRUE(module);
@@ -205,7 +219,7 @@ func.func @test(
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPU) {
-  constexpr llvm::StringLiteral moduleText = R"mlir(
+  std::string moduleText = wrapInModule(R"mlir(
 func.func @test(
     %in0: memref<1x1x8x!ttcore.tile<32x32, f32>>,
     %in1: memref<1x1x8x!ttcore.tile<32x32, f32>>,
@@ -234,7 +248,7 @@ func.func @test(
     }
   return
 }
-)mlir";
+)mlir");
 
   auto module = parseModule(moduleText);
   ASSERT_TRUE(module);
@@ -255,7 +269,7 @@ func.func @test(
 }
 
 TEST_F(GenericOpAnalysisTest, RejectsDifferentImmediateParentBlockingLoops) {
-  constexpr llvm::StringLiteral moduleText = R"mlir(
+  std::string moduleText = wrapInModule(R"mlir(
 func.func @test(
     %in: memref<1x1x8x!ttcore.tile<32x32, f32>>,
     %out: memref<1x1x8x!ttcore.tile<32x32, f32>>) {
@@ -290,7 +304,7 @@ func.func @test(
     }
   return
 }
-)mlir";
+)mlir");
 
   auto module = parseModule(moduleText);
   ASSERT_TRUE(module);
@@ -303,7 +317,7 @@ func.func @test(
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingManyMixedOps) {
-  constexpr llvm::StringLiteral moduleText = R"mlir(
+  std::string moduleText = wrapInModule(R"mlir(
 func.func @test(
     %in0: memref<1x1x8x!ttcore.tile<32x32, f32>>,
     %in1: memref<1x1x8x!ttcore.tile<32x32, f32>>,
@@ -358,7 +372,7 @@ func.func @test(
   }
   return
 }
-)mlir";
+)mlir");
 
   auto module = parseModule(moduleText);
   ASSERT_TRUE(module);
@@ -387,7 +401,7 @@ func.func @test(
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingPrimeShardShapes) {
-  constexpr llvm::StringLiteral moduleText = R"mlir(
+  std::string moduleText = wrapInModule(R"mlir(
 func.func @test(
     %in0: memref<1x1x7x!ttcore.tile<32x32, f32>>,
     %in1: memref<1x1x7x!ttcore.tile<32x32, f32>>,
@@ -442,7 +456,7 @@ func.func @test(
   }
   return
 }
-)mlir";
+)mlir");
 
   auto module = parseModule(moduleText);
   ASSERT_TRUE(module);
@@ -472,7 +486,7 @@ func.func @test(
 
 TEST_F(GenericOpAnalysisTest,
        CanAnalyzeGenericForDSTPackingShardSize15MixedOps) {
-  constexpr llvm::StringLiteral moduleText = R"mlir(
+  std::string moduleText = wrapInModule(R"mlir(
 func.func @test(
     %in0: memref<1x1x15x!ttcore.tile<32x32, f32>>,
     %in1: memref<1x1x15x!ttcore.tile<32x32, f32>>,
@@ -527,7 +541,7 @@ func.func @test(
   }
   return
 }
-)mlir";
+)mlir");
 
   auto module = parseModule(moduleText);
   ASSERT_TRUE(module);
@@ -557,7 +571,7 @@ func.func @test(
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPUBf16_8x8) {
-  constexpr llvm::StringLiteral moduleText = R"mlir(
+  std::string moduleText = wrapInModule(R"mlir(
 func.func @test(
     %in0: memref<1x1x8x8x!ttcore.tile<32x32, bf16>>,
     %in1: memref<1x1x8x8x!ttcore.tile<32x32, bf16>>,
@@ -586,7 +600,7 @@ func.func @test(
     }
   return
 }
-)mlir";
+)mlir");
 
   auto module = parseModule(moduleText);
   ASSERT_TRUE(module);

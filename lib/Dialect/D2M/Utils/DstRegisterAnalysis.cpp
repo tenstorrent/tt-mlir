@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -92,14 +93,13 @@ static std::optional<int64_t> getMaxDstTilesForLinalgOp(linalg::GenericOp op) {
     return std::nullopt;
   }
 
-  const ttcore::DataType dataType = tileType.getDataType();
-  const bool isFp32 = dataType == ttcore::DataType::Float32;
-
+  unsigned dstLogicalSizeTiles =
+      ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
+          tileType.getElementType());
   int64_t maxDstTiles =
-      classifyLinalgExecutionClass(op) == DstExecutionClass::FPU ? 8 : 4;
-  if (isFp32) {
-    maxDstTiles /= 2;
-  }
+      classifyLinalgExecutionClass(op) == DstExecutionClass::FPU
+          ? static_cast<int64_t>(dstLogicalSizeTiles)
+          : static_cast<int64_t>(dstLogicalSizeTiles) / 2;
   return maxDstTiles;
 }
 
@@ -140,7 +140,10 @@ getLargestCommonNumOuterLoopIters(ArrayRef<int64_t> numDstFlipsPerOp) {
       return factor;
     }
   }
-  return std::nullopt;
+  TT_assertv(false,
+             "failed to find a common outer loop factor; gcdNumDstFlips={0}, "
+             "maxCandidate={1}",
+             gcdNumDstFlips, maxCandidate);
 }
 
 struct PendingDSTPackingResult {
