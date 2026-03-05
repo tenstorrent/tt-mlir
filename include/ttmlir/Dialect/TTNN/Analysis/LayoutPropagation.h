@@ -18,6 +18,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -32,6 +33,10 @@ public:
   /// An input candidate for one operand (public for observer access).
   using InputCandidate = LayoutPropagationObserver::InputCandidate;
 
+  /// Construct a layout propagation instance for the given function.
+  /// Uses the provided legal configs and device grid to evaluate candidates.
+  /// When tensorTypePossibleLayouts is provided, reshard candidates are
+  /// generated from all possible sharded layouts for each tensor type.
   LayoutPropagation(
       func::FuncOp func, ttcore::GridAttr deviceGrid,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
@@ -87,13 +92,11 @@ private:
   /// Returns one vector per operand.
   std::vector<std::vector<InputCandidate>> getInputCandidateSets(Operation *op);
 
-  /// Generate reshard candidate layouts for a tensor type: DRAM interleaved
-  /// and L1 interleaved variants derived from the current layout.
-  /// Optional layoutFilter predicate rejects candidates during generation
-  /// so they don't consume the top-8 budget.
-  std::vector<TTNNLayoutAttr> generateReshardCandidates(
-      RankedTensorType tensorType, TTNNLayoutAttr currentLayout,
-      llvm::function_ref<bool(TTNNLayoutAttr)> layoutFilter = nullptr);
+  /// Generate reshard candidate layouts for a tensor type: sharded-to-sharded
+  /// variants derived from the current layout.
+  std::vector<TTNNLayoutAttr>
+  generateReshardCandidates(RankedTensorType tensorType,
+                            TTNNLayoutAttr currentLayout);
 
   /// Create a DRAM interleaved fallback layout for an op.
   TTNNLayoutAttr getDRAMInterleavedFallback(Operation *op);
@@ -132,6 +135,53 @@ private:
   /// Map from tensor-operand index (used in producerCandidateIndices) back to
   /// the actual defining op. Skips non-tensor operands.
   Operation *getProducerForOperandIdx(Operation *op, size_t tensorOperandIdx);
+
+  /// Look up the chosen BeamCandidate for an op (using finalChoice index into
+  /// beamState). Returns nullptr if op is not in beamState or beam is empty.
+  const BeamCandidate *getChosenCandidate(Operation *op) const;
+
+  /// Evaluate a single output hint against an input combination via backend
+  /// validation. Returns a scored BeamCandidate on success, nullopt on failure.
+  std::optional<BeamCandidate>
+  evaluateHint(Operation *op, const OpConfig &hint, size_t hintIdx,
+               const std::vector<TTNNLayoutAttr> &inputLayouts, bool anyReshard,
+               const llvm::SmallVector<size_t> &producerCandidateIndices,
+               const llvm::DenseMap<size_t, TTNNLayoutAttr> &reshardLayouts);
+
+  /// Add L1-interleaved reshard fallbacks when the producer beam has sharded
+  /// but no interleaved L1 candidates.
+  void addL1InterleavedFallbacks(
+      std::vector<InputCandidate> &candidates, Operation *op,
+      const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
+      Operation *producerOp, TTNNLayoutAttr currentLayout, size_t resultIdx,
+      size_t maxCandidates);
+
+  /// Apply per-op input layout filters, removing candidates that the op
+  /// cannot consume efficiently.
+  void applyInputLayoutFilter(std::vector<InputCandidate> &candidates,
+                              Operation *op, TTNNLayoutAttr currentLayout);
+
+  /// Generate and add reshard candidates for one operand.
+  void addReshardCandidates(
+      std::vector<InputCandidate> &candidates, Operation *op, Value operand,
+      TTNNLayoutAttr currentLayout, RankedTensorType tensorType,
+      const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
+      Operation *producerOp, size_t resultIdx, size_t maxCandidates);
+
+  /// Collect in-place (zero-result) ops for decision trace completeness.
+  void recordInplaceOps(size_t &opIndex);
+
+  /// Record final candidate choices via the observer.
+  void recordFinalChoices();
+
+  /// Walk tensor operands to emit edge records via the observer.
+  void recordEdges();
+
+  /// Disable deallocate_activation for conv ops with multi-use inputs.
+  void fixupConvDeallocate();
+
+  /// Insert to_memory_config to DRAM for func.return operands that are in L1.
+  void insertReturnDramSpills();
 };
 
 } // namespace mlir::tt::ttnn

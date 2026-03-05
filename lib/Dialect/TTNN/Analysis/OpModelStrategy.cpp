@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
-#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
@@ -131,22 +130,6 @@ OutputHints getOutputHints(Operation *op,
         }
         return result;
       });
-}
-
-bool isNonRectangularGrid(TTNNLayoutAttr layout) {
-  if (!layout || !layout.hasShardedTensorMemoryLayout()) {
-    return false;
-  }
-  auto grid = layout.getGrid();
-  if (!grid) {
-    return false;
-  }
-  auto crs = ttcore::utils::toCoreRangeSet(grid.getShape(), grid.getMapping());
-  return crs.size() > 1;
-}
-
-bool requiresRectangularGridInputs(Operation *op) {
-  return llvm::isa<RMSNormOp, LayerNormOp>(op);
 }
 
 bool shouldExploreReshards(Operation *op) {

@@ -18,7 +18,6 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinTypes.h"
-
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -43,6 +42,23 @@ LayoutPropagation::LayoutPropagation(
 
 LayoutPropagation::~LayoutPropagation() = default;
 
+const BeamCandidate *
+LayoutPropagation::getChosenCandidate(Operation *op) const {
+  auto it = beamState.find(op);
+  if (it == beamState.end() || it->second.empty()) {
+    return nullptr;
+  }
+  size_t chosenIdx = 0;
+  auto choiceIt = finalChoice.find(op);
+  if (choiceIt != finalChoice.end()) {
+    chosenIdx = choiceIt->second;
+  }
+  if (chosenIdx >= it->second.size()) {
+    chosenIdx = 0;
+  }
+  return &it->second[chosenIdx];
+}
+
 /// Get the output layout for a specific result index from a beam candidate.
 /// Falls back to configHint.outputLayout for single-output ops or when
 /// outputLayouts is not populated.
@@ -63,10 +79,8 @@ static LayoutFilterFn getInputLayoutFilter(Operation *op) {
     auto ml = layout.getMemLayout();
     return !(ml && isShardedMemoryLayout(ml.getValue()));
   };
-  // Reshape/Permute: tt-metal accepts sharded inputs but for width-sharded
-  // tensors it round-trips through interleaved internally, which is slower
-  // than receiving interleaved directly.  Height/block sharding is fine —
-  // tt-metal a3ffa27bc4 ("Native reshape_tiled") handles those natively.
+  // Reshape/Permute: width-sharded inputs round-trip through interleaved
+  // internally in tt-metal; height/block sharding is handled natively.
   static auto rejectWidthSharded = [](TTNNLayoutAttr layout) {
     auto ml = layout.getMemLayout();
     return !(ml && ml.getValue() == TensorMemoryLayout::WidthSharded);
@@ -75,8 +89,233 @@ static LayoutFilterFn getInputLayoutFilter(Operation *op) {
       // ConcatenateHeads: cannot consume any sharded inputs.
       // https://github.com/tenstorrent/tt-mlir/issues/7145
       .Case<ConcatenateHeadsOp>([](auto) { return rejectAllSharded; })
+      // Slice: sharded inputs produce incorrect results in tt-metal.
+      // https://github.com/tenstorrent/tt-metal/issues/39074
+      .Case<SliceStaticOp, SliceDynamicOp>(
+          [](auto) { return rejectAllSharded; })
       .Case<ReshapeOp, PermuteOp>([](auto) { return rejectWidthSharded; })
       .Default([](Operation *) { return nullptr; });
+}
+
+/// Check if a layout is sharded.
+static bool isShardedLayout(TTNNLayoutAttr layout) {
+  if (!layout) {
+    return false;
+  }
+  auto memLayout = layout.getMemLayout();
+  return memLayout && isShardedMemoryLayout(memLayout.getValue());
+}
+
+/// Compute total bytes transferred from DRAM across all inputs.
+static uint64_t
+computeInputDramBytes(const std::vector<TTNNLayoutAttr> &inputLayouts) {
+  uint64_t dramBytes = 0;
+  for (const auto &layout : inputLayouts) {
+    if (layout && !layout.hasL1BufferType()) {
+      uint64_t tensorBytes = layout.getShardSizeInBytes();
+      if (auto grid = layout.getGrid()) {
+        for (auto dim : grid.getShape()) {
+          tensorBytes *= dim;
+        }
+      }
+      dramBytes += tensorBytes;
+    }
+  }
+  return dramBytes;
+}
+
+/// Format input layouts as a comma-separated "bufType/memLayout" string.
+[[maybe_unused]] static std::string
+formatInputLayouts(const std::vector<TTNNLayoutAttr> &layouts) {
+  std::string desc;
+  llvm::raw_string_ostream os(desc);
+  for (size_t i = 0; i < layouts.size(); ++i) {
+    if (i > 0) {
+      os << ", ";
+    }
+    os << layouts[i].getBufferType() << "/" << layouts[i].getMemLayout();
+  }
+  return desc;
+}
+
+/// Apply op-specific configurations (Conv2d, ConvTranspose2d, Matmul, Linear)
+/// from the chosen candidate to the op's attributes.
+static void applyOpSpecificAttrs(Operation *op,
+                                 const BeamCandidate &candidate) {
+  llvm::TypeSwitch<Operation *, void>(op)
+      .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
+        if (std::holds_alternative<ttnn::Conv2dAttrs>(
+                candidate.configHint.opSpecificAttrs)) {
+          ttnn::Conv2dAttrs conv2dAttrs =
+              std::get<ttnn::Conv2dAttrs>(candidate.configHint.opSpecificAttrs);
+          if (conv2dAttrs.conv2dConfig.has_value()) {
+            convOp.setConv2dConfigAttr(conv2dAttrs.conv2dConfig.value());
+          }
+          if (conv2dAttrs.deviceComputeKernelConfig.has_value()) {
+            convOp.setComputeConfigAttr(
+                conv2dAttrs.deviceComputeKernelConfig.value());
+          }
+        }
+      })
+      .Case<ttnn::MatmulOp, ttnn::LinearOp>([&](auto matmulOp) {
+        if (std::holds_alternative<ttnn::MatmulAttrs>(
+                candidate.configHint.opSpecificAttrs)) {
+          ttnn::MatmulAttrs matmulAttrs =
+              std::get<ttnn::MatmulAttrs>(candidate.configHint.opSpecificAttrs);
+          if (matmulAttrs.matmulProgramConfig.has_value()) {
+            auto programConfig = matmulAttrs.matmulProgramConfig.value();
+            matmulOp.setMatmulProgramConfigAttr(programConfig);
+            // Workaround for tt-metal issue #35060.
+            bool hasFusedActivation =
+                llvm::TypeSwitch<mlir::Attribute, bool>(programConfig)
+                    .template Case<
+                        MatmulMultiCoreReuseMultiCastProgramConfigAttr,
+                        MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
+                        MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+                        [](auto config) {
+                          return config.getFusedActivation() != nullptr;
+                        })
+                    .Default([](mlir::Attribute) { return false; });
+            if (hasFusedActivation) {
+              matmulOp.removeActivationAttr();
+            }
+          }
+        }
+      })
+      .Default([](Operation *) {});
+}
+
+std::optional<BeamCandidate> LayoutPropagation::evaluateHint(
+    Operation *op, const OpConfig &hint, size_t hintIdx,
+    const std::vector<TTNNLayoutAttr> &inputLayouts, bool anyReshard,
+    const llvm::SmallVector<size_t> &producerCandidateIndices,
+    const llvm::DenseMap<size_t, TTNNLayoutAttr> &reshardLayouts) {
+  auto result =
+      op_constraint_validation::validateOperation(op, inputLayouts, hint);
+  if (result.isSuccess()) {
+    BeamCandidate candidate;
+    candidate.configHint =
+        OpConfig(result.getFirstActualOutputLayout(), hint.opSpecificAttrs);
+    candidate.score = scoreCandidate(op, hint, result, anyReshard);
+    candidate.score.inputDramBytes = computeInputDramBytes(inputLayouts);
+    candidate.validationResult = result;
+    candidate.inputLayouts = inputLayouts;
+    candidate.producerCandidateIndices = producerCandidateIndices;
+    candidate.reshardLayouts = reshardLayouts;
+    candidate.outputLayouts = result.actualOutputLayouts;
+
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                 "    VALID candidate for {0}: hint[{1}] outBuf={2} "
+                 "outMem={3} score(L1={4},sharded={5},dramIn={6},"
+                 "reshard={7},cores={8},l1use={9})",
+                 op->getName(), hintIdx,
+                 candidate.configHint.outputLayout.getBufferType(),
+                 candidate.configHint.outputLayout.getMemLayout(),
+                 candidate.score.isL1, candidate.score.isSharded,
+                 candidate.score.inputDramBytes,
+                 candidate.score.requiresReshard, candidate.score.coreCount,
+                 candidate.score.outputL1Usage);
+
+    observer_->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/true,
+                            &candidate, /*failureReason=*/"");
+
+    return candidate;
+  }
+
+  // Log validation failures.
+  llvm::StringRef hintBuf = "null";
+  llvm::StringRef hintMem = "null";
+  std::string hintBufStr, hintMemStr;
+  if (hint.outputLayout) {
+    llvm::raw_string_ostream bufOS(hintBufStr);
+    bufOS << hint.outputLayout.getBufferType();
+    hintBuf = hintBufStr;
+    llvm::raw_string_ostream memOS(hintMemStr);
+    memOS << hint.outputLayout.getMemLayout();
+    hintMem = hintMemStr;
+  }
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+               "    FAILED validation for {0}: hint[{1}] "
+               "outBuf={2} outMem={3} inputs=[{4}] reshard={5}",
+               op->getName(), hintIdx, hintBuf, hintMem,
+               formatInputLayouts(inputLayouts), anyReshard);
+
+  observer_->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/false,
+                          /*candidate=*/nullptr, result.errorMessage);
+
+  return std::nullopt;
+}
+
+void LayoutPropagation::recordInplaceOps(size_t &opIndex) {
+  func->walk([&](Operation *op) {
+    if (op->getNumResults() != 0) {
+      return;
+    }
+    LayoutPropagationObserver::InplaceOpInfo info;
+    info.op = op;
+    bool hasTrackedProducer = false;
+    for (auto [idx, operand] : llvm::enumerate(op->getOperands())) {
+      if (!mlir::isa<RankedTensorType>(operand.getType())) {
+        continue;
+      }
+      auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
+      auto layout =
+          mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
+      Operation *producer = operand.getDefiningOp();
+      info.operands.push_back({idx, layout, producer});
+      if (producer && beamState.count(producer)) {
+        hasTrackedProducer = true;
+      }
+    }
+    if (!hasTrackedProducer) {
+      return;
+    }
+    observer_->onInplaceOp(info);
+    ++opIndex;
+  });
+}
+
+void LayoutPropagation::recordFinalChoices() {
+  size_t finalIdx = 0;
+  func->walk([&](Operation *op) {
+    const BeamCandidate *chosen = getChosenCandidate(op);
+    if (!chosen) {
+      return;
+    }
+    observer_->onFinalChoice(op, finalIdx, *chosen);
+    ++finalIdx;
+  });
+}
+
+void LayoutPropagation::recordEdges() {
+  func->walk([&](Operation *consumerOp) {
+    const BeamCandidate *chosen = getChosenCandidate(consumerOp);
+    if (!chosen) {
+      return;
+    }
+
+    size_t tensorOperandIdx = 0;
+    for (auto operand : consumerOp->getOperands()) {
+      if (!mlir::isa<RankedTensorType>(operand.getType())) {
+        continue;
+      }
+      Operation *producerOp = operand.getDefiningOp();
+      if (producerOp && beamState.count(producerOp)) {
+        bool hasReshard = chosen->reshardLayouts.count(tensorOperandIdx) > 0;
+        TTNNLayoutAttr reshardLayout;
+        if (hasReshard) {
+          reshardLayout = chosen->reshardLayouts.lookup(tensorOperandIdx);
+        }
+        size_t producerResultIdx = 0;
+        if (auto opResult = mlir::dyn_cast<OpResult>(operand)) {
+          producerResultIdx = opResult.getResultNumber();
+        }
+        observer_->onEdge(producerOp, consumerOp, tensorOperandIdx,
+                          producerResultIdx, hasReshard, reshardLayout);
+      }
+      ++tensorOperandIdx;
+    }
+  });
 }
 
 void LayoutPropagation::run() {
@@ -142,33 +381,7 @@ void LayoutPropagation::run() {
     ++opIndex;
   });
 
-  // Collect in-place (zero-result) ops for decision trace completeness.
-  func->walk([&](Operation *op) {
-    if (op->getNumResults() != 0) {
-      return;
-    }
-    LayoutPropagationObserver::InplaceOpInfo info;
-    info.op = op;
-    bool hasTrackedProducer = false;
-    for (auto [idx, operand] : llvm::enumerate(op->getOperands())) {
-      if (!mlir::isa<RankedTensorType>(operand.getType())) {
-        continue;
-      }
-      auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
-      auto layout =
-          mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
-      Operation *producer = operand.getDefiningOp();
-      info.operands.push_back({idx, layout, producer});
-      if (producer && beamState.count(producer)) {
-        hasTrackedProducer = true;
-      }
-    }
-    if (!hasTrackedProducer) {
-      return;
-    }
-    observer_->onInplaceOp(info);
-    ++opIndex;
-  });
+  recordInplaceOps(opIndex);
 
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "LayoutPropagation: processed {0} ops with beamWidth={1}",
@@ -179,58 +392,8 @@ void LayoutPropagation::run() {
     consolidateBeam();
   }
 
-  // Record final choices and edges via the observer.
-  {
-    size_t finalIdx = 0;
-    func->walk([&](Operation *op) {
-      if (!beamState.count(op) || beamState[op].empty()) {
-        return;
-      }
-      size_t chosenIdx = finalChoice.count(op) ? finalChoice[op] : 0;
-      if (chosenIdx >= beamState[op].size()) {
-        chosenIdx = 0;
-      }
-      observer_->onFinalChoice(op, finalIdx, beamState[op][chosenIdx]);
-      ++finalIdx;
-    });
-  }
-
-  // Walk tensor operands to emit edges.
-  {
-    func->walk([&](Operation *consumerOp) {
-      if (!beamState.count(consumerOp) || beamState[consumerOp].empty()) {
-        return;
-      }
-      size_t chosenIdx =
-          finalChoice.count(consumerOp) ? finalChoice[consumerOp] : 0;
-      if (chosenIdx >= beamState[consumerOp].size()) {
-        chosenIdx = 0;
-      }
-      const BeamCandidate &chosen = beamState[consumerOp][chosenIdx];
-
-      size_t tensorOperandIdx = 0;
-      for (auto operand : consumerOp->getOperands()) {
-        if (!mlir::isa<RankedTensorType>(operand.getType())) {
-          continue;
-        }
-        Operation *producerOp = operand.getDefiningOp();
-        if (producerOp && beamState.count(producerOp)) {
-          bool hasReshard = chosen.reshardLayouts.count(tensorOperandIdx) > 0;
-          TTNNLayoutAttr reshardLayout;
-          if (hasReshard) {
-            reshardLayout = chosen.reshardLayouts.lookup(tensorOperandIdx);
-          }
-          size_t producerResultIdx = 0;
-          if (auto opResult = mlir::dyn_cast<OpResult>(operand)) {
-            producerResultIdx = opResult.getResultNumber();
-          }
-          observer_->onEdge(producerOp, consumerOp, tensorOperandIdx,
-                            producerResultIdx, hasReshard, reshardLayout);
-        }
-        ++tensorOperandIdx;
-      }
-    });
-  }
+  recordFinalChoices();
+  recordEdges();
 
   observer_->onEnd(opIndex);
 
@@ -285,16 +448,7 @@ LayoutPropagation::processOp(Operation *op) {
   // Step 3: Cross-product evaluation.
   llvm::SmallVector<BeamCandidate, 0> candidates;
 
-  // Helper: check if a layout is sharded.
-  auto isSharded = [](TTNNLayoutAttr layout) {
-    if (!layout) {
-      return false;
-    }
-    auto memLayout = layout.getMemLayout();
-    return memLayout && isShardedMemoryLayout(memLayout.getValue());
-  };
-
-  // Helper: try a single hint against an input combination, collect candidate.
+  // Helper: evaluate a hint and collect the candidate if valid.
   // Returns true if the result is sharded.
   auto tryHint =
       [&](const OpConfig &hint, size_t hintIdx,
@@ -302,84 +456,13 @@ LayoutPropagation::processOp(Operation *op) {
           const llvm::SmallVector<size_t> &producerCandidateIndices,
           const llvm::DenseMap<size_t, TTNNLayoutAttr> &reshardLayouts)
       -> bool {
-    auto result =
-        op_constraint_validation::validateOperation(op, inputLayouts, hint);
-    if (result.isSuccess()) {
-      BeamCandidate candidate;
-      candidate.configHint =
-          OpConfig(result.getFirstActualOutputLayout(), hint.opSpecificAttrs);
-      candidate.score = scoreCandidate(op, hint, result, anyReshard);
-
-      // Compute total bytes transferred from DRAM across all inputs.
-      uint64_t dramBytes = 0;
-      for (const auto &layout : inputLayouts) {
-        if (layout && !layout.hasL1BufferType()) {
-          uint64_t tensorBytes = layout.getShardSizeInBytes();
-          if (auto grid = layout.getGrid()) {
-            for (auto dim : grid.getShape()) {
-              tensorBytes *= dim;
-            }
-          }
-          dramBytes += tensorBytes;
-        }
-      }
-      candidate.score.inputDramBytes = dramBytes;
-
-      candidate.validationResult = result;
-      candidate.inputLayouts = inputLayouts;
-      candidate.producerCandidateIndices = producerCandidateIndices;
-      candidate.reshardLayouts = reshardLayouts;
-      candidate.outputLayouts = result.actualOutputLayouts;
-
-      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                   "    VALID candidate for {0}: hint[{1}] outBuf={2} "
-                   "outMem={3} score(L1={4},sharded={5},dramIn={6},"
-                   "reshard={7},cores={8},l1use={9})",
-                   op->getName(), hintIdx,
-                   candidate.configHint.outputLayout.getBufferType(),
-                   candidate.configHint.outputLayout.getMemLayout(),
-                   candidate.score.isL1, candidate.score.isSharded,
-                   candidate.score.inputDramBytes,
-                   candidate.score.requiresReshard, candidate.score.coreCount,
-                   candidate.score.outputL1Usage);
-
-      observer_->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/true,
-                              &candidate, /*failureReason=*/"");
-
-      candidates.push_back(std::move(candidate));
-      return isSharded(result.getFirstActualOutputLayout());
+    auto result = evaluateHint(op, hint, hintIdx, inputLayouts, anyReshard,
+                               producerCandidateIndices, reshardLayouts);
+    if (result) {
+      bool sharded = isShardedLayout(result->configHint.outputLayout);
+      candidates.push_back(std::move(*result));
+      return sharded;
     }
-
-    // Log validation failures.
-    llvm::StringRef hintBuf = "null";
-    llvm::StringRef hintMem = "null";
-    std::string hintBufStr, hintMemStr;
-    if (hint.outputLayout) {
-      llvm::raw_string_ostream bufOS(hintBufStr);
-      bufOS << hint.outputLayout.getBufferType();
-      hintBuf = hintBufStr;
-      llvm::raw_string_ostream memOS(hintMemStr);
-      memOS << hint.outputLayout.getMemLayout();
-      hintMem = hintMemStr;
-    }
-    std::string inputDesc;
-    llvm::raw_string_ostream inputOS(inputDesc);
-    for (size_t ii = 0; ii < inputLayouts.size(); ++ii) {
-      if (ii > 0) {
-        inputOS << ", ";
-      }
-      inputOS << inputLayouts[ii].getBufferType() << "/"
-              << inputLayouts[ii].getMemLayout();
-    }
-    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                 "    FAILED validation for {0}: hint[{1}] "
-                 "outBuf={2} outMem={3} inputs=[{4}] reshard={5}",
-                 op->getName(), hintIdx, hintBuf, hintMem, inputDesc,
-                 anyReshard);
-
-    observer_->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/false,
-                            /*candidate=*/nullptr, result.errorMessage);
-
     return false;
   };
 
@@ -482,16 +565,7 @@ LayoutPropagation::processOp(Operation *op) {
 
   // Log all kept beam candidates for this op.
   for (size_t ci = 0; ci < candidates.size(); ++ci) {
-    const auto &c = candidates[ci];
-    std::string inputDesc;
-    llvm::raw_string_ostream inputOS(inputDesc);
-    for (size_t ii = 0; ii < c.inputLayouts.size(); ++ii) {
-      if (ii > 0) {
-        inputOS << ", ";
-      }
-      inputOS << c.inputLayouts[ii].getBufferType() << "/"
-              << c.inputLayouts[ii].getMemLayout();
-    }
+    [[maybe_unused]] const auto &c = candidates[ci];
     TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                  "  BEAM[{0}] {1}: outBuf={2} outMem={3} "
                  "score(L1={4},sharded={5},dramIn={6},reshard={7},"
@@ -500,7 +574,7 @@ LayoutPropagation::processOp(Operation *op) {
                  c.configHint.outputLayout.getMemLayout(), c.score.isL1,
                  c.score.isSharded, c.score.inputDramBytes,
                  c.score.requiresReshard, c.score.coreCount,
-                 c.score.outputL1Usage, inputDesc);
+                 c.score.outputL1Usage, formatInputLayouts(c.inputLayouts));
   }
 
   bool usedDramFallback = false;
@@ -550,6 +624,177 @@ bool LayoutPropagation::validateReshard(Operation *consumerOp,
                producerOutputLayout.getBufferType(),
                reshardLayout.getBufferType(), valid ? "OK" : "FAILED");
   return valid;
+}
+
+void LayoutPropagation::addL1InterleavedFallbacks(
+    std::vector<InputCandidate> &candidates, Operation *op,
+    const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
+    Operation *producerOp, TTNNLayoutAttr currentLayout, size_t resultIdx,
+    size_t maxCandidates) {
+  bool hasL1Sharded = false;
+  bool hasL1Interleaved = false;
+  for (const auto &candidate : candidates) {
+    if (candidate.layout.hasL1BufferType()) {
+      auto ml = candidate.layout.getMemLayout();
+      if (ml && isShardedMemoryLayout(ml.getValue())) {
+        hasL1Sharded = true;
+      } else {
+        hasL1Interleaved = true;
+      }
+    }
+  }
+
+  if (!hasL1Sharded || hasL1Interleaved) {
+    return;
+  }
+
+  TTNNLayoutAttr l1Interleaved =
+      currentLayout.withBufferType(BufferType::L1)
+          .withMemoryLayout(TensorMemoryLayout::Interleaved);
+  // Add one L1-interleaved candidate per L1-sharded producer beam index.
+  for (size_t pIdx = 0; pIdx < producerBeam->size(); ++pIdx) {
+    if (candidates.size() >= maxCandidates) {
+      break;
+    }
+    TTNNLayoutAttr prodOut =
+        getOutputLayoutForResult((*producerBeam)[pIdx], resultIdx);
+    if (!prodOut || !prodOut.hasL1BufferType()) {
+      continue;
+    }
+    auto ml = prodOut.getMemLayout();
+    if (!ml || !isShardedMemoryLayout(ml.getValue())) {
+      continue;
+    }
+    if (!validateReshard(op, producerOp, prodOut, l1Interleaved, resultIdx)) {
+      continue;
+    }
+    InputCandidate ic;
+    ic.layout = l1Interleaved;
+    ic.producerCandidateIndex = pIdx;
+    ic.isReshard = true;
+    candidates.push_back(ic);
+  }
+
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+               "  operand: added L1-interleaved reshard candidates for {0}",
+               op->getName());
+}
+
+void LayoutPropagation::applyInputLayoutFilter(
+    std::vector<InputCandidate> &candidates, Operation *op,
+    TTNNLayoutAttr currentLayout) {
+  // Per-op input layout filtering: remove candidates that the op cannot
+  // consume efficiently (e.g. width-sharded for reshape/permute, any
+  // sharded for concatenate_heads).
+  if (auto inputFilter = getInputLayoutFilter(op)) {
+    candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
+                                    [&](const InputCandidate &ic) {
+                                      return !inputFilter(ic.layout);
+                                    }),
+                     candidates.end());
+    // Guarantee at least one interleaved candidate remains.
+    if (candidates.empty()) {
+      InputCandidate ic;
+      ic.layout = currentLayout.withBufferType(BufferType::DRAM)
+                      .withMemoryLayout(TensorMemoryLayout::Interleaved);
+      ic.producerCandidateIndex = 0;
+      ic.isReshard = true;
+      candidates.push_back(ic);
+    }
+  }
+}
+
+void LayoutPropagation::addReshardCandidates(
+    std::vector<InputCandidate> &candidates, Operation *op, Value operand,
+    TTNNLayoutAttr currentLayout, RankedTensorType tensorType,
+    const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
+    Operation *producerOp, size_t resultIdx, size_t maxCandidates) {
+  // Skip reshards for operands derived from constant/parameter arguments.
+  // These will be re-hoisted into const_eval.
+  if (ttcore::valueTracesToConstantArgs(operand)) {
+    return;
+  }
+  if (!shouldExploreReshards(op)) {
+    return;
+  }
+
+  // Generate reshard candidates from each unique producer candidate layout.
+  llvm::SmallVector<TTNNLayoutAttr> layoutsToExplore;
+  layoutsToExplore.push_back(currentLayout);
+  for (const auto &ic : candidates) {
+    bool alreadyInList = false;
+    for (const auto &existing : layoutsToExplore) {
+      if (existing == ic.layout) {
+        alreadyInList = true;
+        break;
+      }
+    }
+    if (!alreadyInList) {
+      layoutsToExplore.push_back(ic.layout);
+    }
+  }
+
+  // Collect unique reshard layouts across all base layouts.
+  llvm::SmallVector<TTNNLayoutAttr> uniqueReshardLayouts;
+  for (const auto &baseLayout : layoutsToExplore) {
+    std::vector<TTNNLayoutAttr> reshardCandidates =
+        generateReshardCandidates(tensorType, baseLayout);
+    for (const auto &reshardLayout : reshardCandidates) {
+      // Dedup: skip if already in uniqueReshardLayouts or existing candidates.
+      bool alreadyPresent = false;
+      for (const auto &existing : uniqueReshardLayouts) {
+        if (existing == reshardLayout) {
+          alreadyPresent = true;
+          break;
+        }
+      }
+      if (!alreadyPresent) {
+        for (const auto &existing : candidates) {
+          if (existing.layout == reshardLayout) {
+            alreadyPresent = true;
+            break;
+          }
+        }
+      }
+      if (!alreadyPresent) {
+        uniqueReshardLayouts.push_back(reshardLayout);
+      }
+    }
+  }
+
+  // Fan out: for each unique reshard layout, create one candidate per
+  // producer beam index (KxK evaluation).
+  size_t producerBeamSize = producerBeam ? producerBeam->size() : 1;
+  for (const auto &reshardLayout : uniqueReshardLayouts) {
+    if (candidates.size() >= maxCandidates) {
+      break;
+    }
+    for (size_t pIdx = 0; pIdx < producerBeamSize; ++pIdx) {
+      if (candidates.size() >= maxCandidates) {
+        break;
+      }
+      // Validate the reshard is feasible for this producer candidate.
+      if (producerBeam) {
+        TTNNLayoutAttr producerOutput =
+            getOutputLayoutForResult((*producerBeam)[pIdx], resultIdx);
+        if (!producerOutput) {
+          continue;
+        }
+        if (!validateReshard(op, producerOp, producerOutput, reshardLayout,
+                             resultIdx)) {
+          continue;
+        }
+      }
+      // TODO(rpavlovicTT): Reshard candidates for func args / unresolved
+      // producers are emitted without validation since there is no beam
+      // state to provide a producerOutputLayout.
+      InputCandidate ic;
+      ic.layout = reshardLayout;
+      ic.producerCandidateIndex = pIdx;
+      ic.isReshard = true;
+      candidates.push_back(ic);
+    }
+  }
 }
 
 std::vector<std::vector<LayoutPropagation::InputCandidate>>
@@ -608,197 +853,17 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
       candidatesForOperand.push_back(ic);
     }
 
-    // Add L1-interleaved fallback when the producer beam contains any L1
-    // sharded candidates but no L1-interleaved candidate. This gives
-    // consumers that cannot accept sharded inputs (reshape, permute,
-    // concatenate_heads) an L1 path instead of falling all the way to DRAM.
-    // Creates one candidate per L1-sharded producer beam index so the
-    // backward pass can follow the best path.
     if (producerBeam) {
-      bool hasL1Sharded = false;
-      bool hasL1Interleaved = false;
-      for (const auto &candidate : candidatesForOperand) {
-        if (candidate.layout.hasL1BufferType()) {
-          auto ml = candidate.layout.getMemLayout();
-          if (ml && isShardedMemoryLayout(ml.getValue())) {
-            hasL1Sharded = true;
-          } else {
-            hasL1Interleaved = true;
-          }
-        }
-      }
-
-      if (hasL1Sharded && !hasL1Interleaved) {
-        TTNNLayoutAttr l1Interleaved =
-            currentLayout.withBufferType(BufferType::L1)
-                .withMemoryLayout(TensorMemoryLayout::Interleaved);
-        // Add one L1-interleaved candidate per L1-sharded producer beam index.
-        for (size_t pIdx = 0; pIdx < producerBeam->size(); ++pIdx) {
-          if (candidatesForOperand.size() >= kMaxInputCandidatesPerOperand) {
-            break;
-          }
-          TTNNLayoutAttr prodOut =
-              getOutputLayoutForResult((*producerBeam)[pIdx], resultIdx);
-          if (!prodOut || !prodOut.hasL1BufferType()) {
-            continue;
-          }
-          auto ml = prodOut.getMemLayout();
-          if (!ml || !isShardedMemoryLayout(ml.getValue())) {
-            continue;
-          }
-          if (!validateReshard(op, producerOp, prodOut, l1Interleaved,
-                               resultIdx)) {
-            continue;
-          }
-          InputCandidate ic;
-          ic.layout = l1Interleaved;
-          ic.producerCandidateIndex = pIdx;
-          ic.isReshard = true;
-          candidatesForOperand.push_back(ic);
-        }
-
-        TTMLIR_TRACE(
-            ttmlir::LogComponent::GreedyOptimizer,
-            "  operand: added L1-interleaved reshard candidates for {0}",
-            op->getName());
-      }
+      addL1InterleavedFallbacks(candidatesForOperand, op, producerBeam,
+                                producerOp, currentLayout, resultIdx,
+                                kMaxInputCandidatesPerOperand);
     }
 
-    // Per-op input layout filtering: remove candidates that the op cannot
-    // consume efficiently (e.g. width-sharded for reshape/permute, any
-    // sharded for concatenate_heads). Guarantee at least one interleaved
-    // candidate remains.
-    if (auto inputFilter = getInputLayoutFilter(op)) {
-      candidatesForOperand.erase(std::remove_if(candidatesForOperand.begin(),
-                                                candidatesForOperand.end(),
-                                                [&](const InputCandidate &ic) {
-                                                  return !inputFilter(
-                                                      ic.layout);
-                                                }),
-                                 candidatesForOperand.end());
-      if (candidatesForOperand.empty()) {
-        InputCandidate ic;
-        ic.layout = currentLayout.withBufferType(BufferType::DRAM)
-                        .withMemoryLayout(TensorMemoryLayout::Interleaved);
-        ic.producerCandidateIndex = 0;
-        ic.isReshard = true;
-        candidatesForOperand.push_back(ic);
-      }
-    }
+    applyInputLayoutFilter(candidatesForOperand, op, currentLayout);
 
-    // Filter non-rectangular grid candidates for ops that require rectangular
-    // inputs (rms_norm, layer_norm). Workaround for tt-metal bug where
-    // non-rectangular width-sharded inputs cause hangs.
-    // https://github.com/tenstorrent/tt-metal/issues/38429
-    if (requiresRectangularGridInputs(op)) {
-      candidatesForOperand.erase(std::remove_if(candidatesForOperand.begin(),
-                                                candidatesForOperand.end(),
-                                                [](const InputCandidate &ic) {
-                                                  return isNonRectangularGrid(
-                                                      ic.layout);
-                                                }),
-                                 candidatesForOperand.end());
-    }
-
-    // Add reshard candidates if applicable.
-    // Skip reshards for operands derived from constant/parameter arguments.
-    // These will be re-hoisted into const_eval -- L1 reshards would make the
-    // const_eval return L1, occupying L1 for the lifetime of the tensor.
-    bool isFromConstEvalChain = ttcore::valueTracesToConstantArgs(operand);
-    if (shouldExploreReshards(op) && !isFromConstEvalChain) {
-      // Build optional layout filter for reshard candidate generation.
-      // For norm ops, reject non-rectangular grids during generation so they
-      // don't consume the top-8 budget.
-      llvm::function_ref<bool(TTNNLayoutAttr)> layoutFilter = nullptr;
-      auto rectFilter = [](TTNNLayoutAttr layout) {
-        return !isNonRectangularGrid(layout);
-      };
-      if (requiresRectangularGridInputs(op)) {
-        layoutFilter = rectFilter;
-      }
-
-      // Generate reshard candidates from each unique producer candidate layout.
-      // For beam search, the producer may have sharded layouts that differ from
-      // the initial IR layout. We explore sharded-to-sharded reshards for each.
-      llvm::SmallVector<TTNNLayoutAttr> layoutsToExplore;
-      layoutsToExplore.push_back(currentLayout);
-      for (const auto &ic : candidatesForOperand) {
-        bool alreadyInList = false;
-        for (const auto &existing : layoutsToExplore) {
-          if (existing == ic.layout) {
-            alreadyInList = true;
-            break;
-          }
-        }
-        if (!alreadyInList) {
-          layoutsToExplore.push_back(ic.layout);
-        }
-      }
-
-      // Collect unique reshard layouts across all base layouts.
-      llvm::SmallVector<TTNNLayoutAttr> uniqueReshardLayouts;
-      for (const auto &baseLayout : layoutsToExplore) {
-        std::vector<TTNNLayoutAttr> reshardCandidates =
-            generateReshardCandidates(tensorType, baseLayout, layoutFilter);
-        for (const auto &reshardLayout : reshardCandidates) {
-          // Dedup: skip if this layout already exists in uniqueReshardLayouts
-          // or in any existing candidate (including reshards from Change B).
-          bool alreadyPresent = false;
-          for (const auto &existing : uniqueReshardLayouts) {
-            if (existing == reshardLayout) {
-              alreadyPresent = true;
-              break;
-            }
-          }
-          if (!alreadyPresent) {
-            for (const auto &existing : candidatesForOperand) {
-              if (existing.layout == reshardLayout) {
-                alreadyPresent = true;
-                break;
-              }
-            }
-          }
-          if (!alreadyPresent) {
-            uniqueReshardLayouts.push_back(reshardLayout);
-          }
-        }
-      }
-
-      // Fan out: for each unique reshard layout, create one candidate per
-      // producer beam index (KxK evaluation).
-      size_t producerBeamSize = producerBeam ? producerBeam->size() : 1;
-      for (const auto &reshardLayout : uniqueReshardLayouts) {
-        if (candidatesForOperand.size() >= kMaxInputCandidatesPerOperand) {
-          break;
-        }
-        for (size_t pIdx = 0; pIdx < producerBeamSize; ++pIdx) {
-          if (candidatesForOperand.size() >= kMaxInputCandidatesPerOperand) {
-            break;
-          }
-          // Validate the reshard is feasible for this producer candidate.
-          if (producerBeam) {
-            TTNNLayoutAttr producerOutput =
-                getOutputLayoutForResult((*producerBeam)[pIdx], resultIdx);
-            if (!producerOutput) {
-              continue;
-            }
-            if (!validateReshard(op, producerOp, producerOutput, reshardLayout,
-                                 resultIdx)) {
-              continue;
-            }
-          }
-          // TODO(rpavlovicTT): Reshard candidates for func args / unresolved
-          // producers are emitted without validation since there is no beam
-          // state to provide a producerOutputLayout. This matches pre-KxK
-          // behavior.
-          InputCandidate ic;
-          ic.layout = reshardLayout;
-          ic.producerCandidateIndex = pIdx;
-          ic.isReshard = true;
-          candidatesForOperand.push_back(ic);
-        }
-      }
-    }
+    addReshardCandidates(candidatesForOperand, op, operand, currentLayout,
+                         tensorType, producerBeam, producerOp, resultIdx,
+                         kMaxInputCandidatesPerOperand);
 
     // Cap per-operand candidate count to prevent cross-product explosion.
     // Non-reshard candidates (from producer beam) come first and are preserved;
@@ -824,9 +889,9 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
   return result;
 }
 
-std::vector<TTNNLayoutAttr> LayoutPropagation::generateReshardCandidates(
-    RankedTensorType tensorType, TTNNLayoutAttr currentLayout,
-    llvm::function_ref<bool(TTNNLayoutAttr)> layoutFilter) {
+std::vector<TTNNLayoutAttr>
+LayoutPropagation::generateReshardCandidates(RankedTensorType tensorType,
+                                             TTNNLayoutAttr currentLayout) {
   // Only generate sharded-to-sharded reshard candidates. Resharding from
   // sharded to interleaved (DRAM or L1) almost always hurts performance.
   if (!tensorTypePossibleLayouts) {
@@ -855,8 +920,7 @@ std::vector<TTNNLayoutAttr> LayoutPropagation::generateReshardCandidates(
       getShardedLayoutsForTensorTypeAndScalarType(
           *tensorTypePossibleLayouts, tensorType, scalarElementType);
 
-  // Filter out the current layout (no-op reshard), non-sharded (defensive),
-  // and layouts rejected by the optional filter predicate.
+  // Filter out the current layout (no-op reshard) and non-sharded (defensive).
   std::vector<TTNNLayoutAttr> filtered;
   for (const auto &layout : allSharded) {
     if (layout == currentLayout) {
@@ -866,13 +930,12 @@ std::vector<TTNNLayoutAttr> LayoutPropagation::generateReshardCandidates(
         !isShardedMemoryLayout(layout.getMemLayout().getValue())) {
       continue;
     }
-    if (layoutFilter && !layoutFilter(layout)) {
-      continue;
-    }
     filtered.push_back(layout);
   }
 
-  // Deduplicate by (memLayout, gridShape) key -- keep the first occurrence.
+  // Dedup by (memLayout, gridShape): layouts with the same sharding strategy
+  // and grid shape differ only in shard dimensions, which the backend
+  // recomputes. Keeping one per key avoids redundant validation calls.
   using Key = std::pair<TensorMemoryLayout, llvm::SmallVector<int64_t, 2>>;
   llvm::SmallVector<Key> seenKeys;
   std::vector<TTNNLayoutAttr> deduped;
@@ -1135,54 +1198,7 @@ TTNNLayoutAttr LayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
 // IR Transformation
 //===----------------------------------------------------------------------===//
 
-void LayoutPropagation::applyToIR() {
-  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-               "applyToIR: applying configs for {0} ops in beam state",
-               beamState.size());
-  // First pass: apply op configs (result types, DPS operands, op-specific
-  // attrs, L1 usage annotation).
-  func->walk([&](Operation *op) {
-    if (!beamState.count(op)) {
-      return;
-    }
-
-    const auto &beam = beamState[op];
-    if (beam.empty()) {
-      return;
-    }
-
-    size_t chosenIdx = finalChoice.count(op) ? finalChoice[op] : 0;
-    if (chosenIdx >= beam.size()) {
-      chosenIdx = 0;
-    }
-    applyOpConfig(op, beam[chosenIdx]);
-  });
-
-  // Second pass: insert reshard ops for edges that require memory
-  // reconfiguration.
-  func->walk([&](Operation *op) {
-    if (!beamState.count(op)) {
-      return;
-    }
-
-    const auto &beam = beamState[op];
-    if (beam.empty()) {
-      return;
-    }
-
-    size_t chosenIdx = finalChoice.count(op) ? finalChoice[op] : 0;
-    if (chosenIdx >= beam.size()) {
-      chosenIdx = 0;
-    }
-    const BeamCandidate &chosen = beam[chosenIdx];
-    for (const auto &[operandIdx, reshardLayout] : chosen.reshardLayouts) {
-      insertReshardOp(op, operandIdx, reshardLayout);
-    }
-  });
-
-  // Fixup: disable deallocate_activation for conv2d/conv_transpose2d ops
-  // whose input has multiple users, preventing use-after-free. This mirrors
-  // the tryDisableDeallocateActivation logic in DFShardingPolicy.cpp.
+void LayoutPropagation::fixupConvDeallocate() {
   func->walk([&](Operation *op) {
     auto disableDeallocIfMultiUser = [](auto convOp) {
       auto config = convOp.getConv2dConfigAttr();
@@ -1206,9 +1222,9 @@ void LayoutPropagation::applyToIR() {
       disableDeallocIfMultiUser(convT);
     }
   });
+}
 
-  // Insert to_memory_config to DRAM for func.return operands that are in L1.
-  // The caller expects DRAM tensors, so any L1 outputs must be spilled.
+void LayoutPropagation::insertReturnDramSpills() {
   func->walk([&](func::ReturnOp returnOp) {
     for (unsigned i = 0; i < returnOp.getNumOperands(); ++i) {
       Value operand = returnOp.getOperand(i);
@@ -1222,7 +1238,6 @@ void LayoutPropagation::applyToIR() {
         continue;
       }
 
-      // Build DRAM interleaved target layout.
       TTNNLayoutAttr dramLayout =
           layout.withBufferType(BufferType::DRAM)
               .withMemoryLayout(TensorMemoryLayout::Interleaved);
@@ -1234,6 +1249,34 @@ void LayoutPropagation::applyToIR() {
                    i);
     }
   });
+}
+
+void LayoutPropagation::applyToIR() {
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "applyToIR: applying configs for {0} ops in beam state",
+               beamState.size());
+  // First pass: apply op configs.
+  func->walk([&](Operation *op) {
+    const BeamCandidate *chosen = getChosenCandidate(op);
+    if (!chosen) {
+      return;
+    }
+    applyOpConfig(op, *chosen);
+  });
+
+  // Second pass: insert reshard ops.
+  func->walk([&](Operation *op) {
+    const BeamCandidate *chosen = getChosenCandidate(op);
+    if (!chosen) {
+      return;
+    }
+    for (const auto &[operandIdx, reshardLayout] : chosen->reshardLayouts) {
+      insertReshardOp(op, operandIdx, reshardLayout);
+    }
+  });
+
+  fixupConvDeallocate();
+  insertReturnDramSpills();
 
   // Third pass: update function return types.
   updateFunctionReturnTypes();
@@ -1299,60 +1342,9 @@ void LayoutPropagation::applyOpConfig(Operation *op,
         utils::createShardSpecIfNeeded(chosenLayout, deviceGrid)));
   }
 
-  // Set op-specific configurations (Conv2d, Matmul).
-  llvm::TypeSwitch<Operation *, void>(op)
-      .Case<ttnn::Conv2dOp>([&](ttnn::Conv2dOp convOp) {
-        if (std::holds_alternative<ttnn::Conv2dAttrs>(
-                candidate.configHint.opSpecificAttrs)) {
-          ttnn::Conv2dAttrs conv2dAttrs =
-              std::get<ttnn::Conv2dAttrs>(candidate.configHint.opSpecificAttrs);
-          if (conv2dAttrs.conv2dConfig.has_value()) {
-            convOp.setConv2dConfigAttr(conv2dAttrs.conv2dConfig.value());
-          }
-          if (conv2dAttrs.deviceComputeKernelConfig.has_value()) {
-            convOp.setComputeConfigAttr(
-                conv2dAttrs.deviceComputeKernelConfig.value());
-          }
-        }
-      })
-      .Case<ttnn::ConvTranspose2dOp>([&](ttnn::ConvTranspose2dOp convOp) {
-        if (std::holds_alternative<ttnn::Conv2dAttrs>(
-                candidate.configHint.opSpecificAttrs)) {
-          ttnn::Conv2dAttrs conv2dAttrs =
-              std::get<ttnn::Conv2dAttrs>(candidate.configHint.opSpecificAttrs);
-          if (conv2dAttrs.conv2dConfig.has_value()) {
-            convOp.setConv2dConfigAttr(conv2dAttrs.conv2dConfig.value());
-          }
-        }
-      })
-      .Case<ttnn::MatmulOp, ttnn::LinearOp>([&](auto matmulOp) {
-        if (std::holds_alternative<ttnn::MatmulAttrs>(
-                candidate.configHint.opSpecificAttrs)) {
-          ttnn::MatmulAttrs matmulAttrs =
-              std::get<ttnn::MatmulAttrs>(candidate.configHint.opSpecificAttrs);
-          if (matmulAttrs.matmulProgramConfig.has_value()) {
-            auto programConfig = matmulAttrs.matmulProgramConfig.value();
-            matmulOp.setMatmulProgramConfigAttr(programConfig);
-            // Workaround for tt-metal issue #35060.
-            bool hasFusedActivation =
-                llvm::TypeSwitch<mlir::Attribute, bool>(programConfig)
-                    .template Case<
-                        MatmulMultiCoreReuseMultiCastProgramConfigAttr,
-                        MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
-                        MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-                        [](auto config) {
-                          return config.getFusedActivation() != nullptr;
-                        })
-                    .Default([](mlir::Attribute) { return false; });
-            if (hasFusedActivation) {
-              matmulOp.removeActivationAttr();
-            }
-          }
-        }
-      })
-      .Default([](Operation *) {});
+  applyOpSpecificAttrs(op, candidate);
 
-  // Attach L1 usage annotation for Pass 2 (spill management).
+  // Attach L1 usage annotation for spill management.
   if (chosenLayout.hasL1BufferType() &&
       candidate.validationResult.isSuccess() &&
       candidate.validationResult.outputL1Usage > 0) {
