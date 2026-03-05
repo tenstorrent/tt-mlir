@@ -270,7 +270,7 @@ new file mode 100755
 index 0000000..f23330d
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,96 @@
 +# Shardy MLIR Transform Export Passes and Pipeline
 +
 +set(LLVM_TARGET_DEFINITIONS passes.td)
@@ -318,6 +318,8 @@ index 0000000..f23330d
 +  sharding_constraint_to_reshard.cc
 +  sink_data_flow_edges.cc
 +  update_non_divisible_input_output_shardings.cc
++  convert_global_to_local.cc
++  remove_sub_axes_in_input_output_shardings.cc
 +
 +  DEPENDS
 +  SdyExplicitReshardsUtil
@@ -635,90 +637,6 @@ index 0000000..dc33501
 +  SdyDialect
 +  SdyTransformsPropagationShardingProjection
 +)
-diff --git a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-index e77a8ee..4779d09 100644
---- a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-+++ b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-@@ -51,7 +51,7 @@ namespace {
-
- // Helper to check if reduction window dim can be a passthrough dim.
- // When window size is 1, stride is 1 and there is no padding on the operand, it
--// is a 1-1 mapping between operand and result.
-+// is a 1-1 mapping between operand and instead of kReduction which would insert all-reduce after gather.
- bool isWindowPassthroughDim(std::optional<DenseIntElementsAttr> operandPadding,
-                             ArrayRef<int64_t> windowDimensions,
-                             ArrayRef<int64_t> windowStrides, int64_t dim) {
-@@ -146,7 +146,7 @@ void addGatherScatterFactors(
-                              slicesDim, slicesDimSize,
-                              FactorType::kNeedReplication);
-       } else if (slicesDimSize == 1) {
--        // To keep the operand dim sharded, we need an all-reduce on the result.
-+        // To keep the operand dim sharded, we need an all-reduce on the instead of kReduction which would insert all-reduce after gather.
-         addUnblockedFactorFn(inputDim, /*indicesDim=*/kNullDim,
-                              /*slicesDim=*/kNullDim, inputDimSize,
-                              FactorType::kReduction);
-@@ -166,7 +166,7 @@ void addGatherScatterFactors(
-       assert(indicesDim < startIndices.getRank());
-
-       // If `indicesDim` is in `indicesBatchingDims`, This is an explicit batch
--      // dimension across input, indices, and result. Otherwise, it is an
-+      // dimension across input, indices, and instead of kReduction which would insert all-reduce after gather. Otherwise, it is an
-       // implicit batch dimension across input and result only.
-       const auto* batchingDimIt = llvm::find(indicesBatchingDims, indicesDim);
-       bool isExplicitBatchDim = batchingDimIt != indicesBatchingDims.end();
-@@ -187,12 +187,12 @@ void addGatherScatterFactors(
-
-   // We add factors for all collapsed slice dimensions.
-   for (int64_t collapsedSliceDim : collapsedSliceDims) {
--    // To keep the operand dim sharded for gather, we need an all-reduce on the
--    // result.
-+    // For gather: use kNeedReplication to all-gather operand before gather,
-+    // instead of kReduction which would insert all-reduce after gather.
-     addUnblockedFactorFn(
-         collapsedSliceDim, /*indicesDim=*/kNullDim,
-         /*slicesDim=*/kNullDim, inputType.getDimSize(collapsedSliceDim),
--        isScatter ? FactorType::kPassThrough : FactorType::kReduction);
-+        isScatter ? FactorType::kPassThrough : FactorType::kNeedReplication);
-   }
-
-   // Add a factor for the index-vector-dim, if it's present.
-@@ -707,6 +707,11 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
-           }
-           return OpShardingRuleBuilder::buildPointwise(customCall);
-         }
-+        // Check if the custom call implements the ShardingRuleOpInterface.
-+        if (auto shardingRuleOp =
-+                  llvm::dyn_cast<ShardingRuleOpInterface>(customCall.getOperation())) {
-+          return shardingRuleOp.getShardingRule();
-+        }
-         // TODO(b/327191011): output unregistered op stats instead.
-         static llvm::once_flag onceFlag;
-         emitOpWarningOnce(
-@@ -921,7 +926,7 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
-                               FactorType::kReduction);
-           } else {
-             // Not a reduced dimension. So have a mapping b/w the operand and
--            // result.
-+            // instead of kReduction which would insert all-reduce after gather.
-             assert(resultType.getDimSize(outDim) == dimSize);
-             resultDims.assign(numInputs, outDim++);
-             builder.addFactor(operandDims, resultDims, dimSize);
-@@ -1115,6 +1120,15 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
-             return builder.build();
-           })
-       .Case<stablehlo::ScatterOp>([](stablehlo::ScatterOp scatter) {
-+        // Check if the scatter op implements the ShardingRuleOpInterface.
-+        if (auto shardingRuleOp =
-+              llvm::dyn_cast<ShardingRuleOpInterface>(scatter.getOperation())) {
-+          // Try to get custom rule - if it returns non-null, use it.
-+          if (auto customRule = shardingRuleOp.getShardingRule()) {
-+            return customRule;
-+          }
-+          // If custom rule returns null, fall through to default.
-+        }
-         OpShardingRuleBuilder builder(scatter);
-
-         // Since all inputs and results have compatible shapes, we can look at
 diff --git a/shardy/integrations/c/CMakeLists.txt b/shardy/integrations/c/CMakeLists.txt
 new file mode 100644
 index 0000000..fdd50c4
