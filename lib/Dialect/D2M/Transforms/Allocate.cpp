@@ -952,7 +952,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                      FuncAnalysisData &analysis) {
     [[maybe_unused]] AsOperandPrinter asOperand{funcOp};
 
-    ttcore::DeviceAttr device = ttcore::lookupDevice(funcOp);
     IRRewriter rewriter(funcOp->getContext());
 
     Planner::Problem &problem = analysis.problem(MemorySpace::DeviceL1);
@@ -1029,8 +1028,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             continue;
           }
 
-          const auto &memInfo = memSpaces[ordinal(placementMemspace)];
-
           for (d2m::GenericOp user : memrefCtx.genericUsers) {
             GenericOpContext &genericCtx = analysis.generics[user];
             // A given user can have multiple uses of `memref` at
@@ -1051,21 +1048,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               }
 
               if (inferStreamRequirement(user, operandCtx, placementMemspace)) {
-                TT_debug(operandCtx.bufferType != nullptr);
-                const AllocSizeT bufferSize = ttmlir::utils::alignUp(
-                    getStreamBufferSizeBytes(operandCtx.bufferType, device),
-                    memInfo.alignment);
-
-                // Because we will insert stream buffer allocs just before
-                // the generic ops themselves, without any other
-                // interposing allocs, it is mathematically correct to see
-                // all such buffers' live ranges as a single position
-                // coinciding with the generic op's logical time.
-                const SequenceT firstAndLast = analysis.sequencing[user];
-
-                TT_debug(operandCtx.reqIndex[ordinal(placement)] < 0);
-                operandCtx.reqIndex[ordinal(placement)] = b.request(
-                    placement, bufferSize, firstAndLast, firstAndLast);
+                // TODO: Stream storage allocs will be removed entirely
+                // in a follow-up PR.  For now, skip the planner request
+                // so the buffer doesn't compete for L1 space.
+                // insertStream() still creates the alloc + stream_layout
+                // for IR correctness, but without an address.  The
+                // unaddressed alloc is silently skipped during
+                // D2MToTTMetal conversion.
               }
             }
           }
@@ -1268,10 +1257,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           auto &operand = *operandCtx.operand;
 
           const PlannerSpace finalPlacement = asPlannerSpace(remappedMemSpace);
-          TT_debugv(operandCtx.reqIndex[ordinal(finalPlacement)] >= 0,
-                    "operand @{}", operandCtx.operandIndex());
-          const Planner::Request &req =
-              L1solution.request(operandCtx.reqIndex[ordinal(finalPlacement)]);
+          const int32_t reqIdx = operandCtx.reqIndex[ordinal(finalPlacement)];
+          const Planner::Request *req =
+              reqIdx >= 0 ? &L1solution.request(reqIdx) : nullptr;
 
           if (failed(insertStream(rewriter, operand, genericOp, req, operandCtx,
                                   (remappedMemSpace == MemorySpace::DeviceDRAM
@@ -1449,7 +1437,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   }
 
   LogicalResult insertStream(RewriterBase &rewriter, OpOperand &operand,
-                             d2m::GenericOp op, const Planner::Request &req,
+                             d2m::GenericOp op, const Planner::Request *req,
                              const OperandContext &operandCtx,
                              ttcore::MemorySpaceAttr remappedMemspace,
                              const MemorySpaceInfo &info,
@@ -1467,8 +1455,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     auto bufferAllocOp =
         rewriter.create<memref::AllocOp>(op.getLoc(), bufferType);
 
-    assignAddressAndAlignment(rewriter, bufferAllocOp, req.offset, info);
-    insertDealloc(rewriter, bufferAllocOp, req.last, sequencing);
+    if (req) {
+      assignAddressAndAlignment(rewriter, bufferAllocOp, req->offset, info);
+      insertDealloc(rewriter, bufferAllocOp, req->last, sequencing);
+    }
 
     const auto oldOperandType = mlir::cast<MemRefType>(operand.get().getType());
     const AffineMap reblockingMap = ttmlir::utils::calculateReblockMap(
