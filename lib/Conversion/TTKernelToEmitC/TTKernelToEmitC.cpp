@@ -1216,6 +1216,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteRowMaskTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteColMaskTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalFillArangeTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalScatterRowBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileInitOp>,

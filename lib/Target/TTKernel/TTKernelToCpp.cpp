@@ -15,6 +15,7 @@
 #include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_padding_llks_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_scatter_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
 
@@ -315,6 +316,13 @@ void dprint(Arg &&arg, ArgV&&... argv) {
           StringRef(experimental_padding_llks_generated,
                     experimental_padding_llks_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalPaddingLLKs);
+    }
+
+    if (hasCall("experimental::scatter_row_block")) {
+      auto experimentalScatterLLKs =
+          StringRef(experimental_scatter_llks_generated,
+                    experimental_scatter_llks_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalScatterLLKs);
     }
 
     if (hasVerbatim("experimental::invoke_sfpi")) {

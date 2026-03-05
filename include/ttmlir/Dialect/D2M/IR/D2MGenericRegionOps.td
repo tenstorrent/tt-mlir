@@ -2297,4 +2297,146 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 
   let hasVerifier = 1;
 }
+
+//===----------------------------------------------------------------------===//
+// D2M Scatter Ops
+//===----------------------------------------------------------------------===//
+
+def D2M_ScatterBlockOp : D2M_GenericRegionComputeOp<"scatter_block",
+  [DestinationStyleOpInterface,
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+  DeclareOpInterfaceMethods<BufferizableOpInterface,
+    ["bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
+    "getAliasingValues", "getBufferType"]>,
+  D2M_SkipOpEltwiseFusionTrait]> {
+  let summary = "Perform scatter operation on a block/memref";
+  let description = [{
+      The `scatter_block` operation performs a torch-style scatter along a single
+      dimension.  It embeds the values of the source tensor into the input
+      tensor at locations specified by the index tensor.
+
+      This op works at the block level (memref of tiles).  Its decomposition
+      untilizes the input, index and source blocks to row-major, executes a
+      scalar scatter loop, and tilizes the result back.
+
+      Operands:
+        - `input`  : The base tensor being updated (tiles, f32).
+        - `index`  : Index tensor (tiles, i32/f32 — cast to i32 at decomp).
+        - `source` : Values to scatter (tiles, f32).
+        - `output` : Destination buffer (same shape as input).
+        - `scatter_input_scratch`  : Scratch for untilized input rows.
+        - `scatter_index_scratch`  : Scratch for untilized index rows.
+        - `scatter_source_scratch` : Scratch for untilized source rows.
+
+      Attributes:
+        - `dim`                : Dimension along which to scatter.
+        - `scatter_reduce_type`: Reduce type (sum, prod, max, min, invalid).
+        - `input_logical_rows` : Logical rows in the input tensor.
+        - `input_logical_cols` : Logical cols in the input tensor (scatter dim).
+        - `src_logical_cols`   : Logical cols in source/index (scatter dim).
+
+      Example:
+      ```mlir
+      %result = d2m.scatter_block %input, %index, %source, %output,
+                    %scratch_in, %scratch_idx, %scratch_src
+                    {dim = 1 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>,
+                     input_logical_rows = 2048, input_logical_cols = 784,
+                     src_logical_cols = 196}
+          : ...
+      ```
+  }];
+
+  let arguments = (ins
+      AnyRankedTensorOrMemRef:$input,
+      AnyRankedTensorOrMemRef:$index,
+      AnyRankedTensorOrMemRef:$source,
+      AnyRankedTensorOrMemRef:$scatter_input_scratch,
+      AnyRankedTensorOrMemRef:$scatter_index_scratch,
+      AnyRankedTensorOrMemRef:$scatter_source_scratch,
+      AnyRankedTensorOrMemRef:$output,
+      I32Attr:$dim,
+      TTCore_ReduceTypeAttr:$scatter_reduce_type,
+      I64Attr:$input_logical_rows,
+      I64Attr:$input_logical_cols,
+      I64Attr:$src_logical_cols);
+
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let builders = [
+    OpBuilder<(ins "Value":$input, "Value":$index, "Value":$source,
+                    "Value":$scatterInputScratch,
+                    "Value":$scatterIndexScratch, "Value":$scatterSourceScratch,
+                    "Value":$output,
+                    "int32_t":$dim,
+                    "::mlir::tt::ttcore::ReduceType":$scatterReduceType,
+                    "int64_t":$inputLogicalRows,
+                    "int64_t":$inputLogicalCols,
+                    "int64_t":$srcLogicalCols), [{
+      Type resultType = output.getType();
+      build($_builder, $_state, resultType, input, index, source,
+            scatterInputScratch, scatterIndexScratch, scatterSourceScratch,
+            output,
+            $_builder.getI32IntegerAttr(dim),
+            ::mlir::tt::ttcore::ReduceTypeAttr::get($_builder.getContext(),
+                                                     scatterReduceType),
+            $_builder.getI64IntegerAttr(inputLogicalRows),
+            $_builder.getI64IntegerAttr(inputLogicalCols),
+            $_builder.getI64IntegerAttr(srcLogicalCols));
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// D2M Tile Scatter Row Block Op
+//===----------------------------------------------------------------------===//
+
+def D2M_TileScatterRowBlockOp : D2M_GenericRegionOp<"tile_scatter_row_block",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Scatter one row-block of tiles via LLK";
+  let description = [{
+      The `tile_scatter_row_block` operation performs a scatter on one 32-row
+      stripe of tiles.  It is emitted by the DecomposeScatter pass and lowered
+      to an experimental TTKernel LLK that:
+
+        1. Untilizes input/index/source tile rows to row-major L1 scratch.
+        2. Executes the scalar scatter loop (indexed add).
+        3. Tilizes the updated input back to tile format in the output buffer.
+
+      All scalar pointer math happens inside the LLK C++ function, so MLIR IR
+      stays at tile granularity.
+
+      Operands:
+        - `input`  : Scratch CB holding one row of input tiles.
+        - `index`  : Scratch CB holding one row of index tiles.
+        - `source` : Scratch CB holding one row of source tiles.
+        - `output` : Scratch CB to write result tiles into.
+
+      Integer attributes encode tile/logical dimensions so the LLK knows the
+      buffer geometry without pointer indirection.
+  }];
+
+  let arguments = (ins
+      AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$input,
+      AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$index,
+      AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$source,
+      AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output,
+      I32Attr:$in_col_tiles,
+      I32Attr:$src_col_tiles,
+      I32Attr:$input_logical_cols,
+      I32Attr:$src_logical_cols);
+
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $input `,` $index `,` $source `)` `into` $output attr-dict
+    `:` type($input) `,` type($index) `,` type($source) `,` type($output)
+  }];
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

@@ -1266,6 +1266,30 @@ public:
     return success();
   }
 };
+
+class D2MScatterRowBlockRewriter
+    : public OpConversionPattern<d2m::TileScatterRowBlockOp> {
+public:
+  using OpConversionPattern<d2m::TileScatterRowBlockOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileScatterRowBlockOp op,
+                  d2m::TileScatterRowBlockOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    auto toI32 = [&](int32_t val) -> Value {
+      return rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(val));
+    };
+    rewriter.create<ttkernel::ExperimentalScatterRowBlockOp>(
+        loc, adaptor.getInput(), adaptor.getIndex(), adaptor.getSource(),
+        adaptor.getOutput(), toI32(op.getInColTiles()),
+        toI32(op.getSrcColTiles()), toI32(op.getInputLogicalCols()),
+        toI32(op.getSrcLogicalCols()));
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -2102,6 +2126,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MWriteRowMaskTileRewriter,
                ttkernel::D2MWriteColMaskTileRewriter,
                ttkernel::D2MExperimentalFillArangeTileRewriter,
+               ttkernel::D2MScatterRowBlockRewriter,
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,

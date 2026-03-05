@@ -1587,6 +1587,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     for (std::size_t operandIndex = 1;
          operandIndex < genericOp.getOutputs().getBeginOperandIndex();
          ++operandIndex) {
+      if (genericOp.isScratchInput(operandIndex)) {
+        continue;
+      }
       TT_assertv(inputElementType ==
                      mlir::cast<MemRefType>(
                          genericOp->getOperand(operandIndex).getType())

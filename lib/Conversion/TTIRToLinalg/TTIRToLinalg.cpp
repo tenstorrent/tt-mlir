@@ -12,6 +12,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/Attributes.h"
@@ -1816,6 +1817,172 @@ private:
 
     rewriter.replaceOp(op, genericOp.getResult(0));
     return success();
+  }
+};
+} // namespace
+
+namespace {
+class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
+public:
+  using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+
+    auto inputType =
+        mlir::dyn_cast<RankedTensorType>(adaptor.getInput().getType());
+    auto indexType =
+        mlir::dyn_cast<RankedTensorType>(adaptor.getIndex().getType());
+    auto sourceType =
+        mlir::dyn_cast<RankedTensorType>(adaptor.getSource().getType());
+    if (!inputType || !indexType || !sourceType) {
+      return rewriter.notifyMatchFailure(op, "expected ranked tensor operands");
+    }
+    if (!inputType.hasStaticShape() || !indexType.hasStaticShape() ||
+        !sourceType.hasStaticShape()) {
+      return rewriter.notifyMatchFailure(op,
+                                         "only static shapes are supported");
+    }
+    if (indexType.getShape() != sourceType.getShape()) {
+      return rewriter.notifyMatchFailure(op, "index/source shapes must match");
+    }
+    if (inputType.getRank() != indexType.getRank()) {
+      return rewriter.notifyMatchFailure(op, "input/index ranks must match");
+    }
+
+    int64_t rank = inputType.getRank();
+    int64_t dim = normalizeDim(op.getDim(), rank);
+    if (dim < 0 || dim >= rank) {
+      return rewriter.notifyMatchFailure(op, "scatter dim is out of range");
+    }
+
+    int64_t dimUpper = inputType.getShape()[dim];
+    if (dimUpper <= 0) {
+      rewriter.replaceOp(op, adaptor.getInput());
+      return success();
+    }
+
+    Value c0 = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    Value c1 = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+    Value zeroI32 = rewriter.create<arith::ConstantIntOp>(loc, 0, 32);
+    Value upperI32 = rewriter.create<arith::ConstantIntOp>(
+        loc, static_cast<int32_t>(dimUpper), 32);
+
+    SmallVector<int64_t> loopShape(indexType.getShape().begin(),
+                                   indexType.getShape().end());
+    SmallVector<Value> ivs;
+
+    std::function<Value(unsigned, Value)> emitLoop =
+        [&](unsigned depth, Value accTensor) -> Value {
+      if (depth == loopShape.size()) {
+        Value rawIndex =
+            rewriter.create<tensor::ExtractOp>(loc, adaptor.getIndex(), ivs);
+        Value indexI32 =
+            castScatterIndexToI32(rewriter, loc, rawIndex, indexType);
+
+        Value geZero = rewriter.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::sge, indexI32, zeroI32);
+        Value ltUpper = rewriter.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::slt, indexI32, upperI32);
+        Value inBounds = rewriter.create<arith::AndIOp>(loc, geZero, ltUpper);
+
+        auto ifOp =
+            rewriter.create<scf::IfOp>(loc, accTensor.getType(), inBounds,
+                                       /*withElseRegion=*/true);
+
+        rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+        SmallVector<Value> outIndices(ivs.begin(), ivs.end());
+        outIndices[dim] = rewriter.create<arith::IndexCastOp>(
+            loc, rewriter.getIndexType(), indexI32);
+
+        Value srcValue =
+            rewriter.create<tensor::ExtractOp>(loc, adaptor.getSource(), ivs);
+        Value oldValue =
+            rewriter.create<tensor::ExtractOp>(loc, accTensor, outIndices);
+        Value newValue =
+            applyScatterReduce(rewriter, loc, inputType.getElementType(),
+                               op.getScatterReduceType(), oldValue, srcValue);
+        Value updatedTensor = rewriter.create<tensor::InsertOp>(
+            loc, newValue, accTensor, outIndices);
+        rewriter.create<scf::YieldOp>(loc, updatedTensor);
+
+        rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+        rewriter.create<scf::YieldOp>(loc, accTensor);
+
+        rewriter.setInsertionPointAfter(ifOp);
+        return ifOp.getResult(0);
+      }
+
+      Value upper =
+          rewriter.create<arith::ConstantIndexOp>(loc, loopShape[depth]);
+      auto loop = rewriter.create<scf::ForOp>(loc, c0, upper, c1,
+                                              ValueRange{accTensor});
+      rewriter.setInsertionPointToStart(loop.getBody());
+      ivs.push_back(loop.getInductionVar());
+      Value updated = emitLoop(depth + 1, loop.getRegionIterArgs().front());
+      rewriter.create<scf::YieldOp>(loc, updated);
+      ivs.pop_back();
+      rewriter.setInsertionPointAfter(loop);
+      return loop.getResult(0);
+    };
+
+    Value result = emitLoop(/*depth=*/0, adaptor.getInput());
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
+private:
+  static Value castScatterIndexToI32(PatternRewriter &rewriter, Location loc,
+                                     Value indexValue,
+                                     RankedTensorType indexType) {
+    Type type = indexType.getElementType();
+    if (type.isInteger(32)) {
+      return indexValue;
+    }
+    if (type.isIndex()) {
+      return rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(),
+                                                 indexValue);
+    }
+    if (auto intType = mlir::dyn_cast<IntegerType>(type)) {
+      if (intType.getWidth() < 32) {
+        return rewriter.create<arith::ExtSIOp>(loc, rewriter.getI32Type(),
+                                               indexValue);
+      }
+      if (intType.getWidth() > 32) {
+        return rewriter.create<arith::TruncIOp>(loc, rewriter.getI32Type(),
+                                                indexValue);
+      }
+    }
+    llvm_unreachable("scatter index element type must be integer or index");
+  }
+
+  static Value applyScatterReduce(PatternRewriter &rewriter, Location loc,
+                                  Type elementType,
+                                  ttcore::ReduceType reduceType, Value lhs,
+                                  Value rhs) {
+    (void)elementType;
+    switch (reduceType) {
+    case ttcore::ReduceType::Sum:
+      return rewriter.create<arith::AddFOp>(loc, lhs, rhs);
+    case ttcore::ReduceType::Prod:
+      return rewriter.create<arith::MulFOp>(loc, lhs, rhs);
+    case ttcore::ReduceType::Max: {
+      Value cmp = rewriter.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OGT,
+                                                 rhs, lhs);
+      return rewriter.create<arith::SelectOp>(loc, cmp, rhs, lhs);
+    }
+    case ttcore::ReduceType::Min: {
+      Value cmp = rewriter.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OLT,
+                                                 rhs, lhs);
+      return rewriter.create<arith::SelectOp>(loc, cmp, rhs, lhs);
+    }
+    case ttcore::ReduceType::Invalid:
+      return rhs;
+    default:
+      llvm_unreachable("unsupported scatter reduce type");
+    }
   }
 };
 } // namespace
@@ -3650,9 +3817,9 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       PadOpConversionPattern, ConstantOpConversionPattern,
       ReluOpConversionPattern, NamedFillOpConversionPattern<ttir::ZerosOp, 0>,
       NamedFillOpConversionPattern<ttir::OnesOp, 1>, FullOpConversionPattern,
-      ArangeOpConversionPattern, MeshShardOpConversionPattern,
-      CumSumOpConversionPattern, ConcatenateHeadsOpConversionPattern>(
-      typeConverter, ctx);
+      ArangeOpConversionPattern, ScatterOpConversionPattern,
+      MeshShardOpConversionPattern, CumSumOpConversionPattern,
+      ConcatenateHeadsOpConversionPattern>(typeConverter, ctx);
 }
 
 void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,

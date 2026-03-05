@@ -725,6 +725,34 @@ def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MDecomposeScatter : Pass<"d2m-decompose-scatter", "::mlir::ModuleOp"> {
+  let summary = "Decompose scatter_block ops into untilize + scalar loop + tilize";
+  let description = [{
+    This pass decomposes high-level `scatter_block` operations into low-level
+    operations: untilize input/index/source row stripes, execute a scalar loop
+    that applies the scatter updates, and tilize the result back.
+
+    The scatter_block op operates at block level (memref of tiles) and
+    performs a torch-style scatter along the column dimension (post-collapse).
+
+    The decomposition for each row-tile stripe:
+    1. Untilize input row-tiles into scratch (row-major f32).
+    2. Untilize index row-tiles into scratch (row-major, cast to i32).
+    3. Untilize source row-tiles into scratch (row-major f32).
+    4. For each element in the row: read index j, bounds-check,
+       apply scatter reduce (sum/max/min/prod/replace) at output[row][j].
+    5. Tilize result row back into output tiles.
+
+    This pass should run after bufferization and before LinalgToAffine.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
 def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::ModuleOp"> {
   let summary = "Scalarize constant tensor inputs in d2m.generic operations";
   let description = [{

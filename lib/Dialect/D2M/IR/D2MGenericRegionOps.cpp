@@ -967,6 +967,140 @@ mlir::LogicalResult ArangeBlockOp::bufferize(
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
+// ===== ScatterBlockOp =====
+
+mlir::LogicalResult ScatterBlockOp::verify() {
+  Type outputType = getOutput().getType();
+  Type inputType = getInput().getType();
+  bool outputIsTensor = mlir::isa<mlir::RankedTensorType>(outputType);
+  bool inputIsTensor = mlir::isa<mlir::RankedTensorType>(inputType);
+  if (outputIsTensor != inputIsTensor) {
+    return emitOpError(
+        "output and input must both be tensors or both be memrefs");
+  }
+  return mlir::success();
+}
+
+void ScatterBlockOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndexMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getSourceMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getScatterInputScratchMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getScatterIndexScratchMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getScatterSourceScratchMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+bool ScatterBlockOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getInput() || operand.get() == getIndex() ||
+         operand.get() == getSource();
+}
+
+bool ScatterBlockOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getOutput() ||
+         operand.get() == getScatterInputScratch() ||
+         operand.get() == getScatterIndexScratch() ||
+         operand.get() == getScatterSourceScratch();
+}
+
+mlir::bufferization::AliasingValueList
+ScatterBlockOp::getAliasingValues(mlir::OpOperand &operand,
+                                  const mlir::bufferization::AnalysisState &) {
+  if (operand.get() == getOutput()) {
+    return {{getResult(), mlir::bufferization::BufferRelation::Equivalent,
+             /*isDefinite=*/true}};
+  }
+  return {};
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+ScatterBlockOp::getBufferType(mlir::Value value,
+                              const mlir::bufferization::BufferizationOptions &,
+                              const mlir::bufferization::BufferizationState &,
+                              ::llvm::SmallVector<mlir::Value> &) {
+  auto tensorType =
+      mlir::dyn_cast<mlir::RankedTensorType>(getOutput().getType());
+  if (!tensorType) {
+    return mlir::bufferization::BufferLikeType(
+        mlir::cast<mlir::MemRefType>(getOutput().getType()));
+  }
+  auto memrefType =
+      mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType);
+  return mlir::bufferization::BufferLikeType(memrefType);
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+mlir::LogicalResult ScatterBlockOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  if (!mlir::isa<mlir::RankedTensorType>(getOutput().getType())) {
+    return mlir::failure();
+  }
+
+  auto getBufferOrFail = [&](Value val) -> mlir::FailureOr<Value> {
+    return mlir::bufferization::getBuffer(rewriter, val, options, state);
+  };
+
+  auto maybeInput = getBufferOrFail(getInput());
+  auto maybeIndex = getBufferOrFail(getIndex());
+  auto maybeSource = getBufferOrFail(getSource());
+  auto maybeOutput = getBufferOrFail(getOutput());
+  auto maybeInScratch = getBufferOrFail(getScatterInputScratch());
+  auto maybeIdxScratch = getBufferOrFail(getScatterIndexScratch());
+  auto maybeSrcScratch = getBufferOrFail(getScatterSourceScratch());
+
+  if (failed(maybeInput) || failed(maybeIndex) || failed(maybeSource) ||
+      failed(maybeOutput) || failed(maybeInScratch) ||
+      failed(maybeIdxScratch) || failed(maybeSrcScratch)) {
+    return mlir::failure();
+  }
+
+  auto newOp = rewriter.create<ScatterBlockOp>(
+      getLoc(), *maybeInput, *maybeIndex, *maybeSource, *maybeInScratch,
+      *maybeIdxScratch, *maybeSrcScratch, *maybeOutput, getDim(),
+      getScatterReduceType(), getInputLogicalRows(), getInputLogicalCols(),
+      getSrcLogicalCols());
+
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, getOperation(),
+                                                     newOp.getResult());
+  return mlir::success();
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+//===----------------------------------------------------------------------===//
+// TileScatterRowBlockOp Implementation
+//===----------------------------------------------------------------------===//
+
+void TileScatterRowBlockOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndexMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getSourceMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
 bool RemoteLoadOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // Only result-form (no CB) operations should exist during bufferization

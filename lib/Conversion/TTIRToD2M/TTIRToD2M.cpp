@@ -2029,6 +2029,190 @@ public:
   }
 };
 
+class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp>,
+                             D2MNamedRewriterCommon {
+public:
+  D2MScatterOpRewriter(const TypeConverter &typeConverter,
+                       mlir::MLIRContext *ctx,
+                       ttcore::MemorySpace defaultInputMemSpace,
+                       ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                       bool collapseTensors, bool enableMulticastInference)
+      : OpConversionPattern<ttir::ScatterOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::ScatterOp op, ttir::ScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op->getLoc();
+
+    Value input = adaptor.getInput();
+    Value index = adaptor.getIndex();
+    Value source = adaptor.getSource();
+    int32_t dim = op.getDim();
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto indexType = mlir::cast<RankedTensorType>(index.getType());
+
+    if (inputType.getRank() != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M scatter currently requires 2D tensors");
+    }
+
+    // For dim==0 scatter, the scatter dimension is rows. We only support
+    // dim==1 (scatter along columns) for now.
+    if (dim != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M scatter currently only supports dim=1");
+    }
+
+    int64_t inputLogicalRows = inputType.getShape()[0];
+    int64_t inputLogicalCols = inputType.getShape()[1];
+    int64_t srcLogicalCols = indexType.getShape()[1];
+
+    // Cast index from i32 to f32 so it can be stored in f32 tiles.
+    if (indexType.getElementType().isInteger(32)) {
+      auto f32IndexType = RankedTensorType::get(
+          indexType.getShape(), rewriter.getF32Type(), indexType.getEncoding());
+      auto castOutput = rewriter.create<ttir::EmptyOp>(
+          loc, f32IndexType.getShape(), f32IndexType.getElementType(),
+          f32IndexType.getEncoding());
+      index =
+          rewriter
+              .create<ttir::TypecastOp>(loc, f32IndexType, index, castOutput)
+              .getResult();
+    }
+
+    // Create output + layouts for all operands.
+    auto origOutputs = createDpsOutputs(loc, rewriter, {inputType});
+    SmallVector<Value> origInputs = {input, index, source};
+    auto [inputs, outputs] = toLayoutOperandsAndResults(
+        rewriter, {origInputs, origOutputs}, /*tiled*/ true);
+    Value tiledInput = inputs[0];
+    Value tiledIndex = inputs[1];
+    Value tiledSource = inputs[2];
+    Value tiledOutput = outputs[0];
+
+    auto outputTensorType = mlir::cast<RankedTensorType>(tiledOutput.getType());
+    auto outputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(outputTensorType.getEncoding());
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(tiledOutput).getRank() / 2;
+
+    // Build shard shape info for scratch buffers (1 row of tiles).
+    llvm::ArrayRef<int64_t> gridShape =
+        outputLayout.getGridShape(outputTensorType);
+    Type f32Type = rewriter.getF32Type();
+    auto tileType = ttcore::TileType::get(f32Type);
+
+    // Compute number of column tiles from the tiled tensor shapes.
+    auto tiledInputType = mlir::cast<RankedTensorType>(tiledInput.getType());
+    auto tiledIndexType = mlir::cast<RankedTensorType>(tiledIndex.getType());
+    int64_t inColTiles = tiledInputType.getShape().back();
+    int64_t srcColTiles = tiledIndexType.getShape().back();
+
+    auto scratchLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), SmallVector<int64_t>{1, 1},
+        ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+        ttcore::TensorMemoryLayout::Sharded);
+
+    auto makeScratch = [&](int64_t colTiles) -> Value {
+      SmallVector<int64_t> shape(gridShape.begin(), gridShape.end());
+      shape.append({1, colTiles});
+      return rewriter.create<d2m::EmptyOp>(loc, shape, tileType, scratchLayout)
+          .getResult();
+    };
+
+    Value inScratch = makeScratch(inColTiles);
+    Value idxScratch = makeScratch(srcColTiles);
+    Value srcScratch = makeScratch(srcColTiles);
+
+    // Indexing maps: all inputs and output use identity, scratches use
+    // constant.
+    AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
+    SmallVector<AffineExpr> zeroExprs(physicalRank,
+                                      rewriter.getAffineConstantExpr(0));
+    AffineMap constantMap =
+        AffineMap::get(physicalRank, 0, zeroExprs, rewriter.getContext());
+
+    // Input and output share the same tiled shape → identity map.
+    // Index, source, and scratches have different shapes → constant map,
+    // marked as scratch inputs so they are not streamed.
+    SmallVector<AffineMap> indexingMaps = {
+        identityMap, // input
+        constantMap, // index   (different col-tile count)
+        constantMap, // source  (different col-tile count)
+        constantMap, // inScratch
+        constantMap, // idxScratch
+        constantMap, // srcScratch
+        identityMap, // output
+    };
+
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        rewriter.getContext(), ttcore::IteratorType::Parallel);
+    SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
+
+    SmallVector<Value> genericInputs = {tiledInput, tiledIndex, tiledSource,
+                                        inScratch,  idxScratch, srcScratch};
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, genericInputs, SmallVector<Value>{tiledOutput},
+        /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
+
+    // Index, source, and all scratch buffers are not streamed.
+    generic.setScratchInputsAttr(
+        rewriter.getDenseI64ArrayAttr({1, 2, 3, 4, 5}));
+
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    {
+      mlir::Region &region = generic->getRegions().front();
+      mlir::Block *block = rewriter.createBlock(&region);
+
+      auto blockArgsVec =
+          createBlockArguments(rewriter, block, loc, TypeRange(genericInputs),
+                               TypeRange(SmallVector<Value>{tiledOutput}),
+                               generic, enableMulticastInference);
+      ArrayRef<Value> blockArgs(blockArgsVec);
+
+      Value blkInput = blockArgs[0];
+      Value blkIndex = blockArgs[1];
+      Value blkSource = blockArgs[2];
+      Value blkInScratch = blockArgs[3];
+      Value blkIdxScratch = blockArgs[4];
+      Value blkSrcScratch = blockArgs[5];
+      Value blkOutput = blockArgs[6];
+
+      Value scatterResult =
+          rewriter
+              .create<d2m::ScatterBlockOp>(
+                  loc, blkInput, blkIndex, blkSource, blkInScratch,
+                  blkIdxScratch, blkSrcScratch, blkOutput, dim,
+                  op.getScatterReduceType(), inputLogicalRows, inputLogicalCols,
+                  srcLogicalCols)
+              .getResult();
+
+      AffineMap outputIndexingMap =
+          generic.getIndexingMap(genericInputs.size());
+      SmallVector<Value> indices =
+          d2m::utils::buildGridIndices(rewriter, loc, outputIndexingMap);
+      Value storeResult =
+          rewriter
+              .create<d2m::RemoteStoreOp>(loc, tiledOutput.getType(),
+                                          tiledOutput, indices, scatterResult)
+              .getResult();
+
+      rewriter.create<d2m::YieldOp>(loc, storeResult);
+    }
+    rewriter.finalizeOpModification(generic);
+    rewriter.restoreInsertionPoint(insertPoint);
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
+    return success();
+  }
+};
+
 class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   using OpConversionPattern<ttir::MeshShardOp>::OpConversionPattern;
 
@@ -2424,6 +2608,11 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Arange.
   patterns.add<D2MArangeOpRewriter>(typeConverter, ctx, defaultInputMemSpace,
+    defaultOutputMemSpace, ttnnMode,
+    collapseTensors, enableMulticastInference);
+
+  // Scatter.
+  patterns.add<D2MScatterOpRewriter>(typeConverter, ctx, defaultInputMemSpace,
     defaultOutputMemSpace, ttnnMode,
     collapseTensors, enableMulticastInference);
 

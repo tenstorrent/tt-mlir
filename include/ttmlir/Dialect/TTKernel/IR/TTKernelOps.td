@@ -2266,6 +2266,36 @@ def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental::fill_aran
     }];
 }
 
+def TTKernel_ExperimentalScatterRowBlockOp
+    : TTKernel_Op<"experimental::scatter_row_block"> {
+    let summary = "Experimental scatter row-block via LLK";
+    let description = [{
+      Calls the experimental scatter_row_block LLK which:
+        1. Untilizes input/index/source tile rows to row-major L1 scratch.
+        2. Executes the scalar scatter-add loop.
+        3. Tilizes the updated input back into the output CB.
+
+      All scalar L1 pointer math is inside the LLK C++ implementation.
+    }];
+
+    let arguments = (ins
+        TTKernel_CB:$input,
+        TTKernel_CB:$index,
+        TTKernel_CB:$source,
+        TTKernel_CB:$output,
+        I32:$in_col_tiles,
+        I32:$src_col_tiles,
+        I32:$input_logical_cols,
+        I32:$src_logical_cols);
+
+    let assemblyFormat = [{
+      `(` $input `,` $index `,` $source `,` $output `,`
+          $in_col_tiles `,` $src_col_tiles `,`
+          $input_logical_cols `,` $src_logical_cols `)`
+      attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
     let summary = "UntilizeInitOp call.";
     let description = [{

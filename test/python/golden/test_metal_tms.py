@@ -10,12 +10,13 @@ This test suite validates TM operations like permute, transpose, reshape, etc.
 
 import pytest
 import torch
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from conftest import get_request_kwargs
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from builder.base.builder_enums import ReduceType
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -379,4 +380,70 @@ def test_arange(
         device=device,
         custom_pipeline="ttir-to-ttmetal-pipeline",
         **get_request_kwargs(request),
+    )
+
+
+# ==================== SCATTER TESTS ====================
+
+
+@pytest.mark.parametrize(
+    "input_shape, index_shape, source_shape, dim, reduce_type",
+    [
+        # Minimal 2D scatter along dim 1: tile-aligned shapes.
+        # input [32, 64] = 1 row-tile x 2 col-tiles
+        # index/source [32, 32] = 1 row-tile x 1 col-tile
+        ((32, 64), (32, 32), (32, 32), 1, ReduceType.Sum),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_scatter(
+    input_shape: Tuple[int, ...],
+    index_shape: Tuple[int, ...],
+    source_shape: Tuple[int, ...],
+    dim: int,
+    reduce_type: ReduceType,
+    target: str,
+    request,
+    device,
+):
+    """Test scatter operation on TTMetal backend.
+
+    Scatter embeds source values into the input tensor at locations given by
+    the index tensor along the specified dimension.
+    """
+
+    def scatter_module(builder: TTIRBuilder):
+        @builder.func(
+            [input_shape, index_shape, source_shape],
+            [torch.float32, torch.int32, torch.float32],
+        )
+        def scatter(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            valid_indices = torch.randint(
+                0, input_shape[dim], index_shape, dtype=torch.int32
+            )
+            builder.set_operand_goldens({in1: valid_indices})
+            result = builder.scatter(
+                in0,
+                in1,
+                in2,
+                dim=dim,
+                scatter_reduce_type=reduce_type,
+                output_type=torch.float32,
+            )
+            builder.set_goldens_to_check([result])
+            return result
+
+    compile_and_execute_ttir(
+        scatter_module,
+        target=target,
+        device=device,
+        print_ir=True,
+        **get_request_kwargs(request),
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
     )
