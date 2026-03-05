@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
@@ -30,112 +31,6 @@ static bool isRemoteOperand(Value operand, Operation *op) {
   }
   // Remote operands are those that come from ops implementing ViewOpInterface
   return mlir::isa<ViewOpInterface>(defOp);
-}
-
-// Cache for CB values: maps (GenericOp pointer, operand index) -> CB value.
-using CBCache = DenseMap<std::pair<Operation *, unsigned>, Value>;
-
-// Track the next available CB port number per generic op.
-using PortCounter = DenseMap<Operation *, unsigned>;
-
-// Find the next available port number for a generic by scanning existing
-// d2m.get_cb ops in the region.
-static unsigned getNextAvailablePort(Region &region, PortCounter &portCounters,
-                                     Operation *genericOp) {
-  auto it = portCounters.find(genericOp);
-  if (it != portCounters.end()) {
-    return it->second;
-  }
-
-  // Scan existing get_cb ops to find the max port in use.
-  unsigned maxPort = 0;
-  bool found = false;
-  if (!region.empty()) {
-    region.front().walk([&](GetCBOp getCbOp) {
-      found = true;
-      unsigned port = static_cast<unsigned>(getCbOp.getPort());
-      if (port >= maxPort) {
-        maxPort = port + 1;
-      }
-    });
-  }
-  unsigned next = found ? maxPort : 0;
-  portCounters[genericOp] = next;
-  return next;
-}
-
-// Compute the CBType and create a d2m.get_cb op for a given operand of a
-// generic op.  Results are cached to ensure each (generic, operand) pair gets
-// exactly one CB value.  Port numbers are assigned sequentially and do NOT
-// correspond to operand indices.
-static Value getOrCreateCB(GenericOp generic, Region &region,
-                           unsigned operandIndex, IRRewriter &rewriter,
-                           CBCache &cache, PortCounter &portCounters) {
-  auto key = std::make_pair(generic.getOperation(), operandIndex);
-  auto it = cache.find(key);
-  if (it != cache.end()) {
-    return it->second;
-  }
-
-  auto operandType =
-      mlir::cast<ShapedType>(generic->getOperand(operandIndex).getType());
-  auto layout = mlir::tt::ttcore::getDeviceLayout(operandType);
-  if (!layout) {
-    return Value();
-  }
-  auto shardShape = layout.getShardShape(operandType);
-  auto cbType = CBType::get(MemRefType::get(
-      shardShape, operandType.getElementType(), nullptr,
-      mlir::tt::ttcore::MemorySpaceAttr::get(
-          generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1)));
-
-  unsigned port =
-      getNextAvailablePort(region, portCounters, generic.getOperation());
-  portCounters[generic.getOperation()] = port + 1;
-
-  OpBuilder::InsertionGuard guard(rewriter);
-  rewriter.setInsertionPointToStart(&region.front());
-  auto getCBOp = rewriter.create<GetCBOp>(generic.getLoc(), cbType, port);
-  Value result = getCBOp.getResult();
-  cache[key] = result;
-  return result;
-}
-
-// Helper function to find the CB value that corresponds to a memref operand
-// in a generic op. Creates CB values on demand via unrealized_conversion_cast.
-static Value findAssociatedCB(Operation *op, Value memrefOperand,
-                              IRRewriter &rewriter, CBCache &cache,
-                              PortCounter &portCounters) {
-  GenericOp generic = op->getParentOfType<GenericOp>();
-  if (!generic) {
-    return Value();
-  }
-
-  // Find which operand index this memref corresponds to.
-  unsigned operandIndex = UINT_MAX;
-  for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
-    if (generic->getOperand(i) == memrefOperand) {
-      operandIndex = i;
-      break;
-    }
-  }
-  if (operandIndex == UINT_MAX) {
-    return Value();
-  }
-
-  // Find the generic op's thread region that contains this operation.
-  Region *genericRegion = nullptr;
-  if (generic.getNumRegions() == 1) {
-    genericRegion = &generic.getRegion(0);
-  } else {
-    genericRegion = ttmlir::utils::getRegionWithParentOfType<GenericOp>(op);
-  }
-  if (!genericRegion || genericRegion->empty()) {
-    return Value();
-  }
-
-  return getOrCreateCB(generic, *genericRegion, operandIndex, rewriter, cache,
-                       portCounters);
 }
 
 // Helper function to find the ReserveOp that produces a given value,
