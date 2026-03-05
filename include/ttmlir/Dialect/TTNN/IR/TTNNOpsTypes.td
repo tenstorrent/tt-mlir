@@ -26,8 +26,8 @@ def TTNN_Device : TTNN_Type<"Device", "device", []> {
 }
 
 def TTNN_GlobalSemaphore : TTNN_Type<"GlobalSemaphore", "global_semaphore"> {
-  let summary = "TTNN global semaphore";
-  let description = "Global semaphore type in TTNN dialect";
+  let summary = "TTNN global semaphore.";
+  let description = "Global semaphore type in TTNN dialect.";
 }
 
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSTYPES_TD

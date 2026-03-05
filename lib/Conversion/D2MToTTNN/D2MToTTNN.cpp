@@ -473,6 +473,8 @@ public:
     for (auto operand : op.getAdditionalArgs()) {
       if (mlir::isa<ttnn::GlobalSemaphoreType>(operand.getType())) {
         additionalArgs.push_back(operand);
+      } else if (mlir::isa<RankedTensorType>(operand.getType())) {
+        additionalArgs.push_back(operand);
       } else {
         op.emitOpError(
             "unexpected operand type in d2m.generic's additionalArgs: ")

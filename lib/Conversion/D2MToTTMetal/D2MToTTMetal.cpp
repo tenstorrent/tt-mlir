@@ -157,8 +157,11 @@ public:
       auto operand = adaptor.getOperands()[op.getInputsAndOutputs().size() + i];
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
         args.push_back(operand);
+      } else if (mlir::isa<MemRefType>(operand.getType())) {
+        args.push_back(operand);
       } else {
-        op.emitOpError("unexpected capture operand type: ")
+        op.emitOpError(
+            "unexpected operand type in d2m.generic's additionalArgs: ")
             << operand.getType();
         return failure();
       }
