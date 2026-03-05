@@ -709,7 +709,6 @@ public:
         }
       }
       rewriter.eraseOp(op);
-      return success();
     } else if (mlir::isa_and_present<ttcore::DeviceLayoutInterface>(
                    memrefType.getLayout())) {
       auto deviceAttr = ttcore::lookupDevice(op);
@@ -803,10 +802,12 @@ public:
       // mapping so that other patterns (like D2MGenericRewriter) can get the
       // converted value through the adaptor.
       rewriter.replaceOp(op, emptyOp.getResult());
-      return success();
+    } else {
+      return rewriter.notifyMatchFailure(op,
+                                         "memref alloc does not correspond to "
+                                         "a ttnn tensor or global semaphore");
     }
-    return rewriter.notifyMatchFailure(
-        op, "memref alloc does not correspond to a ttnn tensor");
+    return success();
   }
 };
 } // namespace
