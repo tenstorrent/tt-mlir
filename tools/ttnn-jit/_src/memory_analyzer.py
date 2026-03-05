@@ -319,10 +319,14 @@ class MemoryAnalyzer:
         shape = list(output_type.shape)
         dtype = ttnn_dtype_from_mlir_element_type(output_type.element_type)
 
+        if output_type.encoding is not None:
+            mlir_layout = ttnn_dialect.ir.TTNNLayoutAttr.maybe_downcast(
+                output_type.encoding
+            )
+        else:
+            mlir_layout = None
+
         # Create memory config from MLIR encoding
-        mlir_layout = ttnn_dialect.ir.TTNNLayoutAttr.maybe_downcast(
-            output_type.encoding
-        )
         memory_config = self._create_memory_config_from_encoding(shape, mlir_layout)
 
         # Create an empty tensor that can hold the hypothetical output

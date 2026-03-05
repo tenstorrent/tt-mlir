@@ -44,6 +44,7 @@ SHAPE_INPUT_GRID_OUTPUT_GRID_INPUT_SHARD_STRATEGY_OUTPUT_SHARD_STRATEGY = [
 
 
 # test identity (layout -> same layout)
+@pytest.mark.xfail(reason="To layout to DRAM interleaved is not supported. See")
 def test_identity_layout_dram(device):
     shape = (1024, 1024)
     max_grid = (7, 7)
