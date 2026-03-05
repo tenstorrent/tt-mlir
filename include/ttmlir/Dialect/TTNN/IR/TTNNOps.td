@@ -3497,8 +3497,8 @@ def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore"> {
       Creates a global semaphore with the specified core range and initial value.
 
       Global semaphores are similar to normal semaphores but differ in a couple of ways:
-      1) their lifetime exists beyond the scope of an op,
-      2) they can be initialized before an op is even dispatched (whereas normal semaphores are initialized at dispatch time).
+      1) their lifetime exists beyond the scope of an op (and thus must created/deallocated separately like tensors)
+      2) they can be initialized before an op is even dispatched (whereas normal semaphores are initialized at dispatch time)
 
       This is needed for CCLs (and multichip communication in general) to synchronize devices or for normal signalling where normal semaphores
       cannot be used. This is because the different devices in a mesh are not running ops in a synchronized manner
@@ -3510,6 +3510,11 @@ def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore"> {
       Now, if device y has to do a remote semaphore increment on device x as part of the all gather,
       this would lead to undefined behaviour
       since device x is still executing the matmul and it's semaphore for the all gather op does not even exist yet.
+
+      Example:
+      ```mlir
+      %semaphore = "ttnn.create_global_semaphore"() <{initial_value = 0 : ui32, core_range = #ttnn.core_range<(0,0), (7,7)>}> : () -> !ttnn.global_semaphore
+      ```
     }];
 
     let arguments = (ins OptionalAttr<UI32Attr>:$initial_value, TTNN_CoreRangeAttr:$core_range);
@@ -3520,6 +3525,11 @@ def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore"> {
     let summary = "Reset global semaphore op.";
     let description = [{
       Resets a global semaphore to the specified value.
+
+      Example:
+      ```mlir
+      "ttnn.reset_global_semaphore"(%semaphore) <{value = 0 : ui32}> : (!ttnn.global_semaphore) -> ()
+      ```
     }];
 
     let arguments = (ins TTNN_GlobalSemaphore:$semaphore, UI32Attr:$value);
