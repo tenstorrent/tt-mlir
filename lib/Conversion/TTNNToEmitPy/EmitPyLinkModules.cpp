@@ -29,7 +29,8 @@ namespace {
 //
 // When TTNNFileSplit is performed, Device module has two file ops: main and
 // consteval. CPU definitions are placed in the consteval file and
-// declarations from the main file are replaced with an proper import statement.
+// declarations from the main file are are used to create a proper import
+// statement.
 //
 // Operations are moved in the following order:
 // 1. Imports.
