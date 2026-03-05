@@ -1168,6 +1168,16 @@ public:
       return failure();
     }
 
+    // TODO(vkovacevic): https://github.com/tenstorrent/tt-metal/issues/38992
+    // The tt-metal nlp_concat_heads_decode op computes its output logical shape
+    // from the input's padded shape. If head_dim or batch aren't tile-aligned,
+    // the output logical shape will differ from what our IR expects, causing a
+    // volume mismatch in the subsequent reshape at runtime.
+    constexpr int64_t kTileSize = 32;
+    if (headDim % kTileSize != 0 || batchSize % kTileSize != 0) {
+      return failure();
+    }
+
     // Construct the NLPConcatHeadsDecodeOp output type.
     // Output shape: [S, 1, B, num_heads * head_dim].
     SmallVector<int64_t> concatHeadsOutputShape = {seqLen, 1, batchSize,
