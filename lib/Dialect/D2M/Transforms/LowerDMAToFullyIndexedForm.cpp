@@ -22,8 +22,6 @@
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#include <numeric>
-
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERDMATOFULLYINDEXEDFORM
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -73,7 +71,7 @@ static AffineMap canonicalStridedMap(MLIRContext *context,
 static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
                               bool isRemote) {
   if (isRemote) {
-    // The Value overload in d2m::utils handles view tracing (applyViews) and
+    // d2m::utils::getMemoryMap handles view tracing (applyViews) and
     // VGM lookup (getVirtualGridForwardMapping) internally.
     return d2m::utils::getMemoryMap(device, input, /*pageSize=*/0);
   }
@@ -198,18 +196,16 @@ static size_t calculateCoalescingFactorWithFallback(
   return coalescingFactor;
 }
 
-// Callback type for creating a single fully-indexed DMA op given resolved
-// remote and local indices. Used by generateFullyIndexedDMAOps to abstract
-// over DMAReadOp vs DMAWriteOp creation.
-using CreateDMAOpFn = std::function<Value(
+// Callback type for creating a single fully-indexed DMA op. Used by
+// generateFullyIndexedDMAOps to abstract over DMAReadOp vs DMAWriteOp creation.
+using CreateDMAOpFn = llvm::function_ref<Value(
     OpBuilder &builder, Location loc, SmallVector<Value> &remoteIndices,
     SmallVector<Value> &localIndices, size_t coalescingFactor)>;
 
 // Generate fully-indexed DMA operations with proper coalescing.
 // Returns the last DMA transaction value (for waiting).
 // Handles both contiguous (single DMA) and strided (loop with guarded DMAs)
-// cases. The createDMAOp callback is responsible for creating the actual
-// DMAReadOp or DMAWriteOp with the correct operand ordering.
+// cases.
 static Value generateFullyIndexedDMAOps(
     OpBuilder &builder, Location loc, SmallVector<Value> gridIndices,
     ArrayRef<int64_t> shardShape, AffineMap remoteMemoryMap,

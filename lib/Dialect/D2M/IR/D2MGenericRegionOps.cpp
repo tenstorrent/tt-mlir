@@ -98,8 +98,6 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
   int64_t numSrcIndices = getSrcIndices().size();
 
   if (isShardLevel()) {
-    // Shard-level form: no src indices, variable dst grid indices (or none for
-    // mcast).
     if (numSrcIndices != 0) {
       return emitOpError("Shard-level DMAWrite must have 0 src indices");
     }
@@ -107,7 +105,6 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
       return emitOpError("Shard-level mcast DMAWrite must have 0 dst indices");
     }
   } else {
-    // Fully indexed form: original verification rules.
     constexpr int64_t kExpectedIndicesRemote = 3;
     constexpr int64_t kExpectedIndicesLocal = 1;
 
@@ -147,12 +144,10 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
   int64_t numSrcIndices = getSrcIndices().size();
 
   if (isShardLevel()) {
-    // Shard-level form: grid indices on src, no indices on dst.
     if (numDstIndices != 0) {
       return emitOpError("Shard-level DMARead must have 0 dst indices");
     }
   } else {
-    // Fully indexed form: original verification rules.
     constexpr int64_t kExpectedIndicesRemote = 3;
     constexpr int64_t kExpectedIndicesLocal = 1;
     if (numSrcIndices != kExpectedIndicesRemote) {
@@ -162,7 +157,6 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
       return emitOpError("Must have 1 dst index for local dst operand");
     }
   }
-
   return success();
 }
 

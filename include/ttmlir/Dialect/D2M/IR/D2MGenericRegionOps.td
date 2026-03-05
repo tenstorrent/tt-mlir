@@ -929,7 +929,7 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
       argument _implies a unicast write_.
 
       It supports two forms distinguished by numElems:
-      **Fully indexed form** (numElems > 0): src and dst indices are fully
+      Fully indexed form (numElems > 0): src and dst indices are fully
       resolved (all view and memspace-specific affine maps applied). Corresponds
       1:1 to a single concrete DMA write operation.
 
@@ -938,7 +938,7 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
         : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x2x4x!ttcore.tile<32x32, f32>, #dram>) -> !d2m.mem_tx
       ```
 
-      **Shard-level form** (numElems == 0): indices are grid-level only.
+      Shard-level form (numElems == 0): indices are grid-level only.
       Represents "write entire shard at grid position". The indexing expansion
       is deferred to D2MLowerDMAToFullyIndexedForm.
 
@@ -1020,9 +1020,9 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
     let summary = "Lowered D2M DMA Read Op.";
     let description = [{
       This op performs a DMA read operation from src memref to dst memref. The dst memref must be local!
-      It supports two forms distinguished by numElems:
 
-      **Fully indexed form** (numElems > 0): src and dst indices are fully
+      It supports two forms distinguished by numElems:
+      Fully indexed form (numElems > 0): src and dst indices are fully
       resolved (all view and memspace-specific affine maps applied). Corresponds
       1:1 to a single concrete DMA read operation.
 
@@ -1032,7 +1032,7 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
            memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
       ```
 
-      **Shard-level form** (numElems == 0): indices are grid-level only on the
+      Shard-level form (numElems == 0): indices are grid-level only on the
       remote src operand, no indices on the local dst. Represents "read entire
       shard at grid position". The indexing expansion is deferred to
       D2MLowerDMAToFullyIndexedForm.
