@@ -192,6 +192,14 @@ public:
   matchAndRewrite(memref::AllocOp op, memref::AllocOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto address = op->getAttrOfType<IntegerAttr>("address");
+
+    // Stream buffer allocs have no address and are used only as storage
+    // operands for d2m.stream_layout ops. They remain as memref.alloc in the
+    // target dialect and do not need a ttmetal.create_buffer.
+    if (!address) {
+      return failure();
+    }
+
     assert(op.getMemref().getType().getMemorySpace() &&
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();

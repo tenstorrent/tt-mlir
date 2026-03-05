@@ -69,6 +69,11 @@ struct ConvertD2MToTTMetal
     target.addLegalOp<d2m::ViewLayoutOp>();
 
     target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
+      // Unaddressed stream buffer allocs are legal (temporary workaround
+      // until StreamLayoutOps are removed entirely).
+      if (!op->getAttrOfType<IntegerAttr>("address")) {
+        return true;
+      }
       return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
           op.getMemref().getType().getMemorySpace());
     });
