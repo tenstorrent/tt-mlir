@@ -439,12 +439,6 @@ public:
       // The genericOp has a virtual grid. We need to recover the original
       // physical grid.
       auto output = op.getOutputs()[0];
-      mlir::ShapedType outputType =
-          mlir::cast<mlir::ShapedType>(output.getType());
-      auto shardLayout = mlir::dyn_cast<ttcore::ShardLayoutAttr>(
-          ttcore::getDeviceLayout(outputType));
-      TT_assertv(shardLayout, "Expected shardLayoutAttr for the output of a "
-                              "generic op with a virtual grid.");
 
       auto physicalGridShape = d2m::utils::getPhysicalGridShape(output);
       // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
