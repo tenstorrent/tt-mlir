@@ -431,6 +431,7 @@ def D2M_SpatialOp: D2M_Op<"spatial",
     }];
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 
     let extraClassDeclaration = [{
       // Required by DestinationStyleOpInterface
