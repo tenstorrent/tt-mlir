@@ -71,11 +71,12 @@ estimateElementwiseConstraints(Operation *op,
   // We cannot compute cbL1PeakSize or peakL1MemorySize here: both require
   // kernel circular-buffer usage, which only the backend knows.
   uint64_t tensorPeak = outputL1 + sumInputL1;
-  return op_model::OpConstraints(/*cbL1PeakSize=*/0,
-                                 /*tensorL1PeakSize=*/tensorPeak,
-                                 /*peakL1MemorySize=*/tensorPeak,
-                                 /*outputL1BufferSize=*/outputL1,
-                                 opConfig.outputLayout);
+  return op_model::OpConstraints(
+      /*cbL1PeakSize=*/0,
+      /*tensorL1PeakSize=*/tensorPeak,
+      /*peakL1MemorySize=*/tensorPeak,
+      /*outputL1BufferSize=*/outputL1,
+      llvm::SmallVector<TTNNLayoutAttr>{opConfig.outputLayout});
 }
 
 op_model::OpConstraints
@@ -87,11 +88,12 @@ estimateReductionConstraints(Operation *op,
   uint64_t inputL1 = getL1SizeBytes(inputs[0]);
   uint64_t peak = outputL1 + inputL1;
   // cbL1PeakSize and peakL1MemorySize need kernel CB usage; we use 0 / tensor.
-  return op_model::OpConstraints(/*cbL1PeakSize=*/0,
-                                 /*tensorL1PeakSize=*/peak,
-                                 /*peakL1MemorySize=*/peak,
-                                 /*outputL1BufferSize=*/outputL1,
-                                 opConfig.outputLayout);
+  return op_model::OpConstraints(
+      /*cbL1PeakSize=*/0,
+      /*tensorL1PeakSize=*/peak,
+      /*peakL1MemorySize=*/peak,
+      /*outputL1BufferSize=*/outputL1,
+      llvm::SmallVector<TTNNLayoutAttr>{opConfig.outputLayout});
 }
 
 op_model::OpConstraints
@@ -104,11 +106,12 @@ estimateMatmulConstraints(Operation *op,
   uint64_t inputBL1 = getL1SizeBytes(inputs[1]);
   uint64_t peak = outputL1 + inputAL1 + inputBL1;
   // cbL1PeakSize and peakL1MemorySize need kernel CB usage; we use 0 / tensor.
-  return op_model::OpConstraints(/*cbL1PeakSize=*/0,
-                                 /*tensorL1PeakSize=*/peak,
-                                 /*peakL1MemorySize=*/peak,
-                                 /*outputL1BufferSize=*/outputL1,
-                                 opConfig.outputLayout);
+  return op_model::OpConstraints(
+      /*cbL1PeakSize=*/0,
+      /*tensorL1PeakSize=*/peak,
+      /*peakL1MemorySize=*/peak,
+      /*outputL1BufferSize=*/outputL1,
+      llvm::SmallVector<TTNNLayoutAttr>{opConfig.outputLayout});
 }
 
 } // namespace
