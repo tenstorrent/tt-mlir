@@ -7,8 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
-#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
-#include "ttmlir/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/PatternMatch.h"
@@ -164,57 +163,6 @@ static memref::AllocOp findAllocOp(Value value) {
   return nullptr;
 }
 
-// Identify load->store forwarding pairs that share a local buffer exactly as:
-//   one implicit remote_load user + one implicit remote_store user
-// with no additional users. Such remote_store ops should remain as remote
-// stores and must not be converted into CB-only operations.
-static RemoteStoreOp findForwardableStore(RemoteLoadOp remoteLoad) {
-  Value localBuffer = remoteLoad.getLocalBuffer();
-  if (!localBuffer) {
-    return nullptr;
-  }
-
-  int64_t userCount = 0;
-  int64_t implicitLoadUserCount = 0;
-  SmallVector<RemoteStoreOp> implicitStoreUsers;
-  Type localBufferType = localBuffer.getType();
-
-  for (Operation *user : localBuffer.getUsers()) {
-    ++userCount;
-
-    if (auto loadUser = mlir::dyn_cast<RemoteLoadOp>(user)) {
-      if (loadUser.isImplicitForm() &&
-          loadUser.getLocalBuffer() == localBuffer) {
-        ++implicitLoadUserCount;
-      }
-      continue;
-    }
-
-    auto storeUser = mlir::dyn_cast<RemoteStoreOp>(user);
-    if (!storeUser) {
-      continue;
-    }
-
-    if (!storeUser.isImplicitForm() ||
-        storeUser.getLocalBuffer() != localBuffer) {
-      continue;
-    }
-
-    if (storeUser.getLocalBuffer().getType() != localBufferType) {
-      continue;
-    }
-
-    implicitStoreUsers.push_back(storeUser);
-  }
-
-  bool isForwardablePair = implicitLoadUserCount == 1 &&
-                           implicitStoreUsers.size() == 1 && userCount == 2;
-  if (!isForwardablePair) {
-    return nullptr;
-  }
-  return implicitStoreUsers.front();
-}
-
 class D2MConvertLocalLoadStoreOpsToAliasedCBs
     : public impl::D2MConvertLocalLoadStoreOpsToAliasedCBsBase<
           D2MConvertLocalLoadStoreOpsToAliasedCBs> {
@@ -237,7 +185,8 @@ public:
       if (!remoteLoad.isImplicitForm()) {
         return;
       }
-      if (RemoteStoreOp forwardableStore = findForwardableStore(remoteLoad)) {
+      if (RemoteStoreOp forwardableStore =
+              utils::findForwardableStore(remoteLoad)) {
         forwardablePairStores.insert(forwardableStore.getOperation());
       }
     });
@@ -263,8 +212,8 @@ public:
     for (RemoteLoadOp remoteLoad : remoteLoadsToConvert) {
       Location loc = remoteLoad.getLoc();
       Value memref = remoteLoad.getMemref();
-      Value assocCb = findAssociatedCB(remoteLoad.getOperation(), memref,
-                                       rewriter, cbCache, portCounters);
+      Value assocCb =
+          GenericOp::findAssocCBByOperand(remoteLoad.getOperation(), memref);
 
       if (!assocCb) {
         remoteLoad.emitWarning(
@@ -359,8 +308,8 @@ public:
     for (RemoteStoreOp remoteStore : remoteStoresToConvert) {
       Location loc = remoteStore.getLoc();
       Value memref = remoteStore.getMemref();
-      Value assocCb = findAssociatedCB(remoteStore.getOperation(), memref,
-                                       rewriter, cbCache, portCounters);
+      Value assocCb =
+          GenericOp::findAssocCBByOperand(remoteStore.getOperation(), memref);
 
       if (!assocCb) {
         remoteStore.emitWarning(

@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -84,55 +85,29 @@ static LogicalResult getLegalForwardableStore(RemoteLoadOp remoteLoad,
     return success();
   }
 
-  int64_t userCount = 0;
-  int64_t implicitLoadUserCount = 0;
-  SmallVector<RemoteStoreOp> implicitStoreUsers;
-  Type localBufferType = localBuffer.getType();
+  forwardableStore = utils::findForwardableStore(remoteLoad);
+  if (forwardableStore) {
+    return success();
+  }
 
+  // findForwardableStore returned null. If any implicit store users of the
+  // local buffer exist, the pattern is illegal at this point in the pipeline.
   for (Operation *user : localBuffer.getUsers()) {
-    ++userCount;
-
-    if (auto loadUser = mlir::dyn_cast<RemoteLoadOp>(user)) {
-      if (loadUser.isImplicitForm() &&
-          loadUser.getLocalBuffer() == localBuffer) {
-        ++implicitLoadUserCount;
-      }
-      continue;
-    }
-
     auto storeUser = mlir::dyn_cast<RemoteStoreOp>(user);
-    if (!storeUser) {
-      continue;
-    }
-
-    if (!storeUser.isImplicitForm() ||
+    if (!storeUser || !storeUser.isImplicitForm() ||
         storeUser.getLocalBuffer() != localBuffer) {
       continue;
     }
-
-    // Forwarding requires identical local buffer types so shard/layout
-    // semantics are preserved exactly between producer and consumer.
-    if (storeUser.getLocalBuffer().getType() != localBufferType) {
+    if (storeUser.getLocalBuffer().getType() != localBuffer.getType()) {
       return remoteLoad.emitOpError(
           "shared local buffer between d2m.remote_load and d2m.remote_store "
           "must preserve shard/layout type");
     }
-    implicitStoreUsers.push_back(storeUser);
-  }
-
-  if (implicitStoreUsers.empty()) {
-    return success();
-  }
-
-  bool isForwardablePair = implicitLoadUserCount == 1 &&
-                           implicitStoreUsers.size() == 1 && userCount == 2;
-  if (!isForwardablePair) {
     return remoteLoad.emitOpError("local buffer shared between "
                                   "d2m.remote_load and d2m.remote_store must "
                                   "form an exclusive forward-able pair");
   }
 
-  forwardableStore = implicitStoreUsers.front();
   return success();
 }
 
