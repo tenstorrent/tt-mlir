@@ -407,22 +407,23 @@ def D2M_EmptyOp
                        OptionalAttr<AffineMapAttr>:$virtualGridForwardMapping);
   let results = (outs AnyRankedTensor:$result);
 
-  let builders = [OpBuilder<(ins "ArrayRef<int64_t>":$shape,
-                                "Type":$elementType, "Attribute":$encoding),
-                            [{
-      build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding),
-            /*virtualGridInverseMapping=*/nullptr, /*virtualGridForwardMapping=*/nullptr);
+  let builders = [
+    OpBuilder<(ins "ArrayRef<int64_t>":$shape, "Type":$elementType,
+                   "Attribute":$encoding), [{
+      build($_builder, $_state,
+            RankedTensorType::get(shape, elementType, encoding),
+            /*virtualGridInverseMapping=*/nullptr,
+            /*virtualGridForwardMapping=*/nullptr);
     }]>,
-                  OpBuilder<
-                      (ins "ArrayRef<int64_t>":$shape, "Type":$elementType), [{
+    OpBuilder<(ins "ArrayRef<int64_t>":$shape, "Type":$elementType), [{
       build($_builder, $_state, shape, elementType, nullptr);
     }]>,
-                  // Builder that computes and sets virtual grid mapping attrs
-                  // when the tensor's grid requires virtualization for the
-                  // given target device grid.
-                  OpBuilder<(ins "ArrayRef<int64_t>":$shape,
-                                 "Type":$elementType, "Attribute":$encoding,
-                                 "ArrayRef<int64_t>":$targetGridShape)>];
+    // Builder that computes and sets virtual grid mapping attrs when the
+    // tensor's grid requires virtualization for the given target device grid.
+    OpBuilder<(ins "ArrayRef<int64_t>":$shape, "Type":$elementType,
+                   "Attribute":$encoding,
+                   "ArrayRef<int64_t>":$targetGridShape)>,
+  ];
 
   let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
 }
