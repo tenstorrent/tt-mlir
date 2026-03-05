@@ -5810,5 +5810,4 @@ def TTIR_TopKOp : TTIR_NamedOp<"topk"> {
 
   let hasVerifier = 1;
 }
-
 #endif

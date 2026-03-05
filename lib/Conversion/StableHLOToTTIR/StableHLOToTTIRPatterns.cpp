@@ -1217,6 +1217,7 @@ private:
           srcOp, "ttir.constant only supports DenseElementsAttr or "
                  "DenseResourceElementsAttr with int or float types.");
     }
+
     return success();
   }
 };
