@@ -60,12 +60,20 @@ void SingletonDeviceContext::setSystemDesc(ttcore::SystemDescAttr systemDesc) {
   instance.m_systemDesc = systemDesc;
 }
 
-void SingletonDeviceContext::openMockDevice(const size_t traceRegionSize) {
-  openDevice(traceRegionSize, /*isMock=*/true);
+size_t SingletonDeviceContext::getNumDevices() const {
+  assert(m_device != nullptr && "Device is not initialized.");
+  return m_device->num_devices();
 }
 
-void SingletonDeviceContext::openDevice(const size_t traceRegionSize,
-                                        bool isMock) {
+void SingletonDeviceContext::openMockDevice(
+    const size_t traceRegionSize,
+    const std::optional<std::pair<size_t, size_t>> &meshShape) {
+  openDevice(traceRegionSize, /*isMock=*/true, meshShape);
+}
+
+void SingletonDeviceContext::openDevice(
+    const size_t traceRegionSize, bool isMock,
+    const std::optional<std::pair<size_t, size_t>> &meshShape) {
   assert(m_device == nullptr &&
          "Device is already initialized. Cannot open device again.");
 
@@ -95,7 +103,9 @@ void SingletonDeviceContext::openDevice(const size_t traceRegionSize,
       numDevices == numPCIeDevices ? ::tt::tt_metal::DispatchCoreType::WORKER
                                    : ::tt::tt_metal::DispatchCoreType::ETH;
 
-  ::tt::tt_metal::distributed::MeshShape shape{1, 1};
+  ::tt::tt_metal::distributed::MeshShape shape{
+      meshShape ? static_cast<unsigned int>(meshShape->first) : 1,
+      meshShape ? static_cast<unsigned int>(meshShape->second) : 1};
   m_device = ::tt::tt_metal::distributed::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{shape},
       /* l1_small_size = */ ::tt::constants::L1_SMALL_SIZE,

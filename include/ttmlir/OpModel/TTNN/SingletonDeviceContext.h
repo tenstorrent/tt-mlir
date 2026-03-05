@@ -12,6 +12,8 @@
 #include <cassert>
 #include <cstddef>
 #include <memory>
+#include <optional>
+#include <utility>
 
 namespace mlir {
 class Operation;
@@ -76,12 +78,16 @@ public:
   // When isMock is false (default), opens a real device connected to hardware.
   // Users need to ensure that we don't have an active device in the current
   // context, otherwise this method will assert.
-  void openDevice(const size_t traceRegionSize = opModelDefaultTraceRegionSize,
-                  bool isMock = false);
+  // meshShape overrides the default {1, 1} mesh shape when provided.
+  void openDevice(
+      const size_t traceRegionSize = opModelDefaultTraceRegionSize,
+      bool isMock = false,
+      const std::optional<std::pair<size_t, size_t>> &meshShape = std::nullopt);
 
   // Convenience method that opens a mock device.
-  void
-  openMockDevice(const size_t traceRegionSize = opModelDefaultTraceRegionSize);
+  void openMockDevice(
+      const size_t traceRegionSize = opModelDefaultTraceRegionSize,
+      const std::optional<std::pair<size_t, size_t>> &meshShape = std::nullopt);
 
   // Returns a pointer to the device. Asserts that we have an active device in
   // our context.
@@ -92,6 +98,9 @@ public:
 
   // Returns true if the device is initialized.
   bool isDeviceInitialized() const { return m_device != nullptr; }
+
+  // Returns the number of devices in the mesh.
+  size_t getNumDevices() const;
 
   // Returns true if the device was opened via the mock path
   // (no real HW).
