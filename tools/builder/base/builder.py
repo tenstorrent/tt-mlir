@@ -314,8 +314,7 @@ class Builder(metaclass=BuilderMeta):
         )
 
         # Generate new multi-device golden if it's presharded
-        if not self._disable_golden_check:
-            self._set_golden_tensor(operand, sharded_golden_tensor)
+        self._set_golden_tensor(operand, sharded_golden_tensor)
 
         local_shape = sharded_golden_tensor.shape
         element_type = self._get_type(operand).element_type
