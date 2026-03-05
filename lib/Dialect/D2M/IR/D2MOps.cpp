@@ -24,6 +24,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
@@ -2915,5 +2916,116 @@ void d2m::SpatialOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
   d2m::getDpsEffects(*this, effects);
+}
+
+void d2m::SpatialOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  patterns.add(+[](SpatialOp op, mlir::PatternRewriter &rewriter) {
+    // Rewrite so each region ends up with only a single GenericOp (and
+    // SpatialYieldOp when in tensor semantics). Hoist all other ops out so that
+    // region-captured values remain SpatialOp operands for downstream passes.
+    // Steps: (1) Clone prefix ops before op. (2) Build new operands from
+    // GenericOp inputs/outputs. (3) Create new SpatialOp and fill regions.
+    // (4) Map GenericOp results to new SpatialOp results. (5) Clone suffix ops
+    // after new SpatialOp.
+
+    mlir::IRMapping map;
+    for (Value operand : op.getOperands()) {
+      map.map(operand, operand);
+    }
+    rewriter.setInsertionPoint(op);
+
+    SmallVector<GenericOp> generics;
+    SmallVector<SmallVector<Operation *>> suffixOpsPerRegion;
+    bool hasOpsToHoist = false;
+
+    // (1) Per region: clone prefix ops before op, record GenericOp, collect
+    // suffix.
+    for (Region &region : op.getRegions()) {
+      Block &block = region.front();
+      GenericOp genericOp;
+      SmallVector<Operation *> suffixOps;
+      bool seenGeneric = false;
+      for (Operation &blockOp : block.getOperations()) {
+        if (mlir::isa<GenericOp>(blockOp)) {
+          genericOp = mlir::cast<GenericOp>(blockOp);
+          seenGeneric = true;
+          continue;
+        }
+        if (mlir::isa<SpatialYieldOp>(blockOp)) {
+          continue;
+        }
+        if (!seenGeneric) {
+          hasOpsToHoist = true;
+          rewriter.clone(blockOp, map);
+        } else {
+          hasOpsToHoist = true;
+          suffixOps.push_back(&blockOp);
+        }
+      }
+      if (!genericOp) {
+        return rewriter.notifyMatchFailure(op, "region has no generic");
+      }
+      generics.push_back(genericOp);
+      suffixOpsPerRegion.push_back(std::move(suffixOps));
+    }
+
+    if (!hasOpsToHoist) {
+      return rewriter.notifyMatchFailure(op, "no ops to hoist");
+    }
+
+    // (2) New operands: inputs = set of all GenericOp inputs; outputs in order.
+    llvm::SmallDenseSet<Value> inputSet;
+    SmallVector<Value> newInputs;
+    SmallVector<Value> newOutputs;
+    for (GenericOp genericOp : generics) {
+      for (Value input : genericOp.getInputs()) {
+        Value mapped = map.lookup(input);
+        if (inputSet.insert(mapped).second) {
+          newInputs.push_back(mapped);
+        }
+      }
+      for (Value output : genericOp.getOutputs()) {
+        newOutputs.push_back(map.lookup(output));
+      }
+    }
+
+    auto newSpatial = rewriter.create<SpatialOp>(
+        op.getLoc(), op.getResultTypes(), newInputs, newOutputs,
+        op.getGridRanges(), op.getNumRegions());
+
+    // (3) Fill each region with cloned GenericOp and SpatialYieldOp.
+    for (auto [idx, genericOp] : llvm::enumerate(generics)) {
+      Block *newBlock = rewriter.createBlock(&newSpatial.getRegion(idx));
+      rewriter.setInsertionPointToStart(newBlock);
+      rewriter.clone(*genericOp.getOperation(), map);
+      if (op.hasPureTensorSemantics() && !genericOp.getResults().empty()) {
+        SmallVector<Value> yieldVals;
+        for (Value result : genericOp.getResults()) {
+          yieldVals.push_back(map.lookup(result));
+        }
+        rewriter.create<SpatialYieldOp>(genericOp.getLoc(), yieldVals);
+      }
+    }
+
+    // (4) Map GenericOp results to newSpatial results for suffix clones.
+    unsigned resultIdx = 0;
+    for (GenericOp genericOp : generics) {
+      for (Value result : genericOp.getResults()) {
+        map.map(result, newSpatial.getResult(resultIdx++));
+      }
+    }
+
+    // (5) Clone suffix ops after new SpatialOp.
+    rewriter.setInsertionPointAfter(newSpatial);
+    for (const auto &suffixOps : suffixOpsPerRegion) {
+      for (Operation *suffixOp : suffixOps) {
+        rewriter.clone(*suffixOp, map);
+      }
+    }
+
+    rewriter.replaceOp(op, newSpatial.getResults());
+    return mlir::success();
+  });
 }
 } // namespace mlir::tt::d2m
