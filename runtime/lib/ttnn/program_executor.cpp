@@ -52,6 +52,7 @@
 #include "operations/experimental/dropout.h"
 #include "operations/experimental/gelu_bw.h"
 #include "operations/generic/generic_op.h"
+#include "operations/global_semaphore/global_semaphore.h"
 #include "operations/kv_cache/fill_cache.h"
 #include "operations/kv_cache/paged_fill_cache.h"
 #include "operations/kv_cache/paged_update_cache.h"
@@ -130,8 +131,8 @@ ProgramExecutor::ProgramExecutor(
 
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
-      common::DylibManager(program->dylibs()), std::move(deviceHandle),
-      executableHandle, programIndex);
+      GlobalSemaphoreMap(), common::DylibManager(program->dylibs()),
+      std::move(deviceHandle), executableHandle, programIndex);
 }
 
 void ProgramExecutor::runCallback(
@@ -525,6 +526,14 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::TopKOp: {
     return operations::reduction::topk::run(op->type_as_TopKOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::CreateGlobalSemaphoreOp: {
+    return operations::creation::run(op->type_as_CreateGlobalSemaphoreOp(),
+                                     getContext());
+  }
+  case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
+    return operations::creation::run(op->type_as_ResetGlobalSemaphoreOp(),
+                                     getContext());
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",
