@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -208,6 +208,31 @@ void L1SpillManagement<MemoryTracker>::applyDemotedConfig(
 }
 
 //===----------------------------------------------------------------------===//
+// collectDownstreamConsumers
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+llvm::SmallVector<Operation *>
+L1SpillManagement<MemoryTracker>::collectDownstreamConsumers(
+    Operation *changed) {
+  // After spillToDram, a result may have a ToMemoryConfigOp user (spill op).
+  // Follow through spill ops to find the actual downstream consumers.
+  llvm::SmallVector<Operation *> consumers;
+  for (auto changedResult : changed->getResults()) {
+    for (Operation *user : changedResult.getUsers()) {
+      if (isa<ToMemoryConfigOp>(user)) {
+        for (Operation *consumer : user->getResult(0).getUsers()) {
+          consumers.push_back(consumer);
+        }
+      } else {
+        consumers.push_back(user);
+      }
+    }
+  }
+  return consumers;
+}
+
+//===----------------------------------------------------------------------===//
 // revalidateConsumers
 //===----------------------------------------------------------------------===//
 
@@ -226,23 +251,8 @@ void L1SpillManagement<MemoryTracker>::revalidateConsumers(
       continue;
     }
 
-    // Find all downstream consumers of `changed` across all results.
-    // After spillToDram, a result may have a ToMemoryConfigOp user (spill op).
-    // Consumers use the spill op's result. For non-spilled ops (demoted in a
-    // previous cascade step), consumers use the result directly.
-    llvm::SmallVector<Operation *> consumers;
-    for (auto changedResult : changed->getResults()) {
-      for (Operation *user : changedResult.getUsers()) {
-        if (isa<ToMemoryConfigOp>(user)) {
-          // Spill op — collect its users (the original consumers).
-          for (Operation *consumer : user->getResult(0).getUsers()) {
-            consumers.push_back(consumer);
-          }
-        } else {
-          consumers.push_back(user);
-        }
-      }
-    }
+    llvm::SmallVector<Operation *> consumers =
+        collectDownstreamConsumers(changed);
 
     for (Operation *consumer : consumers) {
       // Only revalidate already-processed ops (before current position).
@@ -273,7 +283,7 @@ void L1SpillManagement<MemoryTracker>::revalidateConsumers(
         // Update consumer's IR to match.
         applyDemotedConfig(consumer, result);
         // Update memory tracker for any live results of this consumer.
-        // Even split approximation — see #7295.
+        // Even split approximation — see addResultsToLiveSet in run().
         size_t numTensorResults = 0;
         for (auto r : consumer->getResults()) {
           if (mlir::isa<RankedTensorType>(r.getType())) {
@@ -302,13 +312,15 @@ void L1SpillManagement<MemoryTracker>::revalidateConsumers(
 }
 
 //===----------------------------------------------------------------------===//
-// run
+// buildScheduleData
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::run() {
-  // Step 1: Build schedule (ops in IR order = topological order).
-  llvm::SmallVector<Operation *> schedule;
+typename L1SpillManagement<MemoryTracker>::ScheduleData
+L1SpillManagement<MemoryTracker>::buildScheduleData() {
+  ScheduleData data;
+
+  // Build schedule (ops in IR order = topological order).
   func->walk([&](Operation *op) {
     if (op->getNumResults() == 0) {
       return;
@@ -322,54 +334,161 @@ void L1SpillManagement<MemoryTracker>::run() {
     if (!hasTensorResult) {
       return;
     }
-    schedule.push_back(op);
+    data.schedule.push_back(op);
   });
 
-  // Step 2: Compute per-result last-use positions and build position map.
-  llvm::DenseMap<Value, int64_t> lastUsePositions =
-      computeLastUsePositions(schedule);
+  // Compute per-result last-use positions.
+  data.lastUsePositions = computeLastUsePositions(data.schedule);
 
   // Build death schedule: position -> results whose last use is at that
   // position.
-  llvm::DenseMap<int64_t, llvm::SmallVector<Value>> deathSchedule;
-  for (auto &[val, lastUse] : lastUsePositions) {
-    deathSchedule[lastUse].push_back(val);
+  for (auto &[val, lastUse] : data.lastUsePositions) {
+    data.deathSchedule[lastUse].push_back(val);
   }
 
   // Build position map for revalidateConsumers.
-  llvm::DenseMap<Operation *, int64_t> positionMap;
-  for (int64_t i = 0; i < static_cast<int64_t>(schedule.size()); ++i) {
-    positionMap[schedule[i]] = i;
+  for (int64_t i = 0; i < static_cast<int64_t>(data.schedule.size()); ++i) {
+    data.positionMap[data.schedule[i]] = i;
   }
+
+  return data;
+}
+
+//===----------------------------------------------------------------------===//
+// processDeadTensors
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::processDeadTensors(
+    int64_t pos, const ScheduleData &data) {
+  auto it = data.deathSchedule.find(pos - 1);
+  if (it == data.deathSchedule.end()) {
+    return;
+  }
+  for (Value deadVal : it->second) {
+    if (liveValues.erase(deadVal)) {
+      memoryTracker.removeTensor(deadVal);
+      Operation *deadOp = deadVal.getDefiningOp();
+      observer_->onDeadRemoval(deadOp, pos, memoryTracker.getOccupiedL1());
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "  [pos={0}] DEAD: {1}, L1 now {2}/{3}", pos,
+                   ttmlir::opToString(deadOp), memoryTracker.getOccupiedL1(),
+                   l1BudgetPerCore);
+    }
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// handleOOM
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::handleOOM(
+    Operation *op, int64_t pos, llvm::ArrayRef<OpResult> tensorResults,
+    const ScheduleData &data, uint64_t opL1Usage,
+    std::function<void(uint64_t)> addResultsToLiveSet) {
+  observer_->onOOM(op, pos, memoryTracker.getOccupiedL1());
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "    OOM: validation failed, trying demotion/eviction");
+
+  auto inputLayouts = utils::extractInputLayouts(op);
+  auto config = extractOpConfigFromIR(op);
+
+  // Stage 1: Demote current op to L1 interleaved.
+  // Matmul: skip L1-interleaved demotion (see getOutputHints).
+  if (!isa<MatmulOp, LinearOp>(op)) {
+    OpConfig l1InterleavedConfig = makeL1InterleavedConfig(op);
+    auto demoteResult =
+        memoryTracker.validate(op, inputLayouts, l1InterleavedConfig);
+
+    if (demoteResult.isSuccess()) {
+      observer_->onDemotion(op, pos, /*success=*/true,
+                            demoteResult.outputL1Usage);
+      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                   "    DEMOTED to L1 interleaved: outputL1Usage={0}",
+                   demoteResult.outputL1Usage);
+      applyDemotedConfig(op, demoteResult);
+      addResultsToLiveSet(demoteResult.outputL1Usage);
+      return;
+    }
+    observer_->onDemotion(op, pos, /*success=*/false, 0);
+  }
+
+  // Stage 2: Evict from live set (Belady: farthest last-use first).
+  auto result = memoryTracker.validate(op, inputLayouts, config);
+  while (!result.isSuccess() && !liveValues.empty()) {
+    Value victim = evictFarthestUse();
+    if (!victim) {
+      break;
+    }
+
+    Operation *victimOp = victim.getDefiningOp();
+    uint64_t freedBytes = memoryTracker.getTensorSize(victim);
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    EVICT: {0} (L1: {1} bytes)", ttmlir::opToString(victimOp),
+                 freedBytes);
+    observer_->onEviction(victimOp, pos, freedBytes);
+
+    spillToDram(victim);
+    memoryTracker.removeTensor(victim);
+
+    revalidateConsumers(victimOp, pos, data.positionMap);
+
+    // Re-extract input layouts (victim may have been input to current op).
+    inputLayouts = utils::extractInputLayouts(op);
+    result = memoryTracker.validate(op, inputLayouts, config);
+  }
+
+  if (result.isSuccess()) {
+    uint64_t l1Size =
+        result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
+    addResultsToLiveSet(l1Size);
+    observer_->onLiveAdded(op, pos, l1Size, pos, memoryTracker.getOccupiedL1());
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    ADDED (after eviction): L1 now {0}/{1} ({2} tensors)",
+                 memoryTracker.getOccupiedL1(), l1BudgetPerCore,
+                 liveValues.size());
+  } else {
+    // Stage 3: Op exceeds budget alone -- spill all results to DRAM.
+    observer_->onSelfSpill(op, pos);
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    SPILL SELF: op exceeds budget alone");
+    for (auto r : tensorResults) {
+      spillToDram(r);
+    }
+  }
+}
+
+// NOTE: spillCount tracking in run() is approximate after extracting
+// handleOOM -- eviction spills inside handleOOM are not counted. The
+// observer receives individual spill events regardless.
+
+//===----------------------------------------------------------------------===//
+// run
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::run() {
+  ScheduleData data = buildScheduleData();
 
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "=== L1 Memory View (compile-time, validation-based) ===\n"
                "  Budget per core: {0} bytes\n"
                "  Schedule size: {1} ops",
-               l1BudgetPerCore, schedule.size());
+               l1BudgetPerCore, data.schedule.size());
 
-  observer_->onSpillStart(func.getName(), l1BudgetPerCore, schedule.size());
+  observer_->onSpillStart(func.getName(), l1BudgetPerCore,
+                          data.schedule.size());
 
   [[maybe_unused]] int64_t spillCount = 0;
 
-  // Step 3: Belady's algorithm sweep with validation-based eviction.
-  for (int64_t pos = 0; pos < static_cast<int64_t>(schedule.size()); ++pos) {
-    Operation *op = schedule[pos];
+  // Belady's algorithm sweep with validation-based eviction.
+  for (int64_t pos = 0; pos < static_cast<int64_t>(data.schedule.size());
+       ++pos) {
+    Operation *op = data.schedule[pos];
 
-    // Remove result tensors whose last use was the previous position.
-    if (auto it = deathSchedule.find(pos - 1); it != deathSchedule.end()) {
-      for (Value deadVal : it->second) {
-        if (liveValues.erase(deadVal)) {
-          memoryTracker.removeTensor(deadVal);
-          Operation *deadOp = deadVal.getDefiningOp();
-          observer_->onDeadRemoval(deadOp, pos, memoryTracker.getOccupiedL1());
-          TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                       "  [pos={0}] DEAD: {1}, L1 now {2}/{3}", pos,
-                       ttmlir::opToString(deadOp),
-                       memoryTracker.getOccupiedL1(), l1BudgetPerCore);
-        }
-      }
-    }
+    processDeadTensors(pos, data);
 
     // Skip ops without L1 output annotation.
     auto l1Attr = op->getAttrOfType<IntegerAttr>("ttnn.output_l1_usage");
@@ -397,10 +516,8 @@ void L1SpillManagement<MemoryTracker>::run() {
                  liveValues.size());
 
     // Helper: add all tensor results to the live set with per-result L1 sizes.
-    // TODO(rpavlovic): Even split is an approximation. Multi-output ops (e.g.
-    // SortOp: data + indices) may have unbalanced per-result L1 sizes. The
-    // backend's outputL1Usage is a single total; per-result breakdowns are not
-    // available from the validator today. An allocator-backed tracker would
+    // TODO(rpavlovic): Even split is an approximation. Multi-output ops may
+    // have unbalanced per-result L1 sizes. An allocator-backed tracker would
     // compute exact per-result sizes.
     // See: https://github.com/tenstorrent/tt-mlir/issues/7295
     auto addResultsToLiveSet = [&](uint64_t totalL1) {
@@ -408,9 +525,9 @@ void L1SpillManagement<MemoryTracker>::run() {
           numTensorResults > 0 ? totalL1 / numTensorResults : 0;
       for (auto r : tensorResults) {
         Value val = r;
-        auto luIt = lastUsePositions.find(val);
+        auto luIt = data.lastUsePositions.find(val);
         int64_t resultLastUse =
-            (luIt != lastUsePositions.end()) ? luIt->second : pos;
+            (luIt != data.lastUsePositions.end()) ? luIt->second : pos;
         memoryTracker.addTensor(val, perResultL1);
         liveValues.insert(val);
         liveSet.push({resultLastUse, val});
@@ -447,9 +564,7 @@ void L1SpillManagement<MemoryTracker>::run() {
       continue;
     }
 
-    // Backend constraint error: demote directly to DRAM. Evicting other
-    // tensors cannot fix a constraint mismatch on this op. This is a safety
-    // net — the reshard fix in consolidateBeam should prevent this path.
+    // Backend constraint error: demote directly to DRAM.
     if (result.isMetalBackendError()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    WARNING: Backend constraint error at pos {0} for {1}: "
@@ -463,85 +578,7 @@ void L1SpillManagement<MemoryTracker>::run() {
       continue;
     }
 
-    // OOM -- try demoting current op, then evict if needed.
-    observer_->onOOM(op, pos, memoryTracker.getOccupiedL1());
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    OOM: validation failed, trying demotion/eviction");
-
-    // Stage 1: Demote current op to L1 interleaved (no eviction needed).
-    // Skip for MatmulOp/LinearOp — L1-interleaved output is strictly worse
-    // than DRAM-interleaved for matmul: no program config is generated for
-    // non-sharded output (generateMatmulProgramConfig returns nullopt),
-    // causing runtime to fall back to MatmulMultiCoreProgramConfig with
-    // hardcoded HiFi4. Fall through to Stage 2 (eviction) or Stage 3
-    // (spill to DRAM) instead.
-    if (!isa<MatmulOp, LinearOp>(op)) {
-      OpConfig l1InterleavedConfig = makeL1InterleavedConfig(op);
-      auto demoteResult =
-          memoryTracker.validate(op, inputLayouts, l1InterleavedConfig);
-
-      if (demoteResult.isSuccess()) {
-        observer_->onDemotion(op, pos, /*success=*/true,
-                              demoteResult.outputL1Usage);
-        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                     "    DEMOTED to L1 interleaved: outputL1Usage={0}",
-                     demoteResult.outputL1Usage);
-        applyDemotedConfig(op, demoteResult);
-        addResultsToLiveSet(demoteResult.outputL1Usage);
-        continue;
-      }
-      observer_->onDemotion(op, pos, /*success=*/false, 0);
-    }
-
-    // Stage 2: Evict from live set (Belady: farthest last-use first).
-    // Re-validate with original sharded config after each eviction.
-    result = memoryTracker.validate(op, inputLayouts, config);
-    while (!result.isSuccess() && !liveValues.empty()) {
-      Value victim = evictFarthestUse();
-      if (!victim) {
-        break;
-      }
-
-      Operation *victimOp = victim.getDefiningOp();
-      uint64_t freedBytes = memoryTracker.getTensorSize(victim);
-      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                   "    EVICT: {0} (L1: {1} bytes)",
-                   ttmlir::opToString(victimOp), freedBytes);
-      observer_->onEviction(victimOp, pos, freedBytes);
-
-      spillToDram(victim);
-      memoryTracker.removeTensor(victim);
-      ++spillCount;
-
-      // Re-validate victim's consumers that were already processed.
-      revalidateConsumers(victimOp, pos, positionMap);
-
-      // Re-extract input layouts (victim may have been input to current op).
-      inputLayouts = utils::extractInputLayouts(op);
-      result = memoryTracker.validate(op, inputLayouts, config);
-    }
-
-    if (result.isSuccess()) {
-      uint64_t l1Size =
-          result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
-      addResultsToLiveSet(l1Size);
-      observer_->onLiveAdded(op, pos, l1Size, pos,
-                             memoryTracker.getOccupiedL1());
-
-      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                   "    ADDED (after eviction): L1 now {0}/{1} ({2} tensors)",
-                   memoryTracker.getOccupiedL1(), l1BudgetPerCore,
-                   liveValues.size());
-    } else {
-      // Op exceeds budget alone -- spill all results to DRAM.
-      observer_->onSelfSpill(op, pos);
-      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                   "    SPILL SELF: op exceeds budget alone");
-      for (auto r : tensorResults) {
-        spillToDram(r);
-      }
-      ++spillCount;
-    }
+    handleOOM(op, pos, tensorResults, data, opL1Usage, addResultsToLiveSet);
   }
 
   // Print final memory view summary.

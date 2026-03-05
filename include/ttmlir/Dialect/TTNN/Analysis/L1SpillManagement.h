@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -16,6 +16,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <queue>
 
@@ -124,6 +125,30 @@ private:
 
   /// Remove all "ttnn.output_l1_usage" attributes from ops in the function.
   void cleanupL1UsageAttrs();
+
+  /// Bundled schedule data built once at the start of run().
+  struct ScheduleData {
+    llvm::SmallVector<Operation *> schedule;
+    llvm::DenseMap<Value, int64_t> lastUsePositions;
+    llvm::DenseMap<int64_t, llvm::SmallVector<Value>> deathSchedule;
+    llvm::DenseMap<Operation *, int64_t> positionMap;
+  };
+
+  /// Build schedule, last-use positions, death schedule, and position map.
+  ScheduleData buildScheduleData();
+
+  /// Remove result tensors whose last use was the previous position.
+  void processDeadTensors(int64_t pos, const ScheduleData &data);
+
+  /// OOM recovery: demote to L1-interleaved, evict farthest-use, or spill self.
+  void handleOOM(Operation *op, int64_t pos,
+                 llvm::ArrayRef<OpResult> tensorResults,
+                 const ScheduleData &data, uint64_t opL1Usage,
+                 std::function<void(uint64_t)> addResultsToLiveSet);
+
+  /// Collect downstream consumers of an op, following through spill ops.
+  static llvm::SmallVector<Operation *>
+  collectDownstreamConsumers(Operation *changed);
 };
 
 // Explicit instantiation declaration (definition in .cpp).
