@@ -207,6 +207,22 @@ def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   ];
 }
 
+def EmitPyConstEvalCaching : Pass<"emitpy-const-eval-caching", "::mlir::ModuleOp"> {
+  let summary = "Wrap complete consteval caching logic into the one if-guard.";
+  let description = [{
+    Post-conversion pass that walks functions containing a cache dictionary
+    and wraps const-eval calls (tagged with `emitpy.const_evaled`) and their
+    dict-set expressions in an `emitpy.if` guard:
+
+      if not dict:
+          dict["key"] = callee(inputs...)
+
+    This pass is to be used regardless of whether the TTNNFileSplit pass was performed.
+  }];
+  let constructor = "createEmitPyConstEvalCachingPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
+}
+
 def EmitPyNameVars : Pass<"emitpy-name-vars", "::mlir::ModuleOp"> {
   let summary = "Pass to add suggested names for variables in EmitPy pipeline.";
   let description = [{
@@ -256,16 +272,6 @@ def EmitPyLinkModules : Pass<"emitpy-link-modules", "::mlir::ModuleOp"> {
 
   let constructor = "createEmitPyLinkModulesPass()";
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
-}
-
-def CodegenSplitFiles: Pass<"codegen-split-files", "::mlir::ModuleOp"> {
-  let summary = "Organize EmitPy operations into separate files.";
-  let description = [{
-    This pass organizes EmitPy operations into two files:
-    - main.py: Runtime execution logic.
-    - consteval.py: Complete consteval logic.
-  }];
-  let constructor = "createCodegenSplitFilesPass()";
 }
 
 def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {

@@ -4,12 +4,14 @@
 
 // Verify that with target-module=true and const-eval enabled:
 // 1. The entry function has signature forward(input, device)
-// 2. Execute functions that call for const-eval logic receive device and do not call DeviceGetter
-// 2. Const-eval functions also receive device and do not call DeviceGetter
-// 3. Const-eval wrapper calls pass device when available
+// 2. Const-eval wrapper passes device to the const-eval function directly
+// 3. Const-eval functions receive device and do not call DeviceGetter
 //
 // CHECK-LABEL: # File: "main"
 // CHECK-LABEL: def forward(input, device):
+// CHECK: consteval_forward(
+// CHECK-SAME: device
+// CHECK-NOT: utils.DeviceGetter.get_device
 
 // CHECK-LABEL: # File: "consteval"
 // CHECK-LABEL: def forward_const_eval_0(
@@ -17,9 +19,9 @@
 // CHECK-NOT: utils.DeviceGetter.get_device
 // CHECK-LABEL: def consteval_forward(
 // CHECK-SAME: device
-// CHECK: utils.constEvalFuncWrapper(
-// CHECK-SAME: device
 // CHECK-NOT: utils.DeviceGetter.get_device
+// CHECK: forward_const_eval_0(
+// CHECK-SAME: device
 
 module {
   func.func @forward(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},

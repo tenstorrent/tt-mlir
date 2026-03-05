@@ -12,6 +12,7 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
 
 #include <dlfcn.h>
@@ -92,11 +93,15 @@ bool TTAlchemist::generatePython(const std::string &input_file,
     return false;
   }
 
+  // Check if the module has file ops (split-files mode).
+  bool hasSplitFiles = false;
+  module->walk([&](mlir::tt::emitpy::FileOp) { hasSplitFiles = true; });
+
   // Generate main.py
   //
   std::string mainCode;
   llvm::raw_string_ostream mainStream(mainCode);
-  std::string mainFileId = "main";
+  std::string mainFileId = hasSplitFiles ? "main" : "";
   if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, mainStream,
                                                        mainFileId))) {
     std::cout << "Failed to translate MLIR module to main.py" << std::endl;
@@ -114,28 +119,30 @@ bool TTAlchemist::generatePython(const std::string &input_file,
   mainFile.close();
   utils::formatCode(mainFilePath, utils::CodeGenerationTarget::Python);
 
-  // Generate consteval.py
-  //
-  std::string constevalCode;
-  llvm::raw_string_ostream constevalStream(constevalCode);
-  std::string constevalFileId = "consteval";
-  if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, constevalStream,
-                                                       constevalFileId))) {
-    std::cout << "Failed to translate MLIR module to consteval.py" << std::endl;
-    return false;
-  }
-  constevalStream.flush();
+  // Generate consteval.py only when files were split.
+  if (hasSplitFiles) {
+    std::string constevalCode;
+    llvm::raw_string_ostream constevalStream(constevalCode);
+    std::string constevalFileId = "consteval";
+    if (mlir::failed(mlir::tt::emitpy::translateToPython(
+            *module, constevalStream, constevalFileId))) {
+      std::cout << "Failed to translate MLIR module to consteval.py"
+                << std::endl;
+      return false;
+    }
+    constevalStream.flush();
 
-  fs::path constevalFilePath = outputPath / "consteval.py";
-  std::ofstream constevalFile(constevalFilePath);
-  if (!constevalFile.is_open()) {
-    std::cout << "Failed to create Python file: " << constevalFilePath
-              << std::endl;
-    return false;
+    fs::path constevalFilePath = outputPath / "consteval.py";
+    std::ofstream constevalFile(constevalFilePath);
+    if (!constevalFile.is_open()) {
+      std::cout << "Failed to create Python file: " << constevalFilePath
+                << std::endl;
+      return false;
+    }
+    constevalFile << constevalCode;
+    constevalFile.close();
+    utils::formatCode(constevalFilePath, utils::CodeGenerationTarget::Python);
   }
-  constevalFile << constevalCode;
-  constevalFile.close();
-  utils::formatCode(constevalFilePath, utils::CodeGenerationTarget::Python);
 
   return true;
 }

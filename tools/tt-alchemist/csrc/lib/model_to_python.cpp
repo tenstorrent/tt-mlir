@@ -12,6 +12,7 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
 
 #include <filesystem>
@@ -51,6 +52,10 @@ bool TTAlchemist::modelToPython(const std::string &input_file) {
     return false;
   }
 
+  // Check if the module has file ops (split-files mode).
+  bool hasSplitFiles = false;
+  module->walk([&](mlir::tt::emitpy::FileOp) { hasSplitFiles = true; });
+
   // Convert MLIR module to Python
   //
   std::string output;
@@ -58,7 +63,7 @@ bool TTAlchemist::modelToPython(const std::string &input_file) {
 
   // Generate main.py
   std::cout << "#=== main.py ===\n";
-  std::string mainFileId = "main";
+  std::string mainFileId = hasSplitFiles ? "main" : "";
   if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, outputStream,
                                                        mainFileId))) {
     std::cout << "Failed to translate MLIR module to main.py" << std::endl;
@@ -67,17 +72,19 @@ bool TTAlchemist::modelToPython(const std::string &input_file) {
   outputStream.flush();
   std::cout << output << std::endl;
 
-  // Generate consteval.py
-  //
-  std::cout << "\n#=== consteval.py ===\n";
-  std::string constevalFileId = "consteval";
-  if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, outputStream,
-                                                       constevalFileId))) {
-    std::cout << "Failed to translate MLIR module to consteval.py" << std::endl;
-    return false;
+  // Generate consteval.py only when files were split.
+  if (hasSplitFiles) {
+    std::cout << "\n#=== consteval.py ===\n";
+    std::string constevalFileId = "consteval";
+    if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, outputStream,
+                                                         constevalFileId))) {
+      std::cout << "Failed to translate MLIR module to consteval.py"
+                << std::endl;
+      return false;
+    }
+    outputStream.flush();
+    std::cout << output << std::endl;
   }
-  outputStream.flush();
-  std::cout << output << std::endl;
 
   return true;
 }

@@ -1,7 +1,8 @@
-// RUN: ttmlir-opt --ttir-to-emitpy-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-emitpy-pipeline="split-files=false" %s | FileCheck %s
 
-// This test validates the TTIR to EmitPy pipeline with split-files enabled
-// (default). The const-eval computation is split into a separate consteval file op.
+// This test validates the TTIR to EmitPy pipeline with split-files disabled.
+// Everything stays in a single module without emitpy.file ops. The const-eval
+// caching logic is inlined directly in the forward function.
 
 module {
   func.func @forward(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
@@ -20,18 +21,13 @@ module {
 // CHECK: module {
 // CHECK:   emitpy.import import "ttnn"
 // CHECK:   emitpy.import import "utils"
-// CHECK:   emitpy.file "main" {
-// CHECK:     emitpy.import from "consteval" import "consteval_forward"
-// CHECK:     emitpy.global @_cached_forward = #emitpy.opaque<"{}">
-// CHECK:     func.func @forward(
-// CHECK:       call @consteval_forward({{.*}})
-// CHECK:       emitpy.call_opaque "ttnn.add"
-// CHECK:   }
-// CHECK:   emitpy.file "consteval" {
-// CHECK:     func.func private @forward_const_eval_0
-// CHECK:       emitpy.call_opaque "ttnn.add"
-// CHECK:     func.func @consteval_forward(
-// CHECK:       emitpy.if "not {}"
-// CHECK:         emitpy.call_opaque "forward_const_eval_0"
-// CHECK:   }
+// CHECK-NOT: emitpy.file
+// CHECK:   func.func private @forward_const_eval_0
+// CHECK:     emitpy.call_opaque "ttnn.add"
+// CHECK:   emitpy.global @_cached_forward = #emitpy.opaque<"{}">
+// CHECK:   func.func @forward(
+// CHECK:     emitpy.global_statement @_cached_forward
+// CHECK:     emitpy.if "not {}"
+// CHECK:       emitpy.call_opaque "forward_const_eval_0"
+// CHECK:     emitpy.call_opaque "ttnn.add"
 // CHECK: }

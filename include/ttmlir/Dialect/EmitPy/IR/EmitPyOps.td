@@ -403,64 +403,6 @@ def EmitPy_IfOp : EmitPy_Op<"if", [NoTerminator]> {
   }];
 }
 
-def EmitPy_IfOp : EmitPy_Op<"if", [NoTerminator]> {
-  let summary = "If statement with optional else";
-  let description = [{
-    The `emitpy.if` operation represents a Python `if` statement with an
-    optional `else` clause. The condition is a format string with `{}`
-    placeholders that are replaced by the condition arguments.
-
-    An `elif` chain is represented by nesting an `emitpy.if` as the sole
-    operation inside the else region; the Python emitter detects this pattern
-    and emits `elif` instead of `else: if`.
-
-    Example:
-
-    ```mlir
-    emitpy.if "not {}" args %dict : (!emitpy.dict) {
-      // then body
-    }
-    ```
-    ```mlir
-    emitpy.if "{} > {}" args %a, %b : (index, index) {
-      // then body
-    } else {
-      // else body
-    }
-    ```
-    ```python
-    // Code emitted:
-    if not dict:
-        // then body
-
-    if a > b:
-        // then body
-    else:
-        // else body
-    ```
-  }];
-
-  let arguments = (ins
-    StrAttr:$condition,
-    Variadic<AnyType>:$cond_args
-  );
-
-  let regions = (region
-    SizedRegion<1>:$thenRegion,
-    MaxSizedRegion<1>:$elseRegion
-  );
-
-  let extraClassDeclaration = [{
-    FailureOr<SmallVector<::mlir::tt::emitpy::ReplacementItem>> parseFormatString();
-  }];
-
-  let hasVerifier = 1;
-  let assemblyFormat = [{
-    $condition (`args` $cond_args^ `:` `(` type($cond_args) `)`)? $thenRegion
-    (`else` $elseRegion^)? attr-dict
-  }];
-}
-
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {
   let summary = "Verbatim operation";
   let description = [{

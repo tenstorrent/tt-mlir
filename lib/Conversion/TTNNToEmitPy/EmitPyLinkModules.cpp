@@ -27,6 +27,10 @@ namespace {
 // Device module are skipped (not moved), and call sites are updated to call
 // the actual function definitions from the CPU module.
 //
+// When TTNNFileSplit is performed, Device module has two file ops: main and
+// consteval. CPU definitions are placed in the consteval file and
+// declarations from the main file are replaced with an proper import statement.
+//
 // Operations are moved in the following order:
 // 1. Imports.
 // 2. Ops from the CPU module (CPU-hoisted function definitions).
@@ -37,6 +41,27 @@ class EmitPyLinkModulesPass
 public:
   using impl::EmitPyLinkModulesBase<
       EmitPyLinkModulesPass>::EmitPyLinkModulesBase;
+  // Import all functions from consteval file that have their declaration in the
+  // main file. Do not erase the declarations from the main file so that
+  // func.call ops can resolve the symbol.
+  void createImportForDecls(emitpy::FileOp mainFile,
+                            ArrayRef<func::FuncOp> decls) {
+    OpBuilder builder(&getContext());
+    llvm::SmallVector<Attribute> memberNames;
+    llvm::SmallVector<Attribute> emptyAliases;
+    for (auto funcDecl : decls) {
+      memberNames.push_back(builder.getStringAttr(funcDecl.getSymName()));
+      emptyAliases.push_back(builder.getStringAttr(""));
+    }
+
+    builder.setInsertionPointToStart(&mainFile.getBodyRegion().front());
+    builder.create<emitpy::ImportOp>(
+        mainFile.getLoc(), builder.getStringAttr("consteval"),
+        /*module_alias=*/nullptr,
+        /*members_to_import=*/builder.getArrayAttr(memberNames),
+        /*member_aliases=*/builder.getArrayAttr(emptyAliases),
+        /*import_all=*/nullptr);
+  }
 
   void runOnOperation() override {
     mlir::ModuleOp rootModule = getOperation();
@@ -66,6 +91,18 @@ public:
     for (const auto &attr : deviceModule->getAttrs()) {
       if (!rootModule->hasAttr(attr.getName())) {
         rootModule->setAttr(attr.getName(), attr.getValue());
+      }
+    }
+
+    // Find main and consteval files in the device module.
+    //
+    emitpy::FileOp mainFileOp, constevalFileOp;
+    for (auto fileOp : deviceModule.getOps<emitpy::FileOp>()) {
+      if (fileOp.getId() == "main") {
+        mainFileOp = fileOp;
+      }
+      if (fileOp.getId() == "consteval") {
+        constevalFileOp = fileOp;
       }
     }
 
@@ -108,37 +145,10 @@ public:
 
     collectImports(deviceModule);
 
-    // Helper to collect globals from a module, erasing duplicates from the
-    // module.
-    //
-    llvm::SmallVector<emitpy::GlobalOp> globals;
-    auto collectGlobals = [&globals](mlir::ModuleOp module) {
-      llvm::SmallVector<emitpy::GlobalOp> moduleGlobals(
-          module.getOps<emitpy::GlobalOp>());
-      for (auto &moduleGlobal : moduleGlobals) {
-        if (llvm::all_of(globals, [&](emitpy::GlobalOp globalOp) {
-              return moduleGlobal.getName() != globalOp.getName();
-            })) {
-          globals.push_back(moduleGlobal);
-        } else {
-          moduleGlobal->erase();
-        }
-      }
-    };
-
-    collectGlobals(deviceModule);
-
     if (cpuModuleOp) {
       auto cpuModule =
           mlir::cast<mlir::ModuleOp>(cpuModuleOp.getBody()->front());
       collectImports(cpuModule);
-      collectGlobals(cpuModule);
-    }
-
-    // Move all collected globals to the root module.
-    //
-    for (auto globalOp : llvm::reverse(globals)) {
-      globalOp->moveBefore(&rootBody, rootBody.begin());
     }
 
     // Move all collected imports to the root module.
@@ -147,8 +157,16 @@ public:
       importOp->moveBefore(&rootBody, rootBody.begin());
     }
 
+    Block *blockToMoveCPUOpsTo = nullptr;
+    if (constevalFileOp) {
+      blockToMoveCPUOpsTo = &constevalFileOp.getBodyRegion().front();
+    } else {
+      blockToMoveCPUOpsTo = &rootBody;
+    }
+
     // Move all operations from CPU module (CPU-hoisted function
-    // definitions).
+    // definitions). If TTNNFileSplit was performed, move them to the consteval
+    // file. Otherwise, move them to the root module.
     //
     if (cpuModuleOp) {
       auto cpuModule =
@@ -159,36 +177,43 @@ public:
       for (auto &op : *cpuModule.getBody()) {
         cpuOps.push_back(&op);
       }
-      for (auto *op : cpuOps) {
-        op->moveBefore(&rootBody, rootBody.end());
+      for (auto *op : llvm::reverse(cpuOps)) {
+        op->moveBefore(blockToMoveCPUOpsTo, blockToMoveCPUOpsTo->begin());
       }
 
       cpuModuleOp->erase();
     }
 
-    // Collect the CPU-hoisted declarations from Device module and update their
-    // call sites.
+    // Erase CPU-hoisted declarations. If TTNNFileSplit was performed, erase
+    // declarations from the consteval file and replace all declarations in the
+    // main file with a proper import statement. Otherwise, erase declarations
+    // from the device module.
     //
-    OpBuilder builder(&getContext());
-    llvm::SmallVector<func::FuncOp> declarations;
-    for (auto funcOp : deviceModule.getOps<func::FuncOp>()) {
-      if (!ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
-        continue;
+    auto eraseCPUDecls = [](auto container) {
+      llvm::SmallVector<func::FuncOp> decls;
+      for (auto funcOp : container.template getOps<func::FuncOp>()) {
+        if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
+          decls.push_back(funcOp);
+        }
       }
+      for (auto funcOp : decls) {
+        funcOp->erase();
+      }
+    };
 
-      llvm::StringRef declarationName = funcOp.getSymName();
-      llvm::StringRef definitionName = declarationName;
-
-      (void)funcOp.replaceAllSymbolUses(builder.getStringAttr(definitionName),
-                                        deviceModule);
-
-      declarations.push_back(funcOp);
-    }
-
-    // Erase the collected CPU-hoisted declarations.
-    //
-    for (auto funcOp : declarations) {
-      funcOp->erase();
+    if (constevalFileOp) {
+      llvm::SmallVector<func::FuncOp> mainDecls;
+      for (auto funcOp : mainFileOp.getOps<func::FuncOp>()) {
+        if (funcOp.isDeclaration()) {
+          mainDecls.push_back(funcOp);
+        }
+      }
+      if (!mainDecls.empty()) {
+        createImportForDecls(mainFileOp, mainDecls);
+      }
+      eraseCPUDecls(constevalFileOp);
+    } else {
+      eraseCPUDecls(deviceModule);
     }
 
     // Move all remaining operations from the Device module.

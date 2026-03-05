@@ -483,6 +483,33 @@ static LogicalResult printOperation(PythonEmitter &emitter,
 static LogicalResult printOperation(PythonEmitter &emitter, ModuleOp moduleOp) {
   PythonEmitter::Scope scope(emitter);
 
+  // When file ops exist, defer module-level imports so they appear inside
+  // each file section rather than before the first file label.
+  bool hasFileOps =
+      llvm::any_of(moduleOp.getOps<FileOp>(), [](FileOp) { return true; });
+
+  if (hasFileOps) {
+    llvm::SmallVector<ImportOp> moduleImports(moduleOp.getOps<ImportOp>());
+
+    for (auto fileOp : moduleOp.getOps<FileOp>()) {
+      if (!emitter.shouldEmitFile(fileOp)) {
+        continue;
+      }
+      if (emitter.isEmittingMultipleFiles()) {
+        emitter.emitFileLabel(fileOp);
+      }
+      for (auto importOp : moduleImports) {
+        if (failed(emitter.emitOperation(*importOp))) {
+          return failure();
+        }
+      }
+      if (failed(emitter.emitOperation(*fileOp))) {
+        return failure();
+      }
+    }
+    return success();
+  }
+
   for (Operation &op : moduleOp) {
     if (failed(emitter.emitOperation(op))) {
       return failure();
@@ -530,6 +557,9 @@ static LogicalResult printFunctionBody(PythonEmitter &emitter, Operation &op,
 
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     func::FuncOp functionOp) {
+  if (functionOp.isDeclaration()) {
+    return success();
+  }
   PythonEmitter::Scope scope(emitter);
   Operation &op = *functionOp.getOperation();
   raw_indented_ostream &os = emitter.ostream();
@@ -980,11 +1010,6 @@ static LogicalResult printOperation(PythonEmitter &emitter, FileOp fileOp) {
     return success();
   }
 
-  // Emit file label only when emitting multiple files together.
-  if (emitter.isEmittingMultipleFiles()) {
-    emitter.emitFileLabel(fileOp);
-  }
-
   for (Operation &op : fileOp.getRegion().getOps()) {
     if (failed(emitter.emitOperation(op))) {
       return failure();
@@ -1002,8 +1027,8 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
-                GlobalStatementOp, CreateDictOp, ExpressionOp, YieldOp, IfOp>(
-              [&](auto op) { return printOperation(*this, op); })
+                GlobalStatementOp, CreateDictOp, ExpressionOp, YieldOp, IfOp,
+                FileOp>([&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
             return success();
