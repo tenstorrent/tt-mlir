@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m="ttnn-mode=true" --d2m-grid-selection --canonicalize -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m="ttnn-mode=true" --d2m-grid-selection="ttnn-mode=true" --canonicalize -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1 = #ttnn.buffer_type<l1>
@@ -27,7 +27,7 @@ module {
 
 // CHECK-LABEL: func.func @test_lower_interleaved_dram
 func.func @test_lower_interleaved_dram(
-  %arg0: tensor<1024x1024xbf16, #ttnn_layout>, %out: tensor<1024x1024xbf16, #ttnn_layout>
+  %arg0: tensor<1024x1024xbf16, #ttnn_layout>
 ) -> tensor<1024x1024xbf16, #ttnn_layout> {
   // CHECK: %[[EMPTY0:.*]] = d2m.empty() : tensor<1024x1024xbf16, #ttnn_layout>
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<1024x1024xbf16, #ttnn_layout> -> tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout>
@@ -48,7 +48,7 @@ func.func @test_lower_interleaved_dram(
 
 // CHECK-LABEL: func.func @test_lower_interleaved_dram_1
 func.func @test_lower_interleaved_dram_1(
-  %arg0: tensor<2x512x1024xbf16, #ttnn_layout1>, %out: tensor<2x512x1024xbf16, #ttnn_layout1>
+  %arg0: tensor<2x512x1024xbf16, #ttnn_layout1>
 ) -> tensor<2x512x1024xbf16, #ttnn_layout1> {
   // CHECK: %[[EMPTY0:.*]] = d2m.empty() : tensor<2x512x1024xbf16, #ttnn_layout1>
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<2x512x1024xbf16, #ttnn_layout1> -> tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout1>
@@ -70,7 +70,7 @@ func.func @test_lower_interleaved_dram_1(
 
 // CHECK-LABEL: func.func @test_lower_interleaved_dram_2
 func.func @test_lower_interleaved_dram_2(
-  %arg0: tensor<2x2x256x1024xbf16, #ttnn_layout2>, %out: tensor<2x2x256x1024xbf16, #ttnn_layout2>
+  %arg0: tensor<2x2x256x1024xbf16, #ttnn_layout2>
 ) -> tensor<2x2x256x1024xbf16, #ttnn_layout2> {
   // CHECK: %[[EMPTY0:.*]] = d2m.empty() : tensor<2x2x256x1024xbf16, #ttnn_layout2>
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<2x2x256x1024xbf16, #ttnn_layout2> -> tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout2>
@@ -91,7 +91,7 @@ func.func @test_lower_interleaved_dram_2(
 
 // CHECK-LABEL: func.func @test_lower_dram_interleaved_32x2880
 func.func @test_lower_dram_interleaved_32x2880(
-  %arg0: tensor<32x2880xbf16, #ttnn_layout3>, %out: tensor<32x2880xbf16, #ttnn_layout3>
+  %arg0: tensor<32x2880xbf16, #ttnn_layout3>
 ) -> tensor<32x2880xbf16, #ttnn_layout3> {
   // CHECK: %[[EMPTY0:.*]] = d2m.empty() : tensor<32x2880xbf16, #ttnn_layout3>
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x2880xbf16, #ttnn_layout3> -> tensor<1x1x1x90x!ttcore.tile<32x32, bf16>, #[[DRAM_LAYOUT:layout[0-9]*]]>

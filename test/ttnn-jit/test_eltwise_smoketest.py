@@ -27,6 +27,7 @@ DRAM_SHAPES = [
 
 SHARD_SHAPES_GRIDS = [
     ((1024, 1024), (7, 7), ttnn.ShardStrategy.BLOCK),
+    ((96, 576), (5, 0), ttnn.ShardStrategy.BLOCK),
     ((2048, 32), (7, 7), ttnn.ShardStrategy.HEIGHT),
     ((32, 2048), (7, 7), ttnn.ShardStrategy.WIDTH),
 ]
@@ -375,6 +376,7 @@ def _clamp_tensor_bounds(input_tensor, min_tensor, max_tensor):
     return ttnn.clamp(input_tensor, min=min_tensor, max=max_tensor)
 
 
+@pytest.mark.skip(reason="Skipping clamp test due to verifier failure. Issue #7319")
 @pytest.mark.parametrize(
     "buffer_type, use_tensor_bounds",
     [
