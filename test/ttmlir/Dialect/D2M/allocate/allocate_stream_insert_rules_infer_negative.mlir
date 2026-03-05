@@ -1,3 +1,6 @@
+// Negative test ensuring that back-to-back d2m.view_layout ops in an operand
+// defining chain are rejected by the allocator under the "infer" stream-insert
+// policy.
 // RUN: not ttmlir-opt --ttcore-register-device "--d2m-allocate=stream-insert-policy=infer" %s 2>&1 | FileCheck %s
 
 #l1 = #ttcore.memory_space<l1>

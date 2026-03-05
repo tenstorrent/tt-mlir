@@ -1,3 +1,6 @@
+// Ensures that a forwardable remote_load/remote_store pair whose store target
+// is a local (non-streamed) operand is skipped by the aliased-CB conversion
+// pass, so no CB reserve/push/wait/pop ops are emitted.
 // RUN: ttmlir-opt --ttcore-register-device --d2m-convert-local-load-store-ops-to-aliased-cbs --canonicalize %s | FileCheck %s
 
 // CHECK-LABEL: func.func @test_skip_forwardable_local_remote_store_stream_input
