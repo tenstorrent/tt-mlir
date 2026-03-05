@@ -444,7 +444,7 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc(
           "Use the greedy layout propagation optimizer instead of the "
           "default chain-based TTNNOptimizer."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   // Enable decision trace JSON output from the greedy optimizer passes.
   Option<bool> enableDecisionTrace{
