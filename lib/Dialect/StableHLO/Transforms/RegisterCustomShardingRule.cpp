@@ -6,12 +6,20 @@
 #include "shardy/dialect/sdy/transforms/propagation/op_sharding_rule_builder.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 
 #include "llvm/Support/Error.h"
+
+#include <numeric>
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_REGISTERCUSTOMSHARDINGRULEPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
+
+static constexpr llvm::StringLiteral markArgumentTargetName =
+    "tt.mark_argument";
 
 static constexpr llvm::StringLiteral sdpaTargetName =
     "tt.scaled_dot_product_attention";
@@ -36,6 +44,14 @@ static constexpr llvm::StringLiteral allToAllCombineTargetName =
 
 static constexpr llvm::StringLiteral moeExpertTokenRemapTargetName =
     "tt.moe_expert_token_remap";
+
+static mlir::sdy::OpShardingRuleAttr
+getMarkArgumentShardingRule(mlir::stablehlo::CustomCallOp op) {
+  // tt.mark_argument is an identity metadata op (same shape in and out).
+  // A pointwise rule allows Shardy to propagate sharding through it
+  // transparently.
+  return mlir::sdy::OpShardingRuleBuilder::buildPointwise(op);
+}
 
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
@@ -750,6 +766,127 @@ getAllToAllCombineShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Detect whether a reshape involves dimension splits or merges (not just
+// adding/removing size-1 dims). Returns the set of input dimension indices
+// that are involved in splits/merges.
+static llvm::DenseSet<int64_t>
+getReshapeSplitMergeDims(RankedTensorType inType, RankedTensorType outType) {
+  llvm::DenseSet<int64_t> splitMergeDims;
+
+  // Collect non-trivial (size > 1) dims.
+  SmallVector<std::pair<int64_t, int64_t>> inDims;  // (dimIdx, dimSize)
+  SmallVector<std::pair<int64_t, int64_t>> outDims;
+  for (int64_t i = 0; i < inType.getRank(); i++) {
+    if (inType.getDimSize(i) > 1) {
+      inDims.push_back({i, inType.getDimSize(i)});
+    }
+  }
+  for (int64_t i = 0; i < outType.getRank(); i++) {
+    if (outType.getDimSize(i) > 1) {
+      outDims.push_back({i, outType.getDimSize(i)});
+    }
+  }
+
+  // Match input dims to output dims by accumulating products.
+  size_t ii = 0, oi = 0;
+  while (ii < inDims.size() && oi < outDims.size()) {
+    SmallVector<int64_t> groupInDims;
+    int64_t inProd = inDims[ii].second;
+    int64_t outProd = outDims[oi].second;
+    groupInDims.push_back(inDims[ii].first);
+    size_t outCount = 1;
+    ii++;
+    oi++;
+
+    while (inProd != outProd) {
+      if (inProd < outProd) {
+        if (ii >= inDims.size()) {
+          break;
+        }
+        inProd *= inDims[ii].second;
+        groupInDims.push_back(inDims[ii].first);
+        ii++;
+      } else {
+        if (oi >= outDims.size()) {
+          break;
+        }
+        outProd *= outDims[oi].second;
+        outCount++;
+        oi++;
+      }
+    }
+
+    bool isOneToOne = (groupInDims.size() == 1 && outCount == 1);
+    if (!isOneToOne) {
+      for (int64_t d : groupInDims) {
+        splitMergeDims.insert(d);
+      }
+    }
+  }
+
+  return splitMergeDims;
+}
+
+// Insert sdy.sharding_constraint ops before reshape ops that involve
+// dimension splits or merges. The constraint forces replication (closed,
+// no axes) on dimensions involved in the split/merge, which causes Shardy
+// to insert all-gathers to replicate those dimensions before the reshape.
+//
+// This is necessary because Shardy's built-in reshape sharding rule
+// (GCD-based factorization) allows sharding to propagate through
+// split/merge dimensions, but the local (per-device) shapes may be
+// incompatible with the factorization. For example:
+//   Reshape [1, 1, 30720] -> [1, 6, 5120] with dim 2 sharded by 4:
+//   Local dim 2 = 30720/4 = 7680, but 7680 != 6*5120.
+static void
+insertReshapeShardingConstraints(mlir::ModuleOp rootModule,
+                                 MLIRContext *context,
+                                 mlir::OpBuilder &builder) {
+  // Get the mesh name from the module.
+  llvm::SmallVector<mlir::sdy::MeshOp> meshOps =
+      shardy_utils::getMeshOps(rootModule);
+  if (meshOps.empty()) {
+    return;
+  }
+  llvm::StringRef meshName = meshOps[0].getSymName();
+
+  rootModule.walk([&](mlir::stablehlo::ReshapeOp reshapeOp) {
+    RankedTensorType inType =
+        mlir::cast<RankedTensorType>(reshapeOp.getOperand().getType());
+    RankedTensorType outType = reshapeOp.getType();
+
+    if (inType.getNumElements() == 0) {
+      return;
+    }
+
+    llvm::DenseSet<int64_t> splitMergeDims =
+        getReshapeSplitMergeDims(inType, outType);
+    if (splitMergeDims.empty()) {
+      return; // No splits/merges — sharding propagates safely.
+    }
+
+    // Build a sharding constraint where split/merge dims are closed
+    // (replicated) and other dims are open (can be sharded freely).
+    SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
+    for (int64_t i = 0; i < inType.getRank(); i++) {
+      bool isClosed = splitMergeDims.contains(i);
+      dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
+          context, /*axes=*/{}, /*is_closed=*/isClosed));
+    }
+
+    mlir::sdy::TensorShardingAttr constraintSharding =
+        mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings,
+                                            /*replicatedAxes=*/{},
+                                            /*unknownAxes=*/{});
+
+    builder.setInsertionPoint(reshapeOp);
+    auto constraintOp = builder.create<mlir::sdy::ShardingConstraintOp>(
+        reshapeOp.getLoc(), inType, reshapeOp.getOperand(),
+        constraintSharding);
+    reshapeOp.getOperandMutable().assign(constraintOp.getResult());
+  });
+}
+
 template <typename OpTy>
 struct StablehloShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
@@ -905,6 +1042,7 @@ private:
   llvm::DenseMap<llvm::StringRef, std::function<mlir::sdy::OpShardingRuleAttr(
                                       mlir::stablehlo::CustomCallOp)>>
       customCallShardingRules = {
+          {markArgumentTargetName, getMarkArgumentShardingRule},
           {sdpaTargetName, getSDPAShardingRule},
           {pagedSdpaDecodeTargetName, getPagedAttentionShardingRule},
           {pagedUpdateCacheTargetName, getPagedAttentionShardingRule},
@@ -926,6 +1064,7 @@ public:
   void runOnOperation() final {
     mlir::ModuleOp rootModule = getOperation();
     MLIRContext *context = rootModule.getContext();
+    mlir::OpBuilder builder(context);
 
     context->loadDialect<mlir::stablehlo::StablehloDialect>();
     // Register for stablehlo.CustomCallOp
@@ -933,6 +1072,8 @@ public:
         StablehloCustomCallShardingModel>(*context);
     mlir::stablehlo::ScatterOp::attachInterface<
         StablehloShardingModel<mlir::stablehlo::ScatterOp>>(*context);
+
+    insertReshapeShardingConstraints(rootModule, context, builder);
   }
 };
 
