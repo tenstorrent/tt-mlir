@@ -35,20 +35,13 @@ struct DMAThreadAssignment {
 
 // Get the CB port number from a DMA op's CB operand.
 static unsigned getCBPort(Operation *dmaOp) {
-  Value cb;
   if (auto load = mlir::dyn_cast<RemoteLoadOp>(dmaOp)) {
-    cb = load.getCb();
-  } else if (auto store = mlir::dyn_cast<RemoteStoreOp>(dmaOp)) {
-    cb = store.getCb();
+    return load.getCBPort();
   }
-  if (!cb) {
-    return UINT_MAX;
+  if (auto store = mlir::dyn_cast<RemoteStoreOp>(dmaOp)) {
+    return store.getCBPort();
   }
-  auto getCBOp = cb.getDefiningOp<GetCBOp>();
-  if (!getCBOp) {
-    return UINT_MAX;
-  }
-  return getCBOp.getPort();
+  return UINT_MAX;
 }
 
 // Collect all remote_load and remote_store operations from a block,

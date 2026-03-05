@@ -1332,6 +1332,16 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         return mlir::cast<CBType>(cb.getType());
       }
 
+      /// Return the CB port number from this op's CB operand, or UINT_MAX if
+      /// no CB is present or its defining op is not a GetCBOp.
+      unsigned getCBPort() {
+        Value cb = getCb();
+        if (!cb) return UINT_MAX;
+        auto getCBOp = cb.getDefiningOp<GetCBOp>();
+        if (!getCBOp) return UINT_MAX;
+        return getCBOp.getPort();
+      }
+
       /// Returns true if the circular buffer operand is present (explicit CB form).
       bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
 
@@ -1505,6 +1515,16 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         Value cb = getCb();
         if (!cb) return CBType();
         return mlir::cast<CBType>(cb.getType());
+      }
+
+      /// Return the CB port number from this op's CB operand, or UINT_MAX if
+      /// no CB is present or its defining op is not a GetCBOp.
+      unsigned getCBPort() {
+        Value cb = getCb();
+        if (!cb) return UINT_MAX;
+        auto getCBOp = cb.getDefiningOp<GetCBOp>();
+        if (!getCBOp) return UINT_MAX;
+        return getCBOp.getPort();
       }
 
       /// Returns true if the circular buffer operand is present (explicit CB form).
@@ -2202,10 +2222,11 @@ def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
       ```
     }];
 
-    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$port);
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$port,
+                         OptionalAttr<I64Attr>:$operand_index);
     let results = (outs D2M_CB:$result);
 
-    let assemblyFormat = [{ `(` $port `)` attr-dict `:` type($result) }];
+    let assemblyFormat = [{ `(` $port `)` (`operand_index` `=` $operand_index^)? attr-dict `:` type($result) }];
 }
 
 def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
