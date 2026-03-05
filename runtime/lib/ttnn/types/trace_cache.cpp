@@ -34,8 +34,8 @@ TraceData *TraceCache::get(const MainProgramKey &key,
 
 void TraceCache::insert(const MainProgramKey &key,
                         const CaptureExecuteProgramKey &captureExecuteKey,
-                        const TraceData &traceData) {
-  cache[key][captureExecuteKey] = traceData;
+                        TraceData traceData) {
+  cache[key][captureExecuteKey] = std::move(traceData);
 }
 
 void TraceCache::erase(const MainProgramKey &key) {
