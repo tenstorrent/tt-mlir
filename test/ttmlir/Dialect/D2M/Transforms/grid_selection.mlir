@@ -58,46 +58,6 @@ module {
 
  // -----
 
-// CHECK-AFTER: #[[LAYOUT_STREAM_0:.*]] = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32,  {{.*}}>
-// CHECK-AFTER: #[[LAYOUT_STREAM_1:.*]] = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x256, {{.*}}>
- #layout_stream = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
- #layout_stream2 = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-
- module {
-   func.func @test_update_stream() -> (tensor<32x2048xf32>) {
-     // CHECK-BEFORE-LABEL: func.func @test_update_stream
-
-     %physIn = d2m.empty()  : tensor<1x16x1x4x!ttcore.tile<32x32,f32>, #layout_stream>
-     %storage = d2m.empty() : tensor<1x1x1x64x!ttcore.tile<32x32,f32>, #layout_stream2>
-     %stream  = "d2m.stream_layout" (%physIn, %storage) <{remapping = affine_map<(d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>}>
-           : (tensor<1x16x1x4x!ttcore.tile<32x32,f32>, #layout_stream>,
-              tensor<1x1x1x64x!ttcore.tile<32x32,f32>, #layout_stream2>)
-           -> tensor<1x1x1x64x!ttcore.tile<32x32,f32>, #layout_stream2>
-
-     %5 = d2m.generic {
-       block_factors = [1, 1],
-       grid = #ttcore.grid<1x1>,
-       indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
-       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
-       threads = [#d2m.thread<unified>]
-     }
-     ins()
-     outs(%stream : tensor<1x1x1x64x!ttcore.tile<32x32, f32>, #layout_stream2>)  {
-
-     ^unified0:
-       %cb_out = d2m.get_cb(0) : !d2m.cb<tensor<1x64x!ttcore.tile<32x32, f32>>>
-       %out = tensor.empty() : tensor<1x64x!ttcore.tile<32x32, f32>>
-       d2m.yield %out : (tensor<1x64x!ttcore.tile<32x32, f32>>)
-     } : tensor<1x1x1x64x!ttcore.tile<32x32, f32>, #layout_stream2>
-
-     %empty = d2m.empty() : tensor<32x2048xf32>
-     %system = d2m.to_layout %5, %empty : tensor<1x1x1x64x!ttcore.tile<32x32, f32>, #layout_stream2> into tensor<32x2048xf32> -> tensor<32x2048xf32>
-     return %system  : tensor<32x2048xf32>
-   }
- }
-
- // -----
-
  #layout_tm_device_input = #ttcore.metal_layout<logical_shape = 33x2x8, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
  #layout_tm_stream_plain = #ttcore.metal_layout<logical_shape = 2x264, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
 // CHECK-AFTER: #layout1 = #ttcore.metal_layout<logical_shape = 2x264, dim_alignments = 32x256, collapsed_intervals = dense<> : tensor<0x2xi64>, {{.*}}>

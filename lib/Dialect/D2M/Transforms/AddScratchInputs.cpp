@@ -203,7 +203,7 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
                                           newBlockArgTypes, newBlockArgLocs);
     builder.setInsertionPointToStart(newBlock);
 
-    // Map old block args to new block args.
+    // Map old semaphore block args to new semaphore block args.
     IRMapping mapping;
     for (unsigned i = 0; i < oldBlock->getNumArguments(); ++i) {
       mapping.map(oldBlock->getArgument(i), newBlock->getArgument(i));

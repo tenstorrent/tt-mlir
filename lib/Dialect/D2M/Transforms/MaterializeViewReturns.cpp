@@ -81,7 +81,8 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
       [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
         SmallVector<Value> indices =
             utils::buildGridIndices(builder, innerLoc, indexingMap);
-        // blockArgs are tensor.empty results with shard shapes.
+        // operandAllocs are tensor.empty results with shard shapes,
+        // one per generic operand.
         Type inputShardType = blockArgs[0].getType();
         Value inputBuffer = blockArgs[0];
 
