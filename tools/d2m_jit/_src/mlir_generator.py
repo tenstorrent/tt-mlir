@@ -158,6 +158,51 @@ def _emit_view_layout(ctx, metal_val, f_y, f_x, sub_h, sub_w, tile_type_str,
     ).result
 
 
+def _emit_coarsen_layout(ctx, metal_val, f_y, f_x, tile_type_str,
+                         logical_shape_str, dim_alignments_str,
+                         memory_space_str="dram"):
+    """Emit a ``d2m.view_layout`` that aggregates f_y×f_x physical shards per virtual shard.
+
+    Input:  tensor<GY x GX x SH x SW x tile>  (fine physical grid)
+    Output: tensor<GY//f_y x GX//f_x x SH*f_y x SW*f_x x tile>  (coarser virtual grid)
+
+    Remapping: virtual (d0,d1,d2,d3) → physical (d0*f_y + d2//SH, d1*f_x + d3//SW, d2%SH, d3%SW)
+    """
+    metal_ranked = RankedTensorType(metal_val.type)
+    orig_shape = list(metal_ranked.shape)   # [GY, GX, SH, SW]
+    GY, GX = orig_shape[0], orig_shape[1]
+    SH, SW = orig_shape[2], orig_shape[3]
+
+    new_GY, new_GX = GY // f_y, GX // f_x
+    new_SH, new_SW = SH * f_y, SW * f_x
+    new_shape_str = f"{new_GY}x{new_GX}x{new_SH}x{new_SW}"
+
+    map_str = (
+        f"affine_map<(d0, d1, d2, d3) -> "
+        f"(d0 * {f_y} + d2 floordiv {SH}, "
+        f"d1 * {f_x} + d3 floordiv {SW}, "
+        f"d2 mod {SH}, "
+        f"d3 mod {SW})>"
+    )
+    remapping_attr = Attribute.parse(map_str, context=ctx)
+
+    result_type_str = (
+        f"tensor<{new_shape_str}x{tile_type_str}, "
+        f"#ttcore.metal_layout<logical_shape={logical_shape_str}, "
+        f"dim_alignments={dim_alignments_str}, "
+        f"collapsed_intervals=dense<[[0, -1]]> : tensor<1x2xi64>, "
+        f"undef, {memory_space_str}, sharded>>"
+    )
+    result_type = Type.parse(result_type_str, context=ctx)
+
+    import ttmlir.dialects.d2m as d2m_dialect
+    return d2m_dialect.ViewLayoutOp(
+        result=result_type,
+        input=metal_val,
+        remapping=remapping_attr,
+    ).result
+
+
 def _normalize_int_dim(value, tensor_name, axis):
     if isinstance(value, bool) or not isinstance(value, Integral):
         raise ValueError(
@@ -957,17 +1002,28 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                         rb_layout = _get_validated_layout_dims(rb_name, tensor_metadata[rb_name]["shape"])
                         pc_h = rb_layout["tile_h"] // grid[0]
                         pc_w = rb_layout["tile_w"] // grid[1]
-                        if sub_h_t >= pc_h and sub_w_t >= pc_w:
+                        if sub_h_t == pc_h and sub_w_t == pc_w:
                             continue  # full-shard access — no reblocking needed
-                        f_y = pc_h // sub_h_t
-                        f_x = pc_w // sub_w_t
                         rb_logical_str = "x".join(map(str, rb_layout["shape"]))
                         rb_align_str = "x".join(["1"] * (rb_layout["rank"] - 2) + ["32", "32"])
-                        with Location.unknown(ctx):
-                            inputs[rb_i] = _emit_view_layout(
-                                ctx, inputs[rb_i], f_y, f_x, sub_h_t, sub_w_t, _tile_type_str,
-                                rb_logical_str, rb_align_str
-                            )
+                        if sub_h_t > pc_h or sub_w_t > pc_w:
+                            # Super-shard: coarsen virtual grid
+                            f_y = sub_h_t // pc_h
+                            f_x = sub_w_t // pc_w
+                            with Location.unknown(ctx):
+                                inputs[rb_i] = _emit_coarsen_layout(
+                                    ctx, inputs[rb_i], f_y, f_x, _tile_type_str,
+                                    rb_logical_str, rb_align_str
+                                )
+                        else:
+                            # Sub-shard: refine virtual grid
+                            f_y = pc_h // sub_h_t
+                            f_x = pc_w // sub_w_t
+                            with Location.unknown(ctx):
+                                inputs[rb_i] = _emit_view_layout(
+                                    ctx, inputs[rb_i], f_y, f_x, sub_h_t, sub_w_t, _tile_type_str,
+                                    rb_logical_str, rb_align_str
+                                )
                         reblock_info[rb_name] = {
                             "sub_h": sub_h_t, "sub_w": sub_w_t,
                             "sub_h_elements": sub_h_t * TILE_SIZE,
@@ -982,7 +1038,10 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                         pc_h = rb_layout["tile_h"] // grid[0]
                         pc_w = rb_layout["tile_w"] // grid[1]
                         if sub_h_t >= pc_h and sub_w_t >= pc_w:
+                            # Full-shard or super-shard: outputs always keep the physical grid
+                            # so the d2m.generic output grid stays divisible by the op grid.
                             continue
+                        # Sub-shard: refine virtual grid
                         f_y = pc_h // sub_h_t
                         f_x = pc_w // sub_w_t
                         rb_logical_str = "x".join(map(str, rb_layout["shape"]))
