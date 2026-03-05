@@ -137,7 +137,17 @@ public:
           stream) {
         args.push_back(stream.getInput());
         remappedBuffers.push_back(rewriter.getRemappedValue(stream.getInput()));
-        cbs.push_back(stream.getStorage());
+        // Stream buffer allocs without an address are phantom placeholders
+        // (temporary workaround until StreamLayoutOps are removed). Use the
+        // input buffer as the CB instead.
+        auto storageAlloc =
+            stream.getStorage().getDefiningOp<memref::AllocOp>();
+        if (storageAlloc &&
+            !storageAlloc->getAttrOfType<IntegerAttr>("address")) {
+          cbs.push_back(rewriter.getRemappedValue(stream.getInput()));
+        } else {
+          cbs.push_back(stream.getStorage());
+        }
       } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
                      operand.getDefiningOp());
                  view) {
