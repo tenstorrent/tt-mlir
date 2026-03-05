@@ -1322,7 +1322,7 @@ void GetBlockFactorOp::inferResultRanges(
 
 void CoreIndexOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
-  int64_t dim = getDim();
+  uint64_t dim = getDim();
   setNameFn(getResult(), "core" + std::to_string(dim));
 }
 
@@ -1337,7 +1337,7 @@ void CoreIndexOp::inferResultRanges(
   }
 
   auto gridShape = genericOp.getGrid().getShape();
-  int64_t dim = getDim();
+  uint64_t dim = getDim();
   setResultRange(getResult(), getIndexRange(0, gridShape[dim] - 1));
 }
 
