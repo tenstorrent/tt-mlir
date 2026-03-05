@@ -557,9 +557,6 @@ public:
         (!outputInfo.isDRAM() &&
          (inputInfo.getGridShape() != outputInfo.getGridShape()));
 
-    assert(!(isSrcDramOrReblock && outputInfo.isDRAM()) &&
-           "input and output cannot both be remote");
-
     auto buildConcreteView = [&](Value fromVal, RankedTensorType fromTy,
                                  RankedTensorType toTy) -> Value {
       auto *ctx = rewriter.getContext();
@@ -586,7 +583,10 @@ public:
 
     Value viewOutput = output;
     ttcore::GridAttr grid;
-    if (outputInfo.isDRAM()) {
+    // For L1->DRAM, remap the output to the input's grid so the generic runs
+    // on the L1 grid. For DRAM->DRAM, the input view already remaps to the
+    // output grid, so the output stays unchanged.
+    if (outputInfo.isDRAM() && !inputInfo.isDRAM()) {
       viewOutput = buildConcreteView(output, outputInfo.type, inputInfo.type);
       if (auto invMap = utils::getVirtualGridInverseMapping(input)) {
         auto gridShape = llvm::to_vector(inputInfo.getGridShape());
@@ -1091,6 +1091,17 @@ public:
           currentInfo = TensorInfo::from(currentValue);
         }
       }
+    }
+
+    // DRAM→DRAM: Direct reblocking between DRAM buffers in one step.
+    // Only applies when the transfer is a pure grid reblocking: both tensors
+    // must have matching format (both tiled or both row-major), same element
+    // type, and identical layout properties aside from grid shape.
+    if (currentInfo.hasLayout() && currentInfo.isDRAM() &&
+        targetInfo.hasLayout() && targetInfo.isDRAM()) {
+      currentValue = lowerDatamovementGeneric(rewriter, currentValue,
+                                              op.getOutput(), op.getLoc());
+      currentInfo = TensorInfo::from(currentValue);
     }
 
     // VIRTUAL GRID COLLAPSE: If current has virtual grid but target doesn't
