@@ -45,6 +45,8 @@ struct ScratchAllocationInfo {
   int64_t startPosition = -1;
   int64_t endPosition = -1;
 
+  bool allocated = false;
+
   // Indices (into the allocations vector) of allocations whose live ranges
   // overlap with this one.
   SmallVector<size_t> conflicts;
@@ -97,6 +99,7 @@ private:
                              /*elementOffset=*/0,
                              /*startPosition=*/-1,
                              /*endPosition=*/-1,
+                             /*allocated=*/false,
                              /*conflicts=*/{}});
     });
 
@@ -106,9 +109,9 @@ private:
 
     Block &block = region.front();
 
-    // Sort by slot ID for deterministic layout.
+    // Sort by size to assist first-fit heuristic allocation.
     llvm::sort(allocations, [](const auto &a, const auto &b) {
-      return a.slotId < b.slotId;
+      return a.numElements > b.numElements;
     });
 
     // Compute liveness ranges and conflicts before deciding offsets.
@@ -118,9 +121,29 @@ private:
     // TODO(ckaravasilisTT): Use liveness-based allocation instead of
     // sequential packing to reduce peak scratch usage.
     int64_t currentOffset = 0;
-    for (auto &info : allocations) {
+    for (size_t i = 0; i < allocations.size(); ++i) {
+      auto &info = allocations[i];
       assert(info.numElements > 0 && "scratch allocation must be non-empty");
+      if (info.allocated) {
+        continue;
+      }
       info.elementOffset = currentOffset;
+      // init inner offset
+      int64_t innerOffset = currentOffset;
+      for (size_t j = i + 1; j < allocations.size(); ++j) {
+        auto &innerInfo = allocations[j];
+        if (innerInfo.allocated) {
+          continue;
+        }
+        // IF NOT CONFLICTING AND IT FITS INSIDE INFO, ALLOCATE INSIDE INFO
+        if (!llvm::is_contained(innerInfo.conflicts, i) &&
+            (innerOffset + innerInfo.numElements) <=
+                currentOffset + info.numElements) {
+          innerInfo.allocated = true;
+          innerInfo.elementOffset = innerOffset;
+          innerOffset += innerInfo.numElements;
+        }
+      }
       currentOffset += info.numElements;
     }
 
