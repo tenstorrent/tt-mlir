@@ -1468,8 +1468,8 @@ public:
 
     if constexpr (std::is_same_v<BlockOp,
                                  ttkernel::ExperimentalTilizeBlockOp>) {
-      rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
-      rewriter.create<BlockOp>(op->getLoc(), src, dst, blockR, blockC);
+      ttkernel::TilizeInitOp::create(rewriter, op->getLoc(), src, blockC, dst);
+      BlockOp::create(rewriter, op->getLoc(), src, dst, blockR, blockC);
     } else if constexpr (std::is_same_v<
                              BlockOp,
                              ttkernel::ExperimentalPackUntilizeBlockOp>) {
@@ -1493,11 +1493,12 @@ public:
       auto totalColTilesAttr =
           rewriter.getI32IntegerAttr(static_cast<int32_t>(totalColTiles));
 
-      rewriter.create<ttkernel::PackUntilizeInitOp>(
-          op->getLoc(), src, dst, colsPerDstPassAttr, totalColTilesAttr);
-      rewriter.create<BlockOp>(op->getLoc(), src, dst, blockR, blockC,
-                               colsPerDstPassAttr, totalColTilesAttr);
-      rewriter.create<ttkernel::PackUntilizeUninitOp>(op->getLoc(), dst);
+      ttkernel::PackUntilizeInitOp::create(rewriter, op->getLoc(), src, dst,
+                                           colsPerDstPassAttr,
+                                           totalColTilesAttr);
+      BlockOp::create(rewriter, op->getLoc(), src, dst, blockR, blockC,
+                      colsPerDstPassAttr, totalColTilesAttr);
+      ttkernel::PackUntilizeUninitOp::create(rewriter, op->getLoc(), dst);
     } else {
       llvm_unreachable("unsupported tilize/untilize op");
     }
