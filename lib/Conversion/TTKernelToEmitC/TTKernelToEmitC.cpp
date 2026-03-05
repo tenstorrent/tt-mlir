@@ -354,7 +354,8 @@ public:
                          std::is_same_v<SourceOp,
                                         ttkernel::BitwiseOrBinaryTilesOp> ||
                          std::is_same_v<SourceOp,
-                                        ttkernel::BitwiseXorBinaryTilesOp>) {
+                                        ttkernel::BitwiseXorBinaryTilesOp> ||
+                         std::is_same_v<SourceOp, ttkernel::LogicalNotTileOp>) {
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(
           datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDtype()));
@@ -367,6 +368,17 @@ public:
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(datatypeToDataformatEnumNameOpaqueAttr(
           builder, tileType.getDataType()));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::PackUntilizeInitOp> ||
+                         std::is_same_v<
+                             SourceOp,
+                             ttkernel::ExperimentalPackUntilizeBlockOp>) {
+      SmallVector<Attribute, 2> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), std::to_string(op.getColsPerDstPass())));
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), std::to_string(op.getTotalColTiles())));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp,
                                         ttkernel::ExperimentalTileFillOp>) {
@@ -1081,6 +1093,10 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalTilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalUntilizeBlockOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeUninitOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::ExperimentalPackUntilizeBlockOp>,
 
         // Datamovement
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
@@ -1150,9 +1166,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::HardsigmoidTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileI32Op>,

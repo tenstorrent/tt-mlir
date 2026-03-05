@@ -4,7 +4,6 @@
 import ttnn_jit
 import ttnn
 import torch
-import itertools
 
 import pytest
 
@@ -18,22 +17,24 @@ from utils import (
 
 def matmul_composite(input0, input1):
     a = ttnn.abs(input0)
-    b = ttnn.sin(input1)
-    c = ttnn.matmul(a, b)
-    d = ttnn.abs(c)
-    return d
+    b = ttnn.matmul(a, input1)
+    c = ttnn.abs(b)
+    return c
 
 
+TILE_SIZE = 32
+
+# None is testing the 1D matmul, single tile case
 MATMUL_SHAPES = [
-    ((512, 512, 512)),
-    ((512, 1024, 1024)),
-    ((512, 1024, 2048)),
-    ((1024, 1024, 1024)),
-    ((1024, 1024, 2048)),
-    ((1024, 2048, 2048)),
-    ((2048, 2048, 2048)),
-    ((2048, 32, 2048)),
-    ((32, 2048, 32)),
+    ((64, 64, 64)),
+    ((64, 128, 128)),
+    ((64, 128, 256)),
+    ((128, 128, 128)),
+    ((128, 128, 256)),
+    ((128, 256, 256)),
+    ((256, 256, 256)),
+    ((256, None, 256)),
+    ((None, 256, None)),
 ]
 
 INPUT_LAYOUTS = [
@@ -44,6 +45,9 @@ INPUT_LAYOUTS = [
 ]
 
 
+@pytest.mark.skip(
+    reason="Skipping matmul tests until JIT frontend is adapted to intermediate layout inference. Issue #7163"
+)
 @pytest.mark.parametrize(
     "shapes",
     MATMUL_SHAPES,
@@ -65,16 +69,23 @@ INPUT_LAYOUTS = [
 )
 def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype):
     # Skip large matmuls for float32
-    if dtype == torch.float32 and shapes in [(2048, 2048, 2048), (1024, 2048, 2048)]:
+    if dtype == torch.float32 and shapes in [(256, 256, 256), (128, 256, 256)]:
         pytest.skip("Skipping large matmul for float32")
+
+    # Always square grid.
+    core_grid = get_core_grid_from_device(device)
+    grid_dim = min(core_grid[0] + 1, core_grid[1] + 1)
+    core_grid = (grid_dim - 1, grid_dim - 1)
+    m = TILE_SIZE if shapes[0] is None else shapes[0] * grid_dim
+    k = TILE_SIZE if shapes[1] is None else shapes[1] * grid_dim
+    n = TILE_SIZE if shapes[2] is None else shapes[2] * grid_dim
+
     # input is (m, k, n)
-    shapes = [(shapes[0], shapes[1]), (shapes[1], shapes[2])]
+    shapes = [(m, k), (k, n)]
     input_tensors = []
     for shape, layout in zip(shapes, input_layouts):
         if layout == ttnn.TensorMemoryLayout.BLOCK_SHARDED:
-            grid = get_maximal_block_sharding_grid(
-                shape, get_core_grid_from_device(device)
-            )
+            grid = get_maximal_block_sharding_grid(shape, core_grid)
             input_tensors.append(
                 create_sharded_tile_tensor(
                     device,

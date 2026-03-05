@@ -222,15 +222,14 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
     // with alignments used by the D2MGridSelection pass.
     std::pair<DenseIntElementsAttr, llvm::SmallVector<int64_t>>
     computeGridAwareCollapsedIntervalsAndDimAlignments(
-        ttcore::MetalLayoutAttr referenceLayout,
-        ArrayRef<int64_t> targetGridShape) {
+        ttcore::MetalLayoutAttr referenceLayout, ArrayRef<int64_t> gridShape) {
       auto logicalShape = referenceLayout.getLogicalShape();
       auto collapsedIntervals =
           referenceLayout.computeDefaultCollapsedIntervals(ctx,
                                                            logicalShape.size());
       auto dimAlignments =
           ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
-              logicalShape, targetGridShape,
+              logicalShape, gridShape,
               ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
                   collapsedIntervals, logicalShape.size()));
       return {collapsedIntervals, dimAlignments};
@@ -342,7 +341,7 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         // grid shape is being reblocked.
         auto [collapsedIntervals, dimAlignments] =
             computeGridAwareCollapsedIntervalsAndDimAlignments(baseLayout,
-                                                               targetGridShape);
+                                                               tensorGrid);
         layout = ttcore::MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
                                               dimAlignments, collapsedIntervals,
                                               baseLayout.getOobVal(), memSpace,
@@ -951,11 +950,11 @@ public:
       auto targetRemapping = utils::getAssociatedRemapping(op.getOutput());
       bool remappingsDiffer = currentRemapping != targetRemapping;
 
-      // Compare virtualGridMappings: different shard strategies (e.g.
+      // Compare virtualGridInverseMappings: different shard strategies (e.g.
       // height_sharded vs block_sharded) produce different VGMs even when
       // all other layout properties match.
-      auto currentVGM = utils::getVirtualGridMapping(currentValue);
-      auto targetVGM = utils::getVirtualGridMapping(op.getOutput());
+      auto currentVGM = utils::getVirtualGridInverseMapping(currentValue);
+      auto targetVGM = utils::getVirtualGridInverseMapping(op.getOutput());
       bool vgmsDiffer = currentVGM != targetVGM;
 
       bool needsMappingChange =

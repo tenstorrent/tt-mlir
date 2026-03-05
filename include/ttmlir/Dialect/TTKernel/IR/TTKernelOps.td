@@ -1475,10 +1475,10 @@ def TTKernel_SignTileOp : TTKernel_SFPUOp<"sign_tile", [TTKernel_UnaryOpTrait]> 
     let assemblyFormat = [{ `(` $tile_index `)` attr-dict `:` functional-type(operands, results) }];
 }
 
-def TTKernel_LogicalNotUnaryTileInitOp : TTKernel_InitOp<"logical_not_unary_tile_init"> {
-    let summary = "Init function for logical_not_unary_tile(_int32) operation. Refer to documentation for any init function.";
+def TTKernel_LogicalNotTileInitOp : TTKernel_InitOp<"logical_not_tile_init"> {
+    let summary = "Init function for logical_not_tile operation. Refer to documentation for any init function.";
     let description = [{
-      Must be run before logical_not_unary_tile(_int32).
+      Must be run before logical_not_tile.
     }];
 
     let arguments = (ins);
@@ -1488,32 +1488,18 @@ def TTKernel_LogicalNotUnaryTileInitOp : TTKernel_InitOp<"logical_not_unary_tile
     }];
 }
 
-def TTKernel_LogicalNotUnaryTileOp : TTKernel_SFPUOp<"logical_not_unary_tile", [TTKernel_UnaryOpTrait]> {
+def TTKernel_LogicalNotTileOp : TTKernel_SFPUOp<"logical_not_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Logical negation tile in the DST at specified index.";
     let description = [{
       Performs element-wise computation of logical negation operation
       DST[dst0_index] <- !DST[dst0_index]
       on DST register operands. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call.
+      The DataFormat template parameter specifies the data type.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index);
-
-    let assemblyFormat = [{
-      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_LogicalNotUnaryTileI32Op : TTKernel_SFPUOp<"logical_not_unary_tile_int32", [TTKernel_UnaryOpTrait]> {
-    let summary = "Logical negation tile in the DST at specified index.";
-    let description = [{
-      Performs element-wise computation of logical negation operation for the int32 data type
-      DST[dst0_index] <- !DST[dst0_index]
-      on DST register operands. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call.
-    }];
-
-    let arguments = (ins IndexLike:$dst0_index);
+    let arguments = (ins IndexLike:$dst0_index,
+                         TTCore_DataTypeAttr:$dtype);
 
     let assemblyFormat = [{
       `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
@@ -2204,6 +2190,75 @@ def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_b
     }];
 
     let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $cbOut `,` $blockR `,` $blockC `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_PackUntilizeInitOp : TTKernel_Op<"pack_untilize_init"> {
+    let summary = "PackUntilizeInitOp call.";
+    let description = [{
+      Initializes UNPACK, MATH, and PACK threads for the pack untilize
+      operation.  Maps to the official tt-metal
+      `pack_untilize_init<block_ct_dim, full_ct_dim>(icb, ocb)` API.
+      `cols_per_dst_pass` is the number of column tiles processed per DST pass
+      (`block_ct_dim` in the tt-metal template), and `total_col_tiles` is the
+      total number of column tiles (`full_ct_dim` in the tt-metal template).
+      For correctness, `cols_per_dst_pass` must divide `total_col_tiles`, and
+      `cols_per_dst_pass` must fit
+      in DST capacity for the target data type. Both default to 1.
+      This op is expected to be paired with
+      `experimental::pack_untilize_block` and finalized by
+      `pack_untilize_uninit`.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut,
+                         DefaultValuedAttr<I32Attr, "1">:$colsPerDstPass,
+                         DefaultValuedAttr<I32Attr, "1">:$totalColTiles);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_PackUntilizeUninitOp : TTKernel_Op<"pack_untilize_uninit"> {
+    let summary = "PackUntilizeUninitOp call.";
+    let description = [{
+      Uninitializes the pack untilize operation.  Maps to the official tt-metal
+      `pack_untilize_uninit(ocb)` API.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbOut);
+
+    let assemblyFormat = [{
+      `(` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_untilize_block"> {
+    let summary = "Experimental PackUntilizeBlockOp call.";
+    let description = [{
+      Custom pack untilize block LLK that takes the dimensions of the block.
+      Uses `pack_untilize_init` for initialization and calls
+      `pack_untilize_block<cols_per_dst_pass, total_col_tiles>(icb, ocb, block_r, block_c)`.
+      `cols_per_dst_pass` is the number of column tiles processed per DST pass
+      (constrained by DST capacity), and `total_col_tiles` is the total number
+      of column tiles in the untilized row.
+      For correctness, `cols_per_dst_pass` must divide `total_col_tiles`, and
+      `block_c` is expected to be compatible with the chosen
+      `cols_per_dst_pass` (the implementation processes
+      `block_c / cols_per_dst_pass` column blocks).
+      Use this op in the sequence:
+      `pack_untilize_init -> experimental::pack_untilize_block -> pack_untilize_uninit`.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC,
+                         I32Attr:$colsPerDstPass, I32Attr:$totalColTiles);
 
     let hasVerifier = 1;
 

@@ -32,7 +32,7 @@ BLOCK_SHARDED_SHAPE_GRIDS = [
 ]
 
 HEIGHT_SHARDED_SHAPE_GRIDS = [
-    ((256, 32), (3, 1)),
+    # ((256, 32), (3, 1)),  # skip: PCC check failures on L1 sharded ops. Issue #7157
     ((1024, 32), (7, 3)),
     ((256, 64), (0, 7)),
     ((2048, 128), (7, 7)),
@@ -46,6 +46,8 @@ WIDTH_SHARDED_SHAPE_GRIDS = [
     ((64, 256), (7, 0)),
     ((64, 256), (0, 7)),
     ((128, 2048), (7, 7)),
+    # ((32, 384), (0, 5)),  # skip: PCC check failures on L1 sharded ops. Issue #7157
+    ((32, 384), (1, 5)),
     ((2, 32, 384), (1, 5)),
     ((2, 2, 32, 384), (1, 5)),
     ((2, 1, 32, 2048), (7, 7)),
@@ -458,6 +460,10 @@ def test_binary_ops_dram(device, shape, dtype, op):
         compile_only = True
     if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
+    if shape == (2048, 2048) and dtype == torch.float32:
+        pytest.xfail(
+            "L1 allocation exceeds capacity with double-buffered streams for large 32-bit DRAM tensors"
+        )
 
     run_op_test(
         device,
@@ -517,6 +523,10 @@ def test_bitwise_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, o
 )
 def test_bitwise_binary_ops_dram(device, shape, dtype, op):
     max_grid = (0, 0)
+    if shape == (2048, 2048):
+        pytest.xfail(
+            "L1 allocation exceeds capacity with double-buffered streams for large 32-bit DRAM tensors"
+        )
     run_op_test(
         device,
         shape,

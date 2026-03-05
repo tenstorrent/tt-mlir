@@ -21,24 +21,14 @@ namespace mlir::tt::d2m {
 namespace {
 
 // Helper function to check if an operand is remote (i.e., comes from a view op
-// such as view_layout or stream_layout, or resides in DRAM)
+// such as view_layout or stream_layout).
 static bool isRemoteOperand(Value operand, Operation *op) {
   Operation *defOp = operand.getDefiningOp();
   if (!defOp) {
     return false;
   }
   // Remote operands are those that come from ops implementing ViewOpInterface
-  if (mlir::isa<ViewOpInterface>(defOp)) {
-    return true;
-  }
-  // Also treat DRAM operands as remote even without a view wrapper
-  if (auto memref = mlir::dyn_cast<MemRefType>(operand.getType())) {
-    if (auto memSpaceAttr = mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
-            memref.getMemorySpace())) {
-      return memSpaceAttr.getValue() == ttcore::MemorySpace::DeviceDRAM;
-    }
-  }
-  return false;
+  return mlir::isa<ViewOpInterface>(defOp);
 }
 
 // Helper function to find the CB block argument that corresponds to a memref
@@ -205,6 +195,13 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter) {
     bool isRemoteStore = isRemoteOperand(storeMemref, storeOp.getOperation());
 
     TT_assert(!(isRemoteLoad && isRemoteStore));
+    // When neither operand is remote (e.g., L1-to-L1 layout conversions in
+    // TTNN mode where operands come from TTNNMetalLayoutCastOp rather than
+    // ViewOpInterface), both the load and store are needed — skip
+    // simplification.
+    if (!isRemoteLoad && !isRemoteStore) {
+      continue;
+    }
     if (!isRemoteStore) {
       // Create the explicit CB form of remote_load (no localBuffer, has CB
       // operand)
@@ -253,9 +250,7 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
   // Transform RemoteLoadOp (implicit form -> explicit CB form)
   SmallVector<RemoteLoadOp> remoteLoadsToConvert;
   moduleOp->walk([&](RemoteLoadOp remoteLoad) {
-    Value memref = remoteLoad.getMemref();
-    // Only handle remote operands (from stream_layout ops)
-    if (!isRemoteOperand(memref, remoteLoad.getOperation())) {
+    if (!remoteLoad.isImplicitForm()) {
       return;
     }
     remoteLoadsToConvert.push_back(remoteLoad);
@@ -364,11 +359,6 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
       return;
     }
 
-    // Check if the associated operand is remote
-    if (!isRemoteOperand(assocOperand, allocOp.getOperation())) {
-      return;
-    }
-
     allocsToConvert.push_back(allocOp);
   });
 
@@ -412,9 +402,7 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
   // Transform RemoteStoreOp (implicit form -> explicit CB form)
   SmallVector<RemoteStoreOp> remoteStoresToConvert;
   moduleOp->walk([&](RemoteStoreOp remoteStore) {
-    Value memref = remoteStore.getMemref();
-    // Only handle remote operands (from stream_layout ops)
-    if (!isRemoteOperand(memref, remoteStore.getOperation())) {
+    if (!remoteStore.isImplicitForm()) {
       return;
     }
     remoteStoresToConvert.push_back(remoteStore);
@@ -434,15 +422,21 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     Value assocCb;
 
     if (remoteStore.isImplicitForm()) {
-      // Implicit form: find the CB by tracing back from local buffer to reserve
-      // op
+      // Implicit form: find the CB by tracing back from the local buffer.
+      // First try to find a ReserveOp in the chain.
       ReserveOp reserveOp = findReserveOp(localBuffer);
-      if (!reserveOp) {
+      if (reserveOp) {
+        assocCb = reserveOp.getCb();
+      } else if (auto waitOp = localBuffer.getDefiningOp<WaitOp>()) {
+        // When a load-store pair was not simplified (e.g., L1-to-L1 layout
+        // conversion), the load conversion replaced the shared alloc with a
+        // WaitOp result. Extract the CB from the WaitOp.
+        assocCb = waitOp.getCb();
+      } else {
         remoteStore.emitWarning(
-            "could not find reserve op for local buffer, skipping conversion");
+            "could not find CB for local buffer, skipping conversion");
         continue;
       }
-      assocCb = reserveOp.getCb();
 
       rewriter.setInsertionPoint(remoteStore);
 
@@ -451,8 +445,11 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
       rewriter.create<RemoteStoreOp>(loc, memref, remoteStore.getIndices(),
                                      assocCb);
 
-      // Track the reserve op for push insertion (avoid duplicates)
-      if (cbsWithReserveOps.insert(assocCb).second) {
+      // Track the reserve op for push insertion (avoid duplicates).
+      // When the CB was found through a WaitOp (non-simplified load-store
+      // pair), there is no ReserveOp — the load already populated the CB.
+      // We only need a pop after consuming the data.
+      if (reserveOp && cbsWithReserveOps.insert(assocCb).second) {
         info.reserveOpsNeedingPush.push_back({reserveOp, assocCb});
       }
 

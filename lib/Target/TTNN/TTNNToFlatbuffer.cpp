@@ -87,17 +87,23 @@ getMemoryConfigFromTensorTypeIfNeeded(FlatbufferObjectCache &cache,
   return memoryConfig;
 }
 
+// Returns the memory config for an op, using the op's memory_config attribute
+// if present, otherwise deriving it from the given result tensor type.
+// Use this overload for multi-result ops where a specific result must be
+// specified.
 template <typename OpType>
 static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
-getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op) {
-  // TODO (#620): Once we add a full support for shard spec, we can
-  // remove obtaining tileShape and coreRangeSet from output tensor.
-  // TODO (#2415): Once we have this pass, we can remove ternary if
-  // and just get memory config attr from the op.
-  auto result = op.getResult();
+getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op, Value result) {
   return op.getMemoryConfig()
              ? toFlatbuffer(cache, *op.getMemoryConfig())
              : getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+}
+
+// Convenience overload for single-result ops.
+template <typename OpType>
+static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
+getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op) {
+  return getMemoryConfigIfNeeded(cache, op, op.getResult());
 }
 
 static bool isCpuHoistedFuncCall(func::CallOp op) {
@@ -188,13 +194,10 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
                    return static_cast<int32_t>(val);
                  });
 
-  auto runtimeTensorShardingDesc =
-      ::tt::target::ttnn::CreateRuntimeTensorShardingDescDirect(
-          *cache.fbb, shardStatus, &localShape);
   return ::tt::target::ttnn::CreateTensorDescDirect(
       *cache.fbb, &shape, &meshShape,
       cache.getOrCreate(layoutAttr, ttnnLayoutAttrToFlatbuffer, deviceAttr),
-      runtimeTensorShardingDesc);
+      shardStatus, &localShape);
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorRef>
@@ -1083,10 +1086,16 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
+  ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
+      computeConfig = 0;
+  if (op.getComputeConfig().has_value()) {
+    computeConfig = toFlatbuffer(cache, op.getComputeConfig().value());
+  }
+
   return ::tt::target::ttnn::CreateReduceScatterOp(
       *cache.fbb, input, output, op.getScatterDim(),
       static_cast<uint32_t>(op.getReduceType()), op.getClusterAxis(),
-      subDeviceId, memoryConfig, numLinks, topology);
+      subDeviceId, memoryConfig, numLinks, topology, computeConfig);
 }
 
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
@@ -2418,12 +2427,11 @@ createSortOp(FlatbufferObjectCache &cache, SortOp op) {
   int8_t dim = op.getDim();
   bool descending = op.getDescending();
   bool stable = op.getStable();
-  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      op.getMemoryConfig();
 
-  return ::tt::target::ttnn::CreateSortOpDirect(
-      *cache.fbb, in, dim, descending, stable,
-      (memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0), &outputs);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op, op.getValues());
+
+  return ::tt::target::ttnn::CreateSortOpDirect(*cache.fbb, in, dim, descending,
+                                                stable, memoryConfig, &outputs);
 }
 
 template <typename Pool2dOp>
@@ -2985,6 +2993,18 @@ createProgramDescriptor(FlatbufferObjectCache &cache, ProgramAttr programAttr,
                    computeKernelAttr.getBfp8PackPrecise(),
                    computeKernelAttr.getMathApproxMode())
                    .Union();
+    } else if (auto dmKernelAttr =
+                   llvm::dyn_cast<DataMovementKernelAttr>(kernelAttr);
+               dmKernelAttr) {
+      auto processor = static_cast<::tt::target::ttnn::DataMovementType>(
+          dmKernelAttr.getProcessor());
+      auto noc = toFlatbuffer(cache, dmKernelAttr.getNocIndex());
+      auto nocMode =
+          static_cast<::tt::target::ttnn::NocMode>(dmKernelAttr.getNocMode());
+      configType = ::tt::target::ttnn::KernelConfig::DataMovementKernelConfig;
+      config = ::tt::target::ttnn::CreateDataMovementKernelConfig(
+                   *cache.fbb, processor, noc, nocMode)
+                   .Union();
     } else if (auto readKernelAttr = llvm::dyn_cast<ReadKernelAttr>(kernelAttr);
                readKernelAttr) {
       configType = ::tt::target::ttnn::KernelConfig::ReaderKernelConfig;
@@ -3258,10 +3278,7 @@ createOp(FlatbufferObjectCache &cache, SplitQueryKeyValueAndSplitHeadsOp op) {
       toFlatbuffer(cache, op.getNumKvHeads());
   bool transposeKey = op.getTransposeKey();
 
-  auto memoryConfig =
-      op.getMemoryConfig()
-          ? toFlatbuffer(cache, *op.getMemoryConfig())
-          : getMemoryConfigFromTensorTypeIfNeeded(cache, op.getQuery());
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op, op.getQuery());
 
   return ::tt::target::ttnn::CreateSplitQueryKeyValueAndSplitHeadsOp(
       *cache.fbb, inputTensor, inputKVTensor, outQuery, outKey, outValue,
