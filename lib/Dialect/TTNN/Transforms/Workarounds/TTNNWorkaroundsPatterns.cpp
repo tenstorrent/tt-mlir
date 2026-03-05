@@ -415,7 +415,6 @@ public:
         return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
       }
     }
-    return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
     int32_t dimension = std::distance(inputShape.begin(), tensorDimDevice);
 
     // TODO(wooseoklee): Once ttnn supports all_reduce op
@@ -571,7 +570,6 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
-          TTNNAllReduceWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
