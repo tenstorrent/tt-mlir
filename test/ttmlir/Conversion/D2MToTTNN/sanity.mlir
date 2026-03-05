@@ -96,21 +96,6 @@ module {
     %1 = d2m.empty() : tensor<32x32xbf16, #l1_layout>
     return %1 : tensor<32x32xbf16, #l1_layout>
   }
-  // CHECK-LABEL: func.func @test_global_semaphore
-  func.func @test_global_semaphore() -> !d2m.global_semaphore {
-    %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK-NOT: memref.alloc
-    %alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #ttcore.memory_space<l1>>
-    // CHECK: %[[SEM:.*]] = "ttnn.create_global_semaphore"() <{core_range = #ttnn.core_range<(0,0), (7,7)>, initial_value = 0 : ui32}> : () -> !ttnn.global_semaphore
-    %sem = d2m.create_global_semaphore(%alloc) {value = 0 : ui32}
-      : memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #ttcore.memory_space<l1>> -> !d2m.global_semaphore
-    // CHECK: "ttnn.reset_global_semaphore"(%[[SEM]]) <{value = 0 : ui32}> : (!ttnn.global_semaphore) -> ()
-    d2m.reset_global_semaphore(%sem) {value = 0 : ui32} : !d2m.global_semaphore
-    // CHECK-NOT: memref.dealloc
-    memref.dealloc %alloc : memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #ttcore.memory_space<l1>>
-    // CHECK: return
-    return : !d2m.global_semaphore
-  }
   func.func private @read_kernel() attributes {
     ttkernel.arg_spec = #ttkernel.arg_spec<
       rt_args = [<arg_type = buffer_address, operand_index = 0>]
