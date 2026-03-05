@@ -110,57 +110,62 @@ public:
       emitc::IncludeOp::create(
           *builder, loc, "api/compute/eltwise_unary/sfpu_split_includes.h",
           /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "api/compute/eltwise_unary/recip.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/fill.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "api/compute/eltwise_unary/negative.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/sqrt.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "api/compute/eltwise_unary/rounding.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "api/compute/eltwise_unary/trigonometry.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/gelu.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "api/compute/eltwise_unary/erf_erfc.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "api/compute/eltwise_unary/logical_not.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/comp.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "api/compute/eltwise_unary/rsqrt.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "api/compute/eltwise_unary/typecast.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "api/compute/binary_bitwise_sfpu.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "api/compute/eltwise_unary/bitwise_not.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/relu.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "api/compute/eltwise_unary/binop_with_scalar.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "api/compute/eltwise_unary/where.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "api/compute/eltwise_unary/clamp.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/pack_untilize.h",
-                                        /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/recip.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/fill.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/negative.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/sqrt.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/rounding.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/trigonometry.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/gelu.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/erf_erfc.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/logical_not.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/comp.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/rsqrt.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/typecast.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/binary_bitwise_sfpu.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/bitwise_not.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/relu.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/binop_with_scalar.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/where.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/clamp.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/pack_untilize.h",
+                               /*isStandard=*/false);
       // Helper for float-to-uint32 bit reinterpretation (used by scalar tile
       // ops).
       emitc::VerbatimOp::create(
@@ -274,7 +279,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
       auto experimentalPackUntilizeLLKs =
           StringRef(experimental_pack_untilize_llks_generated,
                     experimental_pack_untilize_llks_generated_len);
-      builder->create<emitc::VerbatimOp>(loc, experimentalPackUntilizeLLKs);
+      emitc::VerbatimOp::create(*builder, loc, experimentalPackUntilizeLLKs);
     }
 
     if (hasCall("experimental::get_noc_multicast_addr")) {
