@@ -49,48 +49,6 @@ class DeviceGetter:
         return cls._instance
 
 
-# Wrapper to abstract const-eval logic out of runtime funcs to keep them
-# cleaner. Invokes constEvalFunc iff key is not in cacheDict.
-def constEvalFuncWrapper(
-    constEvalFunc, inputs, cacheDict, forwardFuncNameKey, key, device=None
-):
-    if forwardFuncNameKey not in cacheDict:
-        cacheDict[forwardFuncNameKey] = {}
-    if key not in cacheDict[forwardFuncNameKey]:
-        # Support both calling conventions:
-        # - Singleton-device path: constEvalFunc(inputs) and const-eval body
-        #   opens device via DeviceGetter.
-        # - Explicit-device-arg path: constEvalFunc(inputs, device) where device
-        #   is passed from the exported forward() entrypoint.
-        #
-        if device is not None:
-            cacheDict[forwardFuncNameKey][key] = constEvalFunc(inputs, device)
-        else:
-            cacheDict[forwardFuncNameKey][key] = constEvalFunc(inputs)
-    return cacheDict[forwardFuncNameKey][key]
-
-
-# Wrapper to abstract const-eval logic out of runtime funcs to keep them
-# cleaner. Invokes constEvalFunc iff key is not in cacheDict.
-# This is an overload of constEvalFuncWrapper for const-eval functions that
-# take zero arguments.
-def constEvalFuncWrapperZeroArg(
-    constEvalFunc, cacheDict, forwardFuncNameKey, key, device=None
-):
-    if forwardFuncNameKey not in cacheDict:
-        cacheDict[forwardFuncNameKey] = {}
-    if key not in cacheDict[forwardFuncNameKey]:
-        # Support both calling conventions:
-        # - Singleton-device path: constEvalFunc()
-        # - Explicit-device-arg path: constEvalFunc(device)
-        #
-        if device is not None:
-            cacheDict[forwardFuncNameKey][key] = constEvalFunc(device)
-        else:
-            cacheDict[forwardFuncNameKey][key] = constEvalFunc()
-    return cacheDict[forwardFuncNameKey][key]
-
-
 def get_scalar_from_tensor(tensor: ttnn.Tensor) -> int:
     assert tensor.logical_volume() == 1, "expected scalar tensor"
     assert tensor.dtype == ttnn.DataType.UINT32, "expected uint32 tensor"
