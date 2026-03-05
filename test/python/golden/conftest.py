@@ -48,7 +48,7 @@ _current_fabric_config: Optional[str] = None
 
 
 # Test timeout handling
-TEST_TIMEOUT_SECONDS = 3  # 3 minutes
+TEST_TIMEOUT_SECONDS = 900  # 3 minutes
 _timeout_timer: Optional[threading.Timer] = None
 
 

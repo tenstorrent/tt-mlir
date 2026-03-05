@@ -70,11 +70,6 @@ def test_batch_norm(
                 dimension=dimension,
             )
 
-    import time
-
-    if target == "emitc":
-        time.sleep(8)
-
     compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
