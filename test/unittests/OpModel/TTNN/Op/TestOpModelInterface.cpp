@@ -5563,52 +5563,6 @@ TEST_F(OpModelBase, DropoutOpInterface) {
   }
 }
 
-TEST_F(OpModelBase, MeshPartitionOpInterface) {
-  // Close the default {1,1} device and reopen as a {1,8} mock device so that
-  // mesh_partition actually exercises the prim op (cluster_axis_size > 1).
-  op_model::SingletonDeviceContext::closeInstance();
-  auto systemDesc = ttcore::SystemDescAttr::getDefault(
-      &context, ttcore::Arch::WormholeB0, {1, 8});
-  op_model::SingletonDeviceContext::setSystemDesc(systemDesc);
-  op_model::SingletonDeviceContext::getInstance().openMockDevice(
-      /*traceRegionSize=*/6000000, std::make_pair<size_t, size_t>(1, 8));
-
-  // create MeshPartitionOp
-  llvm::SmallVector<int64_t> inputShape = {8, 1024};
-  llvm::SmallVector<int64_t> outputShape = {1, 1024};
-
-  auto inputLayout = CreateRowMajorLayout(inputShape, BufferType::L1,
-                                          TensorMemoryLayout::Interleaved);
-  auto input =
-      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
-  auto outputType = createRankedTensorType(outputShape);
-
-  auto meshPartitionOp = builder.create<MeshPartitionOp>(
-      builder.getUnknownLoc(), outputType, input, builder.getSI32IntegerAttr(0),
-      builder.getUI32IntegerAttr(1),
-      /*memory_config=*/nullptr);
-  meshPartitionOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
-
-  // test MeshPartitionOp interface - constraints
-  auto constraintsExp = getOpConstraints(meshPartitionOp.getOperation());
-  if (constraintsExp) {
-    auto l1 = constraintsExp.get();
-    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
-        l1;
-    EXPECT_GE(cbSize, 0);
-    EXPECT_GE(l1PeakSize, 0);
-    EXPECT_GE(totalPeakSize, 0);
-    EXPECT_GE(outputSize, 0);
-  } else {
-    FAIL() << "Missing L1 constraints; Error="
-           << llvm::toString(constraintsExp.takeError()) << std::endl;
-  }
-
-  // Reopen the default device for TearDown.
-  op_model::SingletonDeviceContext::closeInstance();
-  op_model::SingletonDeviceContext::getInstance().openDevice();
-}
-
 TEST_F(OpModelBase, MeshPartitionOpInterfaceRuntime) {
   // Runtime queries require a real multi-chip device.
   constexpr size_t requiredChips = 8;

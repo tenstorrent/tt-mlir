@@ -27,4 +27,29 @@ target_link_libraries(TestOpModelLib
     MLIRTTTransforms
 )
 
+add_executable(TestOpModelLibMockMesh
+TestOpModelLibMockMesh.cpp
+)
+
+target_compile_options(TestOpModelLibMockMesh
+    PRIVATE
+    -fno-rtti
+)
+
+target_include_directories(TestOpModelLibMockMesh
+    PUBLIC
+    ${PROJECT_SOURCE_DIR}/lib/OpModel/TTNN/
+    ${PROJECT_SOURCE_DIR}/test/unittests/OpModel/TTNN/
+)
+
+target_link_libraries(TestOpModelLibMockMesh
+    PRIVATE
+    gtest
+    gtest_main
+    TTNNOpModelLib
+    MLIRTTCoreDialect
+    MLIRTTNNDialect
+    MLIRTTTransforms
+)
+
 endif()

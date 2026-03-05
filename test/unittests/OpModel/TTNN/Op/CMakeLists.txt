@@ -77,6 +77,31 @@ target_link_libraries(TestRMSNormWidthSharded
     MLIRTTTransforms
 )
 
+add_executable(TestOpModelInterfaceMockMesh
+TestOpModelInterfaceMockMesh.cpp
+)
+
+target_compile_options(TestOpModelInterfaceMockMesh
+    PRIVATE
+    -fno-rtti
+)
+
+target_include_directories(TestOpModelInterfaceMockMesh
+    PUBLIC
+    ${PROJECT_SOURCE_DIR}/lib/OpModel/TTNN/
+    ${PROJECT_SOURCE_DIR}/test/unittests/OpModel/TTNN/
+)
+
+target_link_libraries(TestOpModelInterfaceMockMesh
+    PRIVATE
+    gtest
+    gtest_main
+    TTNNOpModelLib
+    MLIRTTCoreDialect
+    MLIRTTNNDialect
+    MLIRTTTransforms
+)
+
 add_executable(TestD2MOpCostModel
 TestD2MOpCostModel.cpp
 )
