@@ -4128,17 +4128,16 @@ class StableHLOBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            input1 = self._get_golden_tensor(in1)
-            op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(
-                input0,
-                input1,
-                direction_attr,
-                op.result.type.element_type,
-            )
-            self._set_golden_tensor(op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input0,
+            input1,
+            direction_attr,
+            op.result.type.element_type,
+        )
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -4183,17 +4182,16 @@ class StableHLOBuilder(Builder):
         )
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(
-                input0,
-                input1,
-                new_direction_attr,
-                new_op_result.type.element_type,
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input0,
+            input1,
+            new_direction_attr,
+            new_op_result.type.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -4258,21 +4256,14 @@ class StableHLOBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    if not self._disable_golden_check:
-                        op_golden_function = get_golden_function(stablehlo_op)
-                        input0 = self._get_golden_tensor(old_op.lhs)
-                        input1 = self._get_golden_tensor(old_op.rhs)
-                        golden_output = op_golden_function(
-                            input0,
-                            input1,
-                            new_direction_attr,
-                            new_op_result.type.element_type,
-                        )
-                        compare_builder._set_golden_tensor(new_op_result, golden_output)
-                        compare_builder._set_golden_tensor(lhs, input0)
-                        compare_builder._set_golden_tensor(rhs, input1)
-                        ordered_inputs.extend([lhs, rhs])
-                        ordered_outputs.append(new_op_result)
+                    input0 = self._get_golden_tensor(old_op.lhs)
+                    input1 = self._get_golden_tensor(old_op.rhs)
+                    golden_output = self._get_golden_tensor(old_op.result)
+                    compare_builder._set_golden_tensor(new_op_result, golden_output)
+                    compare_builder._set_golden_tensor(lhs, input0)
+                    compare_builder._set_golden_tensor(rhs, input1)
+                    ordered_inputs.extend([lhs, rhs])
+                    ordered_outputs.append(new_op_result)
 
                     return new_op
 
