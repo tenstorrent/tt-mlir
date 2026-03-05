@@ -42,7 +42,7 @@ def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_start
 // TTKernel Register operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_TileRegsAcquireOp : TTKernel_Op<"tile_regs_acquire"> {
+def TTKernel_TileRegsAcquireOp : TTKernel_Op<"experimental::tile_regs_acquire"> {
     let summary = "tile_regs_acquire";
     let description = [{
       Acquire an exclusive lock on the DST register for the MATH thread.
