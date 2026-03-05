@@ -1,3 +1,7 @@
+// Tests load-to-store forwarding during explicit CB lowering. Positive cases
+// verify that a remote_load/remote_store pair sharing a local buffer is lowered
+// into a single forwarded CB sequence. The negative case verifies that a shared
+// buffer with additional uses (e.g. dealloc) is rejected as invalid.
 // RUN: awk '/^\/\/ -----/{exit} {print}' %s | ttmlir-opt --ttcore-register-device --d2m-lower-load-store-ops-to-explicit-cb-form - | FileCheck %s --check-prefix=CHECK-POS
 // RUN: ttmlir-opt --ttcore-register-device --d2m-lower-load-store-ops-to-explicit-cb-form %s --split-input-file -verify-diagnostics
 
