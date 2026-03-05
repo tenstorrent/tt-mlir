@@ -70,6 +70,9 @@ void createStableHLOToTTIRPipeline(
     pm.addPass(
         ::mlir::stablehlo::createStablehloAggressiveSimplificationPass());
   }
+  // Expand complex math ops (e.g. mul, sqrt, log) into real arithmetic before
+  // converting complex types to float-pair representation.
+  pm.addPass(::mlir::stablehlo::createStablehloComplexMathExpanderPass());
   // Convert complex types to float-pair representation before lowering.
   pm.addPass(
       mlir::tt::stablehlo::createStableHLOComplexDataTypeConversionPass());
