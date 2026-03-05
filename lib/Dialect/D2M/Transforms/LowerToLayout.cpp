@@ -1093,7 +1093,7 @@ public:
       }
     }
 
-    // DRAM→DRAM: Direct reblocking between DRAM buffers in one step.
+    // DRAM→DRAM: Direct reblocking between DRAM buffers.
     // Only applies when the transfer is a pure grid reblocking: both tensors
     // must have matching format (both tiled or both row-major), same element
     // type, and identical layout properties aside from grid shape.
