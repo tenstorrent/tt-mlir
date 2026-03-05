@@ -41,11 +41,28 @@ public:
   void erase(const MainProgramKey &key,
              const CaptureExecuteProgramKey &captureExecuteKey);
 
+  // Pending execution count tracking for deferred trace capture.
+  // Tracks how many times a trace body has been executed before capture.
+  uint32_t
+  getPendingExecutionCount(const MainProgramKey &key,
+                           const CaptureExecuteProgramKey &captureExecuteKey);
+  void incrementPendingExecutionCount(
+      const MainProgramKey &key,
+      const CaptureExecuteProgramKey &captureExecuteKey);
+  void erasePendingExecutionCount(
+      const MainProgramKey &key,
+      const CaptureExecuteProgramKey &captureExecuteKey);
+
 private:
   std::weak_ptr<::ttnn::MeshDevice> meshDevice;
   std::unordered_map<MainProgramKey,
                      std::unordered_map<CaptureExecuteProgramKey, TraceData>>
       cache;
+  // Pending execution counts for traces not yet captured
+  std::unordered_map<
+      MainProgramKey,
+      std::unordered_map<CaptureExecuteProgramKey, uint32_t>>
+      pendingExecutionCounts;
 };
 } // namespace tt::runtime::ttnn
 

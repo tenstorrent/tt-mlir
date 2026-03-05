@@ -76,4 +76,40 @@ void TraceCache::erase(const MainProgramKey &key,
   outerIt->second.erase(captureExecuteKey);
 }
 
+uint32_t TraceCache::getPendingExecutionCount(
+    const MainProgramKey &key,
+    const CaptureExecuteProgramKey &captureExecuteKey) {
+  auto outerIt = pendingExecutionCounts.find(key);
+  if (outerIt == pendingExecutionCounts.end()) {
+    return 0;
+  }
+
+  auto innerIt = outerIt->second.find(captureExecuteKey);
+  if (innerIt == outerIt->second.end()) {
+    return 0;
+  }
+
+  return innerIt->second;
+}
+
+void TraceCache::incrementPendingExecutionCount(
+    const MainProgramKey &key,
+    const CaptureExecuteProgramKey &captureExecuteKey) {
+  pendingExecutionCounts[key][captureExecuteKey]++;
+}
+
+void TraceCache::erasePendingExecutionCount(
+    const MainProgramKey &key,
+    const CaptureExecuteProgramKey &captureExecuteKey) {
+  auto outerIt = pendingExecutionCounts.find(key);
+  if (outerIt == pendingExecutionCounts.end()) {
+    return;
+  }
+
+  outerIt->second.erase(captureExecuteKey);
+  if (outerIt->second.empty()) {
+    pendingExecutionCounts.erase(outerIt);
+  }
+}
+
 } // namespace tt::runtime::ttnn

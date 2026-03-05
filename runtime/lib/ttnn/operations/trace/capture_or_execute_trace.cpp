@@ -15,6 +15,8 @@
 
 namespace tt::runtime::ttnn::operations::trace {
 
+static constexpr const char *kCaptureTracePrefix = "run_and_capture_";
+
 static std::pair<MainProgramKey, CaptureExecuteProgramKey>
 getTraceCacheKeys(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                   ProgramContext &context) {
@@ -119,6 +121,74 @@ static void runTraceProgramAndCaptureTrace(
   traceCache.insert(mainProgramKey, captureExecuteKey, traceData);
 }
 
+// Find the trace body program index by deriving its name from the capture
+// program name. The capture program is named "run_and_capture_trace_N_func"
+// and the trace body is named "trace_N_func".
+static std::optional<size_t>
+findTraceBodyProgramIndex(Binary &executableHandle, size_t captureProgramId) {
+  std::string captureProgramName =
+      executableHandle.getProgramName(captureProgramId);
+
+  // Strip "run_and_capture_" prefix to get trace body name
+  std::string prefix(kCaptureTracePrefix);
+  if (captureProgramName.substr(0, prefix.size()) != prefix) {
+    LOG_WARNING("Capture program name does not have expected prefix: ",
+                captureProgramName);
+    return std::nullopt;
+  }
+  std::string traceBodyName = captureProgramName.substr(prefix.size());
+
+  // Search for the trace body program by name
+  uint32_t numPrograms = executableHandle.getNumPrograms();
+  for (uint32_t i = 0; i < numPrograms; i++) {
+    if (executableHandle.getProgramName(i) == traceBodyName) {
+      return i;
+    }
+  }
+
+  LOG_WARNING("Could not find trace body program: ", traceBodyName);
+  return std::nullopt;
+}
+
+// Run the trace body program directly without capturing a trace.
+// This is used on the first execution to ensure all buffers are allocated
+// before any trace is captured.
+static void
+runTraceBodyDirect(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
+                   ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  ::tt::runtime::Device deviceHandle = context.getDeviceHandle();
+  Binary &executableHandle = context.getExecutableHandle();
+
+  auto traceBodyIndex =
+      findTraceBodyProgramIndex(executableHandle, op->capture_program_id());
+  LOG_ASSERT(traceBodyIndex.has_value(),
+             "Failed to find trace body program index");
+
+  std::vector<::tt::runtime::Tensor> inputTensors;
+  for (const ::tt::target::ttnn::TensorRef *input : *op->inputs()) {
+    ::tt::runtime::Tensor inputTensor =
+        tensorPool.getRuntimeTensorAndValidate(input);
+    inputTensors.push_back(inputTensor);
+  }
+
+  ProgramExecutor executor(deviceHandle, executableHandle,
+                           *traceBodyIndex, inputTensors,
+                           /*constEvalProgram=*/false);
+  executor.execute();
+  std::vector<::tt::runtime::Tensor> outputTensors =
+      executor.gatherOutputTensors();
+
+  LOG_ASSERT(outputTensors.size() == op->outputs()->size(),
+             "Mismatched number of output tensors from trace body, expected: ",
+             op->outputs()->size(), " got: ", outputTensors.size());
+
+  for (size_t i = 0; i < op->outputs()->size(); i++) {
+    tensorPool.insertRuntimeTensorAndValidate(op->outputs()->Get(i),
+                                              outputTensors[i]);
+  }
+}
+
 static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                          ProgramContext &context, TraceData &traceData) {
   ::tt::runtime::Device deviceHandle = context.getDeviceHandle();
@@ -196,13 +266,33 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
   auto [mainProgramKey, captureExecuteKey] = getTraceCacheKeys(op, context);
 
   if (!traceCache->contains(mainProgramKey, captureExecuteKey)) {
-    LOG_DEBUG("Trace cache miss, running program and capturing trace");
+    uint32_t pendingCount = traceCache->getPendingExecutionCount(
+        mainProgramKey, captureExecuteKey);
+
+    if (pendingCount == 0) {
+      // FIRST EXECUTION: run trace body directly, no capture.
+      // This ensures all buffers for all graphs are allocated before any trace
+      // is captured.
+      LOG_DEBUG("Trace cache miss (first execution), running trace body "
+                "directly without capture");
+      runTraceBodyDirect(op, context);
+      traceCache->incrementPendingExecutionCount(mainProgramKey,
+                                                 captureExecuteKey);
+      debug::Stats::get().incrementStat("TraceCacheMiss");
+      debug::Stats::get().incrementStat("TraceBodyDirectExecution");
+      return;
+    }
+
+    // SECOND EXECUTION: capture the trace now that all buffers exist.
+    LOG_DEBUG("Trace cache miss (second execution), capturing trace");
     runTraceProgramAndCaptureTrace(op, context, *traceCache);
+    traceCache->erasePendingExecutionCount(mainProgramKey, captureExecuteKey);
     debug::Stats::get().incrementStat("TraceCacheMiss");
     debug::Stats::get().incrementStat("CapturedTrace");
     return;
   }
 
+  // THIRD+ EXECUTION: replay the captured trace.
   TraceData *traceData = traceCache->get(mainProgramKey, captureExecuteKey);
   LOG_ASSERT(traceData, "TraceData must be populated in TraceCache");
   LOG_DEBUG("Trace cache hit, executing trace directly");
