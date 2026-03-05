@@ -176,23 +176,6 @@ def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
-def TTIRComplexDataTypeConversionPass : Pass<"ttir-complex-data-type-conversion", "::mlir::ModuleOp"> {
-  let summary = "Convert complex data types to float pair representations.";
-  let description = [{
-    This pass converts TTIR operations with complex element types to equivalent
-    operations using float pair representations. Complex tensors of type
-    tensor<...xcomplex<fN>> are converted to tensor<...x2xfN>, where the last
-    dimension stores [real, imag] components.
-
-    Concretely, the pass handles:
-      - ttir.stablehlo_complex -> ttir.complex
-      - ttir.stablehlo_real / ttir.stablehlo_imag -> ttir.real / ttir.imag
-      - ttir.constant with complex element type -> float-pair constant
-      - func signatures and return ops with complex types
-  }];
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect",
-                           "mlir::func::FuncDialect"];
-}
 
 def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert integer data types in quantized types to a specified bit width";

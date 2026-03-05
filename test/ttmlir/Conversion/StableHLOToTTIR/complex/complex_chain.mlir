@@ -8,13 +8,13 @@ module {
     %c = "stablehlo.complex"(%arg0, %arg1) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xcomplex<f32>>
     %r = "stablehlo.real"(%c) : (tensor<3xcomplex<f32>>) -> tensor<3xf32>
     %i = "stablehlo.imag"(%c) : (tensor<3xcomplex<f32>>) -> tensor<3xf32>
-    // CHECK: "ttir.stablehlo_complex"(%arg0, %arg1)
-    // CHECK: "ttir.stablehlo_real"(
-    // CHECK: "ttir.stablehlo_imag"(
+    // CHECK: "ttir.reshape"(%arg0)
+    // CHECK: "ttir.reshape"(%arg1)
+    // CHECK: "ttir.concat"
+    // CHECK: "ttir.slice_static"
+    // CHECK: "ttir.slice_static"
     return %r, %i : tensor<3xf32>, tensor<3xf32>
   }
-
-  // Need to add constant/ function input/ output support.
 
   // Test real/imag on a complex constant.
   func.func @test_complex_constant_real_imag() -> (tensor<16x8xf32>, tensor<16x8xf32>) {
@@ -22,9 +22,10 @@ module {
     %r = "stablehlo.real"(%cst) : (tensor<16x8xcomplex<f32>>) -> tensor<16x8xf32>
     %i = "stablehlo.imag"(%cst) : (tensor<16x8xcomplex<f32>>) -> tensor<16x8xf32>
     // CHECK: "ttir.constant"
-    // CHECK-SAME: value = dense<(1.41421354,0.000000e+00)>
-    // CHECK: "ttir.stablehlo_real"(%0)
-    // CHECK: "ttir.stablehlo_imag"(%0)
+    // CHECK: "ttir.slice_static"
+    // CHECK-SAME: begins = [0 : i32, 0 : i32, 0 : i32]
+    // CHECK: "ttir.slice_static"
+    // CHECK-SAME: begins = [0 : i32, 0 : i32, 1 : i32]
     return %r, %i : tensor<16x8xf32>, tensor<16x8xf32>
   }
 }

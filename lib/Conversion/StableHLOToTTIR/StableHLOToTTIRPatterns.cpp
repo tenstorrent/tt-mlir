@@ -6619,20 +6619,6 @@ addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::LogOp, mlir::tt::ttir::LogOp>>(typeConverter, ctx);
 }
 
-static void addComplexOpsConversionPatterns(MLIRContext *ctx,
-                                            RewritePatternSet &patterns,
-                                            TypeConverter &typeConverter) {
-  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-      mlir::stablehlo::ComplexOp, mlir::tt::ttir::StablehloComplexOp>>(
-      typeConverter, ctx);
-  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-      mlir::stablehlo::RealOp, mlir::tt::ttir::StablehloRealOp>>(typeConverter,
-                                                                 ctx);
-  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-      mlir::stablehlo::ImagOp, mlir::tt::ttir::StablehloImagOp>>(typeConverter,
-                                                                 ctx);
-}
-
 static void
 addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
                                           RewritePatternSet &patterns,
@@ -6924,7 +6910,6 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
                                      TypeConverter &typeConverter) {
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
-  addComplexOpsConversionPatterns(ctx, patterns, typeConverter);
   addQuantizeOpsConversionPattern(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
   addDotGeneralOpConversionPatterns(ctx, patterns, typeConverter);
