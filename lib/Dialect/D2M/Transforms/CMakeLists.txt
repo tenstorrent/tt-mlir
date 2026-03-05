@@ -20,8 +20,6 @@ add_mlir_dialect_library(MLIRD2MTransforms
         OpScheduler.cpp
         SFPUTileLoopFission.cpp
         SpillAndScratch.cpp
-        GlobalDataFormatConversion.cpp
-        RankNormalization.cpp
         ScalarizeConstTensors.cpp
         GenerateOuterLoops.cpp
         LowerToExplicitForm.cpp
