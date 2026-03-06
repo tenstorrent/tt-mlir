@@ -221,23 +221,21 @@ def AutoShardingPass : Pass<"auto-sharding", "::mlir::ModuleOp"> {
   let summary = "Automatically search for optimal sharding configuration by evaluating CCL costs";
   let description = [{
     This pass enumerates possible sharding configurations for function arguments,
-    lowers each variant through the full pipeline (StableHLO -> TTIR -> TTNN),
-    evaluates a cost function based on the resulting CCL operations, and selects
-    the configuration with the lowest cost.
+    runs the remaining StableHLO passes (propagation, reshard-to-collectives,
+    canonicalization) on each variant, evaluates a cost function based on the
+    resulting Shardy CCL operations, and selects the configuration with the
+    lowest cost.
 
     The pass runs after AnalyzeMesh and before shardy propagation passes.
     For each candidate sharding, it clones the module, applies sharding hints,
-    runs the remaining compilation passes, and counts/costs the CCL ops in the
-    resulting TTNN IR.
+    runs the remaining StableHLO passes, and counts/costs the Shardy CCL ops
+    (sdy.all_gather, sdy.reduce_scatter, sdy.all_reduce, etc.) in the result.
 
     The winning sharding configuration is applied to the original module, which
     then continues through the normal pipeline.
   }];
 
   let options = [
-    ListOption<"meshShape", "mesh-shape", "int64_t", "Set the mesh shape">,
-    Option<"systemDescPath", "system-desc-path", "std::string",
-           /*default=*/"\"\"", "Path to the system descriptor for TTNN backend">,
     Option<"dumpVariants", "dump-variants", "bool",
            /*default=*/"false",
            "Dump each sharding variant IR to disk for inspection">,

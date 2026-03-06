@@ -16,7 +16,6 @@ struct OptionNames {
       "automatic-arg-analysis";
   static constexpr llvm::StringRef enableAutoSharding =
       "enable-auto-sharding";
-  static constexpr llvm::StringRef systemDescPath = "system-desc-path";
   static constexpr llvm::StringRef dumpVariants = "dump-variants";
   static constexpr llvm::StringRef dumpDir = "dump-dir";
 };
