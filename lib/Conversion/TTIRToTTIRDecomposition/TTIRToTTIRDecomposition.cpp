@@ -121,10 +121,10 @@ struct ReverseOpConversionPattern
         current, permutation);
 
     // Step 2: Reshape to 2D [N_reversing, N_non_reversing].
-    int64_t nReversing = std::accumulate(
+    int32_t nReversing = std::accumulate(
         permutedShape.begin(), permutedShape.begin() + dimensions.size(),
-        int64_t{1}, std::multiplies<>());
-    int64_t nNonReversing =
+        int32_t{1}, std::multiplies<>());
+    int32_t nNonReversing =
         std::accumulate(permutedShape.begin() + dimensions.size(),
                         permutedShape.end(), int64_t{1}, std::multiplies<>());
 
@@ -159,10 +159,8 @@ struct ReverseOpConversionPattern
         rewriter.create<ttir::ReshapeOp>(loc, permType, current, permShapeAttr);
 
     // Step 6: Inverse permute back to original shape.
-    SmallVector<int64_t> invPerm(rank);
-    for (int64_t i = 0; i < rank; i++) {
-      invPerm[permutation[i]] = i;
-    }
+    SmallVector<int64_t> invPerm =
+        ttmlir::utils::inversePermutation(permutation);
     current = rewriter.create<ttir::PermuteOp>(
         loc,
         RankedTensorType::get(shape, inputType.getElementType(),
