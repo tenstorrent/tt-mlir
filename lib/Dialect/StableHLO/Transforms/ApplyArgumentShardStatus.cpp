@@ -180,6 +180,9 @@ public:
     llvm::SmallVector<int64_t> resultPreshardedRef = llvm::to_vector(
         llvm::map_range(resultPresharded, [](int64_t val) { return val; }));
     rootModule.walk([&](func::FuncOp funcOp) {
+      if (!funcOp.isPublic()) {
+        return;
+      }
       if (failed(mlir::tt::stablehlo::updateResultShardStatus(
               context, rootModule, builder, funcOp, resultPreshardedRef))) {
         rootModule.emitError("Failed to update shard status");
