@@ -693,7 +693,7 @@ public:
                          shardAxisName, candidates);
 
       std::string variantDir;
-      if (collectResults) {
+      if (dumpVariants && collectResults) {
         std::string varName = configDirName(i, configs[i]);
         llvm::SmallString<256> vdir(dumpRoot);
         llvm::sys::path::append(vdir, varName);
@@ -755,6 +755,26 @@ public:
                  << " with net cost=" << bestCost << "\n";
     applyShardingHints(rootModule, configs[bestIdx], meshInfo.meshName,
                        shardAxisName, candidates);
+
+    // Save the winning config's MLIR graphs.
+    if (!dumpRoot.empty()) {
+      llvm::SmallString<256> winnerHintsPath(dumpRoot);
+      llvm::sys::path::append(winnerHintsPath,
+                              "winner_stablehlo_with_hints.mlir");
+      dumpModuleToFile(rootModule, winnerHintsPath);
+
+      ModuleOp winnerModule = cast<ModuleOp>(rootModule->clone());
+      PassManager winnerPM(context, ModuleOp::getOperationName(),
+                           PassManager::Nesting::Implicit);
+      addRemainingStableHLOPasses(winnerPM);
+      if (succeeded(winnerPM.run(winnerModule))) {
+        llvm::SmallString<256> winnerCCLPath(dumpRoot);
+        llvm::sys::path::append(winnerCCLPath,
+                                "winner_stablehlo_with_ccls.mlir");
+        dumpModuleToFile(winnerModule, winnerCCLPath);
+      }
+      winnerModule->erase();
+    }
 
     // Write summary file.
     if (!dumpRoot.empty()) {
