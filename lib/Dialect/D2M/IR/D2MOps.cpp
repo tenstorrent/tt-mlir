@@ -1754,14 +1754,27 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
              << deviceVolume << ")";
     }
 
+    auto isDRAM = [](Value output) {
+      if (auto memrefType = mlir::dyn_cast<MemRefType>(output.getType())) {
+        return ttcore::getMemorySpace(memrefType) ==
+               ttcore::MemorySpace::DeviceDRAM;
+      } else if (auto tensorType =
+                     mlir::dyn_cast<RankedTensorType>(output.getType())) {
+        if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+                tensorType.getEncoding())) {
+          return layout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
+        }
+      }
+      return false;
+    };
     // Verify per-output VGM consistency:
-    // 1. For non-view outputs, the output's inverse VGM must match the
+    // 1. For non-DRAM outputs, the output's inverse VGM must match the
     // GridAttr's inverse map.
     // 2. The inverse map applied to the physical grid shape must produce
     //    a virtual grid shape matching the output's grid shape.
     AffineMap gridInvMap = getGrid().getMapping();
     for (Value output : getOutputs()) {
-      if (!mlir::isa<ViewOpInterface>(output.getDefiningOp())) {
+      if (!isDRAM(output)) {
         auto outputInvMap = utils::getVirtualGridInverseMapping(output);
         if (outputInvMap && *outputInvMap != gridInvMap) {
           return emitOpError("grid inverse map does not match output operand's "
