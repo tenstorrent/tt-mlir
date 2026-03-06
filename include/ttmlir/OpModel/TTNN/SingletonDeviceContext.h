@@ -95,6 +95,14 @@ public:
           ::tt::constants::opModelDefaultTraceRegionSize,
       const std::optional<std::pair<size_t, size_t>> &meshShape = std::nullopt);
 
+  // Destroys the current MeshDevice and creates a new one with a different
+  // mesh shape. Does NOT re-configure or disable mock mode, so mock mode
+  // must already be active.
+  // This exists because Metal's configure_mock_mode/disable_mock_mode
+  // cannot be reliably cycled within the same process.
+  void reshapeMeshDevice(const std::pair<size_t, size_t> &meshShape,
+                         size_t traceRegionSize = 0);
+
   // Returns a pointer to the device. Asserts that we have an active device in
   // our context.
   ::tt::tt_metal::distributed::MeshDevice *getDevice() {

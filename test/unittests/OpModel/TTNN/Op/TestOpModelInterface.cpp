@@ -5565,24 +5565,45 @@ TEST_F(OpModelBase, DropoutOpInterface) {
   }
 }
 
-TEST_F(OpModelBase, MeshPartitionOpInterfaceRuntime) {
+struct MeshPartitionRuntimeParam {
+  size_t meshRows;
+  size_t meshCols;
+  int32_t dim;
+  uint32_t clusterAxis;
+};
+
+class OpModelMeshPartitionInterfaceRuntimeTest
+    : public OpModelBase,
+      public ::testing::WithParamInterface<MeshPartitionRuntimeParam> {};
+
+TEST_P(OpModelMeshPartitionInterfaceRuntimeTest,
+       MeshPartitionOpInterfaceRuntime) {
+  const auto &p = GetParam();
+  const size_t numChips = p.meshRows * p.meshCols;
+
   // Runtime queries require a real multi-chip device.
-  // Try to reopen with a {1,8} mesh; if the system doesn't have enough
+  // Try to reopen with the requested mesh; if the system doesn't have enough
   // devices the open will throw, so catch and skip gracefully.
   op_model::SingletonDeviceContext::closeInstance();
   try {
     op_model::SingletonDeviceContext::getInstance().openDevice(
         ::tt::constants::opModelDefaultTraceRegionSize,
-        /*isMock=*/false, /*meshShape=*/std::make_pair<size_t, size_t>(1, 8));
+        /*isMock=*/false,
+        /*meshShape=*/std::make_pair(p.meshRows, p.meshCols));
   } catch (...) {
     // Reopen the default device for TearDown before skipping.
     op_model::SingletonDeviceContext::getInstance().openDevice();
-    GTEST_SKIP() << "Unable to open {1,8} mesh device; not enough hardware";
+    GTEST_SKIP() << "Unable to open {" << p.meshRows << "," << p.meshCols
+                 << "} mesh device; not enough hardware";
   }
 
-  // create MeshPartitionOp
-  llvm::SmallVector<int64_t> inputShape = {8, 1024};
-  llvm::SmallVector<int64_t> outputShape = {1, 1024};
+  const size_t meshDims[] = {p.meshRows, p.meshCols};
+  const int64_t splitFactor = static_cast<int64_t>(meshDims[p.clusterAxis]);
+
+  llvm::SmallVector<int64_t> inputShape = {static_cast<int64_t>(numChips),
+                                           1024};
+  llvm::SmallVector<int64_t> outputShape = inputShape;
+  outputShape[p.dim] = inputShape[p.dim] / splitFactor;
 
   auto inputLayout = CreateRowMajorLayout(inputShape, BufferType::L1,
                                           TensorMemoryLayout::Interleaved);
@@ -5591,8 +5612,9 @@ TEST_F(OpModelBase, MeshPartitionOpInterfaceRuntime) {
   auto outputType = createRankedTensorType(outputShape);
 
   auto meshPartitionOp = builder.create<MeshPartitionOp>(
-      builder.getUnknownLoc(), outputType, input, builder.getSI32IntegerAttr(0),
-      builder.getUI32IntegerAttr(1),
+      builder.getUnknownLoc(), outputType, input,
+      /*dim=*/builder.getSI32IntegerAttr(p.dim),
+      /*cluster_axis=*/builder.getUI32IntegerAttr(p.clusterAxis),
       /*memory_config=*/nullptr);
   meshPartitionOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
@@ -5604,5 +5626,28 @@ TEST_F(OpModelBase, MeshPartitionOpInterfaceRuntime) {
            << llvm::toString(runtimeExp.takeError()) << std::endl;
   }
 }
+
+INSTANTIATE_TEST_SUITE_P(MeshPartitionRuntime,
+                         OpModelMeshPartitionInterfaceRuntimeTest,
+                         ::testing::Values(
+                             // {1,2} mesh: only axis 1 splits.
+                             MeshPartitionRuntimeParam{1, 2, 0, 1},
+                             MeshPartitionRuntimeParam{1, 2, 1, 1},
+                             // {1,4} mesh: only axis 1 splits.
+                             MeshPartitionRuntimeParam{1, 4, 0, 1},
+                             MeshPartitionRuntimeParam{1, 4, 1, 1},
+                             // {1,8} mesh: only axis 1 splits.
+                             MeshPartitionRuntimeParam{1, 8, 0, 1},
+                             MeshPartitionRuntimeParam{1, 8, 1, 1},
+                             // {2,2} mesh: both axes split.
+                             MeshPartitionRuntimeParam{2, 2, 0, 0},
+                             MeshPartitionRuntimeParam{2, 2, 0, 1},
+                             MeshPartitionRuntimeParam{2, 2, 1, 0},
+                             MeshPartitionRuntimeParam{2, 2, 1, 1},
+                             // {2,4} mesh: both axes split.
+                             MeshPartitionRuntimeParam{2, 4, 0, 0},
+                             MeshPartitionRuntimeParam{2, 4, 0, 1},
+                             MeshPartitionRuntimeParam{2, 4, 1, 0},
+                             MeshPartitionRuntimeParam{2, 4, 1, 1}));
 
 } // namespace mlir::tt::ttnn
