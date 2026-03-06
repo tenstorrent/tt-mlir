@@ -165,6 +165,7 @@ getPhysicalGridShapeFromShapeAndMap(ArrayRef<int64_t> overallDeviceShape,
 }
 
 SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
+#if 0
   // Handle view-like ops first.
   if (auto viewOp = tensorOrMemref.getDefiningOp<d2m::ViewOpInterface>()) {
     ttcore::DeviceAttr device = ttcore::lookupDevice(viewOp);
@@ -190,6 +191,12 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     // to device grid.
     return SmallVector<int64_t>(outputGridShape);
   }
+#else
+  // Walk up views
+  while (auto viewOp = tensorOrMemref.getDefiningOp<d2m::ViewOpInterface>()) {
+    tensorOrMemref = viewOp.getInput();
+  }
+#endif
 
   // After the virtual-grid refactor, virtualization maps live on EmptyOp /
   // TTNNMetalLayoutCastOp attrs rather than on the layout.  When a forward
