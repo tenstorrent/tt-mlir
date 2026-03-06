@@ -5,7 +5,7 @@
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
-#include "Constants.h"
+
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 
@@ -30,7 +30,7 @@ void SingletonDeviceContext::resetInstance() {
          "Cannot reset instance when using an external device.");
   bool wasMock = instance.m_isMockDevice;
   instance.closeInstance();
-  instance.openDevice(opModelDefaultTraceRegionSize, wasMock);
+  instance.openDevice(::tt::constants::opModelDefaultTraceRegionSize, wasMock);
 }
 
 void SingletonDeviceContext::closeInstance() {

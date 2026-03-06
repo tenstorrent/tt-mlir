@@ -37,7 +37,8 @@ public:
         &context, ttcore::Arch::WormholeB0, {1, 8});
     SingletonDeviceContext::setSystemDesc(systemDesc);
     SingletonDeviceContext::getInstance().openMockDevice(
-        /*traceRegionSize=*/6000000, std::make_pair<size_t, size_t>(1, 8));
+        /*traceRegionSize=*/0,
+        /*meshShape=*/std::make_pair<size_t, size_t>(1, 8));
 
     mlir::tt::ttcore::registerDevice(module.get());
   }

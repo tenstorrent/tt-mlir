@@ -9,6 +9,8 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
+#include "Constants.h"
+
 #include <cassert>
 #include <cstddef>
 #include <memory>
@@ -80,13 +82,17 @@ public:
   // context, otherwise this method will assert.
   // meshShape overrides the default {1, 1} mesh shape when provided.
   void openDevice(
-      const size_t traceRegionSize = opModelDefaultTraceRegionSize,
+      const size_t traceRegionSize =
+          ::tt::constants::opModelDefaultTraceRegionSize,
       bool isMock = false,
       const std::optional<std::pair<size_t, size_t>> &meshShape = std::nullopt);
 
   // Convenience method that opens a mock device.
+  // TODO(#7384) TraceRegionSize might be irrelevant for mock devices,
+  // but we set it to a default value just in case for now.
   void openMockDevice(
-      const size_t traceRegionSize = opModelDefaultTraceRegionSize,
+      const size_t traceRegionSize =
+          ::tt::constants::opModelDefaultTraceRegionSize,
       const std::optional<std::pair<size_t, size_t>> &meshShape = std::nullopt);
 
   // Returns a pointer to the device. Asserts that we have an active device in
@@ -121,13 +127,6 @@ private:
   // reset the instance.
   bool m_isExternalDevice = false;
   bool m_isMockDevice = false;
-
-  // todo(arminaleTT): look into dynamically adjusting this
-  // getOpRuntime() uses trace capture to run and measure the runtime of an op.
-  // This requires the device to be opened with sufficient trace region size.
-  // This number is currently set based on manual testing of supported ops to
-  // accommodate the highest required trace buffer size (2004992B)
-  static constexpr size_t opModelDefaultTraceRegionSize = 6000000;
 };
 
 // RAII guard for OpModel device lifecycle management.

@@ -11,6 +11,8 @@
 #include "ttmlir/OpModel/TTNN/TTNNOpsModelCache.h"
 #include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
 
+#include "Constants.h"
+
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
@@ -5565,19 +5567,18 @@ TEST_F(OpModelBase, DropoutOpInterface) {
 
 TEST_F(OpModelBase, MeshPartitionOpInterfaceRuntime) {
   // Runtime queries require a real multi-chip device.
-  constexpr size_t requiredChips = 8;
-  size_t numDevices =
-      op_model::SingletonDeviceContext::getInstance().getNumDevices();
-  if (numDevices < requiredChips) {
-    GTEST_SKIP() << "Requires " << requiredChips << " chips, but only "
-                 << numDevices << " available";
-  }
-
-  // Reopen with a {1,8} mesh to exercise mesh_partition.
+  // Try to reopen with a {1,8} mesh; if the system doesn't have enough
+  // devices the open will throw, so catch and skip gracefully.
   op_model::SingletonDeviceContext::closeInstance();
-  op_model::SingletonDeviceContext::getInstance().openDevice(
-      /*traceRegionSize=*/6000000, /*isMock=*/false,
-      std::make_pair<size_t, size_t>(1, 8));
+  try {
+    op_model::SingletonDeviceContext::getInstance().openDevice(
+        ::tt::constants::opModelDefaultTraceRegionSize,
+        /*isMock=*/false, /*meshShape=*/std::make_pair<size_t, size_t>(1, 8));
+  } catch (...) {
+    // Reopen the default device for TearDown before skipping.
+    op_model::SingletonDeviceContext::getInstance().openDevice();
+    GTEST_SKIP() << "Unable to open {1,8} mesh device; not enough hardware";
+  }
 
   // create MeshPartitionOp
   llvm::SmallVector<int64_t> inputShape = {8, 1024};
@@ -5602,10 +5603,6 @@ TEST_F(OpModelBase, MeshPartitionOpInterfaceRuntime) {
     FAIL() << "Missing runtime; Error="
            << llvm::toString(runtimeExp.takeError()) << std::endl;
   }
-
-  // Reopen the default device for TearDown.
-  op_model::SingletonDeviceContext::closeInstance();
-  op_model::SingletonDeviceContext::getInstance().openDevice();
 }
 
 } // namespace mlir::tt::ttnn

@@ -11,6 +11,8 @@
 #include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
+#include "Constants.h"
+
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Error.h"
@@ -6278,18 +6280,18 @@ TEST_F(OpModelTest, AssignOp) {
 
 TEST_F(OpModelTest, MeshPartitionOpRuntime) {
   // Runtime queries require a real multi-chip device.
-  constexpr size_t requiredChips = 8;
-  size_t numDevices = SingletonDeviceContext::getInstance().getNumDevices();
-  if (numDevices < requiredChips) {
-    GTEST_SKIP() << "Requires " << requiredChips << " chips, but only "
-                 << numDevices << " available";
-  }
-
-  // Reopen with a {1,8} mesh to exercise mesh_partition.
+  // Try to reopen with a {1,8} mesh; if the system doesn't have enough
+  // devices the open will throw, so catch and skip gracefully.
   SingletonDeviceContext::closeInstance();
-  SingletonDeviceContext::getInstance().openDevice(
-      /*traceRegionSize=*/6000000, /*isMock=*/false,
-      std::make_pair<size_t, size_t>(1, 8));
+  try {
+    SingletonDeviceContext::getInstance().openDevice(
+        ::tt::constants::opModelDefaultTraceRegionSize,
+        /*isMock=*/false, /*meshShape=*/std::make_pair<size_t, size_t>(1, 8));
+  } catch (...) {
+    // Reopen the default device for TearDown before skipping.
+    SingletonDeviceContext::getInstance().openDevice();
+    GTEST_SKIP() << "Unable to open {1,8} mesh device; not enough hardware";
+  }
 
   const llvm::SmallVector<int64_t> inputShape = {8, 1025};
   const TTNNLayoutAttr layoutDRAMRowMajor = CreateRowMajorLayout(
@@ -6307,10 +6309,6 @@ TEST_F(OpModelTest, MeshPartitionOpRuntime) {
     FAIL() << "Missing runtime; Error="
            << llvm::toString(runtimeExp.takeError()) << std::endl;
   }
-
-  // Reopen the default device for TearDown.
-  SingletonDeviceContext::closeInstance();
-  SingletonDeviceContext::getInstance().openDevice();
 }
 
 } // namespace mlir::tt::ttnn::op_model
