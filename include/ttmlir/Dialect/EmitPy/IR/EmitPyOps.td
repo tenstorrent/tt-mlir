@@ -145,7 +145,7 @@ def EmitPy_AssignOp : EmitPy_Op<"assign"> {
     %2 = emitpy.assign %1 : <!emitpy.opaque<"ttnn.Tensor">>
     ```
     ```Python
-    // Code emitted for the operation above.
+    # Code emitted for the operation above.
     v2 = v1;
     ```
   }];
@@ -276,7 +276,7 @@ def EmitPy_CreateDictOp : EmitPy_Op<"create_dict", [Pure]> {
     ```
 
     ```python
-    // Code emitted for the operations above:
+    # Code emitted for the operations above:
     my_dict = {}
     cache = {0: None}
     _CONST_EVAL_CACHE = {i: None for i in range(133)}
@@ -310,7 +310,7 @@ def EmitPy_SetValueForDictKeyOp : EmitPy_Op<"set_value_for_dict_key"> {
     emitpy.set_value_for_dict_key %dict[%key] = %tensors : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
     ```
     ```python
-    // Code emitted:
+    # Code emitted:
     _CONST_EVAL_CACHE[5] = tensors
     ```
   }];
@@ -339,7 +339,7 @@ def EmitPy_GetValueForDictKeyOp : EmitPy_Op<"get_value_for_dict_key", [Pure]> {
     %tensors = emitpy.get_value_for_dict_key %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
     ```
     ```python
-    // Code emitted:
+    # Code emitted:
     tensors = _CONST_EVAL_CACHE[5]
     ```
   }];
@@ -354,6 +354,78 @@ def EmitPy_GetValueForDictKeyOp : EmitPy_Op<"get_value_for_dict_key", [Pure]> {
   let hasVerifier = 1;
 
   let assemblyFormat = "$dict `[` $key `]` attr-dict `:` functional-type(operands, results)";
+}
+
+def EmitPy_IfOp : EmitPy_Op<"if", [NoTerminator]> {
+  let summary = "If statement with optional else";
+  let description = [{
+    The `emitpy.if` operation represents a Python `if` statement with an
+    optional `else` clause. The condition is a format string with `{}`
+    placeholders that are replaced by the condition arguments.
+
+    An `elif` chain is represented by nesting an `emitpy.if` as the sole
+    operation inside the else region without its own else clause. The Python
+    emitter detects this pattern and emits `elif` instead of `else: if`.
+
+    Example:
+
+    ```mlir
+    emitpy.if "not {}" args %dict : (!emitpy.dict) {
+      // then body
+    }
+    ```
+    ```mlir
+    emitpy.if "{} > {}" args %a, %b : (index, index) {
+      // then body
+    } else {
+      // else body
+    }
+    ```
+    ```mlir
+    emitpy.if "{}" args %a : (!emitpy.opaque<"dict">) {
+      // then body
+    } else {
+      emitpy.if "{} > 0" args %b : (!emitpy.opaque<"int">) {
+        // elif body
+      }
+    }
+    ```
+    ```python
+    # Code emitted:
+    if not dict:
+        # then body
+
+    if a > b:
+        # then body
+    else:
+        # else body
+
+    if a:
+        # then body
+    elif b > 0:
+        # elif body
+    ```
+  }];
+
+  let arguments = (ins
+    StrAttr:$condition,
+    Variadic<AnyType>:$cond_args
+  );
+
+  let regions = (region
+    SizedRegion<1>:$thenRegion,
+    MaxSizedRegion<1>:$elseRegion
+  );
+
+  let extraClassDeclaration = [{
+    FailureOr<SmallVector<::mlir::tt::emitpy::ReplacementItem>> parseFormatString();
+  }];
+
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $condition (`args` $cond_args^ `:` `(` type($cond_args) `)`)? $thenRegion
+    (`else` $elseRegion^)? attr-dict
+  }];
 }
 
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {

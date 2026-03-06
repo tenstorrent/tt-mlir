@@ -75,7 +75,7 @@ table KernelArgBufferAddress {
 }
 
 table KernelArgBufferAddressOfTensor {
-  tensor_index: uint32;
+  operand_index: uint32;
 }
 
 table KernelArgSemaphoreAt {
@@ -87,12 +87,17 @@ table KernelArgNamedArgument {
   value: uint32;
 }
 
+table KernelArgGlobalSemaphore {
+  operand_index: uint32;
+}
+
 union KernelArgType {
   KernelArgCBBufferIndex,
   KernelArgBufferAddress,
   KernelArgBufferAddressOfTensor,
   KernelArgSemaphoreAt,
   KernelArgNamedArgument,
+  KernelArgGlobalSemaphore,
 }
 
 table KernelArg {
@@ -146,7 +151,13 @@ union ProgramType {
   MeshProgramDescriptor,
 }
 
+union ArgRef {
+  TensorRef,
+  GlobalSemaphoreRef,
+}
+
 table GenericOp {
   io_tensors: [tt.target.ttnn.TensorRef];
+  additional_args: [tt.target.ttnn.ArgRef];
   program: ProgramType;
 }

@@ -305,10 +305,12 @@ void MCQExecutor::execute(
                  global_semaphores.end(),
              "Global semaphore with id ", command->ref()->global_id(),
              " already exists.");
-  // todo(sohaibnadeem): add address parameter once metal API is added
-  auto global_semaphore = tt::tt_metal::GlobalSemaphore(
+  auto global_semaphore = tt::tt_metal::experimental::CreateGlobalSemaphore(
       meshDevice, common::toCoreRangeSet(command->core_range_set()),
-      *command->initial_value(), tt_metal::BufferType::L1);
+      command->initial_value(), tt_metal::BufferType::L1,
+      deviceAddressValidator(command->ref()->address(),
+                             target::BufferType::L1));
+  LOG_ASSERT(global_semaphore.address() == command->ref()->address());
   global_semaphores.emplace(command->ref()->global_id(),
                             std::move(global_semaphore));
 }

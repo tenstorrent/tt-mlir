@@ -887,9 +887,22 @@ def D2MScheduleDMA : Pass<"d2m-schedule-dma", "::mlir::ModuleOp"> {
 }
 
 def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir::ModuleOp"> {
-  let summary = "Lower D2M load/store operations to DMA operations.";
+  let summary = "Lower D2M load/store operations to shard-level DMA operations.";
   let description = [{
-    This pass performs lowering of D2M load/store operations to DMA operations.
+    This pass lowers d2m.remote_load and d2m.remote_store operations to
+    shard-level d2m.dma_read and d2m.dma_write operations with CB protocol
+    (reserve/push/wait/pop). The resulting DMA ops use grid-level indices
+    only. Full address indexing and coalescing is deferred
+    to D2MLowerDMAToFullyIndexedForm.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MLowerDMAToFullyIndexedForm : Pass<"d2m-lower-dma-to-fully-indexed-form", "::mlir::ModuleOp"> {
+  let summary = "Lower shard-level DMA ops to fully indexed form.";
+  let description = [{
+    This pass expands shard-level d2m.dma_read and d2m.dma_write operations into fully-indexed form with resolved
+    byte-offset indices, coalescing loops, and concrete numElems.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
   let options = [
