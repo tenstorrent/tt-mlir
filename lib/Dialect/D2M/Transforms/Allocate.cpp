@@ -1411,8 +1411,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     rewriter.setInsertionPoint(op);
 
+    auto allocType = getStreamBufferType(
+        op.getGrid().getShape(),
+        mlir::cast<ttcore::DeviceLayoutInterface>(bufferType.getLayout())
+            .getShardShape(bufferType),
+        bufferType.getElementType(), L1Attr, numStreamBuffers);
+
     auto bufferAllocOp =
-        rewriter.create<memref::AllocOp>(op.getLoc(), bufferType);
+        rewriter.create<memref::AllocOp>(op.getLoc(), allocType);
 
     assignAddressAndAlignment(rewriter, bufferAllocOp, req.offset, info);
     insertDealloc(rewriter, bufferAllocOp, req.last, sequencing);
