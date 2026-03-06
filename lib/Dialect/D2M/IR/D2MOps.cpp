@@ -1761,7 +1761,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     //    a virtual grid shape matching the output's grid shape.
     AffineMap gridInvMap = getGrid().getMapping();
     for (Value output : getOutputs()) {
-      if (mlir::isa<ViewOpInterface>(output.getDefiningOp())) {
+      if (!mlir::isa<ViewOpInterface>(output.getDefiningOp())) {
         auto outputInvMap = utils::getVirtualGridInverseMapping(output);
         if (outputInvMap && *outputInvMap != gridInvMap) {
           return emitOpError("grid inverse map does not match output operand's "

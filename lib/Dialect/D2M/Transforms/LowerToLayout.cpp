@@ -585,8 +585,13 @@ public:
     }
 
     Value viewOutput = output;
+    ttcore::GridAttr grid;
     if (outputInfo.isDRAM()) {
       viewOutput = buildConcreteView(output, outputInfo.type, inputInfo.type);
+      if (auto invMap = utils::getVirtualGridInverseMapping(input)) {
+        auto gridShape = llvm::to_vector(inputInfo.getGridShape());
+        grid = rewriter.getAttr<ttcore::GridAttr>(gridShape, *invMap);
+      }
     }
 
     const size_t gridRank = outputInfo.getGridShape().size();
@@ -615,7 +620,7 @@ public:
                       builder, innerLoc, viewOutput, indices, loadedData);
                   builder.create<YieldOp>(innerLoc, storeResult);
                 },
-                ThreadType::Unified)
+                ThreadType::Unified, grid)
             .getResult(0);
     return result;
   }
