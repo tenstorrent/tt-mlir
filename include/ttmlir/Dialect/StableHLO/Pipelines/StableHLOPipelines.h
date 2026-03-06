@@ -48,13 +48,6 @@ struct StableHLOPipelineOptions
       llvm::cl::desc("Enable auto-sharding for optimal CCL cost."),
       llvm::cl::init(false)};
 
-  Option<std::string> systemDescPath{
-      *this, OptionNames::systemDescPath,
-      llvm::cl::desc(
-          "Path to system descriptor for TTNN backend (used by sharding "
-          "search)."),
-      llvm::cl::init("")};
-
   Option<bool> dumpVariants{
       *this, OptionNames::dumpVariants,
       llvm::cl::desc("Dump each sharding variant IR to disk for inspection."),
