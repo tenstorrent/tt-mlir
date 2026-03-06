@@ -380,7 +380,7 @@ public:
                                 PatternRewriter &rewriter) const override {
     RankedTensorType inputType =
         mlir::cast<RankedTensorType>(op.getInput().getType());
-    llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
+    //llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
     auto deviceDesc = ttcore::lookupDevice(op);
@@ -392,55 +392,107 @@ public:
     auto sizeOfDevices = meshShape[clusterAxis];
     auto inputShape = inputType.getShape();
     auto reversedInputShape = llvm::reverse(inputShape);
-    auto tensorDimRevIt =
-        llvm::find_if(reversedInputShape, [sizeOfDevices](int64_t dim) {
-          return dim % sizeOfDevices == 0;
-        });
-    const auto *tensorDimDevice = tensorDimRevIt == reversedInputShape.end()
-                                      ? inputShape.end()
-                                      : tensorDimRevIt.base() - 1;
-
-    if (tensorDimDevice == inputShape.end()) {
-      // If all the dimensions are not evenly divisible by the number of
-      // devices in the cluster, use the all-gather + local reduce breakdown
-      // approach.
-      // Estimate memory usage of AllGather + LocalReduce breakdown and check
-      // if it exceeds the allowed memory limit. This breakdown requires
-      // significantly more memory than ReduceScatter + AllGather due to
-      // internal padding and temporary buffers. To avoid potential memory
-      // blowup, enforce a size constraint based on DRAM capacity.
-      if (exceedsAllGatherReduceMemLimit(ttcore::getCurrentScopeSystemDesc(op),
-                                         inputType, meshShape[clusterAxis],
-                                         0.05)) {
-        return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
+    auto inputLayout = utils::getLayoutAttrFromTensor(inputType);
+    llvm::SmallVector<int64_t> shapeInTileCounts(inputShape.begin(),
+                                                 inputShape.end());
+    llvm::SmallVector<int64_t> tilePaddedShape;
+    if (inputLayout.isTiled()) {
+      tilePaddedShape = utils::getTilePaddedShape(shapeInTileCounts);
+      if (!shapeInTileCounts.empty()) {
+        shapeInTileCounts[shapeInTileCounts.size() - 1] =
+            tilePaddedShape[shapeInTileCounts.size() - 1] / TILE_WIDTH;
+      }
+      if (shapeInTileCounts.size() > 1) {
+        shapeInTileCounts[shapeInTileCounts.size() - 2] =
+            tilePaddedShape[shapeInTileCounts.size() - 2] / TILE_HEIGHT;
       }
     }
-    int32_t dimension = std::distance(inputShape.begin(), tensorDimDevice);
+
+    int64_t selectedDim = -1;
+    for (int64_t dim = shapeInTileCounts.size() - 1; dim >= 0; --dim) {
+      if (shapeInTileCounts[dim] % sizeOfDevices == 0) {
+        selectedDim = dim;
+        break;
+      }
+    }
+    if (selectedDim < 0) {
+      return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
+    }
 
     // TODO(wooseoklee): Once ttnn supports all_reduce op
     // (https://github.com/tenstorrent/tt-metal/issues/13835), we can
     // convert directly to ttnn.all_reduce.
 
-    // Determine the shape of its input tensor. The new tensor
-    // shape at the scatter_dim will be tensor_shape[scatter_dim] =
-    // original_tensor_shape / num_devices.
-    inputTypeShape[dimension] =
-        inputTypeShape[dimension] / meshShape[clusterAxis];
-    auto scatteredInputType =
-        ttnn::utils::RankedTensorTypeFactory::create(inputType, inputTypeShape);
+    Value reduceScatterInput = op.getInput();
+    RankedTensorType reduceScatterInputType = inputType;
+
+    // If the input is tiled and selectedDim is one of the tile-sensitive dims,
+    // pad first so the reduce_scatter split produces equal-sized slices on each
+    // device.
+    if (inputLayout.isTiled() &&
+        selectedDim >= static_cast<int64_t>(inputShape.size()) - 2 &&
+        inputShape[selectedDim] != tilePaddedShape[selectedDim]) {
+      llvm::SmallVector<int32_t> padding(inputShape.size() * 2, 0);
+      padding[selectedDim * 2 + 1] =
+          tilePaddedShape[selectedDim] - inputShape[selectedDim];
+
+      llvm::SmallVector<int64_t> paddedShape(inputShape.begin(),
+                                             inputShape.end());
+      paddedShape[selectedDim] = tilePaddedShape[selectedDim];
+      auto paddedType = RankedTensorType::get(
+          paddedShape, inputType.getElementType(),
+          mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding())
+              .withTensorShape(paddedShape));
+
+              reduceScatterInput = rewriter.create<ttnn::PadOp>(
+                ttmlir::utils::appendLocationSuffix(loc, "_pad_for_reduce_scatter"),
+                paddedType, op.getInput(), padding, /*pad_value=*/mlir::APFloat(0.0f),
+                /*use_multicore=*/false,
+                /*memory_config=*/nullptr);
+            reduceScatterInputType = paddedType;
+          }
+    
+    // Build reduce_scatter output type.
+    llvm::SmallVector<int64_t> reduceScatterShape(
+      reduceScatterInputType.getShape().begin(),
+      reduceScatterInputType.getShape().end());
+    reduceScatterShape[selectedDim] =
+      reduceScatterShape[selectedDim] / meshShape[clusterAxis];
+    auto reduceScatterOutputType = ttnn::utils::RankedTensorTypeFactory::create(
+      reduceScatterInputType, reduceScatterShape);
 
     // Create a new reducer scatter op.
     ttnn::ReduceScatterOp reduceScatterOp =
         rewriter.create<ttnn::ReduceScatterOp>(
-            ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
-            scatteredInputType, op.getInput(), op.getReduceType(), dimension,
-            clusterAxis, nullptr, nullptr, nullptr, nullptr, nullptr);
+          ttmlir::utils::appendLocationSuffix(loc, "_reduce_scatter"),
+          reduceScatterOutputType, reduceScatterInput, op.getReduceType(),
+          selectedDim, clusterAxis, nullptr, nullptr, nullptr, nullptr,
+          nullptr);
 
-    // Replace all_reduce op with all_gather op.
-    rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
-        op, op.getType(), reduceScatterOp.getResult(), dimension, clusterAxis,
-        nullptr /*sub_device_id*/, nullptr /*memory_config*/,
+  // all_gather restores the reduce_scatter input shape.
+  auto allGatherOutputType = ttnn::utils::RankedTensorTypeFactory::create(
+      reduceScatterInputType, reduceScatterInputType.getShape());
+  ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
+      ttmlir::utils::appendLocationSuffix(loc, "_all_gather"),
+      allGatherOutputType, reduceScatterOp.getResult(), selectedDim,
+      clusterAxis, nullptr /*sub_device_id*/, nullptr /*memory_config*/,
         nullptr /*num_links*/, nullptr /*topology*/);
+
+    // If padding was added, crop back to the original shape.
+    if (reduceScatterInputType.getShape() != inputType.getShape()) {
+      llvm::SmallVector<int32_t> begins(inputShape.size(), 0);
+      llvm::SmallVector<int32_t> ends(inputShape.begin(), inputShape.end());
+      llvm::SmallVector<int32_t> steps(inputShape.size(), 1);
+      auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
+          ttmlir::utils::appendLocationSuffix(loc,
+                                              "_slice_for_reduce_scatter_pad"),
+          op.getType(), allGatherOp.getResult(),
+          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+          rewriter.getI32ArrayAttr(steps));
+      rewriter.replaceOp(op, sliceOp.getResult());
+    } else {
+      rewriter.replaceOp(op, allGatherOp.getResult());
+    }
     return success();
   }
 
@@ -570,6 +622,7 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
+          TTNNAllReduceWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
