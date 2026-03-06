@@ -356,6 +356,14 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
       llvm::cl::init(false)};
 
+  // Deprecated: use experimental-weight-dtype instead.
+  // Kept for backward compatibility with tt-xla auto-uplift.
+  Option<bool> experimentalBfp8Weights{
+      *this, "experimental-bfp8-weights",
+      llvm::cl::desc("Deprecated: use experimental-weight-dtype=bfp_bf8 "
+                     "instead. Converts weights to bfp8_b format."),
+      llvm::cl::init(false)};
+
   Option<WeightDtype> experimentalWeightDtype{
       *this, "experimental-weight-dtype",
       llvm::cl::desc("Experimental: Target dtype for weight conversion in "

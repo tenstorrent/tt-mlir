@@ -286,10 +286,24 @@ void createTTIRToTTNNDevicePipeline(
     createTTNNPipelineWorkaroundPass(devicePm, options);
     // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
-    if (options.experimentalWeightDtype != WeightDtype::None) {
-      TTNNWeightDtypeConversionOptions convOpts;
-      convOpts.targetDtype = options.experimentalWeightDtype;
-      devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
+    {
+      WeightDtype resolvedWeightDtype = options.experimentalWeightDtype;
+
+      // Handle deprecated experimental-bfp8-weights flag.
+      if (options.experimentalBfp8Weights) {
+        if (resolvedWeightDtype != WeightDtype::None) {
+          llvm::report_fatal_error(
+              "Cannot set both experimental-bfp8-weights and "
+              "experimental-weight-dtype. Use experimental-weight-dtype only.");
+        }
+        resolvedWeightDtype = WeightDtype::BFP_BFloat8;
+      }
+
+      if (resolvedWeightDtype != WeightDtype::None) {
+        TTNNWeightDtypeConversionOptions convOpts;
+        convOpts.targetDtype = resolvedWeightDtype;
+        devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
+      }
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.
