@@ -24,11 +24,20 @@ public:
   LogicalResult matchAndRewrite(ttkernel::PackTileOp op,
                                 PatternRewriter &rewriter) const final {
     Block *acquireBlock = findBlockContaining<ttkernel::TileRegsAcquireOp>(op);
-    if (!acquireBlock->getOps<ttkernel::TileRegsCommitOp>().empty()) {
-      return failure();
+    Operation *parent = parentOpAtBlock(op, acquireBlock);
+
+    // Walk backwards from the pack point to find whether this specific
+    // DST section has already been processed.
+    for (Operation *it = parent->getPrevNode(); it; it = it->getPrevNode()) {
+      if (isa<ttkernel::TileRegsCommitOp>(it)) {
+        // Has a commit, already processed.
+        return failure();
+      }
+      if (isa<ttkernel::TileRegsAcquireOp>(it)) {
+        break;
+      }
     }
 
-    Operation *parent = parentOpAtBlock(op, acquireBlock);
     rewriter.setInsertionPoint(parent);
     rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
     rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());

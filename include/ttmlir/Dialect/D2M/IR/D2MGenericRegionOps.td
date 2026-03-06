@@ -2175,6 +2175,8 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
               $_builder.getI64IntegerAttr(dim), mlir::AffineMapAttr::get(map));
       }]>
     ];
+
+    let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//

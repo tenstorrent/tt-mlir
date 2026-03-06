@@ -1316,6 +1316,9 @@ void GetBlockFactorOp::inferResultRanges(
   setResultRange(getResult(),
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
+//===----------------------------------------------------------------------===//
+// CoreIndexOp
+//===----------------------------------------------------------------------===//
 
 void CoreIndexOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
@@ -1323,11 +1326,34 @@ void CoreIndexOp::getAsmResultNames(
   setNameFn(getResult(), "core" + std::to_string(dim));
 }
 
+::mlir::LogicalResult CoreIndexOp::verify() {
+  auto genericOp = getOperation()->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    return success();
+  }
+  auto gridShape = genericOp.getGrid().getShape();
+  int64_t dim = getDim();
+  if (dim >= static_cast<int64_t>(gridShape.size())) {
+    return emitOpError("dim ")
+           << dim << " exceeds grid rank " << gridShape.size();
+  }
+  return success();
+}
+
 void CoreIndexOp::inferResultRanges(
     ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
     mlir::SetIntRangeFn setResultRange) {
-  setResultRange(getResult(),
-                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+  auto genericOp = getOperation()->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    setResultRange(getResult(),
+                   getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+    return;
+  }
+
+  auto gridShape = genericOp.getGrid().getShape();
+  int64_t dim = getDim();
+  assert(dim < static_cast<int64_t>(gridShape.size()) && "dim out of range");
+  setResultRange(getResult(), getIndexRange(0, gridShape[dim] - 1));
 }
 
 // TileMatmulBlockOp verification
