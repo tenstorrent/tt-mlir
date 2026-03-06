@@ -1326,6 +1326,20 @@ void CoreIndexOp::getAsmResultNames(
   setNameFn(getResult(), "core" + std::to_string(dim));
 }
 
+::mlir::LogicalResult CoreIndexOp::verify() {
+  auto genericOp = getOperation()->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    return success();
+  }
+  auto gridShape = genericOp.getGrid().getShape();
+  int64_t dim = getDim();
+  if (dim >= static_cast<int64_t>(gridShape.size())) {
+    return emitOpError("dim ")
+           << dim << " exceeds grid rank " << gridShape.size();
+  }
+  return success();
+}
+
 void CoreIndexOp::inferResultRanges(
     ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
     mlir::SetIntRangeFn setResultRange) {
