@@ -58,4 +58,17 @@ module {
     %1 = "ttir.neg"(%0) : (tensor<64x64xf32>) -> tensor<64x64xf32>
     return %1 : tensor<64x64xf32>
   }
+
+  func.func @neg_broadcast_reshape() -> tensor<64x64xf32> {
+    %zero = "ttir.full"() <{shape = array<i32: 1, 1>, fill_value = 1.000000e+00 : f32}> : () -> tensor<1x1xf32>
+    %reshaped = "ttir.reshape"(%zero) <{shape = [1 : i32, 1 : i32]}> : (tensor<1x1xf32>) -> tensor<1x1xf32>
+    %broadcasted = "ttir.broadcast"(%reshaped) <{broadcast_dimensions = array<i64: 64, 64>}> : (tensor<1x1xf32>) -> tensor<64x64xf32>
+    // CHECK-LABEL: func.func @neg_broadcast_reshape
+    // CHECK-NOT: "ttir.neg"
+    // CHECK: "ttir.full"
+    // CHECK-SAME: fill_value = -1.000000e+00
+    // CHECK-SAME: shape = array<i32: 64, 64>
+    %neg = "ttir.neg"(%broadcasted) : (tensor<64x64xf32>) -> tensor<64x64xf32>
+    return %neg : tensor<64x64xf32>
+  }
 }
