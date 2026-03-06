@@ -244,6 +244,17 @@ static bool isZeroAttr(mlir::Attribute attr) {
   return false;
 }
 
+// Check if the attribute represents one.
+static bool isOneAttr(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValue().isExactlyValue(1.0);
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return intAttr.getValue().isOne();
+  }
+  return false;
+}
+
 static bool isConstantZero(mlir::Value value) {
   mlir::Attribute attr = getConstantValue(value);
   return attr && isZeroAttr(attr);
@@ -807,6 +818,69 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
       getContext(), 32, IntegerType::SignednessSemantics::Unsigned);
   auto resultType = RankedTensorType::get(/*shape=*/{1}, resultElType);
   return mlir::DenseElementsAttr::get<uint32_t>(resultType, dimSize);
+}
+
+//===----------------------------------------------------------------------===//
+// NegOp
+//===----------------------------------------------------------------------===//
+
+static mlir::Attribute negatedScalarAttribute(const mlir::Attribute &attr) {
+  if (auto floatAttr = llvm::dyn_cast_if_present<FloatAttr>(attr)) {
+    auto attrValue = floatAttr.getValue();
+    auto attrType = floatAttr.getType();
+    return mlir::FloatAttr::get(attrType, -attrValue);
+  }
+  if (auto intAttr = llvm::dyn_cast_if_present<IntegerAttr>(attr)) {
+    auto attrValue = intAttr.getValue();
+    auto attrType = intAttr.getType();
+    return mlir::IntegerAttr::get(attrType, -attrValue);
+  }
+  return {};
+}
+
+// NegOp canonicalization: neg(full(x)) -> full(-x)
+void mlir::tt::ttir::NegOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(+[](mlir::tt::ttir::NegOp op, mlir::PatternRewriter &rewriter) {
+    auto operand = op->getOperand(0);
+    if (isConstantZero(operand)) {
+      rewriter.replaceOp(op, operand);
+      return mlir::success();
+    }
+
+    auto *operandOp = operand.getDefiningOp();
+
+    if (auto onesOp =
+            mlir::dyn_cast_if_present<mlir::tt::ttir::OnesOp>(operandOp)) {
+      auto shapeAttr = onesOp.getShapeAttr();
+      auto elementType = op.getResult().getType().getElementType();
+      auto fillValueAttr = makeScalarAttr(elementType, -1.0);
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
+          op, op.getType(), shapeAttr, fillValueAttr);
+      return mlir::success();
+    }
+
+    if (auto full =
+            mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(operandOp)) {
+      auto shapeAttr = full.getShapeAttr();
+      auto negatedFillValueAttr =
+          negatedScalarAttribute(full.getFillValueAttr());
+
+      if (isOneAttr(negatedFillValueAttr)) {
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(op, op.getType(),
+                                                            shapeAttr);
+        return mlir::success();
+      }
+
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
+          op, op.getType(), shapeAttr, negatedFillValueAttr);
+      return mlir::success();
+    }
+
+    return mlir::failure();
+  });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//

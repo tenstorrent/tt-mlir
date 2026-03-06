@@ -589,6 +589,8 @@ def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg", [TTIR_Involution]> {
 
       Mathematical definition: neg(x) = -x
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_TanOp: TTIR_ElementwiseUnaryOp<"tan"> {
