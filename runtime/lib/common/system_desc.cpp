@@ -291,7 +291,7 @@ createNewMeshDevice(
     meshDevicePtr->close();
   }
   if (eptr) {
-    LOG_ERROR("Exception occured when getting system descriptor");
+    LOG_ERROR("Exception occurred when getting system descriptor");
     std::rethrow_exception(eptr);
   }
   return *desc;

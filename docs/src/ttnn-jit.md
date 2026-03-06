@@ -529,7 +529,7 @@ To start, check whether the desired TTNN op is supported in the [tablegen](../..
 Note: as mentioned in [Current Limitations](#current-support), only *select* unary and binary operations are supported.
 
 ### `Failed to run pass manager`
-This means the [compilation pipeline](#step-2-d2m-compilation-pipeline) failed at a certain stage. The easiest way to debug is to copy the IR output from the AST traversal, and manaully run each individual pipeline:
+This means the [compilation pipeline](#step-2-d2m-compilation-pipeline) failed at a certain stage. The easiest way to debug is to copy the IR output from the AST traversal, and manually run each individual pipeline:
 
 ```bash
 ttmlir-opt --convert-ttnn-to-ttir *.mlir

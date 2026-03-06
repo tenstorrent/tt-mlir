@@ -2,7 +2,7 @@
 
 `EmitPy` is part of the tt-mlir compiler project. Its primary function is to translate MLIR IR from various dialects into human-readable, executable Python source code.
 
-By representing Python laguage constructs within a dedicated `EmitPy` dialect, the project provides a structured pathway for lowering high-level computational graphs (e.g., from machine learning frameworks) into a familiar and flexible Python language, enabling rapid prototyping, debugging, and integration with Tenstorrent's TTNN open source library.
+By representing Python language constructs within a dedicated `EmitPy` dialect, the project provides a structured pathway for lowering high-level computational graphs (e.g., from machine learning frameworks) into a familiar and flexible Python language, enabling rapid prototyping, debugging, and integration with Tenstorrent's TTNN open source library.
 
 Current implementation enables support for MNIST and ResNet models.
 
