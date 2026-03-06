@@ -778,7 +778,7 @@ private:
 
     RankedTensorType scaleType = scale.getType();
 
-    // If scale is comming from broadcast then we want to use the input type
+    // If scale is coming from broadcast then we want to use the input type
     // to the broadcast to check the shape.
     if (auto bcastOp =
             mlir::dyn_cast_if_present<BroadcastOp>(scale.getDefiningOp())) {
@@ -849,7 +849,7 @@ private:
   }
 
   // There are two cases we want to handle here:
-  // 1. Input scale is a constant tensor that only neeeds reshaping
+  // 1. Input scale is a constant tensor that only needs reshaping
   // 2. Input scale is a broadcast operation that needs reshaping
   //
   // In case of 1 we just add reshape operation to the scale tensor such that
@@ -917,7 +917,7 @@ private:
     }
 
     // Otherwise we need to create a new broadcast operation that will take
-    // reshaped scale and brroadcast it to the shape of the weight tensor.
+    // reshaped scale and broadcast it to the shape of the weight tensor.
     SmallVector<int64_t> broadcastDims =
         ttmlir::utils::getBroadcastDimensions<int64_t>(
             reshapedScale.getType().getShape(), weightType.getShape());

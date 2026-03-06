@@ -266,7 +266,7 @@ public:
   matchAndRewrite(memref::SubViewOp op,
                   typename memref::SubViewOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    // We have blocked this input. We need to get the indicies for the first
+    // We have blocked this input. We need to get the indices for the first
     // tile in the subview.
     SmallVector<Value> indices = {index(rewriter, op.getLoc(), 0),
                                   index(rewriter, op.getLoc(), 0)};

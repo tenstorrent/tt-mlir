@@ -152,7 +152,7 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                inputSlotWrapper.getTensor());
 
     // Input slot will now contain identical data as the input tensor
-    // Thus we can syncronize their versions
+    // Thus we can synchronize their versions
     inputSlotWrapper.syncVersion(inputTensorWrapper);
   }
 

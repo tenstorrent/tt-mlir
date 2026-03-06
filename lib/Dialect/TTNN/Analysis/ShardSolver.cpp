@@ -188,7 +188,7 @@ bool ShardSolver::resolveStep() {
           // TODO(rpavlovicTT) After we inserted reshard in
           // preprocessFirstOp we dont need to try every producerId here, right?
 
-          // If the producer cannot accomodate this path, continue.
+          // If the producer cannot accommodate this path, continue.
           // Also if this is not the OpConfig we selected, continue.
           if (!producerBitset->test(producerId)) {
             continue;
@@ -902,7 +902,7 @@ void ShardSolver::set(Operation *op, const OpConfig &config) {
 // Preprocess ShardSolver search space to make a helper structure which links
 // op config choices to global max core usage. Example: Lets assume simple
 // case where configs at same index are compatible for input graph provided
-// below. Tupples represent grid core usage (Config0GridVolume,
+// below. Tuples represent grid core usage (Config0GridVolume,
 // Config1GridVolume, Config2GridVolume).
 //
 //    Op0 ----- (4, 8, 2)

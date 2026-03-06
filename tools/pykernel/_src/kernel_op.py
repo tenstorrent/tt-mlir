@@ -24,7 +24,7 @@ OpKernel = namedtuple("OpKernel", ["kernel_type", "kernel_descriptor"])
 
 class PyKernelOp:
     """
-    Base class for PyKernel Operations, contains a variety of methods to be overriden.
+    Base class for PyKernel Operations, contains a variety of methods to be overridden.
     """
 
     def __init__(self):

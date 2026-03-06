@@ -100,7 +100,7 @@ def TTCoreOneShotBufferizePass : Pass<"ttcore-one-shot-bufferize", "::mlir::Modu
     handles tensor types with MetalLayoutAttr encoding. It converts such tensors
     to memref types with appropriate layout attributes (ShardLayoutAttr,
     ViewLayoutAttr, InterleavedLayoutAttr) and explicit memory space attributes.
-    In addition to function bounadaries, d2m.global tensors are also handled.
+    In addition to function boundaries, d2m.global tensors are also handled.
   }];
   let dependentDialects = [
     "::mlir::bufferization::BufferizationDialect",

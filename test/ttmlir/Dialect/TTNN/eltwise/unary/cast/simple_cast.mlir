@@ -10,7 +10,7 @@ module attributes {} {
   }
 
   func.func @cast_fold(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    // CEHCK-LABEL: func.func @cast_fold
+    // CHECK-LABEL: func.func @cast_fold
     %1 = "ttir.typecast"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xf32>
     // CHECK-NOT: typecast
     // CHECK: return %arg0 : tensor<64x128xf32
