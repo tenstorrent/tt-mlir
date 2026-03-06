@@ -1758,8 +1758,9 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       if (auto memrefType = mlir::dyn_cast<MemRefType>(output.getType())) {
         return ttcore::getMemorySpace(memrefType) ==
                ttcore::MemorySpace::DeviceDRAM;
-      } else if (auto tensorType =
-                     mlir::dyn_cast<RankedTensorType>(output.getType())) {
+      }
+      if (auto tensorType =
+              mlir::dyn_cast<RankedTensorType>(output.getType())) {
         if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
                 tensorType.getEncoding())) {
           return layout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
