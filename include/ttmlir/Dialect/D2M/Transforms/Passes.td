@@ -886,6 +886,33 @@ def D2MScheduleDMA : Pass<"d2m-schedule-dma", "::mlir::ModuleOp"> {
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
 
+def D2MOptimizeDMA : Pass<"d2m-optimize-dma", "::mlir::ModuleOp"> {
+  let summary = "Optimize DMA sequences by coalescing barriers and deferring write barriers.";
+  let description = [{
+    This pass performs DMA-level optimizations on shard-level DMA ops produced by
+    D2MLowerLoadStoreOpsToDMA. It runs before D2MLowerDMAToFullyIndexedForm.
+
+    Optimization 1 -- Barrier Coalescing:
+    Reorders consecutive same-kind DMA sequences (read or write) within a block
+    so that all NOC transactions are issued before any barriers fire, allowing
+    the NOC to overlap multiple transfers.
+
+    Optimization 2 -- Write Barrier Deferral (non-mcast):
+    Moves write dma_wait and pop from the current loop iteration to the beginning
+    of the next iteration, letting the write NOC transfer run concurrently with
+    the next iteration's read address generation and NOC calls.
+
+    Optimization 3 -- Write Barrier Deferral (mcast):
+    Similar deferral for multicast sender paths inside scf.if blocks within
+    scf.for loops.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
 def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir::ModuleOp"> {
   let summary = "Lower D2M load/store operations to shard-level DMA operations.";
   let description = [{
