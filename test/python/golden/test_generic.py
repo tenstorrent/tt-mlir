@@ -190,9 +190,9 @@ def remote_load(
 @pytest.mark.parametrize(
     "block_shape,block_factors",
     [
-        #((64, 64, 64), (1, 1, 8)),
+        ((64, 64, 64), (1, 1, 8)),
         #((32, 32, 64), (2, 2, 8)),
-        ((64, 64, 32), (1, 1, 16)),
+        #((64, 64, 32), (1, 1, 16)),
     ],
 )
 @pytest.mark.parametrize(
@@ -319,7 +319,7 @@ def test_generic(
             device_lhs = builder.to_layout(
                 lhs,
                 output_type=builder.get_metal_tensor_layout(
-                    lhs.type.shape, grid=lhs_grid, tiled=True, dtype=dtype
+                    lhs.type.shape, grid=lhs_grid, tiled=True, element_dtype=torch_dtype
                 ),
                 unit_attrs=unit_attrs,
             )
@@ -328,7 +328,7 @@ def test_generic(
             device_rhs = builder.to_layout(
                 rhs,
                 output_type=builder.get_metal_tensor_layout(
-                    rhs.type.shape, grid=rhs_grid, tiled=True, dtype=dtype
+                    rhs.type.shape, grid=rhs_grid, tiled=True, element_dtype=torch_dtype
                 ),
                 unit_attrs=unit_attrs,
             )
@@ -336,7 +336,7 @@ def test_generic(
 
             device_out = d2m.empty(
                 builder.get_metal_tensor_layout(
-                    out_shape, grid=out_grid, tiled=True, dtype=dtype
+                    out_shape, grid=out_grid, tiled=True, element_dtype=torch_dtype
                 )
             )
             device_out = builder.reblock(device_out, out_blocked_grid)
