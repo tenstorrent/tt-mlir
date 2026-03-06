@@ -9,7 +9,9 @@
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
+#include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
@@ -401,6 +403,25 @@ private:
         rewriter, op, newResultType, currentInput, memoryConfigAttr);
   }
 
+  // Tilization should be performed on host if:
+  // 1. The data type is not tilizable on device, or
+  // 2. The input of the ToLayoutOp comes from a CPU-hoisted call.
+  // CPU-hoisting operates on 32bit data types, so the precision loss
+  // associated with on-device tilization would diminish the benefits of
+  // CPU-hoisting.
+  // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/39310
+  bool shouldTilizeOnHost(ttnn::ToLayoutOp op,
+                          const ttcore::DataType &dataType) const {
+    if (!canTilizeDataTypeOnDevice(dataType)) {
+      return true;
+    }
+    Operation *definingOp = op.getInput().getDefiningOp();
+    if (auto callOp = mlir::dyn_cast_or_null<func::CallOp>(definingOp)) {
+      return callOp->hasAttr(ttmlir::utils::g_cpuHoistFuncCallAttrName);
+    }
+    return false;
+  }
+
   /* Functions that create ops based on the layouts of the input output tensors
    */
 
@@ -464,9 +485,11 @@ private:
       return;
     }
 
+    bool tilizeOnHost = shouldTilizeOnHost(op, output.dataType);
+
     // If the tensor tilizable on device, we can move the tensor to device and
     // perform the tilization on device.
-    if (info.shouldTilize() && canTilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldTilize() && !tilizeOnHost) {
       currentInput =
           this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -479,7 +502,7 @@ private:
 
     // Otherwise, if tensor is not in a tilizable data format, we perform
     // tilizing on host and than move the tensor to device.
-    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldTilize() && tilizeOnHost) {
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -595,10 +618,13 @@ private:
       return;
     }
 
+    bool tilizeOnHostInput = shouldTilizeOnHost(op, input.dataType);
+    bool tilizeOnHostOutput = shouldTilizeOnHost(op, output.dataType);
+
     // If we need to tilize and change the data type from a tilizable data
     // format to another format, we can move the tensor to the device, perform
     // the tilization, and then cast the data type on the device
-    if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType)) {
+    if (info.shouldTilize() && !tilizeOnHostInput) {
       currentInput =
           this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -614,7 +640,7 @@ private:
     // If we need to tilize and change the data format from another format
     // to a tilizable data format, we can cast the data type on host, move
     // the tensor to device, and then tilize on device.
-    if (info.shouldTilize() && canTilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldTilize() && !tilizeOnHostOutput) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput =
@@ -629,8 +655,7 @@ private:
 
     // If we need to tilize and the input/output data types are not device
     // tilizable do everything on host
-    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
-        !canTilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldTilize() && tilizeOnHostInput && tilizeOnHostOutput) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput =
@@ -734,9 +759,11 @@ private:
       return;
     }
 
+    bool tilizeOnHost = shouldTilizeOnHost(op, input.dataType);
+
     // If we should tilize and the input data type is device-tilizable, tilize
     // on device
-    if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType)) {
+    if (info.shouldTilize() && !tilizeOnHost) {
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
@@ -749,8 +776,7 @@ private:
 
     // If we should tilize and the input data type is not device tilizable,
     // tilize on host
-    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
-        opsToCreate.createFromDeviceOp) {
+    if (info.shouldTilize() && tilizeOnHost && opsToCreate.createFromDeviceOp) {
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -761,7 +787,7 @@ private:
 
     // If we want to tilize a device tensor that is not device tilizable, we
     // need to tilize on host and move it back
-    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
+    if (info.shouldTilize() && tilizeOnHost &&
         !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
@@ -898,9 +924,11 @@ private:
       return;
     }
 
+    bool tilizeOnHost = shouldTilizeOnHost(op, input.dataType);
+
     // If we should tilize and the input data type is device tilizable, tilize
     // and typecast on device
-    if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType)) {
+    if (info.shouldTilize() && !tilizeOnHost) {
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
@@ -915,8 +943,7 @@ private:
 
     // If we should tilize and the input data type is not device tilizable and
     // we want to read back from device do everything on host
-    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
-        opsToCreate.createFromDeviceOp) {
+    if (info.shouldTilize() && tilizeOnHost && opsToCreate.createFromDeviceOp) {
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -930,7 +957,7 @@ private:
     // If we should tilize and the input data type is not device tilizable and
     // we don't want to read back from device: tilize on host, move back to
     // device, and typecast on device
-    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
+    if (info.shouldTilize() && tilizeOnHost &&
         !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
