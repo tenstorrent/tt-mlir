@@ -4124,14 +4124,19 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Other ops
   //
   // clang-format off
-  patterns.add<EmbeddingOpConversionPattern, EmbeddingBackwardOpConversionPattern, MorehCumSumOpConversionPattern, SoftmaxOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+  patterns.add<EmbeddingOpConversionPattern,
+               EmbeddingBackwardOpConversionPattern,
+               MorehCumSumOpConversionPattern,
+               SoftmaxOpConversionPattern
+              >(typeConverter, ctx, enableGoldenMode);
   // clang-format on
 
   // Tensor serialization ops
   //
   // clang-format off
   patterns.add<DumpTensorOpConversionPattern,
-               LoadTensorOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+               LoadTensorOpConversionPattern
+              >(typeConverter, ctx, enableGoldenMode);
   // clang-format on
 
   // Tuple ops

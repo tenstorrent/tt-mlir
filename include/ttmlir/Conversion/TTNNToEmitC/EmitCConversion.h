@@ -1756,6 +1756,11 @@ struct TTNNTarget<tt::ttcore::TopologyAttr> {
   using type = ::mlir::tt::ttcore::Topology;
 };
 
+template <>
+struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
+  using type = ::ttnn::WormholeComputeKernelConfig;
+};
+
 template <typename T>
 struct IsMLIRType {
   static constexpr bool value = std::is_convertible_v<T, mlir::Attribute> ||
