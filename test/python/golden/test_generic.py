@@ -292,13 +292,22 @@ def test_generic(
                 iterator_types=iterator_types,
             )
             def mm(lhs, rhs, out):
+                mci = d2m.core_index(0)
+                nci = d2m.core_index(1)
                 mbi = d2m.block_index(0)
                 nbi = d2m.block_index(1)
                 kbi = d2m.block_index(2)
+                # replace with d2m.get_block_factor
+                mbf = arith.constant(IndexType.get(lhs.context), block_factors[0])
+                nbf = arith.constant(IndexType.get(lhs.context), block_factors[1])
+                kbf = arith.constant(IndexType.get(lhs.context), block_factors[2])
+                mi = arith.addi(arith.muli(mci, mbf), mbi)
+                ni = arith.addi(arith.muli(nci, nbf), nbi)
+                ki = kbi
                 r = arith.constant(IndexType.get(lhs.context), 0)
                 c = arith.constant(IndexType.get(lhs.context), 1)
-                lhs_shard = remote_load(lhs, [mbi, kbi], mcast_dims=[r])
-                rhs_shard = remote_load(rhs, [kbi, nbi], mcast_dims=[c])
+                lhs_shard = remote_load(lhs, [mi, ki], mcast_dims=[r])
+                rhs_shard = remote_load(rhs, [ki, ni], mcast_dims=[c])
                 out_shard = tensor.empty(out_block_shape, out.type.element_type)
                 d2m.tile_matmul_block(lhs_shard, rhs_shard, out_shard)
                 res = d2m.remote_store(
