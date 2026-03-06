@@ -449,6 +449,46 @@ static double evaluateCost(ModuleOp module) {
   return totalCost;
 }
 
+// Compute the memory benefit of a sharding config. Sharding large argument
+// tensors across the mesh saves memory proportional to the element count.
+// Benefit is normalized relative to the largest argument: fully sharding the
+// largest arg on a 2-way mesh yields benefit 0.5, on an 8-way mesh yields
+// 0.875, etc. This makes the benefit comparable in scale to CCL op counts.
+static double computeMemoryBenefit(const ShardingConfig &config,
+                                   func::FuncOp funcOp,
+                                   int64_t meshAxisSize) {
+  if (meshAxisSize <= 1) {
+    return 0.0;
+  }
+
+  int64_t maxElements = 1;
+  for (auto arg : funcOp.getArguments()) {
+    if (auto tt = dyn_cast<RankedTensorType>(arg.getType())) {
+      maxElements = std::max(maxElements, tt.getNumElements());
+    }
+  }
+
+  double benefit = 0.0;
+  double fractionSaved = 1.0 - 1.0 / static_cast<double>(meshAxisSize);
+
+  for (size_t argIdx = 0; argIdx < config.argDimSharded.size(); ++argIdx) {
+    bool isSharded =
+        llvm::any_of(config.argDimSharded[argIdx], [](bool s) { return s; });
+    if (!isSharded) {
+      continue;
+    }
+
+    auto tensorType =
+        cast<RankedTensorType>(funcOp.getArgument(argIdx).getType());
+    int64_t numElements = tensorType.getNumElements();
+
+    benefit +=
+        (static_cast<double>(numElements) / maxElements) * fractionSaved;
+  }
+
+  return benefit;
+}
+
 static std::string formatConfig(const ShardingConfig &config) {
   std::string result;
   llvm::raw_string_ostream os(result);
@@ -577,8 +617,23 @@ public:
     }
 
     StringRef shardAxisName = shardableAxes[0];
+    int64_t meshAxisSize = 1;
+    for (const auto &[name, size] : meshInfo.axes) {
+      if (name == shardAxisName) {
+        meshAxisSize = size;
+        break;
+      }
+    }
     llvm::errs() << "AutoSharding: mesh='" << meshInfo.meshName
-                 << "', sharding axis='" << shardAxisName << "'\n";
+                 << "', sharding axis='" << shardAxisName
+                 << "' (size=" << meshAxisSize << ")\n";
+
+    auto funcOps = rootModule.getOps<func::FuncOp>();
+    if (funcOps.empty()) {
+      rootModule.emitWarning("AutoSharding: no FuncOp found, skipping");
+      return;
+    }
+    func::FuncOp originalFuncOp = *funcOps.begin();
 
     // 1. Enumerate Tier 1 configs (arg-level shardings).
     auto tier1Configs = enumerateTier1Configs(rootModule);
@@ -605,13 +660,12 @@ public:
     llvm::errs() << "AutoSharding: evaluating " << configs.size()
                  << " total configurations (Tier 1 x Tier 2 x open/closed)\n";
 
-    // Set up dump directory if requested.
+    // Set up dump directory for summary and (optionally) per-variant MLIR.
     std::string dumpRoot;
-    if (dumpVariants) {
+    if (!dumpDir.empty()) {
       dumpRoot = createDumpRoot(dumpDir);
       if (!dumpRoot.empty()) {
-        llvm::errs() << "AutoSharding: dumping variants to " << dumpRoot
-                     << "\n";
+        llvm::errs() << "AutoSharding: dumping to " << dumpRoot << "\n";
       }
     }
 
@@ -624,6 +678,8 @@ public:
       std::string label;
       bool succeeded;
       double cost;
+      double commCost;
+      double memBenefit;
     };
     llvm::SmallVector<VariantResult> results;
     bool collectResults = !dumpRoot.empty();
@@ -657,7 +713,7 @@ public:
         llvm::errs() << "AutoSharding: config " << i << " "
                      << formatConfig(configs[i]) << " failed to lower\n";
         if (collectResults) {
-          results.push_back({i, formatConfig(configs[i]), false, 0.0});
+          results.push_back({i, formatConfig(configs[i]), false, 0.0, 0.0, 0.0});
         }
         continue;
       }
@@ -668,12 +724,17 @@ public:
         dumpModuleToFile(clonedModule, cclPath);
       }
 
-      double cost = evaluateCost(clonedModule);
+      double commCost = evaluateCost(clonedModule);
+      double memBenefit =
+          computeMemoryBenefit(configs[i], originalFuncOp, meshAxisSize);
+      double cost = commCost - memBenefit;
       llvm::errs() << "AutoSharding: config " << i << " "
-                   << formatConfig(configs[i]) << " cost=" << cost << "\n";
+                   << formatConfig(configs[i]) << " comm=" << commCost
+                   << " benefit=" << memBenefit << " net=" << cost << "\n";
 
       if (collectResults) {
-        results.push_back({i, formatConfig(configs[i]), true, cost});
+        results.push_back(
+            {i, formatConfig(configs[i]), true, cost, commCost, memBenefit});
       }
       anySucceeded = true;
       if (cost < bestCost) {
@@ -691,7 +752,7 @@ public:
 
     llvm::errs() << "AutoSharding: selected config " << bestIdx << " "
                  << formatConfig(configs[bestIdx])
-                 << " with cost=" << bestCost << "\n";
+                 << " with net cost=" << bestCost << "\n";
     applyShardingHints(rootModule, configs[bestIdx], meshInfo.meshName,
                        shardAxisName, candidates);
 
@@ -711,8 +772,9 @@ public:
         fos << "Total configs evaluated: " << configs.size() << "\n\n";
 
         fos << "Config  Sharding"
-            << std::string(50, ' ') << "Status  Cost\n";
-        fos << std::string(90, '-') << "\n";
+            << std::string(50, ' ')
+            << "Status  Comm      Benefit   Net\n";
+        fos << std::string(110, '-') << "\n";
         for (const auto &r : results) {
           fos << llvm::format("%-8zu", r.idx);
 
@@ -722,7 +784,9 @@ public:
           }
 
           if (r.succeeded) {
-            fos << "OK      " << llvm::format("%.6f", r.cost);
+            fos << "OK      " << llvm::format("%-10.3f", r.commCost)
+                << llvm::format("%-10.3f", r.memBenefit)
+                << llvm::format("%.3f", r.cost);
           } else {
             fos << "FAILED  -";
           }
@@ -733,8 +797,8 @@ public:
         }
 
         fos << "\nSelected: config " << bestIdx << " "
-            << formatConfig(configs[bestIdx]) << " with cost=" << bestCost
-            << "\n";
+            << formatConfig(configs[bestIdx])
+            << " with net cost=" << llvm::format("%.3f", bestCost) << "\n";
       }
     }
   }
