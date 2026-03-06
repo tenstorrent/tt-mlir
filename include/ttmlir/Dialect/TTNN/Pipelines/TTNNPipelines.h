@@ -293,7 +293,7 @@ struct TTIRToTTNNDevicePipelineOptions
       *this, "enable-permute-matmul-fusion",
       llvm::cl::desc(
           "Fuse permute ops into matmul/linear transpose attributes."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
