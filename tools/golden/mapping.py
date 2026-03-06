@@ -5566,6 +5566,26 @@ def ttnn_typecast_golden(
     return input_tensor.to(dtype)
 
 
+def ttnn_to_layout_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """
+    Golden function for ttnn.ToLayoutOp.
+
+    This operation handles layout conversions (e.g., tilize/untilize) and
+    optionally dtype conversion. For golden computation, we primarily handle
+    the dtype conversion aspect, as layout changes don't affect numerical values.
+    """
+    casted_type = ttcore.ir.TileType.maybe_downcast(output_type_mlir)
+
+    if casted_type:
+        output_dtype = mlir_datatype_to_torch_dtype(casted_type.data_type)
+    else:
+        output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    return input_tensor.clone().to(output_dtype)
+
+
 def ttnn_log_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -5637,6 +5657,81 @@ def ttnn_lt_golden(
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.lt(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_mesh_shard_golden(
+    input: GoldenMapTensor,
+    shard_type_attr: ttcore.ir.MeshShardTypeAttr,
+    shard_direction_attr: ttcore.ir.MeshShardDirectionAttr,
+    shard_shape_attr: DenseI64ArrayAttr,
+    shard_dims_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    return ttir_mesh_shard_golden(
+        input,
+        shard_type_attr,
+        shard_direction_attr,
+        shard_shape_attr,
+        shard_dims_attr,
+        output_type_mlir,
+    )
+
+
+def ttnn_distribute_tensor_golden(
+    input: GoldenMapTensor,
+    shard_type_attr: ttcore.ir.MeshShardTypeAttr,
+    shard_direction_attr: ttcore.ir.MeshShardDirectionAttr,
+    shard_shape_attr: DenseI64ArrayAttr,
+    shard_dims_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    return ttir_mesh_shard_golden(
+        input,
+        shard_type_attr,
+        shard_direction_attr,
+        shard_shape_attr,
+        shard_dims_attr,
+        output_type_mlir,
+    )
+
+
+def ttnn_aggregate_tensor_golden(
+    input: GoldenMapTensor,
+    shard_type_attr: ttcore.ir.MeshShardTypeAttr,
+    shard_direction_attr: ttcore.ir.MeshShardDirectionAttr,
+    shard_shape_attr: DenseI64ArrayAttr,
+    shard_dims_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    return ttir_mesh_shard_golden(
+        input,
+        shard_type_attr,
+        shard_direction_attr,
+        shard_shape_attr,
+        shard_dims_attr,
+        output_type_mlir,
+    )
+
+
+def ttnn_all_gather_golden(
+    input: GoldenMapTensor,
+    all_gather_dim_attr: IntegerAttr,
+    cluster_axis_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    all_gather_dim = unpack_mlir_attr(all_gather_dim_attr)
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    output_shards = [None] * len(input.shard_map)
+    grouped_shards = input.group_by_axis(cluster_axis)
+    for group in grouped_shards:
+        gathered_tensor = torch.cat(list(group.values()), dim=all_gather_dim)
+        for device_id in group.keys():
+            output_shards[device_id] = gathered_tensor.clone().to(output_dtype)
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
 
 
 def ttnn_logical_and_golden(
@@ -6217,6 +6312,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.WhereOp: ttnn_where_golden,
     # Type operations
     ttnn.TypecastOp: ttnn_typecast_golden,
+    ttnn.ToLayoutOp: ttnn_to_layout_golden,
     # Bitwise operations
     ttnn.BitwiseAndOp: ttnn_bitwise_and_golden,
     ttnn.BitwiseOrOp: ttnn_bitwise_or_golden,
@@ -6233,6 +6329,12 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.RepeatInterleaveOp: ttnn_repeat_interleave_golden,
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
+    # CCL (Collective Communication Library) operations
+    ttnn.MeshShardOp: ttnn_mesh_shard_golden,
+    ttnn.DistributeTensorOp: ttnn_distribute_tensor_golden,
+    ttnn.AggregateTensorOp: ttnn_aggregate_tensor_golden,
+    ttnn.AllGatherOp: ttnn_all_gather_golden,
+    ttnn.ToLayoutOp: ttnn_to_layout_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,

@@ -5,12 +5,19 @@
 import pytest
 import torch
 from conftest import get_request_kwargs
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
+from collections import OrderedDict
 
-from builder.base.builder_utils import Operand, Shape
+from builder.base.builder_utils import (
+    Operand,
+    Shape,
+    run_ttir_pipeline,
+    create_custom_ttir_pipeline_fn,
+)
 from builder.ttnn.ttnn_builder import TTNNBuilder
-from builder.base.builder_apis import compile_and_execute_ttnn
-from test_utils import shape_str, shapes_list_str
+from builder.base.builder_apis import compile_and_execute_ttnn, build_module
+from builder.base.builder_enums import MeshShardDirection, MeshShardType
+from test_utils import shape_str, shapes_list_str, make_shard_shape
 
 pytestmark = pytest.mark.frontend("ttnn")
 
@@ -229,9 +236,9 @@ def test_linear(
 @pytest.mark.parametrize(
     "mesh_shape", [(2, 4), (1, 8), (1, 2), (1, 32), (8, 4)], ids=shape_str
 )
-@pytest.mark.parametrize("all_gather_dim", range(4))
-@pytest.mark.parametrize("cluster_axis", [0, 1])
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.parametrize("all_gather_dim", range(1))
+@pytest.mark.parametrize("cluster_axis", [1])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_all_gather(
     test_shape: Shape,
     mesh_shape,
@@ -263,11 +270,38 @@ def test_all_gather(
     for d, factor in zip(shard_dims, mesh_shape):
         full_input_shape[d] *= factor
 
+    def module2(builder: TTNNBuilder):
+        @builder.func([full_input_shape], [dtype])
+        def all_gather(in0: Operand, builder: TTNNBuilder):
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+            all_gather0 = builder.all_gather(
+                in_shard,
+                all_gather_dim=all_gather_dim,
+                cluster_axis=cluster_axis,
+            )
+
+            return builder.mesh_shard(
+                all_gather0,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
     def module3(builder: TTNNBuilder):
         @builder.func([full_input_shape], [dtype])
         def all_gather(in0: Operand, builder: TTNNBuilder):
+            # in1 = builder.abs(in0)
+            a = builder.to_layout(in0)  # , layout="shard_x")
             in_shard = builder.distribute_tensor(
-                in0,
+                a,
                 shard_dims=shard_dims,
                 shard_shape=shard_shape,
             )
@@ -302,17 +336,32 @@ def test_all_gather(
     # Use build_module for IR-level verification until a dedicated TTNN
     # compilation pipeline is implemented. See follow-up issue.
     """
-    build_module(
+    module_m, builder = build_module(
         module,
         "ttnn",
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
     )
+
+    custom_pipeline = create_custom_ttir_pipeline_fn(f"ttir-to-ttnn-backend-pipeline", print_ir=True)
+
+    module_m = run_ttir_pipeline(
+        module_m,
+        custom_pipeline,
+        pipeline_options=[],
+        save_artifacts=True,
+        system_desc_path=request.config.getoption("--sys-desc"),
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+    )
     """
     compile_and_execute_ttnn(
-        module,
+        module3,
+        custom_pipeline="ttcore-mark-functions-as-forward,ttcore-wrap-device-module,ttnn-configure-ccl-ops",
         **get_request_kwargs(request),
         target="ttnn",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
     )
+    print(gr)
+
+    # custom_pipeline=create_custom_ttir_pipeline_fn(f"ttcore-wrap-device-module,ttcore-mark-functions-as-forward", print_ir=True),

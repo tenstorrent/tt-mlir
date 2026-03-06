@@ -302,6 +302,9 @@ def check_outputs(
         atol,
         rtol,
     )
+    print(
+        f"Check outputs for {tensor_name}: calculated_pcc={cal_pcc}, calculated_atol={cal_atol}, calculated_rtol={cal_rtol}"
+    )
 
     if raise_exception:
         if check_pcc:
@@ -688,7 +691,10 @@ def execute_fb(
     Tuple[Dict[str, Dict], Dict[str, Dict]]
         golden_report, output_tensors
     """
+    print("OPEN")
+    print(compiled_bin)
     fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
+    print(fbb)
     program_indices = range(fbb.get_num_programs())
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
@@ -725,8 +731,9 @@ def execute_fb(
             pre_op_get_callback_fn(callback_runtime_config),
             post_op_get_callback_fn(callback_runtime_config),
         )
-
+    print("START PROGRAMS")
     for program_index in program_indices:
+        print(f"Executing program {program_index}/{fbb.get_num_programs()-1}")
         if fbb.is_program_private(program_index):
             continue
 
@@ -806,6 +813,7 @@ def execute_fb(
 
         e2e_duration_nanoseconds_output = 0
         for i, runtime_output_tensor in enumerate(runtime_outputs):
+            print(" output", i)
             start_get_output = time.perf_counter_ns()
             output_host = tt_runtime.runtime.to_host(
                 runtime_output_tensor, untilize=True
