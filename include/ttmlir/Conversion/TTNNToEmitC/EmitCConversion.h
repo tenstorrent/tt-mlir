@@ -2225,6 +2225,14 @@ public:
     return emit(memoryConfigAttr);
   }
 
+  ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
+    auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    return ttcore::DataTypeAttr::get(resultLayoutAttr.getContext(),
+                                     resultLayoutAttr.getDataType());
+  }
+
   // Creates MeshShape code from integer attributes.
   std::string
   createMeshShapeCode(llvm::ArrayRef<mlir::IntegerAttr> meshShapeOverride) {

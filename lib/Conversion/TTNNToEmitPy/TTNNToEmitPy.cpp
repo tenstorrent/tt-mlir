@@ -574,12 +574,6 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MatmulOp> emitter(
         matmulOp, adaptor, rewriter, this->isGoldenModeEnabled());
 
-    auto resultLayoutAttr = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(matmulOp.getResult().getType())
-            .getEncoding());
-    auto outputDtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
-        matmulOp.getContext(), resultLayoutAttr.getDataType());
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(matmulOp.getA()),
         emitter.emit(matmulOp.getB()),
@@ -588,7 +582,7 @@ public:
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(matmulOp.getResult()),
                      "memory_config"),
-        emitter.emit(outputDtypeAttr, "dtype"),
+        emitter.emit(emitter.getOutputDtype(matmulOp.getResult()), "dtype"),
         emitter.emit<ttnn_to_emitpy::MatmulProgramConfig>(
             matmulOp.getMatmulProgramConfig(), "program_config"),
         emitter.emit(matmulOp.getActivation(), "activation"),
@@ -620,12 +614,6 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LinearOp> emitter(
         srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
 
-    auto resultLayoutAttr = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType())
-            .getEncoding());
-    auto outputDtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
-        srcOp.getContext(), resultLayoutAttr.getDataType());
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getA()),
         emitter.emit(srcOp.getB()),
@@ -634,7 +622,7 @@ public:
         emitter.emit(srcOp.getTransposeB(), "transpose_b"),
         emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
-        emitter.emit(outputDtypeAttr, "dtype"),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult()), "dtype"),
         emitter.emit<ttnn_to_emitpy::MatmulProgramConfig>(
             srcOp.getMatmulProgramConfig(), "program_config"),
         emitter.emit(srcOp.getActivation(), "activation"),
@@ -2263,6 +2251,7 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::EmbeddingOp> emitter(
         embeddingOp, adaptor, rewriter, this->isGoldenModeEnabled());
 
+    // Get LayoutAttr (Tile/RowMajor)
     mlir::RankedTensorType resultType =
         mlir::cast<mlir::RankedTensorType>(embeddingOp.getResult().getType());
     auto resultLayoutAttr =
@@ -2271,15 +2260,13 @@ public:
         embeddingOp.getContext(), resultLayoutAttr.isTiled()
                                       ? mlir::tt::ttnn::Layout::Tile
                                       : mlir::tt::ttnn::Layout::RowMajor);
-    auto outputDtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
-        embeddingOp.getContext(), resultLayoutAttr.getDataType());
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(embeddingOp.getInput()),
         emitter.emit(embeddingOp.getWeight()),
         emitter.emit(std::nullopt, "padding_idx"),
         emitter.emit(layoutAttr, "layout"),
-        emitter.emit(outputDtypeAttr, "dtype"),
+        emitter.emit(emitter.getOutputDtype(embeddingOp.getResult()), "dtype"),
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(embeddingOp.getResult()),
                      "memory_config"),

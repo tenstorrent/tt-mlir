@@ -2211,6 +2211,14 @@ public:
     return memoryConfigAttr;
   }
 
+  ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
+    auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    return ttcore::DataTypeAttr::get(resultLayoutAttr.getContext(),
+                                     resultLayoutAttr.getDataType());
+  }
+
   template <typename OpConversionPatternTy>
   mlir::Value replaceOp(OpConversionPatternTy &&opConversionPattern,
                         llvm::ArrayRef<mlir::Attribute> args) {

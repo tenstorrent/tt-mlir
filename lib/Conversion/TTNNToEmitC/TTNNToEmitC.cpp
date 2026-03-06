@@ -679,12 +679,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::LinearOp> emitter(
         srcOp, adaptor, rewriter);
 
-    auto resultLayoutAttr = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType())
-            .getEncoding());
-    auto outputDtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
-        srcOp.getContext(), resultLayoutAttr.getDataType());
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getA()),
         emitter.emit(srcOp.getB()),
@@ -692,7 +686,7 @@ public:
         emitter.emit(srcOp.getTransposeA()),
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*dtype=*/emitter.emit(outputDtypeAttr),
+        /*dtype=*/emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
         /*program_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getActivation()),
         emitter.emit(srcOp.getComputeConfig()),
@@ -724,12 +718,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MatmulOp> emitter(
         srcOp, adaptor, rewriter);
 
-    auto resultLayoutAttr = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType())
-            .getEncoding());
-    auto outputDtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
-        srcOp.getContext(), resultLayoutAttr.getDataType());
-
     // ANCHOR: adding_an_op_matmul_ttnn_to_emitc_array_attrs
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getA()),
@@ -737,7 +725,7 @@ public:
         emitter.emit(srcOp.getTransposeA()),
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*dtype=*/emitter.emit(outputDtypeAttr),
+        /*dtype=*/emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
         /*program_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getActivation()),
         emitter.emit(srcOp.getComputeConfig()),
@@ -1164,15 +1152,12 @@ public:
         embeddingOp.getContext(), resultLayoutAttr.isTiled()
                                       ? mlir::tt::ttnn::Layout::Tile
                                       : mlir::tt::ttnn::Layout::RowMajor);
-    auto outputDtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
-        embeddingOp.getContext(), resultLayoutAttr.getDataType());
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(embeddingOp.getInput()),
         emitter.emit(embeddingOp.getWeight()),
         emitter.emit(std::nullopt),
         emitter.emit(layoutAttr),
-        emitter.emit(outputDtypeAttr),
+        emitter.emit(emitter.getOutputDtype(embeddingOp.getResult())),
         emitter.emit(std::nullopt) |
             emitter.getMemoryConfig(embeddingOp.getResult()),
     };
