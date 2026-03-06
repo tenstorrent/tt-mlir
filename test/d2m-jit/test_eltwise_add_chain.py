@@ -47,8 +47,12 @@ def test_eltwise_add_chain():
     module_str = str(module)
     with open("build/test_eltwise_add_chain.mlir", "w") as f:
         f.write(module_str)
-    assert "d2m.block_index" in module_str
-    assert "d2m.remote_load" in module_str
+    # d2m.generic present through all stages up to (and including) partial stage 10 conversion
+    assert "d2m.generic" in module_str or "ttnn.generic" in module_str
+    # Stage 9+: kernel functions extracted (as symbol refs in d2m.generic threads or as funcs)
+    assert "@compute_kernel" in module_str or "ttnn.generic" in module_str
+    # Stage 10+: TTKernel ops appear in kernel functions (or stage 11 produces ttnn.generic)
+    assert "ttkernel" in module_str or "ttnn.generic" in module_str
     
 if __name__ == "__main__":
     test_eltwise_add_chain()

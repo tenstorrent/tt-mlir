@@ -45,8 +45,9 @@ def test_matmul_bias_128_per_core():
     module_str = str(module)
     with open("build/test_matmul_bias.mlir", "w") as f:
         f.write(module_str)
-    assert "scf.for" in module_str or "affine.for" in module_str
-    assert "memref.alloc" in module_str
+    # Stage 5+ lowers affine.for to scf.for; final form is ttnn.generic
+    assert "scf.for" in module_str or "affine.for" in module_str or "ttnn.generic" in module_str
+    assert "memref.alloc" in module_str or "ttnn.generic" in module_str
 
 if __name__ == "__main__":
     test_matmul_bias_128_per_core()

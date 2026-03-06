@@ -610,12 +610,12 @@ class D2MASTVisitor(ast.NodeVisitor):
         if isinstance(val, ast.Call):
             if isinstance(val.func, ast.Attribute) and val.func.value.id == "d2m" and val.func.attr == "core_idx":
                 idx = val.args[0].value
-                # d2m.block_index
+                # d2m.core_index (convert-d2m-to-ttkernel handles core_index → TTKernel noc coords)
                 with Location.unknown(self.ctx), InsertionPoint(self.block):
                     from ttmlir.ir import IntegerAttr, IntegerType, IndexType
                     idx_type = IndexType.get(self.ctx)
                     import ttmlir.dialects.d2m as d2m
-                    op = d2m.BlockIndexOp(IntegerAttr.get(IntegerType.get_signless(64), idx), results=[idx_type])
+                    op = d2m.CoreIndexOp(IntegerAttr.get(IntegerType.get_signless(64), idx), results=[idx_type])
                     self.core_indices[name] = op.result
 
             elif isinstance(val.func, ast.Name) and val.func.id == "alloc":
