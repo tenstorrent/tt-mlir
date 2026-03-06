@@ -114,9 +114,6 @@ TEST_P(OpModelLibMockMeshTest, MeshPartitionOp) {
   const size_t meshDims[] = {p.meshRows, p.meshCols};
   const int64_t splitFactor = static_cast<int64_t>(meshDims[p.clusterAxis]);
   const bool expectTilingSuccess = (inputShape[p.dim] / splitFactor) % 32 == 0;
-  llvm::outs() << "Test param: mesh=" << meshDims[0] << "x" << meshDims[1]
-               << ", dim=" << dim << ", clusterAxis=" << clusterAxis
-               << " => expectTilingSuccess=" << expectTilingSuccess << "\n";
 
   // Row-major layouts should always succeed.
   auto constraintsExp = OpModel<MeshPartitionOp>::getOpConstraints(
