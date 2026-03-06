@@ -535,6 +535,14 @@ public:
         // Update the output layout attribute with the new one.
         //
         if (opConfigAnalysis.getResult().contains(op)) {
+          // DistributedRMSNormOp lowering relies on sharded output semantics.
+          // Rewriting it to DRAM/interleaved here can pass verifier checks but
+          // break runtime execution (bad optional access in fused_rms_minimal).
+          // Keep its result/layout attrs as produced by dedicated workarounds.
+          if (isa<DistributedRMSNormOp>(op)) {
+            return;
+          }
+
           // Preserve quantized element types on the tensor type. For
           // non-quantized tensors, use the scalar element type implied by the
           // chosen layout.
