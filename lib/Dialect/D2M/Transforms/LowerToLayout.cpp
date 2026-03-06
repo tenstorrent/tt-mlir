@@ -847,10 +847,10 @@ public:
       }
 
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(type.getEncoding());
-      return rewriter
-          .create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
-                                type.getElementType(), layout)
-          .getResult();
+      auto emptyOp = rewriter.create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
+                                                   type.getElementType(),
+                                                   layout, targetGridShape);
+      return emptyOp.getResult();
     };
 
     // 1. SYSTEM→DEVICE: Transfer to L1/DRAM with same element type as input.
@@ -924,11 +924,10 @@ public:
       // buffers via createEmpty().
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(
           currentInfo.type.getEncoding());
-      auto maskedEmpty =
-          rewriter
-              .create<d2m::EmptyOp>(op.getLoc(), currentInfo.type.getShape(),
-                                    currentInfo.type.getElementType(), layout)
-              .getResult();
+      auto maskedEmptyOp = rewriter.create<d2m::EmptyOp>(
+          op.getLoc(), currentInfo.type.getShape(),
+          currentInfo.type.getElementType(), layout, targetGridShape);
+      auto maskedEmpty = maskedEmptyOp.getResult();
       currentValue =
           lowerMaskingGeneric(rewriter, currentValue, maskedEmpty, op.getLoc(),
                               currentInfo.layout->getLogicalShape(),

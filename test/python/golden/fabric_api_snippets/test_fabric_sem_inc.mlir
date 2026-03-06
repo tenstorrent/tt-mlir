@@ -19,7 +19,7 @@ module attributes {} {
     return %8 : !full_tensor_layout
   }
 
-  func.func private @datamovement_kernel0() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = global_semaphore, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @datamovement_kernel0() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = global_semaphore, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     // Setup fabric connections
     %fabric_connection_manager = "ttkernel.experimental::create_fabric_connection_manager"() : () -> !ttkernel.fabric_connection_manager
     "ttkernel.experimental::setup_fabric_connections"(%fabric_connection_manager) : (!ttkernel.fabric_connection_manager) -> ()
