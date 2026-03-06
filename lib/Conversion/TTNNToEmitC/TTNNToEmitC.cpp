@@ -686,7 +686,7 @@ public:
         emitter.emit(srcOp.getTransposeA()),
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*dtype=*/emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
         /*program_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getActivation()),
         emitter.emit(srcOp.getComputeConfig()),
@@ -725,7 +725,7 @@ public:
         emitter.emit(srcOp.getTransposeA()),
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*dtype=*/emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
         /*program_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getActivation()),
         emitter.emit(srcOp.getComputeConfig()),
@@ -848,7 +848,7 @@ public:
         emitter.emit(
             /*reallocate_halo_output=*/srcOp.getReallocateHaloOutput()),
         /*return_indices=*/emitter.emit(false),
-        emitter.emit(/*dtype=*/ttcore::DataType::BFloat16),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
         emitter.emit(/*output_layout=*/mlir::tt::ttnn::Layout::RowMajor),
         /*config_tensors_in_dram=*/emitter.emit(srcOp.getConfigTensorsInDram()),
     };
@@ -917,7 +917,7 @@ public:
         /*reallocate_halo_output=*/
         emitter.emit(srcOp.getReallocateHaloOutput()),
         /*return_indices=*/emitter.emit(true),
-        emitter.emit(/*dtype=*/ttcore::DataType::BFloat16),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult(0))),
         emitter.emit(/*output_layout=*/mlir::tt::ttnn::Layout::
                          RowMajor), // ROW_MAJOR required for return_indices
                                     /*config_tensors_in_dram=*/
