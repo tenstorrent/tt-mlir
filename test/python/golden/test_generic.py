@@ -75,6 +75,7 @@ def _create_generic(
         [ret_type],
         inputs,
         outputs,
+        [], # additional_args
         ttcore.ir.GridAttr.get(ctx, grid),
         block_factors,
         list(map(_affine_map_from_lambda, indexing_maps)),
@@ -322,13 +323,8 @@ def test_generic(
                 ),
                 unit_attrs=unit_attrs,
             )
-            device_lhs = builder.view_layout(
-                device_lhs,
-                output_type=builder.get_metal_tensor_layout(
-                    lhs.type.shape, grid=lhs_blocked_grid, tiled=True, dtype=dtype
-                ),
-                unit_attrs=unit_attrs,
-            )
+            device_lhs = builder.reblock(device_lhs, lhs_blocked_grid, unit_attrs=unit_attrs)
+
             device_rhs = builder.to_layout(
                 rhs,
                 output_type=builder.get_metal_tensor_layout(
@@ -336,33 +332,18 @@ def test_generic(
                 ),
                 unit_attrs=unit_attrs,
             )
-            device_rhs = builder.view_layout(
-                device_rhs,
-                output_type=builder.get_metal_tensor_layout(
-                    rhs.type.shape, grid=rhs_blocked_grid, tiled=True, dtype=dtype
-                ),
-                unit_attrs=unit_attrs,
-            )
+            device_rhs = builder.reblock(device_rhs, rhs_blocked_grid)
+
             device_out = d2m.empty(
                 builder.get_metal_tensor_layout(
                     out_shape, grid=out_grid, tiled=True, dtype=dtype
                 )
             )
-            device_out = builder.view_layout(
-                device_out,
-                output_type=builder.get_metal_tensor_layout(
-                    out_shape, grid=out_blocked_grid, tiled=True, dtype=dtype
-                ),
-                unit_attrs=unit_attrs,
-            )
+            device_out = builder.reblock(device_out, out_blocked_grid)
+
             mm_out = mm(device_lhs, device_rhs, device_out)
-            res = builder.view_layout(
-                mm_out,
-                output_type=builder.get_metal_tensor_layout(
-                    out_shape, grid=out_grid, tiled=True, dtype=dtype
-                ),
-                unit_attrs=unit_attrs,
-            )
+
+            res = builder.reblock(mm_out, out_grid)
             res = builder.to_layout(
                 res,
                 output_type=RankedTensorType.get(out_shape, lhs.type.element_type),

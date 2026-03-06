@@ -193,6 +193,32 @@ class D2MBuilder(Builder):
 
         return result
 
+    def reblock(
+        self,
+        input: Operand,
+        new_grid: List[int],
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        assert len(input.type.shape) % 2 == 0, f"Input shape must be multiple of 2 {input.type.shape}"
+        grid_rank = len(input.type.shape) // 2
+        old_grid = list(input.type.shape)[:grid_rank]
+        old_shard = list(input.type.shape)[grid_rank:]
+        assert len(new_grid) == grid_rank, f"Mismatched input/output grid rank for in {new_grid} and out {old_grid}"
+        canonical_shape = [gd * sd for gd, sd in zip(old_grid, old_shard)]
+        output_shape = new_grid
+        for i, d in enumerate(canonical_shape):
+            assert d % new_grid[i] == 0, f"Illegal dims for new grid that don't divide canonical shape at dim[{i}] {d} % {new_grid[i]} != 0"
+            output_shape.append(d // new_grid[i])
+        layout = input.type.encoding
+        output_type = RankedTensorType.get(output_shape, input.type.element_type, layout)
+        remapping = d2m.ir.calculate_reblock_map(input.type.shape, output_shape, output_type.context)
+        return self.view_layout(
+            input,
+            output_type,
+            remapping,
+            unit_attrs = unit_attrs,
+        )
+
     def stream_layout(
         self,
         input: Operand,

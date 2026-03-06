@@ -5,10 +5,12 @@
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
 #include "mlir/CAPI/IR.h"
+#include "mlir/CAPI/AffineMap.h"
 #include "ttmlir-c/D2MTypes.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.h"
+#include "ttmlir/AffineMapUtils.h"
 
 namespace mlir::ttmlir::python {
 void populateD2MModule(nb::module_ &m) {
@@ -48,5 +50,10 @@ void populateD2MModule(nb::module_ &m) {
           [](MlirType &ty) { return mlir::cast<tt::d2m::CBType>(unwrap(ty)); })
       .def("get_underlying",
            [](tt::d2m::CBType self) { return wrap(self.getUnderlying()); });
+
+  m.def("calculate_reblock_map",
+        [](std::vector<int64_t> inputShape, std::vector<int64_t> outputShape, MlirContext ctx) {
+          return wrap(::ttmlir::utils::calculateReblockMap(inputShape, outputShape, unwrap(ctx)));
+        });
 }
 } // namespace mlir::ttmlir::python
