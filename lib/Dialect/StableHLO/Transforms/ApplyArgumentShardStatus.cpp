@@ -104,6 +104,11 @@ updateResultShardStatus(MLIRContext *context, mlir::ModuleOp &module,
     newResultAttrs.push_back(shardStatusNamedAttr);
     funcOp.setResultAttrs(i,
                           mlir::DictionaryAttr::get(context, newResultAttrs));
+
+    if (!shardy_utils::sdyAnnotationsExist(module)) {
+      gspmd_utils::updateShardStatusForResult(context, funcOp, i,
+                                              shardStatusNamedAttr);
+    }
   }
 
   return mlir::success();
