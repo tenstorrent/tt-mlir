@@ -33,41 +33,45 @@ module  {
   }
   func.func @linear_with_sigmoid(%arg0: tensor<100x384xbf16>, %arg1: tensor<4x384xbf16>, %arg2: tensor<1x100x4xbf16>) -> tensor<1x100x4xbf16> {
     // CHECK-LABEL: func.func @linear_with_sigmoid
-    // CHECK: "ttnn.matmul"
-    // CHECK-SAME: -> tensor<100x4xbf16
-    // CHECK: "ttnn.add"
+    // CHECK: "ttnn.linear"
+    // CHECK-SAME: activation = "sigmoid"
     // CHECK-SAME: -> tensor<1x100x4xbf16
-    // CHECK: "ttnn.sigmoid"
+    // CHECK-NOT: "ttnn.matmul"
+    // CHECK-NOT: "ttnn.add"
+    // CHECK: return
     %result = "ttnn.linear"(%arg0, %arg1, %arg2) <{activation = "sigmoid", transpose_a = false, transpose_b = true}> : (tensor<100x384xbf16>, tensor<4x384xbf16>, tensor<1x100x4xbf16>) -> tensor<1x100x4xbf16>
     return %result : tensor<1x100x4xbf16>
   }
   func.func @linear_with_relu(%arg0: tensor<100x384xbf16>, %arg1: tensor<4x384xbf16>, %arg2: tensor<1x100x4xbf16>) -> tensor<1x100x4xbf16> {
     // CHECK-LABEL: func.func @linear_with_relu
-    // CHECK: "ttnn.matmul"
-    // CHECK-SAME: -> tensor<100x4xbf16
-    // CHECK: "ttnn.add"
+    // CHECK: "ttnn.linear"
+    // CHECK-SAME: activation = "relu"
     // CHECK-SAME: -> tensor<1x100x4xbf16
-    // CHECK: "ttnn.relu"
+    // CHECK-NOT: "ttnn.matmul"
+    // CHECK-NOT: "ttnn.add"
+    // CHECK: return
     %result = "ttnn.linear"(%arg0, %arg1, %arg2) <{activation = "relu", transpose_a = false, transpose_b = true}> : (tensor<100x384xbf16>, tensor<4x384xbf16>, tensor<1x100x4xbf16>) -> tensor<1x100x4xbf16>
     return %result : tensor<1x100x4xbf16>
   }
   func.func @linear_with_gelu(%arg0: tensor<100x384xbf16>, %arg1: tensor<4x384xbf16>, %arg2: tensor<1x100x4xbf16>) -> tensor<1x100x4xbf16> {
     // CHECK-LABEL: func.func @linear_with_gelu
-    // CHECK: "ttnn.matmul"
-    // CHECK-SAME: -> tensor<100x4xbf16
-    // CHECK: "ttnn.add"
+    // CHECK: "ttnn.linear"
+    // CHECK-SAME: activation = "gelu"
     // CHECK-SAME: -> tensor<1x100x4xbf16
-    // CHECK: "ttnn.gelu"
+    // CHECK-NOT: "ttnn.matmul"
+    // CHECK-NOT: "ttnn.add"
+    // CHECK: return
     %result = "ttnn.linear"(%arg0, %arg1, %arg2) <{activation = "gelu", transpose_a = false, transpose_b = true}> : (tensor<100x384xbf16>, tensor<4x384xbf16>, tensor<1x100x4xbf16>) -> tensor<1x100x4xbf16>
     return %result : tensor<1x100x4xbf16>
   }
   func.func @linear_with_tanh(%arg0: tensor<100x384xbf16>, %arg1: tensor<4x384xbf16>, %arg2: tensor<1x100x4xbf16>) -> tensor<1x100x4xbf16> {
     // CHECK-LABEL: func.func @linear_with_tanh
-    // CHECK: "ttnn.matmul"
-    // CHECK-SAME: -> tensor<100x4xbf16
-    // CHECK: "ttnn.add"
+    // CHECK: "ttnn.linear"
+    // CHECK-SAME: activation = "tanh"
     // CHECK-SAME: -> tensor<1x100x4xbf16
-    // CHECK: "ttnn.tanh"
+    // CHECK-NOT: "ttnn.matmul"
+    // CHECK-NOT: "ttnn.add"
+    // CHECK: return
     %result = "ttnn.linear"(%arg0, %arg1, %arg2) <{activation = "tanh", transpose_a = false, transpose_b = true}> : (tensor<100x384xbf16>, tensor<4x384xbf16>, tensor<1x100x4xbf16>) -> tensor<1x100x4xbf16>
     return %result : tensor<1x100x4xbf16>
   }
@@ -80,15 +84,27 @@ module  {
     %result = "ttnn.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<2x33x1024xf32>, tensor<1024x1024xf32>, tensor<2x1x1xf32>) -> tensor<2x33x1024xf32>
     return %result : tensor<2x33x1024xf32>
   }
-  func.func @linear_with_reshaped_bias(%arg0: tensor<32x1024xf32>, %arg1: tensor<1024x1024xf32>, %arg2: tensor<1x32x1024xf32>) -> tensor<32x1024xf32>{
-    // CHECK-LABEL: func.func @linear_with_reshaped_bias
+  func.func @linear_with_tile_height_bias_kept_fused(%arg0: tensor<32x1024xf32>, %arg1: tensor<1024x1024xf32>, %arg2: tensor<1x32x1024xf32>) -> tensor<32x1024xf32>{
+    // CHECK-LABEL: func.func @linear_with_tile_height_bias_kept_fused
+    // CHECK: "ttnn.linear"
+    // CHECK-SAME: -> tensor<32x1024xf32
+    // CHECK-NOT: "ttnn.matmul"
+    // CHECK-NOT: "ttnn.add"
+    // CHECK-NOT: "ttnn.reshape"
+    // CHECK: return
+    %result = "ttnn.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<32x1024xf32>, tensor<1024x1024xf32>, tensor<1x32x1024xf32>) -> tensor<32x1024xf32>
+    return %result : tensor<32x1024xf32>
+  }
+
+  func.func @linear_with_feature_broadcast_bias(%arg0: tensor<32x1024xf32>, %arg1: tensor<1024x1024xf32>, %arg2: tensor<1xf32>) -> tensor<32x1024xf32>{
+    // CHECK-LABEL: func.func @linear_with_feature_broadcast_bias
     // CHECK: "ttnn.matmul"
     // CHECK-SAME: -> tensor<32x1024xf32
     // CHECK: "ttnn.add"
-    // CHECK-SAME: -> tensor<1x32x1024xf32
-    // CHECK: "ttnn.reshape"
     // CHECK-SAME: -> tensor<32x1024xf32
-    %result = "ttnn.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<32x1024xf32>, tensor<1024x1024xf32>, tensor<1x32x1024xf32>) -> tensor<32x1024xf32>
+    // CHECK-NOT: "ttnn.reshape"
+    // CHECK: return
+    %result = "ttnn.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<32x1024xf32>, tensor<1024x1024xf32>, tensor<1xf32>) -> tensor<32x1024xf32>
     return %result : tensor<32x1024xf32>
   }
 

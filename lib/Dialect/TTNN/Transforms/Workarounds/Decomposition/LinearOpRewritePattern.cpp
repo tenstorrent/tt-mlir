@@ -4,7 +4,6 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 
-#include "ttmlir/Asserts.h"
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -28,25 +27,9 @@ static bool isBatchedLinearOp(ttnn::LinearOp linearOp) {
                                   [](int64_t dim) { return dim > 1; });
 }
 
-// Helper function to check if bias is effectively 1D
-// Returns true if bias has only one non-unit dimension (e.g., <64>, <1x64>,
-// <1x1x64>).
-// Expects every dimension except last to be either 1 or absent.
-static bool isNotEffectively1DBias(TypedValue<RankedTensorType> bias) {
-  if (!bias) {
-    return false;
-  }
-
-  RankedTensorType biasType = bias.getType();
-  if (!biasType) {
-    return false;
-  }
-
-  auto biasShape = biasType.getShape();
-  auto rank = biasType.getRank();
-
-  return rank > 1 && llvm::any_of(biasShape.drop_back(1),
-                                  [](int64_t dim) { return dim > 1; });
+static bool hasNonUnitBatchDims(llvm::ArrayRef<int64_t> shape) {
+  return shape.size() > 2 &&
+         llvm::any_of(shape.drop_back(2), [](int64_t dim) { return dim > 1; });
 }
 
 // Calculate the output shape of a matmul operation following tt-metal's logic.
@@ -110,22 +93,44 @@ computeMatmulOutputShape(llvm::ArrayRef<int64_t> shapeA, bool transposeA,
   return outputShape;
 }
 
-// Rewrite Linear op into matmul + add if input B is batched.
+// Keep LinearOp only when tt-metal can handle the bias:
+//   - RHS/B is not batched.
+//   - Bias has no real batch dimensions.
+//   - Bias last dimension matches the output feature dimension.
+static bool canKeepBiasFusedInLinear(ttnn::LinearOp linearOp,
+                                     llvm::ArrayRef<int64_t> matmulShape) {
+  if (!linearOp.getBias()) {
+    return true;
+  }
+
+  if (isBatchedLinearOp(linearOp)) {
+    return false;
+  }
+
+  llvm::ArrayRef<int64_t> biasShape = linearOp.getBias().getType().getShape();
+  if (biasShape.empty()) {
+    return false;
+  }
+
+  if (hasNonUnitBatchDims(biasShape)) {
+    return false;
+  }
+
+  if (biasShape.back() != matmulShape.back()) {
+    return false;
+  }
+
+  return true;
+}
+
+// Rewrite Linear op into matmul + add when tt-metal cannot keep the bias fused.
 // Follows
 // third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/operations/matmul/matmul.cpp.
 LogicalResult
 LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
                                         PatternRewriter &rewriter) const {
 
-  // Only decompose if bias exists AND (bias is non-1D OR input B is batched)
   if (!srcOp.getBias()) {
-    return failure();
-  }
-
-  bool biasIsNon1D = isNotEffectively1DBias(srcOp.getBias());
-  bool inputBIsBatched = isBatchedLinearOp(srcOp);
-
-  if (!biasIsNon1D && !inputBIsBatched) {
     return failure();
   }
 
@@ -137,6 +142,10 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
   SmallVector<int64_t> matmulShape =
       computeMatmulOutputShape(inputAType.getShape(), srcOp.getTransposeA(),
                                inputBType.getShape(), srcOp.getTransposeB());
+
+  if (canKeepBiasFusedInLinear(srcOp, matmulShape)) {
+    return failure();
+  }
 
   // Create matmul output type
   auto outputEncoding =

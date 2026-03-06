@@ -582,8 +582,6 @@ public:
           workarounds::decomposition::ArgMaxOpRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
           workarounds::decomposition::RotaryEmbeddingOpRewritePattern,
-          workarounds::decomposition::LinearOpOutputShapeRewritePattern,
-          workarounds::decomposition::LinearOpRewritePattern,
           workarounds::decomposition::MultiplyOpDecompositionRewritePattern,
           workarounds::decomposition::SubtractOpImplicitBroadcastRewritePattern,
           workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern,
@@ -610,6 +608,11 @@ public:
               DistributedRMSNormWidthShardInputRewritePattern,
           workarounds::decomposition::ReduceScatterConfigRewritePattern>(
           &getContext());
+      patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
+          &getContext(), /*benefit=*/2);
+      patterns
+          .add<workarounds::decomposition::LinearOpOutputShapeRewritePattern>(
+              &getContext(), /*benefit=*/1);
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

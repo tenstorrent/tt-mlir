@@ -1316,9 +1316,9 @@ public:
     ArrayRef<int64_t> matmulShape = matmulOp.getType().getShape();
     ArrayRef<int64_t> addOutputShape = addOp.getType().getShape();
 
-    // Peel bias layout ops to find a bias compatible with matmul.
+    // Peel bias reshapes that are equivalent to leading unsqueezes.
     TypedValue<RankedTensorType> bias =
-        peelBiasLayoutOps(rawBias, matmulShape, addOutputShape);
+        peelLeadingUnsqueezeBiasReshapes(rawBias);
     ArrayRef<int64_t> biasShape = bias.getType().getShape();
 
     llvm::SmallVector<int64_t> broadcastShape;
@@ -1400,71 +1400,38 @@ private:
     return {nullptr, nullptr};
   }
 
-  // Walk backward from `bias` through single-use ReshapeOps and
-  // BroadcastOps, returning the most-peeled value that is
-  // broadcast-compatible with `matmulShape` and preserves bias semantics.
-  //
-  // BroadcastOps are always safe to peel (pure data repetition).
-  // ReshapeOps are safe only if they just add/remove leading 1s.
+  // Walk backward from `bias` through single-use ReshapeOps, peeling only
+  // reshapes that add or remove leading singleton dimensions. This is
+  // equivalent to repeated unsqueeze(dim=0) on the bias and preserves its
+  // broadcast semantics.
   static TypedValue<RankedTensorType>
-  peelBiasLayoutOps(TypedValue<RankedTensorType> bias,
-                    ArrayRef<int64_t> matmulShape,
-                    ArrayRef<int64_t> addOutputShape) {
-    auto isValidBias = [&](ArrayRef<int64_t> biasShape) -> bool {
-      llvm::SmallVector<int64_t> bcastShape;
-      if (!mlir::OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
-                                                    bcastShape)) {
-        return false;
-      }
-      return ttmlir::utils::volume(ArrayRef<int64_t>(bcastShape)) ==
-             ttmlir::utils::volume(addOutputShape);
-    };
-
-    TypedValue<RankedTensorType> bestBias = bias;
+  peelLeadingUnsqueezeBiasReshapes(TypedValue<RankedTensorType> bias) {
     Value current = bias;
-    while (auto *op = current.getDefiningOp()) {
+    while (auto reshape = current.getDefiningOp<ReshapeOp>()) {
       if (!current.hasOneUse()) {
         break;
       }
 
-      if (auto bcast = dyn_cast<BroadcastOp>(op)) {
-        current = bcast.getInput();
-        auto peeled = mlir::cast<TypedValue<RankedTensorType>>(current);
-        if (isValidBias(peeled.getType().getShape())) {
-          bestBias = peeled;
-        }
-        continue;
+      ArrayRef<int64_t> reshapeOutShape =
+          mlir::cast<RankedTensorType>(reshape.getType()).getShape();
+      auto peeled =
+          mlir::cast<TypedValue<RankedTensorType>>(reshape.getInput());
+      ArrayRef<int64_t> peeledShape = peeled.getType().getShape();
+      while (!peeledShape.empty() && peeledShape.front() == 1) {
+        peeledShape = peeledShape.drop_front();
+      }
+      while (!reshapeOutShape.empty() && reshapeOutShape.front() == 1) {
+        reshapeOutShape = reshapeOutShape.drop_front();
       }
 
-      if (auto reshape = dyn_cast<ReshapeOp>(op)) {
-        ArrayRef<int64_t> reshapeOutShape =
-            mlir::cast<RankedTensorType>(reshape.getType()).getShape();
-        current = reshape.getInput();
-        auto peeled = mlir::cast<TypedValue<RankedTensorType>>(current);
-        ArrayRef<int64_t> peeledShape = peeled.getType().getShape();
-        while (!peeledShape.empty() && peeledShape.front() == 1) {
-          peeledShape = peeledShape.drop_front();
-        }
-        while (!reshapeOutShape.empty() && reshapeOutShape.front() == 1) {
-          reshapeOutShape = reshapeOutShape.drop_front();
-        }
-
-        // Only peel reshapes that just add/remove leading 1s. If this reshape
-        // is not peelable, we cannot peel past it.
-        if (!llvm::equal(peeledShape, reshapeOutShape)) {
-          break;
-        }
-
-        if (isValidBias(peeled.getType().getShape())) {
-          bestBias = peeled;
-        }
-        continue;
+      if (!llvm::equal(peeledShape, reshapeOutShape)) {
+        break;
       }
 
-      break;
+      current = peeled;
     }
 
-    return bestBias;
+    return mlir::cast<TypedValue<RankedTensorType>>(current);
   }
 };
 
