@@ -1062,6 +1062,13 @@ private:
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     auto dstIdx = getDstIdxFromResult(op.getResult());
+    // Fix dominance: dstIdx may be defined after the tile op in the same block;
+    // move insertion point past its defining op to avoid a forward reference.
+    if (auto *defOp = dstIdx.getDefiningOp()) {
+      if (defOp->getBlock() == insertionPoint->getBlock()) {
+        rewriter.setInsertionPointAfter(defOp);
+      }
+    }
 
     if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
       rewriter.create<ttkernel::AddTilesInitOp>(loc, cbA, cbB);
@@ -1112,6 +1119,13 @@ private:
                                    /*allowHoisting*/ true);
     rewriter.create<ttkernel::BinaryOpInitCommonOp>(loc, cb, cb, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+    // Fix dominance: dstIdx may be defined after the tile op in the same block;
+    // move insertion point past its defining op to avoid a forward reference.
+    if (auto *defOp = dstIdx.getDefiningOp()) {
+      if (defOp->getBlock() == insertionPoint->getBlock()) {
+        rewriter.setInsertionPointAfter(defOp);
+      }
+    }
 
     auto eltwiseType = getEltwiseBinaryType();
 
