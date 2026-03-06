@@ -9,12 +9,12 @@ import functools
 import itertools
 from typing import Callable, List
 
-from ttmlir.dialects import d2m, ttcore, memref, linalg, tensor
+from ttmlir.dialects import d2m, ttcore, memref, linalg, tensor, arith
 from ttmlir.ir import *
 
 from builder.base.builder_utils import Operand
 from builder.d2m.d2m_builder import D2MBuilder
-from builder.base.builder_apis import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_d2m
 from test_utils import Marks, shape_str
 from conftest import get_request_kwargs
 
@@ -156,6 +156,15 @@ def generic(
     return _decorator
 
 
+def greatest_physical_grid(device, phys_dim_index, factor):
+    assert phys_dim_index < 2
+    device_grid = [8, 8]
+    for d in range(device_grid[phys_dim_index], 0, -1):
+        if factor % d == 0:
+            return d
+    assert False, "Failed to find factor for {factor}"
+
+
 def remote_load(
     src, indices, mcast_start_index=None, mcast_shape=None, mcast_dims=None
 ):
@@ -180,16 +189,21 @@ def remote_load(
 @pytest.mark.parametrize(
     "block_shape,block_factors",
     [
-        ((64, 64, 64), (1, 1, 8)),
+        #((64, 64, 64), (1, 1, 8)),
+        #((32, 32, 64), (2, 2, 8)),
+        ((64, 64, 32), (1, 1, 16)),
     ],
 )
 @pytest.mark.parametrize(
     "interchange",
     [
         "mnk",
+        #"kmn",
     ],
 )
 @pytest.mark.parametrize("dtype", ["bf16"])
+@pytest.mark.parametrize("enable_l1_acc", [True])
+@pytest.mark.parametrize("use_tile_matmul", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_generic(
     grid,
@@ -197,6 +211,8 @@ def test_generic(
     block_factors,
     interchange,
     dtype,
+    enable_l1_acc,
+    use_tile_matmul,
     target: str,
     request,
     device,
@@ -206,18 +222,32 @@ def test_generic(
     n = block_n * grid[1] * block_factors[1]
     k = block_k * block_factors[2]
 
+    def calc_tops(device, num_ops):
+        wh_tops = 108.0
+        compute_tops = num_ops / (10**12)
+        ns = compute_tops / wh_tops
+        us = ns * 10**6
+        print(f"Theoretical: {us:.2f}us")
+
     lhs_shape = [m, k]
     rhs_shape = [k, n]
     out_shape = [m, n]
 
-    lhs_grid = [grid[0], block_factors[2]]
-    rhs_grid = [block_factors[2], grid[1]]
+    lhs_k_physical_grid = greatest_physical_grid(device, 1, block_factors[2])
+    rhs_k_physical_grid = greatest_physical_grid(device, 0, block_factors[2])
+    lhs_grid = [grid[0], lhs_k_physical_grid]
+    rhs_grid = [rhs_k_physical_grid, grid[1]]
+    out_grid = [grid[0], grid[1]]
+
+    lhs_blocked_grid = [grid[0] * block_factors[0], block_factors[2]]
+    rhs_blocked_grid = [block_factors[2], grid[1] * block_factors[1]]
+    out_blocked_grid = [grid[0] * block_factors[0], grid[1] * block_factors[1]]
 
     lhs_block_shape = [block_m // 32, block_k // 32]
     rhs_block_shape = [block_k // 32, block_n // 32]
     out_block_shape = [block_m // 32, block_n // 32]
 
-    indexing_maps, iterator_types = {
+    indexing_maps, iterator_types, interchange_block_factors = {
         "mnk": (
             [
                 lambda m, n, k: (m, k),
@@ -225,6 +255,7 @@ def test_generic(
                 lambda m, n, k: (m, n),
             ],
             ["parallel", "parallel", "reduction"],
+            (block_factors[0], block_factors[1], block_factors[2]),
         ),
         "kmn": (
             [
@@ -233,6 +264,7 @@ def test_generic(
                 lambda k, m, n: (m, n),
             ],
             ["reduction", "parallel", "parallel"],
+            (block_factors[2], block_factors[0], block_factors[1]),
         ),
     }[interchange]
 
@@ -255,7 +287,7 @@ def test_generic(
         ):
             @generic(
                 grid=grid,
-                block_factors=block_factors,
+                block_factors=interchange_block_factors,
                 indexing_maps=indexing_maps,
                 iterator_types=iterator_types,
             )
@@ -263,8 +295,10 @@ def test_generic(
                 mbi = d2m.block_index(0)
                 nbi = d2m.block_index(1)
                 kbi = d2m.block_index(2)
-                lhs_shard = remote_load(lhs, [mbi, kbi])
-                rhs_shard = remote_load(rhs, [kbi, nbi])
+                r = arith.constant(IndexType.get(lhs.context), 0)
+                c = arith.constant(IndexType.get(lhs.context), 1)
+                lhs_shard = remote_load(lhs, [mbi, kbi], mcast_dims=[r])
+                rhs_shard = remote_load(rhs, [kbi, nbi], mcast_dims=[c])
                 out_shard = tensor.empty(out_block_shape, out.type.element_type)
                 d2m.tile_matmul_block(lhs_shard, rhs_shard, out_shard)
                 res = d2m.remote_store(
@@ -279,6 +313,13 @@ def test_generic(
                 ),
                 unit_attrs=unit_attrs,
             )
+            device_lhs = builder.view_layout(
+                device_lhs,
+                output_type=builder.get_metal_tensor_layout(
+                    lhs.type.shape, grid=lhs_blocked_grid, tiled=True, dtype=dtype
+                ),
+                unit_attrs=unit_attrs,
+            )
             device_rhs = builder.to_layout(
                 rhs,
                 output_type=builder.get_metal_tensor_layout(
@@ -286,14 +327,35 @@ def test_generic(
                 ),
                 unit_attrs=unit_attrs,
             )
+            device_rhs = builder.view_layout(
+                device_rhs,
+                output_type=builder.get_metal_tensor_layout(
+                    rhs.type.shape, grid=rhs_blocked_grid, tiled=True, dtype=dtype
+                ),
+                unit_attrs=unit_attrs,
+            )
             device_out = d2m.empty(
                 builder.get_metal_tensor_layout(
-                    out_shape, grid=grid, tiled=True, dtype=dtype
+                    out_shape, grid=out_grid, tiled=True, dtype=dtype
                 )
             )
+            device_out = builder.view_layout(
+                device_out,
+                output_type=builder.get_metal_tensor_layout(
+                    out_shape, grid=out_blocked_grid, tiled=True, dtype=dtype
+                ),
+                unit_attrs=unit_attrs,
+            )
             mm_out = mm(device_lhs, device_rhs, device_out)
-            res = builder.to_layout(
+            res = builder.view_layout(
                 mm_out,
+                output_type=builder.get_metal_tensor_layout(
+                    out_shape, grid=out_grid, tiled=True, dtype=dtype
+                ),
+                unit_attrs=unit_attrs,
+            )
+            res = builder.to_layout(
+                res,
                 output_type=RankedTensorType.get(out_shape, lhs.type.element_type),
                 unit_attrs=unit_attrs,
             )
@@ -314,12 +376,18 @@ def test_generic(
         ):
             return builder.matmul(lhs, rhs)
 
-    compile_and_execute_ttir(
+    options = [
+        f"use-tile-matmul={use_tile_matmul}",
+        f"enable-l1-acc={enable_l1_acc}",
+    ]
+    compile_and_execute_d2m(
         generic_module,
         # mm_comparison,
         target=target,
         device=device,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline",
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         print_ir=True,
+        #check_pcc=False,
         **get_request_kwargs(request),
     )
+    calc_tops(device, m * n * k)

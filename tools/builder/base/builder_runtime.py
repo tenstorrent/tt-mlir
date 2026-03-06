@@ -704,6 +704,28 @@ def execute_fb(
     if input_output_goldens is None:
         disable_golden = True
 
+    debug_env = tt_runtime.runtime.DebugEnv.get(
+        False, # dump_kernels
+        False, # load_kernels
+        False, # use_loc_for_kernel_name
+        "",    # kernel_source_dir
+        False, # device_address_validation
+        True,  # blocking_cq
+    )
+    print("DebugEnv", debug_env)
+
+    tracy_program_metadata = {
+        "disable_eth_dispatch": False,
+        "enable_program_cache": True,
+        "dump_device_rate": 1000,
+    }
+    perf_env = tt_runtime.runtime.PerfEnv.get(
+        1000,  # dump_device_rate
+        True,  # enable_perf_trace
+        str(tracy_program_metadata),
+    )
+    print("PerfEnv", perf_env)
+
     callback_runtime_config = CallbackRuntimeConfig(
         device=device,
         pcc=pcc,

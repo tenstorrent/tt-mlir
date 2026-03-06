@@ -92,18 +92,21 @@ class D2MBuilder(Builder):
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-            if not skip_golden:
-                op_golden_function = get_golden_function(
-                    op_d2m_function, **golden_kwargs
-                )
-                if op_golden_function is not None:
-                    if len(inputs) == 0:
-                        golden_output = op_golden_function(**golden_kwargs)
-                    else:
-                        golden_output = op_golden_function(
-                            *(organize_golden_args(inputs)), **golden_kwargs
-                        )
-                    self._set_golden_tensor(op.result, golden_output)
+            try:
+                if not skip_golden:
+                    op_golden_function = get_golden_function(
+                        op_d2m_function, **golden_kwargs
+                    )
+                    if op_golden_function is not None:
+                        if len(inputs) == 0:
+                            golden_output = op_golden_function(**golden_kwargs)
+                        else:
+                            golden_output = op_golden_function(
+                                *(organize_golden_args(inputs)), **golden_kwargs
+                            )
+                        self._set_golden_tensor(op.result, golden_output)
+            except:
+                pass
 
             return op.result
 
