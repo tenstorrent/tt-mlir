@@ -220,7 +220,32 @@ public:
 
     op_model::ScopedSingletonDeviceGuard deviceGuard(srcOp.getOperation());
     auto device = utils::getOrInsertDevice(rewriter, srcOp);
-    auto distResultType = mlir::cast<RankedTensorType>(state.bf16Input.getType());
+    Value fusedInput = state.bf16Input;
+    auto fusedInputType = mlir::cast<RankedTensorType>(fusedInput.getType());
+    if (fusedInputType.getRank() > 0 && fusedInputType.getRank() < 4) {
+      SmallVector<int64_t> expandedShape;
+      expandedShape.reserve(4);
+      for (int64_t i = 0; i < 4 - fusedInputType.getRank(); ++i) {
+        expandedShape.push_back(1);
+      }
+      llvm::append_range(expandedShape, fusedInputType.getShape());
+      auto expandedType =
+          utils::RankedTensorTypeFactory::create(fusedInputType, expandedShape);
+      SmallVector<int32_t> expandedShapeI32;
+      expandedShapeI32.reserve(expandedShape.size());
+      for (int64_t dim : expandedShape) {
+        expandedShapeI32.push_back(static_cast<int32_t>(dim));
+      }
+      fusedInput = rewriter
+                       .create<ReshapeOp>(srcOp.getLoc(), expandedType, fusedInput,
+                                          rewriter.getI32ArrayAttr(expandedShapeI32),
+                                          ttnn::MemoryConfigAttr())
+                       .getResult();
+      log(1, "expanded fused input rank to 4 for distributed_rms_norm");
+      fusedInputType = mlir::cast<RankedTensorType>(fusedInput.getType());
+    }
+
+    auto distResultType = fusedInputType;
     auto distResultLayout =
         mlir::dyn_cast_or_null<TTNNLayoutAttr>(distResultType.getEncoding());
     auto distMemoryConfig =
@@ -234,7 +259,7 @@ public:
     }
 
     auto distRMSNormOp = rewriter.create<DistributedRMSNormOp>(
-        srcOp.getLoc(), distResultType, state.bf16Input,
+        srcOp.getLoc(), distResultType, fusedInput,
         state.weight,
         /*residual=*/nullptr,
         /*stats=*/nullptr, device.getResult(), state.clusterAxis,
