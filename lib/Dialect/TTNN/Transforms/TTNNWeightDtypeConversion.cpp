@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/Utils/WeightDtypeParser.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -84,24 +85,30 @@ public:
   using impl::TTNNWeightDtypeConversionBase<
       TTNNWeightDtypeConversionPass>::TTNNWeightDtypeConversionBase;
 
+  static ttcore::DataType weightDtypeToDataType(WeightDtype wd) {
+    switch (wd) {
+    case WeightDtype::BFP_BFloat8:
+      return ttcore::DataType::BFP_BFloat8;
+    case WeightDtype::BFP_BFloat4:
+      return ttcore::DataType::BFP_BFloat4;
+    default:
+      llvm_unreachable("Invalid WeightDtype for conversion");
+    }
+  }
+
   void runOnOperation() final {
-    if (targetDtype.empty()) {
+    if (targetDtype == WeightDtype::None) {
       getOperation()->emitError(
           "target-dtype must be specified for weight dtype conversion pass");
       signalPassFailure();
       return;
     }
 
-    auto dtype = ttcore::DataTypeStringToEnum(targetDtype);
-    if (!dtype) {
-      getOperation()->emitError("Invalid target-dtype: " + targetDtype);
-      signalPassFailure();
-      return;
-    }
+    ttcore::DataType dtype = weightDtypeToDataType(targetDtype);
 
     mlir::RewritePatternSet patterns(&getContext());
     patterns.add<WeightDtypeConversionPattern<MatmulOp>,
-                 WeightDtypeConversionPattern<LinearOp>>(&getContext(), *dtype);
+                 WeightDtypeConversionPattern<LinearOp>>(&getContext(), dtype);
 
     if (failed(
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {

@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+#include "ttmlir/Dialect/TTNN/Utils/WeightDtypeParser.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
@@ -355,12 +356,16 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
       llvm::cl::init(false)};
 
-  Option<std::string> experimentalWeightDtype{
+  Option<WeightDtype> experimentalWeightDtype{
       *this, "experimental-weight-dtype",
       llvm::cl::desc("Experimental: Target dtype for weight conversion in "
-                     "matrix multiplication and linear operations "
-                     "(e.g. bfp_bf8, bfp_bf4). Empty string disables."),
-      llvm::cl::init("")};
+                     "matrix multiplication and linear operations."),
+      llvm::cl::values(
+          clEnumValN(WeightDtype::None, "none", "Disabled"),
+          clEnumValN(WeightDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
+          clEnumValN(WeightDtype::BFP_BFloat4, "bfp_bf4",
+                     "BFP BFloat4 format")),
+      llvm::cl::init(WeightDtype::None)};
 
   // ComputeKernelConfig options
   // Note: computeCfgMathFidelity default value is HiFi4

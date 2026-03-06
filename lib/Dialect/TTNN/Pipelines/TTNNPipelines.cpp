@@ -286,7 +286,7 @@ void createTTIRToTTNNDevicePipeline(
     createTTNNPipelineWorkaroundPass(devicePm, options);
     // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
-    if (!options.experimentalWeightDtype.empty()) {
+    if (options.experimentalWeightDtype != WeightDtype::None) {
       TTNNWeightDtypeConversionOptions convOpts;
       convOpts.targetDtype = options.experimentalWeightDtype;
       devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
