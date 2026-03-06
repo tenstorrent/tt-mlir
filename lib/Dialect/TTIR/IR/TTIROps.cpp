@@ -824,15 +824,15 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 // NegOp
 //===----------------------------------------------------------------------===//
 
-static mlir::Attribute negatedScalarAttribute(const mlir::Attribute &attr) {
+static mlir::Attribute negatedScalarAttribute(mlir::Attribute attr) {
   if (auto floatAttr = llvm::dyn_cast_if_present<FloatAttr>(attr)) {
-    auto attrValue = floatAttr.getValue();
-    auto attrType = floatAttr.getType();
+    llvm::APFloat attrValue = floatAttr.getValue();
+    mlir::Type attrType = floatAttr.getType();
     return mlir::FloatAttr::get(attrType, -attrValue);
   }
   if (auto intAttr = llvm::dyn_cast_if_present<IntegerAttr>(attr)) {
-    auto attrValue = intAttr.getValue();
-    auto attrType = intAttr.getType();
+    llvm::APInt attrValue = intAttr.getValue();
+    mlir::Type attrType = intAttr.getType();
     return mlir::IntegerAttr::get(attrType, -attrValue);
   }
   return {};
@@ -843,38 +843,42 @@ void mlir::tt::ttir::NegOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   patterns.add(+[](mlir::tt::ttir::NegOp op, mlir::PatternRewriter &rewriter) {
-    auto operand = op->getOperand(0);
+    Value operand = op->getOperand(0);
+    RankedTensorType resultType = op.getResult().getType();
+    mlir::DenseI32ArrayAttr shapeAttr =
+        rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType));
+
     if (isConstantZero(operand)) {
-      rewriter.replaceOp(op, operand);
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::ZerosOp>(op, resultType,
+                                                           shapeAttr);
       return mlir::success();
     }
 
-    auto *operandOp = operand.getDefiningOp();
+    Operation *operandOp =
+        mlir::tt::ttir::utils::lookThroughLayoutOps(operand).getDefiningOp();
 
     if (auto onesOp =
             mlir::dyn_cast_if_present<mlir::tt::ttir::OnesOp>(operandOp)) {
-      auto shapeAttr = onesOp.getShapeAttr();
-      auto elementType = op.getResult().getType().getElementType();
-      auto fillValueAttr = makeScalarAttr(elementType, -1.0);
+      Type elementType = op.getResult().getType().getElementType();
+      mlir::Attribute fillValueAttr = makeScalarAttr(elementType, -1.0);
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
-          op, op.getType(), shapeAttr, fillValueAttr);
+          op, resultType, shapeAttr, fillValueAttr);
       return mlir::success();
     }
 
     if (auto full =
             mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(operandOp)) {
-      auto shapeAttr = full.getShapeAttr();
-      auto negatedFillValueAttr =
+      mlir::Attribute negatedFillValueAttr =
           negatedScalarAttribute(full.getFillValueAttr());
 
       if (isOneAttr(negatedFillValueAttr)) {
-        rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(op, op.getType(),
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(op, resultType,
                                                             shapeAttr);
         return mlir::success();
       }
 
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
-          op, op.getType(), shapeAttr, negatedFillValueAttr);
+          op, resultType, shapeAttr, negatedFillValueAttr);
       return mlir::success();
     }
 
