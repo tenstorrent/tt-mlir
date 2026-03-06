@@ -393,7 +393,6 @@ public:
     // cluster axis on which we are performing the all reduce.
     auto sizeOfDevices = meshShape[clusterAxis];
     auto inputShape = inputType.getShape();
-    auto reversedInputShape = llvm::reverse(inputShape);
     auto inputLayout = utils::getLayoutAttrFromTensor(inputType);
     llvm::SmallVector<int64_t> shapeInTileCounts(inputShape.begin(),
                                                  inputShape.end());
