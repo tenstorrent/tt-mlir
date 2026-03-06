@@ -1268,6 +1268,9 @@ def compile_ttir_module_to_flatbuffer(
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     try:
+        print(f"Running {target} pipeline on TTIR module...")
+        print(module)
+
         module = run_ttir_pipeline(
             module,
             pipeline_fn,
@@ -1278,6 +1281,7 @@ def compile_ttir_module_to_flatbuffer(
             mesh_dict=mesh_dict,
             argument_types_string=argument_types_string,
         )
+        print(module)
     except Exception as e:
         raise TTBuilderCompileException(e)
 
