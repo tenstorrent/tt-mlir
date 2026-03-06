@@ -133,31 +133,31 @@ public:
 
     // Reserve CB unconditionally before branching - both sender and receiver
     // need to reserve to maintain proper circular buffer semantics.
-    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
+    Value localMemref = ReserveOp::create(rewriter, loc, cb).getResult();
 
     SmallVector<Value> gridIndices = remoteLoad.getIndices();
 
-    rewriter.create<scf::IfOp>(
-        loc, isSender,
+    scf::IfOp::create(
+        rewriter, loc, isSender,
         [&](OpBuilder &builder, Location loc) {
           // Sender: shard-level DMA read from remote.
-          Value dmaTx = builder.create<DMAReadOp>(loc, remoteMemref,
-                                                  gridIndices, localMemref);
-          builder.create<DMAWaitOp>(loc, dmaTx);
+          Value dmaTx = DMAReadOp::create(builder, loc, remoteMemref,
+                                          gridIndices, localMemref);
+          DMAWaitOp::create(builder, loc, dmaTx);
 
           // Wait for all receivers to be ready (mcastVolume - 1, excluding
           // sender).
-          builder.create<SemaphoreWaitOp>(loc, receiversReadySemaphore,
-                                          numReceiversVal, zero);
+          SemaphoreWaitOp::create(builder, loc, receiversReadySemaphore,
+                                  numReceiversVal, zero);
 
           // Perform shard-level multicast DMA write: from local CB to local CB
           // with multicast parameters. The multicast parameters specify that
           // the data should be sent to other cores. We use localMemref (from
           // ReserveOp) as both source and destination - this is the Producer
           // buffer that was just filled by the DMA read above.
-          Value mcastTx = builder.create<DMAWriteOp>(
-              loc, localMemref, localMemref, remoteLoad.getMcastStartIndex(),
-              remoteLoad.getMcastShape());
+          Value mcastTx = DMAWriteOp::create(
+              builder, loc, localMemref, localMemref,
+              remoteLoad.getMcastStartIndex(), remoteLoad.getMcastShape());
           DMAWaitOp::create(builder, loc, mcastTx);
 
           // Signal receivers that sender is finished.
@@ -185,8 +185,8 @@ public:
               senderCoreIndex.push_back(mcastStartIndex[i]);
             } else {
               // Non-multicast dimension - use current core's position.
-              Value currentCoreIdx = builder.create<CoreIndexOp>(
-                  loc, static_cast<int64_t>(i), gridMapping);
+              Value currentCoreIdx = CoreIndexOp::create(
+                  builder, loc, static_cast<int64_t>(i), gridMapping);
               senderCoreIndex.push_back(currentCoreIdx);
             }
           }
@@ -238,15 +238,15 @@ public:
     Value remoteMemref = remoteLoad.getMemref();
     SmallVector<Value> gridIndices = remoteLoad.getIndices();
 
-    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
-    Value dmaTx =
-        rewriter.create<DMAReadOp>(loc, remoteMemref, gridIndices, localMemref);
+    Value localMemref = ReserveOp::create(rewriter, loc, cb).getResult();
+    Value dmaTx = DMAReadOp::create(rewriter, loc, remoteMemref, gridIndices,
+                                    localMemref);
 
     rewriter.eraseOp(remoteLoad);
 
     // Wait for DMA to complete.
-    rewriter.create<DMAWaitOp>(loc, dmaTx);
-    rewriter.create<PushOp>(loc, cb);
+    DMAWaitOp::create(rewriter, loc, dmaTx);
+    PushOp::create(rewriter, loc, cb);
     return success();
   }
 };
@@ -300,9 +300,9 @@ public:
     rewriter.eraseOp(remoteStore);
 
     // Wait for DMA to complete.
-    rewriter.create<DMAWaitOp>(loc, dmaTx);
+    DMAWaitOp::create(rewriter, loc, dmaTx);
     // Pop the circular buffer to signal consumption.
-    rewriter.create<PopOp>(loc, cb);
+    PopOp::create(rewriter, loc, cb);
     return success();
   }
 };

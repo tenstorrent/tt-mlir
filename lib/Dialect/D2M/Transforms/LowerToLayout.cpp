@@ -997,8 +997,8 @@ public:
       // buffers via createEmpty().
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(
           currentInfo.type.getEncoding());
-      auto maskedEmptyOp = rewriter.create<d2m::EmptyOp>(
-          op.getLoc(), currentInfo.type.getShape(),
+      auto maskedEmptyOp = d2m::EmptyOp::create(
+          rewriter, op.getLoc(), currentInfo.type.getShape(),
           currentInfo.type.getElementType(), layout, targetGridShape);
       Value maskedEmpty = maskedEmptyOp.getResult();
       currentValue =
