@@ -216,21 +216,13 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
 
     TTNNMemoryConfigOpInterface memoryConfigOp =
         mlir::dyn_cast<TTNNMemoryConfigOpInterface>(op.getOperation());
-    if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
-         outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) &&
-        memoryConfigOp) {
-
-      MemoryConfigAttr currentMemoryConfig =
-          memoryConfigOp.getMemoryConfigAttr();
-
+    if (memoryConfigOp) {
+      // Keep memory_config in sync with the rewritten output layout/type.
+      // Some workaround combinations may update the result encoding without
+      // toggling both "buffer type modified" and "memory layout modified"
+      // flags, which can leave memory_config stale and cause verifier errors.
       MemoryConfigAttr updatedMemoryConfig =
-          MemoryConfigAttr::Builder(currentMemoryConfig)
-              .setBufferType(
-                  outputWorkaroundResults.tensorBufferTypeResult.targetValue)
-              .setTensorMemoryLayout(
-                  outputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
-
-      // Update the changed memory config attribute.
+          MemoryConfigAttr::get(newOutputLayoutAttr, newOutputLayoutAttr.getGrid());
       memoryConfigOp.setMemoryConfigAttr(updatedMemoryConfig);
 
       TTNNDeviceOperandInterface deviceOperandOp =
@@ -341,6 +333,14 @@ public:
         });
 
     // Apply workarounds to all output tensor results.
+    // DistributedRMSNormOp output/memory_config consistency is handled by its
+    // dedicated decomposition rewrite. Skipping generic output workaround
+    // prevents stale memory_config attrs when later transforms adjust output
+    // encoding (see verifier mismatch: output buffer type vs memory_config).
+    if (mlir::isa<ttnn::DistributedRMSNormOp>(op.getOperation())) {
+      return modified ? success() : failure();
+    }
+
     llvm::for_each(
         llvm::zip_equal(outputTensorResults,
                         operandsWorkarounds.getOutputOperandWorkarounds()),

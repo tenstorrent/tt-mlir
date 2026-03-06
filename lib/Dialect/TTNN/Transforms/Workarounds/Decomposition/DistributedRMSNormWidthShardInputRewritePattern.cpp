@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
@@ -248,11 +249,13 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       statsLayoutAttr, statsMemConfig);
 
   // The fused kernel output shape == input shape (only stats are all-gathered,
-  // not data). Use the input's width-sharded memory config for the output too
-  // (skip_write_back = true in the program factory).
-  RankedTensorType shardedOutputType =
-      mlir::cast<RankedTensorType>(op.getResult().getType())
-          .cloneWithEncoding(desiredInputLayout);
+  // not data). Build the fused output type directly from desiredInputLayout so
+  // output encoding and memory_config stay consistent.
+  RankedTensorType shardedOutputType = RankedTensorType::get(
+      inputType.getShape(), inputType.getElementType(), desiredInputLayout);
+  auto shardedOutputMemoryConfig = ttnn::MemoryConfigAttr::get(
+      mlir::cast<ttnn::TTNNLayoutAttr>(shardedOutputType.getEncoding()),
+      grid);
 
   // Compute LayerNormShardedMultiCoreProgramConfig from the shard spec.
   // This mirrors ttnn::prim::create_program_config(shardSpec).
@@ -271,8 +274,12 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       op.getLoc(), shardedOutputType, inputToLayoutOp.getResult(), weight,
       residual, statsEmptyOp.getResult(), op.getDevice(),
       static_cast<uint32_t>(op.getClusterAxis()), op.getEpsilon(),
-      op.getSubDeviceIdAttr(), inputMemoryConfig, op.getNumLinksAttr(),
+      op.getSubDeviceIdAttr(), shardedOutputMemoryConfig, op.getNumLinksAttr(),
       op.getTopologyAttr(), computeConfigAttr, programConfigAttr);
+  llvm::errs() << "[DistributedRMSNormWidthShardInputRewritePattern] "
+               << "created op with output="
+               << mlir::cast<RankedTensorType>(newOp.getResult().getType())
+               << " and memory_config=" << newOp.getMemoryConfigAttr() << "\n";
 
   // If the original output had a different layout (e.g. interleaved DRAM),
   // insert a to_memory_config to convert back.
