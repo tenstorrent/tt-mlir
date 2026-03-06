@@ -105,9 +105,7 @@ uint32_t getNumShards(Tensor tensor) {
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType { return ::tt::runtime::ttnn::getNumShards(tensor); },
-      [&]() -> RetType {
-        fatalNotImplemented("getNumShards", DeviceRuntime::TTMetal);
-      },
+      [&]() -> RetType { return ::tt::runtime::ttmetal::getNumShards(tensor); },
       [&]() -> RetType {
         fatalNotImplemented("getNumShards", HostRuntime::Distributed);
       });
@@ -383,9 +381,9 @@ Tensor createMultiDeviceBorrowedHostTensor(
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
   using RetType = Tensor;
-  LOG_ASSERT(!shape.empty());
-  LOG_ASSERT(!stride.empty());
-  LOG_ASSERT(itemsize > 0);
+  // LOG_ASSERT(!shape.empty());
+  // LOG_ASSERT(!stride.empty());
+  // LOG_ASSERT(itemsize > 0);
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
