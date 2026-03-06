@@ -410,62 +410,84 @@ static void addRemainingStableHLOPasses(OpPassManager &pm) {
 }
 
 // Evaluate cost of a lowered StableHLO module by counting and weighting CCL
-// ops. After the remaining StableHLO passes (including
-// UpdateGlobalToLocalShapes), Shardy CCL ops have been converted to either
-// native StableHLO CCLs (stablehlo.all_gather, stablehlo.all_reduce, etc.) or
-// stablehlo.composite wrappers (e.g., composite name "sdy.all_slice").
-static double evaluateCost(ModuleOp module) {
+// ops. Each CCL op's cost is scaled by the volume of data it communicates
+// (normalized by maxElements) so that small collectives are penalized less
+// than large ones.
+static double evaluateCost(ModuleOp module, int64_t maxElements) {
   double totalCost = 0.0;
 
   module.walk([&](Operation *op) {
     StringRef opName = op->getName().getStringRef();
+    double opWeight = 0.0;
 
     if (opName == "stablehlo.all_gather") {
-      totalCost += 1.0;
+      opWeight = 1.0;
     } else if (opName == "stablehlo.reduce_scatter") {
-      totalCost += 1.5;
+      opWeight = 1.5;
     } else if (opName == "stablehlo.all_reduce") {
-      totalCost += 2.0;
+      opWeight = 2.0;
     } else if (opName == "stablehlo.all_to_all") {
-      totalCost += 1.5;
+      opWeight = 1.5;
     } else if (opName == "stablehlo.collective_permute") {
-      totalCost += 1.0;
+      opWeight = 1.0;
     } else if (opName == "stablehlo.composite") {
       if (auto nameAttr = op->getAttrOfType<StringAttr>("name")) {
         StringRef compositeName = nameAttr.getValue();
         if (compositeName == "sdy.all_slice") {
-          totalCost += 0.5;
+          opWeight = 0.5;
         } else if (compositeName == "sdy.all_gather") {
-          totalCost += 1.0;
+          opWeight = 1.0;
         } else if (compositeName == "sdy.reduce_scatter") {
-          totalCost += 1.5;
+          opWeight = 1.5;
         } else if (compositeName == "sdy.all_reduce") {
-          totalCost += 2.0;
+          opWeight = 2.0;
         }
       }
+    }
+
+    if (opWeight > 0.0 && maxElements > 0) {
+      int64_t commElements = 1;
+      if (op->getNumOperands() > 0) {
+        if (auto tt = dyn_cast<RankedTensorType>(op->getOperand(0).getType())) {
+          commElements = tt.getNumElements();
+        }
+      }
+      double volumeFactor =
+          static_cast<double>(commElements) / static_cast<double>(maxElements);
+      totalCost += opWeight * volumeFactor;
     }
   });
 
   return totalCost;
 }
 
-// Compute the memory benefit of a sharding config. Sharding large argument
-// tensors across the mesh saves memory proportional to the element count.
-// Benefit is normalized relative to the largest argument: fully sharding the
-// largest arg on a 2-way mesh yields benefit 0.5, on an 8-way mesh yields
-// 0.875, etc. This makes the benefit comparable in scale to CCL op counts.
-static double computeMemoryBenefit(const ShardingConfig &config,
-                                   func::FuncOp funcOp,
-                                   int64_t meshAxisSize) {
-  if (meshAxisSize <= 1) {
-    return 0.0;
-  }
-
+// Compute maxElements across all function arguments (used to normalize both
+// communication cost and memory benefit on the same scale).
+static int64_t computeMaxElements(func::FuncOp funcOp) {
   int64_t maxElements = 1;
   for (auto arg : funcOp.getArguments()) {
     if (auto tt = dyn_cast<RankedTensorType>(arg.getType())) {
       maxElements = std::max(maxElements, tt.getNumElements());
     }
+  }
+  return maxElements;
+}
+
+// Compute the memory benefit of a sharding config. Sharding large argument
+// tensors across the mesh saves memory proportional to the element count.
+// Benefit is normalized relative to the largest argument.
+//
+// Weight/parameter tensors (heuristic: rank <= 2 with > 1024 elements) get a
+// higher multiplier because they are persistent on device and dominate peak
+// memory in large models. Activations (rank > 2, typically with a batch dim)
+// are transient and less valuable to shard for memory.
+static double computeMemoryBenefit(const ShardingConfig &config,
+                                   func::FuncOp funcOp,
+                                   int64_t meshAxisSize,
+                                   int64_t maxElements,
+                                   double parameterMultiplier) {
+  if (meshAxisSize <= 1) {
+    return 0.0;
   }
 
   double benefit = 0.0;
@@ -482,8 +504,13 @@ static double computeMemoryBenefit(const ShardingConfig &config,
         cast<RankedTensorType>(funcOp.getArgument(argIdx).getType());
     int64_t numElements = tensorType.getNumElements();
 
-    benefit +=
-        (static_cast<double>(numElements) / maxElements) * fractionSaved;
+    double typeMultiplier = 1.0;
+    if (tensorType.getRank() <= 2 && numElements > 1024) {
+      typeMultiplier = parameterMultiplier;
+    }
+
+    benefit += typeMultiplier *
+               (static_cast<double>(numElements) / maxElements) * fractionSaved;
   }
 
   return benefit;
@@ -669,6 +696,9 @@ public:
       }
     }
 
+    int64_t maxElements = computeMaxElements(originalFuncOp);
+    constexpr double parameterMultiplier = 3.0;
+
     double bestCost = std::numeric_limits<double>::max();
     size_t bestIdx = 0;
     bool anySucceeded = false;
@@ -724,9 +754,10 @@ public:
         dumpModuleToFile(clonedModule, cclPath);
       }
 
-      double commCost = evaluateCost(clonedModule);
-      double memBenefit =
-          computeMemoryBenefit(configs[i], originalFuncOp, meshAxisSize);
+      double commCost = evaluateCost(clonedModule, maxElements);
+      double memBenefit = computeMemoryBenefit(configs[i], originalFuncOp,
+                                               meshAxisSize, maxElements,
+                                               parameterMultiplier);
       double cost = commCost - memBenefit;
       llvm::errs() << "AutoSharding: config " << i << " "
                    << formatConfig(configs[i]) << " comm=" << commCost
@@ -789,7 +820,9 @@ public:
         fos << "Sharding axis: " << shardAxisName << "\n";
         fos << "Tier 1 configs: " << tier1Configs.size() << "\n";
         fos << "Tier 2 constraint candidates: " << candidates.size() << "\n";
-        fos << "Total configs evaluated: " << configs.size() << "\n\n";
+        fos << "Total configs evaluated: " << configs.size() << "\n";
+        fos << "Cost model: volume-weighted CCLs, parameter multiplier="
+            << llvm::format("%.1f", parameterMultiplier) << "\n\n";
 
         fos << "Config  Sharding"
             << std::string(50, ' ')
