@@ -580,6 +580,17 @@ public:
 
           op->getResult(0).setType(newTensorType);
 
+          // Keep explicit memory_config attrs in sync with the rewritten
+          // result layout. Some ops (e.g. distributed_rms_norm) are not
+          // destination-style and rely on this attribute for verifier checks.
+          if (TTNNMemoryConfigOpInterface memoryConfigOp =
+                  mlir::dyn_cast<TTNNMemoryConfigOpInterface>(op)) {
+            memoryConfigOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
+                op->getContext(), layoutAttr.getMemLayout(),
+                BufferTypeAttr::get(op->getContext(), layoutAttr.getBufferType()),
+                utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+          }
+
           // Update output data type for ops that have output data type
           // attribute.
           if (TTNNDtypeOpInterface dtypeOp =
