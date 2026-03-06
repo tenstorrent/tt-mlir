@@ -15,7 +15,6 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
 
 #include "llvm/ADT/ScopeExit.h"
@@ -410,18 +409,40 @@ static void addRemainingStableHLOPasses(OpPassManager &pm) {
   pm.addPass(mlir::createCanonicalizerPass());
 }
 
-// Evaluate cost of a lowered TTNN module by counting and weighting CCL ops.
+// Evaluate cost of a lowered StableHLO module by counting and weighting CCL
+// ops. After the remaining StableHLO passes (including
+// UpdateGlobalToLocalShapes), Shardy CCL ops have been converted to either
+// native StableHLO CCLs (stablehlo.all_gather, stablehlo.all_reduce, etc.) or
+// stablehlo.composite wrappers (e.g., composite name "sdy.all_slice").
 static double evaluateCost(ModuleOp module) {
   double totalCost = 0.0;
 
   module.walk([&](Operation *op) {
     StringRef opName = op->getName().getStringRef();
-    if (opName == "ttnn.all_gather") {
+
+    if (opName == "stablehlo.all_gather") {
       totalCost += 1.0;
-    } else if (opName == "ttnn.reduce_scatter") {
+    } else if (opName == "stablehlo.reduce_scatter") {
       totalCost += 1.5;
-    } else if (opName == "ttnn.all_reduce") {
+    } else if (opName == "stablehlo.all_reduce") {
       totalCost += 2.0;
+    } else if (opName == "stablehlo.all_to_all") {
+      totalCost += 1.5;
+    } else if (opName == "stablehlo.collective_permute") {
+      totalCost += 1.0;
+    } else if (opName == "stablehlo.composite") {
+      if (auto nameAttr = op->getAttrOfType<StringAttr>("name")) {
+        StringRef compositeName = nameAttr.getValue();
+        if (compositeName == "sdy.all_slice") {
+          totalCost += 0.5;
+        } else if (compositeName == "sdy.all_gather") {
+          totalCost += 1.0;
+        } else if (compositeName == "sdy.reduce_scatter") {
+          totalCost += 1.5;
+        } else if (compositeName == "sdy.all_reduce") {
+          totalCost += 2.0;
+        }
+      }
     }
   });
 
@@ -594,36 +615,6 @@ public:
       }
     }
 
-    const auto *ttirPipeline =
-        PassPipelineInfo::lookup("stablehlo-to-ttir-pipeline");
-    const auto *ttnnPipeline =
-        PassPipelineInfo::lookup("ttir-to-ttnn-backend-pipeline");
-
-    if (!ttirPipeline || !ttnnPipeline) {
-      rootModule.emitError(
-          "AutoSharding: cannot find required pipelines "
-          "(stablehlo-to-ttir-pipeline / ttir-to-ttnn-backend-pipeline)");
-      signalPassFailure();
-      return;
-    }
-
-    std::string ttnnOptions;
-    if (!systemDescPath.empty()) {
-      ttnnOptions = "system-desc-path=" + systemDescPath;
-    }
-    if (!meshShape.empty()) {
-      if (!ttnnOptions.empty()) {
-        ttnnOptions += " ";
-      }
-      ttnnOptions += "mesh-shape=";
-      for (size_t j = 0; j < meshShape.size(); ++j) {
-        if (j > 0) {
-          ttnnOptions += ",";
-        }
-        ttnnOptions += std::to_string(meshShape[j]);
-      }
-    }
-
     double bestCost = std::numeric_limits<double>::max();
     size_t bestIdx = 0;
     bool anySucceeded = false;
@@ -636,9 +627,6 @@ public:
     };
     llvm::SmallVector<VariantResult> results;
     bool collectResults = !dumpRoot.empty();
-
-    std::function<LogicalResult(const Twine &)> errHandler =
-        [](const Twine &) { return failure(); };
 
     for (size_t i = 0; i < configs.size(); ++i) {
       ModuleOp clonedModule = cast<ModuleOp>(rootModule->clone());
@@ -665,22 +653,6 @@ public:
                      PassManager::Nesting::Implicit);
       addRemainingStableHLOPasses(pm);
 
-      if (failed(ttirPipeline->addToPipeline(pm, "", errHandler))) {
-        llvm::errs() << "AutoSharding: failed to build ttir pipeline\n";
-        if (collectResults) {
-          results.push_back({i, formatConfig(configs[i]), false, 0.0});
-        }
-        continue;
-      }
-
-      if (failed(ttnnPipeline->addToPipeline(pm, ttnnOptions, errHandler))) {
-        llvm::errs() << "AutoSharding: failed to build ttnn pipeline\n";
-        if (collectResults) {
-          results.push_back({i, formatConfig(configs[i]), false, 0.0});
-        }
-        continue;
-      }
-
       if (failed(pm.run(clonedModule))) {
         llvm::errs() << "AutoSharding: config " << i << " "
                      << formatConfig(configs[i]) << " failed to lower\n";
@@ -691,9 +663,9 @@ public:
       }
 
       if (!variantDir.empty()) {
-        llvm::SmallString<256> ttnnPath(variantDir);
-        llvm::sys::path::append(ttnnPath, "02_lowered_ttnn.mlir");
-        dumpModuleToFile(clonedModule, ttnnPath);
+        llvm::SmallString<256> cclPath(variantDir);
+        llvm::sys::path::append(cclPath, "02_stablehlo_with_ccls.mlir");
+        dumpModuleToFile(clonedModule, cclPath);
       }
 
       double cost = evaluateCost(clonedModule);
