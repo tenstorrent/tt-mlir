@@ -65,7 +65,7 @@ class Builder(metaclass=BuilderMeta):
         # func_op: [[ordered_inputs], [ordered_outputs]]
         self._func_ops_generated: Dict[func.FuncOp, List[List[Operand]]] = {}
 
-        # Explicity set goldens to store. If empty, store all goldens.
+        # Explicitly set goldens to store. If empty, store all goldens.
         self._goldens_to_store: List[Operand] = []
 
         # Map from operand to its golden tensor.
@@ -736,6 +736,7 @@ class Builder(metaclass=BuilderMeta):
         self,
         logical_shape: Shape,
         tiled=False,
+        element_dtype: torch.dtype = torch.float32,
         oobVal=None,  # Will default to ttcore.OOBVal.Undef in the utility
         memorySpace=None,  # Will default to ttcore.MemorySpace.DeviceL1 in the utility
         grid: Optional[Tuple[int, int]] = None,
@@ -759,6 +760,7 @@ class Builder(metaclass=BuilderMeta):
             self._ctx,
             logical_shape,
             tiled,
+            element_dtype,
             oobVal,
             memorySpace,
             grid,

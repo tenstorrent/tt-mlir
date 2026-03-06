@@ -1842,7 +1842,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   ::mlir::RankedTensorType weightType = getWeight().getType();
   ::mlir::RankedTensorType outputType = getResult().getType();
 
-  // Intput tensor must be at most 2D tensor.
+  // Input tensor must be at most 2D tensor.
   if (inputType.getRank() > 2) {
     return emitOpError("input must be at most a 2D tensor, got ")
            << inputType.getRank() << "D ranked tensor";
@@ -2295,7 +2295,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
   // Insert the input A and B inner dimensions in expected output shape
   // Consider the case where input A and B are vectors. In that case,
-  // the dimension 1 is ommited from the output shape.
+  // the dimension 1 is omitted from the output shape.
   if (inputAType.getRank() > 1) {
     expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
   }
@@ -2464,7 +2464,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
   // Insert the input A and B inner dimensions in expected output shape
   // Consider the case where input A and B are vectors. In that case,
-  // the dimension 1 is ommited from the output shape.
+  // the dimension 1 is omitted from the output shape.
   if (inputAType.getRank() > 1) {
     expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
   }

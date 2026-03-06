@@ -67,7 +67,7 @@ MlirType ttmlirTTTileTypeGet(MlirContext ctx, unsigned height, unsigned width, u
 }
 ```
 
-The key details to note are the reliance on C++ methods in the `get` definition like intiializer lists. By leveraging the InterOp the get method will return a pointer which can easily be represented in the C-API and owned as such, while masking the complexities of the C++ underneath from `nanobind`. Definitions such as these must either be written by hand (as shown above), or they can automatically be generated for certain IR primitives. We will learn more about that below.
+The key details to note are the reliance on C++ methods in the `get` definition like initializer lists. By leveraging the InterOp the get method will return a pointer which can easily be represented in the C-API and owned as such, while masking the complexities of the C++ underneath from `nanobind`. Definitions such as these must either be written by hand (as shown above), or they can automatically be generated for certain IR primitives. We will learn more about that below.
 
 ## Generating Bindings
 This section will outline the mechanism with which bindings are generated, and the intricacies of this step.
@@ -248,7 +248,7 @@ MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelCBTypeGet(
 #endif
 ```
 4. Declare the CAPI builder target in `lib/CAPI/CMakeLists.txt` by adding `TTKernelTypes.cpp` as a source to TTMLIRCAPI.
-5. Define the Dialect by formalling applying the generated Dialect type into the `CAPI_DIALECT_REGISTRATION` macro.
+5. Define the Dialect by formally applying the generated Dialect type into the `CAPI_DIALECT_REGISTRATION` macro.
 ```c++
 // File: lib/CAPI/Dialects.cpp
 

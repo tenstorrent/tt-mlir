@@ -68,7 +68,7 @@ module {
   }
 }
 
-// Test case where rehape is fused into reduction and we can fuse into softmax.
+// Test case where reshape is fused into reduction and we can fuse into softmax.
 module {
   // CHECK-LABEL: func.func @no_fusion_keep_dim_false
   func.func @no_fusion_keep_dim_false(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {

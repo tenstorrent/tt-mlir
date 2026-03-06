@@ -18,7 +18,7 @@ module {
     // CHECK-NOT: ttnn.relu
     %1 = "ttir.relu"(%0) : (tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
-    // This reshape is comming from flattening sliding window.
+    // This reshape is coming from flattening sliding window.
     // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[CONV]])
 
     // CHECK: return %[[RESHAPE]]
@@ -41,7 +41,7 @@ module {
     // CHECK-NOT: ttnn.relu6
     %1 = "ttir.relu6"(%0) : (tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
-    // This reshape is comming from flattening sliding window.
+    // This reshape is coming from flattening sliding window.
     // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[CONV]])
 
     // CHECK: return %[[RESHAPE]]
@@ -84,7 +84,7 @@ module {
     // CHECK-NOT: ttnn.silu
     %1 = "ttir.silu"(%0) : (tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
-    // This reshape is comming from flattening sliding window.
+    // This reshape is coming from flattening sliding window.
     // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[CONV]])
 
     // CHECK: return %[[RESHAPE]]

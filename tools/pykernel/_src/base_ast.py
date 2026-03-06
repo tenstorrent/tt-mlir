@@ -68,7 +68,7 @@ class PyKernelAstBase(ast.NodeVisitor):
                 line = self.source_code[idx]
                 end_pattern = line.find(delim)
                 if end_pattern != -1:
-                    # First occurence of end_pattern detected, save the current splice of the string + exist
+                    # First occurrence of end_pattern detected, save the current splice of the string + exist
                     result += line[: end_pattern + 2].lstrip()
                     break
                 idx += 1
