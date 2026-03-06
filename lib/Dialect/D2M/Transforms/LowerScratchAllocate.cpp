@@ -178,15 +178,6 @@ private:
         info.endPosition = std::max(info.endPosition, userPos);
       }
     }
-
-    LLVM_DEBUG({
-      llvm::dbgs() << "=== Scratch liveness analysis ===\n";
-      for (auto &info : allocations) {
-        llvm::dbgs() << "  slot " << info.slotId << ": [" << info.startPosition
-                     << ", " << info.endPosition << "] (" << info.numElements
-                     << " elements)\n";
-      }
-    });
   }
 
   // Assign element offsets using a first-fit-decreasing heuristic.
@@ -227,18 +218,6 @@ private:
 
       currentOffset += outer.numElements;
     }
-
-    LLVM_DEBUG({
-      llvm::dbgs() << "=== Scratch offset assignment ===\n";
-      for (auto &info : allocations) {
-        llvm::dbgs() << "  slot " << info.slotId << ": offset "
-                     << info.elementOffset << " (" << info.numElements
-                     << " elements)" << (info.packed ? " [packed]" : "")
-                     << "\n";
-      }
-      llvm::dbgs() << "  peak usage: " << currentOffset << " elements\n";
-    });
-
     return currentOffset;
   }
 
