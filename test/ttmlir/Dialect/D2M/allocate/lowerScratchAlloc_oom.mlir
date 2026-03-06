@@ -23,8 +23,13 @@ func.func @scratch_overflow() {
   ins(%in, %scratch_buf : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
   ^bb0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %c0 = arith.constant 0 : index
     %s0 = d2m.scratch_allocate {slot = 0 : i64} : memref<5x!ttcore.tile<32x32, f32>, #l1>
     %s1 = d2m.scratch_allocate {slot = 1 : i64} : memref<5x!ttcore.tile<32x32, f32>, #l1>
+    // Both slots are used after both are defined, so their live ranges overlap
+    // and they cannot be packed together. Total = 10 > capacity 8.
+    %t0 = memref.load %s0[%c0] : memref<5x!ttcore.tile<32x32, f32>, #l1>
+    memref.store %t0, %s1[%c0] : memref<5x!ttcore.tile<32x32, f32>, #l1>
   }
   return
 }
