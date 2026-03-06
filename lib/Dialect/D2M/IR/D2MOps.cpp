@@ -1755,38 +1755,41 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     }
 
     // Verify per-output VGM consistency:
-    // 1. The output's inverse VGM must match the GridAttr's inverse map.
+    // 1. For non-view outputs, the output's inverse VGM must match the
+    // GridAttr's inverse map.
     // 2. The inverse map applied to the physical grid shape must produce
     //    a virtual grid shape matching the output's grid shape.
-    // AffineMap gridInvMap = getGrid().getMapping();
-    // for (Value output : getOutputs()) {
-    //   auto outputInvMap = utils::getVirtualGridInverseMapping(output);
-    //   if (outputInvMap && *outputInvMap != gridInvMap) {
-    //     return emitOpError("grid inverse map does not match output operand's "
-    //                        "inverse VGM");
-    //   }
-    //   if (!outputInvMap && !gridInvMap.isEmpty()) {
-    //     return emitOpError("grid has an inverse map but output operand "
-    //                        "does not have a VGM");
-    //   }
+    AffineMap gridInvMap = getGrid().getMapping();
+    for (Value output : getOutputs()) {
+      if (mlir::isa<ViewOpInterface>(output.getDefiningOp())) {
+        auto outputInvMap = utils::getVirtualGridInverseMapping(output);
+        if (outputInvMap && *outputInvMap != gridInvMap) {
+          return emitOpError("grid inverse map does not match output operand's "
+                             "inverse VGM");
+        }
+        if (!outputInvMap && !gridInvMap.isEmpty()) {
+          return emitOpError("grid has an inverse map but output operand "
+                             "does not have a VGM");
+        }
+      }
 
-    //   SmallVector<int64_t> physicalGridShape =
-    //       d2m::utils::getPhysicalGridShape(output);
+      SmallVector<int64_t> physicalGridShape =
+          d2m::utils::getPhysicalGridShape(output);
 
-    //   // Drop the deviceID result (first result) from the inverse map.
-    //   AffineMap invMapNoDevice = gridInvMap.dropResult(0);
+      // Drop the deviceID result (first result) from the inverse map.
+      AffineMap invMapNoDevice = gridInvMap.dropResult(0);
 
-    //   SmallVector<int64_t> impliedVirtShape =
-    //       ttmlir::utils::evalShape(invMapNoDevice, physicalGridShape);
+      SmallVector<int64_t> impliedVirtShape =
+          ttmlir::utils::evalShape(invMapNoDevice, physicalGridShape);
 
-    //   SmallVector<int64_t> outputGridShape =
-    //       llvm::to_vector(ttcore::getGridShape(output));
+      SmallVector<int64_t> outputGridShape =
+          llvm::to_vector(ttcore::getGridShape(output));
 
-    //   if (outputGridShape != impliedVirtShape) {
-    //     return emitOpError("output grid shape does not match implied virtual "
-    //                        "grid shape from physical grid and inverse mapping");
-    //   }
-    // }
+      if (outputGridShape != impliedVirtShape) {
+        return emitOpError("output grid shape does not match implied virtual "
+                           "grid shape from physical grid and inverse mapping");
+      }
+    }
   }
 
   if (!llvm::all_equal(llvm::map_range(getIndexingMapsValue(), [](AffineMap m) {
