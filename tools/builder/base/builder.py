@@ -8,6 +8,7 @@ from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 import torch
 from enum import Enum, auto
 import re
+import os
 from collections import OrderedDict
 
 from ttmlir.ir import *
@@ -48,11 +49,16 @@ class Builder(metaclass=BuilderMeta):
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
         ] = OrderedDict([("x", 1), ("y", 1)]),
+        deallocate_goldens: bool = False,
+        deallocated_goldens_dir: Optional[str] = "./deallocated_goldens",
     ):
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
         self._force_graph_level_check = False
+        self._deallocate_goldens = deallocate_goldens
+        self._deallocated_goldens_dir = deallocated_goldens_dir
+        os.makedirs(self._deallocated_goldens_dir, exist_ok=True)
 
         # Keep a list of inputs and outputs in order so we know how to store them in golden map.
         # ordered dict determines program order when comparing goldens during runtime
@@ -64,6 +70,7 @@ class Builder(metaclass=BuilderMeta):
 
         # Map from operand to its golden tensor.
         self._goldens: Dict[Operand, GoldenMapTensor] = {}
+        self._deallocated_goldens: Dict[Operand, str] = {}
 
         # Map from operand to its location string.
         self._operand_to_loc: Dict[Operand, str] = {}
@@ -73,6 +80,11 @@ class Builder(metaclass=BuilderMeta):
 
         # List of op locations to bypass golden comparison.
         self._bypass_ops: List[str] = []
+
+        # Dict of ops mapped to the operands to deallocate after each op
+        self._op_deallocations: Dict[
+            Union[OpView, Operand], List[Union[OpView, Operand]]
+        ] = {}
 
         # Set torch seed for reproducibility.
         torch.manual_seed(0)
@@ -177,6 +189,9 @@ class Builder(metaclass=BuilderMeta):
         # { program_index: {loc: {device_id: GoldenMapTensor} } }
         input_output_golden_info: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = {}
         intermediate_golden_info: Dict[str, Dict[int, GoldenMapTensor]] = {}
+
+        # Load deallocated goldens
+        self._load_deallocated_goldens()
 
         # If no specific golden is marked to be stored, store all goldens.
         if len(self._goldens_to_store) == 0:
@@ -626,9 +641,12 @@ class Builder(metaclass=BuilderMeta):
     def _set_golden_tensor(
         self,
         operand: Operand,
-        goldens: List[GoldenMapTensor],
+        goldens: List[Union[GoldenMapTensor, str]],
     ):
-        self._goldens[operand] = goldens
+        if isinstance(goldens, str):
+            self._deallocated_goldens[operand] = goldens
+        else:
+            self._goldens[operand] = goldens
         self._operand_to_loc[operand] = str(operand.location)
 
     def _set_goldens(
@@ -642,13 +660,42 @@ class Builder(metaclass=BuilderMeta):
         self,
         operand: Operand,
     ) -> GoldenMapTensor:
-        return self._goldens[operand]
+        if operand in self._goldens:
+            return self._goldens[operand]
+        elif operand in self._deallocated_goldens:
+            return self._deallocated_goldens[operand]
+        else:
+            raise ValueError(
+                f"Operand {operand} not found in goldens or deallocated goldens"
+            )
 
     def _get_golden_tensors(
         self,
         operands: List[Operand],
     ) -> List[GoldenMapTensor]:
         return [self._goldens[operand] for operand in operands]
+
+    def _deallocate_golden_tensor(self, operand: Operand, filepath: str):
+        golden = self._get_golden_tensor(operand)
+        torch.save(golden.contiguous().shard_map, filepath)
+        self._deallocated_goldens[operand] = filepath
+        self._goldens.pop(operand, None)
+
+    def _is_allocated(self, operand: Operand) -> bool:
+        if operand in self._goldens:
+            return True
+        if operand in self._deallocated_goldens:
+            return False
+        raise ValueError(
+            f"Operand {operand} not found in goldens or deallocated goldens"
+        )
+
+    def _load_deallocated_goldens(self):
+        for operand, filepath in self._deallocated_goldens.items():
+            shard_map = torch.load(filepath)
+            golden_tensor = GoldenMapTensor(shard_map, mesh_shape=self._mesh_shape)
+            self._goldens[operand] = golden_tensor
+        self._deallocated_goldens = {}
 
     def _get_location(self) -> Location:
         stack = inspect.stack()
@@ -812,6 +859,40 @@ class Builder(metaclass=BuilderMeta):
             )
         ]
 
+    def read_module(self, module):
+        """
+        Parse the given module and build the _op_deallocations mapping.
+        - _op_deallocations: maps each operation to the list of operands that can be deallocated after it
+        """
+        # Track the last operation that uses each operand
+        operand_last_use: Dict[Operand, Operation] = {}
+
+        def process_operation(op: Operation):
+            """Recursively process an operation and its nested regions."""
+            # Record this operation as the last use of each of its operands
+            for operand in op.operands:
+                operand_last_use[operand] = op
+            if hasattr(op, "results"):
+                for result in op.results:
+                    operand_last_use[result] = op
+
+            # Process nested regions (for ops like func.FuncOp, DeviceModuleOp, etc.)
+            for region in op.regions:
+                for block in region.blocks:
+                    for nested_op in block.operations:
+                        process_operation(nested_op)
+
+        # Process all top-level operations in the module
+        for entry in module.body.operations:
+            process_operation(entry)
+
+        # Build the _op_deallocations mapping
+        # Map each operation to the list of operands that should be deallocated after it
+        for operand, last_op in operand_last_use.items():
+            if last_op not in self._op_deallocations:
+                self._op_deallocations[last_op] = []
+            self._op_deallocations[last_op].append(operand)
+
     def generate_golden_tensors(
         self, parsed_func: func.FuncOp
     ) -> List[Dict[int, torch.Tensor]]:
@@ -925,6 +1006,9 @@ class Builder(metaclass=BuilderMeta):
                 self._cpu_module_insertion_point = cloned_op.regions[0].blocks[0]
 
             for entry in parsed_root_module.body.operations:
+                if self._deallocate_goldens:
+                    self.read_module(parsed_root_module)
+
                 if isinstance(entry, ttcore.DeviceModuleOp):
                     device_module_op = ttcore.DeviceModuleOp()
                     region = device_module_op.regions[0]
@@ -1009,6 +1093,24 @@ class Builder(metaclass=BuilderMeta):
                             op_golden_dictionary,
                         ) = self._build_op_from_parsed_op(op, global_dict)
                         global_dict.update(op_golden_dictionary)
+
+                        if self._deallocate_goldens:
+                            # Check if this operation has operands to deallocate
+                            if op in self._op_deallocations:
+                                operands_to_deallocate = self._op_deallocations[op]
+                                for old_operand in operands_to_deallocate:
+                                    new_operand = global_dict[old_operand]
+
+                                    # Generate a unique filename for this operand
+                                    operand_id = id(new_operand)
+                                    filepath = os.path.join(
+                                        self._deallocated_goldens_dir,
+                                        f"golden_{operand_id}.pt",
+                                    )
+
+                                    self._deallocate_golden_tensor(
+                                        new_operand, filepath
+                                    )
 
             outputs = (
                 global_result

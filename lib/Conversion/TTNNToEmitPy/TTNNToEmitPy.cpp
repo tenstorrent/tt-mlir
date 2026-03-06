@@ -1155,9 +1155,10 @@ public:
         emitter.emit(toLayoutOp.getInput()),
         emitter.emit(toLayoutOp.getLayout()),
         emitter.emit(toLayoutOp.getDtype()),
-        emitter.emit(toLayoutOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(toLayoutOp.getResult()),
-                     "memory_config"),
+        // Emit MemoryConfig only if it exists as an argument to the op.
+        // Most other ops will read the TTNNLayout object on the output tensor
+        // as well, but we are skipping that here as runtime skips it as well.
+        emitter.emit(toLayoutOp.getMemoryConfig(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
