@@ -3004,7 +3004,7 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
-def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait]> {
+def TTNN_GenericOp : TTNN_Op<"generic", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait]> {
     let summary = "Generic operation.";
     let description = [{
       Generic operation capable of running a program with custom kernels. Each kernel is described with a
@@ -3017,6 +3017,7 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs_and_outputs,
+                         Variadic<AnyType>:$additional_args,
                          TTNN_GenericProgramAttr:$program,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
@@ -3489,4 +3490,49 @@ def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {
 
   let hasVerifier = 1;
 }
+
+def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore"> {
+    let summary = "Create global semaphore op.";
+    let description = [{
+      Creates a global semaphore with the specified core range and initial value.
+
+      Global semaphores are similar to normal semaphores but differ in a couple of ways:
+      1) their lifetime exists beyond the scope of an op (and thus must created/deallocated separately like tensors)
+      2) they can be initialized before an op is even dispatched (whereas normal semaphores are initialized at dispatch time)
+
+      This is needed for CCLs (and multichip communication in general) to synchronize devices or for normal signalling where normal semaphores
+      cannot be used. This is because the different devices in a mesh are not running ops in a synchronized manner
+      (devices can be running different ops in the program) so the existence/initialization of normal semaphores
+      cannot be guaranteed on a different device that we need to communicate with.
+
+      For example, if we have to run a matmul then an all gather,
+      device x could be doing the matmul whereas device y has completed the matmul and begun an all gather.
+      Now, if device y has to do a remote semaphore increment on device x as part of the all gather,
+      this would lead to undefined behaviour
+      since device x is still executing the matmul and it's semaphore for the all gather op does not even exist yet.
+
+      Example:
+      ```mlir
+      %semaphore = "ttnn.create_global_semaphore"() <{initial_value = 0 : ui32, core_range = #ttnn.core_range<(0,0), (7,7)>}> : () -> !ttnn.global_semaphore
+      ```
+    }];
+
+    let arguments = (ins OptionalAttr<UI32Attr>:$initial_value, TTNN_CoreRangeAttr:$core_range);
+    let results = (outs TTNN_GlobalSemaphore:$result);
+}
+
+def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore"> {
+    let summary = "Reset global semaphore op.";
+    let description = [{
+      Resets a global semaphore to the specified value.
+
+      Example:
+      ```mlir
+      "ttnn.reset_global_semaphore"(%semaphore) <{value = 0 : ui32}> : (!ttnn.global_semaphore) -> ()
+      ```
+    }];
+
+    let arguments = (ins TTNN_GlobalSemaphore:$semaphore, UI32Attr:$value);
+}
+
 #endif

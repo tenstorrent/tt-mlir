@@ -34,8 +34,17 @@ class TTIRBuilder(Builder):
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
         ] = OrderedDict([("x", 1), ("y", 1)]),
+        deallocate_goldens: bool = False,
+        deallocated_goldens_dir: Optional[str] = "./deallocated_goldens",
     ):
-        super().__init__(ctx, location, mesh_name, mesh_dict)
+        super().__init__(
+            ctx,
+            location,
+            mesh_name,
+            mesh_dict,
+            deallocate_goldens=deallocate_goldens,
+            deallocated_goldens_dir=deallocated_goldens_dir,
+        )
 
     # ----- Private methods ----
 
@@ -4247,21 +4256,15 @@ class TTIRBuilder(Builder):
                     new_op_result_indices = new_op.result_indices
 
                     input0 = self._get_golden_tensor(old_op.input)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_outputs = op_golden_function(
-                        input0,
-                        kernel_attr,
-                        stride_attr,
-                        padding_attr,
-                        dilation_attr,
-                        ceil_mode_attr,
-                        result.element_type,
+                    golden_result = self._get_golden_tensor(old_op.result)
+                    golden_result_indices = self._get_golden_tensor(
+                        old_op.result_indices
                     )
                     max_pool2d_with_indices_builder._set_golden_tensor(
-                        new_op_result, golden_outputs[0]
+                        new_op_result, golden_result
                     )
                     max_pool2d_with_indices_builder._set_golden_tensor(
-                        new_op_result_indices, golden_outputs[1]
+                        new_op_result_indices, golden_result_indices
                     )
                     max_pool2d_with_indices_builder._set_golden_tensor(
                         old_op.input, input0
@@ -5837,23 +5840,10 @@ class TTIRBuilder(Builder):
                     running_mean0 = self._get_golden_tensor(old_op.running_mean)
                     running_variance0 = self._get_golden_tensor(old_op.running_variance)
 
-                    op_golden_function = get_golden_function(ttir_op)
-                    (
-                        golden_output,
-                        golden_batch_mean,
-                        golden_batch_variance,
-                    ) = op_golden_function(
-                        input0,
-                        scale0,
-                        offset0,
-                        running_mean0,
-                        running_variance0,
-                        old_op.epsilon,
-                        old_op.dimension,
-                        old_op.momentum,
-                        result_type.element_type,
-                        batch_mean_type.element_type,
-                        batch_variance_type.element_type,
+                    golden_output = self._get_golden_tensor(old_op.result)
+                    golden_batch_mean = self._get_golden_tensor(old_op.batch_mean)
+                    golden_batch_variance = self._get_golden_tensor(
+                        old_op.batch_variance
                     )
                     batch_norm_training_builder._set_golden_tensor(
                         new_op_result, golden_output
@@ -12610,17 +12600,9 @@ class TTIRBuilder(Builder):
                         if old_op.kv_input_tensor is not None
                         else None
                     )
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_query, golden_key, golden_value = op_golden_function(
-                        input0,
-                        kv_input0,
-                        old_op.num_heads,
-                        old_op.num_kv_heads if old_op.num_kv_heads else None,
-                        old_op.transpose_key,
-                        query_type.element_type,
-                        key_type.element_type,
-                        value_type.element_type,
-                    )
+                    golden_query = self._get_golden_tensor(old_op.query)
+                    golden_key = self._get_golden_tensor(old_op.key)
+                    golden_value = self._get_golden_tensor(old_op.value)
                     split_qkv_builder._set_golden_tensor(new_op_query, golden_query)
                     split_qkv_builder._set_golden_tensor(new_op_key, golden_key)
                     split_qkv_builder._set_golden_tensor(new_op_value, golden_value)
@@ -12975,123 +12957,6 @@ class TTIRBuilder(Builder):
 
         return layer_norm_module, layer_norm_builder
 
-    # ----- Parse ttir module ----
-
-    @staticmethod
-    def from_module(
-        ctx: Context,
-        mlir_text: str,
-        golden_inputs: Dict[str, List[Dict[int, torch.tensor]]] = None,
-    ) -> Tuple(Module, TTIRBuilder):
-        if golden_inputs is None:
-            golden_inputs = {}
-
-        root_module = Module.parse(mlir_text, ctx)
-        loc = Location.unknown(ctx)
-        with ctx, loc:
-            mesh_name = "mesh"
-            mesh_shape = OrderedDict([("x", 1), ("y", 1)])
-
-            for named_attr in root_module.operation.attributes:
-                if named_attr.name != "ttcore.meshes":
-                    continue
-
-                meshes = ttcore.ir.MeshesAttr.maybe_downcast(named_attr.attr)
-                mesh = meshes.meshes[0]
-                mesh_name = mesh.name
-                shape = mesh.shape
-                mesh_shape = OrderedDict(
-                    x=1 if len(shape) == 1 else shape[0],
-                    y=shape[0] if len(shape) == 1 else shape[1],
-                )
-                break
-
-            ttir_builder = TTIRBuilder(ctx, loc, mesh_name, mesh_shape)
-            new_module = ttir_builder.parse_root_module(root_module, golden_inputs)
-            new_mesh = ttcore.ir.MeshAttr.get(
-                ttir_builder._ctx, ttir_builder._mesh_name, ttir_builder._mesh_shape
-            )
-            new_meshes = ttcore.ir.MeshesAttr.get(ttir_builder._ctx, [new_mesh])
-            new_module.operation.attributes["ttcore.meshes"] = new_meshes
-
-        return new_module, ttir_builder
-
-    # ----- Split ttir module ----
-
-    def split_op(
-        self,
-        parsed_op: Operation,
-    ) -> Tuple[Module, TTIRBuilder]:
-        split_function = self.get_split_from_opview(type(parsed_op))
-        return split_function(self, parsed_op)
-
-    @staticmethod
-    def split_module(
-        module: Module,
-        builder: TTIRBuilder,
-    ) -> List[Tuple[Module, TTIRBuilder]]:
-        sub_modules_and_builders = []
-        old_ctx = module.context
-        old_loc = Location.unknown(old_ctx)
-
-        with old_ctx, old_loc:
-            for entry in module.body.operations:
-                if isinstance(entry, ttcore.DeviceModuleOp):
-                    for device_op_module in entry.regions[0].blocks[0].operations:
-                        for device_module_op in (
-                            device_op_module.regions[0].blocks[0].operations
-                        ):
-                            if isinstance(device_module_op, func.FuncOp):
-                                if device_module_op.name.value in builder._nested_funcs:
-                                    continue
-
-                                for block in device_module_op.body:
-                                    for op in block.operations:
-                                        if isinstance(op, func.ReturnOp) or isinstance(
-                                            op,
-                                            ttir.EmptyOp,
-                                        ):
-                                            continue
-                                        elif isinstance(op, func.CallOp):
-                                            sub_op_module_builder = (
-                                                builder.split_call_op(op)
-                                            )
-                                            if len(sub_op_module_builder) != 0:
-                                                sub_modules_and_builders.append(
-                                                    sub_op_module_builder
-                                                )
-                                        else:
-                                            sub_op_module_builder = builder.split_op(op)
-                                            if len(sub_op_module_builder) != 0:
-                                                sub_modules_and_builders.append(
-                                                    sub_op_module_builder
-                                                )
-                elif isinstance(entry, func.FuncOp):
-                    if entry.name.value in builder._nested_funcs:
-                        continue
-
-                    for block in entry.body:
-                        for op in block.operations:
-                            if isinstance(op, func.ReturnOp) or isinstance(
-                                op,
-                                ttir.EmptyOp,
-                            ):
-                                continue
-                            elif isinstance(op, func.CallOp):
-                                sub_op_module_builder = builder.split_call_op(op)
-                                if len(sub_op_module_builder) != 0:
-                                    sub_modules_and_builders.append(
-                                        sub_op_module_builder
-                                    )
-                            else:
-                                sub_op_module_builder = builder.split_op(op)
-                                if len(sub_op_module_builder) != 0:
-                                    sub_modules_and_builders.append(
-                                        sub_op_module_builder
-                                    )
-
-        return sub_modules_and_builders
-
     ############### ttir.TopKOp ###############
 
     @tag(ttir.TopKOp)
@@ -13241,3 +13106,129 @@ class TTIRBuilder(Builder):
                 ]
 
         return topk_module, topk_builder
+
+    # ----- Parse ttir module ----
+
+    @staticmethod
+    def from_module(
+        ctx: Context,
+        mlir_text: str,
+        golden_inputs: Dict[str, List[Dict[int, torch.tensor]]] = None,
+        deallocate_goldens: bool = False,
+        deallocated_goldens_dir: Optional[str] = ".",
+    ) -> Tuple(Module, TTIRBuilder):
+        if golden_inputs is None:
+            golden_inputs = {}
+
+        root_module = Module.parse(mlir_text, ctx)
+        loc = Location.unknown(ctx)
+        with ctx, loc:
+            mesh_name = "mesh"
+            mesh_shape = OrderedDict([("x", 1), ("y", 1)])
+
+            for named_attr in root_module.operation.attributes:
+                if named_attr.name != "ttcore.meshes":
+                    continue
+
+                meshes = ttcore.ir.MeshesAttr.maybe_downcast(named_attr.attr)
+                mesh = meshes.meshes[0]
+                mesh_name = mesh.name
+                shape = mesh.shape
+                mesh_shape = OrderedDict(
+                    x=1 if len(shape) == 1 else shape[0],
+                    y=shape[0] if len(shape) == 1 else shape[1],
+                )
+                break
+
+            ttir_builder = TTIRBuilder(
+                ctx,
+                loc,
+                mesh_name,
+                mesh_shape,
+                deallocate_goldens=deallocate_goldens,
+                deallocated_goldens_dir=deallocated_goldens_dir,
+            )
+            new_module = ttir_builder.parse_root_module(root_module, golden_inputs)
+            new_mesh = ttcore.ir.MeshAttr.get(
+                ttir_builder._ctx, ttir_builder._mesh_name, ttir_builder._mesh_shape
+            )
+            new_meshes = ttcore.ir.MeshesAttr.get(ttir_builder._ctx, [new_mesh])
+            new_module.operation.attributes["ttcore.meshes"] = new_meshes
+
+        return new_module, ttir_builder
+
+    # ----- Split ttir module ----
+
+    def split_op(
+        self,
+        parsed_op: Operation,
+    ) -> Tuple[Module, TTIRBuilder]:
+        split_function = self.get_split_from_opview(type(parsed_op))
+        return split_function(self, parsed_op)
+
+    @staticmethod
+    def split_module(
+        module: Module,
+        builder: TTIRBuilder,
+    ) -> List[Tuple[Module, TTIRBuilder]]:
+        sub_modules_and_builders = []
+        old_ctx = module.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            for entry in module.body.operations:
+                if isinstance(entry, ttcore.DeviceModuleOp):
+                    for device_op_module in entry.regions[0].blocks[0].operations:
+                        for device_module_op in (
+                            device_op_module.regions[0].blocks[0].operations
+                        ):
+                            if isinstance(device_module_op, func.FuncOp):
+                                if device_module_op.name.value in builder._nested_funcs:
+                                    continue
+
+                                for block in device_module_op.body:
+                                    for op in block.operations:
+                                        if isinstance(op, func.ReturnOp) or isinstance(
+                                            op,
+                                            ttir.EmptyOp,
+                                        ):
+                                            continue
+                                        elif isinstance(op, func.CallOp):
+                                            sub_op_module_builder = (
+                                                builder.split_call_op(op)
+                                            )
+                                            if len(sub_op_module_builder) != 0:
+                                                sub_modules_and_builders.append(
+                                                    sub_op_module_builder
+                                                )
+                                        else:
+                                            sub_op_module_builder = builder.split_op(op)
+                                            if len(sub_op_module_builder) != 0:
+                                                sub_modules_and_builders.append(
+                                                    sub_op_module_builder
+                                                )
+                elif isinstance(entry, func.FuncOp):
+                    if entry.name.value in builder._nested_funcs:
+                        continue
+
+                    for block in entry.body:
+                        for op in block.operations:
+                            if isinstance(op, func.ReturnOp) or isinstance(
+                                op,
+                                ttir.EmptyOp,
+                            ):
+                                continue
+                            elif isinstance(op, func.CallOp):
+                                sub_op_module_builder = builder.split_call_op(op)
+                                if len(sub_op_module_builder) != 0:
+                                    sub_modules_and_builders.append(
+                                        sub_op_module_builder
+                                    )
+                            else:
+                                sub_op_module_builder = builder.split_op(op)
+                                if len(sub_op_module_builder) != 0:
+                                    sub_modules_and_builders.append(
+                                        sub_op_module_builder
+                                    )
+
+        return sub_modules_and_builders
