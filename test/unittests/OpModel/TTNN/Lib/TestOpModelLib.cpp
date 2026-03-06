@@ -3383,9 +3383,13 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
               inputVirtualGrid] = std::get<0>(params);
   const auto [outputShape, outputTensorLayout, outputBufferType,
               outputVirtualGrid] = std::get<1>(params);
-  const auto minVal = llvm::APFloat(std::get<2>(params));
-  const auto maxVal = llvm::APFloat(std::get<3>(params));
+  const float minFloat = std::get<2>(params);
+  const float maxFloat = std::get<3>(params);
   const auto expectedLegal = std::get<4>(params);
+
+  mlir::Builder builder(&context);
+  mlir::Attribute minAttr = builder.getF32FloatAttr(minFloat);
+  mlir::Attribute maxAttr = builder.getF32FloatAttr(maxFloat);
 
   const TTNNLayoutAttr inputLayout = CreateTiledLayout(
       inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
@@ -3393,7 +3397,7 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
   auto constraintsExp = OpModel<ClampScalarOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, minVal, maxVal,
+      CreateWorkerGrid(), inputShape, inputLayout, minAttr, maxAttr,
       outputLayout);
   if (!constraintsExp) {
     std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
@@ -3413,7 +3417,7 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
   }
 
   auto runtimeExp = OpModel<ClampScalarOp>::getOpRuntime(
-      inputShape, inputLayout, minVal, maxVal, outputLayout);
+      inputShape, inputLayout, minAttr, maxAttr, outputLayout);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -3431,6 +3435,29 @@ INSTANTIATE_TEST_SUITE_P(ClampScalarTests, OpModelClampScalarParam,
                                                 TensorMemoryLayout::Interleaved,
                                                 BufferType::L1},
                              1.0, 5.0, true)));
+
+// Verify that clamp with si32 input and I32Attr min/max preserves si32 dtype.
+TEST_F(OpModelTest, ClampScalarInt32DtypePreserved) {
+  llvm::SmallVector<int64_t> shape{1, 1, 128, 32};
+  const TTNNLayoutAttr inputLayout = CreateTiledLayoutInt32(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr outputLayout = CreateTiledLayoutInt32(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  mlir::Builder builder(&context);
+  mlir::Attribute minAttr = builder.getI32IntegerAttr(0);
+  mlir::Attribute maxAttr = builder.getI32IntegerAttr(2);
+
+  auto constraintsExp = OpModel<ClampScalarOp>::getOpConstraints(
+      CreateWorkerGrid(), shape, inputLayout, minAttr, maxAttr, outputLayout);
+  ASSERT_TRUE(static_cast<bool>(constraintsExp))
+      << "Constraints failed: " << llvm::toString(constraintsExp.takeError());
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBacks] = constraintsExp.get();
+  ASSERT_FALSE(outputLayoutReadBacks.empty());
+  ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
+}
 
 class OpModelClampTensorParam : public OpModelTest,
                                 public testing::WithParamInterface<
