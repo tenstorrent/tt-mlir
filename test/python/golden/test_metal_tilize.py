@@ -19,12 +19,12 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.int32],
-    ids=["f32", "i32"],
+    [torch.float32, torch.int32, torch.bfloat16, torch.uint16],
+    ids=["f32", "i32", "bf16", "u16"],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_tilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
     def module(builder: D2MBuilder):
         @builder.func([shape], [dtype])
@@ -36,7 +36,9 @@ def test_tilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
 
             to_device = builder.tilize(
                 in0,
-                output_type=builder.get_metal_tensor_layout(shape, tiled=True),
+                output_type=builder.get_metal_tensor_layout(
+                    shape, tiled=True, element_dtype=dtype
+                ),
                 unit_attrs=unit_attrs,
             )
 
@@ -44,7 +46,9 @@ def test_tilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
             id_map = AffineMap.get_identity(2 * len(shape), builder._ctx)
             view_as_rm = builder.view_layout(
                 to_device,
-                output_type=builder.get_metal_tensor_layout(shape, tiled=False),
+                output_type=builder.get_metal_tensor_layout(
+                    shape, tiled=False, element_dtype=dtype
+                ),
                 remapping=id_map,
                 reinterpret_layout=True,
                 unit_attrs=unit_attrs,
@@ -68,12 +72,12 @@ def test_tilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
 
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.int32],
-    ids=["f32", "i32"],
+    [torch.float32, torch.int32, torch.bfloat16, torch.uint16],
+    ids=["f32", "i32", "bf16", "u16"],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_untilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
     def module(builder: D2MBuilder):
         @builder.func([shape], [dtype])
@@ -85,7 +89,7 @@ def test_untilize(shape: Shape, target: str, dtype: torch.dtype, request, device
             to_device = builder.to_layout(
                 in0,
                 output_type=builder.get_metal_tensor_layout(
-                    shape, tiled=False, grid=(1, 1)
+                    shape, tiled=False, grid=(1, 1), element_dtype=dtype
                 ),
                 unit_attrs=unit_attrs,
             )
@@ -95,7 +99,7 @@ def test_untilize(shape: Shape, target: str, dtype: torch.dtype, request, device
             view_as_tiled = builder.view_layout(
                 to_device,
                 output_type=builder.get_metal_tensor_layout(
-                    shape, grid=(1, 1), tiled=True
+                    shape, grid=(1, 1), tiled=True, element_dtype=dtype
                 ),
                 remapping=id_map,
                 reinterpret_layout=True,
@@ -120,12 +124,12 @@ def test_untilize(shape: Shape, target: str, dtype: torch.dtype, request, device
 
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64)])
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.int32],
-    ids=["f32", "i32"],
+    [torch.float32, torch.int32, torch.bfloat16, torch.uint16],
+    ids=["f32", "i32", "bf16", "u16"],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_tilize_untilize(
     shape: Shape, target: str, dtype: torch.dtype, request, device
 ):
@@ -139,7 +143,7 @@ def test_tilize_untilize(
             to_device = builder.tilize(
                 in0,
                 output_type=builder.get_metal_tensor_layout(
-                    shape, tiled=True, grid=(1, 1)
+                    shape, tiled=True, grid=(1, 1), element_dtype=dtype
                 ),
                 unit_attrs=unit_attrs,
             )

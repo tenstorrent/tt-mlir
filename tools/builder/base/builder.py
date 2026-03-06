@@ -736,6 +736,7 @@ class Builder(metaclass=BuilderMeta):
         self,
         logical_shape: Shape,
         tiled=False,
+        element_dtype: torch.dtype = torch.float32,
         oobVal=None,  # Will default to ttcore.OOBVal.Undef in the utility
         memorySpace=None,  # Will default to ttcore.MemorySpace.DeviceL1 in the utility
         grid: Optional[Tuple[int, int]] = None,
@@ -759,6 +760,7 @@ class Builder(metaclass=BuilderMeta):
             self._ctx,
             logical_shape,
             tiled,
+            element_dtype,
             oobVal,
             memorySpace,
             grid,
