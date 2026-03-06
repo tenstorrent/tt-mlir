@@ -470,9 +470,9 @@ public:
           nullptr);
 
   // all_gather restores the reduce_scatter input shape.
-  auto allGatherOutputType = ttnn::utils::RankedTensorTypeFactory::create(
+    auto allGatherOutputType = ttnn::utils::RankedTensorTypeFactory::create(
       reduceScatterInputType, reduceScatterInputType.getShape());
-  ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
+    ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_all_gather"),
       allGatherOutputType, reduceScatterOp.getResult(), selectedDim,
       clusterAxis, nullptr /*sub_device_id*/, nullptr /*memory_config*/,
