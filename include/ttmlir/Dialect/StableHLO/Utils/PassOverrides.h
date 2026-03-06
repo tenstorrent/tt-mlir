@@ -15,21 +15,13 @@ struct OptionNames {
   static constexpr llvm::StringRef resultPresharded = "result-presharded";
   static constexpr llvm::StringRef automaticArgAnalysis =
       "automatic-arg-analysis";
-<<<<<<< HEAD
-<<<<<<< HEAD
   static constexpr llvm::StringRef enableAggressiveSimplification =
       "enable-aggressive-simplification";
-=======
-  static constexpr llvm::StringRef enableShardingSearch =
-      "enable-sharding-search";
-=======
   static constexpr llvm::StringRef enableAutoSharding =
       "enable-auto-sharding";
->>>>>>> da2a09789 (Rename ShardingSearchPass to AutoShardingPass)
   static constexpr llvm::StringRef systemDescPath = "system-desc-path";
   static constexpr llvm::StringRef dumpVariants = "dump-variants";
   static constexpr llvm::StringRef dumpDir = "dump-dir";
->>>>>>> 7d2df700b (added --sharding-search pass headers and associated option if want to save the intermediate files for manual analysis)
 };
 
 #endif // TTMLIR_ENABLE_STABLEHLO

@@ -55,8 +55,6 @@ void createStableHLOPipeline(OpPassManager &pm,
   // costs across all candidate shardings.
   if (options.enableAutoSharding) {
     AutoShardingPassOptions searchOptions;
-    searchOptions.meshShape = llvm::to_vector(options.meshShape);
-    searchOptions.systemDescPath = options.systemDescPath;
     searchOptions.dumpVariants = options.dumpVariants;
     searchOptions.dumpDir = options.dumpDir;
     pm.addPass(createAutoShardingPass(searchOptions));
