@@ -23,10 +23,10 @@ public:
     uint64_t requiredL1Usage;
   };
 
-  // This struct is holding information about the greedily choosen
+  // This struct is holding information about the greedily chosen
   // configuration of the @baseOp: 1) configs and 2) precedence.
   //
-  // The @configs represents the mapping between the op and its choosen
+  // The @configs represents the mapping between the op and its chosen
   // config. All the ops that are included in the @configs map must be
   // either @baseOp or its operand with legal L1 Interleaved output layout
   // at the moment of analyzing the @baseOp.

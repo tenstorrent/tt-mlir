@@ -707,7 +707,7 @@ TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
 // optimizer is enabled this workaround is skipped because from what we observed
 // tile layout for activations works for the models we tested up to now.
 //
-// There is another workaround decompositon for conv2d and conv2d transpose
+// There is another workaround decomposition for conv2d and conv2d transpose
 // which is run regardless if optimizer is on or off.
 // Purpose of that decomposition is to move weight and bias to host memory
 // in row major layout and rewrite output of conv2d and conv2d transpose to

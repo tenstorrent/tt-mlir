@@ -155,7 +155,7 @@ def TTKernel_ArgAttr : TTKernel_Attr<"Arg", "arg"> {
 def TTKernel_ArgSpecAttr : TTKernel_Attr<"ArgSpec", "arg_spec"> {
   let summary = "Kernel argument specification.";
   let description = [{
-    A list of argument attibutes, of which form the argument specification for this kernel.
+    A list of argument attributes, of which form the argument specification for this kernel.
   }];
   let parameters = (ins OptionalArrayRefParameter<"ArgAttr">:$rt_args,
                         OptionalArrayRefParameter<"ArgAttr">:$ct_args);
