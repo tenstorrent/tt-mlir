@@ -1319,6 +1319,17 @@ public:
     // Peel bias reshapes that are equivalent to leading unsqueezes.
     TypedValue<RankedTensorType> bias =
         peelLeadingUnsqueezeBiasReshapes(rawBias);
+
+    // If bias is a scalar (0D), reshape it to 1D so that
+    // LinearOp receives a valid ranked bias operand.
+    if (bias.getType().getRank() == 0) {
+      auto scalarType = bias.getType();
+      auto reshapedType = RankedTensorType::get(
+          {1}, scalarType.getElementType(), scalarType.getEncoding());
+      bias = rewriter.create<ttir::ReshapeOp>(bias.getLoc(), reshapedType, bias,
+                                              rewriter.getI32ArrayAttr({1}));
+    }
+
     ArrayRef<int64_t> biasShape = bias.getType().getShape();
 
     llvm::SmallVector<int64_t> broadcastShape;

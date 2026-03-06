@@ -55,7 +55,9 @@ void createTTNNPipelineTTIRPasses(
   }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
+  if (options.implicitBroadcastFoldingEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
+  }
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
