@@ -452,6 +452,149 @@ public:
     return success();
   }
 };
+
+template <typename EltwiseOpTy>
+class ReshapeElementwiseAdjusting : public OpRewritePattern<ttnn::ReshapeOp> {
+public:
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::ReshapeOp op,
+                                PatternRewriter &rewriter) const override {
+
+    auto eltwiseOp = op.getInput().getDefiningOp<EltwiseOpTy>();
+    if (!eltwiseOp || !eltwiseOp->hasOneUse()) {
+      return failure();
+    }
+    llvm::errs() << "eltwiseOp: " << eltwiseOp->getLoc() << " "
+                 << eltwiseOp->getName() << "\n";
+    RankedTensorType finalType = op.getResult().getType();
+    ArrayRef<int64_t> finalShape = finalType.getShape();
+    int64_t finalRank = finalShape.size();
+    auto paddedShape = ttnn::utils::getTilePaddedShape(finalShape);
+
+    int64_t tiledVolume = ttmlir::utils::volume(llvm::ArrayRef(paddedShape));
+
+    RankedTensorType eltwiseType =
+        cast<RankedTensorType>(eltwiseOp->getResult(0).getType());
+    ArrayRef<int64_t> eltwiseShape = eltwiseType.getShape();
+    auto paddedEltwiseShape = ttnn::utils::getTilePaddedShape(eltwiseShape);
+    int64_t tiledEltwiseVolume =
+        ttmlir::utils::volume(llvm::ArrayRef(paddedEltwiseShape));
+
+    if (tiledVolume >= tiledEltwiseVolume) {
+      return failure();
+    }
+
+    SmallVector<std::pair<int64_t, int64_t>> dimMapping;
+    if (!computeDimMapping(eltwiseShape, finalShape, dimMapping)) {
+      return failure();
+    }
+
+    SmallVector<Value> newOperands;
+    for (uint32_t i = 0; i < eltwiseOp->getNumOperands(); ++i) {
+      Value operand = eltwiseOp->getOperand(i);
+      auto operandType = dyn_cast<RankedTensorType>(operand.getType());
+      if (!operandType) {
+        return failure();
+      }
+      ArrayRef<int64_t> operandShape = operandType.getShape();
+
+      SmallVector<int64_t> operandTargetShape;
+      bool valid = true;
+      for (int64_t d = 0; d < finalRank; ++d) {
+        auto [startIn, count] = dimMapping[d];
+
+        if (count == 0) {
+          // Inserted dim — operand gets size 1 (broadcast).
+          operandTargetShape.push_back(1);
+          continue;
+        }
+
+        if (count == 1) {
+          // 1:1 mapping — operand keeps its size on this dim.
+          operandTargetShape.push_back(operandShape[startIn]);
+          continue;
+        }
+
+        // Merged dims — compute product of operand sizes on merged dims.
+        int64_t operandProduct = 1;
+        bool allOnes = true;
+        for (int64_t k = startIn; k < startIn + count; ++k) {
+          operandProduct *= operandShape[k];
+          if (operandShape[k] != 1) {
+            allOnes = false;
+          }
+        }
+
+        if (allOnes) {
+          // All broadcast — stays broadcast in target space.
+          operandTargetShape.push_back(1);
+        } else if (operandProduct == finalShape[d]) {
+          // Exact match — operand fills the merged dim entirely.
+          operandTargetShape.push_back(finalShape[d]);
+        } else if (operandProduct == 1) {
+          operandTargetShape.push_back(1);
+        } else {
+          // Partial: operand has some non-broadcast merged dims but
+          // doesn't fill the target dim. Can't broadcast.
+          valid = false;
+          break;
+        }
+      }
+      if (!valid) {
+        return failure();
+      }
+
+      // Check if operand is already a reshape — adjust it instead of adding.
+      auto existingReshape = operand.getDefiningOp<ttnn::ReshapeOp>();
+      Value reshapeInput;
+      if (existingReshape && existingReshape->hasOneUse()) {
+        // Reuse the input of the existing reshape (skip the intermediate).
+        reshapeInput = existingReshape.getInput();
+      } else {
+        reshapeInput = operand;
+      }
+
+      auto reshapeInputType = cast<RankedTensorType>(reshapeInput.getType());
+
+      // Check if a reshape is actually needed.
+      if (reshapeInputType.getShape() ==
+          llvm::ArrayRef<int64_t>(operandTargetShape)) {
+        newOperands.push_back(reshapeInput);
+        continue;
+      }
+      if (ttmlir::utils::volume(reshapeInputType.getShape()) !=
+          ttmlir::utils::volume(llvm::ArrayRef(operandTargetShape))) {
+        return failure();
+      }
+      SmallVector<int32_t> targetShape32(operandTargetShape.begin(),
+                                         operandTargetShape.end());
+      auto newOperandType = utils::RankedTensorTypeFactory::create(
+          reshapeInputType, operandTargetShape);
+      auto newReshape = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), newOperandType, reshapeInput,
+          rewriter.getI32ArrayAttr(targetShape32),
+          /*memory_config=*/nullptr);
+      newOperands.push_back(newReshape.getResult());
+    }
+
+    // Create new eltwise in target space.
+    Operation *newEltwise = rewriter.clone(*eltwiseOp);
+    for (uint32_t i = 0; i < newOperands.size(); ++i) {
+      newEltwise->setOperand(i, newOperands[i]);
+    }
+    newEltwise->getResult(0).setType(finalType);
+
+    // Replace the reshape (not the eltwise) — the reshape's users
+    // get the new eltwise's output directly.
+    rewriter.replaceOp(op, newEltwise->getResult(0));
+
+    // Original eltwise is now dead (had single use = the reshape we replaced).
+    rewriter.eraseOp(eltwiseOp);
+    return success();
+  }
+};
+
 class TTNNSlicePropagation
     : public impl::TTNNSlicePropagationBase<TTNNSlicePropagation> {
 public:
@@ -465,8 +608,11 @@ public:
         PropagateSliceThroughRepeat, PropagateSliceThroughEltwise<ttnn::AddOp>,
         PropagateSliceThroughEltwise<ttnn::MultiplyOp>,
         PropagateSliceThroughEltwise<ttnn::SubtractOp>,
-        PropagateSliceThroughEltwise<ttnn::DivideOp>, RepeatReshapeAdjusting>(
-        &getContext());
+        PropagateSliceThroughEltwise<ttnn::DivideOp>, RepeatReshapeAdjusting,
+        ReshapeElementwiseAdjusting<ttnn::AddOp>,
+        ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
+        ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
+        ReshapeElementwiseAdjusting<ttnn::DivideOp>>(&getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
