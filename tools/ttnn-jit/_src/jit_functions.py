@@ -417,13 +417,24 @@ class MatmulOpHandler(BaseOpHandler):
     """Handler for matrix multiplication operation."""
 
     def _infer_result_type(self, lhs_type, rhs_type):
-        """Infer result type for matmul using create_output_tensor."""
-        # Use create_output_tensor which handles matmul output layout inference.
+        """Infer result type for matmul.
+
+        When CREATE_INTERMEDIATE_LAYOUT is False, computes output shape
+        directly without accessing input encodings (which may not exist
+        for intermediate tensors). When True, delegates to
+        create_output_tensor for L1 block-sharded layout inference.
+        """
+        if not CREATE_INTERMEDIATE_LAYOUT:
+            shape = [lhs_type.shape[0], rhs_type.shape[-1]]
+            element_type = lhs_type.element_type
+            with Location.unknown(self.jit_ctx.ctx):
+                return RankedTensorType.get(shape, element_type)
+
         return create_output_tensor(
             self.jit_ctx.ctx,
             "matmul",
             [lhs_type, rhs_type],
-            CREATE_INTERMEDIATE_LAYOUT,
+            True,
             self.jit_ctx.core_grid,
         )
 
