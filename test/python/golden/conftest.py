@@ -586,7 +586,7 @@ def _extract_frontend(item: pytest.Item) -> None:
     raise KeyError("No frontend marker found!")
 
 
-@pytest.hookimpl(hookwrapper=True)
+@pytest.hookimpl(wrapper=True)
 def pytest_runtest_setup(item: pytest.Item):
     """
     Extract test metadata during setup phase for XML reporting.
@@ -630,7 +630,7 @@ def pytest_runtest_setup(item: pytest.Item):
     </properties>
 
     Note that the above example excludes the "failure_stage" entry. This is
-    handled by the hookwrapper for `pytest_runtest_makereport` below
+    handled by the wrapper for `pytest_runtest_call` below
     """
     yield
 
@@ -642,7 +642,7 @@ def pytest_runtest_setup(item: pytest.Item):
         _extract_frontend(item)
 
 
-@pytest.hookimpl(hookwrapper=True)
+@pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item):
     """
     Extract runtime information from tests that actually execute.
@@ -668,9 +668,8 @@ def pytest_runtest_call(item: pytest.Item):
 
     failure_stage = "success"  # Default to success.
 
-    outcome = yield
     try:
-        outcome.get_result()
+        yield
     except Exception as exc:
         exc_type = type(exc)
         exc_name = exc_type.__name__

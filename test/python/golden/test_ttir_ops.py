@@ -1547,7 +1547,6 @@ def test_topk(
         pytest.param(
             [(33, 32), (512, 128)],
             [torch.float32] * 2,
-            marks=[pytest.mark.skip_config(["ttmetal"])],
         ),
     ],
 )
@@ -1806,7 +1805,7 @@ def test_gather(
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn", "ttmetal" | Marks(pytest.mark.xfail(reason="Unhoisted ttir.zeros"))],
+    ["ttnn", "ttmetal"],
 )
 def test_hoisted_gather(
     input_shape: Shape,

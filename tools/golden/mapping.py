@@ -3493,7 +3493,7 @@ def ttir_slice_golden(
 
     shard_map = {}
     for device_id, shard in input_tensor.shard_map.items():
-        shard_map[device_id] = shard[slices]
+        shard_map[device_id] = shard[tuple(slices)]
 
     return GoldenMapTensor(shard_map, input_tensor.mesh_shape).to(output_dtype)
 
