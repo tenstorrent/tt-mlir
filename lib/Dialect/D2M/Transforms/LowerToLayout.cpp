@@ -848,9 +848,9 @@ public:
       }
 
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(type.getEncoding());
-      auto emptyOp = rewriter.create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
-                                                   type.getElementType(),
-                                                   layout, targetGridShape);
+      auto emptyOp =
+          d2m::EmptyOp::create(rewriter, op.getLoc(), type.getShape(),
+                               type.getElementType(), layout, targetGridShape);
       return emptyOp.getResult();
     };
 
@@ -952,8 +952,8 @@ public:
       // buffers via createEmpty().
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(
           currentInfo.type.getEncoding());
-      auto maskedEmptyOp = rewriter.create<d2m::EmptyOp>(
-          op.getLoc(), currentInfo.type.getShape(),
+      auto maskedEmptyOp = d2m::EmptyOp::create(
+          rewriter, op.getLoc(), currentInfo.type.getShape(),
           currentInfo.type.getElementType(), layout, targetGridShape);
       auto maskedEmpty = maskedEmptyOp.getResult();
       currentValue =
