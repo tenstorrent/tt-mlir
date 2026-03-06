@@ -838,6 +838,34 @@ static mlir::Attribute negatedScalarAttribute(mlir::Attribute attr) {
   return {};
 }
 
+static mlir::DenseElementsAttr
+negatedDenseElementsAttribute(mlir::Attribute attr) {
+  if (auto denseAttr = llvm::dyn_cast_if_present<DenseElementsAttr>(attr)) {
+    ShapedType tensorType = llvm::cast<ShapedType>(denseAttr.getType());
+    mlir::Type elementType = tensorType.getElementType();
+
+    if (llvm::isa<FloatType>(elementType)) {
+      SmallVector<llvm::APFloat> newValues;
+      newValues.reserve(denseAttr.getNumElements());
+      for (llvm::APFloat val : denseAttr.getValues<llvm::APFloat>()) {
+        newValues.push_back(-val);
+      }
+      return DenseElementsAttr::get(tensorType, newValues);
+    }
+
+    if (llvm::isa<IntegerType>(elementType)) {
+      SmallVector<llvm::APInt> newValues;
+      newValues.reserve(denseAttr.getNumElements());
+      for (llvm::APInt val : denseAttr.getValues<llvm::APInt>()) {
+        newValues.push_back(-val);
+      }
+      return DenseElementsAttr::get(tensorType, newValues);
+    }
+  }
+
+  return {};
+}
+
 // NegOp canonicalization: neg(full(x)) -> full(-x)
 void mlir::tt::ttir::NegOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
@@ -879,6 +907,15 @@ void mlir::tt::ttir::NegOp::getCanonicalizationPatterns(
 
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
           op, resultType, shapeAttr, negatedFillValueAttr);
+      return mlir::success();
+    }
+
+    if (auto constant = mlir::dyn_cast_if_present<mlir::tt::ttir::ConstantOp>(
+            operand.getDefiningOp())) {
+      mlir::DenseElementsAttr negatedValueAttr =
+          negatedDenseElementsAttribute(constant.getValueAttr());
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(op, resultType,
+                                                              negatedValueAttr);
       return mlir::success();
     }
 

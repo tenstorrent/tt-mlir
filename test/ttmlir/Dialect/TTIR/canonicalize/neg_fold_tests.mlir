@@ -71,4 +71,16 @@ module {
     %neg = "ttir.neg"(%broadcasted) : (tensor<64x64xf32>) -> tensor<64x64xf32>
     return %neg : tensor<64x64xf32>
   }
+
+  func.func @neg_constant() -> tensor<2x3xi32> {
+    %0 = "ttir.constant"() {
+      value = dense<[[1, 2, 3], [4, 5, 6]]> : tensor<2x3xi32>
+    } : () -> tensor<2x3xi32>
+    // CHECK-LABEL: func.func @neg_constant
+    // CHECK-NOT: "ttir.neg"
+    // CHECK: "ttir.constant"
+    // CHECK-SAME: value = dense<{{\[\[}}-1, -2, -3], [-4, -5, -6{{\]\]}}>
+    %1 = "ttir.neg"(%0) : (tensor<2x3xi32>) -> tensor<2x3xi32>
+    return %1 : tensor<2x3xi32>
+  }
 }
