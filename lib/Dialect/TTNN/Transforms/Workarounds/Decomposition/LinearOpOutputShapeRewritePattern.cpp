@@ -108,7 +108,8 @@ LogicalResult LinearOpOutputShapeRewritePattern::matchAndRewrite(
   auto newLinearOp = rewriter.create<ttnn::LinearOp>(
       srcOp.getLoc(), matmulOutputType, srcOp.getA(), srcOp.getB(),
       srcOp.getBias(), srcOp.getTransposeA(), srcOp.getTransposeB(),
-      srcOp.getActivationAttr());
+      /*matmul_program_config=*/nullptr, srcOp.getActivationAttr(),
+      /*compute_config=*/srcOp.getComputeConfigAttr());
 
   // Reshape back to the original broadcasted shape.
   ttnn::ReshapeOp reshapeOp = ttir_to_ttnn::utils::generateReshape(

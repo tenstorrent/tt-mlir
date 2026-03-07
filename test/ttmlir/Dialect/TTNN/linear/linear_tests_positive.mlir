@@ -22,14 +22,11 @@ module {
     return %1 : tensor<128xbf16>
   }
 
-  // Bias is 2D but tt-metal handles it via post_process_bias, so linear is kept.
+  // Bias is 2D with non-unit non-feature dim (64x64), so decomposed into matmul + add.
   func.func @linear_2d_2d_bias(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>, %bias: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
     // CHECK-LABEL: func.func @linear_2d_2d_bias
-    // CHECK: "ttnn.linear"
-    // CHECK-SAME: tensor<64x128xbf16
-    // CHECK-SAME: tensor<128x64xbf16
-    // CHECK-SAME: tensor<64x64xbf16
-    // CHECK-SAME: -> tensor<64x64xbf16
+    // CHECK: "ttnn.matmul"
+    // CHECK: "ttnn.add"
     %1 = "ttir.linear"(%arg0, %arg1, %bias) : (tensor<64x128xbf16>, tensor<128x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
     return %1 : tensor<64x64xbf16>
   }

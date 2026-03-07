@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -27,9 +28,12 @@ static bool isBatchedLinearOp(ttnn::LinearOp linearOp) {
                                   [](int64_t dim) { return dim > 1; });
 }
 
-static bool hasNonUnitBatchDims(llvm::ArrayRef<int64_t> shape) {
-  return shape.size() > 2 &&
-         llvm::any_of(shape.drop_back(2), [](int64_t dim) { return dim > 1; });
+// The fused bias kernel only broadcasts row 0 of the bias tile. Every dimension
+// except the last (feature) dimension must be 1, otherwise the extra rows are
+// silently ignored and results are incorrect.
+static bool hasNonUnitNonFeatureDims(llvm::ArrayRef<int64_t> shape) {
+  return shape.size() > 1 &&
+         llvm::any_of(shape.drop_back(1), [](int64_t dim) { return dim > 1; });
 }
 
 // Calculate the output shape of a matmul operation following tt-metal's logic.
@@ -93,9 +97,12 @@ computeMatmulOutputShape(llvm::ArrayRef<int64_t> shapeA, bool transposeA,
   return outputShape;
 }
 
-// Keep LinearOp only when tt-metal can handle the bias:
+// Keep LinearOp only when the bias is safe for tt-metal's fused-bias linear
+// path:
 //   - RHS/B is not batched.
-//   - Bias has no real batch dimensions.
+//   - Bias is effectively a row bias, i.e. every non-feature dimension is 1.
+//     The fused bias kernel broadcasts only row 0 of the bias tile, so keeping
+//     shapes such as [H, N] with H > 1 would silently ignore the extra rows.
 //   - Bias last dimension matches the output feature dimension.
 static bool canKeepBiasFusedInLinear(ttnn::LinearOp linearOp,
                                      llvm::ArrayRef<int64_t> matmulShape) {
@@ -112,7 +119,7 @@ static bool canKeepBiasFusedInLinear(ttnn::LinearOp linearOp,
     return false;
   }
 
-  if (hasNonUnitBatchDims(biasShape)) {
+  if (hasNonUnitNonFeatureDims(biasShape)) {
     return false;
   }
 
@@ -156,14 +163,12 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
   auto dataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
       rewriter.getContext(), outputEncoding.getDataType());
 
-  // Step 1: Create MatMul operation.
-
   MatmulOp matmulOp = rewriter.create<ttnn::MatmulOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_matmul"),
       matmulOutputType, srcOp.getA(), srcOp.getB(), srcOp.getTransposeA(),
-      srcOp.getTransposeB(),
-      /*matmul_program_config=*/mlir::Attribute(),
-      /*activation=*/nullptr);
+      srcOp.getTransposeB(), /*matmul_program_config=*/nullptr,
+      /*activation=*/nullptr,
+      /*compute_config=*/srcOp.getComputeConfigAttr());
 
   // Step 2: Create Add operation with bias.
   llvm::SmallVector<int64_t> addShape;
