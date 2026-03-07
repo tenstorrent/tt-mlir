@@ -232,6 +232,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory) - GTest takes ownership.
   ::testing::AddGlobalTestEnvironment(new MockDeviceEnvironment());
   return RUN_ALL_TESTS();
 }
