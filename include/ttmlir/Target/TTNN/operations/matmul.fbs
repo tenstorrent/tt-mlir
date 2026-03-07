@@ -84,3 +84,17 @@ table LinearOp {
   activation: string;
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
+
+table SparseMatmulOp {
+  a: tt.target.ttnn.TensorRef;
+  b: tt.target.ttnn.TensorRef;
+  sparsity: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  is_input_a_sparse: bool;
+  is_input_b_sparse: bool;
+  nnz: int64;
+  program_config: tt.target.ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  dtype: tt.target.DataType;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+}
