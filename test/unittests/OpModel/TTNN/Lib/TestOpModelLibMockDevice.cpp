@@ -6,12 +6,12 @@
 // with a mock topology from the start, without being polluted by a
 // real-hardware topology from other test binaries.
 //
-// Mock mode is configured once (SetUpTestSuite) with maxMockChips chips.
-// Individual tests reshape the MeshDevice to the desired topology via
-// reshapeMeshDevice(), which destroys and recreates only the MeshDevice
-// without cycling configure_mock_mode/disable_mock_mode — that cycle
-// crashes in the same process (ethernet core timeout).
+// Mock mode is configured once per binary via MockDeviceEnvironment (registered
+// in main()). Individual tests reshape the MeshDevice to the desired topology
+// via reshapeMeshDevice(). New test suites can be added without worrying about
+// mock mode lifecycle.
 
+#include "MockDeviceFixture.h"
 #include "OpModelFixture.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -28,44 +28,12 @@
 
 namespace mlir::tt::ttnn::op_model {
 
-// Maximum number of mock chips configured once per binary.
-static constexpr size_t maxMockChips = 8;
-
-// Param: {meshRows, meshCols, dim, clusterAxis}
-struct MeshPartitionParam {
-  size_t meshRows;
-  size_t meshCols;
-  int32_t dim;
-  uint32_t clusterAxis;
-};
-
-// Fixture that configures mock mode once (SetUpTestSuite) and reshapes the
-// mesh device per test. Inherits helpers from OpModelFixture.
-class OpModelLibMockMeshTest
-    : public OpModelFixture,
-      public ::testing::WithParamInterface<MeshPartitionParam> {
+// Base fixture for mock device lib tests. Op-agnostic — sets up MLIR context
+// and reshapes the mock device. Per-op test classes inherit from this and add
+// their own WithParamInterface.
+class OpModelLibMockDeviceBase : public OpModelFixture {
 public:
-  // Configure mock mode once for the entire test suite.
-  static void SetUpTestSuite() {
-    mlir::MLIRContext tmpCtx;
-    tmpCtx.loadDialect<ttcore::TTCoreDialect>();
-    auto systemDesc = ttcore::SystemDescAttr::getDefault(
-        &tmpCtx, ttcore::Arch::WormholeB0, {1, maxMockChips});
-    SingletonDeviceContext::setSystemDesc(systemDesc);
-    SingletonDeviceContext::getInstance().openMockDevice(
-        /*traceRegionSize=*/0,
-        /*meshShape=*/std::make_pair(static_cast<size_t>(1), maxMockChips));
-  }
-
-  static void TearDownTestSuite() {
-    if (SingletonDeviceContext::getInstance().isDeviceInitialized()) {
-      SingletonDeviceContext::getInstance().closeInstance();
-    }
-  }
-
-  void SetUp() override {
-    const auto &p = GetParam();
-
+  void setupMockDevice(size_t meshRows, size_t meshCols) {
     // Initialize MLIR context and module.
     context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
     context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
@@ -75,21 +43,40 @@ public:
     // Update system desc and reshape the mock device for this test's topology.
     auto systemDesc = ttcore::SystemDescAttr::getDefault(
         &context, ttcore::Arch::WormholeB0,
-        {static_cast<int>(p.meshRows), static_cast<int>(p.meshCols)});
+        {static_cast<int>(meshRows), static_cast<int>(meshCols)});
     SingletonDeviceContext::setSystemDesc(systemDesc);
     SingletonDeviceContext::getInstance().reshapeMeshDevice(
-        {p.meshRows, p.meshCols});
+        {meshRows, meshCols});
 
     mlir::tt::ttcore::registerDevice(module.get());
   }
 
   void TearDown() override {
-    // Don't close the device — reshapeMeshDevice will handle it next SetUp.
-    // TearDownTestSuite does the final close.
+    // Empty — MockDeviceEnvironment handles the final close.
   }
 };
 
-TEST_P(OpModelLibMockMeshTest, MeshPartitionOp) {
+// --- MeshPartitionOp tests ---
+
+// Param: {meshRows, meshCols, dim, clusterAxis}
+struct MeshPartitionParam {
+  size_t meshRows;
+  size_t meshCols;
+  int32_t dim;
+  uint32_t clusterAxis;
+};
+
+class MeshPartitionLibMockDeviceTest
+    : public OpModelLibMockDeviceBase,
+      public ::testing::WithParamInterface<MeshPartitionParam> {
+public:
+  void SetUp() override {
+    const auto &p = GetParam();
+    setupMockDevice(p.meshRows, p.meshCols);
+  }
+};
+
+TEST_P(MeshPartitionLibMockDeviceTest, MeshPartitionOp) {
   const auto &p = GetParam();
 
   // {64, 192} — both dims tile-aligned (multiples of 32). After splitting,
@@ -141,7 +128,7 @@ TEST_P(OpModelLibMockMeshTest, MeshPartitionOp) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    MeshPartition, OpModelLibMockMeshTest,
+    MeshPartition, MeshPartitionLibMockDeviceTest,
     ::testing::Values(
         // {1,8} mesh: axis 0=1, axis 1=8. Only axis 1 splits.
         MeshPartitionParam{1, 8, 0, 1}, // split dim 0 on axis 1
@@ -174,3 +161,9 @@ INSTANTIATE_TEST_SUITE_P(
         ));
 
 } // namespace mlir::tt::ttnn::op_model
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  ::testing::AddGlobalTestEnvironment(new MockDeviceEnvironment());
+  return RUN_ALL_TESTS();
+}

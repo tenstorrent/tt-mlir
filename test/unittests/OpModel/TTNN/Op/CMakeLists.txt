@@ -95,7 +95,6 @@ target_include_directories(TestOpModelInterfaceMockDevice
 target_link_libraries(TestOpModelInterfaceMockDevice
     PRIVATE
     gtest
-    gtest_main
     TTNNOpModelLib
     MLIRTTCoreDialect
     MLIRTTNNDialect
