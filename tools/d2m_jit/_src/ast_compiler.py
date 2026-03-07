@@ -16,18 +16,11 @@ from d2m_jit._src.mlir_generator import generate_ir
 
 def promote_scratch_allocs_to_cbs(module):
     """Replace memref.alloc() scratch buffers in compute kernel functions with
-    d2m.wait on new CB function arguments, so convert-d2m-to-ttkernel can
-    convert them via D2MCBOpRewriter (avoiding unresolved materializations).
+    d2m.get_cb + d2m.wait, matching the cb_rework expectation that CB access
+    goes through get_cb ops rather than block arguments.
 
-    NOTE: This correctly handles the stage 10 materialization problem, but
-    leaves a semantic gap at stage 11: the new CB arg (arg index N) gets
-    ArgAttr(CBPort, N) in the kernel's ArgSpec, but d2m.generic only has N
-    operands so ttnn.generic's CB descriptors array is missing the scratch CB
-    at index N.  For compile_only=True this is benign; before execution is
-    implemented, fix D2MToTTNN to synthesize scratch CB descriptors from
-    extra CBPort entries in the compute kernel's ArgSpec, or switch the
-    frontend to emit d2m.scratch_allocate + run d2m-add-scratch-inputs /
-    d2m-lower-scratch-allocate properly.
+    Finds the max existing CB port in the function and assigns new ports
+    starting from max_port+1 for each scratch buffer.
     """
     ctx = module.context
     with ctx:
@@ -37,6 +30,12 @@ def promote_scratch_allocs_to_cbs(module):
             if thread_attr is None or "compute" not in str(thread_attr):
                 continue
             block = op.regions[0].blocks[0]
+            # Find max existing CB port in this function
+            max_port = -1
+            for inner_op in block.operations:
+                if inner_op.name == "d2m.get_cb":
+                    port_attr = inner_op.attributes["port"]
+                    max_port = max(max_port, IntegerAttr(port_attr).value)
             scratch_allocs = []
             for inner_op in block.operations:
                 if inner_op.name != "memref.alloc":
@@ -52,20 +51,17 @@ def promote_scratch_allocs_to_cbs(module):
                 scratch_allocs.append(inner_op)
             if not scratch_allocs:
                 continue
-            old_func_type = FunctionType(TypeAttr(attr_dict["function_type"]).value)
-            new_arg_types = list(old_func_type.inputs)
+            next_port = max_port + 1
             for alloc_op in scratch_allocs:
                 alloc_type = alloc_op.results[0].type
                 alloc_loc = alloc_op.location
                 cb_type = Type.parse(f"!d2m.cb<{str(alloc_type)}>", context=ctx)
-                new_arg = block.add_argument(cb_type, alloc_loc)
                 with InsertionPoint(alloc_op):
-                    wait_op = d2m.WaitOp(alloc_type, new_arg, loc=alloc_loc)
+                    get_cb = d2m.GetCBOp(cb_type, next_port, loc=alloc_loc)
+                    wait_op = d2m.WaitOp(alloc_type, get_cb.result, loc=alloc_loc)
                 alloc_op.results[0].replace_all_uses_with(wait_op.result)
                 alloc_op.operation.erase()
-                new_arg_types.append(cb_type)
-            new_func_type = FunctionType.get(new_arg_types, list(old_func_type.results))
-            op.attributes["function_type"] = TypeAttr.get(new_func_type)
+                next_port += 1
 
 class AstCompiler:
     def __init__(self, func, grid, compile_only, debug, math_fidelity):
@@ -156,6 +152,7 @@ class AstCompiler:
             "d2m-preallocate-mcast-semaphores",
             "d2m-schedule-dma",
             "d2m-lower-load-store-ops-to-dma",
+            "d2m-lower-dma-to-fully-indexed-form",
             # Stage 9 — region extraction
             "d2m-generic-regions-to-funcs",
             # Stage 10 — TTKernel conversion (ttnn-mode=true so ttir ops stay for convert-d2m-to-ttnn)

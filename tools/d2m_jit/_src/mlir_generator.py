@@ -1087,20 +1087,12 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
 
                     region = generic_op.regions[0]
 
-                    # CB block arg types: !d2m.cb<tensor<shard_shape x tile_type>>
-                    # Shard shape = metal tensor shape without the grid dims (first 2 dims)
-                    block_arg_types = []
-                    for metal_val in inputs + outputs:
-                        metal_ranked = RankedTensorType(metal_val.type)
-                        metal_shape_list = list(metal_ranked.shape)
-                        inner_shard = metal_shape_list[2:]  # drop grid dims (first 2)
-                        shard_tensor_str = "x".join(map(str, inner_shard))
-                        cb_type = Type.parse(
-                            f"!d2m.cb<tensor<{shard_tensor_str}x{_tile_type_str}>>",
-                            context=ctx
-                        )
-                        block_arg_types.append(cb_type)
-                    generic_bb = region.blocks.append(*block_arg_types)
+                    # Create block with NO block arguments.
+                    # In the standard flow, d2m.generic regions start empty;
+                    # PreallocateMcastSemaphores adds semaphore args later.
+                    # The CB rework verifier now requires all block args to be
+                    # !d2m.semaphore, so we must not add CB-typed args here.
+                    generic_bb = region.blocks.append()
 
                     visitor = D2MASTVisitor(ctx, generic_bb, tensor_metadata, grid, _tile_type_str, _mlir_dtype, reblock_info)
 
