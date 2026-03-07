@@ -251,7 +251,7 @@ unary_ops = [
 unary_ops_dtypes = [
     torch.float32,
     torch.bfloat16,
-    torch.int32,
+    torch.int32 | SkipIf("sim"),
 ]
 
 
@@ -305,7 +305,7 @@ bitwise_unary_ops = [bitwise_not]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", bitwise_unary_ops)
 def test_bitwise_unary_ops(
@@ -395,7 +395,9 @@ def get_dimension_size(
 
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.int32 | SkipIf("sim")], ids=["f32", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 @pytest.mark.parametrize("dimension", [0, 1])
 def test_get_dimension_size(

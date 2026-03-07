@@ -550,7 +550,7 @@ using ComputeOpMap = OpMap<
 // Int32 variants of compute ops. Ops not listed here have no int32 variant.
 using IntComputeOpMap = OpMap<
   // Unary SFPU (init unchanged, only the tile op differs).
-  std::pair<d2m::TileAbsOp,       std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileI32Op>>,
+  std::pair<d2m::TileAbsOp,        std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileI32Op>>,
   std::pair<d2m::TileNegativeOp,   std::pair<ttkernel::NegativeTileInitOp,        ttkernel::NegativeTileInt32Op>>,
   std::pair<d2m::TileReluOp,       std::pair<ttkernel::ReluTileInitOp,            ttkernel::ReluTileI32Op>>,
 
@@ -590,7 +590,7 @@ template <typename SrcOp, typename OpMap>
 using TTKernelOpPair = typename OpMapLookup<SrcOp, OpMap>::type;
 
 template <typename SrcOp, typename Map>
-constexpr bool hasIntMapping =
+constexpr bool hasMapping =
     !std::is_same_v<TTKernelOpPair<SrcOp, Map>, std::pair<void, void>>;
 
 // Some int32 TTKernel ops require an explicit dtype argument.
@@ -838,7 +838,7 @@ public:
         } else {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(op->getLoc());
         }
-      } else if constexpr (hasIntMapping<ConcreteOp, IntComputeOpMap>) {
+      } else if constexpr (hasMapping<ConcreteOp, IntComputeOpMap>) {
         using IntInit =
             typename TTKernelOpPair<ConcreteOp, IntComputeOpMap>::first_type;
         const auto tileType =
@@ -882,37 +882,44 @@ public:
       auto loc = op->getLoc();
       // The hardware clamp API takes i32 params for both int and float clamps.
       // For floats, the raw IEEE 754 bits are passed via bitcast.
-      auto toI32Param = [&](Attribute attr) -> Value {
-        if (auto intAttr = mlir::dyn_cast<IntegerAttr>(attr)) {
+      auto minAttr = op.getMinAttr();
+      auto maxAttr = op.getMaxAttr();
+      if (mlir::isa<IntegerAttr>(minAttr) && mlir::isa<IntegerAttr>(maxAttr)) {
+        auto intToI32Param = [&](Attribute attr) -> Value {
+          auto intAttr = mlir::cast<IntegerAttr>(attr);
           return rewriter.create<arith::ConstantOp>(
               loc, rewriter.getI32Type(),
-              rewriter.getI32IntegerAttr(intAttr.getInt()));
-        }
-        auto floatAttr = mlir::cast<FloatAttr>(attr);
-        auto floatVal = rewriter.create<arith::ConstantOp>(
-            loc,
-            rewriter.getF32FloatAttr(floatAttr.getValue().convertToFloat()));
-        return rewriter.create<arith::BitcastOp>(loc, rewriter.getI32Type(),
-                                                 floatVal);
-      };
-      auto minParam = toI32Param(op.getMinAttr());
-      auto maxParam = toI32Param(op.getMaxAttr());
-      if (mlir::isa<IntegerAttr>(op.getMinAttr())) {
+              rewriter.getI32IntegerAttr(intAttr.getValue().getSExtValue()));
+        };
+        auto minParam = intToI32Param(minAttr);
+        auto maxParam = intToI32Param(maxAttr);
         rewriter.create<ttkernel::ClampScalarTileInt32Op>(
             loc, adaptor.getInput(), minParam, maxParam);
       } else {
+        auto floatToI32Param = [&](Attribute attr) -> Value {
+          auto floatAttr = mlir::cast<FloatAttr>(attr);
+          auto f32Val = rewriter.create<arith::ConstantOp>(
+              loc,
+              rewriter.getF32FloatAttr(floatAttr.getValue().convertToDouble()));
+          return rewriter.create<arith::BitcastOp>(loc, rewriter.getI32Type(),
+                                                   f32Val);
+        };
+        auto minParam = floatToI32Param(minAttr);
+        auto maxParam = floatToI32Param(maxAttr);
         rewriter.create<ttkernel::ClampScalarTileOp>(loc, adaptor.getInput(),
                                                      minParam, maxParam);
       }
     } else if constexpr (arity == 1 &&
-                         hasIntMapping<ConcreteOp, IntComputeOpMap>) {
-      using IntSFPU =
+                         hasMapping<ConcreteOp, IntComputeOpMap>) {
+      using IntSFPUOp =
           typename TTKernelOpPair<ConcreteOp, IntComputeOpMap>::second_type;
+      assert(!needsDtypeArg<IntSFPUOp> &&
+             "Unary int32 ops should not need dtype arg");
       const auto elemType =
           mlir::cast<ttcore::TileType>(op.getInput().getType())
               .getElementType();
       if (llvm::isa<IntegerType>(elemType)) {
-        rewriter.create<IntSFPU>(op->getLoc(), adaptor.getInput());
+        rewriter.create<IntSFPUOp>(op->getLoc(), adaptor.getInput());
       } else {
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
       }
@@ -973,19 +980,19 @@ public:
             mlir::cast<ttcore::TileType>(op.getLhs().getType()).getDataType();
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
                                 adaptor.getRhs(), dstIdx, dtype);
-      } else if constexpr (hasIntMapping<ConcreteOp, IntComputeOpMap>) {
-        using IntSFPU =
+      } else if constexpr (hasMapping<ConcreteOp, IntComputeOpMap>) {
+        using IntSFPUOp =
             typename TTKernelOpPair<ConcreteOp, IntComputeOpMap>::second_type;
         const auto tileType =
             mlir::cast<ttcore::TileType>(op.getLhs().getType());
         if (llvm::isa<IntegerType>(tileType.getElementType())) {
-          if constexpr (needsDtypeArg<IntSFPU>) {
-            rewriter.create<IntSFPU>(op->getLoc(), adaptor.getLhs(),
-                                     adaptor.getRhs(), dstIdx,
-                                     tileType.getDataType());
+          if constexpr (needsDtypeArg<IntSFPUOp>) {
+            rewriter.create<IntSFPUOp>(op->getLoc(), adaptor.getLhs(),
+                                       adaptor.getRhs(), dstIdx,
+                                       tileType.getDataType());
           } else {
-            rewriter.create<IntSFPU>(op->getLoc(), adaptor.getLhs(),
-                                     adaptor.getRhs(), dstIdx);
+            rewriter.create<IntSFPUOp>(op->getLoc(), adaptor.getLhs(),
+                                       adaptor.getRhs(), dstIdx);
           }
         } else {
           rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
@@ -1088,7 +1095,7 @@ private:
     auto outCB = getOutCB(rewriter, op);
 
     // Integer ops use SFPU with explicit copy_tile from CB to DST.
-    if constexpr (hasIntMapping<ConcreteOp, IntComputeOpMap>) {
+    if constexpr (hasMapping<ConcreteOp, IntComputeOpMap>) {
       const auto elemType =
           mlir::cast<ttcore::TileType>(op.getLhs().getType()).getElementType();
       if (llvm::isa<IntegerType>(elemType)) {
@@ -1131,7 +1138,7 @@ private:
                                        Value outCB) const {
     using IntPair = TTKernelOpPair<ConcreteOp, IntComputeOpMap>;
     using IntInit = typename IntPair::first_type;
-    using IntSFPU = typename IntPair::second_type;
+    using IntSFPUOp = typename IntPair::second_type;
 
     auto dst0 = index(rewriter, loc, 0);
     auto dst1 = index(rewriter, loc, 1);
@@ -1154,10 +1161,10 @@ private:
     } else {
       rewriter.create<IntInit>(loc);
     }
-    if constexpr (needsDtypeArg<IntSFPU>) {
-      rewriter.create<IntSFPU>(loc, dst0, dst1, dst0, dtype);
+    if constexpr (needsDtypeArg<IntSFPUOp>) {
+      rewriter.create<IntSFPUOp>(loc, dst0, dst1, dst0, dtype);
     } else {
-      rewriter.create<IntSFPU>(loc, dst0, dst1, dst0);
+      rewriter.create<IntSFPUOp>(loc, dst0, dst1, dst0);
     }
 
     rewriter.eraseOp(op);

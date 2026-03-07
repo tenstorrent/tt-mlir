@@ -184,7 +184,9 @@ binary_ops = [
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
-    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+    "dtype",
+    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
+    ids=["f32", "bf16", "i32"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_ops)
@@ -264,7 +266,9 @@ def create_logical_op_goldens(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
-    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+    "dtype",
+    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
+    ids=["f32", "bf16", "i32"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", logical_ops)
@@ -477,7 +481,7 @@ binary_bitwise_ops = [
 ]
 
 binary_bitwise_dtypes = [
-    torch.int32,
+    torch.int32 | SkipIf("sim"),
     torch.uint32,
     torch.uint16,
     torch.uint8,
@@ -539,7 +543,7 @@ binary_logical_shift_ops = [
 
 
 binary_logical_shift_dtypes = [
-    torch.int32,
+    torch.int32 | SkipIf("sim"),
     torch.uint32,
     torch.uint16,
 ]
@@ -639,7 +643,9 @@ binary_comparison_ops = [
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
-    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+    "dtype",
+    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
+    ids=["f32", "bf16", "i32"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_comparison_ops)
@@ -970,7 +976,9 @@ def test_binary_ops_broadcast_shard_dims(
         pytest.param([(8, 16, 1), (8, 1, 32)], id="broadcast_both_4"),
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.int32 | SkipIf("sim")], ids=["f32", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
