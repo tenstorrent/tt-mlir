@@ -666,6 +666,25 @@ void DecisionTraceObserver::onEviction(Operation *victim, int64_t pos,
   spillOccupiedBefore = event.occupiedL1After;
 }
 
+void DecisionTraceObserver::onFragmentationDemote(
+    Operation *op, int64_t pos, uint64_t transientPeak, uint64_t opL1Size,
+    uint64_t inputL1Size, uint64_t holeL1Size, uint64_t fragLimit,
+    uint64_t occupiedL1) {
+  SpillEventRecord event;
+  event.position = static_cast<size_t>(pos);
+  event.opName = ttmlir::opToString(op);
+  event.action = "fragmentation_demote";
+  event.occupiedL1Before = occupiedL1;
+  event.occupiedL1After = occupiedL1;
+  event.opL1Usage = opL1Size;
+  event.details = "transientPeak=" + std::to_string(transientPeak) +
+                  " (output=" + std::to_string(opL1Size) +
+                  " + input=" + std::to_string(inputL1Size) +
+                  " + hole=" + std::to_string(holeL1Size) +
+                  ") > limit=" + std::to_string(fragLimit);
+  trace.spillManagement.events.push_back(std::move(event));
+}
+
 void DecisionTraceObserver::onSelfSpill(Operation *op, int64_t pos) {
   SpillEventRecord event;
   event.position = static_cast<size_t>(pos);
