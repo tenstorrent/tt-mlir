@@ -10703,13 +10703,16 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    ############### ttir.FillCacheOp ###############
+
+    @tag(ttir.FillCacheOp)
     def fill_cache(
         self,
         in0: Operand,
         in1: Operand,
         batch_offset: int = 0,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.fill_cache``.
 
@@ -10722,27 +10725,14 @@ class TTIRBuilder(Builder):
         .. code-block:: mlir
 
             // Fill cache with new values at batch offset 1
-            %result = ttir.fill_cache(%new_values, %cache, batch_offset = 1) : tensor<2x3xf32>, tensor<4x3xf32> -> tensor<4x3xf32>
-            // New values tensor:
-            // [[1.0, 2.0, 3.0],
-            //  [4.0, 5.0, 6.0]]
-            // Cache tensor before:
-            // [[0.1, 0.2, 0.3],
-            //  [0.4, 0.5, 0.6],
-            //  [0.7, 0.8, 0.9],
-            //  [1.0, 1.1, 1.2]]
-            // Cache tensor after:
-            // [[0.1, 0.2, 0.3],
-            //  [1.0, 2.0, 3.0],
-            //  [4.0, 5.0, 6.0],
-            //  [1.0, 1.1, 1.2]]
+            %result = ttir.fill_cache(%new_values, %cache) {batch_offset = 1 : i32} : (tensor<2x3xf32>, tensor<4x3xf32>) -> tensor<4x3xf32>
 
         Parameters
         ----------
         in0 : Operand
-            New values to fill into cache
-        in1 : Operand
             Cache tensor to be filled
+        in1 : Operand
+            Input tensor with new values
         batch_offset : int, optional
             Starting position in batch dimension (default: 0)
         unit_attrs : *Optional[List[str]]*, optional
@@ -10750,20 +10740,133 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The updated cache tensor
         """
-        return self._op_proxy(
-            ttir.FillCacheOp,
-            [in0, in1],
-            ttir_kwargs={"batch_offset": batch_offset},
-            organize_ttir_args=lambda i, o: (o, i[0], i[1]),
-            organize_golden_args=lambda i: (
-                self._get_golden_tensor(i[0]),
-                self._get_golden_tensor(i[1]),
-            ),
-            unit_attrs=unit_attrs,
+        ttir_op = self.get_opview_from_method(TTIRBuilder.fill_cache)
+
+        mlir_output_type = self.get_type(in0)
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0, input1, batch_offset=batch_offset
         )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        loc = self._get_location()
+
+        op = ttir_op(
+            result,
+            in0,
+            in1,
+            batch_offset=batch_offset,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.FillCacheOp)
+    def fill_cache_parser(
+        self,
+        old_op: ttir.FillCacheOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.fill_cache_parser)
+
+        cache = global_dict[old_op.cache]
+        input_val = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            cache,
+            input_val,
+            batch_offset=old_op.batch_offset,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        cache_golden = self._get_golden_tensor(cache)
+        input_golden = self._get_golden_tensor(input_val)
+
+        batch_offset_val = IntegerAttr(old_op.batch_offset).value
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            cache_golden, input_golden, batch_offset=batch_offset_val
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.FillCacheOp)
+    def fill_cache_split(
+        self,
+        old_op: ttir.FillCacheOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.fill_cache_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            fill_cache_module = Module.create()
+            fill_cache_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [
+                old_op.cache.type,
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(fill_cache_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="fill_cache_module")
+                def decorated_func(*inputs):
+                    cache = inputs[0]
+                    input_val = inputs[1]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        cache,
+                        input_val,
+                        batch_offset=old_op.batch_offset,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    cache_golden = self._get_golden_tensor(old_op.cache)
+                    input_golden = self._get_golden_tensor(old_op.input)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+
+                    fill_cache_builder._set_golden_tensor(new_op_result, old_op_result)
+                    fill_cache_builder._set_golden_tensor(cache, cache_golden)
+                    fill_cache_builder._set_golden_tensor(input_val, input_golden)
+
+                    ordered_inputs.extend([cache, input_val])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                fill_cache_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return fill_cache_module, fill_cache_builder
 
     def update_cache(
         self,
