@@ -598,7 +598,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     funcBody.walk([&](d2m::GenericOp genericOp) {
       SequenceT genericSeqPos = analysis.sequencing[genericOp];
-      auto genericIt = analysis.generics.find(genericOp);
+      auto *genericIt = analysis.generics.find(genericOp);
 
       // Only register allocs that will actually get streams inserted
       // (matching the guards in prepareMemoryPlanner / insertOperandStreams).
