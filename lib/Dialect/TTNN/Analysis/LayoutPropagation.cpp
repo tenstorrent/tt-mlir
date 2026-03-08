@@ -1414,6 +1414,15 @@ void LayoutPropagation::insertReshardOp(Operation *consumerOp,
 
   consumerOp->setOperand(operandIndex, memoryReconfigOp->getResult(0));
 
+  // Annotate L1 output usage so L1SpillManagement can track this op.
+  if (outputLayout.hasL1BufferType()) {
+    uint64_t l1Usage =
+        utils::getPerCoreL1Usage(outputLayout, deviceGrid.getGridVolume());
+    OpBuilder attrBuilder(memoryReconfigOp->getContext());
+    memoryReconfigOp->setAttr("ttnn.output_l1_usage",
+                              attrBuilder.getI64IntegerAttr(l1Usage));
+  }
+
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Inserted memory reconfig op: {0}", memoryReconfigOp);
 }
