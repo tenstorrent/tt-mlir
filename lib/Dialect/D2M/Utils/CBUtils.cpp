@@ -9,6 +9,8 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+
 namespace mlir::tt::d2m {
 
 unsigned getNextAvailablePort(Region &region, PortCounter &portCounters,
@@ -40,17 +42,38 @@ Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
     return it->second;
   }
 
-  auto operandType =
-      mlir::cast<ShapedType>(generic->getOperand(operandIndex).getType());
-  auto layout = mlir::tt::ttcore::getDeviceLayout(operandType);
-  if (!layout) {
-    return Value();
+  auto L1Attr = mlir::tt::ttcore::MemorySpaceAttr::get(
+      generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1);
+
+  // Derive the CB underlying type for this operand.  Try:
+  //   1. In-generic alloc with CBBufferLayoutAttr (set by
+  //   Allocate/insertStream)
+  //   2. The generic operand's device layout (shard shape)
+  MemRefType cbUnderlyingType;
+  Value operandAlloc = GenericOp::getOperandAlloc(region, operandIndex);
+  if (operandAlloc) {
+    if (auto allocOp = operandAlloc.getDefiningOp<memref::AllocOp>()) {
+      auto allocType = allocOp.getType();
+      if (mlir::isa<ttcore::CBBufferLayoutAttr>(allocType.getLayout())) {
+        cbUnderlyingType = allocType;
+      }
+    }
   }
-  auto shardShape = layout.getShardShape(operandType);
-  auto cbType = CBType::get(MemRefType::get(
-      shardShape, operandType.getElementType(), nullptr,
-      mlir::tt::ttcore::MemorySpaceAttr::get(
-          generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1)));
+
+  if (!cbUnderlyingType) {
+    // Derive from the generic operand's device layout.
+    auto operandType =
+        mlir::cast<ShapedType>(generic->getOperand(operandIndex).getType());
+    auto layout = mlir::tt::ttcore::getDeviceLayout(operandType);
+    if (!layout) {
+      return Value();
+    }
+    auto shardShape = layout.getShardShape(operandType);
+    cbUnderlyingType = MemRefType::get(shardShape, operandType.getElementType(),
+                                       nullptr, L1Attr);
+  }
+
+  auto cbType = CBType::get(cbUnderlyingType);
 
   unsigned port =
       getNextAvailablePort(region, portCounters, generic.getOperation());

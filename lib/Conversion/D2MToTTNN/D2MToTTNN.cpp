@@ -419,9 +419,14 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     // The ttnn.generic op requires ttnn tensor operands. Defer rewriting until
     // memref.alloc operands are converted so we have the memref->ttnn
-    // tensor translations.
-    for (auto [orig, converted] :
-         llvm::zip(op->getOperands(), adaptor.getOperands())) {
+    // tensor translations.  Skip hoisted CB allocs (additionalArgs with
+    // CBBufferLayoutAttr) — they stay as memref.alloc intentionally.
+    unsigned ioSize = op.getInputsAndOutputs().size();
+    for (auto [idx, orig, converted] :
+         llvm::enumerate(op->getOperands(), adaptor.getOperands())) {
+      if (idx >= ioSize) {
+        break; // additionalArgs — don't wait for these
+      }
       if (mlir::isa_and_present<memref::AllocOp>(orig.getDefiningOp()) &&
           orig == converted) {
         return rewriter.notifyMatchFailure(
@@ -460,8 +465,8 @@ public:
             ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
             ttnn::CoreCoordAttr::get(ctx, endCoreRange[0], endCoreRange[1])));
 
-    llvm::SmallVector<Value> ios(op.getInputsAndOutputs().size());
-    llvm::SmallVector<Value> cbs(op.getInputsAndOutputs().size());
+    llvm::SmallVector<Value> ios(ioSize);
+    llvm::SmallVector<Value> cbs(ioSize);
     llvm::SmallVector<Value> adaptorInputsAndOutputs(
         adaptor.getOperands().begin(), adaptor.getOperands().begin() +
                                            adaptor.getInputs().size() +
@@ -473,9 +478,26 @@ public:
       cbs[i] = cb;
     }
 
+    // Process additionalArgs: semaphores/tensors go to the GenericOp,
+    // hoisted CB allocs (MemRefType) override the corresponding CB.
     llvm::SmallVector<Value> additionalArgs;
-    for (auto operand : op.getAdditionalArgs()) {
-      if (mlir::isa<ttnn::GlobalSemaphoreType>(operand.getType())) {
+    for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
+      auto operand = adaptor.getOperands()[ioSize + i];
+      auto origOperand = op.getAdditionalArgs()[i];
+      if (mlir::isa<MemRefType>(operand.getType())) {
+        // Hoisted CB buffer — override the regular operand's CB if mapped.
+        if (auto cbForOp =
+                origOperand.getDefiningOp()
+                    ? origOperand.getDefiningOp()->getAttrOfType<IntegerAttr>(
+                          "d2m.cb_for_operand")
+                    : IntegerAttr()) {
+          unsigned idx = static_cast<unsigned>(cbForOp.getInt());
+          assert(idx < cbs.size() && "d2m.cb_for_operand out of range");
+          cbs[idx] = operand;
+        } else {
+          cbs.push_back(operand);
+        }
+      } else if (mlir::isa<ttnn::GlobalSemaphoreType>(operand.getType())) {
         additionalArgs.push_back(operand);
       } else if (mlir::isa<RankedTensorType>(operand.getType())) {
         additionalArgs.push_back(operand);

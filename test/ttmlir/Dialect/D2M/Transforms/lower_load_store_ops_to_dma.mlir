@@ -27,7 +27,7 @@ module attributes {} {
         scf.for %arg2 = %c0 to %c1 step %c1 {
           %0 = arith.addi %core0, %arg1 : index
           %1 = arith.addi %core1, %arg2 : index
-          // CHECK: %[[MEMREF:.*]] = d2m.reserve %cb0
+          // CHECK: %[[MEMREF:.*]] = d2m.reserve %{{.*}}
           // CHECK: %[[TX:.*]] = d2m.dma_read %{{.*}}[%{{.*}}, %{{.*}}], %[[MEMREF]], <0>
           // CHECK-NEXT: d2m.dma_wait %[[TX]]
           // CHECK-NEXT: d2m.push %{{.*}}
@@ -74,7 +74,7 @@ module attributes {} {
         scf.for %arg3 = %c0 to %c1 step %c1 {
           %0 = arith.addi %core0, %arg2 : index
           %1 = arith.addi %core1, %arg3 : index
-          // CHECK: %[[MEMREF:.*]] = d2m.wait %cb1
+          // CHECK: %[[MEMREF:.*]] = d2m.wait %{{.*}}
           // CHECK: %[[TX:.*]] = d2m.dma_write %[[MEMREF]], %{{.*}}[%{{.*}}, %{{.*}}], <0>
           // CHECK-NEXT: d2m.dma_wait %[[TX]]
           // CHECK-NEXT: d2m.pop %{{.*}}
@@ -125,12 +125,12 @@ module attributes {} {
         scf.for %arg3 = %c0 to %c1 step %c1 {
           %0 = arith.addi %core0, %arg2 : index
           %1 = arith.addi %core1, %arg3 : index
-          // CHECK: %[[LOAD_MEMREF:.*]] = d2m.reserve %cb0
+          // CHECK: %[[LOAD_MEMREF:.*]] = d2m.reserve %{{.*}}
           // CHECK: %[[LOAD_TX:.*]] = d2m.dma_read %{{.*}}[%{{.*}}, %{{.*}}], %[[LOAD_MEMREF]], <0>
           // CHECK-NEXT: d2m.dma_wait %[[LOAD_TX]]
           // CHECK-NEXT: d2m.push %{{.*}}
           d2m.remote_load %stream[%0, %1] into %cb0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-          // CHECK: %[[STORE_MEMREF:.*]] = d2m.wait %cb1
+          // CHECK: %[[STORE_MEMREF:.*]] = d2m.wait %{{.*}}
           // CHECK: %[[STORE_TX:.*]] = d2m.dma_write %[[STORE_MEMREF]], %{{.*}}[%{{.*}}, %{{.*}}], <0>
           // CHECK-NEXT: d2m.dma_wait %[[STORE_TX]]
           // CHECK-NEXT: d2m.pop %{{.*}}

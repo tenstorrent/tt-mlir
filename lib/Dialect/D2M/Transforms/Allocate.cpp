@@ -365,11 +365,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
-    if (failed(analyzeGenericRegionAllocs(funcOp, analysis))) {
+    if (failed(analyzeGenericOps(funcOp, analysis))) {
       return failure();
     }
 
-    if (failed(analyzeGenericOps(funcOp, analysis))) {
+    if (failed(analyzeGenericRegionAllocs(funcOp, analysis))) {
       return failure();
     }
 
@@ -585,25 +585,63 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// Walk all GenericOp regions and register every memref.alloc found inside
   /// them in `analysis.memrefs`.  These allocs are pinned to L1 (no spilling)
   /// and use the parent GenericOp's sequence position as their live range.
+  ///
+  /// Must run after `analyzeGenericOps` so that `operandCtx.bufferType` is
+  /// available for computing the double-buffered allocation size of operand
+  /// allocs that will be streamed.
   LogicalResult analyzeGenericRegionAllocs(func::FuncOp funcOp,
                                            FuncAnalysisData &analysis) {
     IRRewriter rewriter(funcOp->getContext());
     ttcore::DeviceAttr device = ttcore::lookupDevice(funcOp);
     Block &funcBody = funcOp.getBody().front();
+    const auto &L1memInfo = memSpaces[ordinal(MemorySpace::DeviceL1)];
 
     funcBody.walk([&](d2m::GenericOp genericOp) {
       SequenceT genericSeqPos = analysis.sequencing[genericOp];
+      auto genericIt = analysis.generics.find(genericOp);
 
-      for (Region &region : genericOp->getRegions()) {
-        region.walk([&](memref::AllocOp allocOp) {
-          auto memrefType =
-              mlir::cast<MemRefType>(allocOp->getResultTypes().front());
-          MemrefValueContext &ctx = addMemrefValueContext(
-              rewriter, analysis, allocOp.getResult(), memrefType, device);
-          ctx.live = {genericSeqPos, genericSeqPos};
-          ctx.isInsideGeneric = true;
-          ctx.isMemspaceBound = true;
-        });
+      // Only register allocs that will actually get streams inserted
+      // (matching the guards in prepareMemoryPlanner / insertOperandStreams).
+      // These will be replaced with CBBufferLayoutAttr allocs by
+      // insertStream and need planner-assigned L1 addresses.
+      if (genericIt != analysis.generics.end() &&
+          !genericIt->second.isDMAOnly &&
+          !genericIt->second.isExplicitDatamovement) {
+        for (Region &region : genericOp->getRegions()) {
+          for (const OperandContext &operandCtx : genericIt->second.operands) {
+            if (!operandCtx.bufferType) {
+              continue;
+            }
+            auto operandMemSpace =
+                ttcore::getMemorySpace(operandCtx.operand->get().getType());
+            if (isOperandExemptFromStreaming(operandCtx, operandMemSpace)) {
+              continue;
+            }
+            if (!inferStreamRequirement(genericOp, operandCtx,
+                                        operandMemSpace)) {
+              continue;
+            }
+            Value operandAlloc = d2m::GenericOp::getOperandAlloc(
+                region, operandCtx.operandIndex());
+            if (!operandAlloc) {
+              continue;
+            }
+            auto allocOp = operandAlloc.getDefiningOp<memref::AllocOp>();
+            if (!allocOp) {
+              continue;
+            }
+            auto memrefType = allocOp.getType();
+            MemrefValueContext &ctx = addMemrefValueContext(
+                rewriter, analysis, allocOp.getResult(), memrefType, device);
+            ctx.live = {genericSeqPos, genericSeqPos};
+            ctx.isInsideGeneric = true;
+            ctx.isMemspaceBound = true;
+            ctx.allocSize[ordinal(asPlannerSpace(MemorySpace::DeviceL1))] =
+                ttmlir::utils::alignUp(
+                    getStreamBufferSizeBytes(operandCtx.bufferType, device),
+                    L1memInfo.alignment);
+          }
+        }
       }
     });
 
@@ -1509,14 +1547,24 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 d2m::CBType::get(getCbOp.getContext(), newUnderlying));
           } else {
             Value newValue;
-            if (mlir::isa<memref::AllocOp>(oldTensor.getDefiningOp())) {
+            if (auto oldAllocOp = mlir::dyn_cast<memref::AllocOp>(
+                    oldTensor.getDefiningOp())) {
               // Preserve memory space from the old memref type.
               auto oldMemRefType = mlir::cast<MemRefType>(oldTensor.getType());
+              auto cbLayout = ttcore::CBBufferLayoutAttr::get(
+                  shardShape, streamType.getElementType(), numStreamBuffers);
               auto newAllocOp = rewriter.create<memref::AllocOp>(
                   oldTensor.getLoc(),
                   MemRefType::get(shardShape, streamType.getElementType(),
-                                  /*layout=*/MemRefLayoutAttrInterface{},
-                                  oldMemRefType.getMemorySpace()));
+                                  cbLayout, oldMemRefType.getMemorySpace()));
+              // Transfer address and alignment from the old alloc (assigned
+              // by the planner in assignAllocAddresses).
+              if (auto addrAttr = oldAllocOp->getAttr("address")) {
+                newAllocOp->setAttr("address", addrAttr);
+              }
+              if (auto alignAttr = oldAllocOp.getAlignmentAttr()) {
+                newAllocOp.setAlignmentAttr(alignAttr);
+              }
               newValue = newAllocOp.getResult();
             } else {
               auto newEmptyOp = rewriter.create<mlir::tensor::EmptyOp>(

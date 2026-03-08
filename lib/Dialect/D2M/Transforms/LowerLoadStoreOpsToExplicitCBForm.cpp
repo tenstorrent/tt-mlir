@@ -223,11 +223,16 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     // Get the local buffer (destination) from implicit form remote_load
     // Downstream operations may reference this buffer directly
     Value localBuffer = remoteLoad.getLocalBuffer();
+    // Only erase allocs that live inside the generic (local working buffers).
+    // Hoisted CB allocs live outside as additionalArgs and must not be erased.
+    GenericOp generic = remoteLoad->getParentOfType<GenericOp>();
     memref::AllocOp allocToErase = nullptr;
     if (localBuffer) {
       if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
               localBuffer.getDefiningOp())) {
-        allocToErase = allocOp;
+        if (generic && generic->isAncestor(allocOp)) {
+          allocToErase = allocOp;
+        }
       }
     }
 
@@ -270,11 +275,15 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
       }
     }
 
-    // Replace all uses of the local buffer with the wait result
-    // This is important because downstream operations may reference the
-    // localBuffer directly (e.g., remote_store using the alloc result)
+    // Replace uses of the local buffer with the wait result.
+    // Only replace uses inside the generic's regions — the local buffer may
+    // be an additionalArg (hoisted CB alloc) whose operand on the generic op
+    // itself must not be touched.
     if (localBuffer) {
-      rewriter.replaceAllUsesWith(localBuffer, waitOp.getResult());
+      rewriter.replaceUsesWithIf(
+          localBuffer, waitOp.getResult(), [&](OpOperand &use) {
+            return generic && generic->isProperAncestor(use.getOwner());
+          });
     }
 
     // Replace all uses of remote_load result with wait result
@@ -288,7 +297,6 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     // Erase the original remote_load operation
     rewriter.eraseOp(remoteLoad);
 
-    // Erase the memref.alloc if it was the local buffer source
     if (allocToErase) {
       rewriter.eraseOp(allocToErase);
     }
@@ -382,9 +390,15 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
         // WaitOp result. Extract the CB from the WaitOp.
         assocCb = waitOp.getCb();
       } else {
-        remoteStore.emitWarning(
-            "could not find CB for local buffer, skipping conversion");
-        continue;
+        // The localBuffer may be a hoisted additionalArg (external alloc).
+        // Find the CB via the store's memref operand instead.
+        assocCb = findAssociatedCB(remoteStore.getOperation(), memref, rewriter,
+                                   cache, portCounters);
+        if (!assocCb) {
+          remoteStore.emitWarning(
+              "could not find CB for local buffer, skipping conversion");
+          continue;
+        }
       }
 
       rewriter.setInsertionPoint(remoteStore);
@@ -395,11 +409,25 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
                                      assocCb);
 
       // Track the reserve op for push insertion (avoid duplicates).
-      // When the CB was found through a WaitOp (non-simplified load-store
-      // pair), there is no ReserveOp — the load already populated the CB.
-      // We only need a pop after consuming the data.
       if (reserveOp && cbsWithReserveOps.insert(assocCb).second) {
         info.reserveOpsNeedingPush.push_back({reserveOp, assocCb});
+      } else if (!reserveOp && cbsWithReserveOps.insert(assocCb).second) {
+        // No existing reserve (e.g. hoisted additionalArg output).
+        // Create right after the get_cb so it dominates all uses.
+        OpBuilder::InsertionGuard reserveGuard(rewriter);
+        rewriter.setInsertionPointAfterValue(assocCb);
+        auto newReserve = rewriter.create<ReserveOp>(loc, assocCb);
+        info.reserveOpsNeedingPush.push_back({newReserve, assocCb});
+        // Replace uses of the old localBuffer with the reserve result
+        // inside the generic only.
+        if (localBuffer) {
+          GenericOp storeGeneric = remoteStore->getParentOfType<GenericOp>();
+          rewriter.replaceUsesWithIf(
+              localBuffer, newReserve.getResult(), [&](OpOperand &use) {
+                return storeGeneric &&
+                       storeGeneric->isProperAncestor(use.getOwner());
+              });
+        }
       }
 
       // Erase the original remote_store operation
@@ -428,22 +456,32 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
 // Pass B: Insert push and pop operations
 static void insertPushAndPopOps(ModuleOp moduleOp, IRRewriter &rewriter,
                                 PushPopInfo &info) {
-  // Insert pop ops for remote_load conversions
+  // Insert pop ops for remote_load conversions.
+  // Insert the pop in the same block as the corresponding WaitOp so that
+  // D2MCBOpRewriter::hasExplicitRelease (which only checks the same block)
+  // finds it and does not auto-insert a duplicate pop.
   for (auto &[assocCb, loc] : info.cbsNeedingPop) {
-    Operation *parentOp = assocCb.getParentRegion()->getParentOp();
-    GenericOp generic = mlir::dyn_cast<GenericOp>(parentOp);
-    if (!generic) {
+    // Find the WaitOp that uses this CB.
+    WaitOp waitOp = nullptr;
+    for (auto *user : assocCb.getUsers()) {
+      if (auto w = dyn_cast<WaitOp>(user)) {
+        waitOp = w;
+        break;
+      }
+    }
+    if (!waitOp) {
       continue;
     }
 
-    TT_assert(generic.getNumRegions() == 1u);
-    Region *genericRegion = &generic.getRegion(0);
-
-    if (genericRegion && !genericRegion->empty()) {
-      Block *topLevelBlock = &genericRegion->front();
-      rewriter.setInsertionPointToEnd(topLevelBlock);
-      rewriter.create<PopOp>(loc, assocCb);
+    Block *waitBlock = waitOp->getBlock();
+    // Insert before the terminator (e.g., scf.yield) to avoid placing
+    // ops after it, which would violate block structure invariants.
+    if (waitBlock->mightHaveTerminator()) {
+      rewriter.setInsertionPoint(waitBlock->getTerminator());
+    } else {
+      rewriter.setInsertionPointToEnd(waitBlock);
     }
+    rewriter.create<PopOp>(loc, assocCb);
   }
 
   // Insert push ops for each reserve op
