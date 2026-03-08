@@ -46,6 +46,12 @@ public:
   virtual void onEviction(Operation *victim, int64_t pos, uint64_t freedBytes) {
   }
 
+  /// Fragmentation risk: op demoted to DRAM in place to avoid CB clash.
+  virtual void onFragmentationDemote(Operation *op, int64_t pos,
+                                     uint64_t transientPeak, uint64_t opL1Size,
+                                     uint64_t inputL1Size, uint64_t holeL1Size,
+                                     uint64_t fragLimit, uint64_t occupiedL1) {}
+
   /// Op exceeds budget alone -- self-spill to DRAM.
   virtual void onSelfSpill(Operation *op, int64_t pos) {}
 

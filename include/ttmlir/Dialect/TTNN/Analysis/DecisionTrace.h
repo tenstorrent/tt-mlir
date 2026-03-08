@@ -126,7 +126,8 @@ struct SpillEventRecord {
   std::string opName;
   std::string action; // "dead_removal", "live_added", "oom",
                       // "demotion_success", "demotion_failed",
-                      // "eviction", "self_spill", "revalidation"
+                      // "eviction", "fragmentation_demote",
+                      // "self_spill", "revalidation"
   uint64_t occupiedL1Before = 0;
   uint64_t occupiedL1After = 0;
   uint64_t opL1Usage = 0;
@@ -230,6 +231,10 @@ public:
   void onDemotion(Operation *op, int64_t pos, bool success,
                   uint64_t newL1Usage) override;
   void onEviction(Operation *victim, int64_t pos, uint64_t freedBytes) override;
+  void onFragmentationDemote(Operation *op, int64_t pos, uint64_t transientPeak,
+                             uint64_t opL1Size, uint64_t inputL1Size,
+                             uint64_t holeL1Size, uint64_t fragLimit,
+                             uint64_t occupiedL1) override;
   void onSelfSpill(Operation *op, int64_t pos) override;
   void onRevalidationCascade(Operation *changed, Operation *consumer,
                              bool outputChanged) override;

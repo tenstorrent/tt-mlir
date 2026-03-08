@@ -101,11 +101,11 @@ private:
   /// Build L1 interleaved OpConfig from op's current config.
   static OpConfig makeL1InterleavedConfig(Operation *op);
 
-  /// Update op's IR to reflect demoted layout (result type, DPS operand,
-  /// L1 usage attr).
+  /// Update op's IR to reflect the output layout from a validation result
+  /// (result type, L1 usage attr).
   void
-  applyDemotedConfig(Operation *op,
-                     const op_constraint_validation::ValidationResult &result);
+  applyOutputConfig(Operation *op,
+                    const op_constraint_validation::ValidationResult &result);
 
   /// After spilling a victim to DRAM, re-validate consumers via worklist.
   /// Cascades through already-processed ops (pos < currentPos) until no more
@@ -118,6 +118,10 @@ private:
   /// position of its last consumer (per-result granularity).
   llvm::DenseMap<Value, int64_t>
   computeLastUsePositions(const llvm::SmallVector<Operation *> &schedule);
+
+  /// Demote an op's output from L1 to DRAM interleaved in place.
+  /// For ToMemoryConfigOp, also updates the memory_config attribute.
+  void demoteToDram(Operation *op);
 
   /// Insert ToMemoryConfigOp to spill a single result value to DRAM
   /// interleaved.
@@ -139,6 +143,15 @@ private:
 
   /// Remove result tensors whose last use was the previous position.
   void processDeadTensors(int64_t pos, const ScheduleData &data);
+
+  /// Estimate the transient L1 fragmentation peak for an op. Returns true if
+  /// the op should be spilled to DRAM to avoid CB-vs-buffer address clashes.
+  /// The estimate accounts for the op's output, its largest L1 input (live
+  /// during execution), and the largest L1 input to the producer (a freed hole
+  /// that fragments L1). See:
+  /// https://github.com/tenstorrent/tt-mlir/issues/7396
+  bool exceedsFragmentationThreshold(Operation *op, int64_t pos,
+                                     uint64_t opL1Size);
 
   /// OOM recovery: demote to L1-interleaved, evict farthest-use, or spill self.
   void handleOOM(Operation *op, int64_t pos,

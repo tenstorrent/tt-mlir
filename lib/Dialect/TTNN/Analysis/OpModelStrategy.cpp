@@ -101,7 +101,8 @@ OutputHints getOutputHints(Operation *op,
       // every sharded output hint is rejected. Use NULL hint only,
       // no fallbacks.
       .Case<ScaledDotProductAttentionDecodeOp,
-            PagedScaledDotProductAttentionDecodeOp>(
+            PagedScaledDotProductAttentionDecodeOp,
+            ScaledDotProductAttentionOp>(
           [&](auto) { return OutputHints{{OpConfig(TTNNLayoutAttr())}, {}}; })
       .Case<WhereOp>(
           [&](auto) { return OutputHints{{OpConfig(TTNNLayoutAttr())}, {}}; })
