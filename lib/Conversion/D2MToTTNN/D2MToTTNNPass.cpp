@@ -57,12 +57,7 @@ struct ConvertD2MToTTNNPass final
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<d2m::D2MDialect>();
 
-    target.addDynamicallyLegalOp<memref::AllocOp>([](memref::AllocOp op) {
-      // Hoisted CB allocs (CBBufferLayoutAttr) are handled as additionalArgs
-      // by the generic rewriter and don't need conversion here.
-      return mlir::isa_and_present<ttcore::CBBufferLayoutAttr>(
-          op.getMemref().getType().getLayout());
-    });
+    target.addIllegalOp<memref::AllocOp>();
     target.addIllegalOp<memref::DeallocOp>();
 
     TypeConverter typeConverter;

@@ -31,14 +31,17 @@ public:
 
 private:
   void hoistCBAllocs(IRRewriter &rewriter, d2m::GenericOp genericOp) {
-    // Collect allocs to hoist (can't modify while walking).
-    SmallVector<memref::AllocOp> allocsToHoist;
+    // Collect allocs to hoist AND their operand indices BEFORE modifying the
+    // IR.  getOperandAlloc uses positional counting, so erasing allocs shifts
+    // positions and breaks subsequent lookups.
+    SmallVector<std::pair<memref::AllocOp, int64_t>> allocsToHoist;
     for (Region &region : genericOp->getRegions()) {
       region.walk([&](memref::AllocOp allocOp) {
         auto memrefType = allocOp.getType();
         if (mlir::isa<ttcore::CBBufferLayoutAttr>(memrefType.getLayout()) &&
             allocOp->getAttrOfType<IntegerAttr>("address")) {
-          allocsToHoist.push_back(allocOp);
+          int64_t idx = findRegularOperandIndex(genericOp, allocOp);
+          allocsToHoist.push_back({allocOp, idx});
         }
       });
     }
@@ -49,11 +52,8 @@ private:
 
     auto defaultGridShape = genericOp.getPhysicalGridShape();
 
-    for (memref::AllocOp allocOp : allocsToHoist) {
+    for (auto [allocOp, operandIdx] : allocsToHoist) {
       auto allocType = allocOp.getType();
-
-      // Find which regular operand this alloc corresponds to.
-      int64_t operandIdx = findRegularOperandIndex(genericOp, allocOp);
 
       // Derive grid shape from the corresponding external operand's device
       // layout (not the generic's physical grid, which may be a virtual grid

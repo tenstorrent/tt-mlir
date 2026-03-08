@@ -731,6 +731,58 @@ public:
         }
       }
       rewriter.eraseOp(op);
+    } else if (auto cbLayout =
+                   mlir::dyn_cast_if_present<ttcore::CBBufferLayoutAttr>(
+                       memrefType.getLayout())) {
+      // Hoisted CB alloc.  Build a ShardLayoutAttr memref (needed by
+      // convertMemrefToTTNNTensor) from the CB info + d2m.grid_shape, then
+      // create a ttnn.empty.
+      auto gridAttr = op->getAttrOfType<DenseI64ArrayAttr>("d2m.grid_shape");
+      if (!gridAttr) {
+        return rewriter.notifyMatchFailure(
+            op, "CBBufferLayoutAttr alloc missing d2m.grid_shape");
+      }
+      auto gridShape = gridAttr.asArrayRef();
+      auto shardShape = memrefType.getShape();
+      SmallVector<int64_t> fullShape(gridShape.begin(), gridShape.end());
+      fullShape.append(shardShape.begin(), shardShape.end());
+      auto shardLayoutAttr = ttcore::ShardLayoutAttr::get(
+          shardShape, memrefType.getElementType(), cbLayout.getBuffers());
+      auto shardMemrefType =
+          MemRefType::get(fullShape, memrefType.getElementType(),
+                          shardLayoutAttr, memrefType.getMemorySpace());
+
+      auto deviceAttr = ttcore::lookupDevice(op);
+      if (!deviceAttr) {
+        return rewriter.notifyMatchFailure(op,
+                                           "could not find device attribute");
+      }
+
+      // Build a temporary typed Value to feed convertMemrefToTTNNTensor.
+      // We use an unrealized_conversion_cast as a placeholder.
+      auto placeholder = rewriter.create<mlir::UnrealizedConversionCastOp>(
+          op.getLoc(), shardMemrefType, ValueRange{});
+      auto convertedTensorType =
+          detail::convertMemrefToTTNNTensor(ctx, placeholder.getResult(0));
+      rewriter.eraseOp(placeholder);
+
+      auto convertedLayoutAttr =
+          mlir::cast<ttnn::TTNNLayoutAttr>(convertedTensorType.getEncoding());
+      auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
+      auto memcfg = ttnn::MemoryConfigAttr::get(convertedLayoutAttr,
+                                                deviceAttr.getWorkerGrid());
+      for (Operation *user :
+           llvm::make_early_inc_range(op.getResult().getUsers())) {
+        if (mlir::isa<memref::DeallocOp>(user)) {
+          rewriter.eraseOp(user);
+        }
+      }
+      rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
+          op, convertedTensorType, device,
+          ttnn::ShapeAttr::get(ctx, convertedTensorType.getShape()),
+          ttcore::DataTypeAttr::get(ctx, convertedLayoutAttr.getDataType()),
+          ttnn::LayoutAttr::get(ctx, convertedLayoutAttr.getLayout()), memcfg);
+      return success();
     } else if (mlir::isa_and_present<ttcore::DeviceLayoutInterface>(
                    memrefType.getLayout())) {
       auto deviceAttr = ttcore::lookupDevice(op);
