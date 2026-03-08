@@ -31,8 +31,20 @@ op_constraint_validation::ValidationResult
 SumL1MemoryTracker::validate(Operation *op,
                              llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                              const OpConfig &config) const {
+  // Subtract L1 sizes of input tensors that are already tracked in the live
+  // set. OpModel's overallPeakL1Usage already accounts for input buffers, so
+  // including them in additionalL1Usage would double-count.
+  uint64_t inputOverlap = 0;
+  for (auto operand : op->getOperands()) {
+    auto it = tensorSizes.find(operand);
+    if (it != tensorSizes.end()) {
+      inputOverlap += it->second;
+    }
+  }
+  uint64_t additionalL1 =
+      currentOccupied > inputOverlap ? currentOccupied - inputOverlap : 0;
   return op_constraint_validation::validateOperation(op, inputLayouts, config,
-                                                     currentOccupied);
+                                                     additionalL1);
 }
 
 uint64_t SumL1MemoryTracker::getOccupiedL1() const { return currentOccupied; }
@@ -144,11 +156,11 @@ Value L1SpillManagement<MemoryTracker>::evictFarthestUse() {
 }
 
 //===----------------------------------------------------------------------===//
-// applyDemotedConfig
+// applyOutputConfig
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::applyDemotedConfig(
+void L1SpillManagement<MemoryTracker>::applyOutputConfig(
     Operation *op, const op_constraint_validation::ValidationResult &result) {
   TTNNLayoutAttr chosenLayout = result.getFirstActualOutputLayout();
   if (!chosenLayout) {
@@ -281,7 +293,7 @@ void L1SpillManagement<MemoryTracker>::revalidateConsumers(
       if (outputChanged) {
         // Backend returned a different output layout for this consumer.
         // Update consumer's IR to match.
-        applyDemotedConfig(consumer, result);
+        applyOutputConfig(consumer, result);
         // Update memory tracker for any live results of this consumer.
         // Even split approximation — see addResultsToLiveSet in run().
         size_t numTensorResults = 0;
@@ -407,7 +419,7 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    DEMOTED to L1 interleaved: outputL1Usage={0}",
                    demoteResult.outputL1Usage);
-      applyDemotedConfig(op, demoteResult);
+      applyOutputConfig(op, demoteResult);
       addResultsToLiveSet(demoteResult.outputL1Usage);
       return;
     }
@@ -458,6 +470,42 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
       spillToDram(r);
     }
   }
+}
+
+//===----------------------------------------------------------------------===//
+// exceedsFragmentationThreshold
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+bool L1SpillManagement<MemoryTracker>::exceedsFragmentationThreshold(
+    Operation *op, int64_t pos, uint64_t opL1Size) {
+  // Estimate worst-case transient L1 peak during this op's execution.
+  // At runtime, tt-metal allocates tensors from the top of each L1 bank.
+  // Prior ops' freed outputs leave holes that can't be reused by larger
+  // tensors, reducing the largest contiguous free block below the total free.
+  //
+  // The transient peak is: opOutput + totalOccupiedL1.
+  // All live L1 tensors (tracked by the memory tracker) contribute to
+  // fragmentation — their scattered placement reduces contiguous free space.
+  // When the op's output plus all occupied L1 exceeds the fragmentation
+  // threshold, the allocation is unlikely to find a contiguous free block.
+  // See: https://github.com/tenstorrent/tt-mlir/issues/7396
+  constexpr double kFragThreshold = 0.8;
+  uint64_t occupied = memoryTracker.getOccupiedL1();
+  uint64_t transientPeak = opL1Size + occupied;
+  uint64_t fragLimit = static_cast<uint64_t>(kFragThreshold * l1BudgetPerCore);
+
+  if (transientPeak > fragLimit) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    FRAG_RISK: transientPeak={0} (output={1} + "
+                 "occupied={2}) > {3}",
+                 transientPeak, opL1Size, occupied, fragLimit);
+    observer_->onFragmentationDemote(op, pos, transientPeak, opL1Size,
+                                     /*inputL1Size=*/0, /*holeL1Size=*/0,
+                                     fragLimit, occupied);
+    return true;
+  }
+  return false;
 }
 
 // NOTE: spillCount tracking in run() is approximate after extracting
@@ -550,9 +598,34 @@ void L1SpillManagement<MemoryTracker>::run() {
     }
 
     if (result.isSuccess()) {
-      // Validation passed -- add all tensor results to live set.
       uint64_t l1Size =
           result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
+
+      // Check fragmentation risk before committing to L1.
+      if (exceedsFragmentationThreshold(op, pos, l1Size)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                     "    FRAG_DEMOTE at pos {0}: {1}", pos,
+                     ttmlir::opToString(op));
+        demoteToDram(op);
+
+        // Re-validate with DRAM output. If it fails, revert to L1 and
+        // proceed on the happy path — hope the runtime can handle it.
+        auto demotedConfig = extractOpConfigFromIR(op);
+        auto demotedResult =
+            memoryTracker.validate(op, inputLayouts, demotedConfig);
+        if (!demotedResult.isSuccess()) {
+          TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                       "    FRAG_DEMOTE validation failed, reverting: {0}",
+                       ttmlir::opToString(op));
+          // Revert: restore original L1 config and fall through to happy path.
+          applyOutputConfig(op, result);
+          addResultsToLiveSet(result.outputL1Usage > 0 ? result.outputL1Usage
+                                                       : opL1Usage);
+        }
+        continue;
+      }
+
+      // Validation passed -- add all tensor results to live set.
       addResultsToLiveSet(l1Size);
       observer_->onLiveAdded(op, pos, l1Size, pos,
                              memoryTracker.getOccupiedL1());
@@ -635,6 +708,48 @@ L1SpillManagement<MemoryTracker>::computeLastUsePositions(
   }
 
   return resultLastUse;
+}
+
+//===----------------------------------------------------------------------===//
+// demoteToDram
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
+  for (auto opResult : op->getResults()) {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(opResult.getType());
+    if (!tensorType) {
+      continue;
+    }
+    auto layoutAttr =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
+    if (!layoutAttr || !layoutAttr.hasL1BufferType()) {
+      continue;
+    }
+    TTNNLayoutAttr dramLayout =
+        layoutAttr.withBufferType(BufferType::DRAM)
+            .withMemoryLayout(TensorMemoryLayout::Interleaved);
+    RankedTensorType newType =
+        utils::RankedTensorTypeFactory::create(tensorType, dramLayout);
+    opResult.setType(newType);
+  }
+
+  // For ToMemoryConfigOp, update the memory_config attribute to match.
+  if (auto tmcOp = mlir::dyn_cast<ToMemoryConfigOp>(op)) {
+    auto dramLayout = mlir::cast<TTNNLayoutAttr>(
+        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getEncoding());
+    MemoryConfigAttr dramMemConfig = MemoryConfigAttr::get(
+        op->getContext(), dramLayout.getMemLayout(),
+        BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
+        utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
+    tmcOp.setMemoryConfigAttr(dramMemConfig);
+  }
+
+  // Remove L1 usage annotation since the output is now DRAM.
+  op->removeAttr("ttnn.output_l1_usage");
+
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer, "Demoted to DRAM: {0}",
+               ttmlir::opToString(op));
 }
 
 //===----------------------------------------------------------------------===//

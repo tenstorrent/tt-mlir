@@ -175,6 +175,19 @@ uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout) {
   return opLayout.getShardSizeInBytes();
 }
 
+uint64_t getPerCoreL1Usage(TTNNLayoutAttr layout, uint64_t numCores) {
+  if (!layout.hasL1BufferType()) {
+    return 0;
+  }
+  uint64_t totalSize = layout.getShardSizeInBytes();
+  auto ml = layout.getMemLayout();
+  if (ml && isShardedMemoryLayout(ml.getValue())) {
+    return totalSize;
+  }
+  // L1 interleaved: data is distributed across all device cores.
+  return numCores > 0 ? totalSize / numCores : totalSize;
+}
+
 // Helper method to get the tensor layout attribute from the value.
 TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorType) {
   return mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
