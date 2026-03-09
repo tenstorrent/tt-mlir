@@ -1157,6 +1157,8 @@ public:
         emitter.emit(embeddingOp.getWeight()),
         emitter.emit(std::nullopt),
         emitter.emit(layoutAttr),
+        emitc::OpaqueAttr::get(rewriter.getContext(),
+                               "::ttnn::prim::EmbeddingsType::GENERIC"),
         emitter.emit(emitter.getOutputDtype(embeddingOp.getResult())),
         emitter.emit(std::nullopt) |
             emitter.getMemoryConfig(embeddingOp.getResult()),
