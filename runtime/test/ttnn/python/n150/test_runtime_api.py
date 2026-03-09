@@ -244,6 +244,27 @@ def test_create_owned_tensor_with_unsupported_data_type(dtype):
     assert torch.all(torch_output_tensor == torch_input_tensor)
 
 
+def test_create_owned_tensor_with_mmap():
+    ttrt.runtime.set_current_device_runtime(ttrt.runtime.DeviceRuntime.TTNN)
+    torch_input_tensor = (127 * torch.rand((64, 128))).to(torch.bfloat16)
+    runtime_dtype = Binary.Program.to_data_type(torch.bfloat16)
+    runtime_input_tensor = ttrt.runtime.create_owned_host_tensor(
+        torch_input_tensor.data_ptr(),
+        list(torch_input_tensor.shape),
+        list(torch_input_tensor.stride()),
+        torch_input_tensor.element_size(),
+        runtime_dtype,
+    )
+    print("Done creating owned tensor", flush=True)
+    torch_output_tensor = torch.zeros_like(torch_input_tensor)
+    ttrt.runtime.memcpy(
+        torch_output_tensor.data_ptr(),
+        runtime_input_tensor,
+        Binary.Program.to_data_type(torch.bfloat16),
+    )
+    assert torch.all(torch_output_tensor == torch_input_tensor)
+
+
 @pytest.mark.parametrize("num_loops", [64])
 def test_unblocking_to_host(num_loops):
     ttrt.runtime.set_current_device_runtime(ttrt.runtime.DeviceRuntime.TTNN)
