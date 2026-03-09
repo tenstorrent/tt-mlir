@@ -573,7 +573,6 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
   }
 
   createTTIRToTTNNDevicePipeline(pm, options);
-
   createTTNNToEmitPyDevicePipeline(pm, options);
 
   // Lower CPU module to EmitPy using TTNN golden functions.
