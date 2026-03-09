@@ -71,11 +71,103 @@ module {
 
 // -----
 
-// Test literal_expr must not be empty
+// Test literal_expr must not be empty string
 module {
   func.func @test_dict_empty_literal() -> !emitpy.dict {
     // CHECK: error: 'emitpy.create_dict' op literal_expr must not be empty
     %dict = emitpy.create_dict "empty_literal" {literal_expr = ""} : () -> !emitpy.dict
     return %dict : !emitpy.dict
+  }
+}
+
+// -----
+
+// Test cannot have empty items and empty literal_expr
+module {
+  func.func @test_dict_empty_items_and_literal() -> !emitpy.dict {
+    // CHECK: error: 'emitpy.create_dict' op cannot have both literal_expr and items empty
+    %dict = emitpy.create_dict "empty_dict" : () -> !emitpy.dict
+    return %dict : !emitpy.dict
+  }
+}
+
+// -----
+
+// Test dictionary keys must be index or string type (not dict)
+module {
+  func.func @test_dict_invalid_key_type(%key: !emitpy.dict, %value: !emitpy.opaque<"int">) -> !emitpy.dict {
+    // CHECK: error: 'emitpy.create_dict' op dictionary keys must be index or string type, but got '!emitpy.dict' at position 0
+    %dict = emitpy.create_dict "bad_key_dict" (%key, %value) : (!emitpy.dict, !emitpy.opaque<"int">) -> !emitpy.dict
+    return %dict : !emitpy.dict
+  }
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// SubscriptOp negative tests
+//===----------------------------------------------------------------------===//
+
+// Test cannot use string index on non-dict type
+module {
+  func.func @test_subscript_string_on_non_dict(%arr: !emitpy.opaque<"[int]">, %key: !emitpy.str) -> !emitpy.opaque<"int"> {
+    // CHECK: error: 'emitpy.subscript' op cannot use string index on non-dict type '!emitpy.opaque<"[int]">'
+    %elem = emitpy.subscript %arr[%key] : (!emitpy.opaque<"[int]">, !emitpy.str) -> !emitpy.opaque<"int">
+    return %elem : !emitpy.opaque<"int">
+  }
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// AssignOp negative tests
+//===----------------------------------------------------------------------===//
+
+// Test that direct subscript assignment is not allowed
+module {
+  func.func @test_assign_subscript_directly(%dict: !emitpy.dict, %key: index, %value: !emitpy.opaque<"[ttnn.Tensor]">) {
+    %sub = emitpy.subscript %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+    // CHECK: error: 'emitpy.assign' op subscript assignment (e.g., dict[key] = value) must be wrapped in emitpy.expression.
+    emitpy.assign %sub = %value : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
+    return
+  }
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// ExpressionOp subscript assignment negative tests
+//===----------------------------------------------------------------------===//
+
+// Test that subscript assignment expression cannot contain unsupported ops
+module {
+  func.func @test_subscript_assign_expr_unsupported_op(%dict: !emitpy.dict, %key: index, %value: !emitpy.opaque<"[ttnn.Tensor]">) {
+    // CHECK: error: 'emitpy.expression' op subscript assignment expression must only contain subscript, assign, and constant operations
+    emitpy.expression(%dict, %key, %value) : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"None"> {
+    ^bb0(%d: !emitpy.dict, %k: index, %v: !emitpy.opaque<"[ttnn.Tensor]">):
+      %sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+      emitpy.assign %sub = %v : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
+      %extra = emitpy.call_opaque "print"(%v) : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"None">
+      emitpy.yield %extra : !emitpy.opaque<"None">
+    }
+    return
+  }
+}
+
+// -----
+
+// Test that subscript assignment expression must have exactly 3 ops
+module {
+  func.func @test_subscript_assign_expr_wrong_count(%dict: !emitpy.dict, %key: index, %value: !emitpy.opaque<"[ttnn.Tensor]">) {
+    // CHECK: error: 'emitpy.expression' op subscript assignment expression must contain exactly three operations (subscript, assign, constant) before the yield
+    emitpy.expression(%dict, %key, %value) : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"None"> {
+    ^bb0(%d: !emitpy.dict, %k: index, %v: !emitpy.opaque<"[ttnn.Tensor]">):
+      %sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+      emitpy.assign %sub = %v : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
+      %none1 = "emitpy.constant"() <{value = #emitpy.opaque<"None">}> : () -> !emitpy.opaque<"None">
+      %none2 = "emitpy.constant"() <{value = #emitpy.opaque<"None">}> : () -> !emitpy.opaque<"None">
+      emitpy.yield %none1 : !emitpy.opaque<"None">
+    }
+    return
   }
 }
