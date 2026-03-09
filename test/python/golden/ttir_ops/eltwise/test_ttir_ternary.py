@@ -65,8 +65,13 @@ ternary_ops = [
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
-    ids=["f32", "bf16", "i32"],
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.int32 | SkipIf("sim"),
+        torch.int64 | SkipIf("sim"),
+    ],
+    ids=["f32", "bf16", "i32", "i64"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", ternary_ops)
@@ -164,8 +169,9 @@ def test_ternary_eltwise_ops_implicit_broadcast(
         (0.8, -0.5, torch.float32),
         (0.8, -0.5, torch.bfloat16),
         pytest.param(3, 0, torch.int32, marks=pytest.mark.skip_config(["sim"])),
+        pytest.param(3, 0, torch.int64, marks=pytest.mark.skip_config(["sim"])),
     ],
-    ids=["f32", "bf16", "i32"],
+    ids=["f32", "bf16", "i32", "i64"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_clamp_scalar(
@@ -187,10 +193,8 @@ def test_clamp_scalar(
 
     compile_and_execute_ttir(
         module_clamp_scalar,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 

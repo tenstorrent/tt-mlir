@@ -296,7 +296,9 @@ def shapes_to_id(shapes) -> str:
     "shapes", RESHAPE_SHAPES, ids=[shapes_to_id(s) for s in RESHAPE_SHAPES]
 )
 @pytest.mark.parametrize(
-    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+    "dtype",
+    [torch.float32, torch.bfloat16, torch.int32, torch.int64],
+    ids=["f32", "bf16", "i32", "i64"],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reshape(

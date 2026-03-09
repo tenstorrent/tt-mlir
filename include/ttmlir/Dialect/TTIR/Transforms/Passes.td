@@ -114,6 +114,24 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
   ];
 }
 
+def Normalize64BitAndBooleanElementTypes
+    : Pass<"ttir-normalize-64-bit-and-boolean-element-types", "::mlir::ModuleOp"> {
+  let summary =
+      "Normalize 64-bit types (i64/f64->i32/f32), boolean result types, and i1->i32.";
+  let description = [{
+    This pass walks through the graph and:
+
+    1. Phase 1: Converts i64->i32 and f64->f32. Constants are converted.
+
+    2. Phase 2: Rewrites comparison ops (eq, ne, gt, ge, lt, le), logical_not, and
+       reduce_or so their result type matches the input type. Rewrites where ops
+       so the condition type matches the true/false value types.
+
+    3. Phase 3: Converts remaining i1 tensors to i32. Constants are converted
+       (true -> 1, false -> 0).
+  }];
+}
+
 def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp">
 {
   let summary = "Flatten sliding window ops.";
