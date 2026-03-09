@@ -175,9 +175,15 @@ bool ShardSolver::resolveStep() {
           edgeConsumerBitset.set(configBitIndex);
         }
       } else {
-        llvm::SmallVector<OpConfig> testConfigs =
-            optimizer_utils::getUniqueTestConfigs(
-                consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
+        // D2M needs real output layouts in configs; getUniqueTestConfigs for
+        // non-matmul uses null output layout which D2M cannot handle.
+        llvm::SmallVector<OpConfig> testConfigs;
+        if (llvm::isa<ttnn::D2MSubgraphOp>(consumerOp)) {
+          testConfigs.assign(consumerConfigs.begin(), consumerConfigs.end());
+        } else {
+          testConfigs = optimizer_utils::getUniqueTestConfigs(
+              consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
+        }
 
         // Extract input layouts template once
         std::vector<TTNNLayoutAttr> inputLayouts =
@@ -556,9 +562,15 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   //
   MemReconfigEntry memReconfigEntry;
 
-  llvm::SmallVector<OpConfig> testConfigs =
-      optimizer_utils::getUniqueTestConfigs(
-          consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
+  // D2M needs real output layouts; getUniqueTestConfigs for non-matmul uses
+  // null output layout which D2M cannot handle.
+  llvm::SmallVector<OpConfig> testConfigs;
+  if (llvm::isa<ttnn::D2MSubgraphOp>(consumerOp)) {
+    testConfigs.assign(consumerConfigs.begin(), consumerConfigs.end());
+  } else {
+    testConfigs = optimizer_utils::getUniqueTestConfigs(
+        consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
+  }
 
   // Extract and set input layouts for validation
   std::vector<TTNNLayoutAttr> consumerInputOperandLayouts =
