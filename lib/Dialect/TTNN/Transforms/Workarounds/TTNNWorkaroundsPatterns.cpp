@@ -37,6 +37,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -386,19 +387,38 @@ public:
     auto deviceDesc = ttcore::lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
 
-    // Algorithm: iterate through all tensor dimension values and select the
-    // last tensor dimension which is divisible by number of devices along the
-    // cluster axis on which we are performing the all reduce.
+    // Algorithm: iterate through all tensor dimension values in reverse and
+    // select the last tensor dimension which is divisible by number of devices
+    // along the cluster axis on which we are performing the all reduce.
+    // For tiled layouts, additionally require that the tile count in the
+    // scatter dimension is evenly divisible by the number of devices.
     auto sizeOfDevices = meshShape[clusterAxis];
     auto inputShape = inputType.getShape();
-    auto reversedInputShape = llvm::reverse(inputShape);
-    auto tensorDimRevIt =
-        llvm::find_if(reversedInputShape, [sizeOfDevices](int64_t dim) {
-          return dim % sizeOfDevices == 0;
-        });
-    const auto *tensorDimDevice = tensorDimRevIt == reversedInputShape.end()
-                                      ? inputShape.end()
-                                      : tensorDimRevIt.base() - 1;
+    int64_t inputRank = static_cast<int64_t>(inputShape.size());
+
+    TTNNLayoutAttr layoutAttr = utils::getLayoutAttrFromTensor(inputType);
+    bool isTiled = layoutAttr && layoutAttr.isTiled();
+
+    auto canScatterDim = [&](int64_t i) {
+      if (inputShape[i] % sizeOfDevices != 0) {
+        return false;
+      }
+      if (isTiled && i >= inputRank - 2) {
+        int64_t tileSize =
+            (i == inputRank - 1) ? TILE_WIDTH : TILE_HEIGHT;
+        int64_t tileCount = llvm::divideCeil(inputShape[i], tileSize);
+        return tileCount % sizeOfDevices == 0;
+      }
+      return true;
+    };
+
+    const auto *tensorDimDevice = inputShape.end();
+    for (int64_t i = inputRank - 1; i >= 0; --i) {
+      if (canScatterDim(i)) {
+        tensorDimDevice = inputShape.begin() + i;
+        break;
+      }
+    }
 
     if (tensorDimDevice == inputShape.end()) {
       // If all the dimensions are not evenly divisible by the number of
@@ -411,7 +431,7 @@ public:
       // blowup, enforce a size constraint based on DRAM capacity.
       if (exceedsAllGatherReduceMemLimit(ttcore::getCurrentScopeSystemDesc(op),
                                          inputType, meshShape[clusterAxis],
-                                         0.05)) {
+                                         0.12)) {
         return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
       }
     }
