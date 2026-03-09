@@ -385,37 +385,53 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     uint64_t total_size = num_elements * itemsize;
     tt::tt_metal::MemoryPin memory_pin(std::shared_ptr<void>(
         raw_mmap_ptr, [total_size](void *addr) { munmap(addr, total_size); }));
-    auto span = ::ttsl::Span<bfloat16>(
-        reinterpret_cast<bfloat16 *>(raw_mmap_ptr), num_elements);
-    return utils::createRuntimeTensorFromTTNN(
-        ::ttnn::Tensor::from_borrowed_data(span, ::ttnn::Shape(shape),
-                                           memory_pin));
 
-    // switch (dataType) {
-    // case ::tt::target::DataType::Float32:
-    //   return utils::createRuntimeTensorFromTTNN(
-    //       utils::createBorrowedTTNNTensor<float>(raw_mmap_ptr, ttnnShape));
-    // case ::tt::target::DataType::BFloat16:
-    //   return utils::createRuntimeTensorFromTTNN(
-    //       utils::createBorrowedTTNNTensor<bfloat16>(raw_mmap_ptr,
-    //       ttnnShape));
-    // case ::tt::target::DataType::UInt32:
-    //   return utils::createRuntimeTensorFromTTNN(
-    //       utils::createBorrowedTTNNTensor<uint32_t>(raw_mmap_ptr,
-    //       ttnnShape));
-    // case ::tt::target::DataType::UInt16:
-    //   return utils::createRuntimeTensorFromTTNN(
-    //       utils::createBorrowedTTNNTensor<uint16_t>(raw_mmap_ptr,
-    //       ttnnShape));
-    // case ::tt::target::DataType::UInt8:
-    //   return utils::createRuntimeTensorFromTTNN(
-    //       utils::createBorrowedTTNNTensor<uint8_t>(raw_mmap_ptr, ttnnShape));
-    // case ::tt::target::DataType::Int32:
-    //   return utils::createRuntimeTensorFromTTNN(
-    //       utils::createBorrowedTTNNTensor<int32_t>(raw_mmap_ptr, ttnnShape));
-    // default:
-    //   LOG_FATAL("Unsupported data type");
-    // }
+    switch (dataType) {
+    case ::tt::target::DataType::Float32: {
+      auto span = ::ttsl::Span<float>(reinterpret_cast<float *>(raw_mmap_ptr),
+                                      num_elements);
+      return utils::createRuntimeTensorFromTTNN(
+          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
+    }
+    case ::tt::target::DataType::Float16: {
+      auto span = ::ttsl::Span<uint16_t>(
+          reinterpret_cast<uint16_t *>(raw_mmap_ptr), num_elements);
+      return utils::createRuntimeTensorFromTTNN(
+          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
+    }
+    case ::tt::target::DataType::BFloat16: {
+      auto span = ::ttsl::Span<bfloat16>(
+          reinterpret_cast<bfloat16 *>(raw_mmap_ptr), num_elements);
+      return utils::createRuntimeTensorFromTTNN(
+          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
+    }
+    case ::tt::target::DataType::UInt32: {
+      auto span = ::ttsl::Span<uint32_t>(
+          reinterpret_cast<uint32_t *>(raw_mmap_ptr), num_elements);
+      return utils::createRuntimeTensorFromTTNN(
+          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
+    }
+    case ::tt::target::DataType::UInt16: {
+      auto span = ::ttsl::Span<uint16_t>(
+          reinterpret_cast<uint16_t *>(raw_mmap_ptr), num_elements);
+      return utils::createRuntimeTensorFromTTNN(
+          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
+    }
+    case ::tt::target::DataType::UInt8: {
+      auto span = ::ttsl::Span<uint8_t>(
+          reinterpret_cast<uint8_t *>(raw_mmap_ptr), num_elements);
+      return utils::createRuntimeTensorFromTTNN(
+          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
+    }
+    case ::tt::target::DataType::Int32: {
+      auto span = ::ttsl::Span<int32_t>(
+          reinterpret_cast<int32_t *>(raw_mmap_ptr), num_elements);
+      return utils::createRuntimeTensorFromTTNN(
+          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
+    }
+    default:
+      LOG_FATAL("Unsupported data type for mmap tensor creation");
+    }
   }
   ::tt::runtime::Tensor tensor = utils::createRuntimeTensorFromTTNN(
       createOwnedTTNNTensor(data, shape, stride, itemsize, dataType));
