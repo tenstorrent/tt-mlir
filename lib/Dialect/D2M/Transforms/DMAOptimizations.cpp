@@ -10,6 +10,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Support/LLVM.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MOPTIMIZEDMA
@@ -66,9 +67,8 @@ static bool isReadBarrier(DMAWaitOp waitOp) {
 }
 
 static bool isWriteBarrier(DMAWaitOp waitOp) {
-  DMAType kind =
-      mlir::cast<MemTxType>(waitOp.getMemTx().getType()).getDmaType();
-  return kind == DMAType::Write || kind == DMAType::McastWrite;
+  return mlir::cast<MemTxType>(waitOp.getMemTx().getType()).getDmaType() ==
+         DMAType::Write;
 }
 
 //===----------------------------------------------------------------------===//
@@ -205,7 +205,8 @@ static void sinkBarriers(Block &block) {
       // immediately after it. They sink together as a unit.
       Operation *cbPushPop = barrier->getNextNode();
       Value barrierCB = getCBForOp(barrier);
-      bool hasCBPushPop = cbPushPop && mlir::isa<PushOp, PopOp>(cbPushPop) &&
+      bool hasCBPushPop = cbPushPop &&
+                          mlir::isa_and_nonnull<PushOp, PopOp>(cbPushPop) &&
                           barrierCB && getCBForOp(cbPushPop) == barrierCB;
 
       Operation *next =
@@ -244,15 +245,12 @@ static void sinkAllBarriers(Region &region) {
 
 struct WriteBarrierGroup {
   DMAWaitOp barrier;
-  SmallVector<Operation *, 2> companions; // PopOp and/or SemaphoreSetOp
+  PopOp companion;
   Value writeCB;
 };
 
 // Walk backwards from the terminator to find a write barrier group.
-// Matches exactly one of these patterns (in program order):
-//   Non-mcast: dma_wait → pop
-//   Mcast:     dma_wait → semaphore_set → pop
-//              dma_wait → semaphore_set
+// Matches the pattern dma_wait -> pop
 static std::optional<WriteBarrierGroup> findWriteBarrierGroup(Block &body) {
   if (body.empty()) {
     return std::nullopt;
@@ -262,51 +260,22 @@ static std::optional<WriteBarrierGroup> findWriteBarrierGroup(Block &body) {
     return std::nullopt;
   }
 
-  SmallVector<Operation *, 2> companions;
-  Operation *cursor = lastOp.getPrevNode();
-  if (!cursor) {
+  auto pop = mlir::dyn_cast_or_null<PopOp>(lastOp.getPrevNode());
+  if (!pop) {
     return std::nullopt;
   }
 
-  // Pattern: ... [semaphore_set] [pop] <terminator>
-  if (mlir::isa<PopOp>(cursor)) {
-    companions.push_back(cursor);
-    cursor = cursor->getPrevNode();
-    if (cursor && mlir::isa<SemaphoreSetOp>(cursor)) {
-      companions.push_back(cursor);
-      cursor = cursor->getPrevNode();
-    }
-  } else if (mlir::isa<SemaphoreSetOp>(cursor)) {
-    companions.push_back(cursor);
-    cursor = cursor->getPrevNode();
-  }
-
-  if (companions.empty() || !cursor) {
-    return std::nullopt;
-  }
-
-  auto barrier = mlir::dyn_cast<DMAWaitOp>(cursor);
+  auto barrier = mlir::dyn_cast_or_null<DMAWaitOp>(pop->getPrevNode());
   if (!barrier || !isWriteBarrier(barrier)) {
     return std::nullopt;
   }
 
   Value writeCB = getCBForOp(barrier);
-  if (!writeCB) {
+  if (!writeCB || pop.getCb() != writeCB) {
     return std::nullopt;
   }
 
-  // For any PopOp companion, verify its CB matches the barrier CB.
-  for (Operation *comp : companions) {
-    if (mlir::isa<PopOp>(comp)) {
-      Value companionCB = getCBForOp(comp);
-      if (!companionCB || companionCB != writeCB) {
-        return std::nullopt;
-      }
-    }
-  }
-
-  std::reverse(companions.begin(), companions.end());
-  return WriteBarrierGroup{barrier, companions, writeCB};
+  return WriteBarrierGroup{barrier, pop, writeCB};
 }
 
 static bool canDeferWriteBarrier(Block &body, Value writeCB) {
@@ -390,23 +359,11 @@ static bool deferOneWriteBarrier(scf::ForOp &forOp) {
       mlir::cast<MemTxType>(group->barrier.getMemTx().getType()).getDmaType();
   Value nullTx = rewriter.create<NullTxOp>(loc, txType);
 
-  // Capture operands from companions before erasing the barrier group.
+  // Capture operands from the barrier group before erasing.
   Value currentTx = group->barrier.getMemTx();
-  Value popCB;
-  Value semaphore;
-  Value semaphoreVal;
-  for (Operation *comp : group->companions) {
-    if (auto semSet = mlir::dyn_cast<SemaphoreSetOp>(comp)) {
-      semaphore = semSet.getSemaphore();
-      semaphoreVal = semSet.getValue();
-    } else {
-      popCB = mlir::cast<PopOp>(comp).getCb();
-    }
-  }
+  Value popCB = group->companion.getCb();
 
-  for (Operation *comp : group->companions) {
-    comp->erase();
-  }
+  group->companion->erase();
   group->barrier->erase();
 
   auto result = forOp.replaceWithAdditionalYields(
@@ -431,23 +388,13 @@ static bool deferOneWriteBarrier(scf::ForOp &forOp) {
 
   rewriter.setInsertionPointToStart(ifOp.thenBlock());
   rewriter.create<DMAWaitOp>(loc, prevTx);
-  if (semaphore) {
-    rewriter.create<SemaphoreSetOp>(loc, semaphore, semaphoreVal);
-  }
-  if (popCB) {
-    rewriter.create<PopOp>(loc, popCB);
-  }
+  rewriter.create<PopOp>(loc, popCB);
 
   // Epilogue: handle the final iteration's deferred write barrier.
   rewriter.setInsertionPointAfter(newFor);
   Value finalTx = newFor.getResults().back();
   rewriter.create<DMAWaitOp>(loc, finalTx);
-  if (semaphore) {
-    rewriter.create<SemaphoreSetOp>(loc, semaphore, semaphoreVal);
-  }
-  if (popCB) {
-    rewriter.create<PopOp>(loc, popCB);
-  }
+  rewriter.create<PopOp>(loc, popCB);
 
   return true;
 }
