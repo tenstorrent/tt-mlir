@@ -138,13 +138,13 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
   }];
 
   let arguments = (ins
-    Arg<AnyTypeOf<[EmitPy_OpaqueType, EmitPy_DictType]>, "the value to subscript">:$value,
+    Arg<AnyTypeOf<[EmitPy_OpaqueType, EmitPy_DictType]>, "the container to subscript">:$container,
     Arg<AnyTypeOf<[Index, EmitPy_StringType]>, "index or key value">:$index);
 
   let results = (outs EmitPy_Type:$result);
 
   let hasVerifier = 1;
-  let assemblyFormat = "$value `[` $index `]` attr-dict `:` functional-type(operands, results)";
+  let assemblyFormat = "$container `[` $index `]` attr-dict `:` functional-type(operands, results)";
 }
 
 def EmitPy_GetAttrOp : EmitPy_Op<"get_attr", [Pure, PyExpressionInterface]> {
@@ -316,19 +316,15 @@ def EmitPy_AssignOp : EmitPy_Op<"assign",
 
     ```python
     # Code emitted:
-<<<<<<< HEAD
     target = value
     ...
     dict[5] = value
-=======
-    _CONST_EVAL_CACHE[5] = tensors
->>>>>>> main
     ```
   }];
 
   let arguments = (ins
     Arg<EmitPy_Type, "target">:$target,
-    Arg<EmitPy_Type, "value to set">:$value
+    Arg<EmitPy_Type, "value to assign">:$value
   );
 
   let hasVerifier = 1;
