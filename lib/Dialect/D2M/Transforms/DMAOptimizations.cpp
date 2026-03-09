@@ -4,9 +4,11 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 
 namespace mlir::tt::d2m {
@@ -15,13 +17,6 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-//===----------------------------------------------------------------------===//
-// Helpers for DMA barrier ordering analysis.
-// These are shared across all DMA scheduling optimizations.
-//===----------------------------------------------------------------------===//
-
-// Trace a local buffer Value back to its CB through the SSA def chain.
-// Handles both producer-side (reserve → CB) and consumer-side (wait → CB).
 static Value getCBFromLocalBuffer(Value localBuffer) {
   if (!localBuffer) {
     return nullptr;
@@ -35,9 +30,6 @@ static Value getCBFromLocalBuffer(Value localBuffer) {
   return nullptr;
 }
 
-// Get the CB associated with any DMA or CB-protocol op by tracing through
-// the SSA def chain. For DMA ops, follows: dma_read/write → local buffer →
-// reserve/wait → CB. For DMAWaitOp, follows the extra hop through mem_tx.
 static Value getCBForOp(Operation *op) {
   if (!op) {
     return nullptr;
@@ -66,13 +58,14 @@ static Value getCBForOp(Operation *op) {
   return nullptr;
 }
 
-// Returns true only when both CBs can be resolved and are definitively
-// different. Returns false when either is null (conservative: unknown CBs
-// might alias, so treat as potentially conflicting).
 static bool areDifferentCBs(Value a, Value b) { return a && b && a != b; }
 
 static bool isReadBarrier(DMAWaitOp waitOp) {
   return isa_and_nonnull<DMAReadOp>(waitOp.getMemTx().getDefiningOp());
+}
+
+static bool isWriteBarrier(DMAWaitOp waitOp) {
+  return isa_and_nonnull<DMAWriteOp>(waitOp.getMemTx().getDefiningOp());
 }
 
 //===----------------------------------------------------------------------===//
@@ -192,7 +185,6 @@ static bool canSinkPast(Operation *toSink, Operation *sinkOver) {
 // Desired block order after sinking:
 //   reserves/waits_cb → dma_reads/writes → (dma_wait + push/pop) pairs
 //===----------------------------------------------------------------------===//
-
 static void sinkBarriers(Block &block) {
   bool changed = true;
   while (changed) {
@@ -236,14 +228,183 @@ static void sinkBarriers(Block &block) {
   }
 }
 
-// Defer write barriers from the current loop iteration to the next iteration.
-static void deferWriteBarriers(scf::ForOp forOp) {
-  // TODO(vtang): Implement write barrier deferral (Optimization 2).
+struct WriteBarrierGroup {
+  DMAWaitOp barrier;
+  Operation *companion; // PopOp or SemaphoreSetOp
+  Value writeCB;
+};
+
+// Walk backwards from the terminator to find a write barrier group:
+// (DMAWaitOp for a DMAWriteOp, PopOp) at the end of a block.
+static std::optional<WriteBarrierGroup> findWriteBarrierGroup(Block &body) {
+  if (body.empty()) {
+    return std::nullopt;
+  }
+  Operation &lastOp = body.back();
+  if (!lastOp.hasTrait<OpTrait::IsTerminator>()) {
+    return std::nullopt;
+  }
+
+  // Walk backwards: expect pop/semaphore_set then dma_wait right before it.
+  Operation *companion = lastOp.getPrevNode();
+  if (!companion) {
+    return std::nullopt;
+  }
+
+  // Non-mcast: companion is PopOp.
+  if (!isa<PopOp>(companion)) {
+    return std::nullopt;
+  }
+
+  Operation *barrierOp = companion->getPrevNode();
+  if (!barrierOp) {
+    return std::nullopt;
+  }
+
+  auto barrier = dyn_cast<DMAWaitOp>(barrierOp);
+  if (!barrier || !isWriteBarrier(barrier)) {
+    return std::nullopt;
+  }
+
+  Value writeCB = getCBForOp(barrier);
+  if (!writeCB) {
+    return std::nullopt;
+  }
+
+  // Verify the companion's CB matches the barrier's CB.
+  Value companionCB = getCBForOp(companion);
+  if (!companionCB || companionCB != writeCB) {
+    return std::nullopt;
+  }
+
+  return WriteBarrierGroup{barrier, companion, writeCB};
 }
 
-// Defer mcast write barriers from the current loop iteration to the next.
-static void deferMcastWriteBarriers(scf::ForOp forOp) {
-  // TODO(vtang): Implement mcast write barrier deferral (Optimization 3).
+static bool canDeferWriteBarrier(Block &body, Value writeCB) {
+  // Write CB must not alias any read CB (RAW hazard).
+  auto readCheck = body.walk([&](DMAReadOp dmaRead) -> WalkResult {
+    Value readCB = getCBFromLocalBuffer(dmaRead.getDst());
+    if (readCB && readCB == writeCB) {
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (readCheck.wasInterrupted()) {
+    return false;
+  }
+
+  // Write CB must be unique among writes.
+  unsigned writeCount = 0;
+  auto writeCheck = body.walk([&](DMAWriteOp dmaWrite) -> WalkResult {
+    Value otherCB = getCBFromLocalBuffer(dmaWrite.getSrc());
+    if (otherCB && otherCB == writeCB && ++writeCount > 1) {
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (writeCheck.wasInterrupted()) {
+    return false;
+  }
+
+  return true;
+}
+
+static Operation *findDeferralInsertionPoint(Block &body, Value writeCB) {
+  Operation *lastRead = nullptr;
+  for (Operation &op : body) {
+    if (auto waitOp = dyn_cast<WaitOp>(&op)) {
+      if (waitOp.getCb() == writeCB) {
+        return &op;
+      }
+    }
+    if (isa<DMAReadOp>(&op)) {
+      lastRead = &op;
+    }
+  }
+  return lastRead ? lastRead->getNextNode() : &body.front();
+}
+
+//===----------------------------------------------------------------------===//
+// Defer one write barrier group from the end of a loop body to the next
+// iteration. Adds an iter_arg for the deferred mem_tx, inserts an
+// scf.if(iv != lb) guard, and adds an epilogue.
+//
+// Returns true if a barrier was deferred (forOp is updated to the new ForOp).
+// Returns false if no deferrable write barrier was found.
+//
+// Assumes the loop executes at least once (lb < ub). For a
+// zero-iteration loop, the epilogue would incorrectly pop from an unfilled CB.
+//===----------------------------------------------------------------------===//
+static bool deferOneWriteBarrier(scf::ForOp &forOp) {
+  if (auto tripCount = forOp.getStaticTripCount()) {
+    TT_assertv(tripCount->isStrictlyPositive(),
+               "write barrier deferral requires loop to execute at least once");
+  }
+
+  Block &body = *forOp.getBody();
+
+  auto group = findWriteBarrierGroup(body);
+  if (!group) {
+    return false;
+  }
+
+  if (!canDeferWriteBarrier(body, group->writeCB)) {
+    return false;
+  }
+
+  Operation *insertBefore = findDeferralInsertionPoint(body, group->writeCB);
+  IRRewriter rewriter(forOp->getContext());
+  Location loc = forOp.getLoc();
+
+  rewriter.setInsertionPoint(forOp);
+  Value nullTx = rewriter.create<NullTxOp>(loc);
+
+  // Capture the write's tx and CB before erasing the barrier group.
+  Value currentTx = group->barrier.getMemTx();
+  Value companionCB = cast<PopOp>(group->companion).getCb();
+
+  group->companion->erase();
+  group->barrier->erase();
+
+  auto result = forOp.replaceWithAdditionalYields(
+      rewriter, /*newInitOperands=*/{nullTx},
+      /*replaceInitOperandUsesInLoop=*/false,
+      [&](OpBuilder &, Location, ArrayRef<BlockArgument>) {
+        return SmallVector<Value>{currentTx};
+      });
+  auto newFor = cast<scf::ForOp>(*result);
+  forOp = newFor;
+
+  Value prevTx = newFor.getBody()->getArguments().back();
+
+  // Insert the deferred guard.
+  rewriter.setInsertionPoint(insertBefore);
+  Value iv = newFor.getInductionVar();
+  Value lb = newFor.getLowerBound();
+  Value notFirst =
+      rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne, iv, lb);
+  auto ifOp =
+      rewriter.create<scf::IfOp>(loc, notFirst, /*withElseRegion=*/false);
+
+  rewriter.setInsertionPointToStart(ifOp.thenBlock());
+  rewriter.create<DMAWaitOp>(loc, prevTx);
+  rewriter.create<PopOp>(loc, companionCB);
+
+  // Epilogue: handle the final iteration's deferred write barrier.
+  rewriter.setInsertionPointAfter(newFor);
+  Value finalTx = newFor.getResults().back();
+  rewriter.create<DMAWaitOp>(loc, finalTx);
+  rewriter.create<PopOp>(loc, companionCB);
+
+  return true;
+}
+
+// Defer write barriers from the current loop iteration to the next iteration.
+// Terminates because each iteration removes exactly one barrier group from the
+// block until no more barriers are found.
+static void deferWriteBarriers(scf::ForOp forOp) {
+  while (deferOneWriteBarrier(forOp)) {
+  }
 }
 
 class D2MOptimizeDMA : public impl::D2MOptimizeDMABase<D2MOptimizeDMA> {
@@ -274,10 +435,13 @@ public:
           }
         });
 
-        region.walk([](scf::ForOp forOp) {
+        // Collect ForOps before processing to avoid walk invalidation
+        // (deferWriteBarriers erases and replaces the ForOp).
+        SmallVector<scf::ForOp> forOps;
+        region.walk([&](scf::ForOp forOp) { forOps.push_back(forOp); });
+        for (scf::ForOp forOp : forOps) {
           deferWriteBarriers(forOp);
-          deferMcastWriteBarriers(forOp);
-        });
+        }
       }
     });
   }
