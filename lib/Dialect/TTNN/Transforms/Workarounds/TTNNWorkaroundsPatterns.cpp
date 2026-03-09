@@ -404,8 +404,7 @@ public:
         return false;
       }
       if (isTiled && i >= inputRank - 2) {
-        int64_t tileSize =
-            (i == inputRank - 1) ? TILE_WIDTH : TILE_HEIGHT;
+        int64_t tileSize = (i == inputRank - 1) ? TILE_WIDTH : TILE_HEIGHT;
         int64_t tileCount = llvm::divideCeil(inputShape[i], tileSize);
         return tileCount % sizeOfDevices == 0;
       }
