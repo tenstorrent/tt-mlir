@@ -8,8 +8,6 @@
 
 module attributes {} {
   // Two shard-level reads into different CBs.
-  // Before: reserve → read → wait → push, reserve → read → wait → push
-  // After coalescing: reserve → read → reserve → read → (wait → push) → (wait → push)
   // CHECK-LABEL: func.func @test_coalesce_two_reads
   func.func @test_coalesce_two_reads(
       %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
@@ -26,12 +24,12 @@ module attributes {} {
       %gi = d2m.core_index(0) : index
       %gj = d2m.core_index(1) : index
       // CHECK: d2m.reserve %cb0
-      // CHECK: d2m.dma_read
+      // CHECK: [[TX0:%.+]] = d2m.dma_read
       // CHECK: d2m.reserve %cb1
-      // CHECK: d2m.dma_read
-      // CHECK-NEXT: d2m.dma_wait
+      // CHECK: [[TX1:%.+]] = d2m.dma_read
+      // CHECK-NEXT: d2m.dma_wait [[TX0]]
       // CHECK-NEXT: d2m.push %cb0
-      // CHECK-NEXT: d2m.dma_wait
+      // CHECK-NEXT: d2m.dma_wait [[TX1]]
       // CHECK-NEXT: d2m.push %cb1
       %local0 = d2m.reserve %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
       %tx0 = d2m.dma_read %stream0[%gi, %gj], %local0, <0> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
@@ -67,16 +65,16 @@ module attributes {} {
       %gi = d2m.core_index(0) : index
       %gj = d2m.core_index(1) : index
       // CHECK: d2m.reserve %cb0
-      // CHECK: d2m.dma_read
+      // CHECK: [[TX0:%.+]] = d2m.dma_read
       // CHECK: d2m.reserve %cb1
-      // CHECK: d2m.dma_read
+      // CHECK: [[TX1:%.+]] = d2m.dma_read
       // CHECK: d2m.reserve %cb2
-      // CHECK: d2m.dma_read
-      // CHECK-NEXT: d2m.dma_wait
+      // CHECK: [[TX2:%.+]] = d2m.dma_read
+      // CHECK-NEXT: d2m.dma_wait [[TX0]]
       // CHECK-NEXT: d2m.push %cb0
-      // CHECK-NEXT: d2m.dma_wait
+      // CHECK-NEXT: d2m.dma_wait [[TX1]]
       // CHECK-NEXT: d2m.push %cb1
-      // CHECK-NEXT: d2m.dma_wait
+      // CHECK-NEXT: d2m.dma_wait [[TX2]]
       // CHECK-NEXT: d2m.push %cb2
       %local0 = d2m.reserve %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
       %tx0 = d2m.dma_read %stream0[%gi, %gj], %local0, <0> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
@@ -109,8 +107,8 @@ module attributes {} {
       %gi = d2m.core_index(0) : index
       %gj = d2m.core_index(1) : index
       // CHECK: d2m.reserve %cb0
-      // CHECK: d2m.dma_read
-      // CHECK-NEXT: d2m.dma_wait
+      // CHECK: [[TX:%.+]] = d2m.dma_read
+      // CHECK-NEXT: d2m.dma_wait [[TX]]
       // CHECK-NEXT: d2m.push %cb0
       %local = d2m.reserve %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
       %tx = d2m.dma_read %stream[%gi, %gj], %local, <0> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
@@ -136,12 +134,12 @@ module attributes {} {
       %gi = d2m.core_index(0) : index
       %gj = d2m.core_index(1) : index
       // CHECK: d2m.reserve %cb0
-      // CHECK: d2m.dma_read
+      // CHECK: [[TX_R:%.+]] = d2m.dma_read
       // CHECK: d2m.wait %cb1
-      // CHECK: d2m.dma_write
-      // CHECK-NEXT: d2m.dma_wait
+      // CHECK: [[TX_W:%.+]] = d2m.dma_write
+      // CHECK-NEXT: d2m.dma_wait [[TX_R]]
       // CHECK-NEXT: d2m.push %cb0
-      // CHECK-NEXT: d2m.dma_wait
+      // CHECK-NEXT: d2m.dma_wait [[TX_W]]
       // CHECK-NEXT: d2m.pop %cb1
       %local0 = d2m.reserve %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
       %tx0 = d2m.dma_read %stream[%gi, %gj], %local0, <0> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
@@ -158,8 +156,6 @@ module attributes {} {
   }
 
   // Two shard-level writes from different CBs.
-  // Before: wait_cb → write → dma_wait → pop, wait_cb → write → dma_wait → pop
-  // After coalescing: wait_cb → write → wait_cb → write → (dma_wait → pop) → (dma_wait → pop)
   // CHECK-LABEL: func.func @test_coalesce_two_writes
   func.func @test_coalesce_two_writes(
       %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
@@ -176,12 +172,12 @@ module attributes {} {
       %gi = d2m.core_index(0) : index
       %gj = d2m.core_index(1) : index
       // CHECK: d2m.wait %cb0
-      // CHECK: d2m.dma_write
+      // CHECK: [[TX0:%.+]] = d2m.dma_write
       // CHECK: d2m.wait %cb1
-      // CHECK: d2m.dma_write
-      // CHECK-NEXT: d2m.dma_wait
+      // CHECK: [[TX1:%.+]] = d2m.dma_write
+      // CHECK-NEXT: d2m.dma_wait [[TX0]]
       // CHECK-NEXT: d2m.pop %cb0
-      // CHECK-NEXT: d2m.dma_wait
+      // CHECK-NEXT: d2m.dma_wait [[TX1]]
       // CHECK-NEXT: d2m.pop %cb1
       %local0 = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
       %tx0 = d2m.dma_write %local0, %stream0[%gi, %gj], <0> : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) -> !d2m.mem_tx
@@ -191,6 +187,245 @@ module attributes {} {
       %tx1 = d2m.dma_write %local1, %stream1[%gi, %gj], <0> : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) -> !d2m.mem_tx
       d2m.dma_wait %tx1
       d2m.pop %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    }, {
+    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    }
+    return
+  }
+
+  // Read + write in a loop (different CBs.
+  // CHECK-LABEL: func.func @test_defer_write_barrier
+  func.func @test_defer_write_barrier(
+      %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
+      %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %alloc0 = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %alloc1 = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %stream0 = "d2m.stream_layout"(%arg0, %alloc0) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %stream1 = "d2m.stream_layout"(%arg1, %alloc1) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%stream0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        outs(%stream1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
+    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+      %gi = d2m.core_index(0) : index
+      %gj = d2m.core_index(1) : index
+      %c0 = arith.constant 0 : index
+      %c8 = arith.constant 8 : index
+      %c1 = arith.constant 1 : index
+      // CHECK: [[NULL:%.+]] = d2m.null_tx
+      // CHECK: [[FOR:%.+]] = scf.for {{.+}} iter_args([[PREV:%.+]] = [[NULL]])
+      // CHECK:   d2m.reserve %cb0
+      // CHECK:   [[TX_R:%.+]] = d2m.dma_read
+      // CHECK:   scf.if
+      // CHECK:     d2m.dma_wait [[PREV]]
+      // CHECK:     d2m.pop %cb1
+      // CHECK:   d2m.wait %cb1
+      // CHECK:   [[TX_W:%.+]] = d2m.dma_write
+      // CHECK:   d2m.dma_wait [[TX_R]]
+      // CHECK:   d2m.push %cb0
+      // CHECK:   scf.yield [[TX_W]]
+      // CHECK: d2m.dma_wait [[FOR]]
+      // CHECK-NEXT: d2m.pop %cb1
+      scf.for %iv = %c0 to %c8 step %c1 {
+        %local_in = d2m.reserve %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_r = d2m.dma_read %stream0[%gi, %gj], %local_in, <0> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+        d2m.dma_wait %tx_r
+        d2m.push %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %local_out = d2m.wait %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_w = d2m.dma_write %local_out, %stream1[%gi, %gj], <0> : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) -> !d2m.mem_tx
+        d2m.dma_wait %tx_w
+        d2m.pop %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      }
+    }, {
+    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    }
+    return
+  }
+
+  // Two reads + one write in a loop (all different CBs).
+  // CHECK-LABEL: func.func @test_defer_write_with_coalesced_reads
+  func.func @test_defer_write_with_coalesced_reads(
+      %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
+      %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
+      %arg2: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %alloc0 = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %alloc1 = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %alloc2 = memref.alloc() {address = 9216 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %stream0 = "d2m.stream_layout"(%arg0, %alloc0) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %stream1 = "d2m.stream_layout"(%arg1, %alloc1) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %stream2 = "d2m.stream_layout"(%arg2, %alloc2) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%stream0, %stream1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        outs(%stream2 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
+    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+      %gi = d2m.core_index(0) : index
+      %gj = d2m.core_index(1) : index
+      %c0 = arith.constant 0 : index
+      %c8 = arith.constant 8 : index
+      %c1 = arith.constant 1 : index
+      // CHECK: [[NULL:%.+]] = d2m.null_tx
+      // CHECK: [[FOR:%.+]] = scf.for {{.+}} iter_args([[PREV:%.+]] = [[NULL]])
+      // CHECK:   d2m.reserve %cb0
+      // CHECK:   [[TX_R0:%.+]] = d2m.dma_read
+      // CHECK:   d2m.reserve %cb1
+      // CHECK:   [[TX_R1:%.+]] = d2m.dma_read
+      // CHECK:   scf.if
+      // CHECK:     d2m.dma_wait [[PREV]]
+      // CHECK:     d2m.pop %cb2
+      // CHECK:   d2m.wait %cb2
+      // CHECK:   [[TX_W:%.+]] = d2m.dma_write
+      // CHECK:   d2m.dma_wait [[TX_R0]]
+      // CHECK:   d2m.push %cb0
+      // CHECK:   d2m.dma_wait [[TX_R1]]
+      // CHECK:   d2m.push %cb1
+      // CHECK:   scf.yield [[TX_W]]
+      // CHECK: d2m.dma_wait [[FOR]]
+      // CHECK-NEXT: d2m.pop %cb2
+      scf.for %iv = %c0 to %c8 step %c1 {
+        %local0 = d2m.reserve %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_r0 = d2m.dma_read %stream0[%gi, %gj], %local0, <0> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+        d2m.dma_wait %tx_r0
+        d2m.push %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %local1 = d2m.reserve %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_r1 = d2m.dma_read %stream1[%gi, %gj], %local1, <0> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+        d2m.dma_wait %tx_r1
+        d2m.push %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %local_out = d2m.wait %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_w = d2m.dma_write %local_out, %stream2[%gi, %gj], <0> : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) -> !d2m.mem_tx
+        d2m.dma_wait %tx_w
+        d2m.pop %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      }
+    }, {
+    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    }
+    return
+  }
+
+  // Write-only loop (no reads) — write barrier should still be deferred.
+  // CHECK-LABEL: func.func @test_defer_write_only_loop
+  func.func @test_defer_write_only_loop(
+      %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %alloc0 = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %stream0 = "d2m.stream_layout"(%arg0, %alloc0) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins() outs(%stream0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
+    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+      %gi = d2m.core_index(0) : index
+      %gj = d2m.core_index(1) : index
+      %c0 = arith.constant 0 : index
+      %c8 = arith.constant 8 : index
+      %c1 = arith.constant 1 : index
+      // CHECK: [[NULL:%.+]] = d2m.null_tx
+      // CHECK: [[FOR:%.+]] = scf.for {{.+}} iter_args([[PREV:%.+]] = [[NULL]])
+      // CHECK:   scf.if
+      // CHECK:     d2m.dma_wait [[PREV]]
+      // CHECK:     d2m.pop %cb0
+      // CHECK:   d2m.wait %cb0
+      // CHECK:   [[TX_W:%.+]] = d2m.dma_write
+      // CHECK:   scf.yield [[TX_W]]
+      // CHECK: d2m.dma_wait [[FOR]]
+      // CHECK-NEXT: d2m.pop %cb0
+      scf.for %iv = %c0 to %c8 step %c1 {
+        %local_out = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_w = d2m.dma_write %local_out, %stream0[%gi, %gj], <0> : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) -> !d2m.mem_tx
+        d2m.dma_wait %tx_w
+        d2m.pop %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      }
+    }, {
+    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    }
+    return
+  }
+
+  // Read + write using the SAME CB in a loop — aliased CBs prevent deferral.
+  // CHECK-LABEL: func.func @test_no_defer_aliased_cbs
+  func.func @test_no_defer_aliased_cbs(
+      %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
+      %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %alloc0 = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %alloc1 = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %stream0 = "d2m.stream_layout"(%arg0, %alloc0) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %stream1 = "d2m.stream_layout"(%arg1, %alloc1) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%stream0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        outs(%stream1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
+    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+      %gi = d2m.core_index(0) : index
+      %gj = d2m.core_index(1) : index
+      %c0 = arith.constant 0 : index
+      %c8 = arith.constant 8 : index
+      %c1 = arith.constant 1 : index
+      // Both read and write use cb0 — aliased, no deferral.
+      // sinkBarriers won't move barriers here since read/write use same CB.
+      // CHECK-NOT: d2m.null_tx
+      // CHECK: scf.for
+      // CHECK:   [[TX_R:%.+]] = d2m.dma_read
+      // CHECK:   d2m.dma_wait [[TX_R]]
+      // CHECK:   [[TX_W:%.+]] = d2m.dma_write
+      // CHECK:   d2m.dma_wait [[TX_W]]
+      // CHECK:   d2m.pop %cb0
+      scf.for %iv = %c0 to %c8 step %c1 {
+        %local_in = d2m.reserve %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_r = d2m.dma_read %stream0[%gi, %gj], %local_in, <0> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+        d2m.dma_wait %tx_r
+        d2m.push %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %local_out = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_w = d2m.dma_write %local_out, %stream1[%gi, %gj], <0> : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) -> !d2m.mem_tx
+        d2m.dma_wait %tx_w
+        d2m.pop %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      }
+    }, {
+    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    }
+    return
+  }
+
+  // Two writes in a loop using different CBs (no reads). Both write barriers are deferred.
+  // CHECK-LABEL: func.func @test_defer_two_writes
+  func.func @test_defer_two_writes(
+      %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
+      %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %alloc0 = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %alloc1 = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %alloc_out = memref.alloc() {address = 9216 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %stream0 = "d2m.stream_layout"(%arg0, %alloc0) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %stream1 = "d2m.stream_layout"(%arg1, %alloc1) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%stream0, %stream1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        outs(%alloc_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
+    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+      %gi = d2m.core_index(0) : index
+      %gj = d2m.core_index(1) : index
+      %c0 = arith.constant 0 : index
+      %c8 = arith.constant 8 : index
+      %c1 = arith.constant 1 : index
+      // CHECK: [[NULL0:%.+]] = d2m.null_tx
+      // CHECK: [[NULL1:%.+]] = d2m.null_tx
+      // CHECK: [[FOR:%.+]]:2 = scf.for {{.+}} iter_args([[PREV0:%.+]] = [[NULL0]], [[PREV1:%.+]] = [[NULL1]])
+      // CHECK:   scf.if
+      // CHECK:     d2m.dma_wait [[PREV1]]
+      // CHECK:     d2m.pop %cb0
+      // CHECK:   d2m.wait %cb0
+      // CHECK:   [[TX0:%.+]] = d2m.dma_write
+      // CHECK:   scf.if
+      // CHECK:     d2m.dma_wait [[PREV0]]
+      // CHECK:     d2m.pop %cb1
+      // CHECK:   d2m.wait %cb1
+      // CHECK:   [[TX1:%.+]] = d2m.dma_write
+      // CHECK:   scf.yield [[TX1]], [[TX0]]
+      // CHECK: d2m.dma_wait [[FOR]]#1
+      // CHECK-NEXT: d2m.pop %cb0
+      // CHECK: d2m.dma_wait [[FOR]]#0
+      // CHECK-NEXT: d2m.pop %cb1
+      scf.for %iv = %c0 to %c8 step %c1 {
+        %local_out0 = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_w0 = d2m.dma_write %local_out0, %stream0[%gi, %gj], <0> : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) -> !d2m.mem_tx
+        d2m.dma_wait %tx_w0
+        d2m.pop %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %local_out1 = d2m.wait %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_w1 = d2m.dma_write %local_out1, %stream1[%gi, %gj], <0> : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) -> !d2m.mem_tx
+        d2m.dma_wait %tx_w1
+        d2m.pop %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      }
     }, {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
     }
