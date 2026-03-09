@@ -127,7 +127,7 @@ static Value generateFullyIndexedDMAOps(
     ArrayRef<int64_t> shardShape, AffineMap remoteMemoryMap,
     AffineMap localMemoryMap, size_t coalescingFactor, size_t shardVolume,
     SmallVector<Value> startDevice, SmallVector<Value> deviceMcastShape,
-    CreateDMAOpFn createDMAOp) {
+    DMAType txType, CreateDMAOpFn createDMAOp) {
 
   if (coalescingFactor == shardVolume) {
     // Fully contiguous: single DMA operation.
@@ -152,7 +152,7 @@ static Value generateFullyIndexedDMAOps(
 
   // Strided/non-contiguous: generate loops with guarded DMAs.
   auto [lbs, ubs, steps] = utils::getLoopBounds(builder, loc, shardShape);
-  auto nullDmaTx = builder.create<NullTxOp>(loc);
+  auto nullDmaTx = builder.create<NullTxOp>(loc, txType);
 
   scf::LoopNest loopNest = scf::buildLoopNest(
       builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
@@ -200,7 +200,7 @@ static Value generateFullyIndexedDMAOps(
         auto predicate = loopBuilder.create<arith::CmpIOp>(
             innerLoc, arith::CmpIPredicate::eq, moduloIterCount, zero);
 
-        auto nulltx = loopBuilder.create<NullTxOp>(innerLoc);
+        auto nulltx = loopBuilder.create<NullTxOp>(innerLoc, txType);
 
         // Build guarded DMA.
         auto ifExpr = loopBuilder.create<scf::IfOp>(
@@ -273,7 +273,7 @@ public:
     Value newTx = generateFullyIndexedDMAOps(
         rewriter, loc, gridIndices, shardShape, remoteMemoryMap, localMemoryMap,
         coalescingFactor, shardVolume, /*startDevice=*/ValueRange(),
-        /*deviceMcastShape=*/ValueRange(),
+        /*deviceMcastShape=*/ValueRange(), DMAType::Read,
         [&](OpBuilder &b, Location l, SmallVector<Value> &remoteIdx,
             SmallVector<Value> &localIdx, size_t cf,
             SmallVector<Value> &startDevice,
@@ -366,6 +366,7 @@ public:
     Value newTx = generateFullyIndexedDMAOps(
         rewriter, loc, gridIndices, shardShape, remoteMemoryMap, localMemoryMap,
         coalescingFactor, shardVolume, startDevice, deviceMcastShape,
+        DMAType::Write,
         [&](OpBuilder &b, Location l, SmallVector<Value> &remoteIdx,
             SmallVector<Value> &localIdx, size_t cf,
             SmallVector<Value> &startDevice,
