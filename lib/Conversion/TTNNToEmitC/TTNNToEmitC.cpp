@@ -917,7 +917,7 @@ public:
         /*reallocate_halo_output=*/
         emitter.emit(srcOp.getReallocateHaloOutput()),
         /*return_indices=*/emitter.emit(true),
-        emitter.emit(emitter.getOutputDtype(srcOp.getResult(0))),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
         emitter.emit(/*output_layout=*/mlir::tt::ttnn::Layout::
                          RowMajor), // ROW_MAJOR required for return_indices
                                     /*config_tensors_in_dram=*/
