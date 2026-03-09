@@ -310,11 +310,32 @@ if __name__ == "__main__":
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(sqrt_func, input_a)
 
-    # Skipped. Issue #7319: ttir.clamp_scalar verifier rejects valid IR when input has
-    # encoding but output does not (compares full type instead of shape).
-    # test_ir_generation(clamp_min_max_func, input_a)
-    # test_ir_generation(clamp_min_only_func, input_a)
-    # test_ir_generation(clamp_max_only_func, input_a)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @clamp_min_max_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.clamp_scalar"(%arg0) <{{.*max = 1.000000e-03 : f32, min = -1.000000e-03 : f32.*}}> : ([[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
+    test_ir_generation(clamp_min_max_func, input_a)
+
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @clamp_min_only_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.clamp_scalar"(%arg0) <{{.*min = -1.000000e-03 : f32.*}}> : ([[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
+    test_ir_generation(clamp_min_only_func, input_a)
+
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @clamp_max_only_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.clamp_scalar"(%arg0) <{{.*max = 1.000000e-03 : f32.*}}> : ([[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
+    test_ir_generation(clamp_max_only_func, input_a)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @clamp_tensor_bounds_func
