@@ -366,7 +366,8 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
 
   bool mmapTensors = std::getenv("TT_USE_MMAP") != nullptr;
-  if (mmapTensors) {
+
+  if (mmapTensors && ::tt::runtime::utils::isSupportedDataType(dataType)) {
     void *raw_mmap_ptr =
         mmap_tensor_data_to_tmp_file(data, shape, stride, itemsize, dataType);
     LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
@@ -432,7 +433,12 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     default:
       LOG_FATAL("Unsupported data type for mmap tensor creation");
     }
+  } else if (mmapTensors &&
+             !::tt::runtime::utils::isSupportedDataType(dataType)) {
+    LOG_WARNING("Unsupported data type for mmap tensor creation, falling back "
+                "to default tensor creation");
   }
+
   ::tt::runtime::Tensor tensor = utils::createRuntimeTensorFromTTNN(
       createOwnedTTNNTensor(data, shape, stride, itemsize, dataType));
   return tensor;
