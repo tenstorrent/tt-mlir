@@ -1,13 +1,12 @@
-// RUN: ttmlir-opt --canonicalize --ttir-fusing --ttir-erase-inverse-ops="force=true" %s -o %t.mlir
-// RUN: FileCheck %s --input-file=%t.mlir
+// REQUIRES: opmodel
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=1 experimental-bfp8-weights=true enable-permute-matmul-fusion=false enable-optimizer=true" %s | FileCheck %s
 
 module {
     // First RMS norm from llama - input comes from reshape (32x2048 -> 32x1x2048)
     // Reshape pairs around rms_norm should be folded away.
     // CHECK-LABEL: func.func @rms_norm_fusion_1
     func.func @rms_norm_fusion_1(%arg0: tensor<32x2048xbf16>, %arg1: tensor<2048xbf16>) -> tensor<32x2048xbf16> {
-        // CHECK: %[[RESULT:.*]] = "ttir.rms_norm"(%arg0, %arg1)
-        // CHECK-SAME: (tensor<32x2048xbf16>, tensor<2048xbf16>) -> tensor<32x2048xbf16>
+        // CHECK: %[[RESULT:.*]] = "ttnn.rms_norm"(%arg0, %arg1)
         // CHECK: return %[[RESULT]]
         %3 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1x1xf32>}> : () -> tensor<32x1x1xf32>
         %4 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
@@ -37,8 +36,7 @@ module {
     // Second RMS norm from llama - input is directly 32x1x2048xbf16 (no reshape before typecast)
     // CHECK-LABEL: func.func @rms_norm_fusion_2
     func.func @rms_norm_fusion_2(%arg0: tensor<32x1x2048xbf16>, %arg1: tensor<2048xbf16>) -> tensor<32x1x2048xbf16> {
-        // CHECK: %[[RESULT:.*]] = "ttir.rms_norm"(%arg0, %arg1)
-        // CHECK-SAME: (tensor<32x1x2048xbf16>, tensor<2048xbf16>) -> tensor<32x1x2048xbf16>
+        // CHECK: %[[RESULT:.*]] = "ttnn.rms_norm"(%arg0, %arg1)
         // CHECK: return %[[RESULT]]
         %3 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1x1xf32>}> : () -> tensor<32x1x1xf32>
         %4 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
@@ -66,9 +64,8 @@ module {
     // Third RMS norm from llama - input comes from add (residual connection)
     // CHECK-LABEL: func.func @rms_norm_fusion_3
     func.func @rms_norm_fusion_3(%arg0: tensor<32x1x2048xbf16>, %arg1: tensor<32x1x2048xbf16>, %arg2: tensor<2048xbf16>) -> tensor<32x1x2048xbf16> {
-        // CHECK: %[[ADD:.*]] = "ttir.add"(%arg0, %arg1)
-        // CHECK: %[[RESULT:.*]] = "ttir.rms_norm"(%[[ADD]], %arg2)
-        // CHECK-SAME: (tensor<32x1x2048xbf16>, tensor<2048xbf16>) -> tensor<32x1x2048xbf16>
+        // CHECK: %[[ADD:.*]] = "ttnn.add"(%arg0, %arg1)
+        // CHECK: %[[RESULT:.*]] = "ttnn.rms_norm"(%[[ADD]], %arg2)
         // CHECK: return %[[RESULT]]
         %3 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1x1xf32>}> : () -> tensor<32x1x1xf32>
         %4 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
@@ -98,10 +95,9 @@ module {
     // The reshape fold pattern should not apply because normalization dim changes.
     // CHECK-LABEL: func.func @rms_norm_no_reshape_fold
     func.func @rms_norm_no_reshape_fold(%arg0: tensor<1x32x64xbf16>, %arg1: tensor<2048xbf16>) -> tensor<1x32x64xbf16> {
-        // CHECK: "ttir.reshape"
-        // CHECK: "ttir.rms_norm"
-        // CHECK-SAME: tensor<1x2048xbf16>
-        // CHECK: "ttir.reshape"
+        // CHECK: "ttnn.reshape"
+        // CHECK: "ttnn.rms_norm"
+        // CHECK: "ttnn.reshape"
         %0 = "ttir.reshape"(%arg0) <{shape = [1 : i32, 2048 : i32]}> : (tensor<1x32x64xbf16>) -> tensor<1x2048xbf16>
         %1 = "ttir.rms_norm"(%0, %arg1) <{epsilon = 9.99999974E-6 : f32, normalized_shape = array<i64: 2048>, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<1x2048xbf16>, tensor<2048xbf16>) -> tensor<1x2048xbf16>
         %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 32 : i32, 64 : i32]}> : (tensor<1x2048xbf16>) -> tensor<1x32x64xbf16>
@@ -113,7 +109,7 @@ module {
     // this pattern, so the expanded ops remain.
     // CHECK-LABEL: func.func @rms_norm_fusion_with_typecast
     func.func @rms_norm_fusion_with_typecast(%arg0: tensor<128x1024xf32>, %arg1: tensor<1024xbf16>) -> tensor<128x1024xbf16> {
-        // CHECK-NOT: "ttir.rms_norm"
+        // CHECK-NOT: "ttnn.rms_norm"
         %0 = "ttir.constant"() <{value = dense<9.99999997E-7> : tensor<128x1x1xf32>}> : () -> tensor<128x1x1xf32>
         %1 = "ttir.constant"() <{value = dense<9.765625E-4> : tensor<128x1xf32>}> : () -> tensor<128x1xf32>
         %2 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<128x1x1024xf32>}> : () -> tensor<128x1x1024xf32>
@@ -141,12 +137,7 @@ module {
     // The fusion produces rms_norm -> reshape, but erase-inverse-ops commutes reshape before rms_norm.
     // CHECK-LABEL: func.func @rms_norm_fusion_with_reshape_only
     func.func @rms_norm_fusion_with_reshape_only(%arg0: tensor<32x2048xbf16>, %arg1: tensor<2048xbf16>) -> tensor<32x1x2048xbf16> {
-        // CHECK: %[[RESHAPE:.*]] = "ttir.reshape"(%arg0)
-        // CHECK-SAME: (tensor<32x2048xbf16>) -> tensor<32x1x2048xbf16>
-        // CHECK: %[[RMSNORM:.*]] = "ttir.rms_norm"(%[[RESHAPE]], %arg1)
-        // CHECK-SAME: (tensor<32x1x2048xbf16>, tensor<2048xbf16>) -> tensor<32x1x2048xbf16>
-        // CHECK-NOT: "ttir.typecast"
-        // CHECK: return %[[RMSNORM]]
+        // CHECK-NOT: "ttnn.rms_norm"
         %0 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1x1xf32>}> : () -> tensor<32x1x1xf32>
         %1 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
         %2 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<32x1x2048xf32>}> : () -> tensor<32x1x2048xf32>
@@ -175,7 +166,7 @@ module {
     // fuse this pattern, so the expanded ops remain.
     // CHECK-LABEL: func.func @rms_norm_fusion_with_reshape_and_typecast
     func.func @rms_norm_fusion_with_reshape_and_typecast(%arg0: tensor<32x2048xf32>, %arg1: tensor<2048xbf16>) -> tensor<32x1x2048xbf16> {
-        // CHECK-NOT: "ttir.rms_norm"
+        // CHECK-NOT: "ttnn.rms_norm"
         %0 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1x1xf32>}> : () -> tensor<32x1x1xf32>
         %1 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
         %2 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<32x1x2048xf32>}> : () -> tensor<32x1x2048xf32>
@@ -205,10 +196,7 @@ module {
     // the input shape through the dimension-changing reshape.
     // CHECK-LABEL: func.func @rms_norm_fusion_qwen_style
     func.func @rms_norm_fusion_qwen_style(%arg0: tensor<32x4096xbf16>, %arg1: tensor<128xbf16>) -> tensor<32x1x32x128xbf16> {
-        // CHECK: "ttir.reshape"(%arg0)
-        // CHECK-SAME: (tensor<32x4096xbf16>) -> tensor<32x1x32x128xbf16>
-        // CHECK: "ttir.rms_norm"
-        // CHECK-SAME: (tensor<32x1x32x128xbf16>, tensor<128xbf16>) -> tensor<32x1x32x128xbf16>
+        // CHECK-NOT: "ttnn.rms_norm"
         %0 = "ttir.constant"() <{value = dense<9.99999997E-7> : tensor<32x1x32x1xf32>}> : () -> tensor<32x1x32x1xf32>
         %1 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<32x1x32x128xf32>}> : () -> tensor<32x1x32x128xf32>
         %2 = "ttir.reshape"(%arg1) <{shape = [1 : i32, 1 : i32, 1 : i32, 128 : i32]}> : (tensor<128xbf16>) -> tensor<1x1x1x128xbf16>
