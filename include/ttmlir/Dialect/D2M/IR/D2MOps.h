@@ -45,7 +45,7 @@ inline void getDpsEffects(
 
 } // namespace mlir::tt::d2m
 
-#include "ttmlir/Dialect/D2M/IR/D2MOpsEnums.h.inc"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsEnums.h"
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.h.inc"
 
