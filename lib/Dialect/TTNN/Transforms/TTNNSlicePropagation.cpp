@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include <cstdint>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSLICEPROPAGATION
@@ -314,7 +315,15 @@ public:
     SmallVector<int32_t> ends = toI32Vec(op.getEnds());
     SmallVector<int32_t> step = toI32Vec(op.getStep());
 
-    SmallVector<Value> newOperands;
+    // First pass: analyze only.
+    struct SliceInfo {
+      SmallVector<int32_t> begins, ends, step;
+      SmallVector<int64_t> slicedShape;
+      bool needSlice = false;
+    };
+    SmallVector<SliceInfo, 0> infos;
+    int64_t numSlicedOperands = 0;
+
     for (uint32_t i = 0; i < eltwiseOp->getNumOperands(); ++i) {
       Value operand = eltwiseOp->getOperand(i);
       auto operandType = dyn_cast<RankedTensorType>(operand.getType());
@@ -323,41 +332,58 @@ public:
       }
       ArrayRef<int64_t> operandShape = operandType.getShape();
 
-      SmallVector<int32_t> opBegins, opEnds, opStep;
-      SmallVector<int64_t> slicedShape;
-      bool needSlice = false;
-
+      SliceInfo info;
       for (int64_t d = 0; d < rank; ++d) {
         if (operandShape[d] == 1) {
-          opBegins.push_back(0);
-          opEnds.push_back(1);
-          opStep.push_back(1);
-          slicedShape.push_back(1);
+          info.begins.push_back(0);
+          info.ends.push_back(1);
+          info.step.push_back(1);
+          info.slicedShape.push_back(1);
         } else if (operandShape[d] == outputShape[d]) {
-          opBegins.push_back(begins[d]);
-          opEnds.push_back(ends[d]);
-          opStep.push_back(step[d]);
-          slicedShape.push_back(llvm::divideCeil(ends[d] - begins[d], step[d]));
+          info.begins.push_back(begins[d]);
+          info.ends.push_back(ends[d]);
+          info.step.push_back(step[d]);
+          info.slicedShape.push_back(
+              llvm::divideCeil(ends[d] - begins[d], step[d]));
           if (begins[d] != 0 ||
               ends[d] != static_cast<int32_t>(operandShape[d]) ||
               step[d] != 1) {
-            needSlice = true;
+            info.needSlice = true;
           }
         } else {
           return failure();
         }
       }
+      if (ArrayRef<int64_t>(info.slicedShape) == operandShape) {
+        info.needSlice = false;
+      }
+      if (info.needSlice) {
+        numSlicedOperands++;
+      }
+      infos.push_back(std::move(info));
+    }
 
-      if (needSlice) {
-        auto slicedType =
-            utils::RankedTensorTypeFactory::create(operandType, slicedShape);
+    // Bail before creating any ops.
+    if (numSlicedOperands > 1) {
+      return failure();
+    }
+
+    // Second pass: create ops.
+    SmallVector<Value> newOperands;
+    for (uint32_t i = 0; i < eltwiseOp->getNumOperands(); ++i) {
+      if (infos[i].needSlice) {
+        auto operandType =
+            cast<RankedTensorType>(eltwiseOp->getOperand(i).getType());
+        auto slicedType = utils::RankedTensorTypeFactory::create(
+            operandType, infos[i].slicedShape);
         auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
-            op.getLoc(), slicedType, operand,
-            rewriter.getI32ArrayAttr(opBegins),
-            rewriter.getI32ArrayAttr(opEnds), rewriter.getI32ArrayAttr(opStep));
+            op.getLoc(), slicedType, eltwiseOp->getOperand(i),
+            rewriter.getI32ArrayAttr(infos[i].begins),
+            rewriter.getI32ArrayAttr(infos[i].ends),
+            rewriter.getI32ArrayAttr(infos[i].step));
         newOperands.push_back(sliceOp.getResult());
       } else {
-        newOperands.push_back(operand);
+        newOperands.push_back(eltwiseOp->getOperand(i));
       }
     }
 
