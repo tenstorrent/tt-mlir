@@ -4930,13 +4930,7 @@ class TTIRBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.input)
                     min_tensor_golden = self._get_golden_tensor(old_op.min)
                     max_tensor_golden = self._get_golden_tensor(old_op.max)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(
-                        input0,
-                        min_tensor_golden,
-                        max_tensor_golden,
-                        result.element_type,
-                    )
+                    golden_output = self._get_golden_tensor(old_op.result)
                     clamp_tensor_builder._set_golden_tensor(
                         new_op_result, golden_output
                     )
