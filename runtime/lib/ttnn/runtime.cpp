@@ -152,8 +152,8 @@ void *mmap_tensor_data_to_tmp_file(const void *data,
 
   fs::path final_path = n_dir / filename;
 
-  LOG_DEBUG("mmap_tensor_data_to_tmp_file: Creating mmap file at ",
-            final_path.string(), " with size ", total_size, " bytes");
+  LOG_INFO("mmap_tensor_data_to_tmp_file: Creating mmap file at ",
+           final_path.string(), " with size ", total_size, " bytes");
 
   // 4. Use your previous helper to get the mmap pointer
   // Note: create_and_mmap_tmp_file expects a relative path and will prepend
