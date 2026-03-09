@@ -34,25 +34,25 @@ static Value getCBForOp(Operation *op) {
   if (!op) {
     return nullptr;
   }
-  if (auto reserveOp = dyn_cast<ReserveOp>(op)) {
+  if (auto reserveOp = mlir::dyn_cast<ReserveOp>(op)) {
     return reserveOp.getCb();
   }
-  if (auto pushOp = dyn_cast<PushOp>(op)) {
+  if (auto pushOp = mlir::dyn_cast<PushOp>(op)) {
     return pushOp.getCb();
   }
-  if (auto popOp = dyn_cast<PopOp>(op)) {
+  if (auto popOp = mlir::dyn_cast<PopOp>(op)) {
     return popOp.getCb();
   }
-  if (auto waitOp = dyn_cast<WaitOp>(op)) {
+  if (auto waitOp = mlir::dyn_cast<WaitOp>(op)) {
     return waitOp.getCb();
   }
-  if (auto dmaRead = dyn_cast<DMAReadOp>(op)) {
+  if (auto dmaRead = mlir::dyn_cast<DMAReadOp>(op)) {
     return getCBFromLocalBuffer(dmaRead.getDst());
   }
-  if (auto dmaWrite = dyn_cast<DMAWriteOp>(op)) {
+  if (auto dmaWrite = mlir::dyn_cast<DMAWriteOp>(op)) {
     return getCBFromLocalBuffer(dmaWrite.getSrc());
   }
-  if (auto dmaWaitOp = dyn_cast<DMAWaitOp>(op)) {
+  if (auto dmaWaitOp = mlir::dyn_cast<DMAWaitOp>(op)) {
     return getCBForOp(dmaWaitOp.getMemTx().getDefiningOp());
   }
   return nullptr;
@@ -61,11 +61,14 @@ static Value getCBForOp(Operation *op) {
 static bool areDifferentCBs(Value a, Value b) { return a && b && a != b; }
 
 static bool isReadBarrier(DMAWaitOp waitOp) {
-  return isa_and_nonnull<DMAReadOp>(waitOp.getMemTx().getDefiningOp());
+  return mlir::cast<MemTxType>(waitOp.getMemTx().getType()).getDmaType() ==
+         DMAType::Read;
 }
 
 static bool isWriteBarrier(DMAWaitOp waitOp) {
-  return isa_and_nonnull<DMAWriteOp>(waitOp.getMemTx().getDefiningOp());
+  DMAType kind =
+      mlir::cast<MemTxType>(waitOp.getMemTx().getType()).getDmaType();
+  return kind == DMAType::Write || kind == DMAType::McastWrite;
 }
 
 //===----------------------------------------------------------------------===//
@@ -86,24 +89,24 @@ static bool isWriteBarrier(DMAWaitOp waitOp) {
 //   - write barrier: pop of same CB, semaphore_set
 static bool canBarrierSinkPast(DMAWaitOp dmaWait, Operation *sinkOver,
                                Value sinkCB) {
-  if (isa<DMAWaitOp>(sinkOver)) {
+  if (mlir::isa<DMAWaitOp>(sinkOver)) {
     return false;
   }
-  if (isa<DMAReadOp, DMAWriteOp>(sinkOver)) {
+  if (mlir::isa<DMAReadOp, DMAWriteOp>(sinkOver)) {
     return areDifferentCBs(getCBForOp(sinkOver), sinkCB);
   }
   if (isReadBarrier(dmaWait)) {
-    if (auto pushOp = dyn_cast<PushOp>(sinkOver)) {
+    if (auto pushOp = mlir::dyn_cast<PushOp>(sinkOver)) {
       return areDifferentCBs(pushOp.getCb(), sinkCB);
     }
-    if (isa<SemaphoreSetOp, SemaphoreWaitOp, SemaphoreIncOp>(sinkOver)) {
+    if (mlir::isa<SemaphoreSetOp, SemaphoreWaitOp, SemaphoreIncOp>(sinkOver)) {
       return false;
     }
-  } else {
-    if (auto popOp = dyn_cast<PopOp>(sinkOver)) {
+  } else if (isWriteBarrier(dmaWait)) {
+    if (auto popOp = mlir::dyn_cast<PopOp>(sinkOver)) {
       return areDifferentCBs(popOp.getCb(), sinkCB);
     }
-    if (isa<SemaphoreSetOp>(sinkOver)) {
+    if (mlir::isa<SemaphoreSetOp>(sinkOver)) {
       return false;
     }
   }
@@ -115,13 +118,13 @@ static bool canBarrierSinkPast(DMAWaitOp dmaWait, Operation *sinkOver,
 //   - another push of same CB
 //   - dma_wait of same CB (barrier must complete before push signals readiness)
 static bool canPushSinkPast(Operation *sinkOver, Value sinkCB) {
-  if (auto reserveOp = dyn_cast<ReserveOp>(sinkOver)) {
+  if (auto reserveOp = mlir::dyn_cast<ReserveOp>(sinkOver)) {
     return areDifferentCBs(reserveOp.getCb(), sinkCB);
   }
-  if (auto otherPush = dyn_cast<PushOp>(sinkOver)) {
+  if (auto otherPush = mlir::dyn_cast<PushOp>(sinkOver)) {
     return areDifferentCBs(otherPush.getCb(), sinkCB);
   }
-  if (isa<DMAWaitOp>(sinkOver)) {
+  if (mlir::isa<DMAWaitOp>(sinkOver)) {
     return areDifferentCBs(getCBForOp(sinkOver), sinkCB);
   }
   return true;
@@ -132,13 +135,13 @@ static bool canPushSinkPast(Operation *sinkOver, Value sinkCB) {
 //   - another pop of same CB
 //   - dma_wait of same CB (barrier must complete before pop releases the slot)
 static bool canPopSinkPast(Operation *sinkOver, Value sinkCB) {
-  if (auto waitOp = dyn_cast<WaitOp>(sinkOver)) {
+  if (auto waitOp = mlir::dyn_cast<WaitOp>(sinkOver)) {
     return areDifferentCBs(waitOp.getCb(), sinkCB);
   }
-  if (auto otherPop = dyn_cast<PopOp>(sinkOver)) {
+  if (auto otherPop = mlir::dyn_cast<PopOp>(sinkOver)) {
     return areDifferentCBs(otherPop.getCb(), sinkCB);
   }
-  if (isa<DMAWaitOp>(sinkOver)) {
+  if (mlir::isa<DMAWaitOp>(sinkOver)) {
     return areDifferentCBs(getCBForOp(sinkOver), sinkCB);
   }
   return true;
@@ -162,13 +165,13 @@ static bool canSinkPast(Operation *toSink, Operation *sinkOver) {
     return false;
   }
 
-  if (auto dmaWait = dyn_cast<DMAWaitOp>(toSink)) {
+  if (auto dmaWait = mlir::dyn_cast<DMAWaitOp>(toSink)) {
     return canBarrierSinkPast(dmaWait, sinkOver, sinkCB);
   }
-  if (isa<PushOp>(toSink)) {
+  if (mlir::isa<PushOp>(toSink)) {
     return canPushSinkPast(sinkOver, sinkCB);
   }
-  if (isa<PopOp>(toSink)) {
+  if (mlir::isa<PopOp>(toSink)) {
     return canPopSinkPast(sinkOver, sinkCB);
   }
   return false;
@@ -192,7 +195,7 @@ static void sinkBarriers(Block &block) {
 
     SmallVector<DMAWaitOp> barriers;
     for (Operation &op : block) {
-      if (auto wait = dyn_cast<DMAWaitOp>(&op)) {
+      if (auto wait = mlir::dyn_cast<DMAWaitOp>(&op)) {
         barriers.push_back(wait);
       }
     }
@@ -202,7 +205,7 @@ static void sinkBarriers(Block &block) {
       // immediately after it. They sink together as a unit.
       Operation *cbPushPop = barrier->getNextNode();
       Value barrierCB = getCBForOp(barrier);
-      bool hasCBPushPop = cbPushPop && isa<PushOp, PopOp>(cbPushPop) &&
+      bool hasCBPushPop = cbPushPop && mlir::isa<PushOp, PopOp>(cbPushPop) &&
                           barrierCB && getCBForOp(cbPushPop) == barrierCB;
 
       Operation *next =
@@ -228,14 +231,28 @@ static void sinkBarriers(Block &block) {
   }
 }
 
+static void sinkAllBarriers(Region &region) {
+  for (Block &block : region) {
+    sinkBarriers(block);
+    for (Operation &op : block) {
+      for (Region &nested : op.getRegions()) {
+        sinkAllBarriers(nested);
+      }
+    }
+  }
+}
+
 struct WriteBarrierGroup {
   DMAWaitOp barrier;
-  Operation *companion; // PopOp or SemaphoreSetOp
+  SmallVector<Operation *, 2> companions; // PopOp and/or SemaphoreSetOp
   Value writeCB;
 };
 
-// Walk backwards from the terminator to find a write barrier group:
-// (DMAWaitOp for a DMAWriteOp, PopOp) at the end of a block.
+// Walk backwards from the terminator to find a write barrier group.
+// Matches exactly one of these patterns (in program order):
+//   Non-mcast: dma_wait → pop
+//   Mcast:     dma_wait → semaphore_set → pop
+//              dma_wait → semaphore_set
 static std::optional<WriteBarrierGroup> findWriteBarrierGroup(Block &body) {
   if (body.empty()) {
     return std::nullopt;
@@ -245,23 +262,30 @@ static std::optional<WriteBarrierGroup> findWriteBarrierGroup(Block &body) {
     return std::nullopt;
   }
 
-  // Walk backwards: expect pop/semaphore_set then dma_wait right before it.
-  Operation *companion = lastOp.getPrevNode();
-  if (!companion) {
+  SmallVector<Operation *, 2> companions;
+  Operation *cursor = lastOp.getPrevNode();
+  if (!cursor) {
     return std::nullopt;
   }
 
-  // Non-mcast: companion is PopOp.
-  if (!isa<PopOp>(companion)) {
+  // Pattern: ... [semaphore_set] [pop] <terminator>
+  if (mlir::isa<PopOp>(cursor)) {
+    companions.push_back(cursor);
+    cursor = cursor->getPrevNode();
+    if (cursor && mlir::isa<SemaphoreSetOp>(cursor)) {
+      companions.push_back(cursor);
+      cursor = cursor->getPrevNode();
+    }
+  } else if (mlir::isa<SemaphoreSetOp>(cursor)) {
+    companions.push_back(cursor);
+    cursor = cursor->getPrevNode();
+  }
+
+  if (companions.empty() || !cursor) {
     return std::nullopt;
   }
 
-  Operation *barrierOp = companion->getPrevNode();
-  if (!barrierOp) {
-    return std::nullopt;
-  }
-
-  auto barrier = dyn_cast<DMAWaitOp>(barrierOp);
+  auto barrier = mlir::dyn_cast<DMAWaitOp>(cursor);
   if (!barrier || !isWriteBarrier(barrier)) {
     return std::nullopt;
   }
@@ -271,13 +295,18 @@ static std::optional<WriteBarrierGroup> findWriteBarrierGroup(Block &body) {
     return std::nullopt;
   }
 
-  // Verify the companion's CB matches the barrier's CB.
-  Value companionCB = getCBForOp(companion);
-  if (!companionCB || companionCB != writeCB) {
-    return std::nullopt;
+  // For any PopOp companion, verify its CB matches the barrier CB.
+  for (Operation *comp : companions) {
+    if (mlir::isa<PopOp>(comp)) {
+      Value companionCB = getCBForOp(comp);
+      if (!companionCB || companionCB != writeCB) {
+        return std::nullopt;
+      }
+    }
   }
 
-  return WriteBarrierGroup{barrier, companion, writeCB};
+  std::reverse(companions.begin(), companions.end());
+  return WriteBarrierGroup{barrier, companions, writeCB};
 }
 
 static bool canDeferWriteBarrier(Block &body, Value writeCB) {
@@ -312,12 +341,12 @@ static bool canDeferWriteBarrier(Block &body, Value writeCB) {
 static Operation *findDeferralInsertionPoint(Block &body, Value writeCB) {
   Operation *lastRead = nullptr;
   for (Operation &op : body) {
-    if (auto waitOp = dyn_cast<WaitOp>(&op)) {
+    if (auto waitOp = mlir::dyn_cast<WaitOp>(&op)) {
       if (waitOp.getCb() == writeCB) {
         return &op;
       }
     }
-    if (isa<DMAReadOp>(&op)) {
+    if (mlir::isa<DMAReadOp>(&op)) {
       lastRead = &op;
     }
   }
@@ -358,14 +387,26 @@ static bool deferOneWriteBarrier(scf::ForOp &forOp) {
 
   rewriter.setInsertionPoint(forOp);
   auto txType =
-      cast<MemTxType>(group->barrier.getMemTx().getType()).getDmaType();
+      mlir::cast<MemTxType>(group->barrier.getMemTx().getType()).getDmaType();
   Value nullTx = rewriter.create<NullTxOp>(loc, txType);
 
-  // Capture the write's tx and CB before erasing the barrier group.
+  // Capture operands from companions before erasing the barrier group.
   Value currentTx = group->barrier.getMemTx();
-  Value companionCB = cast<PopOp>(group->companion).getCb();
+  Value popCB;
+  Value semaphore;
+  Value semaphoreVal;
+  for (Operation *comp : group->companions) {
+    if (auto semSet = mlir::dyn_cast<SemaphoreSetOp>(comp)) {
+      semaphore = semSet.getSemaphore();
+      semaphoreVal = semSet.getValue();
+    } else {
+      popCB = mlir::cast<PopOp>(comp).getCb();
+    }
+  }
 
-  group->companion->erase();
+  for (Operation *comp : group->companions) {
+    comp->erase();
+  }
   group->barrier->erase();
 
   auto result = forOp.replaceWithAdditionalYields(
@@ -374,7 +415,7 @@ static bool deferOneWriteBarrier(scf::ForOp &forOp) {
       [&](OpBuilder &, Location, ArrayRef<BlockArgument>) {
         return SmallVector<Value>{currentTx};
       });
-  auto newFor = cast<scf::ForOp>(*result);
+  auto newFor = mlir::cast<scf::ForOp>(*result);
   forOp = newFor;
 
   Value prevTx = newFor.getBody()->getArguments().back();
@@ -390,13 +431,23 @@ static bool deferOneWriteBarrier(scf::ForOp &forOp) {
 
   rewriter.setInsertionPointToStart(ifOp.thenBlock());
   rewriter.create<DMAWaitOp>(loc, prevTx);
-  rewriter.create<PopOp>(loc, companionCB);
+  if (semaphore) {
+    rewriter.create<SemaphoreSetOp>(loc, semaphore, semaphoreVal);
+  }
+  if (popCB) {
+    rewriter.create<PopOp>(loc, popCB);
+  }
 
   // Epilogue: handle the final iteration's deferred write barrier.
   rewriter.setInsertionPointAfter(newFor);
   Value finalTx = newFor.getResults().back();
   rewriter.create<DMAWaitOp>(loc, finalTx);
-  rewriter.create<PopOp>(loc, companionCB);
+  if (semaphore) {
+    rewriter.create<SemaphoreSetOp>(loc, semaphore, semaphoreVal);
+  }
+  if (popCB) {
+    rewriter.create<PopOp>(loc, popCB);
+  }
 
   return true;
 }
@@ -426,16 +477,7 @@ public:
           continue;
         }
 
-        for (Block &block : region) {
-          sinkBarriers(block);
-        }
-        region.walk([](Operation *op) {
-          for (Region &r : op->getRegions()) {
-            for (Block &b : r) {
-              sinkBarriers(b);
-            }
-          }
-        });
+        sinkAllBarriers(region);
 
         // Collect ForOps before processing to avoid walk invalidation
         // (deferWriteBarriers erases and replaces the ForOp).
