@@ -379,6 +379,59 @@ module attributes {} {
     return
   }
 
+  // Read + mcast write in a loop (different CBs).
+  // CHECK-LABEL: func.func @test_defer_mcast_write_barrier
+  func.func @test_defer_mcast_write_barrier(
+      %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
+      %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %alloc0 = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %alloc1 = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %stream0 = "d2m.stream_layout"(%arg0, %alloc0) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %stream1 = "d2m.stream_layout"(%arg1, %alloc1) <{remapping = #map4}> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%stream0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        outs(%stream1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
+    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %sem0: !d2m.semaphore):
+      %gi = d2m.core_index(0) : index
+      %gj = d2m.core_index(1) : index
+      %c0 = arith.constant 0 : index
+      %c8 = arith.constant 8 : index
+      %c1 = arith.constant 1 : index
+      // CHECK: [[NULL:%.+]] = d2m.null_tx : !d2m.mem_tx<mcast_write>
+      // CHECK: [[FOR:%.+]] = scf.for {{.+}} iter_args([[PREV:%.+]] = [[NULL]])
+      // CHECK:   d2m.reserve %cb0
+      // CHECK:   [[TX_R:%.+]] = d2m.dma_read
+      // CHECK:   scf.if
+      // CHECK:     d2m.dma_wait [[PREV]] : !d2m.mem_tx<mcast_write>
+      // CHECK:     d2m.semaphore_set
+      // CHECK:     d2m.pop %cb1
+      // CHECK:   d2m.wait %cb1
+      // CHECK:   d2m.dma_wait [[TX_R]] : !d2m.mem_tx<read>
+      // CHECK:   d2m.push %cb0
+      // CHECK:   d2m.semaphore_wait
+      // CHECK:   [[TX_W:%.+]] = d2m.dma_write {{.*}} mcast
+      // CHECK:   scf.yield [[TX_W]]
+      // CHECK: d2m.dma_wait [[FOR]] : !d2m.mem_tx<mcast_write>
+      // CHECK-NEXT: d2m.semaphore_set
+      // CHECK-NEXT: d2m.pop %cb1
+      scf.for %iv = %c0 to %c8 step %c1 {
+        %local_in = d2m.reserve %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_r = d2m.dma_read %stream0[%gi, %gj], %local_in, <0> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
+        d2m.dma_wait %tx_r : !d2m.mem_tx<read>
+        d2m.push %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %local_out = d2m.wait %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        d2m.semaphore_wait %sem0, %c1 : !d2m.semaphore
+        %tx_w = d2m.dma_write %local_out, %local_out core[%gi, %gj] mcast[%c8, %c1], <0> : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<mcast_write>
+        d2m.dma_wait %tx_w : !d2m.mem_tx<mcast_write>
+        d2m.semaphore_set %sem0, %c0 : !d2m.semaphore
+        d2m.pop %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      }
+    }, {
+    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %sem0: !d2m.semaphore):
+    }
+    return
+  }
+
   // Two writes in a loop using different CBs (no reads). Both write barriers are deferred.
   // CHECK-LABEL: func.func @test_defer_two_writes
   func.func @test_defer_two_writes(
