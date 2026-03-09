@@ -59,14 +59,16 @@ void *create_and_mmap_tmp_file(const std::string &file_path, size_t size) {
   int fd = open(full_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
   unlink(full_path.c_str()); // destruct the file on fd release
   if (fd == -1) {
-    LOG_ASSERT(false, "Error opening file to mmap");
+    LOG_ERROR("create_and_mmap_tmp_file: Failed to open file '", full_path,
+              "': ", strerror(errno));
     return nullptr;
   }
 
   // 2. Stretch the file to the desired size
   // A new file has 0 bytes; mmap will fail if the file is smaller than 'size'
   if (ftruncate(fd, size) == -1) {
-    LOG_ASSERT(false, "Error setting file size");
+    LOG_ERROR("create_and_mmap_tmp_file: Failed to set file size to ", size,
+              " bytes for '", full_path, "': ", strerror(errno));
     close(fd);
     return nullptr;
   }
@@ -77,7 +79,8 @@ void *create_and_mmap_tmp_file(const std::string &file_path, size_t size) {
   void *map = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
   if (map == MAP_FAILED) {
-    LOG_ASSERT(false, "Error mapping file");
+    LOG_ERROR("create_and_mmap_tmp_file: mmap failed for '", full_path,
+              "' with size ", size, " bytes: ", strerror(errno));
     close(fd);
     return nullptr;
   }
@@ -122,6 +125,18 @@ void *mmap_tensor_data_to_tmp_file(const void *data,
   LOG_DEBUG("mmap_tensor_data_to_tmp_file: Enter - itemsize=", itemsize,
             ", data_ptr=", data, ", shape_size=", shape.size());
 
+  // 3. Calculate Total Size (early-out for zero-size tensors, e.g. shape=[0])
+  size_t total_size =
+      std::accumulate(shape.begin(), shape.end(), static_cast<uint64_t>(1),
+                      std::multiplies<size_t>()) *
+      itemsize;
+  if (total_size == 0) {
+    LOG_ERROR("mmap_tensor_data_to_tmp_file: Cannot mmap a zero-size tensor "
+              "(total_size=0, itemsize=",
+              itemsize, ")");
+    return nullptr;
+  }
+
   // 1. Determine N (The subdirectory)
   fs::path base_path = "/tmp/mmap";
   uint32_t N = get_next_index(base_path);
@@ -136,12 +151,6 @@ void *mmap_tensor_data_to_tmp_file(const void *data,
   }
 
   fs::path final_path = n_dir / filename;
-
-  // 3. Calculate Total Size
-  size_t total_size =
-      std::accumulate(shape.begin(), shape.end(), static_cast<uint64_t>(1),
-                      std::multiplies<size_t>()) *
-      itemsize;
 
   LOG_DEBUG("mmap_tensor_data_to_tmp_file: Creating mmap file at ",
             final_path.string(), " with size ", total_size, " bytes");
@@ -360,88 +369,78 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
   }
 }
 
+static ::ttnn::Tensor createMmapTTNNTensor(void *raw_mmap_ptr,
+                                           const ::ttnn::Shape &ttnnShape,
+                                           uint64_t num_elements,
+                                           uint64_t total_size,
+                                           ::tt::target::DataType dataType) {
+  tt::tt_metal::MemoryPin memory_pin(std::shared_ptr<void>(
+      raw_mmap_ptr, [total_size](void *addr) { munmap(addr, total_size); }));
+
+  switch (dataType) {
+  case ::tt::target::DataType::Float32: {
+    auto span = ::ttsl::Span<float>(reinterpret_cast<float *>(raw_mmap_ptr),
+                                    num_elements);
+    return ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin);
+  }
+  case ::tt::target::DataType::Float16: {
+    auto span = ::ttsl::Span<uint16_t>(
+        reinterpret_cast<uint16_t *>(raw_mmap_ptr), num_elements);
+    return ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin);
+  }
+  case ::tt::target::DataType::BFloat16: {
+    auto span = ::ttsl::Span<bfloat16>(
+        reinterpret_cast<bfloat16 *>(raw_mmap_ptr), num_elements);
+    return ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin);
+  }
+  case ::tt::target::DataType::UInt32: {
+    auto span = ::ttsl::Span<uint32_t>(
+        reinterpret_cast<uint32_t *>(raw_mmap_ptr), num_elements);
+    return ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin);
+  }
+  case ::tt::target::DataType::UInt16: {
+    auto span = ::ttsl::Span<uint16_t>(
+        reinterpret_cast<uint16_t *>(raw_mmap_ptr), num_elements);
+    return ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin);
+  }
+  case ::tt::target::DataType::UInt8: {
+    auto span = ::ttsl::Span<uint8_t>(reinterpret_cast<uint8_t *>(raw_mmap_ptr),
+                                      num_elements);
+    return ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin);
+  }
+  case ::tt::target::DataType::Int32: {
+    auto span = ::ttsl::Span<int32_t>(reinterpret_cast<int32_t *>(raw_mmap_ptr),
+                                      num_elements);
+    return ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin);
+  }
+  default:
+    LOG_FATAL("Unsupported data type for mmap tensor creation");
+  }
+}
+
 ::tt::runtime::Tensor
 createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
-
-  bool mmapTensors = std::getenv("TT_USE_MMAP") != nullptr;
-
-  if (mmapTensors && ::tt::runtime::utils::isSupportedDataType(dataType)) {
+  if (std::getenv("TT_USE_MMAP") != nullptr &&
+      ::tt::runtime::utils::isSupportedDataType(dataType)) {
     void *raw_mmap_ptr =
         mmap_tensor_data_to_tmp_file(data, shape, stride, itemsize, dataType);
-    LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
-               "Cannot create borrowed tensor with unsupported data type");
-    ::ttnn::Shape ttnnShape(shape);
-
-    // void* mmap_addr = mmap(...);
-    // MemoryPin memory_pin(std::shared_ptr<void>(mmap_addr, [](void* addr) {
-    // munmap(addr, ...); })); Tensor tensor = Tensor::from_borrowed_data(
-    //     tt::stl::Span<T>(reinterpret_cast<T*>(mmap_addr), buffer_size),
-    //     shape, memory_pin);
-
-    uint64_t num_elements =
-        std::accumulate(shape.begin(), shape.end(), static_cast<uint64_t>(1),
-                        std::multiplies<std::uint32_t>());
-    uint64_t total_size = num_elements * itemsize;
-    tt::tt_metal::MemoryPin memory_pin(std::shared_ptr<void>(
-        raw_mmap_ptr, [total_size](void *addr) { munmap(addr, total_size); }));
-
-    switch (dataType) {
-    case ::tt::target::DataType::Float32: {
-      auto span = ::ttsl::Span<float>(reinterpret_cast<float *>(raw_mmap_ptr),
-                                      num_elements);
+    if (raw_mmap_ptr != nullptr) {
+      ::ttnn::Shape ttnnShape(shape);
+      uint64_t num_elements =
+          std::accumulate(shape.begin(), shape.end(), static_cast<uint64_t>(1),
+                          std::multiplies<std::uint32_t>());
       return utils::createRuntimeTensorFromTTNN(
-          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
+          createMmapTTNNTensor(raw_mmap_ptr, ttnnShape, num_elements,
+                               num_elements * itemsize, dataType));
     }
-    case ::tt::target::DataType::Float16: {
-      auto span = ::ttsl::Span<uint16_t>(
-          reinterpret_cast<uint16_t *>(raw_mmap_ptr), num_elements);
-      return utils::createRuntimeTensorFromTTNN(
-          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
-    }
-    case ::tt::target::DataType::BFloat16: {
-      auto span = ::ttsl::Span<bfloat16>(
-          reinterpret_cast<bfloat16 *>(raw_mmap_ptr), num_elements);
-      return utils::createRuntimeTensorFromTTNN(
-          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
-    }
-    case ::tt::target::DataType::UInt32: {
-      auto span = ::ttsl::Span<uint32_t>(
-          reinterpret_cast<uint32_t *>(raw_mmap_ptr), num_elements);
-      return utils::createRuntimeTensorFromTTNN(
-          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
-    }
-    case ::tt::target::DataType::UInt16: {
-      auto span = ::ttsl::Span<uint16_t>(
-          reinterpret_cast<uint16_t *>(raw_mmap_ptr), num_elements);
-      return utils::createRuntimeTensorFromTTNN(
-          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
-    }
-    case ::tt::target::DataType::UInt8: {
-      auto span = ::ttsl::Span<uint8_t>(
-          reinterpret_cast<uint8_t *>(raw_mmap_ptr), num_elements);
-      return utils::createRuntimeTensorFromTTNN(
-          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
-    }
-    case ::tt::target::DataType::Int32: {
-      auto span = ::ttsl::Span<int32_t>(
-          reinterpret_cast<int32_t *>(raw_mmap_ptr), num_elements);
-      return utils::createRuntimeTensorFromTTNN(
-          ::ttnn::Tensor::from_borrowed_data(span, ttnnShape, memory_pin));
-    }
-    default:
-      LOG_FATAL("Unsupported data type for mmap tensor creation");
-    }
-  } else if (mmapTensors &&
-             !::tt::runtime::utils::isSupportedDataType(dataType)) {
-    LOG_WARNING("Unsupported data type for mmap tensor creation, falling back "
-                "to default tensor creation");
+    LOG_WARNING("createOwnedHostTensor: mmap failed, falling back to normal "
+                "tensor allocation");
   }
 
-  ::tt::runtime::Tensor tensor = utils::createRuntimeTensorFromTTNN(
+  return utils::createRuntimeTensorFromTTNN(
       createOwnedTTNNTensor(data, shape, stride, itemsize, dataType));
-  return tensor;
 }
 
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
