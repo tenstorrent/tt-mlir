@@ -621,8 +621,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     break;
   }
   case ttkernel::ArgType::LocalSemaphore: {
-    argType = target::metal::KernelArgType::KernelArgSemaphore;
-    arg = target::metal::CreateKernelArgSemaphore(*cache.fbb).Union();
+    argType = target::metal::KernelArgType::KernelArgLocalSemaphore;
+    arg = target::metal::CreateKernelArgLocalSemaphore(*cache.fbb).Union();
     break;
   }
   case ttkernel::ArgType::NamedArgument: {
@@ -695,6 +695,36 @@ fabricConnectionConfigToFlatbuffer(
       toFlatbuffer(fabricConnectionConfig.getRoutingMode()),
       fabricConnectionConfig.getNumLinks());
 }
+
+/*
+table KernelConfig {
+  kernel: Kernel;
+  core_range_set: [Dim2dRange];
+  args: KernelArgs;
+  type: KernelConfigType;
+  debug_info: string;
+  symbol: string;
+  loc: string;
+}
+
+table KernelArgs {
+  rt_args: [KernelArg];
+  ct_args: [KernelArg];
+}
+
+union KernelArgType {
+  KernelArgCBPort,
+  KernelArgBufferAddress,
+  KernelArgLocalSemaphore,
+  KernelArgNamedArgument,
+  KernelArgGlobalSemaphore,
+  KernelArgScalar,
+}
+
+table KernelArg {
+  arg: KernelArgType;
+}
+*/
 
 static flatbuffers::Offset<target::metal::KernelConfig>
 kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
@@ -872,13 +902,18 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                 fbb, cache.getOrCreate(allocOp.getResult(),
                                        bufferValueToFlatbuffer, systemDesc, 0)),
             op);
-      } else if (auto enqueueProgramOp =
+      } 
+      
+      else if (auto enqueueProgramOp =
                      dyn_cast_if_present<tt::ttmetal::EnqueueProgramOp>(op);
                  enqueueProgramOp) {
+
+
         std::vector<target::metal::ArgRef> argTypes;
         std::vector<flatbuffers::Offset<void>> args;
         argTypes.reserve(enqueueProgramOp.getArgs().size());
         args.reserve(enqueueProgramOp.getArgs().size());
+
         for (auto arg : enqueueProgramOp.getArgs()) {
           if (mlir::isa<MemRefType>(arg.getType())) {
             argTypes.push_back(target::metal::ArgRef::BufferRef);

@@ -68,7 +68,7 @@ table KernelArgBufferAddress {
   operand_idx: uint32;
 }
 
-table KernelArgSemaphore {
+table KernelArgLocalSemaphore {
   initial_value: uint32;
   core_type: CoreType;
 }
@@ -83,13 +83,13 @@ table KernelArgGlobalSemaphore {
 }
 
 table KernelArgScalar {
-  value: uint32;
+  operand_idx: uint32;
 }
 
 union KernelArgType {
   KernelArgCBPort,
   KernelArgBufferAddress,
-  KernelArgSemaphore,
+  KernelArgLocalSemaphore,
   KernelArgNamedArgument,
   KernelArgGlobalSemaphore,
   KernelArgScalar,
