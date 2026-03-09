@@ -32,17 +32,165 @@
 
 #include <memory>
 #include <optional>
+#include <tt-metalium/bfloat16.hpp>
+#include <tt-metalium/memory_pin.hpp>
 #include <vector>
 
+#include <algorithm>
 #include <fcntl.h>
+#include <filesystem>
+#include <numeric>
 #include <string>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
+namespace fs = std::filesystem;
+
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
+
+void *create_and_mmap_tmp_file(const std::string &file_path, size_t size) {
+  std::string full_path = "/tmp/" + file_path;
+
+  // 1. Open the file (Create if doesn't exist, Read/Write mode)
+  // Mode 0666 sets standard read/write permissions
+  int fd = open(full_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
+  unlink(full_path.c_str()); // destruct the file on fd release
+  if (fd == -1) {
+    LOG_ASSERT(false, "Error opening file to mmap");
+    return nullptr;
+  }
+
+  // 2. Stretch the file to the desired size
+  // A new file has 0 bytes; mmap will fail if the file is smaller than 'size'
+  if (ftruncate(fd, size) == -1) {
+    LOG_ASSERT(false, "Error setting file size");
+    close(fd);
+    return nullptr;
+  }
+
+  // 3. Map the file into memory
+  // PROT_READ | PROT_WRITE allows us to read and write to the pointer
+  // MAP_SHARED ensures changes are written back to the file
+  void *map = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+
+  if (map == MAP_FAILED) {
+    LOG_ASSERT(false, "Error mapping file");
+    close(fd);
+    return nullptr;
+  }
+
+  // 4. Close the file descriptor
+  // We can close the FD immediately; the mapping survives until proc
+  // termination
+  close(fd);
+  return map;
+}
+
+// Helper to find the max integer prefix in a directory and return max + 1
+uint32_t get_next_index(const fs::path &dir) {
+  if (!fs::exists(dir)) {
+    fs::create_directories(dir);
+    return 0;
+  }
+  uint32_t max_idx = 0;
+  bool found = false;
+  for (const auto &entry : fs::directory_iterator(dir)) {
+    std::string name = entry.path().stem().string();
+    // Take the part before the first underscore (for the M files)
+    std::string prefix = name.substr(0, name.find('_'));
+    try {
+      uint32_t val = std::stoul(prefix);
+      max_idx = std::max(max_idx, val);
+      found = true;
+    } catch (...) {
+      continue;
+    }
+  }
+  return found ? max_idx + 1 : 0;
+}
+
+// returns a raw pointer to the mmap'd region
+void *mmap_tensor_data_to_tmp_file(const void *data,
+                                   const std::vector<std::uint32_t> &shape,
+                                   const std::vector<std::uint32_t> &stride,
+                                   std::uint32_t itemsize,
+                                   ::tt::target::DataType dataType) {
+
+  LOG_DEBUG("mmap_tensor_data_to_tmp_file: Enter - itemsize=", itemsize,
+            ", data_ptr=", data, ", shape_size=", shape.size());
+
+  // 1. Determine N (The subdirectory)
+  fs::path base_path = "/tmp/mmap";
+  uint32_t N = get_next_index(base_path);
+  fs::path n_dir = base_path / std::to_string(N);
+  fs::create_directories(n_dir);
+
+  // 2. Determine M (The file) and Append Shape
+  uint32_t M = get_next_index(n_dir);
+  std::string filename = std::to_string(M);
+  for (auto s : shape) {
+    filename += "_" + std::to_string(s);
+  }
+
+  fs::path final_path = n_dir / filename;
+
+  // 3. Calculate Total Size
+  size_t total_size =
+      std::accumulate(shape.begin(), shape.end(), static_cast<uint64_t>(1),
+                      std::multiplies<size_t>()) *
+      itemsize;
+
+  LOG_DEBUG("mmap_tensor_data_to_tmp_file: Creating mmap file at ",
+            final_path.string(), " with size ", total_size, " bytes");
+
+  // 4. Use your previous helper to get the mmap pointer
+  // Note: create_and_mmap_tmp_file expects a relative path and will prepend
+  // /tmp/
+  std::string relative_path = "mmap/" + std::to_string(N) + "/" + filename;
+  void *mmap_ptr = create_and_mmap_tmp_file(relative_path, total_size);
+
+  if (!mmap_ptr) {
+    LOG_DEBUG("mmap_tensor_data_to_tmp_file: Failed to create mmap, returning "
+              "nullptr");
+    return nullptr;
+  }
+
+  LOG_DEBUG("mmap_tensor_data_to_tmp_file: Successfully mmap'd at address ",
+            mmap_ptr);
+
+  // 5. Copy data into the mmap'd region
+  if (data) {
+    LOG_DEBUG("mmap_tensor_data_to_tmp_file: Copying ", total_size,
+              " bytes to mmap region");
+    std::memcpy(mmap_ptr, data, total_size);
+    LOG_DEBUG("mmap_tensor_data_to_tmp_file: Data copy complete");
+  } else {
+    LOG_DEBUG(
+        "mmap_tensor_data_to_tmp_file: No data to copy (data ptr is null)");
+  }
+
+  // 6. Return the shared_ptr with a custom deleter
+  LOG_DEBUG(
+      "mmap_tensor_data_to_tmp_file: Returning memory pin with custom deleter");
+  return mmap_ptr;
+}
+
+template <typename T>
+inline ::ttnn::Tensor createBorrowedTTNNTensor(std::shared_ptr<void> data,
+                                               const ::ttnn::Shape &shape) {
+  // Create MemoryPin with shared_ptr that allows TTNN to handle the deletion of
+  // the buffer.
+  auto pin = ::tt::tt_metal::MemoryPin(data);
+
+  std::uint64_t numElements = shape.volume();
+  T *typedData = static_cast<T *>(data.get());
+  ::ttsl::Span<T> span(typedData, typedData + numElements);
+
+  return ::ttnn::Tensor::from_borrowed_data(span, shape, pin);
+}
 
 static ::ttnn::Tensor
 createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
@@ -219,8 +367,56 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
   bool mmapTensors = std::getenv("TT_USE_MMAP") != nullptr;
   if (mmapTensors) {
-  }
+    void *raw_mmap_ptr =
+        mmap_tensor_data_to_tmp_file(data, shape, stride, itemsize, dataType);
+    LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
+               "Cannot create borrowed tensor with unsupported data type");
+    ::ttnn::Shape ttnnShape(shape);
 
+    // void* mmap_addr = mmap(...);
+    // MemoryPin memory_pin(std::shared_ptr<void>(mmap_addr, [](void* addr) {
+    // munmap(addr, ...); })); Tensor tensor = Tensor::from_borrowed_data(
+    //     tt::stl::Span<T>(reinterpret_cast<T*>(mmap_addr), buffer_size),
+    //     shape, memory_pin);
+
+    uint64_t num_elements =
+        std::accumulate(shape.begin(), shape.end(), static_cast<uint64_t>(1),
+                        std::multiplies<std::uint32_t>());
+    uint64_t total_size = num_elements * itemsize;
+    tt::tt_metal::MemoryPin memory_pin(std::shared_ptr<void>(
+        raw_mmap_ptr, [total_size](void *addr) { munmap(addr, total_size); }));
+    auto span = ::ttsl::Span<bfloat16>(
+        reinterpret_cast<bfloat16 *>(raw_mmap_ptr), num_elements);
+    return utils::createRuntimeTensorFromTTNN(
+        ::ttnn::Tensor::from_borrowed_data(span, ::ttnn::Shape(shape),
+                                           memory_pin));
+
+    // switch (dataType) {
+    // case ::tt::target::DataType::Float32:
+    //   return utils::createRuntimeTensorFromTTNN(
+    //       utils::createBorrowedTTNNTensor<float>(raw_mmap_ptr, ttnnShape));
+    // case ::tt::target::DataType::BFloat16:
+    //   return utils::createRuntimeTensorFromTTNN(
+    //       utils::createBorrowedTTNNTensor<bfloat16>(raw_mmap_ptr,
+    //       ttnnShape));
+    // case ::tt::target::DataType::UInt32:
+    //   return utils::createRuntimeTensorFromTTNN(
+    //       utils::createBorrowedTTNNTensor<uint32_t>(raw_mmap_ptr,
+    //       ttnnShape));
+    // case ::tt::target::DataType::UInt16:
+    //   return utils::createRuntimeTensorFromTTNN(
+    //       utils::createBorrowedTTNNTensor<uint16_t>(raw_mmap_ptr,
+    //       ttnnShape));
+    // case ::tt::target::DataType::UInt8:
+    //   return utils::createRuntimeTensorFromTTNN(
+    //       utils::createBorrowedTTNNTensor<uint8_t>(raw_mmap_ptr, ttnnShape));
+    // case ::tt::target::DataType::Int32:
+    //   return utils::createRuntimeTensorFromTTNN(
+    //       utils::createBorrowedTTNNTensor<int32_t>(raw_mmap_ptr, ttnnShape));
+    // default:
+    //   LOG_FATAL("Unsupported data type");
+    // }
+  }
   ::tt::runtime::Tensor tensor = utils::createRuntimeTensorFromTTNN(
       createOwnedTTNNTensor(data, shape, stride, itemsize, dataType));
   return tensor;
@@ -2051,44 +2247,6 @@ void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
   auto tensor = utils::createRuntimeTensorFromTTNN(metalTensor);
 
   return tensor;
-}
-
-void *create_and_mmap_tmp_file(const std::string &file_path, size_t size) {
-  std::string full_path = "/tmp/" + file_path;
-
-  // 1. Open the file (Create if doesn't exist, Read/Write mode)
-  // Mode 0666 sets standard read/write permissions
-  int fd = open(full_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
-  unlink(full_path.c_str()); // destruct the file on fd release
-  if (fd == -1) {
-    LOG_ASSERT("Error opening file to mmap");
-    return nullptr;
-  }
-
-  // 2. Stretch the file to the desired size
-  // A new file has 0 bytes; mmap will fail if the file is smaller than 'size'
-  if (ftruncate(fd, size) == -1) {
-    LOG_ASSERT("Error setting file size");
-    close(fd);
-    return nullptr;
-  }
-
-  // 3. Map the file into memory
-  // PROT_READ | PROT_WRITE allows us to read and write to the pointer
-  // MAP_SHARED ensures changes are written back to the file
-  void *map = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-  if (map == MAP_FAILED) {
-    LOG_ASSERT("Error mapping file");
-    close(fd);
-    return nullptr;
-  }
-
-  // 4. Close the file descriptor
-  // We can close the FD immediately; the mapping survives until proc
-  // termination
-  close(fd);
-  return map;
 }
 
 } // namespace tt::runtime::ttnn
