@@ -28,45 +28,56 @@ static bool allUsersAreSlice(Operation *op) {
   });
 }
 
-// Compute dimension mapping from inputShape to outputShape for a reshape.
-// Each output dim maps to zero or more consecutive input dims whose product
-// equals the output dim size.  A count of 0 means the output dim is an
-// "inserted" size-1 dim with no corresponding input dim.
-// Returns false if the reshape cannot be expressed this way.
+struct DimGroup {
+  int64_t inStart, inCount;
+  int64_t outStart, outCount;
+};
+
+// Bidirectional dimension mapping that handles merges, splits, and
+// merge+split combinations. Each group maps a range of consecutive input
+// dims to a range of consecutive output dims with equal products.
+// Inserted size-1 output dims (with no corresponding input dim) are
+// represented as groups with inCount=0.
 static bool
-computeDimMapping(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> outputShape,
-                  SmallVector<std::pair<int64_t, int64_t>> &mapping) {
-  mapping.clear();
-  int64_t inIdx = 0;
-  int64_t inputRank = inputShape.size();
+computeDimGroupMapping(ArrayRef<int64_t> inputShape,
+                       ArrayRef<int64_t> outputShape,
+                       SmallVector<DimGroup> &groups) {
+  groups.clear();
+  int64_t inIdx = 0, outIdx = 0;
+  int64_t inRank = inputShape.size(), outRank = outputShape.size();
 
-  for (int64_t outIdx = 0; outIdx < static_cast<int64_t>(outputShape.size());
-       ++outIdx) {
-    int64_t target = outputShape[outIdx];
-
-    // Size-1 output dim: either matches a size-1 input dim or is inserted.
-    if (target == 1) {
-      if (inIdx < inputRank && inputShape[inIdx] == 1) {
-        mapping.push_back({inIdx, 1});
-        ++inIdx;
-      } else {
-        mapping.push_back({inIdx, 0}); // inserted dim
-      }
+  while (inIdx < inRank || outIdx < outRank) {
+    if (outIdx < outRank && outputShape[outIdx] == 1 &&
+        (inIdx >= inRank || inputShape[inIdx] != 1)) {
+      groups.push_back({inIdx, 0, outIdx, 1});
+      ++outIdx;
       continue;
     }
 
-    int64_t product = 1;
-    int64_t startIn = inIdx;
-    while (inIdx < inputRank && product < target) {
-      product *= inputShape[inIdx];
-      ++inIdx;
-    }
-    if (product != target) {
+    if (inIdx >= inRank || outIdx >= outRank) {
       return false;
     }
-    mapping.push_back({startIn, inIdx - startIn});
+
+    int64_t inStart = inIdx, outStart = outIdx;
+    int64_t inProd = inputShape[inIdx++];
+    int64_t outProd = outputShape[outIdx++];
+
+    while (inProd != outProd) {
+      if (inProd < outProd) {
+        if (inIdx >= inRank) {
+          return false;
+        }
+        inProd *= inputShape[inIdx++];
+      } else {
+        if (outIdx >= outRank) {
+          return false;
+        }
+        outProd *= outputShape[outIdx++];
+      }
+    }
+    groups.push_back({inStart, inIdx - inStart, outStart, outIdx - outStart});
   }
-  return inIdx == inputRank;
+  return inIdx == inRank && outIdx == outRank;
 }
 
 static bool hasNonTileAlignedInnerDims(ArrayRef<int64_t> shape) {
@@ -146,8 +157,8 @@ public:
     ArrayRef<int64_t> inputShape = inputType.getShape();
     ArrayRef<int64_t> outputShape = outputType.getShape();
 
-    SmallVector<std::pair<int64_t, int64_t>> dimMapping;
-    if (!computeDimMapping(inputShape, outputShape, dimMapping)) {
+    SmallVector<DimGroup> groups;
+    if (!computeDimGroupMapping(inputShape, outputShape, groups)) {
       return failure();
     }
 
@@ -162,29 +173,35 @@ public:
     SmallVector<int32_t> newStep(inputRank, 1);
     SmallVector<int64_t> slicedInputShape(inputShape.begin(), inputShape.end());
 
-    int64_t outputRank = outputShape.size();
-    for (int64_t d = 0; d < outputRank; ++d) {
-      int64_t sliceSize = llvm::divideCeil(ends[d] - begins[d], step[d]);
-
-      if (sliceSize == outputShape[d]) {
+    for (auto &group : groups) {
+      if (group.inCount == 0) {
         continue;
       }
 
-      auto [startIn, count] = dimMapping[d];
+      bool anyPartial = false;
+      for (int64_t d = group.outStart; d < group.outStart + group.outCount;
+           ++d) {
+        int64_t sliceSize = llvm::divideCeil(ends[d] - begins[d], step[d]);
+        if (sliceSize != outputShape[d]) {
+          anyPartial = true;
+          break;
+        }
+      }
 
-      if (count == 0) {
+      if (!anyPartial) {
         continue;
       }
 
-      if (count != 1) {
-        // Partial slice on a merged dim — can't commute.
+      if (group.inCount != 1 || group.outCount != 1) {
         return failure();
       }
 
-      newBegins[startIn] = begins[d];
-      newEnds[startIn] = ends[d];
-      newStep[startIn] = step[d];
-      slicedInputShape[startIn] = sliceSize;
+      int64_t sliceSize = llvm::divideCeil(
+          ends[group.outStart] - begins[group.outStart], step[group.outStart]);
+      newBegins[group.inStart] = begins[group.outStart];
+      newEnds[group.inStart] = ends[group.outStart];
+      newStep[group.inStart] = step[group.outStart];
+      slicedInputShape[group.inStart] = sliceSize;
     }
 
     RankedTensorType slicedOutputType = op.getResult().getType();
@@ -491,11 +508,9 @@ public:
     if (!eltwiseOp || !eltwiseOp->hasOneUse()) {
       return failure();
     }
-    llvm::errs() << "eltwiseOp: " << eltwiseOp->getLoc() << " "
-                 << eltwiseOp->getName() << "\n";
+
     RankedTensorType finalType = op.getResult().getType();
     ArrayRef<int64_t> finalShape = finalType.getShape();
-    int64_t finalRank = finalShape.size();
     auto paddedShape = ttnn::utils::getTilePaddedShape(finalShape);
 
     int64_t tiledVolume = ttmlir::utils::volume(llvm::ArrayRef(paddedShape));
@@ -511,8 +526,8 @@ public:
       return failure();
     }
 
-    SmallVector<std::pair<int64_t, int64_t>> dimMapping;
-    if (!computeDimMapping(eltwiseShape, finalShape, dimMapping)) {
+    SmallVector<DimGroup> groups;
+    if (!computeDimGroupMapping(eltwiseShape, finalShape, groups)) {
       return failure();
     }
 
@@ -527,42 +542,35 @@ public:
 
       SmallVector<int64_t> operandTargetShape;
       bool valid = true;
-      for (int64_t d = 0; d < finalRank; ++d) {
-        auto [startIn, count] = dimMapping[d];
-
-        if (count == 0) {
+      for (auto &group : groups) {
+        if (group.inCount == 0) {
           // Inserted dim — operand gets size 1 (broadcast).
           operandTargetShape.push_back(1);
           continue;
         }
 
-        if (count == 1) {
-          // 1:1 mapping — operand keeps its size on this dim.
-          operandTargetShape.push_back(operandShape[startIn]);
-          continue;
-        }
-
-        // Merged dims — compute product of operand sizes on merged dims.
         int64_t operandProduct = 1;
-        bool allOnes = true;
-        for (int64_t k = startIn; k < startIn + count; ++k) {
+        for (int64_t k = group.inStart; k < group.inStart + group.inCount;
+             ++k) {
           operandProduct *= operandShape[k];
-          if (operandShape[k] != 1) {
-            allOnes = false;
-          }
         }
 
-        if (allOnes) {
-          // All broadcast — stays broadcast in target space.
-          operandTargetShape.push_back(1);
-        } else if (operandProduct == finalShape[d]) {
-          // Exact match — operand fills the merged dim entirely.
-          operandTargetShape.push_back(finalShape[d]);
+        int64_t finalProduct = 1;
+        for (int64_t k = group.outStart; k < group.outStart + group.outCount;
+             ++k) {
+          finalProduct *= finalShape[k];
+        }
+
+        if (operandProduct == finalProduct) {
+          for (int64_t k = group.outStart;
+               k < group.outStart + group.outCount; ++k) {
+            operandTargetShape.push_back(finalShape[k]);
+          }
         } else if (operandProduct == 1) {
-          operandTargetShape.push_back(1);
+          for (int64_t k = 0; k < group.outCount; ++k) {
+            operandTargetShape.push_back(1);
+          }
         } else {
-          // Partial: operand has some non-broadcast merged dims but
-          // doesn't fill the target dim. Can't broadcast.
           valid = false;
           break;
         }
