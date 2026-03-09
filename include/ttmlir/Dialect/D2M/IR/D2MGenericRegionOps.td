@@ -720,7 +720,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
   ]> {
     let summary = "D2M Tile Untilize Block Op";
     let description = [{
-        The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref contianing the row major data.
+        The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref containing the row major data.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
@@ -1613,7 +1613,7 @@ def D2M_SemaphoreIncOp : D2M_SemaphoreUpdateOp<"semaphore_inc"> {}
 def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "D2M Semaphore Set Op.";
     let description = [{
-      Wait for the semaphore value to reach the specified value. Optionall supply a reset value as a shorthand syntax.
+      Wait for the semaphore value to reach the specified value. Optionally supply a reset value as a shorthand syntax.
 
       ```mlir
       d2m.semaphore_wait %sem1, %c1 reset %c0
@@ -2175,6 +2175,8 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
               $_builder.getI64IntegerAttr(dim), mlir::AffineMapAttr::get(map));
       }]>
     ];
+
+    let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//

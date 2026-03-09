@@ -69,6 +69,7 @@ void createOptimizationPasses(OpPassManager &pm,
   pm.addPass(mlir::createSCCPPass());
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::arith::createIntRangeOptimizationsPass());
+  pm.addPass(mlir::createLoopInvariantCodeMotionPass());
 }
 
 void createTTIRToTTMetalFrontendPipeline(
@@ -232,7 +233,6 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
   pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
 
-  pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());

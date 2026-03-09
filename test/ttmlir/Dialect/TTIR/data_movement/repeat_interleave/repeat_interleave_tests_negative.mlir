@@ -41,7 +41,7 @@ module {
   }
 }
 
-// Verify that the parsing fails if the output shape doesnt match the expected shape
+// Verify that the parsing fails if the output shape doesn't match the expected shape
 // -----
 module {
   func.func @repeat_interleave_output_shape_mismatch_1(%arg0: tensor<4xf32>) -> tensor<4xf32>

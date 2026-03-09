@@ -2243,7 +2243,7 @@ void DFShardingPolicy::run() {
     deviceAttr = ttcore::lookupDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
     l1ChainConfigs->push_back(L1ChainConfig());
-    llvm::SmallVector<mlir::Operation *> scheduleableOps;
+    llvm::SmallVector<mlir::Operation *> schedulableOps;
     Operation *currentOp = nullptr;
 
     // Produce shard chain configs.
@@ -2253,7 +2253,7 @@ void DFShardingPolicy::run() {
     // 4. Op is considered sharded if its output is sharded to L1.
     //
     while (scheduler.hasUnscheduledOps()) {
-      scheduleableOps = scheduler.getSchedulableOps();
+      schedulableOps = scheduler.getSchedulableOps();
 
       // Before starting a sharding chain, schedule layout/memory management ops
       // first until they are exhausted from schedulable ops.
@@ -2263,7 +2263,7 @@ void DFShardingPolicy::run() {
       // check this)
       //
       if (l1ChainConfigs->back().isEmpty()) {
-        for (auto *op : scheduleableOps) {
+        for (auto *op : schedulableOps) {
           if (isa<ToLayoutOp>(op)) {
             currentOp = op;
             break;
@@ -2272,7 +2272,7 @@ void DFShardingPolicy::run() {
       }
 
       if (currentOp == nullptr) {
-        currentOp = scheduleableOps[0];
+        currentOp = schedulableOps[0];
       }
 
       // Schedule currentOp.
@@ -2338,11 +2338,11 @@ void DFShardingPolicy::run() {
       // Check for next op only if there are still unscheduled ops
       Operation *nextOp = nullptr;
       if (scheduler.hasUnscheduledOps()) {
-        scheduleableOps = scheduler.getSchedulableOps();
+        schedulableOps = scheduler.getSchedulableOps();
 
         // Check if currentOp has a valid successor.
         //
-        for (auto *op : scheduleableOps) {
+        for (auto *op : schedulableOps) {
           for (auto operand : op->getOperands()) {
             if (operand.getDefiningOp() == currentOp) {
               nextOp = op;

@@ -7,6 +7,7 @@ declare_mlir_python_sources(TTPykernelSources
     SOURCES
         api.py
         __init__.py
+        _src/__init__.py
         _src/base_ast.py
         _src/kernel_ast.py
         _src/kernel_types.py

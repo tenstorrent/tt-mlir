@@ -1,5 +1,5 @@
-// // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="mesh-shape=2,4" -o %t %s
-// // RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="mesh-shape=2,4" -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 2x4>]>} {
   ttcore.device_module {

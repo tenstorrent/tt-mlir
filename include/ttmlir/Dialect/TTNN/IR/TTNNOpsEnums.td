@@ -378,6 +378,20 @@ def TTNN_PlacementType : I32EnumAttr<"PlacementType", "TTNN Placement Type",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_WeightDtypeNone : I32EnumAttrCase<"None", 0, "none">;
+def TTNN_WeightDtypeBfpBf8 : I32EnumAttrCase<"BFP_BFloat8", 1, "bfp_bf8">;
+def TTNN_WeightDtypeBfpBf4 : I32EnumAttrCase<"BFP_BFloat4", 2, "bfp_bf4">;
+
+def TTNN_WeightDtype : I32EnumAttr<"WeightDtype", "Weight data type for conversion",
+                           [
+                            TTNN_WeightDtypeNone,
+                            TTNN_WeightDtypeBfpBf8,
+                            TTNN_WeightDtypeBfpBf4,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 def TTNN_NocIndexNoc0 : I32EnumAttrCase<"Noc0", 0, "noc0">;
 def TTNN_NocIndexNoc1 : I32EnumAttrCase<"Noc1", 1, "noc1">;
 
