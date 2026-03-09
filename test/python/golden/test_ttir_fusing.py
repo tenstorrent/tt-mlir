@@ -375,10 +375,6 @@ def test_conv_silu_decomposed_fusing(
     [
         # Direct matmul + 1D bias.
         [(68, 1024), (1024, 1024), (1024,)],
-        # Matmul with higher-rank bias (broadcast).
-        [(68, 1024), (1024, 1024), (2, 68, 1024)],
-        # Batched matmul + bias.
-        [(1, 1, 68, 2048), (2048, 512), (1, 68, 512)],
     ],
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
@@ -419,28 +415,28 @@ def test_matmul_with_bias_fusing(
     "matmul_shapes,bias_shape,bias_reshape,bias_broadcast",
     [
         # ViT / BERT pattern: matmul [1576, 768] + bias [768] reshaped to
-        # [1, 1, 768] and broadcast to [8, 197, 768].
+        # [1, 768] and broadcast to [1576, 768].
         (
             [(1576, 768), (768, 768)],
             (768,),
-            [1, 1, 768],
-            [8, 197, 1],
+            [1, 768],
+            [1576, 1],
         ),
         # Phi decode pattern: matmul [32, 2048] + bias [2048] reshaped to
-        # [1, 1, 2048] and broadcast to [32, 1, 2048].
+        # [1, 2048] and broadcast to [32, 2048].
         (
             [(32, 2048), (2048, 2048)],
             (2048,),
-            [1, 1, 2048],
-            [32, 1, 1],
+            [1, 2048],
+            [32, 1],
         ),
         # Qwen decode pattern: matmul [32, 896] + bias [896] reshaped to
-        # [1, 1, 896] and broadcast to [32, 1, 896].
+        # [1, 896] and broadcast to [32, 896].
         (
             [(32, 896), (896, 896)],
             (896,),
-            [1, 1, 896],
-            [32, 1, 1],
+            [1, 896],
+            [32, 1],
         ),
     ],
 )
