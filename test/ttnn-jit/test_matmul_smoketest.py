@@ -17,7 +17,7 @@ from utils import (
 )
 
 # Tests with matmul in the middle / end of an op chain are failing in D2MToTTNN.
-# Tests with matmul as the first op are passing.
+# Tests with matmul as the first op are passing. Issue #7419.
 def matmul_composite(input0, input1):
     a = ttnn.abs(input0)
     b = ttnn.matmul(a, input1)
