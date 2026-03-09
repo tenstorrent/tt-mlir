@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRStableHLOTransforms
   AnnotateLocalShapes.cpp
   ApplyArgumentShardStatus.cpp
   ConvertXlaSdyToSdy.cpp
+  DecomposeCustomCallTuples.cpp
   DecoupleConstFanout.cpp
   FlattenComposite.cpp
   PartiallyConvertSdyToStableHLO.cpp
