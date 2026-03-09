@@ -19,6 +19,7 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <optional>
 #include <regex>
 #include <stack>
 #include <string>
@@ -102,8 +103,8 @@ private:
 
 /// Emitter that uses dialect specific emitters to emit Python code.
 struct PythonEmitter {
-  explicit PythonEmitter(raw_ostream &os, std::string &fileId)
-      : os(os), fileId(fileId) {
+  explicit PythonEmitter(raw_ostream &os, std::optional<std::string> fileId)
+      : os(os), fileId(std::move(fileId)) {
     valueInScopeCount.push(0);
     usedNames.push(std::set<std::string>());
   }
@@ -153,8 +154,8 @@ struct PythonEmitter {
   /// the ops of the file with the matching id are emitted.
   bool shouldEmitFile(FileOp fileOp);
 
-  /// Returns true if we're emitting multiple files (fileId is empty).
-  bool isEmittingMultipleFiles() const { return fileId.empty(); }
+  /// Returns true if we're emitting multiple files (fileId is not set).
+  bool isEmittingMultipleFiles() const { return !fileId.has_value(); }
 
   /// Emits a comment label for the file to separate outputs.
   void emitFileLabel(FileOp fileOp);
@@ -220,9 +221,9 @@ private:
 
   int classDepth = 0;
 
-  /// The id of the current file. Only files with this id are emitted. If empty,
-  /// all files are emitted as one.
-  std::string fileId;
+  /// The id of the current file. Only files with this id are emitted. If
+  /// not set, all files are emitted as one.
+  std::optional<std::string> fileId;
 };
 } // namespace
 
@@ -366,7 +367,7 @@ void PythonEmitter::registerDeferredValue(Value value, StringRef str) {
 }
 
 bool PythonEmitter::shouldEmitFile(FileOp fileOp) {
-  return fileId == fileOp.getId() || isEmittingMultipleFiles();
+  return isEmittingMultipleFiles() || *fileId == fileOp.getId();
 }
 
 void PythonEmitter::emitFileLabel(FileOp fileOp) {
@@ -1189,9 +1190,9 @@ LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
   return success();
 }
 
-LogicalResult mlir::tt::emitpy::translateToPython(Operation *op,
-                                                  raw_ostream &os,
-                                                  std::string &fileId) {
-  PythonEmitter emitter(os, fileId);
+LogicalResult
+mlir::tt::emitpy::translateToPython(Operation *op, raw_ostream &os,
+                                    std::optional<std::string> fileId) {
+  PythonEmitter emitter(os, std::move(fileId));
   return emitter.emitOperation(*op);
 }

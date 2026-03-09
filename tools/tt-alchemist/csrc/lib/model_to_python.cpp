@@ -63,7 +63,8 @@ bool TTAlchemist::modelToPython(const std::string &input_file) {
 
   // Generate main.py
   std::cout << "#=== main.py ===\n";
-  std::string mainFileId = hasSplitFiles ? "main" : "";
+  std::optional<std::string> mainFileId =
+      hasSplitFiles ? std::optional<std::string>("main") : std::nullopt;
   if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, outputStream,
                                                        mainFileId))) {
     std::cout << "Failed to translate MLIR module to main.py" << std::endl;
@@ -75,7 +76,7 @@ bool TTAlchemist::modelToPython(const std::string &input_file) {
   // Generate consteval.py only when files were split.
   if (hasSplitFiles) {
     std::cout << "\n#=== consteval.py ===\n";
-    std::string constevalFileId = "consteval";
+    std::optional<std::string> constevalFileId("consteval");
     if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, outputStream,
                                                          constevalFileId))) {
       std::cout << "Failed to translate MLIR module to consteval.py"

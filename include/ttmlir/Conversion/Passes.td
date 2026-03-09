@@ -216,8 +216,6 @@ def EmitPyConstEvalCaching : Pass<"emitpy-const-eval-caching", "::mlir::ModuleOp
 
       if not dict:
           dict["key"] = callee(inputs...)
-
-    This pass is to be used regardless of whether the TTNNFileSplit pass was performed.
   }];
   let constructor = "createEmitPyConstEvalCachingPass()";
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];

@@ -601,7 +601,8 @@ def EmitPy_FileOp
   let description = [{
     A `file` represents a single Python file.
 
-    If `-file-id=id` flag is used with `ttmlir-translate`, then only the ops of the `emitpy.file` with the matching id are emitted.
+    If `-file-id=id` flag is used with `ttmlir-translate`,
+    then only the matching `emitpy.file` op is emitted.
 
     Example:
 

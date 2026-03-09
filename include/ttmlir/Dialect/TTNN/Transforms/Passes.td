@@ -510,6 +510,7 @@ def TTNNPrepareConstEvalCaching : Pass<"ttnn-prepare-const-eval-caching", "::mli
     retrieves it at the top of the function body, and stores each
     LoadCachedOp result under its callee name.
   }];
+
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect"];
 }
 
@@ -524,11 +525,13 @@ def TTNNFileSplit : Pass<"ttnn-file-split", "::mlir::ModuleOp"> {
     ttmlir-opt --ttnn-file-split="target=emitpy" input.mlir
     ```
   }];
+
   let dependentDialects = [
     "mlir::tt::emitpy::EmitPyDialect",
     "mlir::emitc::EmitCDialect",
     "mlir::tt::ttcore::TTCoreDialect"
   ];
+
   let options = [
     Option<"target", "target", "FileSplitTarget",
            /*default=*/"",

@@ -557,19 +557,18 @@ void populatePassesModule(nb::module_ &m) {
 
         // Generate main.py
         outputStream << "#=== main.py ===\n";
-        std::string mainFileId = "main";
         if (mlir::failed(mlir::tt::emitpy::translateToPython(
-                mlir::cast<ModuleOp>(moduleOp), outputStream, mainFileId))) {
+                mlir::cast<ModuleOp>(moduleOp), outputStream,
+                std::string("main")))) {
           throw std::runtime_error("Failed to generate main.py");
         }
         outputStream.flush();
 
         // Generate consteval.py
         outputStream << "\n#=== consteval.py ===\n";
-        std::string constevalFileId = "consteval";
         if (mlir::failed(mlir::tt::emitpy::translateToPython(
                 mlir::cast<ModuleOp>(moduleOp), outputStream,
-                constevalFileId))) {
+                std::string("consteval")))) {
           throw std::runtime_error("Failed to generate consteval.py");
         }
         outputStream.flush();

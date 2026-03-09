@@ -15,7 +15,7 @@ namespace mlir::tt::emitpy {
 // Command-line option for file ID filtering.
 static llvm::cl::opt<std::string>
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-    fileIdOption("emitpy-file-id",
+    fileIdOption("file-id",
                  llvm::cl::desc("Filter emitpy.file ops by ID. Only files "
                                 "with matching ID will be emitted."),
                  llvm::cl::init(""));
@@ -24,7 +24,10 @@ void registerToPythonTranslation() {
   TranslateFromMLIRRegistration reg(
       "mlir-to-python", "translate from mlir to python",
       [](Operation *op, raw_ostream &output) {
-        std::string fileId = fileIdOption.getValue();
+        std::string fileIdValue = fileIdOption.getValue();
+        std::optional<std::string> fileId =
+            fileIdValue.empty() ? std::nullopt
+                                : std::optional<std::string>(fileIdValue);
         return emitpy::translateToPython(op, output, fileId);
       },
       [](DialectRegistry &registry) {

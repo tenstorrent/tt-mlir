@@ -468,7 +468,7 @@ void createTTNNToEmitPyDevicePipeline(
   }
 
   devicePm.addPass(createTTNNPrepareConstEvalCaching());
-  // Optionally split code into two files: consteval and main.
+  // Optionally run TTNNFileSplit pass.
   if (options.splitFiles) {
     TTNNFileSplitOptions fileSplitOptions;
     fileSplitOptions.target = FileSplitTarget::EmitPy;
@@ -574,15 +574,7 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
 
   createTTIRToTTNNDevicePipeline(pm, options);
 
-  TTNNToEmitPyDevicePipelineOptions emitPyDeviceOptions;
-  emitPyDeviceOptions.targetModule = options.targetModule;
-  emitPyDeviceOptions.loadInputTensorsFromDisk =
-      options.loadInputTensorsFromDisk;
-  emitPyDeviceOptions.tensorLoadDirectory = options.tensorLoadDirectory;
-  emitPyDeviceOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
-  emitPyDeviceOptions.tryRecoverStructure = options.tryRecoverStructure;
-  emitPyDeviceOptions.splitFiles = options.splitFiles;
-  createTTNNToEmitPyDevicePipeline(pm, emitPyDeviceOptions);
+  createTTNNToEmitPyDevicePipeline(pm, options);
 
   // Lower CPU module to EmitPy using TTNN golden functions.
   //

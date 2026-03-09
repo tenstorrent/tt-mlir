@@ -11,7 +11,6 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/LogicalResult.h"
 
-#include "llvm/Support/Casting.h"
 #include <string_view>
 
 using namespace mlir;

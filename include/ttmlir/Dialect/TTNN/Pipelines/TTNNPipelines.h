@@ -511,10 +511,9 @@ struct TTNNToEmitPyDevicePipelineOptions
           "https://github.com/tenstorrent/tt-mlir/issues"),
       llvm::cl::init(false)};
 
-  Option<bool> splitFiles{
-      *this, "split-files",
-      llvm::cl::desc("Split code into two files: consteval and main."),
-      llvm::cl::init(true)};
+  Option<bool> splitFiles{*this, "split-files",
+                          llvm::cl::desc("Enables TTNNFileSplit pass"),
+                          llvm::cl::init(true)};
 };
 
 // TTIR to TTNN backend pipeline options.

@@ -95,13 +95,15 @@ bool TTAlchemist::generatePython(const std::string &input_file,
 
   // Check if the module has file ops (split-files mode).
   bool hasSplitFiles = false;
-  module->walk([&](mlir::tt::emitpy::FileOp) { hasSplitFiles = true; });
+  module->walk(
+      [&hasSplitFiles](mlir::tt::emitpy::FileOp) { hasSplitFiles = true; });
 
   // Generate main.py
   //
   std::string mainCode;
   llvm::raw_string_ostream mainStream(mainCode);
-  std::string mainFileId = hasSplitFiles ? "main" : "";
+  std::optional<std::string> mainFileId =
+      hasSplitFiles ? std::optional<std::string>("main") : std::nullopt;
   if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, mainStream,
                                                        mainFileId))) {
     std::cout << "Failed to translate MLIR module to main.py" << std::endl;
@@ -123,7 +125,7 @@ bool TTAlchemist::generatePython(const std::string &input_file,
   if (hasSplitFiles) {
     std::string constevalCode;
     llvm::raw_string_ostream constevalStream(constevalCode);
-    std::string constevalFileId = "consteval";
+    std::optional<std::string> constevalFileId("consteval");
     if (mlir::failed(mlir::tt::emitpy::translateToPython(
             *module, constevalStream, constevalFileId))) {
       std::cout << "Failed to translate MLIR module to consteval.py"
