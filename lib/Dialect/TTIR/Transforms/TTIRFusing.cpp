@@ -1316,9 +1316,9 @@ public:
     ArrayRef<int64_t> matmulShape = matmulOp.getType().getShape();
     ArrayRef<int64_t> addOutputShape = addOp.getType().getShape();
 
-    // Peel bias reshapes that are equivalent to leading unsqueezes.
+    // Peel bias reshapes/broadcasts that are redundant for LinearOp.
     TypedValue<RankedTensorType> bias =
-        peelLeadingUnsqueezeBiasReshapes(rawBias);
+        peelBiasTransformations(rawBias, matmulShape);
 
     // If bias is a scalar (0D), reshape it to 1D so that
     // LinearOp receives a valid ranked bias operand.
@@ -1411,35 +1411,64 @@ private:
     return {nullptr, nullptr};
   }
 
-  // Walk backward from `bias` through single-use ReshapeOps, peeling only
-  // reshapes that add or remove leading singleton dimensions. This is
-  // equivalent to repeated unsqueeze(dim=0) on the bias and preserves its
-  // broadcast semantics.
+  // Walk backward from `bias` through single-use BroadcastOps and ReshapeOps,
+  // peeling operations that are redundant once fused into LinearOp:
+  //  - BroadcastOps: safe to peel when the matmul output already covers every
+  //    dimension the broadcast expands. Checked by verifying that
+  //    broadcast(matmulShape, inputShape) == broadcast(matmulShape,
+  //    outputShape).
+  //  - ReshapeOps that only add or remove leading singleton dimensions
+  //    (equivalent to repeated unsqueeze(dim=0)).
   static TypedValue<RankedTensorType>
-  peelLeadingUnsqueezeBiasReshapes(TypedValue<RankedTensorType> bias) {
+  peelBiasTransformations(TypedValue<RankedTensorType> bias,
+                          ArrayRef<int64_t> matmulShape) {
     Value current = bias;
-    while (auto reshape = current.getDefiningOp<ReshapeOp>()) {
+    while (true) {
       if (!current.hasOneUse()) {
         break;
       }
 
-      ArrayRef<int64_t> reshapeOutShape =
-          mlir::cast<RankedTensorType>(reshape.getType()).getShape();
-      auto peeled =
-          mlir::cast<TypedValue<RankedTensorType>>(reshape.getInput());
-      ArrayRef<int64_t> peeledShape = peeled.getType().getShape();
-      while (!peeledShape.empty() && peeledShape.front() == 1) {
-        peeledShape = peeledShape.drop_front();
-      }
-      while (!reshapeOutShape.empty() && reshapeOutShape.front() == 1) {
-        reshapeOutShape = reshapeOutShape.drop_front();
-      }
+      // Peel BroadcastOps when the matmul output covers all expanded dims.
+      if (auto broadcast = current.getDefiningOp<BroadcastOp>()) {
+        ArrayRef<int64_t> bcInputShape =
+            mlir::cast<RankedTensorType>(broadcast.getInput().getType())
+                .getShape();
+        ArrayRef<int64_t> bcOutputShape = broadcast.getType().getShape();
 
-      if (!llvm::equal(peeledShape, reshapeOutShape)) {
+        llvm::SmallVector<int64_t> withInput, withOutput;
+        if (mlir::OpTrait::util::getBroadcastedShape(matmulShape, bcInputShape,
+                                                     withInput) &&
+            mlir::OpTrait::util::getBroadcastedShape(matmulShape, bcOutputShape,
+                                                     withOutput) &&
+            llvm::equal(withInput, withOutput)) {
+          current = broadcast.getInput();
+          continue;
+        }
         break;
       }
 
-      current = peeled;
+      // Peel ReshapeOps that only add/remove leading 1s.
+      if (auto reshape = current.getDefiningOp<ReshapeOp>()) {
+        ArrayRef<int64_t> reshapeOutShape =
+            mlir::cast<RankedTensorType>(reshape.getType()).getShape();
+        auto peeled =
+            mlir::cast<TypedValue<RankedTensorType>>(reshape.getInput());
+        ArrayRef<int64_t> peeledShape = peeled.getType().getShape();
+        while (!peeledShape.empty() && peeledShape.front() == 1) {
+          peeledShape = peeledShape.drop_front();
+        }
+        while (!reshapeOutShape.empty() && reshapeOutShape.front() == 1) {
+          reshapeOutShape = reshapeOutShape.drop_front();
+        }
+
+        if (llvm::equal(peeledShape, reshapeOutShape)) {
+          current = peeled;
+          continue;
+        }
+        break;
+      }
+
+      break;
     }
 
     return mlir::cast<TypedValue<RankedTensorType>>(current);
