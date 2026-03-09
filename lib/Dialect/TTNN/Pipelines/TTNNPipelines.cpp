@@ -285,6 +285,7 @@ void createTTIRToTTNNDevicePipeline(
 
     createTTNNPipelineWorkaroundPass(devicePm, options);
     devicePm.addPass(createTTNNSlicePropagation());
+    pm.addPass(mlir::createCSEPass());
     // Add BFP8 weight conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
     if (options.experimentalBfp8Weights) {
