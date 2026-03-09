@@ -10,6 +10,7 @@ import pytest
 from op_definitions import matmul
 from ttnn_jit._src.utils import get_maximal_block_sharding_grid
 from utils import (
+    all_close_check,
     create_sharded_tile_tensor,
     create_dram_tensor,
     get_core_grid_from_device,
