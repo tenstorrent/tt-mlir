@@ -1065,7 +1065,7 @@ public:
     bool needsUntilize =
         ttcore::isTiled(currentInfo.type) && !ttcore::isTiled(targetInfo.type);
     if (needsUntilize) {
-      Type scalarType = getScalarType(currentInfo.type.getElementType());
+      Type scalarType = targetInfo.type.getElementType();
       // Avoid reblocking virtual grid shapes here. Output type here retains
       // input's virtual grid shape; only transformation is to scalar dtype.
       auto existingRemapping =

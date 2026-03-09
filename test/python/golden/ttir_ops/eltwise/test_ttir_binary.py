@@ -183,7 +183,11 @@ binary_ops = [
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
+    ids=["f32", "bf16", "i32"],
+)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_ops)
 def test_binary_ops(
@@ -195,6 +199,14 @@ def test_binary_ops(
         pytest.xfail(
             "FP32 pow fails due to tt-metal untilize NaN handling. "
             "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
+    if dtype == torch.int32 and target != "ttmetal":
+        pytest.skip("unsupported/not guaranteed to work")
+    if test_fn.__name__ == "pow" and dtype == torch.int32 and target == "ttmetal":
+        pytest.xfail("TODO(dloke): int32 pow is not supported on ttmetal yet")
+    if test_fn.__name__ == "div" and dtype == torch.int32 and target == "ttmetal":
+        pytest.xfail(
+            "TODO(dloke): int32 div is not supported on ttmetal yet, need to support floor or truncate division"
         )
 
     def module(builder: TTIRBuilder):
@@ -253,7 +265,11 @@ def create_logical_op_goldens(
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
+    ids=["f32", "bf16", "i32"],
+)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", logical_ops)
 def test_logical_ops(
@@ -465,7 +481,7 @@ binary_bitwise_ops = [
 ]
 
 binary_bitwise_dtypes = [
-    torch.int32,
+    torch.int32 | SkipIf("sim"),
     torch.uint32,
     torch.uint16,
     torch.uint8,
@@ -527,7 +543,7 @@ binary_logical_shift_ops = [
 
 
 binary_logical_shift_dtypes = [
-    torch.int32,
+    torch.int32 | SkipIf("sim"),
     torch.uint32,
     torch.uint16,
 ]
@@ -627,7 +643,9 @@ binary_comparison_ops = [
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
-    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+    "dtype",
+    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
+    ids=["f32", "bf16", "i32"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_comparison_ops)
@@ -639,9 +657,6 @@ def test_comparison_ops(
     request,
     device,
 ):
-    if target == "ttmetal" and dtype == torch.int32:
-        pytest.skip("ttmetal does not support int32 comparison ops")
-
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
         def comparison_ops(
@@ -961,7 +976,9 @@ def test_binary_ops_broadcast_shard_dims(
         pytest.param([(8, 16, 1), (8, 1, 32)], id="broadcast_both_4"),
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.int32 | SkipIf("sim")], ids=["f32", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",

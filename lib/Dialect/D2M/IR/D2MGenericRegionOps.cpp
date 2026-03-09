@@ -1447,6 +1447,16 @@ TileTilizeBlockOp::getBufferType(
   return mlir::failure();
 }
 
+mlir::LogicalResult TileClampScalarOp::verify() {
+  bool minIsInt = mlir::isa<IntegerAttr>(getMinAttr());
+  bool maxIsInt = mlir::isa<IntegerAttr>(getMaxAttr());
+  if (minIsInt != maxIsInt) {
+    return emitOpError("min and max attributes must be the same type (both "
+                       "F32Attr or both I32Attr)");
+  }
+  return success();
+}
+
 mlir::LogicalResult TileTilizeBlockOp::verify() {
   if (llvm::isa<mlir::tt::ttcore::TileType>(
           getElemType(getInput().getType()))) {

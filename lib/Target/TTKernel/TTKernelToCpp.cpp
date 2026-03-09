@@ -81,6 +81,12 @@ public:
       builder->create<emitc::IncludeOp>(loc,
                                         "api/compute/eltwise_binary_sfpu.h",
                                         /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/add_int_sfpu.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/sub_int_sfpu.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/mul_int_sfpu.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "api/compute/compute_kernel_api.h", // max ops
           /*isStandard=*/false);

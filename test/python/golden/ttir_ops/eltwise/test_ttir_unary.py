@@ -230,7 +230,7 @@ unary_ops = [
     is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
     log,
     log1p | Marks(pytest.mark.skip_config(["ttmetal"])),
-    logical_not,  # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
+    logical_not,
     mish | Marks(pytest.mark.skip_config(["ttmetal"])),
     neg,
     reciprocal,
@@ -251,7 +251,7 @@ unary_ops = [
 unary_ops_dtypes = [
     torch.float32,
     torch.bfloat16,
-    torch.int32 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    torch.int32 | SkipIf("sim"),
 ]
 
 
@@ -266,6 +266,7 @@ def test_unary_ops(
         abs,
         neg,
         relu,
+        logical_not,
     ]:
         pytest.skip("int32 unary op is not supported yet for this operation")
 
@@ -304,7 +305,7 @@ bitwise_unary_ops = [bitwise_not]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", bitwise_unary_ops)
 def test_bitwise_unary_ops(
@@ -394,7 +395,9 @@ def get_dimension_size(
 
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.int32 | SkipIf("sim")], ids=["f32", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 @pytest.mark.parametrize("dimension", [0, 1])
 def test_get_dimension_size(
