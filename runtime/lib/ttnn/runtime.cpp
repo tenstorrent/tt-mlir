@@ -1080,6 +1080,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_MatmulOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::SparseMatmulOp: {
+    tensorRef = opContext.type_as_SparseMatmulOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::MorehCumSumOp: {
     tensorRef = opContext.type_as_MorehCumSumOp()->out();
     break;
@@ -1200,6 +1204,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RMSNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    tensorRef = opContext.type_as_DistributedRMSNormOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::LayerNormOp: {
     tensorRef = opContext.type_as_LayerNormOp()->out();
     break;
@@ -1218,6 +1226,14 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRef = opContext.type_as_MeshShardOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
+    tensorRef = opContext.type_as_MeshPartitionOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
+    tensorRef = opContext.type_as_AllToAllCombineOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
@@ -1307,7 +1323,13 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
-  case ::tt::target::ttnn::OpType::DumpTensorOp: {
+  case ::tt::target::ttnn::OpType::AllToAllDispatchOp:
+  case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp:
+  case ::tt::target::ttnn::OpType::DumpTensorOp:
+  case ::tt::target::ttnn::OpType::TopKOp:
+  case ::tt::target::ttnn::OpType::BreakpointOp:
+  case ::tt::target::ttnn::OpType::PrintOp:
+  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
@@ -1330,12 +1352,18 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_AnnotateOp()->result();
     break;
   }
-  case ::tt::target::ttnn::OpType::BreakpointOp: {
-    tensorRef = opContext.type_as_BreakpointOp()->result();
+  case ::tt::target::ttnn::OpType::RegionStartOp: {
+    tensorRef = opContext.type_as_RegionStartOp()->result();
     break;
   }
-  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
-    tensorRef = opContext.type_as_MemorySnapshotOp()->result();
+  case ::tt::target::ttnn::OpType::RegionEndOp: {
+    tensorRef = opContext.type_as_RegionEndOp()->result();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CreateGlobalSemaphoreOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1452,6 +1480,12 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_MatmulOp()->b()};
     break;
   }
+  case ::tt::target::ttnn::OpType::SparseMatmulOp: {
+    tensorRefs = {opContext.type_as_SparseMatmulOp()->a(),
+                  opContext.type_as_SparseMatmulOp()->b(),
+                  opContext.type_as_SparseMatmulOp()->sparsity()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::MorehCumSumOp: {
     tensorRefs = {opContext.type_as_MorehCumSumOp()->in()};
     break;
@@ -1466,6 +1500,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     tensorRefs = {opContext.type_as_ReductionOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TopKOp: {
+    tensorRefs = {opContext.type_as_TopKOp()->input_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
@@ -1592,6 +1630,17 @@ getOpInputRefs(OpContext opContextHandle,
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    tensorRefs = {opContext.type_as_DistributedRMSNormOp()->input()};
+    if (opContext.type_as_DistributedRMSNormOp()->weight()) {
+      tensorRefs.push_back(opContext.type_as_DistributedRMSNormOp()->weight());
+    }
+    if (opContext.type_as_DistributedRMSNormOp()->residual()) {
+      tensorRefs.push_back(
+          opContext.type_as_DistributedRMSNormOp()->residual());
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::LayerNormOp: {
     tensorRefs = {opContext.type_as_LayerNormOp()->input()};
     if (opContext.type_as_LayerNormOp()->weight()) {
@@ -1616,6 +1665,28 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRefs = {opContext.type_as_MeshShardOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
+    tensorRefs = {opContext.type_as_MeshPartitionOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchOp: {
+    tensorRefs = {opContext.type_as_AllToAllDispatchOp()->input_tensor(),
+                  opContext.type_as_AllToAllDispatchOp()->expert_indices(),
+                  opContext.type_as_AllToAllDispatchOp()->expert_mapping()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
+    tensorRefs = {opContext.type_as_AllToAllCombineOp()->input_tensor(),
+                  opContext.type_as_AllToAllCombineOp()->expert_metadata(),
+                  opContext.type_as_AllToAllCombineOp()->expert_mapping()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp: {
+    tensorRefs = {opContext.type_as_MoeExpertTokenRemapOp()->topk_tensor(),
+                  opContext.type_as_MoeExpertTokenRemapOp()->expert_mapping(),
+                  opContext.type_as_MoeExpertTokenRemapOp()->expert_metadata()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
@@ -1797,12 +1868,30 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_AnnotateOp()->operand()};
     break;
   }
+  case ::tt::target::ttnn::OpType::RegionStartOp: {
+    tensorRefs = {opContext.type_as_RegionStartOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RegionEndOp: {
+    tensorRefs = {opContext.type_as_RegionEndOp()->operand()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::BreakpointOp: {
     tensorRefs = {opContext.type_as_BreakpointOp()->operand()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrintOp: {
+    tensorRefs = {opContext.type_as_PrintOp()->operand()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
     tensorRefs = {opContext.type_as_MemorySnapshotOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CreateGlobalSemaphoreOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1837,7 +1926,6 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   executor->execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor->gatherOutputTensors();
-
   executor.reset();
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1

@@ -58,7 +58,7 @@ module {
   }
 }
 
-// Verify that the parsing fails if there is a missmatch between passed attributes and the weight tensor shape
+// Verify that the parsing fails if there is a mismatch between passed attributes and the weight tensor shape
 // -----
 module {
   func.func @prepare_conv2d_weights_out_channels_missmatch(%arg0: tensor<64x64x3x3xbf16>) -> tensor<64x64x3x3xbf16> {

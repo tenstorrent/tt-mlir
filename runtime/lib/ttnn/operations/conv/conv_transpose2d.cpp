@@ -13,7 +13,7 @@
 #include "ttnn/types.hpp"
 
 namespace tt::runtime::ttnn::operations::conv {
-using ::ttnn::operations::conv::conv2d::ResultWithOptions;
+using ::ttnn::Conv2dResultWithOptions;
 void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -49,7 +49,7 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
         ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
   }
 
-  auto conv2dConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
+  auto conv2dConfig = ::ttnn::Conv2dConfig();
   if (op->conv2d_config()) {
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
   }
@@ -66,12 +66,11 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfig;
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfig;
   if (op->conv2d_slice_config()) {
     sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
   }
-  ResultWithOptions result = ::ttnn::conv_transpose2d(
+  Conv2dResultWithOptions result = ::ttnn::conv_transpose2d(
       input, weight, &targetDevice, op->in_channels(), op->out_channels(),
       op->batch_size(), op->input_height(), op->input_width(), kernelSize,
       stride, padding, outputPadding, dilation, op->groups(), outputDtype, bias,

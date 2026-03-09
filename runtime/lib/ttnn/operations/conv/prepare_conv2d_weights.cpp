@@ -55,7 +55,7 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
         ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
   }
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> conv2dConfig;
+  std::optional<::ttnn::Conv2dConfig> conv2dConfig;
   if (op->conv2d_config()) {
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
   }
@@ -68,8 +68,7 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfig;
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfig;
   if (op->conv2d_slice_config()) {
     sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
   }

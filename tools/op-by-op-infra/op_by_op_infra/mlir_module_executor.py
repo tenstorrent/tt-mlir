@@ -33,7 +33,7 @@ class MLIRModuleExecutor:
           shlo -> ttir -> ttnn, depending on the dialect of the module.
         - Flatbuffer generation phase. Generates flatbuffer from TTNN module. Depends on
           the previous phase.
-        - Run phase. Runs generated flabuffer on device. Depends on the previous phase.
+        - Run phase. Runs generated flatbuffer on device. Depends on the previous phase.
     """
 
     # ----- Public methods -----

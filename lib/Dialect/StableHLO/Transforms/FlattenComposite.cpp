@@ -3,13 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "stablehlo/dialect/StablehloOps.h"
-#include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
-#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/IRMapping.h"
-#include "llvm/Support/Error.h"
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_FLATTENCOMPOSITEPASS
@@ -33,12 +31,12 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
 
   // 1) Resolve callee from 'decomposition' (SymbolRefAttr).
   // stablehlo.composite "name" %arg {decomposition = @foo}
-  auto decompAttr = op->getAttrOfType<mlir::SymbolRefAttr>(
-      sharding_utils::kDecompositionAttr);
+  auto decompAttr =
+      op->getAttrOfType<mlir::SymbolRefAttr>(utils::kCompDecompositionKey);
   if (!decompAttr) {
     comp.emitOpError()
         << "missing required SymbolRefAttr attribute '"
-        << sharding_utils::kDecompositionAttr
+        << utils::kCompDecompositionKey
         << "' (stablehlo.composite requires a 'decomposition' target).";
     return mlir::failure();
   }
@@ -50,7 +48,7 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
   if (!callee) {
     comp.emitOpError() << "failed to resolve callee function '" << leaf
                        << "' referenced by attribute '"
-                       << sharding_utils::kDecompositionAttr << "' (full ref: '"
+                       << utils::kCompDecompositionKey << "' (full ref: '"
                        << decompAttr
                        << "'). Please ensure the symbol is defined and visible "
                           "to the symbol table.";
@@ -104,17 +102,41 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
   for (mlir::Operation &inner : calleeEntry.without_terminator()) {
     mlir::Operation *cloned = builder.clone(inner, mapping);
     // Tag the cloned operation with the group marker.
-    cloned->setAttr(sharding_utils::kGroupAttr, groupAttr);
+    cloned->setAttr(utils::kReoutlineGroupAttr, groupAttr);
 
     if (!seeded) {
-      cloned->setAttr(sharding_utils::kSeedAttr, seedAttr);
+      cloned->setAttr(utils::kReoutlineSeedAttr, seedAttr);
       // "tenstorrent.gelu_tanh"
-      cloned->setAttr(sharding_utils::kOrigNameAttr, origName);
+      cloned->setAttr(utils::kReoutlineOrigNameAttr, origName);
       // { approximate = "tanh" }
-      cloned->setAttr(sharding_utils::kCompAttrsAttr, origCompAttrs);
+      cloned->setAttr(utils::kReoutlineCompAttrsAttr, origCompAttrs);
       seeded = true;
     }
     clonedOps.push_back(cloned);
+  }
+
+  // 4b) Annotate cloned ops with original composite operand indices.
+  llvm::DenseMap<mlir::Value, int64_t> captureToArgIndex;
+  for (int64_t i = 0; i < static_cast<int64_t>(comp->getNumOperands()); ++i) {
+    captureToArgIndex.try_emplace(comp->getOperand(i), i);
+  }
+
+  for (mlir::Operation *cloned : clonedOps) {
+    bool hasCapture = false;
+    llvm::SmallVector<int64_t> argIndices;
+    argIndices.reserve(cloned->getNumOperands());
+    for (mlir::Value operand : cloned->getOperands()) {
+      if (captureToArgIndex.find(operand) != captureToArgIndex.end()) {
+        argIndices.push_back(captureToArgIndex.find(operand)->second);
+        hasCapture = true;
+      } else {
+        argIndices.push_back(-1);
+      }
+    }
+    if (hasCapture) {
+      cloned->setAttr(utils::kReoutlineArgOperandIndicesAttr,
+                      builder.getDenseI64ArrayAttr(argIndices));
+    }
   }
 
   // 5) Handle callee terminator: replace composite results with mapped return

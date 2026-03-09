@@ -14,6 +14,7 @@
 #include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_topology_info_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_pack_untilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_padding_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
@@ -80,9 +81,17 @@ public:
       builder->create<emitc::IncludeOp>(loc,
                                         "api/compute/eltwise_binary_sfpu.h",
                                         /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/add_int_sfpu.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/sub_int_sfpu.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/mul_int_sfpu.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "api/compute/compute_kernel_api.h", // max ops
           /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/copy_dest_values.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "api/compute/tile_move_copy.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
@@ -121,7 +130,7 @@ public:
                                         "api/compute/eltwise_unary/erf_erfc.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
-          loc, "api/compute/eltwise_unary/logical_not_noti.h",
+          loc, "api/compute/eltwise_unary/logical_not.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/comp.h",
                                         /*isStandard=*/false);
@@ -147,6 +156,8 @@ public:
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc,
                                         "api/compute/eltwise_unary/clamp.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/pack_untilize.h",
                                         /*isStandard=*/false);
       // Helper for float-to-uint32 bit reinterpretation (used by scalar tile
       // ops).
@@ -249,6 +260,13 @@ void dprint(Arg &&arg, ArgV&&... argv) {
       builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
     }
 
+    if (hasCall("experimental::pack_untilize_block")) {
+      auto experimentalPackUntilizeLLKs =
+          StringRef(experimental_pack_untilize_llks_generated,
+                    experimental_pack_untilize_llks_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalPackUntilizeLLKs);
+    }
+
     if (hasCall("experimental::get_noc_multicast_addr")) {
       auto experimentalDataflowLLKs =
           StringRef(experimental_dataflow_api_generated,
@@ -269,6 +287,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
         hasCall("experimental::get_my_device_id") ||
         hasCall("experimental::fabric_fast_write_any_len") ||
         hasCall("experimental::fabric_mcast_fast_write_any_len") ||
+        hasCall("experimental::fabric_sem_inc") ||
         hasCall("experimental::get_logical_mesh_position") ||
         hasCall("experimental::get_device_id_from_logical_mesh_position")) {
       // Emit in order: topology_info → routing → api

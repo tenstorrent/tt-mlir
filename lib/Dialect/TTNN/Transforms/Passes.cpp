@@ -45,27 +45,52 @@ public:
 
   Operation *getLastValueUsageOp(const LivenessBlockInfo *livenessInfo,
                                  Value value) {
-    Operation *startOp = livenessInfo->getStartOperation(value);
-    Operation *endOp = livenessInfo->getEndOperation(value, startOp);
+    Value currentValue = value;
+    Operation *startOp = livenessInfo->getStartOperation(currentValue);
+    Operation *endOp = livenessInfo->getEndOperation(currentValue, startOp);
     auto *opOperandIter =
         llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
-          return opOperand.is(value);
+          return opOperand.is(currentValue);
         });
 
     // In case of DPS op keep going until we find the last usage of the tensor.
     //
-    while (
-        opOperandIter != endOp->getOpOperands().end() &&
-        isa<DestinationStyleOpInterface>(endOp) &&
-        cast<DestinationStyleOpInterface>(endOp).isDpsInit(&(*opOperandIter))) {
-      OpResult result =
-          cast<DestinationStyleOpInterface>(endOp).getTiedOpResult(
-              &(*opOperandIter));
-      endOp = livenessInfo->getEndOperation(result, endOp);
-      opOperandIter =
-          llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
-            return opOperand.is(result);
-          });
+    //
+    // Follow aliasing chains until we reach the true final user.
+    // Today we model:
+    //  1) DPS init operands (tensor flows into tied result)
+    //  2) Identity mesh_shard (input/result alias for shape tracking)
+    while (true) {
+      if (opOperandIter != endOp->getOpOperands().end() &&
+          isa<DestinationStyleOpInterface>(endOp) &&
+          cast<DestinationStyleOpInterface>(endOp).isDpsInit(
+              &(*opOperandIter))) {
+        OpResult result =
+            cast<DestinationStyleOpInterface>(endOp).getTiedOpResult(
+                &(*opOperandIter));
+        currentValue = result;
+        endOp = livenessInfo->getEndOperation(currentValue, endOp);
+        opOperandIter =
+            llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
+              return opOperand.is(currentValue);
+            });
+        continue;
+      }
+
+      if (auto meshShardOp = dyn_cast<ttnn::MeshShardOp>(endOp);
+          meshShardOp &&
+          meshShardOp.getShardType() == ttcore::MeshShardType::Identity &&
+          meshShardOp.getInput() == currentValue) {
+        currentValue = meshShardOp.getResult();
+        endOp = livenessInfo->getEndOperation(currentValue, endOp);
+        opOperandIter =
+            llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
+              return opOperand.is(currentValue);
+            });
+        continue;
+      }
+
+      break;
     }
 
     return endOp;
@@ -198,6 +223,14 @@ public:
       // ttnn::EmptyOp.
       func->walk([&](Operation *op) {
         if (isa<DestinationStyleOpInterface>(op)) {
+          return;
+        }
+
+        // Identity mesh_shard is an alias-only op (no new storage ownership),
+        // so its result must not receive a separate deallocate.
+        if (auto meshShardOp = dyn_cast<ttnn::MeshShardOp>(op);
+            meshShardOp &&
+            meshShardOp.getShardType() == ttcore::MeshShardType::Identity) {
           return;
         }
 

@@ -14,7 +14,7 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// This rewrite pattern is used to apply a specifi memory config to the input
+// This rewrite pattern is used to apply a specific memory config to the input
 // tensor (fill value) of the ttnn.paged_update_cache op. The input tensor must
 // be height sharded, but in addition to that, must fit onto an exact number of
 // rows in the physical grid.

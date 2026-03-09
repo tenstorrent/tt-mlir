@@ -10,7 +10,7 @@ Workflows return a list of OpTest pydantic models (which are intermediary object
 # How to use workflows from frontends
 
 - Add path to ttmlir python lib like `$(pwd)/third_party/tt-mlir/build/python_package` to `PYTHONPATH` env var so workflows can be imported like `from ttmlir.workflows import ...`
-- Add path to ttrt python lib built from wheel like `$(pwd)/third_party/tt-mlir/build/runtime/tools/python/build/lib.linux-x86_64-3.11` to `PYTHONPATH`
+- Add path to ttrt python lib built from wheel like `$(pwd)/third_party/tt-mlir/build/runtime/tools/python/build/lib.linux-x86_64-3.12` to `PYTHONPATH`
 - In a model test, separate ways for full model testing (which runs through usual frontend's mechanism) and op by op testing
 - Diverge into op by op testing by doing
 ```python
@@ -23,7 +23,7 @@ pydantic_reports = run_op_by_op_workflow(
     model.as_mlir_module(),  # or `model.as_mlir_module_str()`, both work
     compile_before_split=False,
     compile_each_submodule_after_split=False, # This combination of parameters targets `split_and_execute` workflow
-    # Following are informations that cannot be filled in infra but have to come from frontend
+    # Following are information that cannot be filled in infra but have to come from frontend
     frontend=frontend,
     model_name=model_name,
 )

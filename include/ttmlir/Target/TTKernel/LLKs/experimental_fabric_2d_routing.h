@@ -91,7 +91,7 @@ FORCE_INLINE UnicastRoutingParams get_unicast_params_unidir_ring(
                       : static_cast<uint8_t>((my_idx - dest_idx + size) % size);
 
   UnicastRoutingParams result;
-  // TODO (sohaibnadeemTT) #6971: generlize setting params for any dir
+  // TODO (sohaibnadeemTT) #6971: generalize setting params for any dir
   if (outgoing_direction == eth_chan_directions::EAST ||
       outgoing_direction == eth_chan_directions::WEST) {
     result.outgoing_direction = outgoing_direction;
@@ -126,7 +126,7 @@ FORCE_INLINE UnicastRoutingParams get_unicast_params_unidir_torus(
   UnicastRoutingParams result;
   bool is_forward =
       (topology.routing_direction == TopologyInfo::RoutingDirection::Forward);
-  // TODO (sohaibnadeemTT) #6971: generlize setting params for any dir
+  // TODO (sohaibnadeemTT) #6971: generalize setting params for any dir
   result.ns_dir =
       is_forward ? static_cast<uint32_t>(topology.routing_directions[0].first)
                  : static_cast<uint32_t>(topology.routing_directions[0].second);
@@ -212,7 +212,7 @@ FORCE_INLINE McastRoutingParams get_mcast_params_line(
   uint32_t bwd_dir =
       static_cast<uint32_t>(topology.routing_directions[topology.axis].second);
 
-  // TODO (sohaibnadeemTT) #6971: generlize setting params for any dir
+  // TODO (sohaibnadeemTT) #6971: generalize setting params for any dir
   if (range_fwd != 0) {
     // sender must be inside or adjacent to mcast region
     WAYPOINT("DA49");
@@ -288,7 +288,7 @@ FORCE_INLINE McastRoutingParams get_mcast_params_unidir_ring(
   WAYPOINT("DA55");
   ASSERT(start_2_gap == 1);
 
-  // TODO (sohaibnadeemTT) #6971: generlize setting params for any dir
+  // TODO (sohaibnadeemTT) #6971: generalize setting params for any dir
   result.params_per_direction[dir].active = true;
   if (dir == eth_chan_directions::EAST) {
     result.params_per_direction[dir].e_num_hops = range_1 + range_2;
@@ -362,7 +362,7 @@ FORCE_INLINE McastRoutingParams get_mcast_params_unidir_torus(
     ASSERT(ew_start_2_gap == 1);
   }
 
-  // TODO (sohaibnadeemTT) #6971: generlize setting params for any dir
+  // TODO (sohaibnadeemTT) #6971: generalize setting params for any dir
   if (ns_region_exists) {
     result.params_per_direction[ns_dir].active = true;
     if (ns_dir == eth_chan_directions::NORTH) {

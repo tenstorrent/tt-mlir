@@ -150,7 +150,7 @@ class DeviceContext:
         ttrt.runtime.close_mesh_device(self.device)
 
 
-def subprocess_get_system_descriptor(request, disable_eth_dispatch_on_blackhole=False):
+def subprocess_get_system_descriptor(request):
     import shutil
     import subprocess
 
@@ -164,10 +164,6 @@ def subprocess_get_system_descriptor(request, disable_eth_dispatch_on_blackhole=
         "--artifact-dir",
         artifacts_dir,
     ]
-
-    # See issue: https://github.com/tenstorrent/tt-metal/issues/23600
-    if disable_eth_dispatch_on_blackhole:
-        ttrt_query_cmd.append("--disable-eth-dispatch")
 
     result = subprocess.run(
         ttrt_query_cmd,

@@ -156,6 +156,16 @@ inline ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
       .getGridShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
 }
 
+// Helper function to derive shard shape from tensor OR memref using underlying
+// layout attr.
+inline ArrayRef<int64_t> getShardShape(Value tensorOrMemref) {
+  TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
+              mlir::isa<MemRefType>(tensorOrMemref.getType())),
+             "Expected a tensor or memref type");
+  return ttcore::getDeviceLayout(tensorOrMemref)
+      .getShardShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
+}
+
 Type getOperandInnerElementType(const mlir::Value operand);
 
 // Convert a TensorType with MetalLayoutAttr encoding into a MemRefType with

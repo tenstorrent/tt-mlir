@@ -75,13 +75,12 @@ public:
         mlir::DictionaryAttr argAttrs = mlir::DictionaryAttr::get(
             op.getContext(), funcOp.getArgAttrs(argIndex));
         if (argAttrs) {
-          auto runtimeTensorShardingAttr =
-              argAttrs.get(mlir::tt::ttcore::RuntimeTensorShardingAttr::name);
-          if (runtimeTensorShardingAttr) {
-            auto rtsAttr =
-                mlir::cast<mlir::tt::ttcore::RuntimeTensorShardingAttr>(
-                    runtimeTensorShardingAttr);
-            shardStatus = rtsAttr.getShardStatus().getValue();
+          auto shardStatusAttr =
+              argAttrs.get(mlir::tt::ttcore::ShardStatusAttr::name);
+          if (shardStatusAttr) {
+            auto ssAttr =
+                mlir::cast<mlir::tt::ttcore::ShardStatusAttr>(shardStatusAttr);
+            shardStatus = ssAttr.getValue();
           }
         }
       }
@@ -119,13 +118,12 @@ public:
             continue;
           }
 
-          auto runtimeTensorShardingAttr = resultAttrs.get(
-              mlir::tt::ttcore::RuntimeTensorShardingAttr::name);
-          if (runtimeTensorShardingAttr) {
-            auto rtsAttr =
-                mlir::cast<mlir::tt::ttcore::RuntimeTensorShardingAttr>(
-                    runtimeTensorShardingAttr);
-            shardStatus = rtsAttr.getShardStatus().getValue();
+          auto shardStatusAttr =
+              resultAttrs.get(mlir::tt::ttcore::ShardStatusAttr::name);
+          if (shardStatusAttr) {
+            auto ssAttr =
+                mlir::cast<mlir::tt::ttcore::ShardStatusAttr>(shardStatusAttr);
+            shardStatus = ssAttr.getValue();
           }
         }
 
@@ -231,11 +229,7 @@ public:
           getTypeConverter()->convertType(opResult.getType()));
       auto meshShardOp = rewriter.create<mlir::tt::ttir::MeshShardOp>(
           loc, outputType, returnOperand.get(),
-          // Explicitly set the shard type to Identity for outputs to prevent
-          // each device from having the same redundant full copy of the tensor.
-          // This mesh_shard op will eventually fully be removed in the future.
-          // See: https://github.com/tenstorrent/tt-xla/issues/2375
-          mlir::tt::ttcore::MeshShardType::Identity,
+          shardyMeshSharding->getShardType(),
           shardyMeshSharding->getShardDirection(),
           shardyMeshSharding->getShardShape(),
           shardyMeshSharding->getShardDims());

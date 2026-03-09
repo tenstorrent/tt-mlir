@@ -165,7 +165,7 @@ public:
 
     // Determine sdy.sharding annotation to add to this argument based on tt
     // argument type. If it's an input, we annotate it. Otherwise, we keep it
-    // open for shardy propogation to fill it in if required.
+    // open for shardy propagation to fill it in if required.
     mlir::RankedTensorType argType =
         mlir::cast<mlir::RankedTensorType>(arg->getType());
     llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;

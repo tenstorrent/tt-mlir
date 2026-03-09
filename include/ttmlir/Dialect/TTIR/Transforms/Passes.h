@@ -21,26 +21,8 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DECL
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-// Creates a CPU hoist transform pass which hoists ops manually tagged
-// with ttir.should_hoist attribute.
-std::unique_ptr<Pass> createCPUHoistManuallyTaggedOpsTransform();
-
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
-
-// Creates a CPU hoist transform pass which hoists all ops whose
-// dialect matches any of the provided dialects.
-template <typename... Dialects>
-std::unique_ptr<Pass> createCPUHoistForDialectsTransform();
-
-// Creates a CPU hoist transform pass which hoists all ops whose
-// type matches any of the provided ops.
-template <typename... Ops>
-std::unique_ptr<Pass> createCPUHoistForOpsTransform();
-
-// Creates a CPU hoist transform pass which hoists const-eval functions
-// as a whole.
-std::unique_ptr<Pass> createCPUHoistConstEvalTransform();
 
 } // namespace mlir::tt::ttir
 

@@ -70,7 +70,7 @@ topics:
 >  - `test/python/tensor_layout.py`: Python test with many convenience functions
 >    for creating and experimenting with tensor layouts.
 >  - [TTNN Interactive Visualizer](tensor-layout-interactive.html): An
->    interactive visualation tool that demonstrates the transformation.  Note
+>    interactive visualization tool that demonstrates the transformation.  Note
 >    that this tool was created for TTNN tensor layout, but many of the same
 >    concepts transfer over.
 
@@ -106,7 +106,7 @@ to get our remapped offset:
 This remapped offset `(262, 100)` corresponds to the row and column index of the
 collapsed physical memory.
 
-By default, the dim range `[0, -1)` is collapsed, but the `ttcore.metal_layout` contructor
+By default, the dim range `[0, -1)` is collapsed, but the `ttcore.metal_layout` constructor
 can actually take a programmable range called `collapseIntervals`.
 `collapseIntervals` is a list of pairs, where each pair is a dim range interval,
 left inclusive, right exclusive. Let's consider a few examples:

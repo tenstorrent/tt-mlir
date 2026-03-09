@@ -89,6 +89,8 @@ void createTTNNPipelineTTIRPasses(
 void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
 
+  pm.addPass(mlir::tt::ttnn::createTTNNConfigureCCLOps());
+
   // Add pass to check for unique operation locations if enabled
   if (options.checkUniqueLocations) {
     pm.addPass(mlir::tt::ttnn::createTTNNUniqueLocations());
@@ -216,7 +218,7 @@ void createTTNNPipelineDeallocPass(
 // lowering, and then lowers them to TTNN dialect.
 //
 // CPU module does get modified in this pipeline, but only by
-// adding more TTIR ops to it (CPUHoistTransform passes).
+// adding more TTIR ops to it (CPU hoisting passes).
 //
 void createTTIRToTTNNDevicePipeline(
     OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
@@ -282,10 +284,26 @@ void createTTIRToTTNNDevicePipeline(
     createTTNNFusingPass(devicePm, options);
 
     createTTNNPipelineWorkaroundPass(devicePm, options);
-    // Add BFP8 weight conversion pass before analysis passes.
+    // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
-    if (options.experimentalBfp8Weights) {
-      devicePm.addPass(createTTNNWeightBFP8Conversion());
+    {
+      WeightDtype resolvedWeightDtype = options.experimentalWeightDtype;
+
+      // Handle deprecated experimental-bfp8-weights flag.
+      if (options.experimentalBfp8Weights) {
+        if (resolvedWeightDtype != WeightDtype::None) {
+          llvm::report_fatal_error(
+              "Cannot set both experimental-bfp8-weights and "
+              "experimental-weight-dtype. Use experimental-weight-dtype only.");
+        }
+        resolvedWeightDtype = WeightDtype::BFP_BFloat8;
+      }
+
+      if (resolvedWeightDtype != WeightDtype::None) {
+        TTNNWeightDtypeConversionOptions convOpts;
+        convOpts.targetDtype = resolvedWeightDtype;
+        devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
+      }
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.

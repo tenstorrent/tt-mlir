@@ -245,6 +245,11 @@ struct TypeName<::ttnn::WormholeComputeKernelConfig> {
   inline static const std::string value = "::ttnn::WormholeComputeKernelConfig";
 };
 
+// Marker type for MatmulMultiCoreReuseMultiCast1DProgramConfig (used by
+// sparse_matmul). The actual C++ type is not included here; this is only used
+// for EmitC code-generation purposes.
+struct SparseMatmulProgramConfig {};
+
 template <>
 struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
   inline static const std::string value =
@@ -253,14 +258,12 @@ struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
 
 template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
-  inline static const std::string value =
-      "::ttnn::operations::conv::conv2d::Conv2dConfig";
+  inline static const std::string value = "::ttnn::Conv2dConfig";
 };
 
 template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
-  inline static const std::string value =
-      "::ttnn::operations::conv::conv2d::Conv2dSliceConfig";
+  inline static const std::string value = "::ttnn::Conv2dSliceConfig";
 };
 
 template <>
@@ -772,6 +775,8 @@ struct EmitCTypeConverter<::mlir::tt::ttcore::Topology> {
     case mlir::tt::ttcore::Topology::Torus:
       rso << "Torus";
       return buf;
+    case mlir::tt::ttcore::Topology::Disabled:
+      llvm_unreachable("Disabled topology is not supported in tt_fabric");
     }
 
     llvm_unreachable("Unknown mlir::tt::ttcore::Topology");
@@ -966,6 +971,55 @@ struct EmitCTypeConverter<::ttnn::WormholeComputeKernelConfig> {
       rso << ".dst_full_sync_en = "
           << (dstFullSyncEn.getValue() ? "true" : "false");
     }
+
+    rso << "}";
+    return buf;
+  }
+};
+
+// Specialization for SparseMatmulProgramConfig (marker type)
+template <>
+struct EmitCTypeConverter<SparseMatmulProgramConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    auto configAttr = mlir::dyn_cast_if_present<
+        tt::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(attr);
+    if (!configAttr) {
+      return {};
+    }
+    return convert(configAttr);
+  }
+
+  static std::string
+  convert(tt::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << "::ttnn::operations::matmul::"
+           "MatmulMultiCoreReuseMultiCast1DProgramConfig{";
+
+    rso << ".compute_with_storage_grid_size = "
+        << EmitCTypeConverter<::ttnn::CoreCoord>::convert(
+               attr.getComputeWithStorageGridSize());
+    rso << ", .in0_block_w = "
+        << EmitCTypeConverter<size_t>::convert(attr.getIn0BlockW());
+    rso << ", .out_subblock_h = "
+        << EmitCTypeConverter<size_t>::convert(attr.getOutSubblockH());
+    rso << ", .out_subblock_w = "
+        << EmitCTypeConverter<size_t>::convert(attr.getOutSubblockW());
+    rso << ", .out_block_h = "
+        << EmitCTypeConverter<size_t>::convert(attr.getOutBlockH());
+    rso << ", .out_block_w = "
+        << EmitCTypeConverter<size_t>::convert(attr.getOutBlockW());
+    rso << ", .per_core_M = "
+        << EmitCTypeConverter<size_t>::convert(attr.getPerCoreM());
+    rso << ", .per_core_N = "
+        << EmitCTypeConverter<size_t>::convert(attr.getPerCoreN());
+    rso << ", .fuse_batch = " << (attr.getFuseBatch() ? "true" : "false");
+    rso << ", .fused_activation = ::std::nullopt";
+    rso << ", .mcast_in0 = " << (attr.getMcastIn0() ? "true" : "false");
+    rso << ", .gather_in0 = " << (attr.getGatherIn0() ? "true" : "false");
+    rso << ", .num_global_cb_receivers = "
+        << EmitCTypeConverter<size_t>::convert(attr.getNumGlobalCbReceivers());
+    rso << ", .untilize_out = " << (attr.getUntilizeOut() ? "true" : "false");
 
     rso << "}";
     return buf;
@@ -1625,15 +1679,15 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
     // Convert enum to proper C++ enum value instead of integer
     switch (attr.getSliceType()) {
     case ttnn::Conv2dSliceType::DramHeight:
-      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::"
+      rso << "ttnn::Conv2dSliceConfig::SliceType::"
              "DRAM_HEIGHT";
       break;
     case ttnn::Conv2dSliceType::DramWidth:
-      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::"
+      rso << "ttnn::Conv2dSliceConfig::SliceType::"
              "DRAM_WIDTH";
       break;
     case ttnn::Conv2dSliceType::L1Full:
-      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_"
+      rso << "ttnn::Conv2dSliceConfig::SliceType::L1_"
              "FULL";
       break;
     }
@@ -1754,6 +1808,11 @@ struct TTNNTarget<tt::ttcore::Topology> {
 template <>
 struct TTNNTarget<tt::ttcore::TopologyAttr> {
   using type = ::mlir::tt::ttcore::Topology;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
+  using type = ::ttnn::WormholeComputeKernelConfig;
 };
 
 template <typename T>
@@ -2142,14 +2201,15 @@ public:
       return loadOp.getResult();
     }
 
-    // SortOp returns a std::vector<ttnn::Tensor> containing two elements:
-    // [0] = sorted tensor, [1] = corresponding indices.
-    // Extract both elements to replace the original SortOp.
-    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::SortOp>) {
+    // SortOp and TopKOp returns a std::vector<ttnn::Tensor> containing two
+    // elements: [0] = values tensor, [1] = corresponding indices. Extract both
+    // elements to replace the original Op.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::SortOp> ||
+                  std::is_same_v<TTNNOp, tt::ttnn::TopKOp>) {
       assert(op.getNumResults() == 2 &&
-             "Expected two outputs for SortOp (sorted tensor and indices).");
+             "Expected two outputs (values tensor and indices).");
       using ReturnTy = std::vector<::ttnn::Tensor>;
-      auto sortOp = rewriter.create<emitc::CallOpaqueOp>(
+      auto callOp = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
           opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
           /*template_args=*/nullptr, operands);
@@ -2168,7 +2228,7 @@ public:
 
         // Get reference to the i-th element in the result vector.
         auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
-            op.getLoc(), lvalueType, sortOp.getResult(0), indexVal);
+            op.getLoc(), lvalueType, callOp.getResult(0), indexVal);
 
         // Load the actual tensor value from the reference.
         auto loadOp = rewriter.create<emitc::LoadOp>(
@@ -2180,7 +2240,7 @@ public:
       }
 
       rewriter.replaceOp(op, results);
-      return sortOp.getResult(0);
+      return callOp.getResult(0);
     }
 
     auto resultTypes = llvm::to_vector(
@@ -2217,6 +2277,14 @@ public:
                                              deviceAttr.getWorkerGrid()));
 
     return emit(memoryConfigAttr);
+  }
+
+  ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
+    auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    return ttcore::DataTypeAttr::get(resultLayoutAttr.getContext(),
+                                     resultLayoutAttr.getDataType());
   }
 
   // Creates MeshShape code from integer attributes.

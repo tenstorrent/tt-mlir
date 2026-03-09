@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
@@ -16,6 +17,7 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
+
 class D2MSplitUnifiedThreadRewriter : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
@@ -39,9 +41,10 @@ public:
 
     auto newGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
-        generic.getIndexingMaps(), generic.getIteratorTypes(),
-        rewriter.getArrayAttr(threads), generic.getScratchInputsAttr(),
+        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
+        generic.getBlockFactors(), generic.getIndexingMaps(),
+        generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
+        generic.getScratchInputsAttr(),
         /*numRegions*/ 2);
 
     // Get the original region
@@ -50,6 +53,13 @@ public:
       return failure();
     }
     Block *originalBlock = &originalRegion.front();
+
+    // Check that there are no illegal semaphore ops in the unified thread.
+    // Replicating these across two threads would create a race condition on the
+    // shared semaphore.
+    if (failed(utils::checkForIllegalSemaphoreOps(originalBlock))) {
+      return failure();
+    }
 
     // Create blocks for both new regions with the same arguments
     Block *datamovementBlock = &newGeneric.getRegion(0).emplaceBlock();
@@ -116,15 +126,17 @@ public:
             }
 
             bool isRemoteOp = isa<RemoteLoadOp, RemoteStoreOp>(opPtr);
+            // Semaphore waits are replicated: preserved in both threads.
+            bool isReplicatedOp = isa<SemaphoreWaitOp>(opPtr);
             if (keepRemoteOps) {
-              // In datamovement region: keep RemoteLoadOp and RemoteStoreOp,
-              // erase everything else
-              if (!isRemoteOp) {
+              // In datamovement region: keep RemoteLoadOp, RemoteStoreOp, and
+              // replicated ops; erase everything else.
+              if (!isRemoteOp && !isReplicatedOp) {
                 eraseSet.insert(opPtr);
               }
             } else {
               // In compute region: remove RemoteLoadOp and RemoteStoreOp, keep
-              // everything else
+              // everything else (including replicated ops).
               if (isRemoteOp) {
                 eraseSet.insert(opPtr);
               }

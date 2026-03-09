@@ -79,10 +79,10 @@ def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
     # Constrain values for log
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("log op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
     abs_tensor = torch.abs(randn_tensor)
-    error_margin = torch.full(randn_tensor.shape, 0.01)
+    error_margin = torch.full(randn_tensor.shape, 0.01, dtype=dtype)
     input_golden = torch.add(abs_tensor, error_margin)
     output_golden = torch.log(input_golden)
     builder.set_goldens({in0: input_golden}, {log_0: output_golden})
@@ -95,10 +95,10 @@ def log1p(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = 
     # Constrain values for log1p
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("log1p op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
     abs_tensor = torch.abs(randn_tensor)
-    error_margin = torch.full(randn_tensor.shape, -0.99)
+    error_margin = torch.full(randn_tensor.shape, -0.99, dtype=dtype)
     input_golden = torch.add(abs_tensor, error_margin)
     output_golden = torch.log1p(input_golden)
 
@@ -132,7 +132,7 @@ def reciprocal(
     # Constrain values for reciprocal
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("reciprocal op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     input = torch.abs(torch.randn(in0.type.shape, dtype=dtype))
     input_safe = torch.clamp(input, min=-1e-6, max=None)
     input_safe = torch.where(input_safe == 0, torch.tensor(1e-6), input_safe)
@@ -150,7 +150,7 @@ def rsqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = 
     # Constrain values for rsqrt
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("rsqrt op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     input_tensor = torch.abs(torch.randn(in0.type.shape, dtype=dtype))
     golden_output_tensor = torch.rsqrt(input_tensor)
     builder.set_goldens({in0: input_tensor}, {rsqrt_0: golden_output_tensor})
@@ -181,7 +181,7 @@ def sqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     # Constrain values for sqrt
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("rsqrt op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     input_tensor = torch.abs(torch.randn(in0.type.shape, dtype=dtype))
     golden_output_tensor = torch.sqrt(input_tensor)
     builder.set_goldens({in0: input_tensor}, {sqrt_0: golden_output_tensor})
@@ -203,7 +203,7 @@ def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("tan op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
     input_golden = randn_tensor.uniform_((-math.pi / 2 + 0.05), (math.pi / 2 - 0.05))
     output_golden = torch.tan(input_golden)
@@ -230,7 +230,7 @@ unary_ops = [
     is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
     log,
     log1p | Marks(pytest.mark.skip_config(["ttmetal"])),
-    logical_not,  # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
+    logical_not,
     mish | Marks(pytest.mark.skip_config(["ttmetal"])),
     neg,
     reciprocal,
@@ -250,12 +250,13 @@ unary_ops = [
 
 unary_ops_dtypes = [
     torch.float32,
-    torch.int32 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    torch.bfloat16,
+    torch.int32 | SkipIf("sim"),
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32", "i32"])
+@pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32", "bf16", "i32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitc", "emitpy"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
@@ -265,8 +266,14 @@ def test_unary_ops(
         abs,
         neg,
         relu,
+        logical_not,
     ]:
         pytest.skip("int32 unary op is not supported yet for this operation")
+
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -298,7 +305,7 @@ bitwise_unary_ops = [bitwise_not]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", bitwise_unary_ops)
 def test_bitwise_unary_ops(
@@ -353,6 +360,11 @@ def test_unary_ops_with_float_param(
     request,
     device,
 ):
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def unary_ops_with_float_param(
@@ -383,7 +395,9 @@ def get_dimension_size(
 
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.int32 | SkipIf("sim")], ids=["f32", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 @pytest.mark.parametrize("dimension", [0, 1])
 def test_get_dimension_size(

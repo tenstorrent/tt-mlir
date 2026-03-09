@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "d640ed5c093d82978e3256871f86f38f3bc13669")
+set(TT_METAL_VERSION "beccdb232ed7532b0748f8f97aba958ba43ddae1")
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
@@ -52,7 +52,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
   ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
   ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-  ${CPM_SOURCE_CACHE}/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e/include
+  ${CPM_SOURCE_CACHE}/tt-logger/d2339ce68562cae34cd95f3fece7fd94eb0529b7/include
   ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
@@ -187,6 +187,7 @@ install(
   FILES_MATCHING
   REGEX "third_party/tt_llk/tt_llk_blackhole/"
   REGEX "third_party/tt_llk/tt_llk_wormhole_b0/"
+  REGEX "third_party/tt_llk/common"
   REGEX "third_party/umd/"
 )
 
@@ -232,8 +233,8 @@ install(
 )
 install(
   DIRECTORY
-    ${CPM_SOURCE_CACHE}/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e/include
-  DESTINATION tt-metal/.cpmcache/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e
+    ${CPM_SOURCE_CACHE}/tt-logger/d2339ce68562cae34cd95f3fece7fd94eb0529b7/include
+  DESTINATION tt-metal/.cpmcache/tt-logger/d2339ce68562cae34cd95f3fece7fd94eb0529b7
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
 )
@@ -276,7 +277,7 @@ install(
 install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tests/scale_out
-  DESTINATION tt-metal/tests/scale_out
+  DESTINATION tt-metal/tests
   COMPONENT DistributedRuntime
   EXCLUDE_FROM_ALL
 )

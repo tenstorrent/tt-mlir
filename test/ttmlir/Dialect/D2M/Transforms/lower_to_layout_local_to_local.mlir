@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-lower-to-layout -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-#layout = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 // Test local-to-local transfer: both input and output are local (not remote)
 // This should use remote_load instead of DMAOp
@@ -58,7 +58,7 @@ func.func @test_multiple_local_reblocks(%arg0: tensor<1x1x8x8x!ttcore.tile<32x32
 }
 
 // Test local-to-local with different grid shapes but same layout properties
-#layout_same = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#layout_same = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 // CHECK-LABEL: func.func @test_simple_reblock_local
 func.func @test_simple_reblock_local(%arg0: tensor<2x2x4x4x!ttcore.tile<32x32, f32>, #layout_same>) -> tensor<4x4x2x2x!ttcore.tile<32x32, f32>, #layout_same> {
@@ -79,7 +79,7 @@ func.func @test_simple_reblock_local(%arg0: tensor<2x2x4x4x!ttcore.tile<32x32, f
 }
 
 // Test minimal local-to-local case: 1x1 to 2x2 grid reblock
-#layout_minimal = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#layout_minimal = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 // CHECK-LABEL: func.func @test_minimal_local_reblock
 func.func @test_minimal_local_reblock(%arg0: tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_minimal>) -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_minimal> {

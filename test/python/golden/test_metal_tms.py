@@ -187,7 +187,6 @@ def test_concatenate_heads(
         concatenate_heads_module,
         target=target,
         device=device,
-        print_ir=True,
         **get_request_kwargs(request),
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
     )
@@ -263,6 +262,21 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((1, 18, 128), (18, 128)),
     ((1, 18, 128), (1, 1, 18, 128)),
     ((32, 18), (1, 32, 18)),
+    # ==================== RESHAPE + PERMUTE (TRAILING 1 FLIP) TESTS ====================
+    # Qwen3 32B
+    ((1, 64), (1, 64, 1)),
+    # GPT OSS 120B
+    ((1, 128), (128, 1)),
+    ((1, 16), (1, 16, 1, 1)),
+    # Kimi K2 1T
+    ((1, 32), (32, 1)),
+    ((32,), (32, 1)),
+    # DeepSeek 671B
+    ((1, 32), (1, 32, 1)),
+    ((8,), (8, 1, 1)),
+    # GLM 358B
+    ((1, 32, 8), (1, 32, 8, 1)),
+    ((1, 96, 32), (1, 96, 32, 1)),
 ]
 
 
@@ -281,7 +295,9 @@ def shapes_to_id(shapes) -> str:
 @pytest.mark.parametrize(
     "shapes", RESHAPE_SHAPES, ids=[shapes_to_id(s) for s in RESHAPE_SHAPES]
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reshape(
     shapes: Tuple[Tuple[int, ...], Tuple[int, ...]],

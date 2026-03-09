@@ -4,14 +4,13 @@
 
 import pytest
 import torch
-from typing import Callable, List
+from typing import List
 from conftest import get_request_kwargs
 
 from ttmlir.dialects import ttcore
 from ttmlir.ir import *
 
 from builder.base.builder_utils import Operand, Shape
-from golden import get_golden_function
 from builder.d2m.d2m_builder import D2MBuilder
 from builder.base.builder_apis import compile_and_execute_d2m
 
@@ -20,10 +19,15 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.int32, torch.bfloat16, torch.uint16],
+    ids=["f32", "i32", "bf16", "u16"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_tilize(shape: Shape, target: str, request, device):
+def test_tilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
     def module(builder: D2MBuilder):
-        @builder.func([shape], [torch.float32])
+        @builder.func([shape], [dtype])
         def tilize(
             in0: Operand,
             builder: D2MBuilder,
@@ -32,17 +36,20 @@ def test_tilize(shape: Shape, target: str, request, device):
 
             to_device = builder.tilize(
                 in0,
-                output_type=builder.get_metal_tensor_layout(shape, tiled=True),
+                output_type=builder.get_metal_tensor_layout(
+                    shape, tiled=True, element_dtype=dtype
+                ),
                 unit_attrs=unit_attrs,
             )
 
-            # Provide an explicit identity index_map for the view output type.
+            # Provide an explicit identity remapping for the view op.
             id_map = AffineMap.get_identity(2 * len(shape), builder._ctx)
             view_as_rm = builder.view_layout(
                 to_device,
                 output_type=builder.get_metal_tensor_layout(
-                    shape, tiled=False, index_map=id_map
+                    shape, tiled=False, element_dtype=dtype
                 ),
+                remapping=id_map,
                 reinterpret_layout=True,
                 unit_attrs=unit_attrs,
             )
@@ -64,39 +71,37 @@ def test_tilize(shape: Shape, target: str, request, device):
     )
 
 
-@pytest.mark.skip(
-    reason="Issue #3486: Unit testing untilize hits some unexpected lowering behaviour."
-)
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.int32, torch.bfloat16, torch.uint16],
+    ids=["f32", "i32", "bf16", "u16"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_untilize(shape: Shape, target: str, request, device):
+def test_untilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
     def module(builder: D2MBuilder):
-        @builder.func([shape], [torch.float32])
+        @builder.func([shape], [dtype])
         def untilize(
             in0: Operand,
             builder: D2MBuilder,
             unit_attrs: List[str] = None,
         ):
-
-            input = torch.randn(shape[0] * shape[1], dtype=torch.float32).reshape(shape)
-            golden_output = get_golden_function(ttir.ToLayoutOp, tilize=False)(input)
-            builder.set_graph_input_output([input], [golden_output])
-
             to_device = builder.to_layout(
                 in0,
                 output_type=builder.get_metal_tensor_layout(
-                    shape, tiled=False, grid=(1, 1)
+                    shape, tiled=False, grid=(1, 1), element_dtype=dtype
                 ),
                 unit_attrs=unit_attrs,
             )
 
-            # Provide an explicit identity index_map for the view output type.
+            # Provide an explicit identity remapping for the view op.
             id_map = AffineMap.get_identity(2 * len(shape), builder._ctx)
             view_as_tiled = builder.view_layout(
                 to_device,
                 output_type=builder.get_metal_tensor_layout(
-                    shape, (1, 1), True, index_map=id_map
+                    shape, grid=(1, 1), tiled=True, element_dtype=dtype
                 ),
+                remapping=id_map,
                 reinterpret_layout=True,
                 unit_attrs=unit_attrs,
             )
@@ -119,10 +124,17 @@ def test_untilize(shape: Shape, target: str, request, device):
 
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64)])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.int32, torch.bfloat16, torch.uint16],
+    ids=["f32", "i32", "bf16", "u16"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_tilize_untilize(shape: Shape, target: str, request, device):
+def test_tilize_untilize(
+    shape: Shape, target: str, dtype: torch.dtype, request, device
+):
     def module(builder: D2MBuilder):
-        @builder.func([shape], [torch.float32])
+        @builder.func([shape], [dtype])
         def tilize_untilize(
             in0: Operand,
             builder: D2MBuilder,
@@ -131,7 +143,7 @@ def test_tilize_untilize(shape: Shape, target: str, request, device):
             to_device = builder.tilize(
                 in0,
                 output_type=builder.get_metal_tensor_layout(
-                    shape, tiled=True, grid=(1, 1)
+                    shape, tiled=True, grid=(1, 1), element_dtype=dtype
                 ),
                 unit_attrs=unit_attrs,
             )

@@ -577,9 +577,9 @@ LogicalResult LiteralOp::verify() {
 //===----------------------------------------------------------------------===//
 
 LogicalResult SubscriptOp::verify() {
-  Type valueType = getValue().getType();
+  Type valueType = getContainer().getType();
   Type indexType = getIndex().getType();
-  if (!isa<DictType>(valueType) && isa<StringType>(indexType)) {
+  if (isa<StringType>(indexType) && !isa<DictType>(valueType)) {
     return emitOpError() << "cannot use string index on non-dict type "
                          << valueType;
   }
@@ -817,8 +817,9 @@ LogicalResult CreateDictOp::verify() {
     }
   } else {
     if (getItems().empty()) {
-      return emitOpError("cannot have both literal_expr and items empty; for an"
-                         "empty dict, use literal_expr = \"{}\" instead");
+      return emitOpError(
+          "cannot have both literal_expr and items empty; for an "
+          "empty dict, use literal_expr = \"{}\" instead");
     }
     if (getItems().size() % 2 != 0) {
       return emitOpError(
@@ -852,7 +853,7 @@ void AssignOp::getEffects(
 LogicalResult AssignOp::verify() {
   // Check if the target is a subscript operation
   Operation *definingOp = getTarget().getDefiningOp();
-  if (definingOp && isa<SubscriptOp>(definingOp)) {
+  if (definingOp && isa_and_nonnull<SubscriptOp>(definingOp)) {
     // Allow subscript assignment inside an expression block
     if (!isa_and_nonnull<ExpressionOp>(getOperation()->getParentOp())) {
       return emitOpError()
@@ -876,6 +877,7 @@ void AssignOp::print(OpAsmPrinter &p) {
   p << " = " << getValue() << " : (";
   p << getTarget().getType();
   p << ", " << getValue().getType() << ")";
+  p.printOptionalAttrDict(getOperation()->getAttrs());
 }
 
 ParseResult AssignOp::parse(OpAsmParser &parser, OperationState &result) {
@@ -898,6 +900,10 @@ ParseResult AssignOp::parse(OpAsmParser &parser, OperationState &result) {
   if (parser.resolveOperand(target, targetType, result.operands) ||
       parser.resolveOperand(value, valueType, result.operands)) {
     return parser.emitError(parser.getNameLoc(), "failed to resolve operands");
+  }
+
+  if (parser.parseOptionalAttrDict(result.attributes)) {
+    return failure();
   }
 
   return success();
