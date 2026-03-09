@@ -824,7 +824,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 // NegOp
 //===----------------------------------------------------------------------===//
 
-static mlir::Attribute negatedScalarAttribute(mlir::Attribute attr) {
+static mlir::Attribute negateScalarAttribute(mlir::Attribute attr) {
   if (auto floatAttr = llvm::dyn_cast_if_present<FloatAttr>(attr)) {
     llvm::APFloat attrValue = floatAttr.getValue();
     mlir::Type attrType = floatAttr.getType();
@@ -839,27 +839,32 @@ static mlir::Attribute negatedScalarAttribute(mlir::Attribute attr) {
 }
 
 static mlir::DenseElementsAttr
-negatedDenseElementsAttribute(mlir::Attribute attr) {
+negateDenseElementsAttribute(mlir::Attribute attr,
+                             RankedTensorType desiredType) {
   if (auto denseAttr = llvm::dyn_cast_if_present<DenseElementsAttr>(attr)) {
+    if (denseAttr.isSplat()) {
+      // ConstantOp's canonicalizer will replace it with FullOp.
+      return {};
+    }
     ShapedType tensorType = llvm::cast<ShapedType>(denseAttr.getType());
     mlir::Type elementType = tensorType.getElementType();
 
     if (llvm::isa<FloatType>(elementType)) {
       SmallVector<llvm::APFloat> newValues;
       newValues.reserve(denseAttr.getNumElements());
-      for (llvm::APFloat val : denseAttr.getValues<llvm::APFloat>()) {
+      for (auto val : denseAttr.getValues<llvm::APFloat>()) {
         newValues.push_back(-val);
       }
-      return DenseElementsAttr::get(tensorType, newValues);
+      return DenseElementsAttr::get(desiredType, newValues);
     }
 
     if (llvm::isa<IntegerType>(elementType)) {
       SmallVector<llvm::APInt> newValues;
       newValues.reserve(denseAttr.getNumElements());
-      for (llvm::APInt val : denseAttr.getValues<llvm::APInt>()) {
+      for (auto val : denseAttr.getValues<llvm::APInt>()) {
         newValues.push_back(-val);
       }
-      return DenseElementsAttr::get(tensorType, newValues);
+      return DenseElementsAttr::get(desiredType, newValues);
     }
   }
 
@@ -876,17 +881,28 @@ void mlir::tt::ttir::NegOp::getCanonicalizationPatterns(
     mlir::DenseI32ArrayAttr shapeAttr =
         rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType));
 
-    if (isConstantZero(operand)) {
+    bool hasTypecast = false;
+    bool onlyReshape = true;
+    auto checkLayoutOps = [&hasTypecast, &onlyReshape](Operation *op) {
+      if (llvm::isa<TypecastOp>(op)) {
+        hasTypecast = true;
+      }
+      if (!llvm::isa<ReshapeOp>(op)) {
+        onlyReshape = false;
+      }
+      return true;
+    };
+    Operation *operandOp =
+        mlir::tt::ttir::utils::lookThroughLayoutOpsIf(operand, checkLayoutOps)
+            .getDefiningOp();
+
+    if (isa_and_present<mlir::tt::ttir::ZerosOp>(operandOp)) {
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::ZerosOp>(op, resultType,
                                                            shapeAttr);
       return mlir::success();
     }
 
-    Operation *operandOp =
-        mlir::tt::ttir::utils::lookThroughLayoutOps(operand).getDefiningOp();
-
-    if (auto onesOp =
-            mlir::dyn_cast_if_present<mlir::tt::ttir::OnesOp>(operandOp)) {
+    if (isa_and_present<mlir::tt::ttir::OnesOp>(operandOp)) {
       Type elementType = op.getResult().getType().getElementType();
       mlir::Attribute fillValueAttr = makeScalarAttr(elementType, -1.0);
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
@@ -896,8 +912,14 @@ void mlir::tt::ttir::NegOp::getCanonicalizationPatterns(
 
     if (auto full =
             mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(operandOp)) {
+      if (hasTypecast) {
+        return mlir::failure();
+      }
       mlir::Attribute negatedFillValueAttr =
-          negatedScalarAttribute(full.getFillValueAttr());
+          negateScalarAttribute(full.getFillValueAttr());
+      if (!negatedFillValueAttr) {
+        return mlir::failure();
+      }
 
       if (isOneAttr(negatedFillValueAttr)) {
         rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(op, resultType,
@@ -910,10 +932,16 @@ void mlir::tt::ttir::NegOp::getCanonicalizationPatterns(
       return mlir::success();
     }
 
-    if (auto constant = mlir::dyn_cast_if_present<mlir::tt::ttir::ConstantOp>(
-            operand.getDefiningOp())) {
+    if (auto constant =
+            mlir::dyn_cast_if_present<mlir::tt::ttir::ConstantOp>(operandOp)) {
+      if (!onlyReshape) {
+        return mlir::failure();
+      }
       mlir::DenseElementsAttr negatedValueAttr =
-          negatedDenseElementsAttribute(constant.getValueAttr());
+          negateDenseElementsAttribute(constant.getValueAttr(), resultType);
+      if (!negatedValueAttr) {
+        return mlir::failure();
+      }
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(op, resultType,
                                                               negatedValueAttr);
       return mlir::success();

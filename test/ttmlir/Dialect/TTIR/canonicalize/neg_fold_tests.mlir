@@ -59,28 +59,42 @@ module {
     return %1 : tensor<64x64xf32>
   }
 
-  func.func @neg_broadcast_reshape() -> tensor<64x64xf32> {
+  func.func @neg_broadcast_reshape() -> tensor<128x64xf32> {
     %one = "ttir.full"() <{shape = array<i32: 1, 1>, fill_value = 1.000000e+00 : f32}> : () -> tensor<1x1xf32>
     %reshaped = "ttir.reshape"(%one) <{shape = [1 : i32, 1 : i32]}> : (tensor<1x1xf32>) -> tensor<1x1xf32>
     %broadcasted = "ttir.broadcast"(%reshaped) <{broadcast_dimensions = array<i64: 64, 64>}> : (tensor<1x1xf32>) -> tensor<64x64xf32>
+    %repeated = "ttir.repeat_interleave"(%broadcasted) {repeats = 2 : ui32, dim = 0 : si32} : (tensor<64x64xf32>) -> tensor<128x64xf32>
     // CHECK-LABEL: func.func @neg_broadcast_reshape
     // CHECK-NOT: "ttir.neg"
     // CHECK: "ttir.full"
     // CHECK-SAME: fill_value = -1.000000e+00
-    // CHECK-SAME: shape = array<i32: 64, 64>
-    %neg = "ttir.neg"(%broadcasted) : (tensor<64x64xf32>) -> tensor<64x64xf32>
-    return %neg : tensor<64x64xf32>
+    // CHECK-SAME: shape = array<i32: 128, 64>
+    %neg = "ttir.neg"(%repeated) : (tensor<128x64xf32>) -> tensor<128x64xf32>
+    return %neg : tensor<128x64xf32>
   }
 
-  func.func @neg_constant() -> tensor<2x3xi32> {
+  func.func @neg_constant() -> tensor<2x2xf32> {
     %0 = "ttir.constant"() {
-      value = dense<[[1, 2, 3], [4, 5, 6]]> : tensor<2x3xi32>
-    } : () -> tensor<2x3xi32>
+      value = dense<[[-1.000000e+00, 2.000000e+00], [3.000000e+00, -4.000000e+00]]> : tensor<2x2xf32>
+    } : () -> tensor<2x2xf32>
     // CHECK-LABEL: func.func @neg_constant
     // CHECK-NOT: "ttir.neg"
     // CHECK: "ttir.constant"
-    // CHECK-SAME: value = dense<{{\[\[}}-1, -2, -3], [-4, -5, -6{{\]\]}}>
-    %1 = "ttir.neg"(%0) : (tensor<2x3xi32>) -> tensor<2x3xi32>
-    return %1 : tensor<2x3xi32>
+    // CHECK-SAME: value = dense<{{\[\[}}1.000000e+00, -2.000000e+00], {{\[}}-3.000000e+00, 4.000000e+00]]>
+    %1 = "ttir.neg"(%0) : (tensor<2x2xf32>) -> tensor<2x2xf32>
+    return %1 : tensor<2x2xf32>
+  }
+
+  func.func @neg_constant_reshape() -> tensor<3x2xi32> {
+    %0 = "ttir.constant"() {
+      value = dense<[[1, 2, 3], [4, 5, 6]]> : tensor<2x3xi32>
+    } : () -> tensor<2x3xi32>
+    %1 = "ttir.reshape"(%0) <{shape = [3 : i32, 2 : i32]}> : (tensor<2x3xi32>) -> tensor<3x2xi32>
+    // CHECK-LABEL: func.func @neg_constant
+    // CHECK-NOT: "ttir.neg"
+    // CHECK: "ttir.constant"
+    // CHECK-SAME: value = dense<{{\[\[}}-1, -2], {{\[}}-3, -4], {{\[}}-5, -6]]>
+    %2 = "ttir.neg"(%1) : (tensor<3x2xi32>) -> tensor<3x2xi32>
+    return %2 : tensor<3x2xi32>
   }
 }
