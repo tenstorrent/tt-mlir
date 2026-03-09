@@ -988,21 +988,10 @@ public:
   matchAndRewrite(ttir::PadOp op, ttir::PadOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn::MemoryConfigAttr memcfg = nullptr;
-    if (ttnn::TTNNLayoutAttr layoutAttr =
-            mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
-                op.getResult().getType().getEncoding());
-        layoutAttr.getBufferType() != ttnn::BufferType::SystemMemory) {
-      memcfg = ttnn::MemoryConfigAttr::get(
-          op.getContext(), layoutAttr.getMemLayout(),
-          ttnn::BufferTypeAttr::get(op.getContext(),
-                                    layoutAttr.getBufferType()),
-          std::nullopt);
-    }
     rewriter.replaceOpWithNewOp<ttnn::PadOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getPaddingAttr(), adaptor.getValue(),
-        /*use_multicore=*/true, memcfg);
+        /*use_multicore=*/true, /*memory_config=*/nullptr);
 
     return success();
   }
