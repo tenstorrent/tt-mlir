@@ -306,14 +306,37 @@ static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
       if (level + 1 < chainLen) {
         // Non-innermost level: move everything except the next-level scf.for
         // and the yield terminator.
-        SmallVector<Operation *> toMove;
+        //
+        // Ops are split by their position relative to chain[level+1] in the
+        // original body to preserve memory operation ordering:
+        //   - Pre-ops (before the inner loop): allocs, loads, setup. These
+        //     must appear before shared[level+1] in the shared body so they
+        //     dominate uses in deeply nested shared loops.
+        //   - Post-ops (after the inner loop): stores, teardown. These depend
+        //     on the inner compute completing and must stay after
+        //     shared[level+1], before the shared yield.
+        SmallVector<Operation *> preOps;
+        SmallVector<Operation *> postOps;
+        bool pastInnerLoop = false;
         for (auto &op : *oldBody) {
-          if (&op != ci.chain[level + 1].getOperation() &&
-              !isa<scf::YieldOp>(&op)) {
-            toMove.push_back(&op);
+          if (&op == ci.chain[level + 1].getOperation()) {
+            pastInnerLoop = true;
+            continue;
+          }
+          if (isa<scf::YieldOp>(&op)) {
+            continue;
+          }
+          if (pastInnerLoop) {
+            postOps.push_back(&op);
+          } else {
+            preOps.push_back(&op);
           }
         }
-        for (auto *op : toMove) {
+        Operation *innerSharedLoop = shared[level + 1].getOperation();
+        for (auto *op : preOps) {
+          op->moveBefore(innerSharedLoop);
+        }
+        for (auto *op : postOps) {
           op->moveBefore(sharedYield);
         }
       } else {
