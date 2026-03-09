@@ -879,14 +879,14 @@ def execute_fb(
 
                 if save_artifacts:
                     save_torch_tensor(
-                        output_tensor_torch,
+                        output_shard_torch,
                         program_artifact_dir,
-                        f"device_output_{i}.pt",
+                        f"device_output_{i}_device_{device_id}.pt",
                     )
                     save_torch_tensor(
-                        golden_tensor_torch,
+                        golden_shard_torch,
                         program_artifact_dir,
-                        f"golden_output_{i}.pt",
+                        f"golden_output_{i}_device_{device_id}.pt",
                     )
 
             tt_runtime.runtime.deallocate_tensor(runtime_output_tensor, force=True)
