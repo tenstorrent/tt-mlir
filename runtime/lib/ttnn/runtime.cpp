@@ -34,6 +34,12 @@
 #include <optional>
 #include <vector>
 
+#include <fcntl.h>
+#include <string>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
@@ -210,6 +216,10 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
 createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
+
+  bool mmapTensors = std::getenv("TT_USE_MMAP") != nullptr;
+  if (mmapTensors) {
+  }
 
   ::tt::runtime::Tensor tensor = utils::createRuntimeTensorFromTTNN(
       createOwnedTTNNTensor(data, shape, stride, itemsize, dataType));
@@ -2042,4 +2052,43 @@ void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
 
   return tensor;
 }
+
+void *create_and_mmap_tmp_file(const std::string &file_path, size_t size) {
+  std::string full_path = "/tmp/" + file_path;
+
+  // 1. Open the file (Create if doesn't exist, Read/Write mode)
+  // Mode 0666 sets standard read/write permissions
+  int fd = open(full_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
+  unlink(full_path.c_str()); // destruct the file on fd release
+  if (fd == -1) {
+    LOG_ASSERT("Error opening file to mmap");
+    return nullptr;
+  }
+
+  // 2. Stretch the file to the desired size
+  // A new file has 0 bytes; mmap will fail if the file is smaller than 'size'
+  if (ftruncate(fd, size) == -1) {
+    LOG_ASSERT("Error setting file size");
+    close(fd);
+    return nullptr;
+  }
+
+  // 3. Map the file into memory
+  // PROT_READ | PROT_WRITE allows us to read and write to the pointer
+  // MAP_SHARED ensures changes are written back to the file
+  void *map = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+
+  if (map == MAP_FAILED) {
+    LOG_ASSERT("Error mapping file");
+    close(fd);
+    return nullptr;
+  }
+
+  // 4. Close the file descriptor
+  // We can close the FD immediately; the mapping survives until proc
+  // termination
+  close(fd);
+  return map;
+}
+
 } // namespace tt::runtime::ttnn
