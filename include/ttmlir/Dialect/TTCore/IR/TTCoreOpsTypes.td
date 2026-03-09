@@ -768,7 +768,6 @@ def TTCore_DictType : TTCore_Type<"Dict", "dict"> {
   let summary = "TTCore dictionary type";
   let description = [{
     A type representing a dictionary.
-    This is used for caching const-eval results.
 
     Example:
     ```mlir
