@@ -112,3 +112,20 @@ def get_core_grid_from_tensor_args(tensor_args):
     tensor_arg = next(iter(tensor_args.values()))
     device = tensor_arg.device()
     return (device.core_grid.x - 1, device.core_grid.y - 1)
+
+
+def get_mesh_shape_from_tensor_args(tensor_args):
+    """
+    Get the mesh shape (rows, cols) from the device of the first tensor argument.
+
+    For a mesh device, returns (mesh_rows, mesh_cols) from device.shape.
+    For a single device (shape.dims() < 2), returns (1, 1).
+    """
+    if not tensor_args:
+        return (1, 1)
+    tensor_arg = next(iter(tensor_args.values()))
+    device = tensor_arg.device()
+    shape = device.shape
+    if shape.dims() >= 2:
+        return (int(shape[0]), int(shape[1]))
+    return (1, 1)
