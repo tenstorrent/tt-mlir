@@ -357,7 +357,9 @@ static bool deferOneWriteBarrier(scf::ForOp &forOp) {
   Location loc = forOp.getLoc();
 
   rewriter.setInsertionPoint(forOp);
-  Value nullTx = rewriter.create<NullTxOp>(loc);
+  auto txType =
+      cast<MemTxType>(group->barrier.getMemTx().getType()).getDmaType();
+  Value nullTx = rewriter.create<NullTxOp>(loc, txType);
 
   // Capture the write's tx and CB before erasing the barrier group.
   Value currentTx = group->barrier.getMemTx();
