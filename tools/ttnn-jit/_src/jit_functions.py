@@ -34,6 +34,7 @@ from ttnn_jit._src.tensor_translator import (
     create_default_dram_interleaved_layout,
     create_output_tensor,
 )
+import ttnn
 
 """
 Set this to True to create encoding for intermediate tensors (and the final output tensor), False otherwise.
@@ -1677,6 +1678,16 @@ class TTNNJitNamespaceUpdater:
         self.all_reduce = partial(self._call_handler, self._all_reduce_handler)
         self._reduce_scatter_handler = ReduceScatterOpHandler(jit_ctx)
         self.reduce_scatter = partial(self._call_handler, self._reduce_scatter_handler)
+
+    def __getattr__(self, name):
+        """Forward non-op attributes (e.g. Tensor, types, enums) to the real ttnn module.
+
+        When the traced function source is rewritten so that 'ttnn.' becomes 'ttnn_jit.',
+        type hints like ttnn.Tensor become ttnn_jit.Tensor. This namespace only defines
+        op handlers (exp, add, etc.); type hints and other ttnn attributes are resolved
+        by forwarding to the real ttnn module.
+        """
+        return getattr(ttnn, name)
 
     def _call_handler(self, handler, *args, **kwargs):
         """Call the handler's create_operation method."""
