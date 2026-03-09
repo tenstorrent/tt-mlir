@@ -245,6 +245,11 @@ struct TypeName<::ttnn::WormholeComputeKernelConfig> {
   inline static const std::string value = "::ttnn::WormholeComputeKernelConfig";
 };
 
+// Marker type for MatmulMultiCoreReuseMultiCast1DProgramConfig (used by
+// sparse_matmul). The actual C++ type is not included here; this is only used
+// for EmitC code-generation purposes.
+struct SparseMatmulProgramConfig {};
+
 template <>
 struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
   inline static const std::string value =
@@ -966,6 +971,55 @@ struct EmitCTypeConverter<::ttnn::WormholeComputeKernelConfig> {
       rso << ".dst_full_sync_en = "
           << (dstFullSyncEn.getValue() ? "true" : "false");
     }
+
+    rso << "}";
+    return buf;
+  }
+};
+
+// Specialization for SparseMatmulProgramConfig (marker type)
+template <>
+struct EmitCTypeConverter<SparseMatmulProgramConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    auto configAttr = mlir::dyn_cast_if_present<
+        tt::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(attr);
+    if (!configAttr) {
+      return {};
+    }
+    return convert(configAttr);
+  }
+
+  static std::string
+  convert(tt::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << "::ttnn::operations::matmul::"
+           "MatmulMultiCoreReuseMultiCast1DProgramConfig{";
+
+    rso << ".compute_with_storage_grid_size = "
+        << EmitCTypeConverter<::ttnn::CoreCoord>::convert(
+               attr.getComputeWithStorageGridSize());
+    rso << ", .in0_block_w = "
+        << EmitCTypeConverter<size_t>::convert(attr.getIn0BlockW());
+    rso << ", .out_subblock_h = "
+        << EmitCTypeConverter<size_t>::convert(attr.getOutSubblockH());
+    rso << ", .out_subblock_w = "
+        << EmitCTypeConverter<size_t>::convert(attr.getOutSubblockW());
+    rso << ", .out_block_h = "
+        << EmitCTypeConverter<size_t>::convert(attr.getOutBlockH());
+    rso << ", .out_block_w = "
+        << EmitCTypeConverter<size_t>::convert(attr.getOutBlockW());
+    rso << ", .per_core_M = "
+        << EmitCTypeConverter<size_t>::convert(attr.getPerCoreM());
+    rso << ", .per_core_N = "
+        << EmitCTypeConverter<size_t>::convert(attr.getPerCoreN());
+    rso << ", .fuse_batch = " << (attr.getFuseBatch() ? "true" : "false");
+    rso << ", .fused_activation = ::std::nullopt";
+    rso << ", .mcast_in0 = " << (attr.getMcastIn0() ? "true" : "false");
+    rso << ", .gather_in0 = " << (attr.getGatherIn0() ? "true" : "false");
+    rso << ", .num_global_cb_receivers = "
+        << EmitCTypeConverter<size_t>::convert(attr.getNumGlobalCbReceivers());
+    rso << ", .untilize_out = " << (attr.getUntilizeOut() ? "true" : "false");
 
     rso << "}";
     return buf;
