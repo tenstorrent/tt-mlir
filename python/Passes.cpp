@@ -8,6 +8,7 @@
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -552,24 +553,21 @@ void populatePassesModule(nb::module_ &m) {
       [](MlirModule module) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
 
+        bool hasFileOps = false;
+        moduleOp->walk(
+            [&hasFileOps](mlir::tt::emitpy::FileOp) { hasFileOps = true; });
+        if (hasFileOps) {
+          throw std::runtime_error(
+              "File splitting is not supported in the builder; "
+              "IR should not contain emitpy.file ops");
+        }
+
         std::string output;
         llvm::raw_string_ostream outputStream(output);
 
-        // Generate main.py
-        outputStream << "#=== main.py ===\n";
         if (mlir::failed(mlir::tt::emitpy::translateToPython(
-                mlir::cast<ModuleOp>(moduleOp), outputStream,
-                std::string("main")))) {
-          throw std::runtime_error("Failed to generate main.py");
-        }
-        outputStream.flush();
-
-        // Generate consteval.py
-        outputStream << "\n#=== consteval.py ===\n";
-        if (mlir::failed(mlir::tt::emitpy::translateToPython(
-                mlir::cast<ModuleOp>(moduleOp), outputStream,
-                std::string("consteval")))) {
-          throw std::runtime_error("Failed to generate consteval.py");
+                mlir::cast<ModuleOp>(moduleOp), outputStream))) {
+          throw std::runtime_error("Failed to translate to Python");
         }
         outputStream.flush();
 
