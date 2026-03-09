@@ -155,6 +155,7 @@ private:
     populateSliceCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateReduceCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateRMSNormCommutePatterns<commuteDirection>(&getContext(), patterns);
+    populateSoftmaxCommutePatterns<commuteDirection>(&getContext(), patterns);
 
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;
