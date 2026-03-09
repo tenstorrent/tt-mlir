@@ -3,6 +3,7 @@ add_mlir_library(MLIRTTNNInterfaces
   TTNNOpModelInterface.cpp
   TTNNTensorSpecInterface.cpp
   TTNNWorkaroundInterface.cpp
+  TTNNDecompositionWorkaroundInterface.cpp
   TTNNKernelInterface.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -13,6 +14,7 @@ add_mlir_library(MLIRTTNNInterfaces
   MLIRTTNNOpModelInterfaceIncGen
   MLIRTTNNTensorSpecInterfaceIncGen
   MLIRTTNNWorkaroundInterfaceIncGen
+  MLIRTTNNDecompositionWorkaroundInterfaceIncGen
   MLIRTTNNKernelInterfaceIncGen
 
   LINK_LIBS

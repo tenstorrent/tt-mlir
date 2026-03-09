@@ -5,7 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNDecompositionWorkaroundInterface.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
@@ -618,18 +618,21 @@ mlir::LogicalResult createFusedRoPEOp(mlir::PatternRewriter &rewriter,
       ropeOp.getOperation(), inputLayouts, config);
 
   if (!validationResult.isSuccess()) {
-    auto workaround =
-        workarounds::decomposition::getWorkaroundedOp(ropeOp, rewriter);
-    if (workaround) {
-      auto paddedOp = workaround->first;
-      auto sliceOp = workaround->second;
-      inputLayouts = utils::extractInputLayouts(paddedOp.getOperation());
-      resultType = mlir::cast<RankedTensorType>(paddedOp.getType());
-      config = OpConfig(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
-      validationResult = op_constraint_validation::validateOperation(
-          paddedOp.getOperation(), inputLayouts, config);
-      rewriter.eraseOp(sliceOp);
-      rewriter.eraseOp(paddedOp);
+    // Try applying decomposition workaround if the op implements the interface
+    if (auto decomposable = dyn_cast<decomposition::DecompositionWorkaroundInterface>(
+            ropeOp.getOperation())) {
+      auto workarounds = decomposable.getDecompositionWorkarounds();
+      for (auto &workaround : workarounds) {
+        if (workaround->matchAndRewrite(ropeOp.getOperation(), rewriter).succeeded()) {
+          // Workaround applied - ops added around ropeOp, now validate again
+          inputLayouts = utils::extractInputLayouts(ropeOp.getOperation());
+          resultType = mlir::cast<RankedTensorType>(ropeOp.getType());
+          config = OpConfig(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+          validationResult = op_constraint_validation::validateOperation(
+              ropeOp.getOperation(), inputLayouts, config);
+          break;
+        }
+      }
     }
 
     if (!validationResult.isSuccess()) {
@@ -743,18 +746,21 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
       newRope.getOperation(), inputLayouts, config);
 
   if (!validationResult.isSuccess()) {
-    auto workaround =
-        workarounds::decomposition::getWorkaroundedOp(newRope, rewriter);
-    if (workaround) {
-      auto paddedOp = workaround->first;
-      auto sliceOp = workaround->second;
-      inputLayouts = utils::extractInputLayouts(paddedOp.getOperation());
-      resultType = mlir::cast<RankedTensorType>(paddedOp.getType());
-      config = OpConfig(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
-      validationResult = op_constraint_validation::validateOperation(
-          paddedOp.getOperation(), inputLayouts, config);
-      rewriter.eraseOp(sliceOp);
-      rewriter.eraseOp(paddedOp);
+    // Try applying decomposition workaround if the op implements the interface
+    if (auto decomposable = dyn_cast<decomposition::DecompositionWorkaroundInterface>(
+            newRope.getOperation())) {
+      auto workarounds = decomposable.getDecompositionWorkarounds();
+      for (auto &workaround : workarounds) {
+        if (workaround->matchAndRewrite(newRope.getOperation(), rewriter).succeeded()) {
+          // Workaround applied - ops added around newRope, now validate again
+          inputLayouts = utils::extractInputLayouts(newRope.getOperation());
+          resultType = mlir::cast<RankedTensorType>(newRope.getType());
+          config = OpConfig(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+          validationResult = op_constraint_validation::validateOperation(
+              newRope.getOperation(), inputLayouts, config);
+          break;
+        }
+      }
     }
 
     if (!validationResult.isSuccess()) {

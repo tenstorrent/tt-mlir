@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNDecompositionWorkaroundInterface.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNDeviceOperandInterface.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"

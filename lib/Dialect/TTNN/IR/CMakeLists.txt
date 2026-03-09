@@ -4,6 +4,7 @@ add_mlir_dialect_library(MLIRTTNNDialect
         TTNNOps.cpp
         TTNNOpsTypes.cpp
         TTNNWorkaroundsPass.cpp
+        Workarounds/Decompositions/RopeDecomposition.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
@@ -14,6 +15,7 @@ add_mlir_dialect_library(MLIRTTNNDialect
         MLIRTTNNOpModelInterfaceIncGen
         MLIRTTNNTensorSpecInterfaceIncGen
         MLIRTTNNWorkaroundInterfaceIncGen
+        MLIRTTNNDecompositionWorkaroundInterfaceIncGen
         MLIRTTNNKernelInterfaceIncGen
 
         LINK_LIBS PUBLIC

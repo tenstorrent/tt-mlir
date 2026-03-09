@@ -8,6 +8,7 @@
 include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 include "ttmlir/Dialect/TTNN/Interfaces/TTNNDeviceOperandInterface.td"
 include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.td"
+include "ttmlir/Dialect/TTNN/Interfaces/TTNNDecompositionWorkaroundInterface.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
@@ -3116,7 +3117,7 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Memory
     let hasVerifier = 1;
 }
 
-def TTNN_RotaryEmbeddingOp : TTNN_Op<"rotary_embedding", [TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+def TTNN_RotaryEmbeddingOp : TTNN_Op<"rotary_embedding", [TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface, TTNN_DecompositionWorkaroundInterface]> {
   let summary = "Rotary embedding op in TTNN dialect.";
   let description = [{
     Applies rotary embedding to the input tensor using precomputed cosine and sine caches.
@@ -3145,6 +3146,10 @@ def TTNN_RotaryEmbeddingOp : TTNN_Op<"rotary_embedding", [TTNN_MemoryConfigOpInt
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::createRotaryEmbeddingOpOperandsWorkarounds(*this);
+    }
+
+    wa::DecompositionWorkarounds getDecompositionWorkarounds(){
+      return wa::getRopeDecompositionWorkarounds();
     }
   }];
 
