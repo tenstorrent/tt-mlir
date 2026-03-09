@@ -20,55 +20,41 @@ public:
       DecomposeCustomCallTuplesPass>::DecomposeCustomCallTuplesPassBase;
 
   void runOnOperation() override {
-    ModuleOp module = getOperation();
-    IRRewriter rewriter(module.getContext());
+    IRRewriter rewriter(getOperation().getContext());
 
-    // Collect all custom_call ops that return a tuple type.
+    // Collect first to avoid invalidating the walk iterator on erasure.
     SmallVector<mlir::stablehlo::CustomCallOp> tupleCustomCalls;
-    module.walk([&](mlir::stablehlo::CustomCallOp op) {
+    getOperation().walk([&](mlir::stablehlo::CustomCallOp op) {
       if (op.getNumResults() == 1 &&
           isa<TupleType>(op.getResult(0).getType())) {
         tupleCustomCalls.push_back(op);
       }
     });
 
-    for (auto customCallOp : tupleCustomCalls) {
-      auto tupleType = cast<TupleType>(customCallOp.getResult(0).getType());
-      SmallVector<Type> elementTypes(tupleType.getTypes());
+    for (auto op : tupleCustomCalls) {
+      auto tupleType = cast<TupleType>(op.getResult(0).getType());
 
       // Create a new custom_call that returns multiple results instead of a
       // tuple.
-      rewriter.setInsertionPoint(customCallOp);
+      rewriter.setInsertionPoint(op);
       auto newOp = rewriter.create<mlir::stablehlo::CustomCallOp>(
-          customCallOp.getLoc(), TypeRange(elementTypes),
-          customCallOp.getInputs(), customCallOp->getAttrs());
+          op.getLoc(), tupleType.getTypes(), op.getInputs(), op->getAttrs());
 
       // Replace all get_tuple_element users with the corresponding result
       // of the new multi-result custom_call.
-      Value tupleResult = customCallOp.getResult(0);
-      SmallVector<Operation *> toErase;
-
-      for (OpOperand &use : llvm::make_early_inc_range(tupleResult.getUses())) {
+      for (OpOperand &use :
+           llvm::make_early_inc_range(op.getResult(0).getUses())) {
         auto getTupleOp =
             dyn_cast<mlir::stablehlo::GetTupleElementOp>(use.getOwner());
         if (!getTupleOp) {
-          // Unexpected use of the tuple result - skip this custom_call.
           continue;
         }
 
-        int64_t index = getTupleOp.getIndex();
-        getTupleOp.getResult().replaceAllUsesWith(newOp.getResult(index));
-        toErase.push_back(getTupleOp);
+        rewriter.replaceOp(getTupleOp, newOp.getResult(getTupleOp.getIndex()));
       }
 
-      // Erase the get_tuple_element ops and the original custom_call.
-      for (auto *op : toErase) {
+      if (op.getResult(0).use_empty()) {
         rewriter.eraseOp(op);
-      }
-
-      // Only erase the original if all uses have been replaced.
-      if (tupleResult.use_empty()) {
-        rewriter.eraseOp(customCallOp);
       }
     }
   }
