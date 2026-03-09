@@ -1602,10 +1602,8 @@ static Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
 class D2MDMAReadRewriter : public OpConversionPattern<d2m::DMAReadOp> {
 public:
   D2MDMAReadRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                     const d2m::AssociatedDMAWaits *associatedDMAWaits,
                      const d2m::CBProducerConsumer *cbProducerConsumer)
       : OpConversionPattern<d2m::DMAReadOp>(typeConverter, context),
-        associatedDMAWaits(associatedDMAWaits),
         cbProducerConsumer(cbProducerConsumer) {}
 
   LogicalResult
@@ -1632,34 +1630,20 @@ public:
     rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
                                               dstL1Addr, size);
 
-    // Add attribute marking whether the DMA wait is for a read or write
-    // operation This will be used when loweing the wait ops because the current
-    // DMA op will be replaced with a NullTx.
-    auto dmaWaitOps = associatedDMAWaits->get(op);
-    for (auto dmaWaitOp : dmaWaitOps) {
-      rewriter.modifyOpInPlace(dmaWaitOp, [&]() {
-        dmaWaitOp->setDiscardableAttr("ttkernel.lowering.associated_noc_read",
-                                      rewriter.getUnitAttr());
-      });
-    }
-
-    rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op);
+    rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
 
     return success();
   }
 
 private:
-  const d2m::AssociatedDMAWaits *associatedDMAWaits;
   const d2m::CBProducerConsumer *cbProducerConsumer;
 };
 
 class D2MDMAWriteRewriter : public OpConversionPattern<d2m::DMAWriteOp> {
 public:
   D2MDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                      const d2m::AssociatedDMAWaits *associatedDMAWaits,
                       const d2m::CBProducerConsumer *cbProducerConsumer)
       : OpConversionPattern<d2m::DMAWriteOp>(typeConverter, context),
-        associatedDMAWaits(associatedDMAWaits),
         cbProducerConsumer(cbProducerConsumer) {}
 
   LogicalResult
@@ -1753,26 +1737,11 @@ public:
                                                  dstNocAddr, size);
     }
 
-    // Add attribute marking whether the DMA wait is for a read or write
-    // operation This will be used when loweing the wait ops because the current
-    // DMA op will be replaced with a NullTx.
-    // Mcast writes do not require a write barrier.
-    auto dmaWaitOps = associatedDMAWaits->get(op);
-    StringRef waitAttr = op.isMcast()
-                             ? "ttkernel.lowering.associated_noc_mcast_write"
-                             : "ttkernel.lowering.associated_noc_write";
-    for (auto dmaWaitOp : dmaWaitOps) {
-      rewriter.modifyOpInPlace(dmaWaitOp, [&]() {
-        dmaWaitOp->setDiscardableAttr(waitAttr, rewriter.getUnitAttr());
-      });
-    }
-
-    rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op);
+    rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
     return success();
   }
 
 private:
-  const d2m::AssociatedDMAWaits *associatedDMAWaits;
   const d2m::CBProducerConsumer *cbProducerConsumer;
 };
 } // namespace
@@ -1831,20 +1800,18 @@ public:
   LogicalResult
   matchAndRewrite(d2m::DMAWaitOp op, d2m::DMAWaitOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto isRead =
-        op->getDiscardableAttr("ttkernel.lowering.associated_noc_read");
-    auto isWrite =
-        op->getDiscardableAttr("ttkernel.lowering.associated_noc_write");
-    auto isMcastWrite =
-        op->getDiscardableAttr("ttkernel.lowering.associated_noc_mcast_write");
-    assert(isRead || isWrite || isMcastWrite);
+    auto txKind =
+        mlir::cast<d2m::MemTxType>(op.getMemTx().getType()).getDmaType();
 
-    if (isRead) {
+    switch (txKind) {
+    case d2m::DMAType::Read:
       rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
-    }
-
-    if (isWrite) {
+      break;
+    case d2m::DMAType::Write:
       rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(op.getLoc());
+      break;
+    case d2m::DMAType::McastWrite:
+      break;
     }
 
     rewriter.eraseOp(op);
@@ -2140,7 +2107,6 @@ namespace mlir::tt {
 
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const d2m::AssociatedDMAWaits &associatedDMAWaits,
     const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode) {
   // clang-format off
   patterns.add<ttkernel::D2MKernelFunctionArgsRewriter,
@@ -2235,8 +2201,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreWaitRewriter>(typeConverter, ctx);
 
   patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx, ttnnMode);
-  patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
-  patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
+  patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);
+  patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &cbProducerConsumer);
 
   // This is needed to lower affine apply ops that may be generated when
   // `d2m.core_index` is used with a `phys_to_virt_map`.
