@@ -943,25 +943,31 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
     let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
                          AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
                          I64Attr:$numElems,
-                         Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
+                         Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape,
+                         Variadic<D2M_MeshPosition>:$deviceRange);
     let results = (outs D2M_MemTx:$result);
 
     let builders =
     [
-      // Unicast - multicast args are defaulted
+      // Core Unicast (multicast args are defaulted), same device
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange());
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), ValueRange());
       }]>,
 
-      // Multicast - multicast args must be provided
+      // Core Multicast (multicast args must be provided), same device
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, ValueRange());
       }]>,
+      // Core Unicast, with destination device range
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems, "ValueRange": $deviceRange),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), deviceRange);
+      }]>
     ];
 
-    let assemblyFormat = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)?  `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`deviceRange` `[` $deviceRange^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
@@ -1395,24 +1401,49 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         Variadic<Index>:$indices,
         Arg<Optional<AnyRankedTensorOrMemRef>, "the local buffer to store from",
         [MemRead]>:$localBuffer,
-        Optional<D2M_CB>:$cb);
-
+        Optional<D2M_CB>:$cb,
+        Variadic<D2M_MeshPosition>:$deviceRange
+        // we can have an option between a pair of devices, or a single device
+        // or we can
+        //Optional<D2M_MeshId>:$mesh_id,
+        //Bool:$isMcast
+        // sem inc???
+        );
     let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
 
     let builders = [
       // Explicit CB form (with CB, no result)
       OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb),
       [{
-        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb);
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb, /*deviceRange=*/ValueRange{});
       }]>,
       // Implicit form with local buffer and result (required)
       OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices, "Value":$localBuffer),
       [{
-        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{});
+        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{}, /*deviceRange=*/ValueRange{});
+      }]>,
+      // Explicit CB form (with CB, no result); with destination device range
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb, "ValueRange":$deviceRange),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb, deviceRange);
+      }]>,
+      // Implicit form with local buffer and result (required); with destination device range
+      OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices, "Value":$localBuffer, "ValueRange":$deviceRange),
+      [{
+        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{}, deviceRange);
       }]>
     ];
 
-    let assemblyFormat = [{ $memref `[` $indices `]` ($localBuffer^)? (`from` $cb^)? attr-dict `:` type($memref) (`,` type($localBuffer)^)? (`from` type($cb)^)? (`->` type($result)^)? }];
+    let assemblyFormat = [{
+      $memref `[` $indices `]`
+      ($localBuffer^)?
+      (`from` $cb^)?
+      (`<` `deviceRange` `:` `[` $deviceRange^ `]` `>`)?
+      attr-dict `:` type($memref)
+      (`,` type($localBuffer)^)?
+      (`from` type($cb)^)?
+      (`->` type($result)^)?
+    }];
 
     let hasVerifier = 1;
 
@@ -2121,6 +2152,17 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
       }]>
     ];
 }
+
+def D2m_MeshPositionOp : D2M_GenericRegionOp<"mesh_position", [ Pure ]> {
+    let summary = "Mesh position op.";
+    let description = [{
+      Return the mesh position for the given device.
+    }];
+
+    let arguments = (ins);
+    let results = (outs D2M_MeshPosition:$result);
+}
+
 
 //===----------------------------------------------------------------------===//
 // D2M Remote Access ops (Used in TTMetal Lowering)

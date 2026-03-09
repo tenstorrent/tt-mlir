@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -78,6 +79,7 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<d2m::MeshShardOp>();
     target.addLegalOp<d2m::CreateGlobalSemaphoreOp>();
     target.addLegalOp<d2m::ResetGlobalSemaphoreOp>();
+    target.addLegalOp<d2m::MeshPositionOp>(); // remove???
 
     if (ttnnMode) {
       target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
@@ -158,11 +160,49 @@ struct ConvertD2MToTTKernel
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 
+    // Insert fabric connection manager and setup fabric connections at the
+    // start of the function.
+    // TODO: should this be a pattern as well?, just want to ensure its used at
+    // the start.
+    ModuleOp moduleOp = getOperation();
+    moduleOp->walk([&](func::FuncOp func) {
+      bool fabric_write_present = false;
+      func.walk([&](d2m::DMAWriteOp dmaWriteOp) {
+        if (dmaWriteOp.getDeviceRange().size() > 0) {
+          fabric_write_present = true;
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+
+      if (fabric_write_present) {
+        OpBuilder builder(func.getContext());
+        builder.setInsertionPointToStart(&func.getBody().front());
+        auto fabricConnectionManager =
+            builder
+                .create<ttkernel::CreateFabricConnectionManagerOp>(
+                    func.getLoc())
+                .getResult();
+        builder.create<ttkernel::SetupFabricConnectionsOp>(
+            func.getLoc(), fabricConnectionManager);
+        Operation *terminator = func.getBody().front().getTerminator();
+        builder.setInsertionPoint(terminator);
+        builder.create<ttkernel::CloseFabricConnectionsOp>(
+            func.getLoc(), fabricConnectionManager);
+      }
+    });
+
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
       return;
     }
+
+    // TODO:erase mesh position ops until lowering is supported
+    moduleOp->walk([&](d2m::MeshPositionOp meshPositionOp) {
+      meshPositionOp.erase();
+      return WalkResult::advance();
+    });
   };
 };
 } // namespace

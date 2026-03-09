@@ -30,6 +30,8 @@ static bool isRemoteOperand(Value operand, Operation *op) {
   // Remote operands are those that come from ops implementing ViewOpInterface
   return mlir::isa<ViewOpInterface>(defOp);
 }
+// TODO: make sure this correctly returns true for all cases where we do a
+// remote store to a different device.
 
 // Helper function to find the CB block argument that corresponds to a memref
 // operand in a generic op. Returns the CB block argument if found, null
@@ -194,25 +196,16 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter) {
     bool isRemoteLoad = isRemoteOperand(loadMemref, loadOp.getOperation());
     bool isRemoteStore = isRemoteOperand(storeMemref, storeOp.getOperation());
 
-    TT_assert(!(isRemoteLoad && isRemoteStore));
     // When neither operand is remote (e.g., L1-to-L1 layout conversions in
     // TTNN mode where operands come from TTNNMetalLayoutCastOp rather than
     // ViewOpInterface), both the load and store are needed — skip
     // simplification.
+    // shouldnt both be remote in that case???
     if (!isRemoteLoad && !isRemoteStore) {
       continue;
     }
-    if (!isRemoteStore) {
-      // Create the explicit CB form of remote_load (no localBuffer, has CB
-      // operand)
-      rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(),
-                                    outputCB, loadOp.getMcastStartIndex(),
-                                    loadOp.getMcastShape());
-    } else {
-      rewriter.create<RemoteStoreOp>(loc, storeMemref, loadOp.getIndices(),
-                                     inputCB);
-    }
 
+    // TT_assert(!(isRemoteLoad && isRemoteStore));
     // Get the shared localBuffer before erasing operations
     Value localBuffer = loadOp.getLocalBuffer();
     memref::AllocOp allocToErase = nullptr;
@@ -221,9 +214,28 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter) {
           localBuffer.getDefiningOp());
     }
 
-    // Erase the original load and store operations
-    rewriter.eraseOp(storeOp);
+    if (isRemoteLoad && isRemoteStore) {
+      rewriter.setInsertionPoint(loadOp);
+      rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(),
+                                    inputCB, loadOp.getMcastStartIndex(),
+                                    loadOp.getMcastShape());
+      rewriter.setInsertionPoint(storeOp);
+      rewriter.create<RemoteStoreOp>(loc, storeMemref, storeOp.getIndices(),
+                                     outputCB, storeOp.getDeviceRange());
+    } else if (isRemoteLoad) {
+      // Create the explicit CB form of remote_load (no localBuffer, has CB
+      // operand)
+      rewriter.setInsertionPoint(loadOp);
+      rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(),
+                                    outputCB, loadOp.getMcastStartIndex(),
+                                    loadOp.getMcastShape());
+    } else if (isRemoteStore) {
+      rewriter.setInsertionPoint(storeOp);
+      rewriter.create<RemoteStoreOp>(loc, storeMemref, storeOp.getIndices(),
+                                     inputCB, storeOp.getDeviceRange());
+    }
     rewriter.eraseOp(loadOp);
+    rewriter.eraseOp(storeOp);
 
     // Erase the shared alloc if it's now unused
     if (allocToErase && allocToErase->use_empty()) {
@@ -443,7 +455,7 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
       // Create the explicit CB form of remote_store (no local buffer, has CB)
       // d2m.remote_store %memref[indices] from %cb
       rewriter.create<RemoteStoreOp>(loc, memref, remoteStore.getIndices(),
-                                     assocCb);
+                                     assocCb, remoteStore.getDeviceRange());
 
       // Track the reserve op for push insertion (avoid duplicates).
       // When the CB was found through a WaitOp (non-simplified load-store

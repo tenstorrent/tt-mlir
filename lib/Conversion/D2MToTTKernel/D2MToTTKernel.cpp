@@ -34,6 +34,13 @@ namespace mlir::tt::ttkernel {
 
 namespace {
 
+static Value i16(OpBuilder &rewriter, Location loc, int16_t value) {
+  return rewriter
+      .create<arith::ConstantOp>(loc, rewriter.getI16Type(),
+                                 rewriter.getI16IntegerAttr(value))
+      .getResult();
+}
+
 static Value i32(OpBuilder &rewriter, Location loc, int32_t value) {
   return rewriter
       .create<arith::ConstantOp>(loc, rewriter.getI32Type(),
@@ -1539,6 +1546,8 @@ private:
   const d2m::CBProducerConsumer *cbProducerConsumer;
 };
 
+// TODO: change to replace with fabric semaphore inc, and insert fabric
+// connection ops
 class D2MDMAWriteRewriter : public OpConversionPattern<d2m::DMAWriteOp> {
 public:
   D2MDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
@@ -1554,7 +1563,31 @@ public:
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
 
-    if (op.isDstLocal()) {
+    if (op.getDeviceRange().size() > 0) {
+      auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
+          rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
+      auto dstNocAddr =
+          buildNocAddress(rewriter, op.getLoc(), adaptor.getDst(),
+                          op.getDstIndices(), chipDesc, op.getDstMemorySpace());
+      auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
+      // insert fcm ops if there is a fabric write
+      // 1) can insert at start/end once and then somehow try to reference it
+      // 2) can insert everytime and then remove on canonicalization
+      auto meshId = i16(rewriter, op->getLoc(), 0);
+      auto startDeviceId = i16(rewriter, op->getLoc(), 0);
+      auto endDeviceId = i16(rewriter, op->getLoc(), 4);
+      Value fcm;
+      op->getParentOfType<func::FuncOp>().walk(
+          [&](ttkernel::CreateFabricConnectionManagerOp
+                  createFabricConnectionManagerOp) {
+            fcm = createFabricConnectionManagerOp.getResult();
+            return WalkResult::interrupt();
+          });
+      TT_assertv(fcm, "Expected fabric connection manager op.");
+      rewriter.create<ttkernel::FabricMulticastWriteOp>(
+          op.getLoc(), fcm, meshId, startDeviceId, endDeviceId, dstNocAddr,
+          srcL1Addr, size);
+    } else if (op.isDstLocal()) {
       // Local to Local Datamovement & Multicast
 
       // Both src and dst are local, use the metal cb pointers to determine

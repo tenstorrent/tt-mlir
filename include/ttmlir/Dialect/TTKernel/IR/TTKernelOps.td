@@ -3064,6 +3064,13 @@ def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_
 // TTKernel Logical Mesh Position operations
 //===----------------------------------------------------------------------===//
 
+// get mesh position at dim (index type as result), expose in d2m dialect
+// set mesh position at dim (index type as arg), expose in d2m dialect
+// create mesh position from Arr of index types, expose in d2m dialect
+
+// add get fabric noc addr/get fabric noc id since the local write is done by fabric router
+
+// expose in d2m dialect
 def TTKernel_GetLogicalMeshPositionOp : TTKernel_Op<"experimental::get_logical_mesh_position"> {
   let summary = "GetLogicalMeshPosition";
   let description = [{
