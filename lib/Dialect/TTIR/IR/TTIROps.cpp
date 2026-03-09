@@ -380,7 +380,7 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
   const RankedTensorType outputTensorType =
       mlir::cast<RankedTensorType>(getResult().getType());
 
-  if (inputTensorType != outputTensorType) {
+  if (inputTensorType.getShape() != outputTensorType.getShape()) {
     return emitOpError("input and output must have same shape.");
   }
 
