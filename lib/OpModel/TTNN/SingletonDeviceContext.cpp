@@ -5,9 +5,7 @@
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
-
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 
 namespace mlir::tt::ttnn::op_model {
 
@@ -60,11 +58,6 @@ void SingletonDeviceContext::setSystemDesc(ttcore::SystemDescAttr systemDesc) {
   instance.m_systemDesc = systemDesc;
 }
 
-size_t SingletonDeviceContext::getNumDevices() const {
-  assert(m_device != nullptr && "Device is not initialized.");
-  return m_device->num_devices();
-}
-
 void SingletonDeviceContext::openMockDevice(
     const size_t traceRegionSize,
     const std::optional<std::pair<size_t, size_t>> &meshShape) {
@@ -108,8 +101,7 @@ void SingletonDeviceContext::openDevice(
       meshShape ? static_cast<unsigned int>(meshShape->second) : 1};
   m_device = ::tt::tt_metal::distributed::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{shape},
-      /* l1_small_size = */ ::tt::constants::L1_SMALL_SIZE,
-      /* trace_region_size = */ traceRegionSize,
+      ::tt::constants::L1_SMALL_SIZE, traceRegionSize,
       /* num_hw_cqs = */ 1, dispatchCoreType);
 
   m_device->disable_and_clear_program_cache();
@@ -133,8 +125,7 @@ void SingletonDeviceContext::reshapeMeshDevice(
       static_cast<unsigned int>(meshShape.second)};
   m_device = ::tt::tt_metal::distributed::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{shape},
-      /* l1_small_size = */ ::tt::constants::L1_SMALL_SIZE,
-      /* trace_region_size = */ traceRegionSize,
+      ::tt::constants::L1_SMALL_SIZE, traceRegionSize,
       /* num_hw_cqs = */ 1, dispatchCoreType);
 
   m_device->disable_and_clear_program_cache();

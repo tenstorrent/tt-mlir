@@ -113,9 +113,6 @@ public:
   // Returns true if the device is initialized.
   bool isDeviceInitialized() const { return m_device != nullptr; }
 
-  // Returns the number of devices in the mesh.
-  size_t getNumDevices() const;
-
   // Returns true if the device was opened via the mock path
   // (no real HW).
   bool isMockDevice() const { return m_isMockDevice; }
