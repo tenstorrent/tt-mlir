@@ -119,18 +119,13 @@ def get_mesh_shape_from_tensor_args(tensor_args):
     Get the mesh shape (rows, cols) from the device of the first tensor argument.
 
     For a mesh device, returns (mesh_rows, mesh_cols) from device.shape.
-    For a single device (no shape attribute or length < 2), returns (1, 1).
+    For a single device (shape.dims() < 2), returns (1, 1).
     """
     if not tensor_args:
         return (1, 1)
     tensor_arg = next(iter(tensor_args.values()))
     device = tensor_arg.device()
-    try:
-        shape = getattr(device, "shape", None)
-        if shape is not None:
-            shape_list = list(shape) if hasattr(shape, "__iter__") else [1, 1]
-            if len(shape_list) >= 2:
-                return (int(shape_list[0]), int(shape_list[1]))
-    except (TypeError, ValueError, IndexError):
-        pass
+    shape = device.shape
+    if shape.dims() >= 2:
+        return (int(shape[0]), int(shape[1]))
     return (1, 1)
