@@ -19,23 +19,17 @@ GetDeviceOp getOrInsertDevice(mlir::RewriterBase &rewriter,
 GetDeviceOp getOrInsertDevice(mlir::RewriterBase &rewriter, mlir::Block *block);
 
 // Helper method to insert a ToLayoutOp to convert the input operand to the
-// desired tensor layout, buffer type and memory layout.
-ToLayoutOp createToLayoutOp(mlir::Operation *op,
-                            mlir::TypedValue<RankedTensorType> inputValue,
-                            RewriterBase &rewriter, Layout targetTensorLayout,
-                            BufferType targetTensorBufferType,
-                            TensorMemoryLayoutAttr targetTensorMemoryLayout,
-                            ttcore::DataType targetTensorDataType,
-                            llvm::StringRef locSuffix = "");
+// desired tensor layout, buffer type and memory layout. When targetGrid is
+// provided, the output encoding uses the given grid instead of deriving it
+// from the input layout.
+ToLayoutOp createToLayoutOp(
+    mlir::Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
+    RewriterBase &rewriter, Layout targetTensorLayout,
+    BufferType targetTensorBufferType,
+    TensorMemoryLayoutAttr targetTensorMemoryLayout,
+    ttcore::DataType targetTensorDataType, llvm::StringRef locSuffix = "",
+    std::optional<ttcore::GridAttr> targetGrid = std::nullopt);
 
-// Creates a ToLayoutOp that converts input to height-sharded L1 Tile layout
-// with virtual grid [batchSize, 1]. Required by NLPConcatHeadsDecodeOp which
-// expects each batch element assigned to its own row of cores.
-ToLayoutOp createHeightShardedToLayout(mlir::Operation *op, mlir::Value input,
-                                       RankedTensorType inputType,
-                                       int64_t batchSize,
-                                       RewriterBase &rewriter,
-                                       mlir::Location loc);
 } // namespace mlir::tt::ttnn::utils
 
 #endif

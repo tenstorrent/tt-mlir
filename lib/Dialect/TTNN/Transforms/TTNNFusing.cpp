@@ -6,7 +6,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -14,6 +13,7 @@
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #endif
@@ -1136,9 +1136,7 @@ public:
   mlir::LogicalResult
   matchAndRewrite(ReshapeOp reshapeOp,
                   mlir::PatternRewriter &rewriter) const override {
-    // Skip through transparent ops (typecast) to find the permute.
-    // Note: ToLayoutOp and ToMemoryConfigOp are not expected in the graph at
-    // this point since the optimizer pass hasn't run yet.
+    // Skip through typecast ops to find the permute.
     Value reshapeInput =
         ttmlir::utils::lookThrough<TypecastOp>(reshapeOp.getInput());
     auto permuteOp = reshapeInput.getDefiningOp<PermuteOp>();
@@ -1185,43 +1183,49 @@ public:
     auto concatHeadsResultType = utils::RankedTensorTypeFactory::create(
         inputType, concatHeadsOutputShape);
 
-    // Validate with op constraints using height-sharded input.
-    // The op requires height-sharded L1 input, but the workaround pass
-    // handles inserting the actual ToLayoutOp later. Create a temporary
-    // sharded version just for validation, then discard it.
+    // Create the fused op with original (unsharded) input. The workaround
+    // pass will insert the height-sharded ToLayoutOp later.
     op_model::ScopedSingletonDeviceGuard deviceGuard(reshapeOp);
 
-    auto shardedInputOp = utils::createHeightShardedToLayout(
-        reshapeOp, input, inputType, batchSize, rewriter, reshapeOp.getLoc());
-    auto shardedInputType =
-        mlir::cast<RankedTensorType>(shardedInputOp.getType());
-    auto shardedResultType = utils::RankedTensorTypeFactory::create(
-        shardedInputType, concatHeadsOutputShape);
-
-    auto validationOp = rewriter.create<NLPConcatHeadsDecodeOp>(
-        reshapeOp.getLoc(), shardedResultType, shardedInputOp.getResult(),
-        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
-        /*memory_config=*/MemoryConfigAttr());
-
-    std::vector<TTNNLayoutAttr> inputLayouts =
-        utils::extractInputLayouts(validationOp.getOperation());
-    OpConfig config(
-        mlir::cast<TTNNLayoutAttr>(shardedResultType.getEncoding()));
-    auto validationResult = op_constraint_validation::validateOperation(
-        validationOp.getOperation(), inputLayouts, config);
-
-    rewriter.eraseOp(validationOp);
-    rewriter.eraseOp(shardedInputOp);
-
-    if (!validationResult.isSuccess()) {
-      return failure();
-    }
-
-    // Create the actual fused op (without sharded input).
     auto nlpConcatHeadsDecodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
         reshapeOp.getLoc(), concatHeadsResultType, input,
         rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
         /*memory_config=*/MemoryConfigAttr());
+
+    // Validate the fused op. The op requires height-sharded L1 input, so
+    // try the workaround-sharded version since the workaround pass hasn't
+    // run yet.
+    auto workaround = workarounds::decomposition::getWorkaroundedInput(
+        nlpConcatHeadsDecodeOp, rewriter);
+    if (workaround) {
+      auto shardedInputType =
+          mlir::cast<RankedTensorType>(workaround->getType());
+      auto shardedResultType = utils::RankedTensorTypeFactory::create(
+          shardedInputType, concatHeadsOutputShape);
+
+      auto validationOp = rewriter.create<NLPConcatHeadsDecodeOp>(
+          reshapeOp.getLoc(), shardedResultType, workaround->getResult(),
+          rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
+          /*memory_config=*/MemoryConfigAttr());
+
+      std::vector<TTNNLayoutAttr> inputLayouts =
+          utils::extractInputLayouts(validationOp.getOperation());
+      OpConfig config(
+          mlir::cast<TTNNLayoutAttr>(shardedResultType.getEncoding()));
+      auto validationResult = op_constraint_validation::validateOperation(
+          validationOp.getOperation(), inputLayouts, config);
+
+      rewriter.eraseOp(validationOp);
+      rewriter.eraseOp(*workaround);
+
+      if (!validationResult.isSuccess()) {
+        rewriter.eraseOp(nlpConcatHeadsDecodeOp);
+        return failure();
+      }
+    }
+
+    // Restore insertion point after the fused op.
+    rewriter.setInsertionPointAfter(nlpConcatHeadsDecodeOp);
 
     // Create a new reshape from 4D fused output to original output
     // shape. The old permute and transparent ops become dead code and are

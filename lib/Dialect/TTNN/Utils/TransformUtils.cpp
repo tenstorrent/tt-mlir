@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -73,7 +72,8 @@ ToLayoutOp createToLayoutOp(Operation *op,
                             BufferType targetTensorBufferType,
                             TensorMemoryLayoutAttr targetTensorMemoryLayout,
                             ttcore::DataType targetTensorDataType,
-                            llvm::StringRef locSuffix) {
+                            llvm::StringRef locSuffix,
+                            std::optional<ttcore::GridAttr> targetGrid) {
   TTNNLayoutAttr inputLayoutAttr =
       getLayoutAttrFromTensor(inputValue.getType());
 
@@ -90,6 +90,12 @@ ToLayoutOp createToLayoutOp(Operation *op,
           .withElementType(elementType, inputToLayoutOpType.getShape())
           .withBufferType(targetTensorBufferType)
           .withMemoryLayout(targetTensorMemoryLayout);
+
+  // Override the grid when a custom target grid is specified.
+  if (targetGrid) {
+    toLayoutOpResultEncoding = toLayoutOpResultEncoding.withGrid(
+        inputToLayoutOpType.getShape(), *targetGrid);
+  }
 
   // Create the output result type with the new data type and encoding.
   RankedTensorType toLayoutOpResultType = RankedTensorTypeFactory::create(
@@ -117,46 +123,6 @@ ToLayoutOp createToLayoutOp(Operation *op,
       LayoutAttr::get(rewriter.getContext(), targetTensorLayout),
       ttcore::DataTypeAttr::get(rewriter.getContext(), targetTensorDataType),
       outputMemConfigAttr);
-}
-
-ToLayoutOp createHeightShardedToLayout(Operation *op, Value input,
-                                       RankedTensorType inputType,
-                                       int64_t batchSize,
-                                       RewriterBase &rewriter, Location loc) {
-  auto inputElementType = inputType.getElementType();
-  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(inputElementType)) {
-    inputElementType = tileType.getElementType();
-  }
-
-  auto physicalGrid =
-      ttcore::getCurrentScopeSystemDesc(op).getChipDescs()[0].getGrid();
-
-  auto affineMap =
-      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
-          rewriter.getContext(), TensorMemoryLayout::HeightSharded,
-          physicalGrid);
-
-  SmallVector<int64_t> virtualGridSize = {batchSize, 1};
-  auto grid =
-      ttcore::GridAttr::get(rewriter.getContext(), virtualGridSize, affineMap);
-
-  auto memLayoutAttr = TensorMemoryLayoutAttr::get(
-      rewriter.getContext(), TensorMemoryLayout::HeightSharded);
-
-  auto shardedLayout =
-      TTNNLayoutAttr::get(rewriter.getContext(), inputType.getShape(),
-                          ttcore::TileType::get(inputElementType),
-                          BufferType::L1, grid, memLayoutAttr);
-
-  auto shardedInputType = inputType.cloneWithEncoding(shardedLayout);
-  auto memoryConfig = MemoryConfigAttr::get(shardedLayout, grid);
-
-  return rewriter.create<ToLayoutOp>(
-      loc, shardedInputType, input, Layout::Tile,
-      ttcore::DataTypeAttr::get(
-          rewriter.getContext(),
-          ttcore::elementTypeToDataType(inputElementType)),
-      memoryConfig);
 }
 
 } // namespace mlir::tt::ttnn::utils
