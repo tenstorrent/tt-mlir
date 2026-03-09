@@ -303,7 +303,7 @@ public:
   LogicalResult matchAndRewrite(ttnn::SliceStaticOp op,
                                 PatternRewriter &rewriter) const override {
     auto eltwiseOp = op.getInput().getDefiningOp<EltwiseOpTy>();
-    if (!eltwiseOp || !allUsersAreSlice(eltwiseOp)) {
+    if (!eltwiseOp) {
       return failure();
     }
 
@@ -363,8 +363,8 @@ public:
       infos.push_back(std::move(info));
     }
 
-    // Bail before creating any ops.
-    if (numSlicedOperands > 1) {
+    // Must slice at least one operand, otherwise nothing changes.
+    if (numSlicedOperands == 0) {
       return failure();
     }
 
