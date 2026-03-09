@@ -23,5 +23,4 @@ add_mlir_library(MLIRTTNNInterfaces
   PRIVATE
   MLIRTTCoreDialect
   TTNNOpModelLib
-  TTMLIRTTNNUtils
 )

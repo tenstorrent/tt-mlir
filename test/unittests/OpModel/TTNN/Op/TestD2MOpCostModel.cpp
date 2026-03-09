@@ -7,7 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/D2MOpCostModel.h"
+#include "ttmlir/OpModel/TTNN/D2MOpCostModel.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 

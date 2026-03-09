@@ -12,7 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Interfaces/OpModelError.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.cpp.inc"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include "ttmlir/Dialect/TTNN/Utils/D2MOpCostModel.h"
+#include "ttmlir/OpModel/TTNN/D2MOpCostModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
 
@@ -4913,18 +4913,18 @@ D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
         valueToLayout.lookup(op.getResult(0));
     OpConfig internalOpConfig(internalOpOutputLayout);
 
-    op_model::OpConstraints c(0, 0, 0, 0, {internalOpOutputLayout});
+    op_model::OpConstraints opConstraints(0, 0, 0, 0, {internalOpOutputLayout});
 
     auto estimated =
         estimateOpConstraints(&op, internalOpInputLayouts, internalOpConfig);
     if (estimated) {
-      c = *estimated;
+      opConstraints = *estimated;
     } else {
       llvm::consumeError(estimated.takeError());
       llvm::Expected<op_model::OpConstraints> expectedConstraints =
           backend.getOpConstraints(internalOpInputLayouts, internalOpConfig);
       if (expectedConstraints) {
-        c = *expectedConstraints;
+        opConstraints = *expectedConstraints;
       } else {
         llvm::consumeError(expectedConstraints.takeError());
       }
@@ -4932,7 +4932,7 @@ D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
     // Accumulate the constraints for this op into the total constraints for the
     // D2M subgraph.
-    accumulateConstraintsForD2MOp(ret, c);
+    accumulateConstraintsForD2MOp(ret, opConstraints);
   }
 
   return ret;

@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_UTILS_D2MOPCOSTMODEL_H
-#define TTMLIR_DIALECT_TTNN_UTILS_D2MOPCOSTMODEL_H
+#ifndef TTMLIR_OPMODEL_TTNN_D2MOPCOSTMODEL_H
+#define TTMLIR_OPMODEL_TTNN_D2MOPCOSTMODEL_H
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -41,4 +41,4 @@ estimateOpRuntime(Operation *op, const std::vector<TTNNLayoutAttr> &inputs,
 
 } // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTNN_UTILS_D2MOPCOSTMODEL_H
+#endif // TTMLIR_OPMODEL_TTNN_D2MOPCOSTMODEL_H

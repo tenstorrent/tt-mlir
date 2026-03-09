@@ -2,10 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-#include "ttmlir/Dialect/TTNN/Utils/D2MOpCostModel.h"
-
+#include "ttmlir/OpModel/TTNN/D2MOpCostModel.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/IR/Operation.h"
 
@@ -62,7 +60,7 @@ op_model::OpConstraints
 estimateElementwiseConstraints(Operation *op,
                                const std::vector<TTNNLayoutAttr> &inputs,
                                const OpConfig &opConfig) {
-  uint64_t outputL1 = utils::getOpOutputL1Usage(opConfig.outputLayout);
+  uint64_t outputL1 = getL1SizeBytes(opConfig.outputLayout);
   uint64_t sumInputL1 = 0;
   for (TTNNLayoutAttr inputLayout : inputs) {
     sumInputL1 += getL1SizeBytes(inputLayout);
@@ -84,7 +82,7 @@ estimateReductionConstraints(Operation *op,
                              const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   assert(inputs.size() == 1 && "reduction has one input");
-  uint64_t outputL1 = utils::getOpOutputL1Usage(opConfig.outputLayout);
+  uint64_t outputL1 = getL1SizeBytes(opConfig.outputLayout);
   uint64_t inputL1 = getL1SizeBytes(inputs[0]);
   uint64_t peak = outputL1 + inputL1;
   // cbL1PeakSize and peakL1MemorySize need kernel CB usage; we use 0 / tensor.
@@ -101,7 +99,7 @@ estimateMatmulConstraints(Operation *op,
                           const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
   assert(inputs.size() >= 2 && "matmul/linear has at least two inputs");
-  uint64_t outputL1 = utils::getOpOutputL1Usage(opConfig.outputLayout);
+  uint64_t outputL1 = getL1SizeBytes(opConfig.outputLayout);
   uint64_t inputAL1 = getL1SizeBytes(inputs[0]);
   uint64_t inputBL1 = getL1SizeBytes(inputs[1]);
   uint64_t peak = outputL1 + inputAL1 + inputBL1;
