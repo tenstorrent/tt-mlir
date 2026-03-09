@@ -189,45 +189,46 @@ static bool canSinkPast(Operation *toSink, Operation *sinkOver) {
 //   reserves/waits_cb → dma_reads/writes → (dma_wait + push/pop) pairs
 //===----------------------------------------------------------------------===//
 static void sinkBarriers(Block &block) {
-  bool changed = true;
-  while (changed) {
-    changed = false;
+  // Collect barrier groups (dma_wait + push/pop) in block order.
+  SmallVector<std::pair<DMAWaitOp, Operation *>> groups;
+  for (Operation &op : block) {
+    auto wait = mlir::dyn_cast<DMAWaitOp>(&op);
+    if (!wait) {
+      continue;
+    }
+    Operation *next = wait->getNextNode();
+    Value barrierCB = getCBForOp(wait);
+    Operation *companion = nullptr;
+    if (next && mlir::isa_and_nonnull<PushOp, PopOp>(next) && barrierCB &&
+        getCBForOp(next) == barrierCB) {
+      companion = next;
+    }
+    groups.push_back({wait, companion});
+  }
 
-    SmallVector<DMAWaitOp> barriers;
-    for (Operation &op : block) {
-      if (auto wait = mlir::dyn_cast<DMAWaitOp>(&op)) {
-        barriers.push_back(wait);
+  // Process in reverse order so later barriers clear the way for earlier ones.
+  for (auto it = groups.rbegin(); it != groups.rend(); ++it) {
+    auto [barrier, companion] = *it;
+    Operation *tail = companion ? companion : barrier.getOperation();
+    Operation *insertAfter = tail;
+    Operation *candidate = tail->getNextNode();
+
+    while (candidate && !candidate->hasTrait<OpTrait::IsTerminator>()) {
+      if (!canSinkPast(barrier, candidate)) {
+        break;
       }
+      if (companion && !canSinkPast(companion, candidate)) {
+        break;
+      }
+      insertAfter = candidate;
+      candidate = candidate->getNextNode();
     }
 
-    for (DMAWaitOp barrier : barriers) {
-      // Check if this barrier has a matching push/pop for the same CB
-      // immediately after it. They sink together as a unit.
-      Operation *cbPushPop = barrier->getNextNode();
-      Value barrierCB = getCBForOp(barrier);
-      bool hasCBPushPop = cbPushPop &&
-                          mlir::isa_and_nonnull<PushOp, PopOp>(cbPushPop) &&
-                          barrierCB && getCBForOp(cbPushPop) == barrierCB;
-
-      Operation *next =
-          hasCBPushPop ? cbPushPop->getNextNode() : barrier->getNextNode();
-      if (!next || next->hasTrait<OpTrait::IsTerminator>()) {
-        continue;
+    if (insertAfter != tail) {
+      barrier->moveAfter(insertAfter);
+      if (companion) {
+        companion->moveAfter(barrier);
       }
-
-      // Both the barrier and its push/pop must be able to sink past next.
-      if (!canSinkPast(barrier, next)) {
-        continue;
-      }
-      if (hasCBPushPop && !canSinkPast(cbPushPop, next)) {
-        continue;
-      }
-
-      barrier->moveAfter(next);
-      if (hasCBPushPop) {
-        cbPushPop->moveAfter(barrier);
-      }
-      changed = true;
     }
   }
 }
