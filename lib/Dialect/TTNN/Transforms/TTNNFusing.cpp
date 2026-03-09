@@ -247,6 +247,16 @@ public:
       fusedInputType = mlir::cast<RankedTensorType>(fusedInput.getType());
     }
 
+    auto fusedShape = fusedInputType.getShape();
+    if (fusedInputType.getRank() != 4 || fusedShape[0] != 1 ||
+        fusedShape[1] != 1 || fusedShape[2] != 32 ||
+        ShapedType::isDynamic(fusedShape[3]) || fusedShape[3] % 32 != 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "distributed_rms_norm expects input shape (1, 1, 32, M) with static "
+          "M that is a multiple of 32");
+    }
+
     auto distResultType = fusedInputType;
     auto distResultLayout =
         mlir::dyn_cast_or_null<TTNNLayoutAttr>(distResultType.getEncoding());
