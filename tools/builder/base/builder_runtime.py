@@ -338,10 +338,6 @@ def check_outputs(
     if raise_exception:
         if check_pcc:
             if cal_pcc < pcc:
-                print("GOLDEN TENSOR")
-                print(golden_tensor)
-                print("OUTPUT TENSOR")
-                print(output_tensor)
                 raise TTBuilderGoldenException(
                     f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
                 )
@@ -792,9 +788,6 @@ def execute_fb(
                 )
                 golden_inputs_torch.append(torch_tensor)
 
-        print("GOLDEN INPUTS")
-        print(golden_inputs_torch)
-
         inputs = []
         for i in golden_inputs_torch:
             new_input = create_tensor(i, device.get_mesh_shape())
@@ -844,10 +837,7 @@ def execute_fb(
                     o_dict["desc"]["layout"]["memory_desc"]["data_type"]
                 ),
             )
-            num_shards = 1
-            # if fbb.file_identifier != "TTM0":
             num_shards = tt_runtime.runtime.get_num_shards(runtime_outputs[i])
-            print("NUMSHARDS", num_shards)
             outputs_torch.append(
                 {shard_id: torch_tensor for shard_id in range(num_shards)}
             )
@@ -899,10 +889,6 @@ def execute_fb(
 
             tt_runtime.runtime.deallocate_tensor(runtime_output_tensor, force=True)
 
-            print("GOLDEN OUTPUT")
-            print(golden_outputs_torch[i])
-            print("DEVICE OUTPUT")
-            print(output_torch_tensor_map)
             golden_tensor_torch = shard_to_full(
                 golden_outputs_torch[i],
                 output_tensor_torch.shape,

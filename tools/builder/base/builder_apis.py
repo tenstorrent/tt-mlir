@@ -1310,7 +1310,7 @@ def compile_ttir_module_to_flatbuffer(
 
 def load_mlir_file(
     mlir_text: str,
-    golden_inputs: Dict[str, List[torch.tensor]] = None,
+    golden_inputs: Dict[str, List[Dict[int, torch.tensor]]] = None,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
     deallocate_goldens: bool = False,
     test_base: str = "test",
