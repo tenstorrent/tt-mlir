@@ -142,38 +142,6 @@ def create_tensor(tensor_shards, mesh_shape):
     )
 
 
-def shard_to_full(shard_map, full_shape, mesh_shape):
-    if len(full_shape) == 0:
-        # Scalar tensor, nothing to concatenate
-        return shard_map[0]
-    if len(shard_map) == 1:
-        # Tensor isn't sharded
-        return shard_map[0]
-    shards = [shard_map[i] for i in range(len(shard_map))]
-    shard_shape = []
-    for i in range(len(full_shape)):
-        shard_dim = full_shape[i] // shards[0].shape[i]
-        shard_shape.append(shard_dim)
-
-    if max(shard_shape) == 1:
-        # Runtime tensor is sharded
-        return shards[0]
-
-    shard_dims = [shard_shape.index(dim) for dim in mesh_shape]
-
-    for dim_size, shard_dim in zip(reversed(mesh_shape), reversed(shard_dims)):
-        if shard_dim is None or shard_dim == -1:
-            shards = shards[::dim_size]
-        else:
-            temp_shards = []
-            for i in range(0, len(shards), dim_size):
-                concat_shard = torch.cat(shards[i : i + dim_size], dim=shard_dim)
-                temp_shards.append(concat_shard)
-            shards = temp_shards
-
-    return shards[0]
-
-
 def convert_input_layouts(
     device: tt_runtime.runtime.Device,
     inputs: List[tt_runtime.runtime.Tensor],
@@ -863,7 +831,10 @@ def execute_fb(
                 output_device_tensors = tt_runtime.runtime.get_device_tensors(
                     outputs[i]
                 )
-            output_torch_tensor_map = {}
+
+            program_golden_report[f"output_{i}"] = {}
+            program_output_tensors[f"device_output_{i}"] = {}
+            program_output_tensors[f"golden_output_{i}"] = {}
             for device_id, shard in enumerate(output_host):
                 tt_runtime.runtime.memcpy(
                     output_device_tensors[device_id],
@@ -875,58 +846,50 @@ def execute_fb(
                 )
 
                 if len(data_buffer) == 0:
-                    output_tensor_torch = torch.empty(
+                    output_shard_torch = torch.empty(
                         outputs[i].get_shape(),
                         dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
                     )
                 else:
-                    output_tensor_torch = torch.frombuffer(
+                    output_shard_torch = torch.frombuffer(
                         data_buffer,
                         dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
                     ).reshape(outputs[i].get_shape())
 
-                output_torch_tensor_map[device_id] = output_tensor_torch
+                golden_shard_torch = golden_outputs_torch[i][device_id]
+                results = check_outputs(
+                    golden_shard_torch,
+                    output_shard_torch,
+                    f"output_{i}_device_{device_id}",
+                    pcc,
+                    atol,
+                    rtol,
+                    check_pcc,
+                    check_atol,
+                    check_rtol,
+                )
+
+                program_golden_report[f"output_{i}"][device_id] = results
+                program_output_tensors[f"device_output_{i}"][
+                    device_id
+                ] = output_shard_torch
+                program_output_tensors[f"golden_output_{i}"][
+                    device_id
+                ] = golden_shard_torch
+
+                if save_artifacts:
+                    save_torch_tensor(
+                        output_tensor_torch,
+                        program_artifact_dir,
+                        f"device_output_{i}.pt",
+                    )
+                    save_torch_tensor(
+                        golden_tensor_torch,
+                        program_artifact_dir,
+                        f"golden_output_{i}.pt",
+                    )
 
             tt_runtime.runtime.deallocate_tensor(runtime_output_tensor, force=True)
-
-            golden_tensor_torch = shard_to_full(
-                golden_outputs_torch[i],
-                output_tensor_torch.shape,
-                device.get_mesh_shape(),
-            )
-            output_tensor_torch = shard_to_full(
-                output_torch_tensor_map,
-                output_tensor_torch.shape,
-                device.get_mesh_shape(),
-            )
-
-            results = check_outputs(
-                golden_tensor_torch,
-                output_tensor_torch,
-                f"output_{i}",
-                pcc,
-                atol,
-                rtol,
-                check_pcc,
-                check_atol,
-                check_rtol,
-            )
-
-            program_golden_report[f"output_{i}"] = {0: results}
-            program_output_tensors[f"device_output_{i}"] = output_tensor_torch
-            program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch
-
-            if save_artifacts:
-                save_torch_tensor(
-                    output_tensor_torch,
-                    program_artifact_dir,
-                    f"device_output_{i}.pt",
-                )
-                save_torch_tensor(
-                    golden_tensor_torch,
-                    program_artifact_dir,
-                    f"golden_output_{i}.pt",
-                )
 
             for loc, device_results in callback_runtime_config.golden_report.items():
                 program_golden_report[loc] = device_results
