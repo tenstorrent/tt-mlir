@@ -1810,6 +1810,11 @@ struct TTNNTarget<tt::ttcore::TopologyAttr> {
   using type = ::mlir::tt::ttcore::Topology;
 };
 
+template <>
+struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
+  using type = ::ttnn::WormholeComputeKernelConfig;
+};
+
 template <typename T>
 struct IsMLIRType {
   static constexpr bool value = std::is_convertible_v<T, mlir::Attribute> ||
@@ -2272,6 +2277,14 @@ public:
                                              deviceAttr.getWorkerGrid()));
 
     return emit(memoryConfigAttr);
+  }
+
+  ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
+    auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    return ttcore::DataTypeAttr::get(resultLayoutAttr.getContext(),
+                                     resultLayoutAttr.getDataType());
   }
 
   // Creates MeshShape code from integer attributes.
