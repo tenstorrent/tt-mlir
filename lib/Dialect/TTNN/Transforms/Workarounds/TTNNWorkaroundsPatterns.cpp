@@ -396,9 +396,7 @@ public:
     auto inputShape = inputType.getShape();
     int64_t inputRank = static_cast<int64_t>(inputShape.size());
 
-    TTNNLayoutAttr layoutAttr = utils::getLayoutAttrFromTensor(inputType);
-    bool isTiled = layoutAttr && layoutAttr.isTiled();
-
+    bool isTiled = utils::getLayoutAttrFromTensor(inputType).isTiled();
     auto canScatterDim = [&](int64_t i) {
       if (inputShape[i] % sizeOfDevices != 0) {
         return false;
