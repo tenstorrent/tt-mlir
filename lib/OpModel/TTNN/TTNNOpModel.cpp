@@ -247,6 +247,30 @@ getNullableMemoryConfig(TTNNLayoutAttr layout) {
 }
 
 /**
+ * @brief Reorder pool2d padding from IR convention to tt-metal convention.
+ *
+ * IR stores padding as [H_low, W_low, H_high, W_high] (top, left, bottom,
+ * right) but tt-metal expects [top, bottom, left, right] (H_low, H_high,
+ * W_low, W_high). The runtime does this reordering when executing from
+ * flatbuffers, but the op_model constraint query path must do it too.
+ */
+std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>
+reorderPool2dPadding(llvm::ArrayRef<int32_t> padding) {
+  if (padding.size() == 2) {
+    // Symmetric padding [pad_h, pad_w] — no reordering needed.
+    return conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding);
+  }
+  // 4-element: reorder from [top, left, bottom, right] to [top, bottom, left,
+  // right].
+  return std::array<uint32_t, 4>{
+      static_cast<uint32_t>(padding[0]), // top
+      static_cast<uint32_t>(padding[2]), // bottom
+      static_cast<uint32_t>(padding[1]), // left
+      static_cast<uint32_t>(padding[3]), // right
+  };
+}
+
+/**
  * @brief Convenience wrapper to get a DataType from a TTNNLayout attr that
  * may be a nullptr. Returns std::nullopt if layout is nullptr
  */
@@ -5604,8 +5628,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
@@ -5655,8 +5678,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
@@ -5712,8 +5734,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
@@ -5764,8 +5785,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
@@ -5825,10 +5845,8 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
-        ceilMode, countIncludePad, divisorOverride,
-        detail::getNullableMemoryConfig(outputLayout),
+        detail::reorderPool2dPadding(padding), ceilMode, countIncludePad,
+        divisorOverride, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
         false /* deallocate_input */, reallocateHaloOutput,
@@ -5883,10 +5901,8 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
-        ceilMode, countIncludePad, divisorOverride,
-        detail::getNullableMemoryConfig(outputLayout),
+        detail::reorderPool2dPadding(padding), ceilMode, countIncludePad,
+        divisorOverride, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
         false /* deallocate_input */, reallocateHaloOutput,

@@ -372,11 +372,13 @@ void LayoutPropagation::run() {
       TTMLIR_DEBUG(
           ttmlir::LogComponent::GreedyOptimizer,
           "[op {0}] -> chosen: bufType={1}, memLayout={2}, "
-          "coreCount={3}, isSharded={4}, isL1={5}, reshard={6}",
+          "coreCount={3}, isSharded={4}, isL1={5}, reshard={6} "
+          "outputLayout={7}",
           opIndex, beamState[op][0].configHint.outputLayout.getBufferType(),
           beamState[op][0].configHint.outputLayout.getMemLayout(),
           beamState[op][0].score.coreCount, beamState[op][0].score.isSharded,
-          beamState[op][0].score.isL1, beamState[op][0].score.requiresReshard);
+          beamState[op][0].score.isL1, beamState[op][0].score.requiresReshard,
+          beamState[op][0].configHint.outputLayout);
     }
     ++opIndex;
   });
