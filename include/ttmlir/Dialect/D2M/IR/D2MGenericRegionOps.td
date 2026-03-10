@@ -933,6 +933,17 @@ def D2M_SetL1AccumulateOp : D2M_GenericRegionOp<"set_l1_accumulate"> {
     let assemblyFormat = [{ `(` $enable `)` attr-dict }];
 }
 
+def D2M_UnpackStallOnPackOp : D2M_GenericRegionOp<"unpack_stall_on_pack"> {
+  let summary = "Stall UNPACK thread until previous PACK write is committed to L1.";
+  let description = [{
+    Inserted between consecutive linalg.generics in a fused region when
+    the intermediate result is written to L1 by one generic and immediately
+    read by the next, and the usual tile_regs_acquire semwait is not present
+    (single-tile shard path).
+  }];
+  let assemblyFormat = [{ attr-dict }];
+}
+
 def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Transpose Op";
     let description = [{

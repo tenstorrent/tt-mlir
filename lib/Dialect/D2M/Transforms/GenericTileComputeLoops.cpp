@@ -165,6 +165,23 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<GenericOp> {
       return failure();
     }
 
+    // Insert unpack_stall_on_pack before any linalg op that reads from an L1
+    // buffer written by a preceding linalg op's PACK output. This ensures the
+    // UNPACK thread waits for PACK to commit its write before reading.
+    llvm::SmallDenseSet<Value> producedValues;
+    for (linalg::GenericOp linalgOp : linalgOps) {
+      bool needsStall = llvm::any_of(linalgOp.getInputs(), [&](Value v) {
+        return producedValues.count(v);
+      });
+      if (needsStall) {
+        rewriter.setInsertionPoint(linalgOp);
+        rewriter.create<d2m::UnpackStallOnPackOp>(linalgOp.getLoc());
+      }
+      for (Value out : linalgOp.getOutputs()) {
+        producedValues.insert(out);
+      }
+    }
+
     for (linalg::GenericOp linalgOp : linalgOps) {
       if (failed(tileLinalgOp(linalgOp, packingInfo, rewriter))) {
         return failure();

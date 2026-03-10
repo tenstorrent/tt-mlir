@@ -1095,6 +1095,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetMulticastOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocSemaphoreSetMulticastLoopbackOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UnpackStallOnPackOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>,

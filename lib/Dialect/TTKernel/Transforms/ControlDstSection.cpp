@@ -27,16 +27,11 @@ public:
     Block *acquireBlock = findBlockContaining<ttkernel::TileRegsAcquireOp>(op);
     Operation *parent = parentOpAtBlock(op, acquireBlock);
 
-    // Walk backwards from the pack point to find whether this specific
-    // DST section has already been processed.
-    for (Operation *it = parent->getPrevNode(); it; it = it->getPrevNode()) {
-      if (isa<ttkernel::TileRegsCommitOp>(it)) {
-        // Has a commit, already processed.
-        return failure();
-      }
-      if (isa<ttkernel::TileRegsAcquireOp>(it)) {
-        break;
-      }
+    // Guard against re-application: check for an existing commit between the
+    // nearest preceding acquire and `parent` in acquireBlock. If one exists,
+    // this pack has already been handled.
+    if (hasPrecedingCommit(parent, acquireBlock)) {
+      return failure();
     }
 
     rewriter.setInsertionPoint(parent);
@@ -64,6 +59,23 @@ public:
       assert(parent);
     }
     return parent;
+  }
+
+  // Returns true if a TileRegsCommitOp exists between the most recent
+  // TileRegsAcquireOp before `op` (in `op`'s block) and `op` itself.
+  // Used to prevent double-insertion on re-application.
+  static bool hasPrecedingCommit(Operation *op, Block *block) {
+    (void)block;
+    for (Operation *it = op->getPrevNode(); it != nullptr;
+         it = it->getPrevNode()) {
+      if (isa<ttkernel::TileRegsCommitOp>(it)) {
+        return true;
+      }
+      if (isa<ttkernel::TileRegsAcquireOp>(it)) {
+        return false;
+      }
+    }
+    return false;
   }
 };
 
