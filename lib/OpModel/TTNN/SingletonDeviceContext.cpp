@@ -5,7 +5,9 @@
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 
 namespace mlir::tt::ttnn::op_model {
 
