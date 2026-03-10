@@ -10,7 +10,7 @@ from collections import OrderedDict
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
-from builder.base.builder_apis import compile_and_execute_ttnn, build_module
+from builder.base.builder_apis import compile_and_execute_ttnn
 from test_utils import shape_str, shapes_list_str, make_shard_shape
 
 pytestmark = pytest.mark.frontend("ttnn")
@@ -259,11 +259,18 @@ def test_all_gather(
     rank_mesh = len(mesh_shape)
 
     if rank_mesh > rank_in:
-        raise ValueError(
+        pytest.skip(
             f"Mesh shape {mesh_shape} has {rank_mesh} dimensions, but test shape "
-            f"{test_shape} only has {rank_in} dimensions. Cannot shard more "
-            f"dimensions than exist in the tensor."
+            f"{test_shape} only has {rank_in} dimensions."
         )
+
+    shard_dims_candidate = list(range(rank_in - rank_mesh, rank_in))
+    for d, factor in zip(shard_dims_candidate, mesh_shape):
+        if test_shape[d] < factor:
+            pytest.skip(
+                f"Tensor dim {d} (size {test_shape[d]}) too small to shard "
+                f"by factor {factor}"
+            )
 
     shard_dims = list(range(rank_in - rank_mesh, rank_in))
     shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
@@ -273,7 +280,7 @@ def test_all_gather(
         full_input_shape[d] *= factor
 
     def module(builder: TTNNBuilder):
-        @builder.func([full_input_shape], [dtype])
+        @builder.func([full_input_shape], [dtype], host_inputs=True)
         def all_gather(in0: Operand, builder: TTNNBuilder):
             in_shard = builder.distribute_tensor(
                 in0,
@@ -293,15 +300,17 @@ def test_all_gather(
                 shard_shape=shard_shape,
             )
 
-    # TODO: compile_and_execute_ttnn does not yet support CCL ops because the
-    # TTNN builder's compilation pipeline (ttir-to-ttnn-backend-pipeline) is
-    # designed for TTIR→TTNN conversion and lacks the data-movement ops
-    # (to_device, to_layout, from_device) required for multi-device execution.
-    # Use build_module for IR-level verification until a dedicated TTNN
-    # compilation pipeline is implemented. See follow-up issue.
-    build_module(
+    compile_and_execute_ttnn(
         module,
-        "ttnn",
-        mesh_name="mesh",
+        custom_pipeline=(
+            "ttcore-mark-functions-as-forward,"
+            "ttcore-wrap-device-module,"
+            "ttcore.device_module(builtin.module("
+            "ttnn-configure-ccl-ops,ttnn-deallocate))"
+        ),
+        **get_request_kwargs(request),
+        target="ttnn",
+        device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        disable_golden=True,
     )

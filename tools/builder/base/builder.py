@@ -1326,14 +1326,26 @@ class Builder(metaclass=BuilderMeta):
 
     # ----- Helper decorator functions ----
 
-    def func(self, input_shapes: List[List[int]], input_types: List[torch.dtype]):
+    def func(
+        self,
+        input_shapes: List[List[int]],
+        input_types: List[torch.dtype],
+        host_inputs: bool = False,
+    ):
         def wrapper(fn):
             encoding_fn = self.create_tensor_encoding
+            host_encoding_fn = getattr(
+                self, "create_host_row_major_tensor_encoding", None
+            ) or getattr(self, "create_host_tensor_encoding", None)
             fn_input_types = [
                 self._create_ranked_tensor_type(
                     shape,
                     self._get_type_from_torch_dtype(dtype),
-                    encoding_fn(shape, dtype) if encoding_fn else None,
+                    (host_encoding_fn or encoding_fn)(shape, dtype)
+                    if host_inputs and (host_encoding_fn or encoding_fn)
+                    else encoding_fn(shape, dtype)
+                    if encoding_fn
+                    else None,
                 )
                 for shape, dtype in zip(input_shapes, input_types)
             ]
