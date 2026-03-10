@@ -5249,7 +5249,7 @@ private:
 } // namespace
 
 namespace {
-// Conversion: stablehlo::SortOp → ttir::SortOp + optional ttir::EmbeddingOp(s)
+// Conversion: stablehlo::SortOp -> ttir::SortOp + optional ttir::EmbeddingOp(s)
 //
 // StableHLO's SortOp supports sorting tuples of tensors with an arbitrary
 // comparator function. This pattern lowers such SortOps into TTIR by
@@ -5381,8 +5381,8 @@ public:
     // where i is the row (linearized non-sort dims) and j is the column
     // (sortDim). The stride of the sort dimension is now always 1, so we only
     // need to add a row offset: i * dSort. That offset pattern is exactly what
-    // ArangeOp(start=0, end=total, step=dSort, dim=0) produces — one entry per
-    // row, broadcast across columns — making the full formula just an addition:
+    // ArangeOp(start=0, end=total, step=dSort, dim=0) produces - one entry per
+    // row, broadcast across columns - making the full formula just an addition:
     //   flat_indices = ArangeOp(step=dSort) + indices_2d
     //
     // Steps:
