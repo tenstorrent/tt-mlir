@@ -1911,20 +1911,18 @@ public:
   LogicalResult
   matchAndRewrite(d2m::GetCBOp op, d2m::GetCBOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    func::FuncOp entry = op->getParentOfType<func::FuncOp>();
     Type cbType = getTypeConverter()->convertType(op.getResult().getType());
 
     // Use the operand index recorded by getOrCreateCB if available;
     // otherwise fall back to the port number (for standalone test funcs, etc.).
     int64_t operandIndex = op.getOperandIndex().value_or(op.getPort());
-    ArgAttr arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, operandIndex);
-    size_t argIndex;
 
-    rewriter.modifyOpInPlace(entry, [&]() {
-      argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
-    });
-    rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(op, cbType,
-                                                              argIndex);
+    // Emit a direct CB port reference — the hardware CB index is the
+    // operand index.  This avoids the fragile positional dependency on
+    // compile-time arg append order.
+    rewriter.replaceOpWithNewOp<ttkernel::CBPortOp>(
+        op, cbType,
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(operandIndex)));
     return success();
   }
 };

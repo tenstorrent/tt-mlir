@@ -560,14 +560,13 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
       virtualGridInverseMapping = mapAttr.getValue();
     }
 
-    // Hoisted CB buffers carry CBBufferLayoutAttr (shard-only).  Convert to
-    // the [grid..shard..] + ShardLayoutAttr type the serializer expects.
+    // Hoisted CB buffers carry CBBufferLayoutAttr (shard-only shape).
+    // Reconstruct a full [grid..shard..] + ShardLayoutAttr memref type so
+    // we fall through to the existing memrefTypeToFlatbuffer path, which
+    // already handles N-D grids, CB configs, and worker grid overrides.
     if (auto cbLayout = mlir::dyn_cast<ttcore::CBBufferLayoutAttr>(
             memrefType.getLayout())) {
-      auto gridAttr =
-          createBufferOp->getAttrOfType<DenseI64ArrayAttr>("d2m.grid_shape");
-      assert(gridAttr && "CB CreateBufferOp missing d2m.grid_shape");
-      auto gridShape = gridAttr.asArrayRef();
+      auto gridShape = cbLayout.getGridShape();
       auto shardShape = memrefType.getShape();
       SmallVector<int64_t> fullShape(gridShape.begin(), gridShape.end());
       fullShape.append(shardShape.begin(), shardShape.end());

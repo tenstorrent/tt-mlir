@@ -3053,6 +3053,24 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
     }];
 }
 
+def TTKernel_CBPortOp : TTKernel_Op<"cb_port", [Pure]> {
+    let summary = "Get a CB by its hardware port index.";
+    let description = [{
+      Produces a CB value for the given hardware port index.  Unlike
+      `get_compile_time_arg_val`, the port is resolved directly at
+      code-generation time rather than going through the compile-time
+      argument indirection.
+    }];
+
+    let arguments = (ins I32Attr:$port);
+
+    let results = (outs TTKernel_CB:$result);
+
+    let assemblyFormat = [{
+      `(` $port `)` attr-dict `:` type($result)
+    }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Helper functions
 //===----------------------------------------------------------------------===//

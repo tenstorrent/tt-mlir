@@ -600,10 +600,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       SequenceT genericSeqPos = analysis.sequencing[genericOp];
       auto *genericIt = analysis.generics.find(genericOp);
 
-      // Only register allocs that will actually get streams inserted
-      // (matching the guards in prepareMemoryPlanner / insertOperandStreams).
-      // These will be replaced with CBBufferLayoutAttr allocs by
-      // insertStream and need planner-assigned L1 addresses.
+      // Register in-generic allocs that back streamed operands.  This covers
+      // both operands that will get new streams inserted by insertStream AND
+      // operands that already have pre-existing streams (created by earlier
+      // passes like LowerToLayout).  In both cases the internal alloc needs
+      // a planner-assigned L1 address and will be stamped with
+      // CBBufferLayoutAttr.
       if (genericIt != analysis.generics.end() &&
           !genericIt->second.isDMAOnly &&
           !genericIt->second.isExplicitDatamovement) {
@@ -617,7 +619,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             if (isOperandExemptFromStreaming(operandCtx, operandMemSpace)) {
               continue;
             }
-            if (!inferStreamRequirement(genericOp, operandCtx,
+            // Include operands that need a new stream OR already have one.
+            if (!operandCtx.hasStream &&
+                !inferStreamRequirement(genericOp, operandCtx,
                                         operandMemSpace)) {
               continue;
             }
@@ -1309,6 +1313,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                   L1memInfo, analysis.sequencing))) {
             return failure();
           }
+        } else if (operandCtx.hasStream) {
+          // Pre-existing stream (created by an earlier pass).  The stream
+          // itself is already in place, but the internal allocs still need
+          // CBBufferLayoutAttr + planner addresses so they can be hoisted.
+          stampInternalAllocsForStream(rewriter, genericOp, operandCtx,
+                                       analysis);
         }
       }
 
@@ -1477,6 +1487,75 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return success();
   }
 
+  /// For operands with pre-existing streams, stamp the in-generic allocs
+  /// with CBBufferLayoutAttr and transfer planner-assigned addresses.
+  /// This mirrors the internal alloc replacement in insertStream but
+  /// without creating a new stream_layout op.
+  void stampInternalAllocsForStream(RewriterBase &rewriter,
+                                    d2m::GenericOp genericOp,
+                                    const OperandContext &operandCtx,
+                                    const FuncAnalysisData &analysis) {
+    const MemRefType bufferType = operandCtx.bufferType;
+    if (!bufferType) {
+      return;
+    }
+
+    // Derive shard shape from the operand's stream type (already in place).
+    auto operandType =
+        mlir::cast<MemRefType>(operandCtx.operand->get().getType());
+    auto streamShape = operandType.getShape();
+    if (streamShape.size() % 2 != 0) {
+      return;
+    }
+    auto shardShape = streamShape.drop_front(streamShape.size() / 2);
+
+    auto bufferLayout =
+        mlir::dyn_cast<ttcore::ShardLayoutAttr>(bufferType.getLayout());
+    if (!bufferLayout) {
+      return;
+    }
+    auto operandGrid = bufferLayout.getGridShape(bufferType);
+
+    for (Region &region : genericOp->getRegions()) {
+      const auto operandIndex = operandCtx.operand->getOperandNumber();
+      Value oldTensor = d2m::GenericOp::getOperandAlloc(region, operandIndex);
+      if (!oldTensor || !oldTensor.getDefiningOp()) {
+        continue;
+      }
+      auto oldAllocOp =
+          mlir::dyn_cast<memref::AllocOp>(oldTensor.getDefiningOp());
+      if (!oldAllocOp) {
+        continue;
+      }
+      // Skip if already stamped.
+      if (mlir::isa<ttcore::CBBufferLayoutAttr>(
+              oldAllocOp.getType().getLayout())) {
+        continue;
+      }
+
+      auto oldMemRefType = oldAllocOp.getType();
+      auto cbLayout = ttcore::CBBufferLayoutAttr::get(
+          genericOp.getContext(), shardShape,
+          ttcore::getElementSizeBytes(operandType.getElementType()),
+          numStreamBuffers, operandGrid);
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPoint(oldAllocOp);
+      auto newAllocOp = rewriter.create<memref::AllocOp>(
+          oldTensor.getLoc(),
+          MemRefType::get(shardShape, operandType.getElementType(), cbLayout,
+                          oldMemRefType.getMemorySpace()));
+      // Transfer address and alignment from the planner.
+      if (auto addrAttr = oldAllocOp->getAttr("address")) {
+        newAllocOp->setAttr("address", addrAttr);
+      }
+      if (auto alignAttr = oldAllocOp.getAlignmentAttr()) {
+        newAllocOp.setAlignmentAttr(alignAttr);
+      }
+      rewriter.replaceAllUsesWith(oldTensor, newAllocOp.getResult());
+      rewriter.eraseOp(oldAllocOp);
+    }
+  }
+
   LogicalResult insertStream(RewriterBase &rewriter, OpOperand &operand,
                              d2m::GenericOp op, const Planner::Request *req,
                              const OperandContext &operandCtx,
@@ -1551,8 +1630,18 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                     oldTensor.getDefiningOp())) {
               // Preserve memory space from the old memref type.
               auto oldMemRefType = mlir::cast<MemRefType>(oldTensor.getType());
+              // Extract the per-operand grid from bufferType.  This is the
+              // same grid that main uses for stream storage allocs
+              // (gridShapeRescaled from analyzeGenericOps).  Store it as-is
+              // in CBBufferLayoutAttr — the serializer handles N-D grids
+              // via the existing ShardLayoutAttr conversion path.
+              auto bufferLayout =
+                  mlir::cast<ttcore::ShardLayoutAttr>(bufferType.getLayout());
+              auto operandGrid = bufferLayout.getGridShape(bufferType);
               auto cbLayout = ttcore::CBBufferLayoutAttr::get(
-                  shardShape, streamType.getElementType(), numStreamBuffers);
+                  streamType.getContext(), shardShape,
+                  ttcore::getElementSizeBytes(streamType.getElementType()),
+                  numStreamBuffers, operandGrid);
               auto newAllocOp = rewriter.create<memref::AllocOp>(
                   oldTensor.getLoc(),
                   MemRefType::get(shardShape, streamType.getElementType(),

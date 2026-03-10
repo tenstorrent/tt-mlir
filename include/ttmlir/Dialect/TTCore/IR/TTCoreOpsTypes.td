@@ -293,15 +293,21 @@ def TTCore_CBBufferLayoutAttr : TTCore_Attr<"CBBufferLayout", "cb_buffer_layout"
 
     - Stride: Stride of each dimension in bytes.
     - Buffers: Number of backing buffers (1 = single, 2 = double-buffered, etc.)
+    - GridShape: Physical grid shape for the buffer (resolved from the
+      external operand's device layout at stream insertion time).  Used at
+      conversion/serialization to construct the full [grid..shard..] +
+      ShardLayoutAttr type for CreateBufferOp.
   }];
   let parameters = (ins ArrayRefParameter<"int64_t">:$stride,
-                        "uint32_t":$buffers);
+                        "uint32_t":$buffers,
+                        ArrayRefParameter<"int64_t">:$gridShape);
 
-  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers `>`";
+  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers `,` `grid` `=` `[` custom<DimensionList>($gridShape) `]` `>`";
 
   let extraClassDeclaration = [{
     static CBBufferLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
     static CBBufferLayoutAttr get(ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
+    static CBBufferLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers, ArrayRef<int64_t> gridShape);
 
     AffineMap getAffineMap() const;
 

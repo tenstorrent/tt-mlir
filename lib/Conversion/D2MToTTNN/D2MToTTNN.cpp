@@ -735,14 +735,8 @@ public:
                    mlir::dyn_cast_if_present<ttcore::CBBufferLayoutAttr>(
                        memrefType.getLayout())) {
       // Hoisted CB alloc.  Build a ShardLayoutAttr memref (needed by
-      // convertMemrefToTTNNTensor) from the CB info + d2m.grid_shape, then
-      // create a ttnn.empty.
-      auto gridAttr = op->getAttrOfType<DenseI64ArrayAttr>("d2m.grid_shape");
-      if (!gridAttr) {
-        return rewriter.notifyMatchFailure(
-            op, "CBBufferLayoutAttr alloc missing d2m.grid_shape");
-      }
-      auto gridShape = gridAttr.asArrayRef();
+      // convertMemrefToTTNNTensor) from the CB info, then create ttnn.empty.
+      auto gridShape = cbLayout.getGridShape();
       auto shardShape = memrefType.getShape();
       SmallVector<int64_t> fullShape(gridShape.begin(), gridShape.end());
       fullShape.append(shardShape.begin(), shardShape.end());

@@ -577,16 +577,26 @@ CBBufferLayoutAttr CBBufferLayoutAttr::get(mlir::MLIRContext *context,
                                            ArrayRef<int64_t> shape,
                                            uint64_t elementSize,
                                            uint32_t buffers) {
-  return get(
-      context,
-      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize)),
-      buffers);
+  auto strides =
+      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize));
+  SmallVector<int64_t> emptyGrid;
+  return get(context, strides, buffers, emptyGrid);
 }
 
 CBBufferLayoutAttr CBBufferLayoutAttr::get(ArrayRef<int64_t> shape,
                                            Type elementType, uint32_t buffers) {
   return get(elementType.getContext(), shape, getElementSizeBytes(elementType),
              buffers);
+}
+
+CBBufferLayoutAttr CBBufferLayoutAttr::get(mlir::MLIRContext *context,
+                                           ArrayRef<int64_t> shape,
+                                           uint64_t elementSize,
+                                           uint32_t buffers,
+                                           ArrayRef<int64_t> gridShape) {
+  auto strides =
+      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize));
+  return get(context, strides, buffers, gridShape);
 }
 
 mlir::AffineMap CBBufferLayoutAttr::getAffineMap() const {

@@ -227,23 +227,16 @@ public:
     auto fwd = op->getAttrOfType<AffineMapAttr>(
         d2m::utils::kVirtualGridForwardMappingAttr);
 
-    // Hoisted CB allocs carry CBBufferLayoutAttr (shard-only) plus a
-    // d2m.grid_shape attr.  Keep the original type on CreateBufferOp so the
-    // dialect conversion framework doesn't see a type mismatch.  The
-    // flatbuffer serializer will use d2m.grid_shape to construct the full
-    // [grid..shard..] type.
+    // Hoisted CB allocs carry CBBufferLayoutAttr (shard-only).  The attr's
+    // gridShape field has the resolved physical grid.  Keep the original
+    // type on CreateBufferOp so the dialect conversion framework doesn't
+    // see a type mismatch.  The serializer reads gridShape from the attr.
     if (mlir::isa<ttcore::CBBufferLayoutAttr>(memrefType.getLayout())) {
-      // Read attrs before replaceOpWithNewOp erases the old op.
-      auto gridAttr = op->getAttrOfType<DenseI64ArrayAttr>("d2m.grid_shape");
       auto cbForOperandAttr =
           op->getAttrOfType<IntegerAttr>("d2m.cb_for_operand");
       auto cbOp = rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
           op, memrefType, address, /*virtualGridInverseMapping=*/vgm,
           /*virtualGridForwardMapping=*/fwd);
-      // Propagate attrs for downstream consumption.
-      if (gridAttr) {
-        cbOp->setAttr("d2m.grid_shape", gridAttr);
-      }
       if (cbForOperandAttr) {
         cbOp->setAttr("d2m.cb_for_operand", cbForOperandAttr);
       }

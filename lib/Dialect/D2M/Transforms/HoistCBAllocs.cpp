@@ -32,8 +32,7 @@ public:
 private:
   void hoistCBAllocs(IRRewriter &rewriter, d2m::GenericOp genericOp) {
     // Collect allocs to hoist AND their operand indices BEFORE modifying the
-    // IR.  getOperandAlloc uses positional counting, so erasing allocs shifts
-    // positions and breaks subsequent lookups.
+    // IR.  Erasing allocs shifts positional lookups.
     SmallVector<std::pair<memref::AllocOp, int64_t>> allocsToHoist;
     for (Region &region : genericOp->getRegions()) {
       region.walk([&](memref::AllocOp allocOp) {
@@ -50,25 +49,12 @@ private:
       return;
     }
 
-    auto defaultGridShape = genericOp.getPhysicalGridShape();
-
     for (auto [allocOp, operandIdx] : allocsToHoist) {
       auto allocType = allocOp.getType();
 
-      // Derive grid shape from the corresponding external operand's device
-      // layout (not the generic's physical grid, which may be a virtual grid
-      // with a volume that exceeds the physical device).
-      SmallVector<int64_t> gridShape(defaultGridShape);
-      if (operandIdx >= 0) {
-        Value externalOperand = genericOp.getInputsAndOutputs()[operandIdx];
-        auto operandType = mlir::cast<ShapedType>(externalOperand.getType());
-        if (auto devLayout = ttcore::getDeviceLayout(operandType)) {
-          gridShape = SmallVector<int64_t>(devLayout.getGridShape(operandType));
-        }
-      }
-
-      // External alloc uses the SAME type as the in-generic alloc
-      // (shard-only + CBBufferLayoutAttr).  This allows direct replacement.
+      // The CBBufferLayoutAttr already carries the per-operand grid shape
+      // (from bufferType in insertStream).  No grid derivation needed
+      // here — just move the alloc outside.
 
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPoint(genericOp);
@@ -83,16 +69,15 @@ private:
         externalAlloc.setAlignmentAttr(alignAttr);
       }
 
-      // Store grid shape so MemrefAllocRewriter can derive [grid..shard..].
-      externalAlloc->setAttr("d2m.grid_shape",
-                             rewriter.getDenseI64ArrayAttr(gridShape));
-
-      // Store which regular operand this CB backs so D2MGenericRewriter
+      // Tag which regular operand this CB backs so D2MGenericRewriter
       // can override the CB at the correct port.
       if (operandIdx >= 0) {
         externalAlloc->setAttr("d2m.cb_for_operand",
                                rewriter.getI64IntegerAttr(operandIdx));
-        copyVirtualGridMappings(genericOp, operandIdx, externalAlloc);
+        // Copy VGM attrs from the stream's storage buffer (if the operand
+        // has a pre-existing stream).  The storage buffer carries the
+        // target grid mapping needed by the serializer.
+        copyVGMFromStreamStorage(genericOp, operandIdx, externalAlloc);
       }
 
       // Add the external alloc as an additionalArg to the generic op.
@@ -104,26 +89,51 @@ private:
     }
   }
 
-  /// Find the regular operand index whose in-generic alloc matches |allocOp|.
+  /// Find the regular operand index for a CB alloc by tracing through
+  /// its remote_load/remote_store memref operand back to the generic's
+  /// operands.
   static int64_t findRegularOperandIndex(d2m::GenericOp genericOp,
                                          memref::AllocOp allocOp) {
-    for (unsigned i = 0; i < genericOp.getInputsAndOutputs().size(); ++i) {
-      for (Region &region : genericOp->getRegions()) {
-        if (d2m::GenericOp::getOperandAlloc(region, i) == allocOp.getResult()) {
-          return static_cast<int64_t>(i);
+    llvm::errs() << "DEBUG findRegularOperandIndex: allocOp users:\n";
+    for (Operation *user : allocOp.getResult().getUsers()) {
+      llvm::errs() << "  user: " << user->getName() << "\n";
+      if (auto remoteLoad = mlir::dyn_cast<d2m::RemoteLoadOp>(user)) {
+        Value memref = remoteLoad.getMemref();
+        llvm::errs() << "    memref: " << memref << "\n";
+        for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
+          llvm::errs() << "    operand[" << i
+                       << "]: " << genericOp->getOperand(i)
+                       << " match=" << (genericOp->getOperand(i) == memref)
+                       << "\n";
+        }
+        for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
+          if (genericOp->getOperand(i) == memref) {
+            return static_cast<int64_t>(i);
+          }
+        }
+      }
+      if (auto remoteStore = mlir::dyn_cast<d2m::RemoteStoreOp>(user)) {
+        Value memref = remoteStore.getMemref();
+        llvm::errs() << "    memref: " << memref << "\n";
+        for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
+          if (genericOp->getOperand(i) == memref) {
+            return static_cast<int64_t>(i);
+          }
         }
       }
     }
+    llvm::errs() << "DEBUG findRegularOperandIndex: returning -1!\n";
     return -1;
   }
 
-  /// Copy virtual grid mapping attrs from the external operand at
-  /// |operandIdx| onto |externalAlloc|.
-  static void copyVirtualGridMappings(d2m::GenericOp genericOp,
-                                      int64_t operandIdx,
-                                      memref::AllocOp externalAlloc) {
+  /// Copy VGM attrs from the stream's *storage* buffer onto |externalAlloc|.
+  /// The storage buffer (second operand of stream_layout) carries the target
+  /// grid mapping the serializer needs.
+  static void copyVGMFromStreamStorage(d2m::GenericOp genericOp,
+                                       int64_t operandIdx,
+                                       memref::AllocOp externalAlloc) {
     Value externalOperand = genericOp.getInputsAndOutputs()[operandIdx];
-    auto copyAttrs = [&](memref::AllocOp src) {
+    auto copyAttrs = [&](Operation *src) {
       if (auto vgm = src->getAttrOfType<AffineMapAttr>(
               d2m::utils::kVirtualGridInverseMappingAttr)) {
         externalAlloc->setAttr(d2m::utils::kVirtualGridInverseMappingAttr, vgm);
@@ -133,13 +143,20 @@ private:
         externalAlloc->setAttr(d2m::utils::kVirtualGridForwardMappingAttr, fwd);
       }
     };
-    if (auto alloc = externalOperand.getDefiningOp<memref::AllocOp>()) {
-      copyAttrs(alloc);
-    } else if (auto streamOp =
-                   externalOperand.getDefiningOp<d2m::StreamLayoutOp>()) {
-      if (auto alloc = streamOp.getInput().getDefiningOp<memref::AllocOp>()) {
+    if (auto streamOp = externalOperand.getDefiningOp<d2m::StreamLayoutOp>()) {
+      // Copy from the storage buffer (second operand), not the input.
+      if (auto storageAlloc =
+              streamOp.getStorage().getDefiningOp<memref::AllocOp>()) {
+        copyAttrs(storageAlloc);
+      }
+    } else if (auto viewOp =
+                   externalOperand.getDefiningOp<d2m::ViewLayoutOp>()) {
+      // View operand — try the view's input.
+      if (auto alloc = viewOp.getInput().getDefiningOp<memref::AllocOp>()) {
         copyAttrs(alloc);
       }
+    } else if (auto alloc = externalOperand.getDefiningOp<memref::AllocOp>()) {
+      copyAttrs(alloc);
     }
   }
 };
