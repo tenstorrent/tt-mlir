@@ -187,20 +187,6 @@ void *mmap_tensor_data_to_tmp_file(const void *data,
   return mmap_ptr;
 }
 
-template <typename T>
-inline ::ttnn::Tensor createBorrowedTTNNTensor(std::shared_ptr<void> data,
-                                               const ::ttnn::Shape &shape) {
-  // Create MemoryPin with shared_ptr that allows TTNN to handle the deletion of
-  // the buffer.
-  auto pin = ::tt::tt_metal::MemoryPin(data);
-
-  std::uint64_t numElements = shape.volume();
-  T *typedData = static_cast<T *>(data.get());
-  ::ttsl::Span<T> span(typedData, typedData + numElements);
-
-  return ::ttnn::Tensor::from_borrowed_data(span, shape, pin);
-}
-
 static ::ttnn::Tensor
 createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
