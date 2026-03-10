@@ -219,7 +219,7 @@ unary_ops = [
     abs,
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
-    ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
+    ceil,
     cos,
     erf,
     erfc,
@@ -341,7 +341,7 @@ def leaky_relu(
     return builder.leaky_relu(in0, parameter, unit_attrs=unit_attrs)
 
 
-unary_ops_with_float_param = [leaky_relu | SkipIf("ttmetal")]
+unary_ops_with_float_param = [leaky_relu]
 
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
