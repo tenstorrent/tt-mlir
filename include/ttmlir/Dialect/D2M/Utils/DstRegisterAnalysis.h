@@ -31,7 +31,6 @@ public:
   bool empty() const { return perRegion.empty(); }
   size_t size() const { return perRegion.size(); }
 
-  const DSTPackingRegionInfo &get(Region *region) const;
   const DSTPackingRegionInfo *lookup(Region *region) const;
 
 private:
@@ -43,7 +42,6 @@ class DstRegisterAnalysis {
 public:
   DstRegisterAnalysis(Operation *op);
 
-  const DSTPackingInfo &get(d2m::GenericOp generic) const;
   const DSTPackingInfo *lookup(d2m::GenericOp generic) const;
 
 private:

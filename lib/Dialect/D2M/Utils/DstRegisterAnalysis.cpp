@@ -13,6 +13,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include <numeric>
 
@@ -103,10 +104,7 @@ static std::optional<int64_t> getLargestLegalChunkSize(int64_t shardSizeTiles,
     }
     return numTilesPerFlip;
   }
-  TT_assertv(false,
-             "expected to find a legal chunk size for shardSizeTiles={0} and "
-             "maxDstTiles={1}",
-             shardSizeTiles, maxDstTiles);
+  llvm_unreachable("expected to find a legal chunk size");
 }
 
 static std::optional<int64_t>
@@ -133,10 +131,7 @@ getLargestCommonNumOuterLoopIters(ArrayRef<int64_t> numDstFlipsPerOp) {
       return factor;
     }
   }
-  TT_assertv(false,
-             "failed to find a common outer loop factor; gcdNumDstFlips={0}, "
-             "maxCandidate={1}",
-             gcdNumDstFlips, maxCandidate);
+  llvm_unreachable("failed to find a common outer loop factor");
 }
 
 struct PendingDSTPackingResult {
@@ -253,24 +248,14 @@ const DSTPackingRegionInfo *DSTPackingInfo::lookup(Region *region) const {
   return &it->second;
 }
 
-const DSTPackingRegionInfo &DSTPackingInfo::get(Region *region) const {
-  const DSTPackingRegionInfo *regionInfo = lookup(region);
-  TT_assertv(regionInfo != nullptr,
-             "expected dst packing info for requested region");
-  return *regionInfo;
-}
-
 DstRegisterAnalysis::DstRegisterAnalysis(Operation *op) {
   op->walk([&](d2m::GenericOp generic) {
-    auto [it, inserted] =
-        packingInfoMap.try_emplace(generic.getOperation(), DSTPackingInfo());
-    TT_assertv(inserted, "expected unique dst packing entry per d2m.generic");
-
-    DSTPackingInfo &packingInfo = it->second;
     if (!generic.isUnifiedForm()) {
       generic.emitOpError("expected unified form for DST packing analysis");
       return;
     }
+
+    DSTPackingInfo packingInfo;
 
     llvm::DenseMap<Region *, SmallVector<linalg::GenericOp>>
         linalgOpsByParentRegion;
@@ -287,20 +272,18 @@ DstRegisterAnalysis::DstRegisterAnalysis(Operation *op) {
       if (!regionPackingInfo) {
         continue;
       }
-      if (!packingInfo.perRegion.try_emplace(parentRegion, *regionPackingInfo)
-               .second) {
-        TT_assertv(false, "expected unique parent region "
-                          "entry in dst packing analysis");
-      }
+      auto [it, inserted] =
+          packingInfo.perRegion.try_emplace(parentRegion, *regionPackingInfo);
+      TT_assertv(inserted, "expected unique parent region "
+                           "entry in dst packing analysis");
+    }
+
+    if (!packingInfo.empty()) {
+      auto [it, inserted] = packingInfoMap.try_emplace(generic.getOperation(),
+                                                       std::move(packingInfo));
+      TT_assertv(inserted, "expected unique dst packing entry per d2m.generic");
     }
   });
-}
-
-const DSTPackingInfo &DstRegisterAnalysis::get(d2m::GenericOp generic) const {
-  const DSTPackingInfo *packingInfo = lookup(generic);
-  TT_assertv(packingInfo != nullptr,
-             "expected dst packing info for requested d2m.generic");
-  return *packingInfo;
 }
 
 const DSTPackingInfo *
