@@ -43,38 +43,6 @@ public:
       }
     }
 
-    // Rewrite 2: custom_call ops returning a tuple - replace with a
-    // multi-result custom_call.
-    SmallVector<mlir::stablehlo::CustomCallOp> tupleCustomCalls;
-    getOperation().walk([&](mlir::stablehlo::CustomCallOp op) {
-      if (op.getNumResults() == 1 &&
-          isa<TupleType>(op.getResult(0).getType())) {
-        tupleCustomCalls.push_back(op);
-      }
-    });
-
-    for (auto op : tupleCustomCalls) {
-      auto tupleType = cast<TupleType>(op.getResult(0).getType());
-
-      rewriter.setInsertionPoint(op);
-      auto newOp = rewriter.create<mlir::stablehlo::CustomCallOp>(
-          op.getLoc(), tupleType.getTypes(), op.getInputs(), op->getAttrs());
-
-      for (OpOperand &use :
-           llvm::make_early_inc_range(op.getResult(0).getUses())) {
-        auto getTupleOp =
-            dyn_cast<mlir::stablehlo::GetTupleElementOp>(use.getOwner());
-        if (!getTupleOp) {
-          continue;
-        }
-
-        rewriter.replaceOp(getTupleOp, newOp.getResult(getTupleOp.getIndex()));
-      }
-
-      if (op.getResult(0).use_empty()) {
-        rewriter.eraseOp(op);
-      }
-    }
   }
 };
 } // namespace mlir::tt::stablehlo
