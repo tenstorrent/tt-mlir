@@ -247,7 +247,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
   }
 
   void emitExperimentalLLKs() {
-    if (hasCall("experimental::tile_regs_acquire")) {
+    if (hasCall("experimental::unpack_stall_on_pack")) {
       auto experimentalRegAPILLKs = StringRef(
           experimental_reg_api_generated, experimental_reg_api_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalRegAPILLKs);
