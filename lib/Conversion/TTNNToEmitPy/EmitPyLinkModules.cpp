@@ -162,9 +162,8 @@ public:
     // definitions). If TTNNFileSplit was performed, move them to the consteval
     // file. Otherwise, move them to the root module.
     //
-    Block *blockToMoveCPUOpsTo = constevalFileOp
-                                     ? &constevalFileOp.getBodyRegion().front()
-                                     : blockToMoveCPUOpsTo = &rootBody;
+    Block *blockToMoveCPUOpsTo =
+        constevalFileOp ? &constevalFileOp.getBodyRegion().front() : &rootBody;
     // If TTNNFileSplit was performed, insert CPU definitions at the beginning
     // of the consteval file (before existing consteval functions). Otherwise,
     // append to the end of the root body (after imports).
