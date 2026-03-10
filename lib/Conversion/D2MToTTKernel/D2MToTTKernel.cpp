@@ -347,6 +347,21 @@ public:
 } // namespace
 
 namespace {
+class UnpackStallOnPackRewriter
+    : public OpConversionPattern<d2m::UnpackStallOnPackOp> {
+public:
+  using OpConversionPattern<d2m::UnpackStallOnPackOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::UnpackStallOnPackOp op, d2m::UnpackStallOnPackOpAdaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::UnpackStallOnPackOp>(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class D2MSetL1AccumulateRewriter
     : public OpConversionPattern<d2m::SetL1AccumulateOp> {
 public:
@@ -2259,6 +2274,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
+               ttkernel::UnpackStallOnPackRewriter,
                ttkernel::D2MSetL1AccumulateRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,

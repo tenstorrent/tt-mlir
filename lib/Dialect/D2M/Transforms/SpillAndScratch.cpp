@@ -266,13 +266,23 @@ static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
   // Move operations between consecutive loop nests to before the first.
   // These are setup ops (allocs, remote_loads, etc.) that don't depend on
   // loop IVs and need to dominate the shared loop body.
+  //
+  // UnpackStallOnPackOp is special: it must remain ordered relative to the
+  // compute it guards and must end up inside the fused loop body (after
+  // chain[i]'s content, before chain[i+1]'s content). Collect these
+  // separately and splice them in at the right position below.
+  SmallVector<SmallVector<Operation *>> stallsAfterChain(chains.size());
   Operation *firstOuter = chains[0].chain[0];
   for (size_t i = 1; i < chains.size(); ++i) {
     Operation *thisOuter = chains[i].chain[0];
     SmallVector<Operation *> toMove;
     for (auto it = std::next(chains[i - 1].chain[0]->getIterator());
          &*it != thisOuter; ++it) {
-      toMove.push_back(&*it);
+      if (isa<UnpackStallOnPackOp>(&*it)) {
+        stallsAfterChain[i - 1].push_back(&*it);
+      } else {
+        toMove.push_back(&*it);
+      }
     }
     for (auto *op : toMove) {
       op->moveBefore(firstOuter);
@@ -291,7 +301,8 @@ static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
   }
 
   // Move body operations from each old chain into the shared chain.
-  for (auto &ci : chains) {
+  for (size_t chainIdx = 0; chainIdx < chains.size(); ++chainIdx) {
+    auto &ci = chains[chainIdx];
     // Replace old IVs with shared IVs at every nesting level.
     for (size_t level = 0; level < chainLen; ++level) {
       ci.chain[level].getInductionVar().replaceAllUsesWith(
@@ -345,6 +356,12 @@ static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
         sharedBody->getOperations().splice(sharedYield->getIterator(), srcOps,
                                            srcOps.begin(),
                                            std::prev(srcOps.end()));
+
+        // After this chain's body content, splice in any stall ops that must
+        // execute after chain[chainIdx] and before chain[chainIdx+1].
+        for (auto *stallOp : stallsAfterChain[chainIdx]) {
+          stallOp->moveBefore(sharedYield);
+        }
       }
     }
   }
