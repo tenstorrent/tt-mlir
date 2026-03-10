@@ -244,7 +244,6 @@ def test_matmul_ttnn_shapes_double_buffered(
     )
 
 
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [

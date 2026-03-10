@@ -480,20 +480,10 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
     "test_fn",
     [
         module_add,
-        module_max
-        | Marks(
-            pytest.mark.skip_config(
-                ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
-            )
-        ),
-        module_min | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_max,
+        module_min,
         module_mul,
-        module_pow
-        | Marks(
-            pytest.mark.skip_config(
-                ["ttnn"], reason="https://github.com/tenstorrent/tt-metal/pull/33904"
-            )
-        ),
+        module_pow,
         module_subtract,
     ],
 )

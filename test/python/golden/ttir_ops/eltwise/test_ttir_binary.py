@@ -394,12 +394,7 @@ scalar_binary_ops = [
     (add_scalar, 2.5),
     (multiply_scalar, 3.0),
     (subtract_scalar, 1.5),
-    (div_scalar, 3.0)
-    | Marks(
-        pytest.mark.xfail(
-            reason="Fails atol and rtol, issue here: https://github.com/tenstorrent/tt-mlir/issues/5924"
-        )
-    ),
+    (div_scalar, 3.0),
     (pow_scalar, 2.0),
 ]
 
@@ -840,7 +835,6 @@ implicit_bcast_inner_2D_shapes = [
 ]
 
 
-@pytest.mark.skip_config(["p150"], ["p300"], reason="See issue #6565")
 @pytest.mark.parametrize("shape", implicit_bcast_inner_2D_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
