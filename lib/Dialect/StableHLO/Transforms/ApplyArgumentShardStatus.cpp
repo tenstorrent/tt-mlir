@@ -171,12 +171,22 @@ public:
       }
     });
 
-    // Loop through all results and annotate it with its shard status.
+    // Loop through all results and annotate each function with its shard
+    // status.
     llvm::SmallVector<int64_t> resultPreshardedRef = llvm::to_vector(
         llvm::map_range(resultPresharded, [](int64_t val) { return val; }));
     rootModule.walk([&](func::FuncOp funcOp) {
+      // result-presharded is a frontend option for entry/public function
+      // outputs. Internal helper/private functions should be inferred as
+      // unsharded by default.
+      llvm::SmallVector<int64_t> funcResultPreshardedRef = resultPreshardedRef;
+      if (funcOp.isPrivate()) {
+        funcResultPreshardedRef.clear();
+      }
+
       if (failed(mlir::tt::stablehlo::updateResultShardStatus(
-              context, rootModule, builder, funcOp, resultPreshardedRef))) {
+              context, rootModule, builder, funcOp,
+              funcResultPreshardedRef))) {
         rootModule.emitError("Failed to update shard status");
         signalPassFailure();
         return;
