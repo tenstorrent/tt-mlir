@@ -267,7 +267,7 @@ private:
 
     // Create a declaration of the wrapper function in the main file so that
     // func.call op can resolve the symbol.
-    builder.setInsertionPointToStart(&mainFile.getBodyRegion().front());
+    builder.setInsertionPointToEnd(&mainFile.getBodyRegion().front());
     auto privateDecl = builder.create<func::FuncOp>(
         forwardFunc.getLoc(), wrapperName, wrapperFuncType);
     privateDecl.setPrivate();

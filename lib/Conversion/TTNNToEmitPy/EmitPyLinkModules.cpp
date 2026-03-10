@@ -154,21 +154,23 @@ public:
 
     // Move all collected imports to the root module.
     //
-    for (auto importOp : llvm::reverse(imports)) {
-      importOp->moveBefore(&rootBody, rootBody.begin());
-    }
-
-    Block *blockToMoveCPUOpsTo = nullptr;
-    if (constevalFileOp) {
-      blockToMoveCPUOpsTo = &constevalFileOp.getBodyRegion().front();
-    } else {
-      blockToMoveCPUOpsTo = &rootBody;
+    for (auto importOp : imports) {
+      importOp->moveBefore(&rootBody, rootBody.end());
     }
 
     // Move all operations from CPU module (CPU-hoisted function
     // definitions). If TTNNFileSplit was performed, move them to the consteval
     // file. Otherwise, move them to the root module.
     //
+    Block *blockToMoveCPUOpsTo = constevalFileOp
+                                     ? &constevalFileOp.getBodyRegion().front()
+                                     : blockToMoveCPUOpsTo = &rootBody;
+    // If TTNNFileSplit was performed, insert CPU definitions at the beginning
+    // of the consteval file (before existing consteval functions). Otherwise,
+    // append to the end of the root body (after imports).
+    //
+    Block::iterator insertPoint = constevalFileOp ? blockToMoveCPUOpsTo->begin()
+                                                  : blockToMoveCPUOpsTo->end();
     if (cpuModuleOp) {
       auto cpuModule =
           mlir::cast<mlir::ModuleOp>(cpuModuleOp.getBody()->front());
@@ -178,8 +180,8 @@ public:
       for (auto &op : *cpuModule.getBody()) {
         cpuOps.push_back(&op);
       }
-      for (auto *op : llvm::reverse(cpuOps)) {
-        op->moveBefore(blockToMoveCPUOpsTo, blockToMoveCPUOpsTo->begin());
+      for (auto *op : cpuOps) {
+        op->moveBefore(blockToMoveCPUOpsTo, insertPoint);
       }
 
       cpuModuleOp->erase();
