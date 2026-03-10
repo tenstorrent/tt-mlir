@@ -3,11 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/AffineMapUtils.h"
-#include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/DstRegisterAnalysis.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "llvm/Support/Debug.h"
+
+#define DEBUG_TYPE "d2m-generic-tile-compute-loops"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
@@ -110,66 +116,204 @@ static SmallVector<int64_t> calculateOptimalSubblockSizes(
 }
 
 namespace {
-struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
-  D2MGenericComputeRewriter(MLIRContext *context,
-                            unsigned maxDstPhysicalSizeTiles)
-      : OpRewritePattern<linalg::GenericOp>(context),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {}
 
-  LogicalResult matchAndRewrite(linalg::GenericOp op,
+// Convert an scf.for with constant bounds to affine.for in-place.
+// Returns the new affine.for, or nullptr if conversion is not possible.
+static affine::AffineForOp convertScfForToAffine(scf::ForOp scfForOp,
+                                                 PatternRewriter &rewriter) {
+  auto lb = getConstantIntValue(scfForOp.getLowerBound());
+  auto ub = getConstantIntValue(scfForOp.getUpperBound());
+  auto step = getConstantIntValue(scfForOp.getStep());
+  if (!lb || !ub || !step) {
+    return nullptr;
+  }
+
+  rewriter.setInsertionPoint(scfForOp);
+  auto affineForOp =
+      rewriter.create<affine::AffineForOp>(scfForOp.getLoc(), *lb, *ub, *step);
+
+  Block *scfBody = scfForOp.getBody();
+  Block *affineBody = affineForOp.getBody();
+
+  scfBody->getArgument(0).replaceAllUsesWith(affineForOp.getInductionVar());
+
+  auto &scfOps = scfBody->getOperations();
+  auto &affineOps = affineBody->getOperations();
+  affineOps.splice(affineOps.begin(), scfOps, scfOps.begin(),
+                   std::prev(scfOps.end()));
+
+  rewriter.eraseOp(scfForOp);
+  return affineForOp;
+}
+
+struct D2MGenericComputeRewriter : public OpRewritePattern<GenericOp> {
+  using OpRewritePattern<GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(GenericOp genericOp,
                                 PatternRewriter &rewriter) const final {
-    // Current limitation: we only check the output's shape during DST
-    // subblocking optimization, ignoring other operands that might reside in
-    // the DST and so could lead to overflows.
-    //
-    // Be conservative: disable loop subblocking if any of the compute op loads
-    // more than one DST operand, or isn't in-place w.r.t. DST operands.
-    bool optimizeSubblocking = true;
-    op.getRegion().walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
-      optimizeSubblocking = optimizeSubblocking && computeOp.getDstRegInPlace();
-      optimizeSubblocking =
-          optimizeSubblocking &&
-          (computeOp.getOperandsLoadFromDstRegister().size() == 1);
-      return optimizeSubblocking ? WalkResult::advance()
-                                 : WalkResult::interrupt();
-    });
-
-    TT_assert(op.getRegion().hasOneBlock());
-    TT_assertv(op.getOutputs().size() == 1u,
-               "Only one output tensor is supported");
-    auto outputTensor =
-        mlir::cast<MemRefType>(op.getOutputs().front().getType());
-
-    SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(), 1);
-    if (optimizeSubblocking) {
-      Type largestDstType = utils::getRegionLargestDstElemType(op.getRegion());
-      const unsigned dstCapacity =
-          ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
-              largestDstType, false, maxDstPhysicalSizeTiles);
-
-      subblockSizes = calculateOptimalSubblockSizes(
-          op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
-          dstCapacity);
-    }
-
-    linalg::LinalgTilingOptions tilingOptions;
-    tilingOptions.setTileSizes(subblockSizes);
-    // The use of linalg::LinalgTilingLoopType::AffineLoops was disabled because
-    // it caused unexpected behavior where tiling was not applied correctly.
-    // Further investigation is needed to determine the root cause before
-    // re-enabling it.
-    // tilingOptions.setLoopType(linalg::LinalgTilingLoopType::AffineLoops);
-    FailureOr<linalg::TiledLinalgOp> tiledGeneric =
-        linalg::tileLinalgOp(rewriter, op, tilingOptions);
-    if (failed(tiledGeneric)) {
+    utils::DSTPackingInfo packingInfo =
+        utils::analyzeGenericForDSTPacking(genericOp);
+    if (packingInfo.perResult.empty()) {
       return failure();
     }
 
-    rewriter.replaceOp(op, tiledGeneric.value().op);
+    SmallVector<linalg::GenericOp> linalgOps;
+    genericOp.getRegion(0).walk(
+        [&](linalg::GenericOp op) { linalgOps.push_back(op); });
+
+    if (linalgOps.empty()) {
+      return failure();
+    }
+
+    // Insert unpack_stall_on_pack before any linalg op that reads from an L1
+    // buffer written by a preceding linalg op's PACK output. This ensures the
+    // UNPACK thread waits for PACK to commit its write before reading.
+    llvm::SmallDenseSet<Value> producedValues;
+    for (linalg::GenericOp linalgOp : linalgOps) {
+      bool needsStall = llvm::any_of(linalgOp.getInputs(), [&](Value v) {
+        return producedValues.count(v);
+      });
+      if (needsStall) {
+        rewriter.setInsertionPoint(linalgOp);
+        rewriter.create<d2m::UnpackStallOnPackOp>(linalgOp.getLoc());
+      }
+      for (Value out : linalgOp.getOutputs()) {
+        producedValues.insert(out);
+      }
+    }
+
+    for (linalg::GenericOp linalgOp : linalgOps) {
+      if (failed(tileLinalgOp(linalgOp, packingInfo, rewriter))) {
+        return failure();
+      }
+    }
+
     return success();
   }
 
-  unsigned maxDstPhysicalSizeTiles = 0;
+private:
+  LogicalResult tileLinalgOp(linalg::GenericOp linalgOp,
+                             const utils::DSTPackingInfo &packingInfo,
+                             PatternRewriter &rewriter) const {
+    Value outputValue = linalgOp.getOutputs().front();
+    auto it = packingInfo.perResult.find(outputValue);
+    if (it == packingInfo.perResult.end()) {
+      return failure();
+    }
+    const utils::DSTPackingPerResultInfo &perResult = it->second;
+
+    auto outputType = mlir::cast<MemRefType>(outputValue.getType());
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "=== DST Packing for linalg.generic ===\n";
+      llvm::dbgs() << "  loc: " << linalgOp.getLoc() << "\n";
+      llvm::dbgs() << "  output shape: [";
+      llvm::interleaveComma(outputType.getShape(), llvm::dbgs());
+      llvm::dbgs() << "]\n";
+      llvm::dbgs() << "  numOuterLoopIters: " << packingInfo.numOuterLoopIters
+                   << "\n";
+      llvm::dbgs() << "  numTilesPerResult: " << packingInfo.numTilesPerResult
+                   << "\n";
+      llvm::dbgs() << "  numDstFlips: " << perResult.numDstFlips << "\n";
+      llvm::dbgs() << "  numTilesPerFlip: " << perResult.numTilesPerFlip
+                   << "\n";
+    });
+
+    // Phase 1: Tile to produce numOuterLoopIters outer iterations.
+    // Using numTilesPerResult as the effective capacity determines tile
+    // sizes that yield the correct number of outer iterations.
+    SmallVector<int64_t> phase1TileSizes = calculateOptimalSubblockSizes(
+        linalgOp.getIndexingMapsArray(), linalgOp.getInputs(),
+        outputType.getShape(),
+        static_cast<unsigned>(packingInfo.numTilesPerResult));
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "  phase1 tile sizes: [";
+      llvm::interleaveComma(phase1TileSizes, llvm::dbgs());
+      llvm::dbgs() << "]\n";
+    });
+
+    linalg::LinalgTilingOptions phase1Options;
+    phase1Options.setTileSizes(phase1TileSizes);
+    FailureOr<linalg::TiledLinalgOp> phase1Tiled =
+        linalg::tileLinalgOp(rewriter, linalgOp, phase1Options);
+    if (failed(phase1Tiled)) {
+      return failure();
+    }
+
+    // Phase 2: Tile the inner linalg.generic to produce numDstFlips
+    // iterations per outer iteration.
+    auto innerOp =
+        dyn_cast<linalg::GenericOp>(phase1Tiled.value().op.getOperation());
+    if (!innerOp) {
+      return failure();
+    }
+
+    auto innerOutputType =
+        mlir::cast<MemRefType>(innerOp.getOutputs().front().getType());
+
+    SmallVector<int64_t> phase2TileSizes = calculateOptimalSubblockSizes(
+        innerOp.getIndexingMapsArray(), innerOp.getInputs(),
+        innerOutputType.getShape(),
+        static_cast<unsigned>(perResult.numTilesPerFlip));
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "  phase1 inner shape: [";
+      llvm::interleaveComma(innerOutputType.getShape(), llvm::dbgs());
+      llvm::dbgs() << "]\n";
+      llvm::dbgs() << "  phase2 tile sizes: [";
+      llvm::interleaveComma(phase2TileSizes, llvm::dbgs());
+      llvm::dbgs() << "]\n";
+    });
+
+    linalg::LinalgTilingOptions phase2Options;
+    phase2Options.setTileSizes(phase2TileSizes);
+    // Note: linalg::LinalgTilingLoopType::AffineLoops has known issues where
+    // TiledLinalgOp::loops may be empty and the inner linalg shape may not
+    // be reduced. Using SCF loops and converting to affine immediately after
+    // ensures correct tiling behavior with affine-compatible IVs.
+    FailureOr<linalg::TiledLinalgOp> phase2Tiled =
+        linalg::tileLinalgOp(rewriter, innerOp, phase2Options);
+    if (failed(phase2Tiled)) {
+      return failure();
+    }
+
+    rewriter.eraseOp(innerOp);
+
+    // Convert all phase 2 SCF loops to affine.for so their IVs are usable
+    // with affine.store/load in downstream scratch allocation. Tag the
+    // outermost loop with d2m.scratch_space_loop for downstream passes.
+    if (!phase2Tiled.value().loops.empty()) {
+      affine::AffineForOp outermostAffineLoop;
+
+      for (Operation *loopOp : phase2Tiled.value().loops) {
+        auto scfForOp = dyn_cast<scf::ForOp>(loopOp);
+        if (!scfForOp) {
+          continue;
+        }
+
+        auto affineForOp = convertScfForToAffine(scfForOp, rewriter);
+        if (!affineForOp) {
+          continue;
+        }
+
+        if (!outermostAffineLoop) {
+          outermostAffineLoop = affineForOp;
+        }
+      }
+
+      if (outermostAffineLoop) {
+        outermostAffineLoop->setAttr("d2m.scratch_space_loop",
+                                     rewriter.getUnitAttr());
+      } else {
+        phase2Tiled.value().loops.front()->setAttr("d2m.scratch_space_loop",
+                                                   rewriter.getUnitAttr());
+      }
+    }
+
+    rewriter.eraseOp(linalgOp);
+    return success();
+  }
 };
 } // namespace
 
@@ -183,8 +327,7 @@ public:
   void runOnOperation() final {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<D2MGenericComputeRewriter>(ctx,
-                                            maxDstPhysicalSizeTiles.getValue());
+    patterns.add<D2MGenericComputeRewriter>(ctx);
     walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };

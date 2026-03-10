@@ -1,5 +1,6 @@
 add_mlir_library(MLIRD2MUtils
   DMAUtils.cpp
+  DstRegisterAnalysis.cpp
   Utils.cpp
   AffineMapAnalysis.cpp
   VirtualGrid.cpp
