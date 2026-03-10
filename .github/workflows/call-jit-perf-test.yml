@@ -158,9 +158,9 @@ jobs:
         if-no-files-found: warn
 
     - name: Upload JIT perf reports
-      uses: ./.github/actions/collect-and-upload-perf-reports
+      uses: actions/upload-artifact@v4
       if: success() || failure()
       with:
-        reports_dir: ${{ steps.strings.outputs.perf-output-dir }}
-        perf_report_path: ${{ steps.strings.outputs.work-dir }}/perf_reports
-        artifact_name: jit-perf-reports-${{ steps.fetch-job-id.outputs.job_id }}
+        name: jit-perf-reports-${{ steps.fetch-job-id.outputs.job_id }}
+        path: ${{ steps.strings.outputs.perf-output-dir }}
+        if-no-files-found: warn

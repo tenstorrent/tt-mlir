@@ -26,7 +26,7 @@ def is_unary(op):
 @pytest.mark.parametrize(
     "h, w",
     [
-        (256, 256),
+        (2048, 2048),
     ],
 )
 @pytest.mark.parametrize(
