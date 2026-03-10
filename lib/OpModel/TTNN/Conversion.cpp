@@ -331,6 +331,8 @@ getTensorMemoryLayout(const TensorMemoryLayout tensorMemoryLayout) {
     return ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED;
   case TensorMemoryLayout::BlockSharded:
     return ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED;
+  case TensorMemoryLayout::NDSharded:
+    return ::tt::tt_metal::TensorMemoryLayout::ND_SHARDED;
   }
 }
 TensorMemoryLayout
@@ -344,6 +346,8 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
     return TensorMemoryLayout::WidthSharded;
   case ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED:
     return TensorMemoryLayout::BlockSharded;
+  case ::tt::tt_metal::TensorMemoryLayout::ND_SHARDED:
+    return TensorMemoryLayout::NDSharded;
   }
 }
 
