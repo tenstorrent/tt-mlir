@@ -253,41 +253,54 @@ const DSTPackingRegionInfo *DSTPackingInfo::lookup(Region *region) const {
   return &it->second;
 }
 
+const DSTPackingRegionInfo &DSTPackingInfo::get(Region *region) const {
+  const DSTPackingRegionInfo *regionInfo = lookup(region);
+  TT_assertv(regionInfo != nullptr,
+             "expected dst packing info for requested region");
+  return *regionInfo;
+}
+
 DstRegisterAnalysis::DstRegisterAnalysis(Operation *op) {
   op->walk([&](d2m::GenericOp generic) {
-    packingInfoMap.try_emplace(generic.getOperation(), [&]() {
-      DSTPackingInfo packingInfo;
+    auto [it, inserted] =
+        packingInfoMap.try_emplace(generic.getOperation(), DSTPackingInfo());
+    TT_assertv(inserted, "expected unique dst packing entry per d2m.generic");
 
-      if (!generic.isUnifiedForm()) {
-        generic.emitOpError("expected unified form for DST packing "
-                            "analysis");
-        return packingInfo;
+    DSTPackingInfo &packingInfo = it->second;
+    if (!generic.isUnifiedForm()) {
+      generic.emitOpError("expected unified form for DST packing analysis");
+      return;
+    }
+
+    llvm::DenseMap<Region *, SmallVector<linalg::GenericOp>>
+        linalgOpsByParentRegion;
+    generic.getRegion(0).walk([&](linalg::GenericOp op) {
+      Region *parentRegion = op->getParentRegion();
+      TT_assertv(parentRegion != nullptr,
+                 "expected linalg.generic to have a parent region");
+      linalgOpsByParentRegion[parentRegion].push_back(op);
+    });
+
+    for (const auto &[parentRegion, linalgOps] : linalgOpsByParentRegion) {
+      std::optional<DSTPackingRegionInfo> regionPackingInfo =
+          computeDSTPackingForRegion(generic, linalgOps);
+      if (!regionPackingInfo) {
+        continue;
       }
-
-      llvm::DenseMap<Region *, SmallVector<linalg::GenericOp>>
-          linalgOpsByParentRegion;
-      generic.getRegion(0).walk([&](linalg::GenericOp op) {
-        Region *parentRegion = op->getParentRegion();
-        TT_assertv(parentRegion != nullptr, "expected linalg.generic to have "
-                                            "a parent region");
-        linalgOpsByParentRegion[parentRegion].push_back(op);
-      });
-
-      for (const auto &[parentRegion, linalgOps] : linalgOpsByParentRegion) {
-        std::optional<DSTPackingRegionInfo> regionPackingInfo =
-            computeDSTPackingForRegion(generic, linalgOps);
-        if (!regionPackingInfo) {
-          continue;
-        }
-        if (!packingInfo.perRegion.try_emplace(parentRegion, *regionPackingInfo)
-                 .second) {
-          TT_assertv(false, "expected unique parent region "
-                            "entry in dst packing analysis");
-        }
+      if (!packingInfo.perRegion.try_emplace(parentRegion, *regionPackingInfo)
+               .second) {
+        TT_assertv(false, "expected unique parent region "
+                          "entry in dst packing analysis");
       }
-      return packingInfo;
-    }());
+    }
   });
+}
+
+const DSTPackingInfo &DstRegisterAnalysis::get(d2m::GenericOp generic) const {
+  const DSTPackingInfo *packingInfo = lookup(generic);
+  TT_assertv(packingInfo != nullptr,
+             "expected dst packing info for requested d2m.generic");
+  return *packingInfo;
 }
 
 const DSTPackingInfo *
@@ -297,14 +310,6 @@ DstRegisterAnalysis::lookup(d2m::GenericOp generic) const {
     return nullptr;
   }
   return &it->second;
-}
-
-DSTPackingInfo analyzeGenericForDSTPacking(d2m::GenericOp generic) {
-  DstRegisterAnalysis analysis(generic);
-  if (const DSTPackingInfo *packingInfo = analysis.lookup(generic)) {
-    return *packingInfo;
-  }
-  return DSTPackingInfo();
 }
 
 } // namespace mlir::tt::d2m::utils

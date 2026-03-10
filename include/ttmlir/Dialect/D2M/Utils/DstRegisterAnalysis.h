@@ -26,23 +26,29 @@ struct DSTPackingRegionInfo {
   int64_t numOuterLoopIters = 0;
 };
 
-struct DSTPackingInfo {
+class DSTPackingInfo {
+public:
+  bool empty() const { return perRegion.empty(); }
+  size_t size() const { return perRegion.size(); }
+
+  const DSTPackingRegionInfo &get(Region *region) const;
   const DSTPackingRegionInfo *lookup(Region *region) const;
 
+private:
+  friend class DstRegisterAnalysis;
   llvm::DenseMap<Region *, DSTPackingRegionInfo> perRegion;
 };
 
-struct DstRegisterAnalysis {
+class DstRegisterAnalysis {
+public:
   DstRegisterAnalysis(Operation *op);
 
+  const DSTPackingInfo &get(d2m::GenericOp generic) const;
   const DSTPackingInfo *lookup(d2m::GenericOp generic) const;
 
+private:
   llvm::DenseMap<Operation *, DSTPackingInfo> packingInfoMap;
 };
-
-// Analyze linalg.generic ops in a unified d2m.generic region and compute legal
-// DST packing values that maximize common outer loop iterations.
-DSTPackingInfo analyzeGenericForDSTPacking(d2m::GenericOp generic);
 
 } // namespace mlir::tt::d2m::utils
 

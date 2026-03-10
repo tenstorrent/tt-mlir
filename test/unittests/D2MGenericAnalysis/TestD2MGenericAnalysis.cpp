@@ -207,10 +207,11 @@ func.func @test(
   ASSERT_TRUE(generic);
   markAllForLoopsAsBlocking(generic);
 
-  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  d2m::utils::DstRegisterAnalysis analysis(generic);
+  const auto &packing = analysis.get(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 1u);
-  ASSERT_EQ(packing.perRegion.size(), 1u);
+  ASSERT_EQ(packing.size(), 1u);
   auto *regionInfo = packing.lookup(outputValues.front().first);
   ASSERT_NE(regionInfo, nullptr);
   auto it = regionInfo->perResult.find(outputValues.front().second);
@@ -252,10 +253,11 @@ func.func @test(
   d2m::GenericOp generic = getSingleGenericOp(*module);
   ASSERT_TRUE(generic);
 
-  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  d2m::utils::DstRegisterAnalysis analysis(generic);
+  const auto &packing = analysis.get(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 1u);
-  ASSERT_EQ(packing.perRegion.size(), 1u);
+  ASSERT_EQ(packing.size(), 1u);
   auto *regionInfo = packing.lookup(outputValues.front().first);
   ASSERT_NE(regionInfo, nullptr);
   auto it = regionInfo->perResult.find(outputValues.front().second);
@@ -296,10 +298,11 @@ func.func @test(
   d2m::GenericOp generic = getSingleGenericOp(*module);
   ASSERT_TRUE(generic);
 
-  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  d2m::utils::DstRegisterAnalysis analysis(generic);
+  const auto &packing = analysis.get(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 1u);
-  EXPECT_TRUE(packing.perRegion.empty());
+  EXPECT_TRUE(packing.empty());
   EXPECT_EQ(packing.lookup(outputValues.front().first), nullptr);
 }
 
@@ -341,10 +344,11 @@ func.func @test(
   ASSERT_TRUE(generic);
   markAllForLoopsAsBlocking(generic);
 
-  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  d2m::utils::DstRegisterAnalysis analysis(generic);
+  const auto &packing = analysis.get(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 1u);
-  ASSERT_EQ(packing.perRegion.size(), 1u);
+  ASSERT_EQ(packing.size(), 1u);
   auto *regionInfo = packing.lookup(outputValues.front().first);
   ASSERT_NE(regionInfo, nullptr);
   auto it = regionInfo->perResult.find(outputValues.front().second);
@@ -400,10 +404,11 @@ func.func @test(
   ASSERT_TRUE(generic);
   markAllForLoopsAsBlocking(generic);
 
-  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  d2m::utils::DstRegisterAnalysis analysis(generic);
+  const auto &packing = analysis.get(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 2u);
-  ASSERT_EQ(packing.perRegion.size(), 2u);
+  ASSERT_EQ(packing.size(), 2u);
   ASSERT_NE(outputValues[0].first, outputValues[1].first);
   for (const auto &[parentRegion, outputValue] : outputValues) {
     auto *regionInfo = packing.lookup(parentRegion);
@@ -482,10 +487,11 @@ func.func @test(
   ASSERT_TRUE(generic);
   markAllForLoopsAsBlocking(generic);
 
-  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  d2m::utils::DstRegisterAnalysis analysis(generic);
+  const auto &packing = analysis.get(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 4u);
-  ASSERT_EQ(packing.perRegion.size(), 1u);
+  ASSERT_EQ(packing.size(), 1u);
   auto *regionInfo = packing.lookup(outputValues.front().first);
   ASSERT_NE(regionInfo, nullptr);
   ASSERT_EQ(regionInfo->perResult.size(), 4u);
@@ -577,10 +583,11 @@ func.func @test(
   ASSERT_TRUE(generic);
   markAllForLoopsAsBlocking(generic);
 
-  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  d2m::utils::DstRegisterAnalysis analysis(generic);
+  const auto &packing = analysis.get(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 4u);
-  ASSERT_EQ(packing.perRegion.size(), 1u);
+  ASSERT_EQ(packing.size(), 1u);
   auto *regionInfo = packing.lookup(outputValues.front().first);
   ASSERT_NE(regionInfo, nullptr);
   ASSERT_EQ(regionInfo->perResult.size(), 4u);
@@ -673,10 +680,11 @@ func.func @test(
   ASSERT_TRUE(generic);
   markAllForLoopsAsBlocking(generic);
 
-  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  d2m::utils::DstRegisterAnalysis analysis(generic);
+  const auto &packing = analysis.get(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 4u);
-  ASSERT_EQ(packing.perRegion.size(), 1u);
+  ASSERT_EQ(packing.size(), 1u);
   auto *regionInfo = packing.lookup(outputValues.front().first);
   ASSERT_NE(regionInfo, nullptr);
   ASSERT_EQ(regionInfo->perResult.size(), 4u);
@@ -743,10 +751,11 @@ func.func @test(
   ASSERT_TRUE(generic);
   markAllForLoopsAsBlocking(generic);
 
-  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  d2m::utils::DstRegisterAnalysis analysis(generic);
+  const auto &packing = analysis.get(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 1u);
-  ASSERT_EQ(packing.perRegion.size(), 1u);
+  ASSERT_EQ(packing.size(), 1u);
   auto *regionInfo = packing.lookup(outputValues.front().first);
   ASSERT_NE(regionInfo, nullptr);
   auto it = regionInfo->perResult.find(outputValues.front().second);
