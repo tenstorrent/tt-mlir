@@ -233,7 +233,6 @@ func.func @test(
   ASSERT_EQ(regionInfo->perResult.size(), 1u);
   EXPECT_EQ(it->second.numTilesPerFlip, 2);
   EXPECT_EQ(it->second.numDstFlips, 2);
-  EXPECT_EQ(it->second.numPaddingTiles, 0);
   EXPECT_EQ(regionInfo->numTilesPerResult, 4);
   EXPECT_EQ(regionInfo->numOuterLoopIters, 2);
 }
@@ -285,8 +284,7 @@ func.func @test(
   EXPECT_EQ(regionInfo->numOuterLoopIters, 2);
 }
 
-TEST_F(GenericOpAnalysisTest,
-       CanAnalyzeDSTPackingForSingleTileShardWithPadding) {
+TEST_F(GenericOpAnalysisTest, CanAnalyzeDSTPackingSingleTileShardEarlyOut) {
   std::string moduleText = wrapInModule(R"mlir(
 func.func @test(
     %in: memref<1x1x1x!ttcore.tile<32x32, f32>>,
@@ -326,15 +324,15 @@ func.func @test(
   auto it = regionInfo->perResult.find(outputValues.front().second);
   ASSERT_NE(it, regionInfo->perResult.end());
   ASSERT_EQ(regionInfo->perResult.size(), 1u);
+  // Single-tile shards should bypass the general multi-flip packing path.
   EXPECT_EQ(it->second.numTilesPerFlip, 1);
-  EXPECT_EQ(it->second.numDstFlips, 2);
-  EXPECT_EQ(it->second.numPaddingTiles, 1);
-  EXPECT_EQ(regionInfo->numTilesPerResult, 2);
+  EXPECT_EQ(it->second.numDstFlips, 1);
+  EXPECT_EQ(regionInfo->numTilesPerResult, 1);
   EXPECT_EQ(regionInfo->numOuterLoopIters, 1);
 }
 
 TEST_F(GenericOpAnalysisTest,
-       CanAnalyzeDSTPackingForMultipleSingleTileShardsWithPadding) {
+       CanAnalyzeDSTPackingMultipleSingleTileShardsEarlyOut) {
   std::string moduleText = wrapInModule(R"mlir(
 func.func @test(
     %in0: memref<1x1x1x!ttcore.tile<32x32, f32>>,
@@ -401,11 +399,11 @@ func.func @test(
   for (const auto &[parentRegion, outputValue] : outputValues) {
     auto it = regionInfo->perResult.find(outputValue);
     ASSERT_NE(it, regionInfo->perResult.end());
+    // Every result in the all-single-tile region should take the early-out.
     EXPECT_EQ(it->second.numTilesPerFlip, 1);
-    EXPECT_EQ(it->second.numDstFlips, 2);
-    EXPECT_EQ(it->second.numPaddingTiles, 1);
+    EXPECT_EQ(it->second.numDstFlips, 1);
   }
-  EXPECT_EQ(regionInfo->numTilesPerResult, 2);
+  EXPECT_EQ(regionInfo->numTilesPerResult, 1);
   EXPECT_EQ(regionInfo->numOuterLoopIters, 1);
 }
 

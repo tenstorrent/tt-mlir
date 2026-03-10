@@ -18,7 +18,6 @@ namespace mlir::tt::d2m::utils {
 struct DSTPackingPerResultInfo {
   int64_t numDstFlips = 0;
   int64_t numTilesPerFlip = 0;
-  int64_t numPaddingTiles = 0;
 };
 
 struct DSTPackingRegionInfo {

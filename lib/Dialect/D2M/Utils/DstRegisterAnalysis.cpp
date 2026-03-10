@@ -140,7 +140,6 @@ struct PendingDSTPackingResult {
   Value outputValue;
   int64_t numTilesPerFlip = 0;
   int64_t numDstFlips = 0;
-  int64_t numPaddingTiles = 0;
 };
 
 static std::optional<DSTPackingRegionInfo>
@@ -149,6 +148,8 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
   DSTPackingRegionInfo results;
   SmallVector<PendingDSTPackingResult> pendingResults;
   SmallVector<int64_t> numDstFlipsPerOp;
+  SmallVector<Value> singleTileOutputValues;
+  bool sawMultiTileShard = false;
 
   for (linalg::GenericOp linalgOp : linalgOps) {
     if (linalgOp.getOutputs().size() != 1u) {
@@ -167,12 +168,10 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
         ttmlir::utils::volume<int64_t>(outputShapedType.getShape());
 
     if (shardSizeTiles == 1) {
-      pendingResults.push_back(PendingDSTPackingResult{
-          outputValue, /*numTilesPerFlip=*/1, /*numDstFlips=*/2,
-          /*numPaddingTiles=*/1});
-      numDstFlipsPerOp.push_back(2);
+      singleTileOutputValues.push_back(outputValue);
       continue;
     }
+    sawMultiTileShard = true;
 
     std::optional<int64_t> maxDstTiles = getMaxDstTilesForLinalgOp(linalgOp);
     if (!maxDstTiles) {
@@ -193,6 +192,29 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     pendingResults.push_back(
         PendingDSTPackingResult{outputValue, numTilesPerFlip, numDstFlips});
     numDstFlipsPerOp.push_back(numDstFlips);
+  }
+
+  // handle single tile shard special case early
+  if (!singleTileOutputValues.empty() && !sawMultiTileShard) {
+    results.numTilesPerResult = 1;
+    results.numOuterLoopIters = 1;
+    for (Value outputValue : singleTileOutputValues) {
+      if (!results.perResult
+               .try_emplace(outputValue,
+                            DSTPackingPerResultInfo{/*numDstFlips=*/1,
+                                                    /*numTilesPerFlip=*/1})
+               .second) {
+        generic.emitOpError("expected unique linalg.generic output values");
+        return std::nullopt;
+      }
+    }
+    return results;
+  }
+
+  if (!singleTileOutputValues.empty()) {
+    generic.emitOpError(
+        "expected all linalg.generic outputs in a region to have shard size 1");
+    return std::nullopt;
   }
 
   if (pendingResults.empty()) {
@@ -228,10 +250,9 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     }
 
     if (!results.perResult
-             .try_emplace(pending.outputValue,
-                          DSTPackingPerResultInfo{numDstFlips,
-                                                  pending.numTilesPerFlip,
-                                                  pending.numPaddingTiles})
+             .try_emplace(
+                 pending.outputValue,
+                 DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip})
              .second) {
       generic.emitOpError("expected unique linalg.generic output values");
       return std::nullopt;
