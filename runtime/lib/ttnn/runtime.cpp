@@ -36,8 +36,10 @@
 #include <tt-metalium/memory_pin.hpp>
 #include <vector>
 
+#include <atomic>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace tt::runtime::ttnn {
@@ -45,10 +47,10 @@ namespace tt::runtime::ttnn {
 using ::tt::runtime::DeviceRuntime;
 
 // Returns a raw pointer to a disk-backed mmap'd region of `total_size` bytes.
-// Uses O_TMPFILE so no filesystem entry is ever created or needs cleanup;
-// the kernel releases the backing storage when the mapping is destroyed.
-// The base directory defaults to /var/tmp but can be overridden via the
-// TT_MMAP_DIR environment variable.
+// Files are created under TT_MMAP_DIR (default: /var/tmp/tt_mmap) with a
+// monotonically increasing counter as the filename. The file is unlinked
+// immediately after open so no filesystem entry persists; the kernel releases
+// the backing storage when the mapping is destroyed.
 void *mmap_tensor_data(const void *data,
                        const std::vector<std::uint32_t> &shape,
                        std::uint32_t itemsize) {
@@ -63,21 +65,28 @@ void *mmap_tensor_data(const void *data,
 
   const char *base_dir = std::getenv("TT_MMAP_DIR");
   if (!base_dir) {
-    base_dir = "/var/tmp";
+    base_dir = "/var/tmp/tt_mmap";
   }
 
-  LOG_INFO("mmap_tensor_data: allocating ", total_size,
-           " bytes via O_TMPFILE in ", base_dir);
+  // Ensure the directory exists.
+  mkdir(base_dir, 0700);
 
-  // O_TMPFILE creates an unnamed inode on a real (disk-backed) filesystem.
-  // No unlink needed; the inode is freed when the fd is closed and the
-  // mapping is destroyed.
-  int fd = open(base_dir, O_TMPFILE | O_RDWR, 0600);
+  static std::atomic<uint64_t> counter{0};
+  std::string path =
+      std::string(base_dir) + "/" + std::to_string(counter.fetch_add(1));
+  for (auto s : shape) {
+    path += "_" + std::to_string(s);
+  }
+
+  LOG_INFO("mmap_tensor_data: allocating ", total_size, " bytes at ", path);
+
+  int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0600);
   if (fd == -1) {
-    LOG_ERROR("mmap_tensor_data: open(O_TMPFILE) failed in '", base_dir,
+    LOG_ERROR("mmap_tensor_data: open failed for '", path,
               "': ", strerror(errno));
     return nullptr;
   }
+  unlink(path.c_str()); // detach name; backing store lives until munmap
 
   if (ftruncate(fd, static_cast<off_t>(total_size)) == -1) {
     LOG_ERROR("mmap_tensor_data: ftruncate failed: ", strerror(errno));
