@@ -20,10 +20,16 @@ struct DSTPackingPerResultInfo {
   int64_t numTilesPerFlip = 0;
 };
 
-struct DSTPackingInfo {
+struct DSTPackingRegionInfo {
   llvm::SmallDenseMap<Value, DSTPackingPerResultInfo> perResult;
   int64_t numTilesPerResult = 0;
   int64_t numOuterLoopIters = 0;
+};
+
+struct DSTPackingInfo {
+  const DSTPackingRegionInfo *lookup(Region *region) const;
+
+  llvm::DenseMap<Region *, DSTPackingRegionInfo> perRegion;
 };
 
 struct DstRegisterAnalysis {

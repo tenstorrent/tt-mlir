@@ -90,12 +90,13 @@ protected:
     });
   }
 
-  mlir::SmallVector<mlir::Value>
+  mlir::SmallVector<std::pair<mlir::Region *, mlir::Value>>
   getSingleOutputValuesFromLinalgOps(d2m::GenericOp genericOp) {
-    mlir::SmallVector<mlir::Value> outputValues;
+    mlir::SmallVector<std::pair<mlir::Region *, mlir::Value>> outputValues;
     genericOp->walk([&](mlir::linalg::GenericOp linalgOp) {
       if (linalgOp.getOutputs().size() == 1u) {
-        outputValues.push_back(linalgOp.getOutputs().front());
+        outputValues.push_back(
+            {linalgOp->getParentRegion(), linalgOp.getOutputs().front()});
       }
     });
     return outputValues;
@@ -209,13 +210,16 @@ func.func @test(
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 1u);
-  auto it = packing.perResult.find(outputValues.front());
-  ASSERT_NE(it, packing.perResult.end());
-  ASSERT_EQ(packing.perResult.size(), 1u);
+  ASSERT_EQ(packing.perRegion.size(), 1u);
+  auto *regionInfo = packing.lookup(outputValues.front().first);
+  ASSERT_NE(regionInfo, nullptr);
+  auto it = regionInfo->perResult.find(outputValues.front().second);
+  ASSERT_NE(it, regionInfo->perResult.end());
+  ASSERT_EQ(regionInfo->perResult.size(), 1u);
   EXPECT_EQ(it->second.numTilesPerFlip, 2);
   EXPECT_EQ(it->second.numDstFlips, 2);
-  EXPECT_EQ(packing.numTilesPerResult, 4);
-  EXPECT_EQ(packing.numOuterLoopIters, 2);
+  EXPECT_EQ(regionInfo->numTilesPerResult, 4);
+  EXPECT_EQ(regionInfo->numOuterLoopIters, 2);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPU) {
@@ -259,16 +263,19 @@ func.func @test(
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 1u);
-  auto it = packing.perResult.find(outputValues.front());
-  ASSERT_NE(it, packing.perResult.end());
-  ASSERT_EQ(packing.perResult.size(), 1u);
+  ASSERT_EQ(packing.perRegion.size(), 1u);
+  auto *regionInfo = packing.lookup(outputValues.front().first);
+  ASSERT_NE(regionInfo, nullptr);
+  auto it = regionInfo->perResult.find(outputValues.front().second);
+  ASSERT_NE(it, regionInfo->perResult.end());
+  ASSERT_EQ(regionInfo->perResult.size(), 1u);
   EXPECT_EQ(it->second.numTilesPerFlip, 4);
   EXPECT_EQ(it->second.numDstFlips, 2);
-  EXPECT_EQ(packing.numTilesPerResult, 8);
-  EXPECT_EQ(packing.numOuterLoopIters, 1);
+  EXPECT_EQ(regionInfo->numTilesPerResult, 8);
+  EXPECT_EQ(regionInfo->numOuterLoopIters, 1);
 }
 
-TEST_F(GenericOpAnalysisTest, RejectsDifferentImmediateParentBlockingLoops) {
+TEST_F(GenericOpAnalysisTest, CanAnalyzeDSTPackingForDistinctParentRegions) {
   std::string moduleText = wrapInModule(R"mlir(
 func.func @test(
     %in: memref<1x1x8x!ttcore.tile<32x32, f32>>,
@@ -313,7 +320,21 @@ func.func @test(
   markAllForLoopsAsBlocking(generic);
 
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
-  EXPECT_TRUE(packing.perResult.empty());
+  auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
+  ASSERT_EQ(outputValues.size(), 2u);
+  ASSERT_EQ(packing.perRegion.size(), 2u);
+  ASSERT_NE(outputValues[0].first, outputValues[1].first);
+  for (const auto &[parentRegion, outputValue] : outputValues) {
+    auto *regionInfo = packing.lookup(parentRegion);
+    ASSERT_NE(regionInfo, nullptr);
+    ASSERT_EQ(regionInfo->perResult.size(), 1u);
+    auto it = regionInfo->perResult.find(outputValue);
+    ASSERT_NE(it, regionInfo->perResult.end());
+    EXPECT_EQ(it->second.numTilesPerFlip, 2);
+    EXPECT_EQ(it->second.numDstFlips, 2);
+    EXPECT_EQ(regionInfo->numTilesPerResult, 4);
+    EXPECT_EQ(regionInfo->numOuterLoopIters, 2);
+  }
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingManyMixedOps) {
@@ -383,21 +404,32 @@ func.func @test(
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 4u);
-  ASSERT_EQ(packing.perResult.size(), 4u);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numTilesPerFlip,
-            2); // tile_abs => SFPU fp32
-  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numTilesPerFlip,
-            4); // tile_add(tile,tile) => FPU fp32
-  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numTilesPerFlip,
-            2); // tile_mul(tile,scalar) => SFPU fp32
-  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numTilesPerFlip,
-            4); // tile_sub(tile,tile) => FPU fp32
-  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numDstFlips, 4);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numDstFlips, 2);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numDstFlips, 4);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numDstFlips, 2);
-  EXPECT_EQ(packing.numTilesPerResult, 8);
-  EXPECT_EQ(packing.numOuterLoopIters, 1);
+  ASSERT_EQ(packing.perRegion.size(), 1u);
+  auto *regionInfo = packing.lookup(outputValues.front().first);
+  ASSERT_NE(regionInfo, nullptr);
+  ASSERT_EQ(regionInfo->perResult.size(), 4u);
+  EXPECT_EQ(
+      regionInfo->perResult.lookup(outputValues[0].second).numTilesPerFlip,
+      2); // tile_abs => SFPU fp32
+  EXPECT_EQ(
+      regionInfo->perResult.lookup(outputValues[1].second).numTilesPerFlip,
+      4); // tile_add(tile,tile) => FPU fp32
+  EXPECT_EQ(
+      regionInfo->perResult.lookup(outputValues[2].second).numTilesPerFlip,
+      2); // tile_mul(tile,scalar) => SFPU fp32
+  EXPECT_EQ(
+      regionInfo->perResult.lookup(outputValues[3].second).numTilesPerFlip,
+      4); // tile_sub(tile,tile) => FPU fp32
+  EXPECT_EQ(regionInfo->perResult.lookup(outputValues[0].second).numDstFlips,
+            4);
+  EXPECT_EQ(regionInfo->perResult.lookup(outputValues[1].second).numDstFlips,
+            2);
+  EXPECT_EQ(regionInfo->perResult.lookup(outputValues[2].second).numDstFlips,
+            4);
+  EXPECT_EQ(regionInfo->perResult.lookup(outputValues[3].second).numDstFlips,
+            2);
+  EXPECT_EQ(regionInfo->numTilesPerResult, 8);
+  EXPECT_EQ(regionInfo->numOuterLoopIters, 1);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingPrimeShardShapes) {
@@ -467,21 +499,32 @@ func.func @test(
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 4u);
-  ASSERT_EQ(packing.perResult.size(), 4u);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numTilesPerFlip,
-            1); // prime shard, SFPU fp32
-  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numTilesPerFlip,
-            1); // prime shard, FPU fp32
-  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numTilesPerFlip,
-            1); // prime shard, SFPU fp32
-  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numTilesPerFlip,
-            1); // prime shard, FPU fp32
-  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numDstFlips, 7);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numDstFlips, 7);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numDstFlips, 7);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numDstFlips, 7);
-  EXPECT_EQ(packing.numTilesPerResult, 7);
-  EXPECT_EQ(packing.numOuterLoopIters, 1);
+  ASSERT_EQ(packing.perRegion.size(), 1u);
+  auto *regionInfo = packing.lookup(outputValues.front().first);
+  ASSERT_NE(regionInfo, nullptr);
+  ASSERT_EQ(regionInfo->perResult.size(), 4u);
+  EXPECT_EQ(
+      regionInfo->perResult.lookup(outputValues[0].second).numTilesPerFlip,
+      1); // prime shard, SFPU fp32
+  EXPECT_EQ(
+      regionInfo->perResult.lookup(outputValues[1].second).numTilesPerFlip,
+      1); // prime shard, FPU fp32
+  EXPECT_EQ(
+      regionInfo->perResult.lookup(outputValues[2].second).numTilesPerFlip,
+      1); // prime shard, SFPU fp32
+  EXPECT_EQ(
+      regionInfo->perResult.lookup(outputValues[3].second).numTilesPerFlip,
+      1); // prime shard, FPU fp32
+  EXPECT_EQ(regionInfo->perResult.lookup(outputValues[0].second).numDstFlips,
+            7);
+  EXPECT_EQ(regionInfo->perResult.lookup(outputValues[1].second).numDstFlips,
+            7);
+  EXPECT_EQ(regionInfo->perResult.lookup(outputValues[2].second).numDstFlips,
+            7);
+  EXPECT_EQ(regionInfo->perResult.lookup(outputValues[3].second).numDstFlips,
+            7);
+  EXPECT_EQ(regionInfo->numTilesPerResult, 7);
+  EXPECT_EQ(regionInfo->numOuterLoopIters, 1);
 }
 
 TEST_F(GenericOpAnalysisTest,
@@ -552,22 +595,33 @@ func.func @test(
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 4u);
-  ASSERT_EQ(packing.perResult.size(), 4u);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numTilesPerFlip,
-            1); // tile_abs => SFPU fp32, maxDst=2, only factor of 15 <= 2 is 1
-  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numTilesPerFlip,
-            3); // tile_add(tile,tile) => FPU fp32, maxDst=4, largest factor of
-                // 15 <= 4 is 3
-  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numTilesPerFlip,
-            1); // tile_mul(tile,scalar) => SFPU fp32
-  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numTilesPerFlip,
-            3); // tile_sub(tile,tile) => FPU fp32
-  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numDstFlips, 15);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numDstFlips, 5);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numDstFlips, 15);
-  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numDstFlips, 5);
-  EXPECT_EQ(packing.numTilesPerResult, 15);
-  EXPECT_EQ(packing.numOuterLoopIters, 1);
+  ASSERT_EQ(packing.perRegion.size(), 1u);
+  auto *regionInfo = packing.lookup(outputValues.front().first);
+  ASSERT_NE(regionInfo, nullptr);
+  ASSERT_EQ(regionInfo->perResult.size(), 4u);
+  EXPECT_EQ(
+      regionInfo->perResult.lookup(outputValues[0].second).numTilesPerFlip,
+      1); // tile_abs => SFPU fp32, maxDst=2, only factor of 15 <= 2 is 1
+  EXPECT_EQ(
+      regionInfo->perResult.lookup(outputValues[1].second).numTilesPerFlip,
+      3); // tile_add(tile,tile) => FPU fp32, maxDst=4, largest factor of
+          // 15 <= 4 is 3
+  EXPECT_EQ(
+      regionInfo->perResult.lookup(outputValues[2].second).numTilesPerFlip,
+      1); // tile_mul(tile,scalar) => SFPU fp32
+  EXPECT_EQ(
+      regionInfo->perResult.lookup(outputValues[3].second).numTilesPerFlip,
+      3); // tile_sub(tile,tile) => FPU fp32
+  EXPECT_EQ(regionInfo->perResult.lookup(outputValues[0].second).numDstFlips,
+            15);
+  EXPECT_EQ(regionInfo->perResult.lookup(outputValues[1].second).numDstFlips,
+            5);
+  EXPECT_EQ(regionInfo->perResult.lookup(outputValues[2].second).numDstFlips,
+            15);
+  EXPECT_EQ(regionInfo->perResult.lookup(outputValues[3].second).numDstFlips,
+            5);
+  EXPECT_EQ(regionInfo->numTilesPerResult, 15);
+  EXPECT_EQ(regionInfo->numOuterLoopIters, 1);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPUBf16_8x8) {
@@ -611,13 +665,16 @@ func.func @test(
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 1u);
-  auto it = packing.perResult.find(outputValues.front());
-  ASSERT_NE(it, packing.perResult.end());
-  ASSERT_EQ(packing.perResult.size(), 1u);
+  ASSERT_EQ(packing.perRegion.size(), 1u);
+  auto *regionInfo = packing.lookup(outputValues.front().first);
+  ASSERT_NE(regionInfo, nullptr);
+  auto it = regionInfo->perResult.find(outputValues.front().second);
+  ASSERT_NE(it, regionInfo->perResult.end());
+  ASSERT_EQ(regionInfo->perResult.size(), 1u);
   EXPECT_EQ(it->second.numTilesPerFlip, 8);
   EXPECT_EQ(it->second.numDstFlips, 2);
-  EXPECT_EQ(packing.numTilesPerResult, 16);
-  EXPECT_EQ(packing.numOuterLoopIters, 4);
+  EXPECT_EQ(regionInfo->numTilesPerResult, 16);
+  EXPECT_EQ(regionInfo->numOuterLoopIters, 4);
 }
 
 } // namespace mlir::tt::d2m
