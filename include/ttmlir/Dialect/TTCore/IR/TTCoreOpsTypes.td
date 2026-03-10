@@ -700,6 +700,18 @@ def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, Float
     let genVerifyDecl = 1;
 }
 
+def TTCore_DictType : TTCore_Type<"Dict", "dict"> {
+  let summary = "TTCore dictionary type";
+  let description = [{
+    A type representing a dictionary.
+
+    Example:
+    ```mlir
+    !ttcore.dict
+    ```
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // Auxiliary type definitions
 //===----------------------------------------------------------------------===//
