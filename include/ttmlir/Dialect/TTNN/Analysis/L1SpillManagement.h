@@ -18,17 +18,22 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <queue>
 
 namespace mlir::tt::ttnn {
 
-/// Simple sum-based L1 memory tracker. Tracks total L1 as sum of per-result
-/// tensor sizes (keyed by Value). For multi-output ops, each result is tracked
-/// independently, enabling precise L1 reclamation when individual results die.
+/// Sum-based L1 memory tracker with address simulation. Tracks total L1 as
+/// sum of per-result tensor sizes, and simulates top-down allocation to detect
+/// fragmentation (CB clash with low-address tensors).
 struct SumL1MemoryTracker {
   op_constraint_validation::ValidationResult
   validate(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
            const OpConfig &config) const;
+
+  /// Initialize address simulation with the L1 budget. Must be called before
+  /// addTensor/removeTensor.
+  void init(uint64_t l1BudgetPerCore);
 
   uint64_t getOccupiedL1() const;
   void addTensor(Value result, uint64_t l1SizePerCore);
@@ -36,9 +41,35 @@ struct SumL1MemoryTracker {
   bool hasTensor(Value result) const;
   uint64_t getTensorSize(Value result) const;
 
+  /// Return the lowest simulated address of any allocated tensor.
+  /// Returns l1Budget if no tensors are allocated.
+  uint64_t getLowestOccupiedAddress() const;
+
+  /// Return all Values with simulated address below the given threshold.
+  llvm::SmallVector<Value> getTensorsBelow(uint64_t address) const;
+
+  /// Speculative allocation query: returns the address where a tensor of the
+  /// given size would be placed (top-down first-fit, 32-byte aligned), without
+  /// actually allocating. Returns nullopt if no contiguous block fits.
+  std::optional<uint64_t> wouldAllocateAt(uint64_t l1SizePerCore) const;
+
 private:
   uint64_t currentOccupied = 0;
   llvm::DenseMap<Value, uint64_t> tensorSizes;
+
+  // --- Address simulation state ---
+  static constexpr uint64_t kL1Alignment = 32;
+  uint64_t l1Budget = 0;
+
+  struct FreeBlock {
+    uint64_t start;
+    uint64_t end;
+    uint64_t size() const { return end - start; }
+  };
+  llvm::SmallVector<FreeBlock> freeList;
+
+  // Allocated tensor addresses: Value -> (start, alignedSize).
+  llvm::DenseMap<Value, std::pair<uint64_t, uint64_t>> tensorAddresses;
 };
 
 /// L1SpillManagement enforces L1 budget constraints using Belady's optimal
@@ -144,14 +175,21 @@ private:
   /// Remove result tensors whose last use was the previous position.
   void processDeadTensors(int64_t pos, const ScheduleData &data);
 
-  /// Estimate the transient L1 fragmentation peak for an op. Returns true if
-  /// the op should be spilled to DRAM to avoid CB-vs-buffer address clashes.
-  /// The estimate accounts for the op's output, its largest L1 input (live
-  /// during execution), and the largest L1 input to the producer (a freed hole
-  /// that fragments L1). See:
-  /// https://github.com/tenstorrent/tt-mlir/issues/7396
-  bool exceedsFragmentationThreshold(Operation *op, int64_t pos,
-                                     uint64_t opL1Size);
+  /// Check if the op's CB region (growing bottom-up) would overlap with any
+  /// live tensor or the speculative output tensor based on simulated L1
+  /// addresses. Uses min(speculativeOutputAddr, lowestOccupiedAddress) as
+  /// the effective lowest tensor address.
+  /// See: https://github.com/tenstorrent/tt-mlir/issues/7396
+  bool wouldCBsOverlapTensors(Operation *op, int64_t pos,
+                               uint64_t cbPeakUsage,
+                               uint64_t speculativeOutputAddr);
+
+  /// Fragmentation recovery: evict tensors in the CB danger zone, re-validate,
+  /// or demote output to DRAM. Returns L1 bytes to add to live set (0 if
+  /// demoted). After eviction, re-checks both output fit and CB overlap.
+  uint64_t handleFragmentation(Operation *op, int64_t pos,
+                               const ScheduleData &data, uint64_t opL1Usage,
+                               uint64_t cbPeakUsage, uint64_t outputL1Size);
 
   /// OOM recovery: demote to L1-interleaved, evict farthest-use, or spill self.
   void handleOOM(Operation *op, int64_t pos,
