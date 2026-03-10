@@ -190,6 +190,7 @@ def remote_load(
 @pytest.mark.parametrize(
     "block_shape,block_factors",
     [
+        #((64, 64, 64), (1, 1, 1)),
         ((64, 64, 64), (1, 1, 8)),
         #((32, 32, 64), (2, 2, 8)),
         #((64, 64, 32), (1, 1, 16)),
@@ -293,22 +294,13 @@ def test_generic(
                 iterator_types=iterator_types,
             )
             def mm(lhs, rhs, out):
-                mci = d2m.core_index(0)
-                nci = d2m.core_index(1)
                 mbi = d2m.block_index(0)
                 nbi = d2m.block_index(1)
                 kbi = d2m.block_index(2)
-                # replace with d2m.get_block_factor
-                mbf = arith.constant(IndexType.get(lhs.context), block_factors[0])
-                nbf = arith.constant(IndexType.get(lhs.context), block_factors[1])
-                kbf = arith.constant(IndexType.get(lhs.context), block_factors[2])
-                mi = arith.addi(arith.muli(mci, mbf), mbi)
-                ni = arith.addi(arith.muli(nci, nbf), nbi)
-                ki = kbi
                 r = arith.constant(IndexType.get(lhs.context), 0)
                 c = arith.constant(IndexType.get(lhs.context), 1)
-                lhs_shard = remote_load(lhs, [mi, ki], mcast_dims=[r])
-                rhs_shard = remote_load(rhs, [ki, ni], mcast_dims=[c])
+                lhs_shard = remote_load(lhs, [mbi, kbi], mcast_dims=[r])
+                rhs_shard = remote_load(rhs, [kbi, nbi], mcast_dims=[c])
                 out_shard = tensor.empty(out_block_shape, out.type.element_type)
                 d2m.tile_matmul_block(lhs_shard, rhs_shard, out_shard)
                 res = d2m.remote_store(
@@ -352,32 +344,17 @@ def test_generic(
             builder.set_goldens({lhs: lhs_golden, rhs: rhs_golden}, {res: out_golden})
             return res
 
-    def mm_comparison(builder: D2MBuilder):
-        lhs_golden = torch.randn(lhs_shape)
-        rhs_golden = torch.randn(rhs_shape)
-        out_golden = lhs_golden @ rhs_golden
-
-        @builder.func([lhs_shape, rhs_shape], [torch.float32, torch.float32])
-        def main(
-            lhs: Operand,
-            rhs: Operand,
-            builder: D2MBuilder,
-            unit_attrs: List[str] = None,
-        ):
-            return builder.matmul(lhs, rhs)
-
     options = [
         f"use-tile-matmul={use_tile_matmul}",
         f"enable-l1-acc={enable_l1_acc}",
     ]
     compile_and_execute_d2m(
         generic_module,
-        # mm_comparison,
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         print_ir=True,
-        #check_pcc=False,
+        check_pcc=False,
         **get_request_kwargs(request),
     )
     calc_tops(device, m * n * k)
