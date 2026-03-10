@@ -677,11 +677,9 @@ void DecisionTraceObserver::onFragmentationDemote(
   event.occupiedL1Before = occupiedL1;
   event.occupiedL1After = occupiedL1;
   event.opL1Usage = opL1Size;
-  event.details = "transientPeak=" + std::to_string(transientPeak) +
-                  " (output=" + std::to_string(opL1Size) +
-                  " + input=" + std::to_string(inputL1Size) +
-                  " + hole=" + std::to_string(holeL1Size) +
-                  ") > limit=" + std::to_string(fragLimit);
+  event.details = "cbPeakUsage=" + std::to_string(transientPeak) +
+                  " > lowestOccupiedAddr=" + std::to_string(fragLimit) +
+                  " (occupied=" + std::to_string(occupiedL1) + ")";
   trace.spillManagement.events.push_back(std::move(event));
 }
 

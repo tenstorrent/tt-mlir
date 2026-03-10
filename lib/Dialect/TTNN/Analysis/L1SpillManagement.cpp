@@ -49,9 +49,43 @@ SumL1MemoryTracker::validate(Operation *op,
 
 uint64_t SumL1MemoryTracker::getOccupiedL1() const { return currentOccupied; }
 
+void SumL1MemoryTracker::init(uint64_t l1BudgetPerCore) {
+  l1Budget = l1BudgetPerCore;
+  freeList.clear();
+  freeList.push_back({0, l1Budget});
+  tensorAddresses.clear();
+}
+
 void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore) {
   tensorSizes[result] = l1SizePerCore;
   currentOccupied += l1SizePerCore;
+
+  // Address simulation: top-down allocation with 32-byte alignment.
+  if (l1SizePerCore == 0 || l1Budget == 0) {
+    return;
+  }
+  uint64_t alignedSize = (l1SizePerCore + kL1Alignment - 1) & ~(kL1Alignment - 1);
+
+  // Walk free list from highest address (reverse) for top-down first-fit.
+  for (int i = static_cast<int>(freeList.size()) - 1; i >= 0; --i) {
+    if (freeList[i].size() >= alignedSize) {
+      // Allocate from the top of this block.
+      uint64_t allocStart = freeList[i].end - alignedSize;
+      tensorAddresses[result] = {allocStart, alignedSize};
+
+      // Shrink or remove the free block.
+      if (freeList[i].size() == alignedSize) {
+        freeList.erase(freeList.begin() + i);
+      } else {
+        freeList[i].end = allocStart;
+      }
+      return;
+    }
+  }
+  // No fit — log warning. Sum tracker still works; frag check will catch it.
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+               "Address simulator: no fit for {} bytes (aligned {})",
+               l1SizePerCore, alignedSize);
 }
 
 void SumL1MemoryTracker::removeTensor(Value result) {
@@ -59,6 +93,39 @@ void SumL1MemoryTracker::removeTensor(Value result) {
   if (it != tensorSizes.end()) {
     currentOccupied -= it->second;
     tensorSizes.erase(it);
+  }
+
+  // Address simulation: free the block and merge with adjacent free blocks.
+  auto addrIt = tensorAddresses.find(result);
+  if (addrIt == tensorAddresses.end()) {
+    return;
+  }
+  auto [freedStart, freedSize] = addrIt->second;
+  uint64_t freedEnd = freedStart + freedSize;
+  tensorAddresses.erase(addrIt);
+
+  // Find insertion point in sorted freeList (sorted by start address).
+  size_t insertIdx = 0;
+  while (insertIdx < freeList.size() && freeList[insertIdx].start < freedStart) {
+    ++insertIdx;
+  }
+
+  // Check merge with previous and next free blocks.
+  bool mergePrev =
+      insertIdx > 0 && freeList[insertIdx - 1].end == freedStart;
+  bool mergeNext =
+      insertIdx < freeList.size() && freeList[insertIdx].start == freedEnd;
+
+  if (mergePrev && mergeNext) {
+    // Three-way merge: extend previous to cover freed + next.
+    freeList[insertIdx - 1].end = freeList[insertIdx].end;
+    freeList.erase(freeList.begin() + insertIdx);
+  } else if (mergePrev) {
+    freeList[insertIdx - 1].end = freedEnd;
+  } else if (mergeNext) {
+    freeList[insertIdx].start = freedStart;
+  } else {
+    freeList.insert(freeList.begin() + insertIdx, {freedStart, freedEnd});
   }
 }
 
@@ -69,6 +136,44 @@ bool SumL1MemoryTracker::hasTensor(Value result) const {
 uint64_t SumL1MemoryTracker::getTensorSize(Value result) const {
   auto it = tensorSizes.find(result);
   return it != tensorSizes.end() ? it->second : 0;
+}
+
+uint64_t SumL1MemoryTracker::getLowestOccupiedAddress() const {
+  if (tensorAddresses.empty()) {
+    return l1Budget;
+  }
+  uint64_t lowest = l1Budget;
+  for (const auto &entry : tensorAddresses) {
+    lowest = std::min(lowest, entry.second.first);
+  }
+  return lowest;
+}
+
+std::optional<uint64_t>
+SumL1MemoryTracker::wouldAllocateAt(uint64_t l1SizePerCore) const {
+  if (l1SizePerCore == 0 || l1Budget == 0) {
+    return l1Budget; // Trivially fits at the top.
+  }
+  uint64_t alignedSize =
+      (l1SizePerCore + kL1Alignment - 1) & ~(kL1Alignment - 1);
+  // Walk free list from highest address (reverse) for top-down first-fit.
+  for (int i = static_cast<int>(freeList.size()) - 1; i >= 0; --i) {
+    if (freeList[i].size() >= alignedSize) {
+      return freeList[i].end - alignedSize;
+    }
+  }
+  return std::nullopt;
+}
+
+llvm::SmallVector<Value>
+SumL1MemoryTracker::getTensorsBelow(uint64_t address) const {
+  llvm::SmallVector<Value> result;
+  for (const auto &entry : tensorAddresses) {
+    if (entry.second.first < address) {
+      result.push_back(entry.first);
+    }
+  }
+  return result;
 }
 
 //===----------------------------------------------------------------------===//
@@ -85,6 +190,7 @@ L1SpillManagement<MemoryTracker>::L1SpillManagement(
   } else {
     observer_ = std::make_unique<L1SpillObserver>();
   }
+  memoryTracker.init(l1BudgetPerCore);
 }
 
 //===----------------------------------------------------------------------===//
@@ -473,38 +579,125 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
 }
 
 //===----------------------------------------------------------------------===//
-// exceedsFragmentationThreshold
+// handleFragmentation
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-bool L1SpillManagement<MemoryTracker>::exceedsFragmentationThreshold(
-    Operation *op, int64_t pos, uint64_t opL1Size) {
-  // Estimate worst-case transient L1 peak during this op's execution.
-  // At runtime, tt-metal allocates tensors from the top of each L1 bank.
-  // Prior ops' freed outputs leave holes that can't be reused by larger
-  // tensors, reducing the largest contiguous free block below the total free.
-  //
-  // The transient peak is: opOutput + totalOccupiedL1.
-  // All live L1 tensors (tracked by the memory tracker) contribute to
-  // fragmentation — their scattered placement reduces contiguous free space.
-  // When the op's output plus all occupied L1 exceeds the fragmentation
-  // threshold, the allocation is unlikely to find a contiguous free block.
-  // See: https://github.com/tenstorrent/tt-mlir/issues/7396
-  constexpr double kFragThreshold = 0.8;
-  uint64_t occupied = memoryTracker.getOccupiedL1();
-  uint64_t transientPeak = opL1Size + occupied;
-  uint64_t fragLimit = static_cast<uint64_t>(kFragThreshold * l1BudgetPerCore);
-
-  if (transientPeak > fragLimit) {
+uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
+    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
+    uint64_t cbPeakUsage, uint64_t outputL1Size) {
+  // No CB info → can only be here due to output-cannot-fit. Can't do targeted
+  // eviction without knowing which tensors to free. Demote directly.
+  if (cbPeakUsage == 0) {
+    demoteToDram(op);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    FRAG_RISK: transientPeak={0} (output={1} + "
-                 "occupied={2}) > {3}",
-                 transientPeak, opL1Size, occupied, fragLimit);
-    observer_->onFragmentationDemote(op, pos, transientPeak, opL1Size,
+                 "    FRAG_DEMOTE (no-fit, no CB info): output to DRAM");
+    return 0;
+  }
+
+  // Evict tensors in the CB danger zone: those with simulated address below
+  // cbPeakUsage. These could be inputs or unrelated live tensors.
+  auto dangerTensors = memoryTracker.getTensorsBelow(cbPeakUsage);
+  llvm::SmallVector<Operation *> evictedOps;
+  for (Value victim : dangerTensors) {
+    if (!liveValues.count(victim)) {
+      continue;
+    }
+    uint64_t freedBytes = memoryTracker.getTensorSize(victim);
+    if (freedBytes == 0) {
+      continue;
+    }
+    Operation *victimOp = victim.getDefiningOp();
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    FRAG_EVICT: {0} (L1: {1} bytes, addr below {2})",
+                 ttmlir::opToString(victimOp), freedBytes, cbPeakUsage);
+    observer_->onEviction(victimOp, pos, freedBytes);
+    spillToDram(victim);
+    memoryTracker.removeTensor(victim);
+    liveValues.erase(victim);
+    if (victimOp) {
+      evictedOps.push_back(victimOp);
+    }
+  }
+
+  // Revalidate consumers of all evicted tensors (limited to pos < current).
+  for (Operation *evictedOp : evictedOps) {
+    revalidateConsumers(evictedOp, pos, data.positionMap);
+  }
+
+  // After eviction, re-check both conditions with the updated free list.
+  auto freshOutputAddr = memoryTracker.wouldAllocateAt(outputL1Size);
+  if (!freshOutputAddr) {
+    demoteToDram(op);
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    FRAG_DEMOTE (still no-fit after eviction): output to "
+                 "DRAM");
+    return 0;
+  }
+
+  uint64_t freshEffectiveLowest =
+      std::min(*freshOutputAddr, memoryTracker.getLowestOccupiedAddress());
+  if (cbPeakUsage > freshEffectiveLowest) {
+    demoteToDram(op);
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    FRAG_DEMOTE (CB overlap persists): cbPeak={0} > "
+                 "effectiveLowest={1}",
+                 cbPeakUsage, freshEffectiveLowest);
+    return 0;
+  }
+
+  // Re-extract layouts after eviction and re-validate.
+  auto inputLayouts = utils::extractInputLayouts(op);
+  auto config = extractOpConfigFromIR(op);
+  auto freshResult = memoryTracker.validate(op, inputLayouts, config);
+  if (freshResult.isSuccess()) {
+    uint64_t freshL1 =
+        freshResult.outputL1Usage > 0 ? freshResult.outputL1Usage : opL1Usage;
+    applyOutputConfig(op, freshResult);
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    FRAG_RESOLVED: L1 now {0}/{1}",
+                 memoryTracker.getOccupiedL1(), l1BudgetPerCore);
+    return freshL1;
+  }
+
+  demoteToDram(op);
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "    FRAG_DEMOTE: output to DRAM");
+  return 0;
+}
+
+//===----------------------------------------------------------------------===//
+// wouldCBsOverlapTensors
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+bool L1SpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
+    Operation *op, int64_t pos, uint64_t cbPeakUsage,
+    uint64_t speculativeOutputAddr) {
+  // Check if the op's CB region (growing bottom-up from base) would overlap
+  // with any live tensor or the speculative output tensor.
+  // See: https://github.com/tenstorrent/tt-mlir/issues/7396
+  if (cbPeakUsage == 0) {
+    return false;
+  }
+
+  uint64_t lowestExistingAddr = memoryTracker.getLowestOccupiedAddress();
+  uint64_t effectiveLowest =
+      std::min(speculativeOutputAddr, lowestExistingAddr);
+
+  if (cbPeakUsage > effectiveLowest) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    FRAG_RISK: cbPeakUsage={0} > effectiveLowest={1} "
+                 "(speculativeOutput={2}, lowestExisting={3}, occupied={4})",
+                 cbPeakUsage, effectiveLowest, speculativeOutputAddr,
+                 lowestExistingAddr, memoryTracker.getOccupiedL1());
+    observer_->onFragmentationDemote(op, pos, cbPeakUsage, cbPeakUsage,
                                      /*inputL1Size=*/0, /*holeL1Size=*/0,
-                                     fragLimit, occupied);
+                                     effectiveLowest,
+                                     memoryTracker.getOccupiedL1());
     return true;
   }
+
   return false;
 }
 
@@ -601,31 +794,29 @@ void L1SpillManagement<MemoryTracker>::run() {
       uint64_t l1Size =
           result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
 
-      // Check fragmentation risk before committing to L1.
-      if (exceedsFragmentationThreshold(op, pos, l1Size)) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                     "    FRAG_DEMOTE at pos {0}: {1}", pos,
-                     ttmlir::opToString(op));
-        demoteToDram(op);
+      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                   "    VALIDATION SUCCESS: op {0}, "
+                   "cbPeakUsage={1}, outputL1={2} bytes",
+                   ttmlir::opToString(op), result.cbPeakUsage, l1Size);
 
-        // Re-validate with DRAM output. If it fails, revert to L1 and
-        // proceed on the happy path — hope the runtime can handle it.
-        auto demotedConfig = extractOpConfigFromIR(op);
-        auto demotedResult =
-            memoryTracker.validate(op, inputLayouts, demotedConfig);
-        if (!demotedResult.isSuccess()) {
-          TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                       "    FRAG_DEMOTE validation failed, reverting: {0}",
-                       ttmlir::opToString(op));
-          // Revert: restore original L1 config and fall through to happy path.
-          applyOutputConfig(op, result);
-          addResultsToLiveSet(result.outputL1Usage > 0 ? result.outputL1Usage
-                                                       : opL1Usage);
-        }
-        continue;
+      // Fragmentation check: can the output fit contiguously, and would CBs
+      // overlap any tensor (including the speculative output placement)?
+      auto speculativeOutputAddr = memoryTracker.wouldAllocateAt(l1Size);
+      bool outputCannotFit = !speculativeOutputAddr;
+      bool cbOverlapsTensors =
+          !outputCannotFit &&
+          wouldCBsOverlapTensors(op, pos, result.cbPeakUsage,
+                                 *speculativeOutputAddr);
+
+      if (outputCannotFit || cbOverlapsTensors) {
+        l1Size = handleFragmentation(op, pos, data, opL1Usage,
+                                     result.cbPeakUsage, l1Size);
       }
 
-      // Validation passed -- add all tensor results to live set.
+      // Add tensor results to live set (0 means demoted to DRAM, skip).
+      if (l1Size == 0) {
+        continue;
+      }
       addResultsToLiveSet(l1Size);
       observer_->onLiveAdded(op, pos, l1Size, pos,
                              memoryTracker.getOccupiedL1());
