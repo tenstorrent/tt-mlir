@@ -107,4 +107,9 @@ def D2M_GlobalSemaphore : D2M_Type<"GlobalSemaphore", "global_semaphore"> {
     let description = "Global semaphore type used with semaphore wait/set ops to synchronize cores.";
 }
 
+def D2M_MeshPosition : D2M_Type<"MeshPosition", "mesh_position"> {
+  let summary = "Mesh position type.";
+  let description = "Used to represent a device's position on a mesh.";
+}
+
 #endif  // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSTYPES_TD

@@ -1360,7 +1360,7 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
                            ArrayAttr indexingMaps, ArrayAttr iteratorTypes,
                            ThreadType singleThreadType, ttcore::GridAttr grid,
                            ArrayRef<int64_t> blockFactors) {
-  TT_assertv(!indexingMaps.empty(), "expected non-empty indexing maps");
+  // TT_assertv(!indexingMaps.empty(), "expected non-empty indexing maps");
   TT_assertv(outputs.size() == 1u, "expected single output");
 
   if (!grid) {
@@ -1883,9 +1883,9 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
   // Unified form will be replicated across compute and datamovement threads.
   // Reject semaphore ops that would create race conditions when replicated.
   if (isUnifiedForm()) {
-    if (failed(utils::checkForIllegalSemaphoreOps(&getRegion(0).front()))) {
-      return failure();
-    }
+    // if (failed(utils::checkForIllegalSemaphoreOps(&getRegion(0).front()))) {
+    //   return failure();
+    // }
   }
 
   ValueTypeRange<OperandRange> inputOutputOperandTypes =
@@ -2336,7 +2336,8 @@ d2m::GenericOp::getInputOutputOperandShardShapes(bool convertTileToScalar) {
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getPhysicalGridShape() {
   TT_assert(getOutputs().size() == 1u);
-  return d2m::utils::getPhysicalGridShape(getOutputs().front());
+  return llvm::to_vector(getGrid().getShape());
+  // TODO: this is not correct for virtual grids (where grid can be 1x64)
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {

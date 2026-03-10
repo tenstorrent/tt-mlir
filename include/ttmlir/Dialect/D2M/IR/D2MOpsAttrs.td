@@ -26,9 +26,12 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
     "ThreadType":$threadType,
     OptionalParameter<"SymbolRefAttr">:$kernelSymbol,
     DefaultValuedParameter<"int32_t", "-1">:$nocIndex
+    // TODO: should this be here or as an attribute in d2m.generic
+    //OptionalParameter<"tt::ttmetal::FabricConnectionConfigAttr">:$fabric_config
   );
 
   let assemblyFormat = [{ `<` $threadType (`,` $kernelSymbol^)? (`,` `noc` `=` $nocIndex^)? `>` }];
+  //let assemblyFormat = [{ `<` $threadType (`,` $kernelSymbol^)? (`,` $fabric_config^)? `>` }];
 
   let extraClassDeclaration = [{
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType) {

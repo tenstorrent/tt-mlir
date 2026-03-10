@@ -16,6 +16,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 #include <cstdint>
+#include <mlir-c/IR.h>
 
 namespace mlir::tt::ttmetal {
 
@@ -173,8 +174,35 @@ public:
     auto kernelConfigs = convertThreadsToKernelConfigs(
         rewriter, op.getInputsAndOutputs(), threads, physicalGridShape,
         symbolTable, mathFidelity_);
+    // TODO: fix with properly passing fabric config to generic op
+    std::optional<ttmetal::FabricConnectionConfigAttr> fabricConnectionManager;
+    int generic_op_idx = 0;
+    op->getParentOfType<ModuleOp>()->walk([&](d2m::GenericOp genericOp) {
+      if (op == genericOp) {
+        return WalkResult::interrupt();
+      }
+      generic_op_idx++;
+      return WalkResult::advance();
+    });
+    if (generic_op_idx == 1) {
+      NocIndex noc_index = NocIndex::Noc1;
+      uint32_t cluster_axis = 1; // get from op
+      uint32_t num_links = 1;    // get from sys desc
+      ttcore::Topology topology =
+          ttcore::Topology::Ring; // should be assigned by op based on supported
+                                  // topologies from sys desc
+      ttmetal::RoutingMode routing_mode =
+          ttmetal::RoutingMode::UnidirRingTorus; // should be assigned by op
+                                                 // based on supported routing
+                                                 // modes from sys desc
+      fabricConnectionManager = ttmetal::FabricConnectionConfigAttr::get(
+          rewriter.getContext(), noc_index, topology, cluster_axis,
+          routing_mode, num_links);
+    }
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, args, cbs, cbPorts, kernelConfigs, nullptr);
+        op, args, cbs, cbPorts, kernelConfigs,
+        fabricConnectionManager.has_value() ? fabricConnectionManager.value()
+                                            : nullptr);
     return success();
   };
 

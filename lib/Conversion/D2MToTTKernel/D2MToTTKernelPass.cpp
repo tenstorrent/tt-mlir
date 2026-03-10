@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -157,6 +158,41 @@ struct ConvertD2MToTTKernel
                                   ttnnMode);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
+
+    // Insert fabric connection manager and setup fabric connections at the
+    // start of the function.
+    // TODO: should this be a pattern as well?, just want to ensure its used at
+    // the start.
+    // insert fcm ops if there is a fabric write
+    // what if we insert everytime and then remove on canonicalization?
+    // technically not valid since we can only setup connections once
+    ModuleOp moduleOp = getOperation();
+    moduleOp->walk([&](func::FuncOp func) {
+      bool fabric_write_present = false;
+      func.walk([&](d2m::DMAWriteOp dmaWriteOp) {
+        if (dmaWriteOp.getStartDevice().size() > 0) {
+          fabric_write_present = true;
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+
+      if (fabric_write_present) {
+        OpBuilder builder(func.getContext());
+        builder.setInsertionPointToStart(&func.getBody().front());
+        auto fabricConnectionManager =
+            builder
+                .create<ttkernel::CreateFabricConnectionManagerOp>(
+                    func.getLoc())
+                .getResult();
+        builder.create<ttkernel::SetupFabricConnectionsOp>(
+            func.getLoc(), fabricConnectionManager);
+        Operation *terminator = func.getBody().front().getTerminator();
+        builder.setInsertionPoint(terminator);
+        builder.create<ttkernel::CloseFabricConnectionsOp>(
+            func.getLoc(), fabricConnectionManager);
+      }
+    });
 
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {

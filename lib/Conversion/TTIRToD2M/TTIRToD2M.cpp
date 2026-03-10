@@ -2034,6 +2034,239 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   }
 };
 
+class D2MAllGatherRewriter : public OpConversionPattern<ttir::AllGatherOp>,
+                             D2MNamedRewriterCommon {
+public:
+  D2MAllGatherRewriter(const TypeConverter &typeConverter,
+                       mlir::MLIRContext *ctx,
+                       ttcore::MemorySpace defaultInputMemSpace,
+                       ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                       bool collapseTensors, bool enableMulticastInference)
+      : OpConversionPattern<ttir::AllGatherOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::AllGatherOp op, ttir::AllGatherOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // ---------------- multicast based AG
+    // First cut: without views try just generating loops with all gather on out
+    // dim this would be a single fabric write
+
+    // 1) identify dest devices: by looking at cluster axis or mesh if not set
+    // so just is mesh is 2x4 and cluster axis is 1, then dest mesh positions
+    // are [my_mesh_x, 0:3]
+
+    // 2) synchronization stage: sync with global semaphores
+    // broadcast sem inc to all sender devices to inform ready to receive
+
+    // 3) insert create, set up, and close fabric connections op
+
+    // 4) sending stage
+    // use same devices to send
+    // src addr is just the memrefs address, dst addr is just the memrefs
+    // address, num bytes is the memrefs size
+
+    // we have multiple workers (= num links, hard code to 2 for now, need a way
+    // to query this somhow) so need to split between them each worker handles
+    // [start + i*size/num_links, start + (i+1)*size/num_links] where i is the
+    // flattened core index or some assignment we are still using dma loads and
+    // stores though?
+
+    // for now instead of inserting views, we assume that the input is already
+    // 1x2x8x8 and output is 4x2x8x8 and AG on dim 0
+
+    // generic CCL lowering: below, step 3, and maybe step 1/2?
+    // and also we need to set up the fabric connection config and choose
+    // routing mode: we can hardcode 1d ring or use a hack based on fabric
+    // config (and mesh shape?) for now but this needs to be addressed properly
+    mlir::Location loc = op->getLoc();
+
+    auto origOutputs =
+        createDpsOutputs(loc, rewriter, {op.getResult().getType()});
+    SmallVector<Value> origInputs = adaptor.getOperands();
+
+    // TODO: in next version, we will use toLayoutOperandsAndResults and insert
+    // a view to get the right grid shape implicit bcast??? assert
+    // origInputs.size == 1 assert logicalshape.size == 2
+
+    // create input and output streams for generic
+    llvm::SmallVector<int64_t> inputGrid = {1, 2};
+    llvm::SmallVector<int64_t> outputGrid = {8, 2};
+    Value inputStreamResult;
+    {
+      auto origInput = origInputs[0];
+      auto tensorType = mlir::cast<mlir::RankedTensorType>(origInput.getType());
+      ArrayRef<int64_t> logicalShape = tensorType.getShape();
+      Type tiledElementType = ttcore::TileType::get(
+          tensorType.getElementType(), ttcore::TileType::getDefaultShape());
+      ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
+          memorySpaces[0], ttcore::TensorMemoryLayout::Sharded);
+      llvm::SmallVector<int64_t> shardedShape =
+          layout.getDeviceShape(inputGrid, ttcore::TileType::getDefaultShape());
+      auto emptyOp = rewriter.create<d2m::EmptyOp>(
+          origInput.getLoc(), shardedShape, tiledElementType, layout);
+      auto input =
+          rewriter
+              .create<d2m::ToLayoutOp>(origInput.getLoc(), origInput, emptyOp)
+              ->getResult(0);
+
+      // streams need to be explicitly inserted for explicict DM generics
+      AffineMap identityMap = rewriter.getMultiDimIdentityMap(
+          ttcore::getDeviceLayout(input).getRank());
+      auto storage =
+          rewriter.create<d2m::EmptyOp>(op.getLoc(), input.getType(),
+                                        /*virtualGridInverseMapping=*/nullptr,
+                                        /*virtualGridForwardMapping=*/nullptr);
+      inputStreamResult =
+          rewriter
+              .create<d2m::StreamLayoutOp>(op.getLoc(), input.getType(), input,
+                                           identityMap, storage.getResult())
+              ->getResult(0);
+    }
+
+    Value outputStreamResult;
+    {
+      auto origOutput = origOutputs[0];
+      auto tensorType =
+          mlir::cast<mlir::RankedTensorType>(origOutput.getType());
+      ArrayRef<int64_t> logicalShape = tensorType.getShape();
+      Type tiledElementType = ttcore::TileType::get(
+          tensorType.getElementType(), ttcore::TileType::getDefaultShape());
+      ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
+          memorySpaces[0], ttcore::TensorMemoryLayout::Sharded);
+      llvm::SmallVector<int64_t> shardedShape = layout.getDeviceShape(
+          outputGrid, ttcore::TileType::getDefaultShape());
+      auto emptyOp = rewriter.create<d2m::EmptyOp>(
+          origOutput.getLoc(), shardedShape, tiledElementType, layout);
+      auto output =
+          rewriter
+              .create<d2m::ToLayoutOp>(origOutput.getLoc(), origOutput, emptyOp)
+              ->getResult(0);
+
+      // streams need to be explicitly inserted for explicict DM generics
+      AffineMap identityMap = rewriter.getMultiDimIdentityMap(
+          ttcore::getDeviceLayout(output).getRank());
+      auto storage =
+          rewriter.create<d2m::EmptyOp>(op.getLoc(), output.getType(),
+                                        /*virtualGridInverseMapping=*/nullptr,
+                                        /*virtualGridForwardMapping=*/nullptr);
+      outputStreamResult = rewriter
+                               .create<d2m::StreamLayoutOp>(
+                                   op.getLoc(), output.getType(), output,
+                                   identityMap, storage.getResult())
+                               ->getResult(0);
+    }
+
+    // assert that operand shape must fit our requirements
+    // TODO: pass in 2 global semaphores, one for synchrnization in the start,
+    // one at the end
+    // TODO: add pass above TTIRToD2M to insert global semaphores array upfront
+    // to ensure we get a contiguous region and not fragment memeory
+
+    // TODO: change grid to be based on number of links avaibale (i.e. [1,
+    // num_links]; need to get num links from sys desc)
+    auto grid = ttcore::GridAttr::get(rewriter.getContext(), {1, 2});
+    SmallVector<mlir::AffineMap> emptyIndexingMaps;
+    SmallVector<mlir::Attribute> emptyIteratorTypes;
+    ArrayRef<int64_t> emptyBlockFactors = {};
+    // Create generic in explicit form: block factors, indexing maps, and
+    // iterator types are empty
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, TypeRange(outputStreamResult), inputStreamResult,
+        outputStreamResult, /*additionalArgs=*/ValueRange(), grid,
+        rewriter.getI64ArrayAttr(emptyBlockFactors),
+        rewriter.getAffineMapArrayAttr(emptyIndexingMaps),
+        rewriter.getArrayAttr(emptyIteratorTypes),
+        rewriter.getArrayAttr(
+            rewriter.getAttr<d2m::ThreadAttr>(d2m::ThreadType::Unified)),
+        /*scratch_inputs=*/nullptr, 1);
+
+    // Create one bb in 'generic''s region and set its arguments.
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    {
+      mlir::Region &region = generic->getRegions().front();
+      mlir::Block *block = rewriter.createBlock(&region);
+
+      // Populate 'block'.
+      {
+        auto fn = [&](Type t) {
+          mlir::RankedTensorType tensorType =
+              mlir::cast<mlir::RankedTensorType>(t);
+          ttcore::MetalLayoutAttr layout =
+              mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+          auto shardShape = layout.getShardShape(tensorType);
+          block->addArgument(d2m::CBType::get(mlir::RankedTensorType::get(
+                                 shardShape, tensorType.getElementType())),
+                             loc);
+        };
+
+        llvm::for_each(mlir::TypeRange(inputStreamResult), fn);
+        llvm::for_each(mlir::TypeRange(outputStreamResult), fn);
+
+        // TODO: assert only one arg
+        // Create a buffer for remote load
+        mlir::RankedTensorType tensorType =
+            mlir::cast<mlir::RankedTensorType>(inputStreamResult.getType());
+        ttcore::MetalLayoutAttr layout =
+            mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+        auto shardShape = layout.getShardShape(tensorType);
+        auto shardType = mlir::RankedTensorType::get(
+            shardShape, tensorType.getElementType());
+        auto bufferOp = rewriter.create<tensor::EmptyOp>(
+            loc, shardType.getShape(), shardType.getElementType());
+        Value buffer = bufferOp.getResult();
+
+        // indices: 0, core_index
+        SmallVector<Value> indices;
+        indices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+        indices.push_back(
+            rewriter.create<d2m::CoreIndexOp>(loc, static_cast<int64_t>(1)));
+        Value loadResult =
+            rewriter
+                .create<d2m::RemoteLoadOp>(loc, shardType, buffer,
+                                           inputStreamResult, indices)
+                .getResult();
+
+        SmallVector<Value> startDevice;
+        startDevice.push_back(rewriter.create<d2m::MeshPositionOp>(loc, 0));
+        startDevice.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+        SmallVector<Value> endDevice;
+        endDevice.push_back(rewriter.create<d2m::MeshPositionOp>(loc, 0));
+        endDevice.push_back(rewriter.create<arith::ConstantIndexOp>(
+            loc, 7)); // getMeshShape()[cluster_axis] - 1;
+        // Insert remote_store operations for each output before yield
+        SmallVector<Value> storeResults;
+        SmallVector<Value> outputIndices;
+        outputIndices.push_back(rewriter.create<arith::ConstantIndexOp>(
+            loc, 0)); // getMeshPosition[cluster_axis]
+        outputIndices.push_back(
+            rewriter.create<d2m::CoreIndexOp>(loc, static_cast<int64_t>(1)));
+        Value storeResult =
+            rewriter
+                .create<d2m::RemoteStoreOp>(loc, outputStreamResult.getType(),
+                                            outputStreamResult, outputIndices,
+                                            loadResult, startDevice, endDevice)
+                .getResult();
+
+        storeResults.push_back(storeResult);
+
+        rewriter.create<d2m::YieldOp>(loc, storeResults);
+      }
+    }
+    rewriter.finalizeOpModification(generic);
+    rewriter.restoreInsertionPoint(insertPoint);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
+    return llvm::success();
+  }
+};
+
 struct TensorManipulationInfo {
   AffineMap map;
   bool canBeTilized;
@@ -2398,7 +2631,9 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MTensorManipulationOpRewriter<ttir::ConcatenateHeadsOp, concatenateHeadsLogicalInfo>,
     // Permute (handles transpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter,
-    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>
+    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>,
+    // CCL
+    D2MAllGatherRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
 
 

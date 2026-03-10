@@ -27,6 +27,7 @@
 
 #include <cstdint>
 #include <string>
+#include <tt-metalium/host_api.hpp>
 #include <unordered_map>
 
 namespace tt::runtime::ttmetal {
@@ -362,11 +363,13 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           command->arg_refs(), meshBuffers, global_semaphores, command->cbs(),
           deviceAddressValidator, createSemaphore);
 
+      LOG_ERROR("before fabric config args\n");
       if (command->fabric_connection_config() &&
           kernelConfig->type_type() ==
               target::metal::KernelConfigType::NocConfig &&
           command->fabric_connection_config()->noc_index() ==
               kernelConfig->type_as_NocConfig()->noc_index()) {
+        LOG_ERROR("appending fabric config args for kernel \n");
         auto fabricConfigArgs = common::appendFabricConfigArgs(
             command->fabric_connection_config(), kernelConfig, program, handle,
             deviceCoord, meshDevice, rtArgsVec, coreRangeSet);
@@ -552,7 +555,9 @@ void MCQExecutor::execute(const target::metal::CpuCommand *command) {
 
 void MCQExecutor::execute(const target::metal::FinishCommand *) {
   ZoneScopedN("FinishCommand");
+
   distributed::Finish(*mcq);
+  //::tt::tt_metal::ReadMeshDeviceProfilerResults(*meshDevice);
 }
 
 void MCQExecutor::execute(const target::metal::MeshShardCommand *command) {
