@@ -305,17 +305,21 @@ public:
   }
 
   static SmallVector<ttnn::KernelCBAttr>
-  createCBDescriptors(Builder &builder, const llvm::SmallVector<Value> &cbs,
+  createCBDescriptors(Builder &builder, const llvm::SmallVector<Value> &ios,
+                      const llvm::SmallVector<Value> &cbs, size_t numInputs,
                       const ttcore::DeviceAttr &device,
                       const ttnn::CoreRangeSetAttr &coreRangeSet) {
     if (cbs.empty()) {
       llvm_unreachable("Expected circular buffers.");
     }
+    TT_assertv(ios.size() == cbs.size(),
+               "Expected matching IO and circular buffer counts.");
 
     MLIRContext *ctx = builder.getContext();
     llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors(cbs.size());
 
     for (auto [i, cb] : llvm::enumerate(cbs)) {
+      Value io = ios[i];
       auto cb_memref = dyn_cast<MemRefType>(cb.getType());
       TT_assertv(mlir::isa<ttcore::TileType>(cb_memref.getElementType()),
                  "Only TileType supported.");
@@ -329,21 +333,20 @@ public:
 
       ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
 
-      // TODO (#7158): This is brittle. Ideally we should specifically identify
-      // outputs and handle them separately from inputs, but that will require a
-      // larger refactor of this pass.
-      bool isAliasedOutput =
-          mlir::dyn_cast_if_present<memref::AllocOp>(cb.getDefiningOp()) &&
-          llvm::none_of(cb.getUsers(), [](Operation *user) {
-            return mlir::isa<d2m::StreamLayoutOp>(user);
-          });
+      bool isOutput = i >= numInputs;
+      bool isDirectTensorInput =
+          mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+              cb.getDefiningOp()) != nullptr;
 
-      if ((mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-               cb.getDefiningOp()) ||
-           isAliasedOutput) &&
+      // CB shape/tiling comes from the memref chain. Outputs still need an
+      // explicit tensor buffer binding so alloc-backed stream intermediates are
+      // materialized into their tensor operands. Keep the existing direct-cast
+      // input behavior, but avoid binding stream-backed inputs whose CBs are
+      // larger than the source tensor's per-core backing buffer.
+      if ((isOutput || isDirectTensorInput) &&
+          mlir::isa<RankedTensorType>(io.getType()) &&
           ttcore::getMemorySpace(cb_memref) !=
               ttcore::MemorySpace::DeviceDRAM) {
-
         globalCBIndexOfTensor =
             ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
       }
@@ -359,59 +362,84 @@ public:
   // - convertedOperand: the remapped operand from adaptor.getOperands()
   // IO comes from converted operands (e.g., ttnn.empty results).
   // CB comes from original operands (memref types for CB descriptors).
-  static IOAndCB extractIOAndCBFromGenericOperand(Value origOperand,
-                                                  Value convertedOperand) {
-    if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
-            origOperand.getDefiningOp())) {
-      auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-          streamLayoutOp.getInput().getDefiningOp());
-      TT_assertv(castOp,
-                 "Expected TTNNMetalLayoutCastOp producing stream input.");
-      return {castOp.getOperand(), streamLayoutOp.getStorage()};
-    }
+  enum class GenericOperandRootKind { Tensor, Converted };
 
-    if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-            origOperand.getDefiningOp())) {
-      return {castOp.getOperand(), origOperand};
-    }
+  struct GenericOperandRoot {
+    GenericOperandRootKind kind;
+    Value tensor;
+  };
 
-    if (auto viewOp = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
-            origOperand.getDefiningOp())) {
-      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-              viewOp.getInput().getDefiningOp())) {
-        TT_assertv(castOp,
-                   "Expected TTNNMetalLayoutCastOp producing view input.");
-        return {castOp.getOperand(), origOperand};
-      }
-      if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
-              viewOp.getInput().getDefiningOp())) {
-        auto innerCastOp =
-            mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-                streamLayoutOp.getInput().getDefiningOp());
-        TT_assertv(innerCastOp,
-                   "Expected TTNNMetalLayoutCastOp producing stream input.");
-        return {innerCastOp.getOperand(), viewOp.getInput()};
+  static Value getCBForGenericOperand(Value origOperand) {
+    Value current = origOperand;
+    bool sawView = false;
+
+    while (Operation *definingOp = current.getDefiningOp()) {
+      if (auto viewOp = mlir::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
+        sawView = true;
+        current = viewOp.getInput();
+        continue;
       }
 
-      if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
-              viewOp.getInput().getDefiningOp())) {
-        // This is a view on top of the output of a previous generic. This case
-        // applies to the generic that implements the final ttir.to_layout and
-        // converts the output tensor to the user-selected output layout.
-        return {convertedOperand, origOperand};
+      if (auto streamLayoutOp =
+              mlir::dyn_cast<d2m::StreamLayoutOp>(definingOp)) {
+        // Preserve the existing behavior:
+        //   * stream(...)        -> use stream storage as the CB
+        //   * view(...stream...) -> use the stream result as the CB
+        return sawView ? current : streamLayoutOp.getStorage();
       }
+
+      break;
     }
 
-    if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
-            origOperand.getDefiningOp())) {
-      // There are intermediate tensors that have been bufferized. The operand
-      // will have a DeviceLayout, not a TTNNLayout.
-      return {convertedOperand, origOperand};
+    return origOperand;
+  }
+
+  static GenericOperandRoot resolveGenericOperandRoot(Value origOperand) {
+    Value current = origOperand;
+
+    while (Operation *definingOp = current.getDefiningOp()) {
+      if (auto viewOp = mlir::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
+        current = viewOp.getInput();
+        continue;
+      }
+
+      if (auto streamLayoutOp =
+              mlir::dyn_cast<d2m::StreamLayoutOp>(definingOp)) {
+        current = streamLayoutOp.getInput();
+        continue;
+      }
+
+      if (auto castOp =
+              mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(definingOp)) {
+        return {GenericOperandRootKind::Tensor, castOp.getOperand()};
+      }
+
+      if (mlir::isa<memref::AllocOp>(definingOp)) {
+        return {GenericOperandRootKind::Converted, Value()};
+      }
+
+      llvm_unreachable(
+          "Expected stream_layout/view_layout chain rooted at memref.alloc or "
+          "ttnn_metal_layout_cast.");
     }
 
     llvm_unreachable(
-        "Expected stream_layout, view_layout, memref.alloc, ttnn.empty, or "
-        "cast op as operand.");
+        "Expected operand to be defined by stream_layout, view_layout, "
+        "memref.alloc, or ttnn_metal_layout_cast.");
+  }
+
+  static IOAndCB extractIOAndCBFromGenericOperand(Value origOperand,
+                                                  Value convertedOperand) {
+    Value cb = getCBForGenericOperand(origOperand);
+    GenericOperandRoot root = resolveGenericOperandRoot(origOperand);
+    if (root.kind == GenericOperandRootKind::Tensor) {
+      return {root.tensor, cb};
+    }
+
+    // Intermediate tensors that have been bufferized are remapped to
+    // ttnn.empty results by MemrefAllocRewriter. Use the converted tensor as
+    // the IO while preserving the original memref/view/stream-derived CB.
+    return {convertedOperand, cb};
   }
 
   LogicalResult
@@ -488,8 +516,8 @@ public:
     }
 
     // Create CB descriptors.
-    llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors =
-        createCBDescriptors(rewriter, cbs, device, coreRangeSet);
+    llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors = createCBDescriptors(
+        rewriter, ios, cbs, op.getInputs().size(), device, coreRangeSet);
 
     // Create KernelDescriptors.
     SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
