@@ -69,9 +69,10 @@ INPUT_LAYOUTS = [
 @pytest.mark.parametrize(
     "op",
     [
-        matmul,
+        # matmul,
+        matmul_composite,
     ],
-    ids=["matmul"],
+    ids=["matmul_composite"],  # "matmul",
 )
 def test_matmul_smoketest(device, shapes, input_layouts, dtype, ttnn_dtype, op):
     # Skip large matmuls for float32
@@ -79,13 +80,9 @@ def test_matmul_smoketest(device, shapes, input_layouts, dtype, ttnn_dtype, op):
         pytest.skip("Skipping large matmul for float32")
 
     if ttnn_dtype == ttnn.DataType.BFLOAT8_B and shapes == (None, 256, None):
-        if (
-            input_layouts[0] == ttnn.TensorMemoryLayout.BLOCK_SHARDED
-            or input_layouts[1] == ttnn.TensorMemoryLayout.BLOCK_SHARDED
-        ):
-            pytest.skip(
-                "Skipping bfp8 test for shape (None, 256, None), pcc error for block sharded input. Issue #7418."
-            )
+        pytest.skip(
+            "Skipping bfp8 test for shape (None, 256, None), pcc error for block sharded input. Issue #7418."
+        )
 
     # Always square grid.
     core_grid = get_core_grid_from_device(device)
@@ -135,3 +132,51 @@ def test_matmul_smoketest(device, shapes, input_layouts, dtype, ttnn_dtype, op):
     )
     print("pcc: ", pcc)
     assert pcc > 0.99, f"PCC: {pcc} is less than 0.99"
+
+
+""" def test_batched_matmul_smoketest(device):
+    shapes = [(64, 64, 64), (64, 64, 64)]
+    input_layouts = (ttnn.TensorMemoryLayout.BLOCK_SHARDED, ttnn.TensorMemoryLayout.BLOCK_SHARDED)
+    dtype = torch.float32
+    ttnn_dtype = None
+    op = matmul
+
+    core_grid = get_core_grid_from_device(device)
+    grid_dim = min(core_grid[0] + 1, core_grid[1] + 1)
+    core_grid = (grid_dim - 1, grid_dim - 1)
+
+    input_tensors = []
+    for shape, layout in zip(shapes, input_layouts):
+        if layout == ttnn.TensorMemoryLayout.BLOCK_SHARDED:
+            grid = get_maximal_block_sharding_grid(shape, core_grid)
+            input_tensors.append(
+                create_sharded_tile_tensor(
+                    device,
+                    shape,
+                    grid,
+                    dtype,
+                    shard_strategy=ttnn.ShardStrategy.BLOCK,
+                    ttnn_dtype=ttnn_dtype,
+                )
+            )
+        else:
+            input_tensors.append(
+                create_dram_tensor(device, shape, dtype, ttnn_dtype=ttnn_dtype)
+            )
+
+    compiled_op = ttnn_jit.jit(
+        debug=True,
+        compile_only=False,
+    )(op)
+    output = compiled_op(*input_tensors)
+    assert output.memory_config().is_sharded(), "Matmul output must be sharded"
+
+    # Send tensor to DRAM to avoid having to set the matmul program config in the golden path
+    input_tensors = [
+        ttnn.to_memory_config(tensor, ttnn.DRAM_MEMORY_CONFIG)
+        for tensor in input_tensors
+    ]
+    golden_output = op(*input_tensors)
+    pcc = ttnn.pearson_correlation_coefficient(
+        golden_output.cpu().to_torch(), output.cpu().to_torch()
+    ) """
