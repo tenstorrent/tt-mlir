@@ -110,7 +110,7 @@ module attributes {} {
   }
 }
 
-// Verify that the parsing fails if there is missmatch in output dimension
+// Verify that the parsing fails if there is mismatch in output dimension
 // -----
 module attributes {} {
   func.func @index_negative_invalid_output_shape(%arg0: tensor<10x3x128x64xbf16>) -> tensor<10x3x128x32xbf16> {

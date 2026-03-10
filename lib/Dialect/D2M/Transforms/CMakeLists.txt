@@ -25,6 +25,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         SplitUnifiedThread.cpp
         PreallocateMcastSemaphores.cpp
         ScheduleDMA.cpp
+        LowerDMAToFullyIndexedForm.cpp
         LowerLoadStoreOpsToDMA.cpp
         LowerLoadStoreOpsToExplicitCBForm.cpp
         ConvertLocalLoadStoreOpsToAliasedCBs.cpp

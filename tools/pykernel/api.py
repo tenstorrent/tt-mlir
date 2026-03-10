@@ -24,7 +24,7 @@ def ttkernel_compile(
     def _decorator(f):
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
-            # Code to deal with identation issues
+            # Code to deal with indentation issues
             source_code = _cleanup_source_code(f)
 
             if verbose is True:

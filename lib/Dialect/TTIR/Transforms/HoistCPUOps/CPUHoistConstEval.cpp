@@ -4,10 +4,12 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/HoistCPUOps/HoistCPUOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/FunctionTypes.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -62,6 +64,13 @@ analyzeConstEval(func::FuncOp funcOp) {
     return {};
   }
 
+  // Skip CPU-hoisting for multi-device graphs.
+  // TODO(dmilinkovic) - issue #6709.
+  auto deviceAttr = ttcore::lookupDevice(funcOp);
+  if (deviceAttr && ttmlir::utils::volume(deviceAttr.getMeshShape()) > 1) {
+    return {};
+  }
+
   CPUHoistedOpsDescriptor descriptor({}, {}, llvm::StringRef("const_eval"));
 
   // Check if it is possible to CPU-hoist this const-eval function.
@@ -69,27 +78,6 @@ analyzeConstEval(func::FuncOp funcOp) {
     // If there is already a CPU-hoisted call inside the const-eval
     // subgraph, skip CPU hoisting altogether to avoid nested hoisting.
     if (nestedOp->hasAttr(ttir::CPUHoistedCallAttr::name)) {
-      return WalkResult::interrupt();
-    }
-
-    if (auto meshShardOp =
-            mlir::dyn_cast<mlir::tt::ttir::MeshShardOp>(nestedOp)) {
-      // If there is a non-identity TTIR MeshShardOp, skip CPU hoisting
-      // altogether.
-      // TODO(dmilinkovic) - issue #6709,
-      if (meshShardOp.getShardType() != ttcore::MeshShardType::Identity) {
-        return WalkResult::interrupt();
-      }
-    }
-
-    // If there is any CCL op, skip CPU hoisting altogether.
-    // TODO(dmilinkovic) - issue #6709
-    if (mlir::isa<mlir::tt::ttir::AllGatherOp, mlir::tt::ttir::AllReduceOp,
-                  mlir::tt::ttir::ReduceScatterOp,
-                  mlir::tt::ttir::CollectivePermuteOp,
-                  mlir::tt::ttir::AllToAllOp,
-                  mlir::tt::ttir::CollectiveBroadcastOp,
-                  mlir::tt::ttir::MeshPartitionOp>(nestedOp)) {
       return WalkResult::interrupt();
     }
 

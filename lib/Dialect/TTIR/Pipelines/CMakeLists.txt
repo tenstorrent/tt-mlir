@@ -6,6 +6,7 @@ set(TTMLIR_PIPELINES_LIBS
   MLIRBufferizationToMemRef
   MLIRControlFlowToLLVM
   MLIRFuncToLLVM
+  MLIRMathToLibm
   MLIRMathToLLVM
   MLIRMemRefToLLVM
   MLIRMemRefTransforms

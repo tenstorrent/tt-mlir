@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttcore-wrap-device-module --cpu-hoist-const-eval --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --cpu-hoist-const-eval --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // CHECK: ttcore.device_module {
-// CHECK: builtin.module {
+// CHECK: builtin.module
 
 // --- Test 1: Basic const-eval hoisting ---
 

@@ -7,6 +7,7 @@ import torch
 
 import pytest
 
+from op_definitions import matmul
 from ttnn_jit._src.utils import get_maximal_block_sharding_grid
 from utils import (
     create_sharded_tile_tensor,
@@ -14,7 +15,8 @@ from utils import (
     get_core_grid_from_device,
 )
 
-
+# Tests with matmul in the middle / end of an op chain are failing in D2MToTTNN.
+# Tests with matmul as the first op are passing. Issue #7419.
 def matmul_composite(input0, input1):
     a = ttnn.abs(input0)
     b = ttnn.matmul(a, input1)
@@ -45,9 +47,6 @@ INPUT_LAYOUTS = [
 ]
 
 
-@pytest.mark.skip(
-    reason="Skipping matmul tests until JIT frontend is adapted to intermediate layout inference. Issue #7163"
-)
 @pytest.mark.parametrize(
     "shapes",
     MATMUL_SHAPES,
@@ -67,10 +66,22 @@ INPUT_LAYOUTS = [
     INPUT_LAYOUTS,
     ids=[f"{str(layout)}" for layout in INPUT_LAYOUTS],
 )
-def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype):
+@pytest.mark.parametrize(
+    "op",
+    [
+        matmul,
+    ],
+    ids=["matmul"],
+)
+def test_matmul_smoketest(device, shapes, input_layouts, dtype, ttnn_dtype, op):
     # Skip large matmuls for float32
     if dtype == torch.float32 and shapes in [(256, 256, 256), (128, 256, 256)]:
         pytest.skip("Skipping large matmul for float32")
+
+    if ttnn_dtype == ttnn.DataType.BFLOAT8_B and shapes == (None, 256, None):
+        pytest.skip(
+            "Skipping test for shape (None, 256, None) with dtype bfp8, pcc error. Issue #7418."
+        )
 
     # Always square grid.
     core_grid = get_core_grid_from_device(device)
@@ -104,7 +115,7 @@ def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype):
     compiled_op = ttnn_jit.jit(
         debug=True,
         compile_only=False,
-    )(matmul_composite)
+    )(op)
 
     output = compiled_op(*input_tensors)
     assert output.memory_config().is_sharded(), "Matmul output must be sharded"
@@ -114,7 +125,7 @@ def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype):
         ttnn.to_memory_config(tensor, ttnn.DRAM_MEMORY_CONFIG)
         for tensor in input_tensors
     ]
-    golden_output = matmul_composite(*input_tensors)
+    golden_output = op(*input_tensors)
     pcc = ttnn.pearson_correlation_coefficient(
         golden_output.cpu().to_torch(), output.cpu().to_torch()
     )

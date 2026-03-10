@@ -5342,7 +5342,7 @@ def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
         %6 = "ttir.mesh_shard"(%4) <
           {..., shard_direction = #ttcore.shard_direction<shard_to_full>,
                 shard_shape = array<i64: 2, 1>,
-                shard_dims = arrray<i64: 1, -1>,
+                shard_dims = array<i64: 1, -1>,
                 shard_type = #ttcore.shard_type<devices>}> : (tensor<4096x16384xf32>, ...) -> tensor<8192x16384xf32>
     }];
 
@@ -5818,4 +5818,141 @@ def TTIR_TopKOp : TTIR_NamedOp<"topk"> {
 
   let hasVerifier = 1;
 }
+
+def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
+    let summary = "Sparse block matrix multiplication with sparsity mask.";
+    let description = [{
+      The `sparse_matmul` operation performs batched matrix multiplication where
+      computation is selectively skipped for blocks marked as zero in the sparsity
+      tensor. Input `b` is organized as a collection of weight matrices indexed by
+      a block dimension (dim 1), and the sparsity tensor controls which blocks
+      participate in the computation.
+
+      The operation supports three sparsity modes that determine which input
+      carries the block structure:
+
+      Inputs:
+      - `a` (Tensor): The first input tensor (activations or sparse input).
+      - `b` (Tensor): The second input tensor, always [1, num_blocks, K, N].
+      - `sparsity` (Tensor): 4D binary mask indicating active blocks.
+
+      Attributes:
+      - `is_input_a_sparse` (Boolean, default=false): Whether `a` has block structure.
+      - `is_input_b_sparse` (Boolean, default=true): Whether `b` has block structure.
+      - `nnz` (Optional Integer): Number of non-zero blocks per row. If 0 or absent,
+        inferred at runtime.
+
+      Supported Modes:
+      - is_input_a_sparse=false, is_input_b_sparse=true (column-parallel):
+        a: [A, B, M, K], b: [1, E, K, N], sparsity: [A, B, 1, E]
+        -> output: [A, B, 1, E, M, N]
+      - is_input_a_sparse=true, is_input_b_sparse=false (row-parallel):
+        a: [A, E, M, K], b: [1, E, K, N], sparsity: [1, 1, A, E]
+        -> output: [A, E, M, N]
+      - is_input_a_sparse=true, is_input_b_sparse=true (both sparse):
+        a: [1, E, M, K], b: [1, E, K, N], sparsity: [1, 1, 1, E]
+        -> output: [1, E, M, N]
+
+      Example (Mixture of Experts gate/up projection):
+      ```mlir
+      %result = "ttir.sparse_matmul"(%activations, %expert_weights, %sparsity) <{
+          is_input_a_sparse = false, is_input_b_sparse = true, nnz = 2
+      }> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>,
+            tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         AnyRankedTensor:$sparsity,
+                         DefaultValuedAttr<BoolAttr, "false">:$is_input_a_sparse,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_input_b_sparse,
+                         OptionalAttr<I64Attr>:$nnz);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch"> {
+    let summary = "Dispatch tokens to expert devices for MoE computation.";
+    let description = [{
+      Routes tokens to devices holding their selected experts via all-to-all
+      communication. Used before sparse_matmul in the MoE dispatch/combine flow.
+
+      Input shapes:
+      - input_tensor: [B, S, 1, H]
+      - expert_indices: [B, S, 1, K]
+      - expert_mapping: [1, 1, E, D]
+
+      Output shapes:
+      - dispatched: [1, B*D, S, H]
+      - metadata: [1, B*D, S, K]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$dispatched, AnyRankedTensor:$metadata);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine"> {
+    let summary = "Combine expert outputs back to original token positions.";
+    let description = [{
+      Inverse of dispatch: gathers expert computation results from expert devices
+      and restores tokens to their original device and order.
+
+      Input shapes:
+      - input_tensor: [E_local, B*D, S, H]
+      - expert_metadata: [1, B*D, S, K]
+      - expert_mapping: [1, 1, E, D]
+
+      Output shape:
+      - result: [K, B, S, H]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_metadata,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis,
+                         I64Attr:$num_experts_per_tok);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_MoeExpertTokenRemapOp : TTIR_NamedOp<"moe_expert_token_remap"> {
+    let summary = "Remap global expert routing to local device experts with sparsity.";
+    let description = [{
+      Converts global expert routing scores to local per-device expert mapping
+      and creates a sparsity pattern for efficient sparse_matmul. Used after
+      all_to_all_dispatch in the MoE dispatch/compute/combine flow.
+
+      Input shapes:
+      - topk_tensor: [D, B, S, E] (bf16 routing scores)
+      - expert_mapping: [1, 1, E, D] (uint16 one-hot mapping)
+      - expert_metadata: [D, B, S, K] (uint16 expert indices)
+
+      Output shapes:
+      - mapping: [1, B, S, E_local] (bf16 local routing weights)
+      - reduced: [1, 1, ceil(B*S/reduction_size), E_local] (uint16 sparsity)
+    }];
+
+    let arguments = (ins AnyRankedTensor:$topk_tensor,
+                         AnyRankedTensor:$expert_mapping,
+                         AnyRankedTensor:$expert_metadata,
+                         I64Attr:$reduction_size);
+
+    let results = (outs AnyRankedTensor:$mapping, AnyRankedTensor:$reduced);
+
+    let hasVerifier = 1;
+}
+
 #endif
