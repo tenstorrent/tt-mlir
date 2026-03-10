@@ -88,7 +88,7 @@ static LayoutFilterFn getInputLayoutFilter(Operation *op) {
   return llvm::TypeSwitch<Operation *, LayoutFilterFn>(op)
       // ConcatenateHeads: cannot consume any sharded inputs.
       // https://github.com/tenstorrent/tt-mlir/issues/7145
-      .Case<ConcatenateHeadsOp>([](auto) { return rejectAllSharded; })
+      .Case<ConcatenateHeadsOp, ConcatOp>([](auto) { return rejectAllSharded; })
       // Slice: sharded inputs produce incorrect results in tt-metal.
       // https://github.com/tenstorrent/tt-metal/issues/39074
       .Case<SliceStaticOp, SliceDynamicOp>(
