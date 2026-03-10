@@ -128,6 +128,14 @@ jobs:
         echo "TT_METAL_OPERATION_TIMEOUT_SECONDS=${{ vars.TT_METAL_OPERATION_TIMEOUT_SECONDS || 300 }}" >> $GITHUB_ENV
         echo "TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE=python $(pwd)/tt-triage/tools/tt-triage.py 1>&2" >> $GITHUB_ENV
 
+    - name: Set up tracy profiler tools
+      shell: bash
+      run: |
+        TRACY_BIN_DIR="${{ steps.strings.outputs.work-dir }}/third_party/tt-metal/src/tt-metal/build/tools/profiler/bin"
+        mkdir -p "$TRACY_BIN_DIR"
+        cp ${{ steps.strings.outputs.build-output-dir }}/python_packages/ttrt/runtime/capture-release "$TRACY_BIN_DIR/"
+        cp ${{ steps.strings.outputs.build-output-dir }}/python_packages/ttrt/runtime/csvexport-release "$TRACY_BIN_DIR/"
+
     - name: Run JIT perf collection
       shell: bash
       run: |
