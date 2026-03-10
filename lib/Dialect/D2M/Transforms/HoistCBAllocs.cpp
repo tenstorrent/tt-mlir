@@ -94,18 +94,9 @@ private:
   /// operands.
   static int64_t findRegularOperandIndex(d2m::GenericOp genericOp,
                                          memref::AllocOp allocOp) {
-    llvm::errs() << "DEBUG findRegularOperandIndex: allocOp users:\n";
     for (Operation *user : allocOp.getResult().getUsers()) {
-      llvm::errs() << "  user: " << user->getName() << "\n";
       if (auto remoteLoad = mlir::dyn_cast<d2m::RemoteLoadOp>(user)) {
         Value memref = remoteLoad.getMemref();
-        llvm::errs() << "    memref: " << memref << "\n";
-        for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
-          llvm::errs() << "    operand[" << i
-                       << "]: " << genericOp->getOperand(i)
-                       << " match=" << (genericOp->getOperand(i) == memref)
-                       << "\n";
-        }
         for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
           if (genericOp->getOperand(i) == memref) {
             return static_cast<int64_t>(i);
@@ -114,7 +105,6 @@ private:
       }
       if (auto remoteStore = mlir::dyn_cast<d2m::RemoteStoreOp>(user)) {
         Value memref = remoteStore.getMemref();
-        llvm::errs() << "    memref: " << memref << "\n";
         for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
           if (genericOp->getOperand(i) == memref) {
             return static_cast<int64_t>(i);
@@ -122,7 +112,6 @@ private:
         }
       }
     }
-    llvm::errs() << "DEBUG findRegularOperandIndex: returning -1!\n";
     return -1;
   }
 
