@@ -320,7 +320,7 @@ public:
   LogicalResult matchAndRewrite(ttnn::SliceStaticOp op,
                                 PatternRewriter &rewriter) const override {
     auto eltwiseOp = op.getInput().getDefiningOp<EltwiseOpTy>();
-    if (!eltwiseOp) {
+    if (!eltwiseOp || !allUsersAreSlice(eltwiseOp)) {
       return failure();
     }
 
