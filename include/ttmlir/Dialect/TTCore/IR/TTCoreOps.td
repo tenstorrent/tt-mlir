@@ -217,7 +217,6 @@ def TTCore_SetKeyValueOp : TTCore_Op<"set_key_value", [MemoryEffects<[MemWrite]>
     Sets or updates a value(s) for the given key in the dictionary.
     The key can either be a string or an index.
 
-
     Example:
     ```mlir
     ttcore.set_key_value %dict[3 : index] = %0
@@ -240,7 +239,7 @@ def TTCore_SetKeyValueOp : TTCore_Op<"set_key_value", [MemoryEffects<[MemWrite]>
   }];
 }
 
-def TTCore_GetKeyValueOp : TTCore_Op<"get_key_value", [Pure]> {
+def TTCore_GetKeyValueOp : TTCore_Op<"get_key_value", [MemoryEffects<[MemRead]>]> {
   let summary = "Get dictionary value";
   let description = [{
     Retrieves the value(s) stored under the given key from the dictionary.
