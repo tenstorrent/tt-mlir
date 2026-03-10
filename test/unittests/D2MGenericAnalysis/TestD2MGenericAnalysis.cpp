@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -17,6 +18,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
+#include "mlir/Pass/PassManager.h"
 
 #include <gtest/gtest.h>
 
@@ -68,14 +70,27 @@ protected:
       return {};
     }
     if (auto module = mlir::dyn_cast<mlir::ModuleOp>(*parsedOp)) {
-      return mlir::OwningOpRef<mlir::ModuleOp>(
+      auto owningModule = mlir::OwningOpRef<mlir::ModuleOp>(
           mlir::cast<mlir::ModuleOp>(parsedOp.release()));
+      if (failed(runRegisterDevicePass(*owningModule))) {
+        return {};
+      }
+      return owningModule;
     }
 
     mlir::OwningOpRef<mlir::ModuleOp> module =
         mlir::ModuleOp::create(mlir::UnknownLoc::get(&context));
     module->push_back(parsedOp.release());
+    if (failed(runRegisterDevicePass(*module))) {
+      return {};
+    }
     return module;
+  }
+
+  mlir::LogicalResult runRegisterDevicePass(mlir::ModuleOp module) {
+    mlir::PassManager pm(&context);
+    pm.addPass(mlir::tt::ttcore::createTTCoreRegisterDevicePass());
+    return pm.run(module);
   }
 
   d2m::GenericOp getSingleGenericOp(mlir::ModuleOp module) {
@@ -103,9 +118,7 @@ protected:
   }
 
   static constexpr llvm::StringLiteral kModuleHeader = R"mlir(
-#system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux-gnu"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 1024, erisc_l1_unreserved_base = 1024, dram_unreserved_base = 1024, dram_unreserved_end = 1073741824, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], dst_physical_size_tiles = 16, num_cbs = 32, num_compute_threads = 1, num_datamovement_threads = 2}], [0], [1 : i32], [ 0x0x0x0]>
-module attributes {ttcore.system_desc = #system_desc} {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+module {
 )mlir";
 
   static constexpr llvm::StringLiteral kModuleFooter = R"mlir(
