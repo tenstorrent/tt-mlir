@@ -54,7 +54,10 @@ func.func public @test_sort_key_values(%arg0: tensor<1x4x64x64xf32>, %arg1: tens
   // CHECK-SAME: <{descending = false, dim = 3 : si32, stable = true}>
   // CHECK-SAME: (tensor<1x4x64x64xf32>)
   // CHECK-SAME: -> (tensor<1x4x64x64xf32>, tensor<1x4x64x64xi32>)
-  // CHECK: %[[INDICES_2D:[0-9]+]] = "ttir.reshape"(%[[INDICES]])
+  // CHECK: %[[PERM_IDX:[0-9]+]] = "ttir.permute"(%[[INDICES]])
+  // CHECK-SAME: <{permutation = array<i64: 0, 1, 2, 3>}>
+  // CHECK-SAME: (tensor<1x4x64x64xi32>) -> tensor<1x4x64x64xi32>
+  // CHECK: %[[INDICES_2D:[0-9]+]] = "ttir.reshape"(%[[PERM_IDX]])
   // CHECK-SAME: <{shape = [256 : i32, 64 : i32]}>
   // CHECK-SAME: (tensor<1x4x64x64xi32>) -> tensor<256x64xi32>
   // CHECK: %[[OFFSETS:[0-9]+]] = "ttir.arange"()
@@ -62,15 +65,21 @@ func.func public @test_sort_key_values(%arg0: tensor<1x4x64x64xf32>, %arg1: tens
   // CHECK-SAME: -> tensor<256x64xi32>
   // CHECK: %[[FLAT_IDX:[0-9]+]] = "ttir.add"(%[[OFFSETS]], %[[INDICES_2D]])
   // CHECK-SAME: (tensor<256x64xi32>, tensor<256x64xi32>) -> tensor<256x64xi32>
-  // CHECK: %[[W1:[0-9]+]] = "ttir.reshape"(%arg1) <{shape = [16384 : i32, 1 : i32]}> : (tensor<1x4x64x64xi32>) -> tensor<16384x1xi32>
+  // CHECK: %[[PV1:[0-9]+]] = "ttir.permute"(%arg1) <{permutation = array<i64: 0, 1, 2, 3>}> : (tensor<1x4x64x64xi32>) -> tensor<1x4x64x64xi32>
+  // CHECK: %[[W1:[0-9]+]] = "ttir.reshape"(%[[PV1]]) <{shape = [16384 : i32, 1 : i32]}> : (tensor<1x4x64x64xi32>) -> tensor<16384x1xi32>
   // CHECK: %[[E1:[0-9]+]] = "ttir.embedding"(%[[FLAT_IDX]], %[[W1]]) : (tensor<256x64xi32>, tensor<16384x1xi32>) -> tensor<256x64x1xi32>
-  // CHECK: %{{.*}} = "ttir.reshape"(%[[E1]]) <{shape = [1 : i32, 4 : i32, 64 : i32, 64 : i32]}> : (tensor<256x64x1xi32>) -> tensor<1x4x64x64xi32>
-  // CHECK: %[[W2:[0-9]+]] = "ttir.reshape"(%arg2) <{shape = [16384 : i32, 1 : i32]}> : (tensor<1x4x64x64xi32>) -> tensor<16384x1xi32>
+  // CHECK: %[[R1:[0-9]+]] = "ttir.reshape"(%[[E1]]) <{shape = [1 : i32, 4 : i32, 64 : i32, 64 : i32]}> : (tensor<256x64x1xi32>) -> tensor<1x4x64x64xi32>
+  // CHECK: %{{.*}} = "ttir.permute"(%[[R1]]) <{permutation = array<i64: 0, 1, 2, 3>}> : (tensor<1x4x64x64xi32>) -> tensor<1x4x64x64xi32>
+  // CHECK: %[[PV2:[0-9]+]] = "ttir.permute"(%arg2) <{permutation = array<i64: 0, 1, 2, 3>}> : (tensor<1x4x64x64xi32>) -> tensor<1x4x64x64xi32>
+  // CHECK: %[[W2:[0-9]+]] = "ttir.reshape"(%[[PV2]]) <{shape = [16384 : i32, 1 : i32]}> : (tensor<1x4x64x64xi32>) -> tensor<16384x1xi32>
   // CHECK: %[[E2:[0-9]+]] = "ttir.embedding"(%[[FLAT_IDX]], %[[W2]]) : (tensor<256x64xi32>, tensor<16384x1xi32>) -> tensor<256x64x1xi32>
-  // CHECK: %{{.*}} = "ttir.reshape"(%[[E2]]) <{shape = [1 : i32, 4 : i32, 64 : i32, 64 : i32]}> : (tensor<256x64x1xi32>) -> tensor<1x4x64x64xi32>
-  // CHECK: %[[W3:[0-9]+]] = "ttir.reshape"(%arg3) <{shape = [16384 : i32, 1 : i32]}> : (tensor<1x4x64x64xi32>) -> tensor<16384x1xi32>
+  // CHECK: %[[R2:[0-9]+]] = "ttir.reshape"(%[[E2]]) <{shape = [1 : i32, 4 : i32, 64 : i32, 64 : i32]}> : (tensor<256x64x1xi32>) -> tensor<1x4x64x64xi32>
+  // CHECK: %{{.*}} = "ttir.permute"(%[[R2]]) <{permutation = array<i64: 0, 1, 2, 3>}> : (tensor<1x4x64x64xi32>) -> tensor<1x4x64x64xi32>
+  // CHECK: %[[PV3:[0-9]+]] = "ttir.permute"(%arg3) <{permutation = array<i64: 0, 1, 2, 3>}> : (tensor<1x4x64x64xi32>) -> tensor<1x4x64x64xi32>
+  // CHECK: %[[W3:[0-9]+]] = "ttir.reshape"(%[[PV3]]) <{shape = [16384 : i32, 1 : i32]}> : (tensor<1x4x64x64xi32>) -> tensor<16384x1xi32>
   // CHECK: %[[E3:[0-9]+]] = "ttir.embedding"(%[[FLAT_IDX]], %[[W3]]) : (tensor<256x64xi32>, tensor<16384x1xi32>) -> tensor<256x64x1xi32>
-  // CHECK: %{{.*}} = "ttir.reshape"(%[[E3]]) <{shape = [1 : i32, 4 : i32, 64 : i32, 64 : i32]}> : (tensor<256x64x1xi32>) -> tensor<1x4x64x64xi32>
+  // CHECK: %[[R3:[0-9]+]] = "ttir.reshape"(%[[E3]]) <{shape = [1 : i32, 4 : i32, 64 : i32, 64 : i32]}> : (tensor<256x64x1xi32>) -> tensor<1x4x64x64xi32>
+  // CHECK: %{{.*}} = "ttir.permute"(%[[R3]]) <{permutation = array<i64: 0, 1, 2, 3>}> : (tensor<1x4x64x64xi32>) -> tensor<1x4x64x64xi32>
   %0:4 = "stablehlo.sort"(%arg0, %arg1, %arg2, %arg3) <{dimension = 3 : i64, is_stable = true}> ({
   ^bb0(%arg4: tensor<f32>, %arg5: tensor<f32>, %arg6: tensor<i32>, %arg7: tensor<i32>, %arg8: tensor<i32>, %arg9: tensor<i32>, %arg10: tensor<i32>, %arg11: tensor<i32>):
     %cst = stablehlo.constant dense<0.000000e+00> : tensor<f32>
