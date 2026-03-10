@@ -90,6 +90,11 @@ static std::optional<int64_t> getMaxDstTilesForLinalgOp(linalg::GenericOp op) {
 
 static std::optional<int64_t> getLargestLegalChunkSize(int64_t shardSizeTiles,
                                                        int64_t maxDstTiles) {
+  TT_assertv(maxDstTiles > 0, "expected positive DST tile capacity");
+  if (shardSizeTiles < 2) {
+    return std::nullopt;
+  }
+
   int64_t largestCandidate = std::min(maxDstTiles, shardSizeTiles / 2);
   for (int64_t numTilesPerFlip = largestCandidate; numTilesPerFlip >= 1;
        --numTilesPerFlip) {
@@ -98,7 +103,10 @@ static std::optional<int64_t> getLargestLegalChunkSize(int64_t shardSizeTiles,
     }
     return numTilesPerFlip;
   }
-  return std::nullopt;
+  TT_assertv(false,
+             "expected to find a legal chunk size for shardSizeTiles={0} and "
+             "maxDstTiles={1}",
+             shardSizeTiles, maxDstTiles);
 }
 
 static std::optional<int64_t>
@@ -137,7 +145,7 @@ struct PendingDSTPackingResult {
   int64_t numDstFlips = 0;
 };
 
-static DSTPackingRegionInfo
+static std::optional<DSTPackingRegionInfo>
 computeDSTPackingForRegion(d2m::GenericOp generic,
                            ArrayRef<linalg::GenericOp> linalgOps) {
   DSTPackingRegionInfo results;
@@ -147,7 +155,7 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
   for (linalg::GenericOp linalgOp : linalgOps) {
     if (linalgOp.getOutputs().size() != 1u) {
       linalgOp.emitOpError("expected exactly one output");
-      return DSTPackingRegionInfo();
+      return std::nullopt;
     }
 
     Value outputValue = linalgOp.getOutputs().front();
@@ -155,7 +163,7 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     if (!outputShapedType || !outputShapedType.hasStaticShape()) {
       linalgOp.emitOpError(
           "expected static shaped output to compute shard size");
-      return DSTPackingRegionInfo();
+      return std::nullopt;
     }
     int64_t shardSizeTiles =
         ttmlir::utils::volume<int64_t>(outputShapedType.getShape());
@@ -163,25 +171,21 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     std::optional<int64_t> maxDstTiles = getMaxDstTilesForLinalgOp(linalgOp);
     if (!maxDstTiles) {
       linalgOp.emitOpError("failed to compute max DST tile capacity");
-      return DSTPackingRegionInfo();
+      return std::nullopt;
     }
 
     std::optional<int64_t> numTilesPerFlip =
         getLargestLegalChunkSize(shardSizeTiles, *maxDstTiles);
     if (!numTilesPerFlip) {
-      linalgOp.emitOpError("failed to find legal tiles per DST flip");
-      return DSTPackingRegionInfo();
+      return std::nullopt;
     }
 
     int64_t numDstFlips = shardSizeTiles / *numTilesPerFlip;
-    if (numDstFlips <= 0) {
-      linalgOp.emitOpError("expected positive DST flip count");
-      return DSTPackingRegionInfo();
-    }
-    if (numDstFlips < 2) {
-      linalgOp.emitOpError("failed to satisfy num_dst_flips >= 2");
-      return DSTPackingRegionInfo();
-    }
+    TT_assertv(numDstFlips > 0, "expected positive DST flip count");
+    TT_assertv(numDstFlips >= 2,
+               "expected num_dst_flips >= 2 for shardSizeTiles={0} and "
+               "numTilesPerFlip={1}",
+               shardSizeTiles, *numTilesPerFlip);
 
     pendingResults.push_back(
         PendingDSTPackingResult{outputValue, *numTilesPerFlip, numDstFlips});
@@ -189,28 +193,25 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
   }
 
   if (pendingResults.empty()) {
-    return DSTPackingRegionInfo();
+    return std::nullopt;
   }
 
   std::optional<int64_t> commonNumOuterLoopIters =
       getLargestCommonNumOuterLoopIters(numDstFlipsPerOp);
-  if (!commonNumOuterLoopIters) {
-    generic.emitOpError(
-        "failed to infer common num_outer_loop_iters with num_dst_flips >= 2 "
-        "for all "
-        "linalg.generic ops");
-    return DSTPackingRegionInfo();
-  }
+  TT_assertv(commonNumOuterLoopIters.has_value(),
+             "expected a common num_outer_loop_iters when pending dst packing "
+             "results are non-empty");
 
   std::optional<int64_t> commonNumTilesPerResult;
   for (const PendingDSTPackingResult &pending : pendingResults) {
     int64_t numDstFlips = pending.numDstFlips / *commonNumOuterLoopIters;
-    if ((pending.numDstFlips % *commonNumOuterLoopIters) != 0 ||
-        numDstFlips < 2) {
-      generic.emitOpError("failed to satisfy common num_outer_loop_iters and "
-                          "num_dst_flips >= 2");
-      return DSTPackingRegionInfo();
-    }
+    TT_assertv((pending.numDstFlips % *commonNumOuterLoopIters) == 0,
+               "expected common num_outer_loop_iters={0} to evenly divide "
+               "numDstFlips={1}",
+               *commonNumOuterLoopIters, pending.numDstFlips);
+    TT_assertv(numDstFlips >= 2,
+               "expected per-result num_dst_flips >= 2 after applying "
+               "common num_outer_loop_iters");
 
     int64_t numTilesPerResult = numDstFlips * pending.numTilesPerFlip;
     if (!commonNumTilesPerResult) {
@@ -220,7 +221,7 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
       generic.emitOpError(
           "expected identical num tiles per result for all linalg.generic "
           "outputs");
-      return DSTPackingRegionInfo();
+      return std::nullopt;
     }
 
     if (!results.perResult
@@ -229,7 +230,7 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
                  DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip})
              .second) {
       generic.emitOpError("expected unique linalg.generic output values");
-      return DSTPackingRegionInfo();
+      return std::nullopt;
     }
   }
 
@@ -273,9 +274,12 @@ DstRegisterAnalysis::DstRegisterAnalysis(Operation *op) {
       });
 
       for (const auto &[parentRegion, linalgOps] : linalgOpsByParentRegion) {
-        if (!packingInfo.perRegion
-                 .try_emplace(parentRegion,
-                              computeDSTPackingForRegion(generic, linalgOps))
+        std::optional<DSTPackingRegionInfo> regionPackingInfo =
+            computeDSTPackingForRegion(generic, linalgOps);
+        if (!regionPackingInfo) {
+          continue;
+        }
+        if (!packingInfo.perRegion.try_emplace(parentRegion, *regionPackingInfo)
                  .second) {
           TT_assertv(false, "expected unique parent region "
                             "entry in dst packing analysis");

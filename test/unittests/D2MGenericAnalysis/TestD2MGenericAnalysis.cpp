@@ -222,6 +222,87 @@ func.func @test(
   EXPECT_EQ(regionInfo->numOuterLoopIters, 2);
 }
 
+TEST_F(GenericOpAnalysisTest,
+       CanAnalyzeGenericForDSTPackingWithoutBlockingLoop) {
+  std::string moduleText = wrapInModule(R"mlir(
+func.func @test(
+    %in: memref<1x1x8x!ttcore.tile<32x32, f32>>,
+    %out: memref<1x1x8x!ttcore.tile<32x32, f32>>) {
+  d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+    ins(%in : memref<1x1x8x!ttcore.tile<32x32, f32>>)
+    outs(%out : memref<1x1x8x!ttcore.tile<32x32, f32>>) {
+    ^unified0(%cb0: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>,
+              %cb1: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>):
+      %in_m = d2m.wait %cb0 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
+      %out_m = d2m.reserve %cb1 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
+      linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
+        ins(%in_m : memref<1x8x!ttcore.tile<32x32, f32>>)
+        outs(%out_m : memref<1x8x!ttcore.tile<32x32, f32>>) {
+      ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>):
+        %abs = "d2m.tile_abs"(%arg0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %abs : !ttcore.tile<32x32, f32>
+      }
+    }
+  return
+}
+)mlir");
+
+  auto module = parseModule(moduleText);
+  ASSERT_TRUE(module);
+  d2m::GenericOp generic = getSingleGenericOp(*module);
+  ASSERT_TRUE(generic);
+
+  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
+  ASSERT_EQ(outputValues.size(), 1u);
+  ASSERT_EQ(packing.perRegion.size(), 1u);
+  auto *regionInfo = packing.lookup(outputValues.front().first);
+  ASSERT_NE(regionInfo, nullptr);
+  auto it = regionInfo->perResult.find(outputValues.front().second);
+  ASSERT_NE(it, regionInfo->perResult.end());
+  ASSERT_EQ(regionInfo->perResult.size(), 1u);
+  EXPECT_EQ(it->second.numTilesPerFlip, 2);
+  EXPECT_EQ(it->second.numDstFlips, 2);
+  EXPECT_EQ(regionInfo->numTilesPerResult, 4);
+  EXPECT_EQ(regionInfo->numOuterLoopIters, 2);
+}
+
+TEST_F(GenericOpAnalysisTest, ReturnsNoDSTPackingForSingleTileShard) {
+  std::string moduleText = wrapInModule(R"mlir(
+func.func @test(
+    %in: memref<1x1x1x!ttcore.tile<32x32, f32>>,
+    %out: memref<1x1x1x!ttcore.tile<32x32, f32>>) {
+  d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+    ins(%in : memref<1x1x1x!ttcore.tile<32x32, f32>>)
+    outs(%out : memref<1x1x1x!ttcore.tile<32x32, f32>>) {
+    ^unified0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>>,
+              %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>>):
+      %in_m = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>> -> memref<1x1x!ttcore.tile<32x32, f32>>
+      %out_m = d2m.reserve %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>> -> memref<1x1x!ttcore.tile<32x32, f32>>
+      linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
+        ins(%in_m : memref<1x1x!ttcore.tile<32x32, f32>>)
+        outs(%out_m : memref<1x1x!ttcore.tile<32x32, f32>>) {
+      ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>):
+        %abs = "d2m.tile_abs"(%arg0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %abs : !ttcore.tile<32x32, f32>
+      }
+    }
+  return
+}
+)mlir");
+
+  auto module = parseModule(moduleText);
+  ASSERT_TRUE(module);
+  d2m::GenericOp generic = getSingleGenericOp(*module);
+  ASSERT_TRUE(generic);
+
+  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
+  ASSERT_EQ(outputValues.size(), 1u);
+  EXPECT_TRUE(packing.perRegion.empty());
+  EXPECT_EQ(packing.lookup(outputValues.front().first), nullptr);
+}
+
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPU) {
   std::string moduleText = wrapInModule(R"mlir(
 func.func @test(
