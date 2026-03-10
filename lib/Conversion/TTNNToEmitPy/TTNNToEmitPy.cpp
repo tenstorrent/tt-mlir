@@ -3671,18 +3671,15 @@ public:
 
     // ttnn::group_norm requires core_grid to be explicitly specified.
     // If the op doesn't have it set, derive it from the device's worker grid.
-    mlir::Attribute coreGridArg;
+    mlir::tt::ttnn::CoreCoordAttr coreGridValue;
     if (srcOp.getCoreGrid()) {
-      coreGridArg =
-          emitter.emit<::ttnn::CoreGrid>(srcOp.getCoreGrid(), "core_grid");
+      coreGridValue = *srcOp.getCoreGrid();
     } else {
       ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp);
       auto gridShape = deviceAttr.getWorkerGrid().getShape();
       // GridAttr shape is [y, x], CoreCoordAttr takes (x, y).
-      auto defaultCoreGrid = mlir::tt::ttnn::CoreCoordAttr::get(
+      coreGridValue = mlir::tt::ttnn::CoreCoordAttr::get(
           rewriter.getContext(), gridShape[1], gridShape[0]);
-      coreGridArg =
-          emitter.emit<::ttnn::CoreGrid>(defaultCoreGrid, "core_grid");
     }
 
     llvm::SmallVector<mlir::Attribute> args{
@@ -3695,7 +3692,9 @@ public:
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
-        coreGridArg,
+        emitter.emit<::ttnn::CoreGrid>(coreGridValue, "core_grid"),
+        emitter.emit(false, "inplace"),
+        emitter.emit(-1, "num_out_blocks"),
     };
 
     emitter.replaceOp(*this, args);
@@ -4286,12 +4285,11 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Normalization ops
   //
-  patterns
-      .add<BatchNormInferenceOpConversionPattern,
-           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-           DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
-           GroupNormOpConversionPattern>(
-          typeConverter, ctx, enableGoldenMode);
+  patterns.add<BatchNormInferenceOpConversionPattern,
+               BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+               DistributedRMSNormOpConversionPattern,
+               LayerNormOpConversionPattern, GroupNormOpConversionPattern>(
+      typeConverter, ctx, enableGoldenMode);
 
   // Transformers ops
   //

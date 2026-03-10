@@ -14353,7 +14353,6 @@ class TTIRBuilder(Builder):
 
         return sub_modules_and_builders
 
-        
     ############### ttir.GroupNormOp ###############
 
     @tag(ttir.GroupNormOp)
@@ -14413,8 +14412,7 @@ class TTIRBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -14445,20 +14443,19 @@ class TTIRBuilder(Builder):
         )
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            weight0 = self._get_golden_tensor(weight) if weight is not None else None
-            bias0 = self._get_golden_tensor(bias) if bias is not None else None
-            op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(
-                input0,
-                weight0,
-                bias0,
-                num_groups_attr,
-                epsilon_attr,
-                result.element_type,
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        weight0 = self._get_golden_tensor(weight) if weight is not None else None
+        bias0 = self._get_golden_tensor(bias) if bias is not None else None
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            weight0,
+            bias0,
+            num_groups_attr,
+            epsilon_attr,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {old_op.result: new_op_result}
         return new_op, op_map_dictionary
@@ -14519,52 +14516,47 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    if not self._disable_golden_check:
-                        input0 = self._get_golden_tensor(old_op.input)
-                        input_mask0 = (
-                            self._get_golden_tensor(old_op.input_mask)
-                            if old_op.input_mask is not None
-                            else None
-                        )
-                        weight0 = (
-                            self._get_golden_tensor(old_op.weight)
-                            if old_op.weight is not None
-                            else None
-                        )
-                        bias0 = (
-                            self._get_golden_tensor(old_op.bias)
-                            if old_op.bias is not None
-                            else None
-                        )
+                    input0 = self._get_golden_tensor(old_op.input)
+                    input_mask0 = (
+                        self._get_golden_tensor(old_op.input_mask)
+                        if old_op.input_mask is not None
+                        else None
+                    )
+                    weight0 = (
+                        self._get_golden_tensor(old_op.weight)
+                        if old_op.weight is not None
+                        else None
+                    )
+                    bias0 = (
+                        self._get_golden_tensor(old_op.bias)
+                        if old_op.bias is not None
+                        else None
+                    )
 
-                        op_golden_function = get_golden_function(ttir_op)
-                        golden_output = op_golden_function(
-                            input0,
-                            weight0,
-                            bias0,
-                            num_groups_attr,
-                            old_op.epsilon,
-                            result.element_type,
-                        )
-                        group_norm_builder._set_golden_tensor(
-                            new_op_result, golden_output
-                        )
-                        group_norm_builder._set_golden_tensor(in0, input0)
-                        ordered_inputs.append(in0)
-                        if input_mask is not None:
-                            group_norm_builder._set_golden_tensor(
-                                input_mask, input_mask0
-                            )
-                            ordered_inputs.append(input_mask)
-                        if weight is not None:
-                            group_norm_builder._set_golden_tensor(weight, weight0)
-                            ordered_inputs.append(weight)
-                        if bias is not None:
-                            group_norm_builder._set_golden_tensor(bias, bias0)
-                            ordered_inputs.append(bias)
-                        ordered_outputs.append(new_op_result)
+                    op_golden_function = get_golden_function(ttir_op)
+                    golden_output = op_golden_function(
+                        input0,
+                        weight0,
+                        bias0,
+                        num_groups_attr,
+                        old_op.epsilon,
+                        result.element_type,
+                    )
+                    group_norm_builder._set_golden_tensor(new_op_result, golden_output)
+                    group_norm_builder._set_golden_tensor(in0, input0)
+                    ordered_inputs.append(in0)
+                    if input_mask is not None:
+                        group_norm_builder._set_golden_tensor(input_mask, input_mask0)
+                        ordered_inputs.append(input_mask)
+                    if weight is not None:
+                        group_norm_builder._set_golden_tensor(weight, weight0)
+                        ordered_inputs.append(weight)
+                    if bias is not None:
+                        group_norm_builder._set_golden_tensor(bias, bias0)
+                        ordered_inputs.append(bias)
+                    ordered_outputs.append(new_op_result)
 
-                    return new_op
+                return new_op
 
                 new_func_op = decorated_func.func_op
                 group_norm_builder._func_ops_generated[new_func_op] = [

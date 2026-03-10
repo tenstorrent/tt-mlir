@@ -1217,6 +1217,20 @@ def ttir_group_norm_golden(
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     input_float = input.float()
 
+    # torch.group_norm expects [N, C, ...] (channels at dim=1), but the TTIR
+    # GroupNorm op uses channels-last: [N, 1, H*W, C]. Permute to NCHW,
+    # compute, then permute back.
+    if input_float.dim() == 4 and input_float.shape[1] == 1:
+        input_nchw = input_float.permute(0, 3, 1, 2)
+        result = torch.nn.functional.group_norm(
+            input_nchw,
+            num_groups=num_groups,
+            weight=weight,
+            bias=bias,
+            eps=epsilon,
+        )
+        return result.permute(0, 2, 3, 1).to(output_dtype)
+
     return torch.nn.functional.group_norm(
         input_float,
         num_groups=num_groups,

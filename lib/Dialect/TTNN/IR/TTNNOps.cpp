@@ -3119,19 +3119,43 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 
   if (getWeight()) {
     RankedTensorType weightType = getWeight().getType();
-    if (weightType.getRank() != 1 || weightType.getShape()[0] != channelDim) {
-      return emitOpError(
-                 "weight must be 1D with size matching channel dimension C=")
-             << channelDim;
+    if (weightType.getRank() == 1) {
+      if (weightType.getShape()[0] != channelDim) {
+        return emitOpError(
+                   "weight must be 1D with size matching channel dimension C=")
+               << channelDim;
+      }
+    } else if (weightType.getRank() == 4) {
+      llvm::ArrayRef<int64_t> shape = weightType.getShape();
+      if (shape[0] != 1 || shape[1] != 1 || shape[3] != 32 ||
+          shape[2] * shape[3] != channelDim) {
+        return emitOpError("weight must be either 1D [C] or 4D [1,1,C/32,32]");
+      }
+    } else {
+      return emitOpError("weight must be either 1D [C] or 4D [1,1,C/32,32], "
+                         "got rank ")
+             << weightType.getRank();
     }
   }
 
   if (getBias()) {
     RankedTensorType biasType = getBias().getType();
-    if (biasType.getRank() != 1 || biasType.getShape()[0] != channelDim) {
-      return emitOpError(
-                 "bias must be 1D with size matching channel dimension C=")
-             << channelDim;
+    if (biasType.getRank() == 1) {
+      if (biasType.getShape()[0] != channelDim) {
+        return emitOpError(
+                   "bias must be 1D with size matching channel dimension C=")
+               << channelDim;
+      }
+    } else if (biasType.getRank() == 4) {
+      llvm::ArrayRef<int64_t> shape = biasType.getShape();
+      if (shape[0] != 1 || shape[1] != 1 || shape[3] != 32 ||
+          shape[2] * shape[3] != channelDim) {
+        return emitOpError("bias must be either 1D [C] or 4D [1,1,C/32,32]");
+      }
+    } else {
+      return emitOpError("bias must be either 1D [C] or 4D [1,1,C/32,32], "
+                         "got rank ")
+             << biasType.getRank();
     }
   }
 

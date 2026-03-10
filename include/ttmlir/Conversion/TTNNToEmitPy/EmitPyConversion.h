@@ -559,8 +559,8 @@ struct EmitPyTypeConverter<::ttnn::CoreGrid> {
     llvm::raw_string_ostream rso(buf);
 
     rso << TypeNameV<::ttnn::CoreGrid>;
-    rso << "(";
-    rso << EmitPyTypeConverter<size_t>::convert(attr.getX()) << ", ";
+    rso << "(x=";
+    rso << EmitPyTypeConverter<size_t>::convert(attr.getX()) << ", y=";
     rso << EmitPyTypeConverter<size_t>::convert(attr.getY());
     rso << ")";
 

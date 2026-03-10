@@ -652,10 +652,13 @@ TTNNOperandsWorkaroundsFactory::createGroupNormOpOperandsWorkarounds(
   weightBiasWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   weightBiasWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
 
+  TTNNOperandWorkarounds outputWorkaround;
+  outputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
   auto workarounds =
       TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
           .addInputOperandWorkaround(inputWorkaround)
-          .addOutputOperandWorkaround(TTNNOperandWorkarounds());
+          .addOutputOperandWorkaround(outputWorkaround);
 
   if (groupNormOp.getInputMask()) {
     workarounds.addInputOperandWorkaround(TTNNOperandWorkarounds());

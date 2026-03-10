@@ -30,6 +30,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/MathExtras.h"
 #include <cstdint>
 #include <optional>
 
@@ -1327,6 +1328,48 @@ public:
 namespace {
 class GroupNormOpConversionPattern
     : public OpConversionPattern<ttir::GroupNormOp> {
+private:
+  // Compute a valid core grid for group_norm.
+  static std::pair<uint64_t, uint64_t>
+  computeGroupNormCoreGrid(int64_t deviceGridX, int64_t deviceGridY,
+                           int64_t numChannels, int64_t numGroups,
+                           int64_t inputNHW) {
+    constexpr int64_t tileSize = 32;
+
+    int64_t Ht = llvm::divideCeil(inputNHW, tileSize);
+
+    // Find numVirtualCols: largest value <= min(deviceGridX, numGroups) where
+    // channels per virtual col are tile-aligned and groups divide evenly.
+    // numVirtualCols == 1 always satisfies both conditions (given the
+    // precondition numChannels % 32 == 0), so the loop always terminates.
+    int64_t numVirtualCols = std::min(deviceGridX, numGroups);
+    while (numVirtualCols > 1 &&
+           ((numChannels / numVirtualCols) % tileSize != 0 ||
+            numGroups % numVirtualCols != 0)) {
+      numVirtualCols--;
+    }
+
+    // Start with the full device grid, clamped to a multiple of
+    // numVirtualCols, then shrink until numVirtualRows <= Ht.
+    int64_t gridX =
+        llvm::divideCeil(deviceGridX, numVirtualCols) * numVirtualCols;
+    int64_t gridY = deviceGridY;
+
+    int64_t rowsMult = gridX / numVirtualCols;
+    if (rowsMult * gridY > Ht) {
+      gridY = Ht / rowsMult;
+      if (gridY == 0) {
+        gridX = numVirtualCols;
+        gridY = std::min(deviceGridY, Ht);
+      }
+    }
+
+    gridX = std::max(gridX, numVirtualCols);
+    gridY = std::max(gridY, static_cast<int64_t>(1));
+
+    return {gridX, gridY};
+  }
+
 public:
   using OpConversionPattern<ttir::GroupNormOp>::OpConversionPattern;
 
@@ -1397,14 +1440,90 @@ public:
           loc, reshapedType, input, rewriter.getI32ArrayAttr(reshapedShapeI32),
           /*memory_config=*/nullptr);
     }
-    // Create the GroupNormOp.
-    RankedTensorType groupNormOutputType =
+    // Compute core_grid from the device worker grid and input dimensions.
+    // Input is now in [N, 1, H*W, C] form.
+
+    RankedTensorType groupNormInputType =
         mlir::cast<RankedTensorType>(input.getType());
+
+    ArrayRef<int64_t> gnShape = groupNormInputType.getShape();
+    int64_t inputNHW = gnShape[0] * gnShape[1] * gnShape[2];
+    int64_t numChannels = gnShape[3];
+    int64_t numGroups = adaptor.getNumGroups();
+
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+    auto workerGridShape = deviceAttr.getWorkerGrid().getShape();
+    // GridAttr shape is [y, x].
+    int64_t deviceGridX = workerGridShape[1];
+    int64_t deviceGridY = workerGridShape[0];
+
+    auto [gridX, gridY] = computeGroupNormCoreGrid(
+        deviceGridX, deviceGridY, numChannels, numGroups, inputNHW);
+
+    auto coreGridAttr =
+        ttnn::CoreCoordAttr::get(rewriter.getContext(), gridX, gridY);
+
+    // Materialize missing affine parameters to avoid runtime issues in
+    // optional-weight/bias GroupNorm paths.
+    // Metal issue: https://github.com/tenstorrent/tt-metal/issues/39529
+    Value weight = adaptor.getWeight();
+    Value bias = adaptor.getBias();
+    if (!weight || !bias) {
+      RankedTensorType affineType;
+      if (weight) {
+        affineType = mlir::cast<RankedTensorType>(weight.getType());
+      } else if (bias) {
+        affineType = mlir::cast<RankedTensorType>(bias.getType());
+      } else {
+        affineType = ttnn::utils::RankedTensorTypeFactory::create(
+            groupNormInputType, llvm::SmallVector<int64_t>{numChannels});
+      }
+
+      auto affineLayoutAttr =
+          mlir::cast<ttnn::TTNNLayoutAttr>(affineType.getEncoding());
+      auto affineShapeAttr =
+          ttnn::ShapeAttr::get(rewriter.getContext(), affineType.getShape());
+      auto affineDTypeAttr = ttcore::DataTypeAttr::get(
+          rewriter.getContext(), affineLayoutAttr.getDataType());
+      auto affineTensorLayoutAttr =
+          ttnn::LayoutAttr::get(op.getContext(), affineLayoutAttr.getLayout());
+      Value affineDevice =
+          affineLayoutAttr.isDeviceBufferType()
+              ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
+              : nullptr;
+      ttnn::MemoryConfigAttr affineMemoryConfig =
+          affineLayoutAttr.getMemLayout()
+              ? ttnn::MemoryConfigAttr::get(
+                    op.getContext(), affineLayoutAttr.getMemLayout(),
+                    ttnn::BufferTypeAttr::get(op.getContext(),
+                                              affineLayoutAttr.getBufferType()),
+                    std::nullopt)
+              : nullptr;
+
+      if (!weight) {
+        weight = rewriter
+                     .create<ttnn::OnesOp>(loc, affineType, affineDevice,
+                                           affineShapeAttr, affineDTypeAttr,
+                                           affineTensorLayoutAttr,
+                                           affineMemoryConfig)
+                     .getResult();
+      }
+      if (!bias) {
+        bias = rewriter
+                   .create<ttnn::ZerosOp>(loc, affineType, affineDevice,
+                                          affineShapeAttr, affineDTypeAttr,
+                                          affineTensorLayoutAttr,
+                                          affineMemoryConfig)
+                   .getResult();
+      }
+    }
+
+    // Create the GroupNormOp.
     Value groupNormResult = rewriter.create<ttnn::GroupNormOp>(
-        loc, this->getTypeConverter()->convertType(groupNormOutputType), input,
-        adaptor.getInputMask(), adaptor.getWeight(), adaptor.getBias(),
-        adaptor.getNumGroups(), adaptor.getEpsilon(),
-        /*memoryConfig*/ nullptr, /*core_grid=*/nullptr);
+        loc, this->getTypeConverter()->convertType(groupNormInputType), input,
+        adaptor.getInputMask(), weight, bias, adaptor.getNumGroups(),
+        adaptor.getEpsilon(),
+        /*memoryConfig*/ nullptr, coreGridAttr);
 
     // Reshape back to original shape if reshaped.
     if (needsReshape) {

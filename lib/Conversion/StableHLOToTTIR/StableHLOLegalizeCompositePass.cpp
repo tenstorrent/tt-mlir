@@ -385,7 +385,6 @@ public:
   }
 };
 
-
 // Special handling for tenstorrent.group_norm -> ttir.group_norm
 // Extracts num_groups (int) and epsilon from composite attributes
 // and sets operandSegmentSizes for AttrSizedOperandSegments

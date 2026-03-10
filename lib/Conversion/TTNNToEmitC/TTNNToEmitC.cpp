@@ -3546,6 +3546,9 @@ public:
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(/* dtype= */ std::nullopt),
         coreGridArg,
+        emitter.emit(/* inplace= */ std::nullopt),
+        emitter.emit(/* output_layout= */ std::nullopt),
+        emitter.emit(/* num_out_blocks= */ -1),
     };
 
     emitter.replaceOp(*this, args);

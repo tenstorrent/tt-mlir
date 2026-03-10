@@ -450,11 +450,12 @@ def test_distributed_rms_norm(
         target=target,
     )
 
+
 # Group norm tests
 
 
 @pytest.mark.parametrize("num_groups", [8, 32])
-@pytest.mark.parametrize("shape", [(1, 1, 32, 128), (1, 1, 64, 256)])
+@pytest.mark.parametrize("shape", [(1, 8, 8, 480)])
 @pytest.mark.parametrize("has_weight", [True, False])
 @pytest.mark.parametrize("has_bias", [True, False])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
@@ -467,8 +468,10 @@ def test_group_norm(
     request,
     device,
 ):
-    # Channel dimension is the last dim
-    channel_dim = shape[-1]
+    # Assume channels-last input layout (NHWC).
+    n, h, w, c = shape
+    channel_dim = c
+    group_norm_shape = (n, 1, h * w, c)
 
     # Determine input shapes
     shapes = [shape]
@@ -495,13 +498,15 @@ def test_group_norm(
                 elif not has_weight and len(inputs) > 1:
                     bias = inputs[1]
 
-            return builder.group_norm(
-                in0,
+            in0_group_norm = builder.reshape(in0, group_norm_shape)
+            output_group_norm = builder.group_norm(
+                in0_group_norm,
                 num_groups=num_groups,
                 weight=weight,
                 bias=bias,
                 unit_attrs=unit_attrs,
             )
+            return builder.reshape(output_group_norm, shape)
 
     compile_and_execute_ttir(
         module,

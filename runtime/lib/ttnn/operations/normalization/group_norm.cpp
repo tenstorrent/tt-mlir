@@ -17,15 +17,33 @@ void run(const ::tt::target::ttnn::GroupNormOp *op, ProgramContext &context) {
     input_mask = tensorPool.getTTNNTensorAndValidate(op->input_mask());
   }
 
-  // Handle optional weight and bias parameters
+  // Handle optional weight and bias parameters.
+  // tt-metal group_norm requires gamma/beta with padded_shape[3] == TILE_WIDTH
+  // (32). Reshape from 1D (C,) to 4D (1, 1, C/32, 32) to satisfy this.
+  constexpr int32_t tileWidth = 32;
+
   std::optional<::ttnn::Tensor> weight = std::nullopt;
   if (op->weight()) {
-    weight = tensorPool.getTTNNTensorAndValidate(op->weight());
+    ::ttnn::Tensor w = tensorPool.getTTNNTensorAndValidate(op->weight());
+    if (w.logical_shape().rank() == 1) {
+      int32_t C = static_cast<int32_t>(w.logical_shape()[-1]);
+      weight = ::ttnn::reshape(
+          w, std::vector<int32_t>{1, 1, C / tileWidth, tileWidth});
+    } else {
+      weight = w;
+    }
   }
 
   std::optional<::ttnn::Tensor> bias = std::nullopt;
   if (op->bias()) {
-    bias = tensorPool.getTTNNTensorAndValidate(op->bias());
+    ::ttnn::Tensor b = tensorPool.getTTNNTensorAndValidate(op->bias());
+    if (b.logical_shape().rank() == 1) {
+      int32_t C = static_cast<int32_t>(b.logical_shape()[-1]);
+      bias = ::ttnn::reshape(
+          b, std::vector<int32_t>{1, 1, C / tileWidth, tileWidth});
+    } else {
+      bias = b;
+    }
   }
 
   float epsilon = op->epsilon();
@@ -46,10 +64,12 @@ void run(const ::tt::target::ttnn::GroupNormOp *op, ProgramContext &context) {
   ::ttnn::CoreGrid core_grid(grid_size.x, grid_size.y);
 
   // Call TTNN group norm operation
-  ::ttnn::Tensor output =
-      ::ttnn::group_norm(input, num_groups, epsilon, input_mask, weight, bias,
-                         /*reciprocals=*/std::nullopt, memoryConfig,
-                         /*dtype=*/std::nullopt, core_grid);
+  ::ttnn::Tensor output = ::ttnn::group_norm(
+      input, num_groups, epsilon, input_mask, weight, bias,
+      /*reciprocals=*/std::nullopt, memoryConfig,
+      /*dtype=*/std::nullopt, core_grid,
+      /*inplace=*/std::nullopt, /*output_layout=*/std::nullopt,
+      /*num_out_blocks=*/-1);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
