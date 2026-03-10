@@ -64,7 +64,8 @@ void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore) {
   if (l1SizePerCore == 0 || l1Budget == 0) {
     return;
   }
-  uint64_t alignedSize = (l1SizePerCore + kL1Alignment - 1) & ~(kL1Alignment - 1);
+  uint64_t alignedSize =
+      (l1SizePerCore + kL1Alignment - 1) & ~(kL1Alignment - 1);
 
   // Walk free list from highest address (reverse) for top-down first-fit.
   for (int i = static_cast<int>(freeList.size()) - 1; i >= 0; --i) {
@@ -106,13 +107,13 @@ void SumL1MemoryTracker::removeTensor(Value result) {
 
   // Find insertion point in sorted freeList (sorted by start address).
   size_t insertIdx = 0;
-  while (insertIdx < freeList.size() && freeList[insertIdx].start < freedStart) {
+  while (insertIdx < freeList.size() &&
+         freeList[insertIdx].start < freedStart) {
     ++insertIdx;
   }
 
   // Check merge with previous and next free blocks.
-  bool mergePrev =
-      insertIdx > 0 && freeList[insertIdx - 1].end == freedStart;
+  bool mergePrev = insertIdx > 0 && freeList[insertIdx - 1].end == freedStart;
   bool mergeNext =
       insertIdx < freeList.size() && freeList[insertIdx].start == freedEnd;
 
@@ -383,7 +384,7 @@ void L1SpillManagement<MemoryTracker>::revalidateConsumers(
       if (!mlir::dyn_cast<OpModel>(consumer)) {
         continue;
       }
-      if (isa<ToLayoutOp, ToMemoryConfigOp>(consumer)) {
+      if (isa<ToLayoutOp>(consumer)) {
         continue;
       }
 
