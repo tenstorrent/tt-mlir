@@ -15,8 +15,7 @@ from utils import (
     get_core_grid_from_device,
 )
 
-# Tests with matmul in the middle / end of an op chain are failing in D2MToTTNN.
-# Tests with matmul as the first op are passing. Issue #7419.
+
 def matmul_composite(input0, input1):
     a = ttnn.abs(input0)
     b = ttnn.matmul(a, input1)
@@ -69,9 +68,9 @@ INPUT_LAYOUTS = [
 @pytest.mark.parametrize(
     "op",
     [
-        matmul,
+        matmul_composite,
     ],
-    ids=["matmul"],
+    ids=["matmul_composite"],
 )
 def test_matmul_smoketest(device, shapes, input_layouts, dtype, ttnn_dtype, op):
     # Skip large matmuls for float32
