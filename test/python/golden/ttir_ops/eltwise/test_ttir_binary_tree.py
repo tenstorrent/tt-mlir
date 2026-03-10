@@ -16,7 +16,19 @@ from test_utils import shape_str
 pytestmark = pytest.mark.frontend("ttir")
 
 
-@pytest.mark.parametrize("shape", [(1024, 1024), (2048, 2048)], ids=shape_str)
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (256, 512),
+        (512, 256),
+        (1024, 1024),
+        (1024, 2048),
+        (2048, 1024),
+        (2048, 2048),
+        (256, 256),
+    ],
+    ids=shape_str,
+)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_binary_tree(shape: Shape, dtype: torch.dtype, target: str, request, device):
@@ -43,9 +55,5 @@ def test_binary_tree(shape: Shape, dtype: torch.dtype, target: str, request, dev
         **get_request_kwargs(request),
         target=target,
         device=device,
-        save_artifacts=True,
-        # check_atol=True,
-        # check_rtol=True,
-        # atol=0.05,
-        # rtol=0.05
+        save_artifacts=True
     )
