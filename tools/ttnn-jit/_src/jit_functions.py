@@ -416,16 +416,48 @@ class ReductionOpHandler(BaseOpHandler):
 class MatmulOpHandler(BaseOpHandler):
     """Handler for matrix multiplication operation."""
 
-    def _infer_result_type(self, lhs_type, rhs_type):
-        """Infer result type for matmul using create_output_tensor."""
-        # Use create_output_tensor which handles matmul output layout inference.
-        return create_output_tensor(
-            self.jit_ctx.ctx,
-            "matmul",
-            [lhs_type, rhs_type],
-            CREATE_INTERMEDIATE_LAYOUT,
-            self.jit_ctx.core_grid,
-        )
+    def _infer_result_type(
+        self, lhs_type, rhs_type, transpose_a=False, transpose_b=False
+    ):
+        """Infer result type for matmul."""
+
+        lhs_shape = list(lhs_type.shape)
+        rhs_shape = list(rhs_type.shape)
+
+        if transpose_a:
+            lhs_shape = [lhs_shape[1], lhs_shape[0]]
+        if transpose_b:
+            rhs_shape = [rhs_shape[1], rhs_shape[0]]
+
+        if CREATE_INTERMEDIATE_LAYOUT:
+            if transpose_a or transpose_b:
+                with Location.unknown(self.jit_ctx.ctx):
+                    transposed_lhs_type = RankedTensorType.get(
+                        lhs_shape, lhs_type.element_type, lhs_type.encoding
+                    )
+                    transposed_rhs_type = RankedTensorType.get(
+                        rhs_shape, rhs_type.element_type, rhs_type.encoding
+                    )
+                return create_output_tensor(
+                    self.jit_ctx.ctx,
+                    "matmul",
+                    [transposed_lhs_type, transposed_rhs_type],
+                    True,
+                    self.jit_ctx.core_grid,
+                )
+            return create_output_tensor(
+                self.jit_ctx.ctx,
+                "matmul",
+                [lhs_type, rhs_type],
+                True,
+                self.jit_ctx.core_grid,
+            )
+
+        shape = [lhs_shape[0], rhs_shape[-1]]
+        element_type = lhs_type.element_type
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(shape, element_type)
 
     def create_operation(self, *args, **kwargs):
         """Create matmul operation."""
@@ -439,8 +471,10 @@ class MatmulOpHandler(BaseOpHandler):
         transpose_a = kwargs.get("transpose_a", False)
         transpose_b = kwargs.get("transpose_b", False)
 
-        # Infer result type using create_output_tensor
-        result_type = self._infer_result_type(lhs.type, rhs.type)
+        # Infer result type
+        result_type = self._infer_result_type(
+            lhs.type, rhs.type, transpose_a, transpose_b
+        )
 
         # Create the operation
         with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
