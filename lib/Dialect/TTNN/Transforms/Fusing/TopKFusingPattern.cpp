@@ -5,17 +5,12 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/TopKFusingPattern.h"
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Utils.h"
-
-#ifdef TTMLIR_ENABLE_OPMODEL
-#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
-#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
-#endif
+#include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/PatternMatch.h"
+
 #include "llvm/ADT/ArrayRef.h"
 
 namespace mlir::tt::ttnn::fusing {
@@ -124,7 +119,29 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
   // TopK always produces sorted output when replacing a sort operation
   bool sorted = true;
 
-  // Create the fused TopK operation
+  // Validate the fusion before creating it
+  FusionValidator validator(rewriter.getContext(), validationConfig);
+
+  // Validate the TopK operation that would be created
+  auto validationResult = validator.validateFusion<TopKOp>(
+      srcOp.getOperation(), // Pass source op for context
+      srcOp.getLoc(), {valuesSlice.getType(), indicesSlice.getType()},
+      srcOp.getInput(), rewriter.getI32IntegerAttr(*k),
+      rewriter.getI32IntegerAttr(sortDim), rewriter.getBoolAttr(largest),
+      rewriter.getBoolAttr(sorted),
+      nullptr // memory_config
+  );
+
+  // If validation fails, don't fuse
+  if (!validationResult.isSuccess()) {
+    // Log the validation failure for debugging
+    TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+                 "TopK fusion validation failed: {0}",
+                 validationResult.errorMessage);
+    return failure();
+  }
+
+  // Create the fused TopK operation (now that we know it's valid)
   auto topkOp =
       rewriter.create<TopKOp>(srcOp.getLoc(),
                               valuesSlice.getType(),  // values result type
