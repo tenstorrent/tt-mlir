@@ -705,7 +705,7 @@ func.func @test(
   EXPECT_EQ(regionInfo->numOuterLoopIters, 1);
 }
 
-TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPUBf16_8x8) {
+TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPUBf16Square8By8) {
   std::string moduleText = wrapInModule(R"mlir(
 func.func @test(
     %in0: memref<1x1x8x8x!ttcore.tile<32x32, bf16>>,
