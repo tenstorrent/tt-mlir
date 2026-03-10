@@ -12,7 +12,7 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// In some models, inputs and outputs of a mutiply op have dimensions (2048,
+// In some models, inputs and outputs of a multiply op have dimensions (2048,
 // 1024, 1, 1). When these tensors are tilized the physical shapes are (2048,
 // 1024, 32, 32). This causes DRAM OOM issues. In order to workaround this issue
 // we permute the dimensions of the tensors to (1, 1, 2048, 1024) before the

@@ -27,6 +27,7 @@ include "ttmlir/Target/TTNN/operations/reduction.fbs";
 include "ttmlir/Target/TTNN/operations/tensor_serialization.fbs";
 include "ttmlir/Target/TTNN/operations/trace.fbs";
 include "ttmlir/Target/TTNN/operations/transformer.fbs";
+include "ttmlir/Target/TTNN/operations/global_semaphore.fbs";
 
 namespace tt.target.ttnn;
 
@@ -34,6 +35,8 @@ union OpType {
   AggregateTensorOp,
   AllGatherOp,
   AllReduceOp,
+  AllToAllCombineOp,
+  AllToAllDispatchOp,
   ArangeOp,
   AssignOp,
   BatchNormInferenceOp,
@@ -53,6 +56,7 @@ union OpType {
   CpuOp,
   DeallocateOp,
   DistributeTensorOp,
+  DistributedRMSNormOp,
   DropoutOp,
   EltwiseBinaryCompositeOp,
   EltwiseBinaryCompositeScalarOp,
@@ -80,8 +84,11 @@ union OpType {
   // ANCHOR: adding_an_op_matmul_fbs_op_type
   MatmulOp,
   // ANCHOR_END: adding_an_op_matmul_fbs_op_type
+  SparseMatmulOp,
   MaxPool2dWithIndicesOp,
   MeshShardOp,
+  MeshPartitionOp,
+  MoeExpertTokenRemapOp,
   MorehCumSumOp,
   NamedFullOp,
   NLPConcatHeadsDecodeOp,
@@ -124,7 +131,13 @@ union OpType {
   LoadTensorOp,
   AnnotateOp,
   BreakpointOp,
+  PrintOp,
   MemorySnapshotOp,
+  RegionStartOp,
+  RegionEndOp,
+  TopKOp,
+  CreateGlobalSemaphoreOp,
+  ResetGlobalSemaphoreOp,
 }
 
 table Operation {

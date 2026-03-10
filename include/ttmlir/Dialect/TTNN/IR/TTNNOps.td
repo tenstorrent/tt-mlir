@@ -1118,7 +1118,7 @@ def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw", [TTNN_DtypeOpInterface, T
 }
 
 def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum"> {
-  let summary = "Moreh cummulative sum op.";
+  let summary = "Moreh cumulative sum op.";
   let description = [{
     Computes the cumulative sum of elements of a tensor along specified dimension.
 
@@ -1317,17 +1317,6 @@ def TTNN_ConcatOp : TTNN_Op<"concat", [TTNN_MemoryConfigOpInterface]> {
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::Operation::operand_range inputs = getInputs();
-        int64_t numOperands = getOperands().size();
-        int32_t dim = getDim();
-        return
-          wa::TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
-                                                        inputs, numOperands, dim);
-      }
-    }];
 
     let hasVerifier = 1;
 }
@@ -1542,6 +1531,132 @@ def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
     let hasVerifier = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
+
+def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul"> {
+    let summary = "Sparse block matrix multiplication with sparsity mask.";
+    let description = [{
+      The `sparse_matmul` operation performs batched matrix multiplication where
+      computation is selectively skipped for blocks marked as zero in the sparsity
+      tensor. Input `b` is organized as a collection of weight matrices indexed by
+      a block dimension (dim 1), and the sparsity tensor controls which blocks
+      participate in the computation.
+
+      Supported Modes:
+      - is_input_a_sparse=false, is_input_b_sparse=true (column-parallel):
+        a: [A, B, M, K], b: [1, E, K, N], sparsity: [A, B, 1, E]
+        -> output: [A, B, 1, E, M, N]
+      - is_input_a_sparse=true, is_input_b_sparse=false (row-parallel):
+        a: [A, E, M, K], b: [1, E, K, N], sparsity: [1, 1, A, E]
+        -> output: [A, E, M, N]
+      - is_input_a_sparse=true, is_input_b_sparse=true (both sparse):
+        a: [1, E, M, K], b: [1, E, K, N], sparsity: [1, 1, 1, E]
+        -> output: [1, E, M, N]
+
+      Example:
+      ```mlir
+      %result = "ttnn.sparse_matmul"(%activations, %weights, %sparsity) <{
+          is_input_a_sparse = false, is_input_b_sparse = true, nnz = 2
+      }> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>,
+            tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         AnyRankedTensor:$sparsity,
+                         DefaultValuedAttr<BoolAttr, "false">:$is_input_a_sparse,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_input_b_sparse,
+                         OptionalAttr<I64Attr>:$nnz,
+                         OptionalAttr<TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>:$program_config,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createSparseMatmulOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch"> {
+    let summary = "Dispatch tokens to expert devices for MoE computation.";
+    let description = [{
+      Routes tokens to devices holding their selected experts via all-to-all
+      communication. Used before sparse_matmul in the MoE dispatch/combine flow.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$dispatched, AnyRankedTensor:$metadata);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createAllToAllDispatchOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine"> {
+    let summary = "Combine expert outputs back to original token positions.";
+    let description = [{
+      Inverse of dispatch: gathers expert computation results from expert devices
+      and restores tokens to their original device and order.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_metadata,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis,
+                         I64Attr:$num_experts_per_tok,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createAllToAllCombineOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_MoeExpertTokenRemapOp : TTNN_Op<"moe_expert_token_remap"> {
+    let summary = "Remap global expert routing to local device experts with sparsity.";
+    let description = [{
+      Converts global expert routing scores to local per-device expert mapping
+      and creates a sparsity pattern for efficient sparse_matmul.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$topk_tensor,
+                         AnyRankedTensor:$expert_mapping,
+                         AnyRankedTensor:$expert_metadata,
+                         I64Attr:$reduction_size,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$mapping, AnyRankedTensor:$reduced);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createMoeExpertTokenRemapOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
 
 def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Prepares conv2d weights so that they can be consumed by the conv2d op.";
@@ -1837,6 +1952,12 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface, TTNN_ComputeKernel
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConv3dOpOperandsWorkarounds(*this);
+      }
+    }];
 }
 
 def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
@@ -2144,6 +2265,74 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryC
     let hasVerifier = 1;
 }
 
+def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
+    [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Distributed RMS normalization with all-gather op.";
+    let description = [{
+      Fused distributed RMS normalization operation across mesh devices.
+      Computes local RMS statistics (the mean of squared values, E(x²)),
+      all-gathers the statistics along the specified cluster_axis to obtain
+      globally-correct values, then normalizes each element by
+      x / sqrt(E(x²) + epsilon) and applies optional weight scaling locally
+      on each device.
+
+      Only statistics are communicated across devices — the input data itself
+      is not all-gathered. Each device's output shape equals its input shape.
+
+      Maps to ttnn::fused_rms_minimal at runtime.
+
+      This operation requires the input tensor to be width-sharded across devices.
+
+      Inputs:
+        - input: Input tensor. Must be width-sharded in L1 with shape
+            (1,1,32,M) where M is a multiple of 32. Tiled layout required.
+        - weight: Optional gamma (scale) tensor applied after normalization.
+            Must be in ROW_MAJOR layout with width equal to tile_width (32),
+            i.e. reshaped from 1D (N,) to 2D (N/32, 32).
+        - residual: Optional residual tensor to add to input before
+            normalization (x + residual). Must have the same shard spec as
+            input.
+        - stats: Scratch tensor for intermediate RMS statistics exchanged
+            across devices via all-gather. Shape (1,1,32,32), width-sharded
+            on core (0,0) in L1. Dtype is Float32 when fp32_dest_acc_en is
+            set, otherwise BFloat16.
+
+      Attributes:
+        - cluster_axis: Mesh dimension (0 or 1) along which to all-gather
+            the RMS statistics across devices.
+        - epsilon: Small constant added to the denominator for numerical
+            stability. Defaults to 1e-12.
+        - sub_device_id: Optional sub-device targeting for kernel placement.
+        - memory_config: Output memory configuration. Typically matches the
+            input's width-sharded shard spec.
+        - num_links: Optional number of links for the all-gather
+            communication.
+        - topology: CCL topology for all-gather (Linear or Ring).
+        - compute_config: Device compute kernel configuration. Controls math
+            fidelity, fp32_dest_acc_en, and packer L1 accumulation.
+        - program_config: LayerNormShardedMultiCoreProgramConfig derived from
+            the input's shard spec (core grid, block_h, block_w).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$residual,
+                         Optional<AnyRankedTensor>:$stats,
+                         TTNN_Device:$device,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
+                         OptionalAttr<UI32Attr>:$sub_device_id,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_LayerNormShardedMultiCoreProgramConfigAttr>:$program_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
     let summary = "Layer normalization op.";
     let description = [{
@@ -2182,8 +2371,8 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigOpInterface]>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         F32Attr:$min,
-                         F32Attr:$max,
+                         AnyAttrOf<[F32Attr, I32Attr]>:$min,
+                         AnyAttrOf<[F32Attr, I32Attr]>:$max,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -2193,6 +2382,18 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigOpInterface]>
     let builders =
     [
       OpBuilder<(ins "Type": $resultType, "Value": $input, "::llvm::APFloat": $min, "::llvm::APFloat": $max),
+      [{
+        auto minAttr = $_builder.getF32FloatAttr(min.convertToFloat());
+        auto maxAttr = $_builder.getF32FloatAttr(max.convertToFloat());
+        build($_builder, $_state, resultType, input, minAttr, maxAttr, /* memory_config */ nullptr);
+      }]>,
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "::mlir::IntegerAttr": $min, "::mlir::IntegerAttr": $max),
+      [{
+        auto minAttr = $_builder.getI32IntegerAttr(min.getInt());
+        auto maxAttr = $_builder.getI32IntegerAttr(max.getInt());
+        build($_builder, $_state, resultType, input, minAttr, maxAttr, /* memory_config */ nullptr);
+      }]>,
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "::mlir::Attribute": $min, "::mlir::Attribute": $max),
       [{
         build($_builder, $_state, resultType, input, min, max, /* memory_config */ nullptr);
       }]>
@@ -2528,7 +2729,9 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
     let hasFolder = 1;
 }
 
-def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter",
+    [TTNN_MemoryConfigOpInterface,
+     TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Reduce scatter op.";
     let description = [{
         Tensor Reduce Scatter operation
@@ -2541,7 +2744,8 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter", [TTNN_MemoryConfigOpInterfac
                          OptionalAttr<UI32Attr>:$sub_device_id,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<UI32Attr>:$num_links,
-                         OptionalAttr<TTCore_TopologyAttr>:$topology);
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -2593,6 +2797,25 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTNN_MeshPartitionOp: TTNN_Op<"mesh_partition", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "Mesh partition operation.";
+  let description = [{
+    Mesh partition op.
+  }];
+  let arguments = (ins AnyRankedTensor:$input,
+                       SI32Attr:$dim,
+                       OptionalAttr<UI32Attr>:$cluster_axis,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createMeshPartitionOpOperandsWorkarounds();
+    }
+  }];
 }
 
 def TTNN_PermuteOp : TTNN_Op<"permute"> {
@@ -2907,7 +3130,7 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
-def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait]> {
+def TTNN_GenericOp : TTNN_Op<"generic", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait]> {
     let summary = "Generic operation.";
     let description = [{
       Generic operation capable of running a program with custom kernels. Each kernel is described with a
@@ -2920,6 +3143,7 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs_and_outputs,
+                         Variadic<AnyType>:$additional_args,
                          TTNN_GenericProgramAttr:$program,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
@@ -3369,4 +3593,72 @@ def TTNN_AggregateTensorOp : TTNN_Op<"aggregate_tensor"> {
 
   let results = (outs AnyRankedTensor:$result);
 }
+
+def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "Top-K selection operation.";
+  let description = [{
+    Returns the `k` largest or `k` smallest elements of the `input_tensor` along a given dimension `dim`.
+    If `dim` is not provided, the last dimension of the input_tensor is used.
+    If `largest` is True, the `k` largest elements are returned. Otherwise, the `k` smallest elements are returned.
+    The boolean option `sorted` if True, will make sure that the returned `k` elements are sorted.
+    the `memory_config` parameter is optional which represents the memory configuration for the operation.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input_tensor,
+                       I32Attr:$k,
+                       DefaultValuedAttr<I32Attr, "-1">:$dim,
+                       DefaultValuedAttr<BoolAttr, "true">:$largest,
+                       DefaultValuedAttr<BoolAttr, "false">:$sorted,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$values,
+                      AnyRankedTensor:$indices);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore"> {
+    let summary = "Create global semaphore op.";
+    let description = [{
+      Creates a global semaphore with the specified core range and initial value.
+
+      Global semaphores are similar to normal semaphores but differ in a couple of ways:
+      1) their lifetime exists beyond the scope of an op (and thus must created/deallocated separately like tensors)
+      2) they can be initialized before an op is even dispatched (whereas normal semaphores are initialized at dispatch time)
+
+      This is needed for CCLs (and multichip communication in general) to synchronize devices or for normal signalling where normal semaphores
+      cannot be used. This is because the different devices in a mesh are not running ops in a synchronized manner
+      (devices can be running different ops in the program) so the existence/initialization of normal semaphores
+      cannot be guaranteed on a different device that we need to communicate with.
+
+      For example, if we have to run a matmul then an all gather,
+      device x could be doing the matmul whereas device y has completed the matmul and begun an all gather.
+      Now, if device y has to do a remote semaphore increment on device x as part of the all gather,
+      this would lead to undefined behaviour
+      since device x is still executing the matmul and it's semaphore for the all gather op does not even exist yet.
+
+      Example:
+      ```mlir
+      %semaphore = "ttnn.create_global_semaphore"() <{initial_value = 0 : ui32, core_range = #ttnn.core_range<(0,0), (7,7)>}> : () -> !ttnn.global_semaphore
+      ```
+    }];
+
+    let arguments = (ins OptionalAttr<UI32Attr>:$initial_value, TTNN_CoreRangeAttr:$core_range);
+    let results = (outs TTNN_GlobalSemaphore:$result);
+}
+
+def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore"> {
+    let summary = "Reset global semaphore op.";
+    let description = [{
+      Resets a global semaphore to the specified value.
+
+      Example:
+      ```mlir
+      "ttnn.reset_global_semaphore"(%semaphore) <{value = 0 : ui32}> : (!ttnn.global_semaphore) -> ()
+      ```
+    }];
+
+    let arguments = (ins TTNN_GlobalSemaphore:$semaphore, UI32Attr:$value);
+}
+
 #endif

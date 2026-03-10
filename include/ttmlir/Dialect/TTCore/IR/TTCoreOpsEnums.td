@@ -228,6 +228,7 @@ def TTCore_Topology_Ring  : I32EnumAttrCase<"Ring",  0, "ring">;
 def TTCore_Topology_Linear : I32EnumAttrCase<"Linear",  1, "linear">;
 def TTCore_Topology_Mesh : I32EnumAttrCase<"Mesh",  2, "mesh">;
 def TTCore_Topology_Torus : I32EnumAttrCase<"Torus",  3, "torus">;
+def TTCore_Topology_Disabled : I32EnumAttrCase<"Disabled",  4, "disabled">;
 
 def TTCore_Topology: I32EnumAttr<"Topology", "CCL Topology Type",
                           [
@@ -235,6 +236,7 @@ def TTCore_Topology: I32EnumAttr<"Topology", "CCL Topology Type",
                            TTCore_Topology_Linear,
                            TTCore_Topology_Mesh,
                            TTCore_Topology_Torus,
+                           TTCore_Topology_Disabled,
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttcore";

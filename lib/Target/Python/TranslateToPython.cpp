@@ -298,7 +298,7 @@ FailureOr<std::string> ExpressionBuilder::buildSubscriptExpr(SubscriptOp op) {
   std::string expr;
   llvm::raw_string_ostream os(expr);
 
-  auto valueExpr = buildExpression(op.getValue());
+  auto valueExpr = buildExpression(op.getContainer());
   if (failed(valueExpr)) {
     return failure();
   }
@@ -801,8 +801,8 @@ static LogicalResult printOperation(PythonEmitter &emitter, AssignOp op) {
 
   if (auto subscriptOp = dyn_cast_or_null<SubscriptOp>(targetDefOp)) {
     // Subscript assignment: dict[key] = value.
-    if (failed(
-            emitter.emitOperand(subscriptOp.getValue(), "subscript_target"))) {
+    if (failed(emitter.emitOperand(subscriptOp.getContainer(),
+                                   "subscript_target"))) {
       return failure();
     }
 

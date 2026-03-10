@@ -133,6 +133,12 @@ def _compile(root_func: Callable, builder: Builder):
 
     if isinstance(builder, StableHLOBuilder):
         new_module.body.append(builder._get_mesh())
+    elif isinstance(builder, TTIRBuilder):
+        mesh = ttcore.ir.MeshAttr.get(
+            builder._ctx, builder._mesh_name, builder._mesh_shape
+        )
+        meshes = ttcore.ir.MeshesAttr.get(builder._ctx, [mesh])
+        new_module.operation.attributes["ttcore.meshes"] = meshes
 
     with InsertionPoint(new_module.body):
         root_func(builder)
@@ -1307,6 +1313,9 @@ def load_mlir_file(
     mlir_text: str,
     golden_inputs: Dict[str, List[torch.tensor]] = None,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
+    deallocate_goldens: bool = False,
+    test_base: str = "test",
+    output_root: str = ".",
 ) -> (Module, Builder):
     """
     Load an MLIR module text into a `Module` and reconstruct the corresponding builder.
@@ -1319,6 +1328,8 @@ def load_mlir_file(
         Optional map of input names to lists of torch tensors used to seed builder goldens.
     target : Literal["ttir", "ttnn", "d2m", "stablehlo"]
         Which dialect to interpret the module as, controls which builder is reconstructed.
+    deallocate_goldens : bool, optional
+        Whether to split the module on demand (default: False).
 
     Returns
     -------
@@ -1328,11 +1339,25 @@ def load_mlir_file(
     ctx = Context()
 
     if target == "ttir":
-        module, builder = TTIRBuilder.from_module(ctx, mlir_text, golden_inputs)
+        artifact_dir = get_artifact_dir(output_root, "TTIRBuilder", test_base, True)
+        deallocated_goldens_dir = os.path.join(artifact_dir, "deallocated_goldens")
+        module, builder = TTIRBuilder.from_module(
+            ctx, mlir_text, golden_inputs, deallocate_goldens, deallocated_goldens_dir
+        )
     elif target == "stablehlo":
-        module, builder = StableHLOBuilder.from_module(ctx, mlir_text, golden_inputs)
+        artifact_dir = get_artifact_dir(
+            output_root, "StableHLOBuilder", test_base, True
+        )
+        deallocated_goldens_dir = os.path.join(artifact_dir, "deallocated_goldens")
+        module, builder = StableHLOBuilder.from_module(
+            ctx, mlir_text, golden_inputs, deallocate_goldens, deallocated_goldens_dir
+        )
     elif target == "ttnn":
-        module, builder = TTNNBuilder.from_module(ctx, mlir_text, golden_inputs)
+        module, builder = TTNNBuilder.from_module(
+            ctx,
+            mlir_text,
+            golden_inputs,
+        )
     else:
         raise NotImplementedError(
             "Loading MLIR files is only supported for ttir, stablehlo and ttnn currently."
@@ -1525,7 +1550,7 @@ def experimental_build_stablehlo_module(
             func_op = module.body.operations[-1]
             func_op.attributes["topology"] = topology_attr
 
-        print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
+        print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base
         filename = get_target_path(
             output_root, "stablehlo-builder-artifacts", "stablehlo.mlir", base

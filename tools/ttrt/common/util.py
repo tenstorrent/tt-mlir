@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import importlib.machinery
 import importlib.util
 import json
 import os
@@ -11,7 +10,6 @@ from pprint import pprint
 import re
 
 import torch
-from pkg_resources import get_distribution
 
 # environment tweaks
 if "LOGGER_LEVEL" not in os.environ:
@@ -925,7 +923,7 @@ class Binary(Flatbuffer):
     def get_program(self, program_index):
         if program_index > self.get_num_programs():
             raise Exception(
-                f"program index={program_index} is greater than number of programs availabe={self.get_num_programs()}!"
+                f"program index={program_index} is greater than number of programs available={self.get_num_programs()}!"
             )
 
         return self.programs[program_index]
@@ -1020,7 +1018,7 @@ class Binary(Flatbuffer):
                 for i in self.inputs:
                     tensor_shards = []
 
-                    if "runtime_tensor_sharding" not in i["desc"]:
+                    if "shard_status" not in i["desc"]:
                         torch_tensor = init_fn(
                             i["desc"]["shape"],
                             dtype=Binary.Program.from_data_type(
@@ -1031,11 +1029,9 @@ class Binary(Flatbuffer):
                         self.input_tensors.append(tensor_shards)
                         continue
 
-                    shard_status = i["desc"]["runtime_tensor_sharding"]["shard_status"]
+                    shard_status = i["desc"]["shard_status"]
                     if shard_status == "Presharded":
-                        local_shape = i["desc"]["runtime_tensor_sharding"][
-                            "local_shape"
-                        ]
+                        local_shape = i["desc"]["local_shape"]
                         mesh_shape = i["desc"]["mesh_shape"]
                         num_devices = 1
                         for dim in mesh_shape:
@@ -1064,7 +1060,7 @@ class Binary(Flatbuffer):
             for i in self.outputs:
                 tensor_shards = []
 
-                if "runtime_tensor_sharding" not in i["desc"]:
+                if "shard_status" not in i["desc"]:
                     torch_tensor = init_fn(
                         i["desc"]["shape"],
                         dtype=Binary.Program.from_data_type(
@@ -1075,9 +1071,9 @@ class Binary(Flatbuffer):
                     self.output_tensors.append(tensor_shards)
                     continue
 
-                shard_status = i["desc"]["runtime_tensor_sharding"]["shard_status"]
+                shard_status = i["desc"]["shard_status"]
                 if shard_status == "Presharded":
-                    local_shape = i["desc"]["runtime_tensor_sharding"]["local_shape"]
+                    local_shape = i["desc"]["local_shape"]
                     mesh_shape = i["desc"]["mesh_shape"]
                     num_devices = 1
                     for dim in mesh_shape:

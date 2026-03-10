@@ -32,7 +32,11 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(createPartiallyConvertSdyToStableHLOPass());
 
   // Annotate arguments with whether they are already pre-sharded or not.
-  pm.addPass(createApplyArgumentShardStatusPass());
+  ApplyArgumentShardStatusPassOptions applyArgumentShardStatusOptions;
+  applyArgumentShardStatusOptions.resultPresharded =
+      llvm::to_vector(options.resultPresharded);
+  pm.addPass(
+      createApplyArgumentShardStatusPass(applyArgumentShardStatusOptions));
 
   // Analyze the mesh of the graph and update shardings or annotations to match
   // the target device.
@@ -69,6 +73,10 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.nest<mlir::func::FuncOp>().addPass(
       mlir::sdy::createShardingConstraintToReshardPass());
 
+  // Replicate non-splittable constants so that InsertExplicitReshards inserts
+  // reshard ops between the replicated constant and its sharded consumers.
+  pm.addPass(createReplicateNonSplittableConstantsPass());
+
   // Insert explicit reshards conditionally.
   pm.addPass(createInsertExplicitReshardsPass());
 
@@ -82,6 +90,9 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Canonicalize shardy CCL ops
   pm.addPass(createShardyCCLCanonicalizationPass());
+
+  // Annotate arguments and results with their local shape
+  pm.addPass(createAnnotateLocalShapesPass());
 
   // Split tensor dimensions according to tensor sharding annotations.
   pm.addPass(createUpdateGlobalToLocalShapesPass());

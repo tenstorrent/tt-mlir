@@ -159,6 +159,202 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// LessEqualOp
+//===----------------------------------------------------------------------===//
+
+// LessEqualOp canonicalization: le(a, b) -> ge(b, a)
+void mlir::tt::ttir::LessEqualOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(
+      +[](mlir::tt::ttir::LessEqualOp op, mlir::PatternRewriter &rewriter) {
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::GreaterEqualOp>(
+            op, op.getResult().getType(), op.getRhs(), op.getLhs());
+        return mlir::success();
+      });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+//===----------------------------------------------------------------------===//
+// LessThanOp
+//===----------------------------------------------------------------------===//
+
+// LessThanOp canonicalization: lt(a, b) -> gt(b, a)
+void mlir::tt::ttir::LessThanOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(
+      +[](mlir::tt::ttir::LessThanOp op, mlir::PatternRewriter &rewriter) {
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::GreaterThanOp>(
+            op, op.getResult().getType(), op.getRhs(), op.getLhs());
+        return mlir::success();
+      });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+//===----------------------------------------------------------------------===//
+// Constant value helpers
+//===----------------------------------------------------------------------===//
+
+// Helper to create a scalar attribute from an element type and a double value.
+static mlir::Attribute makeScalarAttr(mlir::Type elemType, double val) {
+  if (auto floatType = mlir::dyn_cast<mlir::FloatType>(elemType)) {
+    return mlir::FloatAttr::get(floatType, val);
+  }
+  if (auto intType = mlir::dyn_cast<mlir::IntegerType>(elemType)) {
+    return mlir::IntegerAttr::get(intType, static_cast<int64_t>(val));
+  }
+  return {};
+}
+
+// Extract constant fill value by looking through layout ops (broadcast,
+// reshape, typecast, repeat_interleave) to find a FullOp, ZerosOp, or OnesOp.
+static mlir::Attribute getConstantValue(mlir::Value value) {
+  mlir::Operation *op =
+      mlir::tt::ttir::utils::lookThroughLayoutOps(value).getDefiningOp();
+
+  if (auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(op)) {
+    return fullOp.getFillValueAttr();
+  }
+
+  if (mlir::isa_and_present<mlir::tt::ttir::ZerosOp>(op)) {
+    return makeScalarAttr(
+        mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType())
+            .getElementType(),
+        0.0);
+  }
+  if (mlir::isa_and_present<mlir::tt::ttir::OnesOp>(op)) {
+    return makeScalarAttr(
+        mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType())
+            .getElementType(),
+        1.0);
+  }
+
+  return {};
+}
+
+// Check if the attribute represents zero.
+static bool isZeroAttr(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValue().isZero();
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return intAttr.getValue().isZero();
+  }
+  return false;
+}
+
+static bool isConstantZero(mlir::Value value) {
+  mlir::Attribute attr = getConstantValue(value);
+  return attr && isZeroAttr(attr);
+}
+
+static bool isConstantNonZero(mlir::Value value) {
+  mlir::Attribute attr = getConstantValue(value);
+  return attr && !isZeroAttr(attr);
+}
+
+// Helper to extract the shape of a RankedTensorType as a vector of i32.
+static llvm::SmallVector<int32_t>
+getShapeAsI32(mlir::RankedTensorType tensorType) {
+  return llvm::to_vector_of<int32_t>(tensorType.getShape());
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalAndOp
+//===----------------------------------------------------------------------===//
+
+// LogicalAndOp canonicalization:
+//   and(zero, x)    -> ZerosOp        (absorbing)
+//   and(nonzero, x) -> x (i1) or OnesOp (identity, both const nonzero)
+void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(
+      +[](mlir::tt::ttir::LogicalAndOp op, mlir::PatternRewriter &rewriter) {
+        auto resultType =
+            mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+        bool isI1 = resultType.getElementType().isInteger(1);
+
+        // Absorbing: and(zero, x) -> 0
+        if (isConstantZero(op.getLhs()) || isConstantZero(op.getRhs())) {
+          rewriter.replaceOpWithNewOp<mlir::tt::ttir::ZerosOp>(
+              op, resultType,
+              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
+          return mlir::success();
+        }
+
+        // Identity: and(nonzero, x) -> x when x is guaranteed boolean (i1)
+        if (isConstantNonZero(op.getLhs()) && isI1) {
+          rewriter.replaceOp(op, op.getRhs());
+          return mlir::success();
+        }
+        if (isConstantNonZero(op.getRhs()) && isI1) {
+          rewriter.replaceOp(op, op.getLhs());
+          return mlir::success();
+        }
+
+        // Both constant nonzero -> OnesOp
+        if (isConstantNonZero(op.getLhs()) && isConstantNonZero(op.getRhs())) {
+          rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(
+              op, resultType,
+              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
+          return mlir::success();
+        }
+
+        return mlir::failure();
+      });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalOrOp
+//===----------------------------------------------------------------------===//
+
+// LogicalOrOp canonicalization:
+//   or(nonzero, x) -> OnesOp          (absorbing)
+//   or(zero, x)    -> x (i1) or ZerosOp (identity, both const zero)
+void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(
+      +[](mlir::tt::ttir::LogicalOrOp op, mlir::PatternRewriter &rewriter) {
+        auto resultType =
+            mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+        bool isI1 = resultType.getElementType().isInteger(1);
+
+        // Absorbing: or(nonzero, x) -> 1
+        if (isConstantNonZero(op.getLhs()) || isConstantNonZero(op.getRhs())) {
+          rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(
+              op, resultType,
+              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
+          return mlir::success();
+        }
+
+        // Identity: or(zero, x) -> x when x is guaranteed boolean (i1)
+        if (isConstantZero(op.getLhs()) && isI1) {
+          rewriter.replaceOp(op, op.getRhs());
+          return mlir::success();
+        }
+        if (isConstantZero(op.getRhs()) && isI1) {
+          rewriter.replaceOp(op, op.getLhs());
+          return mlir::success();
+        }
+
+        // Both constant zero -> ZerosOp
+        if (isConstantZero(op.getLhs()) && isConstantZero(op.getRhs())) {
+          rewriter.replaceOpWithNewOp<mlir::tt::ttir::ZerosOp>(
+              op, resultType,
+              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
+          return mlir::success();
+        }
+
+        return mlir::failure();
+      });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+//===----------------------------------------------------------------------===//
 // BroadcastOp
 //===----------------------------------------------------------------------===//
 
@@ -184,7 +380,7 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
   const RankedTensorType outputTensorType =
       mlir::cast<RankedTensorType>(getResult().getType());
 
-  if (inputTensorType != outputTensorType) {
+  if (inputTensorType.getShape() != outputTensorType.getShape()) {
     return emitOpError("input and output must have same shape.");
   }
 
@@ -202,17 +398,28 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
       return mlir::failure();
     }
 
-    // Get the min/max values from both ops
-    auto producerMin = producerOp.getMin();
-    auto producerMax = producerOp.getMax();
-    auto consumerMin = op.getMin();
-    auto consumerMax = op.getMax();
+    auto newMinVal =
+        llvm::maximum(ttmlir::utils::attributeToAPFloat(producerOp.getMin()),
+                      ttmlir::utils::attributeToAPFloat(op.getMin()));
+    auto newMaxVal =
+        llvm::minimum(ttmlir::utils::attributeToAPFloat(producerOp.getMax()),
+                      ttmlir::utils::attributeToAPFloat(op.getMax()));
 
-    // Calculate the tightest bounds
-    auto newMin = std::max(producerMin, consumerMin);
-    auto newMax = std::min(producerMax, consumerMax);
+    mlir::Attribute newMin, newMax;
+    if (mlir::isa<mlir::FloatAttr>(op.getMin())) {
+      newMin = mlir::FloatAttr::get(
+          mlir::cast<mlir::FloatAttr>(op.getMin()).getType(), newMinVal);
+      newMax = mlir::FloatAttr::get(
+          mlir::cast<mlir::FloatAttr>(op.getMax()).getType(), newMaxVal);
+    } else {
+      newMin = mlir::IntegerAttr::get(
+          mlir::cast<mlir::IntegerAttr>(op.getMin()).getType(),
+          static_cast<int32_t>(newMinVal.convertToDouble()));
+      newMax = mlir::IntegerAttr::get(
+          mlir::cast<mlir::IntegerAttr>(op.getMax()).getType(),
+          static_cast<int32_t>(newMaxVal.convertToDouble()));
+    }
 
-    // Replace with a single ClampScalarOp with the new bounds
     rewriter.replaceOpWithNewOp<ClampScalarOp>(
         op, op.getResult().getType(), producerOp.getInput(), newMin, newMax);
     return mlir::success();
@@ -221,10 +428,10 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
   // Fold clamp with min=0 and max=6 to relu6
   patterns.add(+[](mlir::tt::ttir::ClampScalarOp op,
                    mlir::PatternRewriter &rewriter) {
-    auto minVal = op.getMin();
-    auto maxVal = op.getMax();
+    double minVal = ttmlir::utils::attributeToDouble(op.getMin());
+    double maxVal = ttmlir::utils::attributeToDouble(op.getMax());
 
-    if (minVal.convertToFloat() == 0.0f && maxVal.convertToFloat() == 6.0f) {
+    if (minVal == 0.0 && maxVal == 6.0) {
       rewriter.replaceOpWithNewOp<ttir::Relu6Op>(op, op.getResult().getType(),
                                                  op.getInput());
       return mlir::success();
@@ -337,73 +544,74 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
   return success();
 }
 
-// Helper function to extract constant value.
-static mlir::FloatAttr getConstantValue(mlir::Value value) {
-  mlir::Operation *op = value.getDefiningOp();
-  while (mlir::isa_and_present<mlir::tt::ttir::BroadcastOp,
-                               mlir::tt::ttir::ReshapeOp,
-                               mlir::tt::ttir::TypecastOp>(op)) {
-    op = op->getOperand(0).getDefiningOp();
-  }
-
-  auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(op);
-  if (!fullOp) {
-    return {};
-  }
-
-  mlir::Attribute fillValueAttr = fullOp.getFillValueAttr();
-
-  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(fillValueAttr)) {
-    return floatAttr;
-  }
-  if (auto integerAttr = mlir::dyn_cast<mlir::IntegerAttr>(fillValueAttr)) {
-    return mlir::FloatAttr::get(
-        mlir::Float32Type::get(integerAttr.getContext()),
-        static_cast<double>(integerAttr.getValue().getSExtValue()));
-  }
-  return {};
-}
-
 // ClampTensorOp canonicalization
 void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  patterns.add(
-      +[](mlir::tt::ttir::ClampTensorOp op, mlir::PatternRewriter &rewriter) {
-        RankedTensorType outputType = op.getResult().getType();
+  patterns.add(+[](mlir::tt::ttir::ClampTensorOp op,
+                   mlir::PatternRewriter &rewriter) {
+    RankedTensorType outputType = op.getResult().getType();
 
-        FloatAttr minValue = getConstantValue(op.getMin());
-        FloatAttr maxValue = getConstantValue(op.getMax());
-        if (minValue && maxValue) {
-          rewriter.replaceOpWithNewOp<ttir::ClampScalarOp>(
-              op, outputType, op.getInput(), minValue, maxValue);
+    Attribute minValue = getConstantValue(op.getMin());
+    Attribute maxValue = getConstantValue(op.getMax());
+    if (minValue && maxValue) {
+      // Cast min and max attributes to match the output element type
+      Type elementType = outputType.getElementType();
 
-          return success();
-        }
+      Attribute castedMin, castedMax;
+      if (auto floatType = mlir::dyn_cast<mlir::FloatType>(elementType)) {
+        // For float types, convert to double then create attribute
+        // This ensures proper conversion regardless of source type
+        double minVal = ttmlir::utils::attributeToDouble(minValue);
+        double maxVal = ttmlir::utils::attributeToDouble(maxValue);
+        castedMin = rewriter.getFloatAttr(
+            mlir::Float32Type::get(rewriter.getContext()), minVal);
+        castedMax = rewriter.getFloatAttr(
+            mlir::Float32Type::get(rewriter.getContext()), maxVal);
+      } else {
+        // For integer types, convert via APFloat for proper rounding
+        llvm::APFloat minAPFloat = ttmlir::utils::attributeToAPFloat(minValue);
+        llvm::APFloat maxAPFloat = ttmlir::utils::attributeToAPFloat(maxValue);
+        bool ignored;
+        llvm::APSInt minInt(32, false);
+        llvm::APSInt maxInt(32, false);
+        minAPFloat.convertToInteger(minInt, llvm::APFloat::rmTowardZero,
+                                    &ignored);
+        maxAPFloat.convertToInteger(maxInt, llvm::APFloat::rmTowardZero,
+                                    &ignored);
+        castedMin = rewriter.getI32IntegerAttr(minInt.getExtValue());
+        castedMax = rewriter.getI32IntegerAttr(maxInt.getExtValue());
+      }
 
-        if (outputType.getShape() == op.getMin().getType().getShape() &&
-            outputType.getShape() == op.getMax().getType().getShape()) {
-          return failure();
-        }
+      rewriter.replaceOpWithNewOp<ttir::ClampScalarOp>(
+          op, outputType, op.getInput(), castedMin, castedMax);
 
-        Location loc = op->getLoc();
-        mlir::Value minTensor;
-        LogicalResult legalityResult = ttir::utils::broadcastValue(
-            rewriter, op.getMin(), outputType, minTensor, loc,
-            /*frontUnsqueeze=*/false);
-        assert(legalityResult.succeeded() &&
-               "Min attribute cannot be broadcasted to provided dimensions.");
+      return success();
+    }
 
-        mlir::Value maxTensor;
-        legalityResult = ttir::utils::broadcastValue(rewriter, op.getMax(),
-                                                     outputType, maxTensor, loc,
-                                                     /*frontUnsqueeze=*/false);
-        assert(legalityResult.succeeded() &&
-               "Max attribute cannot be broadcasted to provided dimensions.");
+    if (outputType.getShape() == op.getMin().getType().getShape() &&
+        outputType.getShape() == op.getMax().getType().getShape()) {
+      return failure();
+    }
 
-        rewriter.replaceOpWithNewOp<ttir::ClampTensorOp>(
-            op, outputType, op.getInput(), minTensor, maxTensor);
-        return success();
-      });
+    Location loc = op->getLoc();
+    mlir::Value minTensor;
+    LogicalResult legalityResult = ttir::utils::broadcastValue(
+        rewriter, op.getMin(), outputType, minTensor, loc,
+        /*frontUnsqueeze=*/false);
+    assert(legalityResult.succeeded() &&
+           "Min attribute cannot be broadcasted to provided dimensions.");
+
+    mlir::Value maxTensor;
+    legalityResult = ttir::utils::broadcastValue(rewriter, op.getMax(),
+                                                 outputType, maxTensor, loc,
+                                                 /*frontUnsqueeze=*/false);
+    assert(legalityResult.succeeded() &&
+           "Max attribute cannot be broadcasted to provided dimensions.");
+
+    rewriter.replaceOpWithNewOp<ttir::ClampTensorOp>(
+        op, outputType, op.getInput(), minTensor, maxTensor);
+    return success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -3037,18 +3245,18 @@ void mlir::tt::ttir::TTNNMetalLayoutCastOp::getAsmResultNames(
 
 void mlir::tt::ttir::TTNNMetalLayoutCastOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // Eliminate back-to-back casts of the same tensor.
-
-  // Because of the verifier, we are guaranteed that casts are always
-  // ttnn->metal or metal->ttnn. Therefore, if the producer of the input is a
-  // cast, we necessarily have one of:
-  //   1. metal_0->ttnn->metal_1
-  //   2. ttnn_0->metal->ttnn_1
-  // The cast is purely representational and no layout change is performed.
-  // At op creation time it is guaranteed that the input and output are the same
-  // tensor in the same underlying layout. Therefore we can be sure that:
-  //   metal_0 == metal_1 in 1
-  //   ttnn_0 == ttnn_1 in 2
+  // Eliminate back-to-back casts that form a no-op round-trip.
+  //
+  // Casts are always ttnn->metal or metal->ttnn (enforced by the verifier).
+  // If the producer of the input is also a cast, we have one of:
+  //   1. metal_0 -> ttnn -> metal_1
+  //   2. ttnn_0  -> metal -> ttnn_1
+  //
+  // We can only fold when the outer types match (metal_0 == metal_1 or
+  // ttnn_0 == ttnn_1).  Different TTNN shard strategies (e.g. height_sharded
+  // vs block_sharded) can map to the same MetalLayoutAttr, so an intervening
+  // d2m.to_layout that was folded away may leave back-to-back casts whose
+  // outer types differ.
 
   patterns.add(+[](TTNNMetalLayoutCastOp op, mlir::PatternRewriter &rewriter) {
     TTNNMetalLayoutCastOp producerOp =
@@ -3070,6 +3278,15 @@ void mlir::tt::ttir::TTNNMetalLayoutCastOp::getCanonicalizationPatterns(
 
     if (!producerInputTensor || !producerOutputTensor || !consumerInputTensor ||
         !consumerOutputTensor) {
+      return failure();
+    }
+
+    // Don't fold when either cast carries a virtualGridInverseMapping.
+    // Different TTNN shard strategies (e.g. height_sharded vs block_sharded)
+    // can map to the same MetalLayoutAttr, so a cast with a VGM represents
+    // a meaningful shard strategy that must be preserved.
+    if (producerOp.getVirtualGridInverseMapping() ||
+        op.getVirtualGridInverseMapping()) {
       return failure();
     }
 
@@ -3108,8 +3325,9 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
     if (failed(maybeInputBuf)) {
       return maybeInputBuf;
     }
-    rewriter.replaceOpWithNewOp<TTNNMetalLayoutCastOp>(*this, outputTensor,
-                                                       *maybeInputBuf);
+    rewriter.replaceOpWithNewOp<TTNNMetalLayoutCastOp>(
+        *this, outputTensor, *maybeInputBuf, getVirtualGridInverseMappingAttr(),
+        getVirtualGridForwardMappingAttr());
   } else if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(outputEncoding)) {
     // ttnn_layout -> metal_layout becomes ttnn_layout -> memref
     bool isTTNNLayout =
@@ -3124,7 +3342,8 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
     }
     MemRefType outputMemrefType = mlir::cast<mlir::MemRefType>(*bufferType);
     mlir::bufferization::replaceOpWithNewBufferizedOp<TTNNMetalLayoutCastOp>(
-        rewriter, *this, outputMemrefType, getInput());
+        rewriter, *this, outputMemrefType, getInput(),
+        getVirtualGridInverseMappingAttr(), getVirtualGridForwardMappingAttr());
 
   } else {
     return emitOpError("Neither input or output uses metal_layout");
@@ -3244,7 +3463,7 @@ bool mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferizesToMemoryWrite(
 
   // Insert the input A and B inner dimensions in expected output shape
   // Consider the case where input A and B are vectors. In that case,
-  // the dimension 1 is ommited from the output shape.
+  // the dimension 1 is omitted from the output shape.
   if (inputAType.getRank() > 1) {
     expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
   }
@@ -3431,7 +3650,7 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 
   // Insert the input A and B inner dimensions in expected output shape
   // Consider the case where input A and B are vectors. In that case,
-  // the dimension 1 is ommited from the output shape.
+  // the dimension 1 is omitted from the output shape.
   if (inputAType.getRank() > 1) {
     expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
   }
@@ -3478,6 +3697,126 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   return success();
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
+
+// Returns true if `longer` is `shorter` with leading size-1 dimensions
+// prepended.
+static bool isLeadingOnesToShorter(llvm::ArrayRef<int64_t> longer,
+                                   llvm::ArrayRef<int64_t> shorter) {
+  if (longer.size() <= shorter.size()) {
+    return false;
+  }
+
+  size_t rankDiff = longer.size() - shorter.size();
+  return llvm::all_of(longer.take_front(rankDiff),
+                      [](int64_t dim) { return dim == 1; }) &&
+         longer.drop_front(rankDiff) == shorter;
+}
+
+// Returns true if the reshape removes leading size-1 dimensions.
+//   input:  [1, ..., 1, d0, d1, ..., dk]  (N leading 1s)
+//   output: [d0, d1, ..., dk]
+static bool isLeadingSqueeze(mlir::tt::ttir::ReshapeOp reshapeOp) {
+  return isLeadingOnesToShorter(reshapeOp.getInput().getType().getShape(),
+                                reshapeOp.getType().getShape());
+}
+
+// Returns true if the reshape adds leading size-1 dimensions.
+//   input:  [d0, d1, ..., dk]
+//   output: [1, ..., 1, d0, d1, ..., dk]  (N leading 1s)
+static bool isLeadingUnsqueeze(mlir::tt::ttir::ReshapeOp reshapeOp) {
+  return isLeadingOnesToShorter(reshapeOp.getType().getShape(),
+                                reshapeOp.getInput().getType().getShape());
+}
+
+// MatmulOp canonicalization: absorb leading squeeze/unsqueeze reshapes.
+//
+// Matches patterns like:
+//   %a = ttir.reshape [1,B,M,K] -> [B,M,K]
+//   %b = ttir.reshape [1,B,K,N] -> [B,K,N]
+//   %r = ttir.matmul (%a, %b) -> [B,M,N]
+//   %o = ttir.reshape %r -> [1,B,M,N]
+//
+// And replaces with:
+//   %o = matmul %a_orig, %b_orig -> [1,B,M,N]
+//
+void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
+    if (!op.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    auto unsqueezeOp =
+        mlir::dyn_cast<ttir::ReshapeOp>(*op.getResult().getUsers().begin());
+    if (!unsqueezeOp) {
+      return mlir::failure();
+    }
+
+    if (!isLeadingUnsqueeze(unsqueezeOp)) {
+      return mlir::failure();
+    }
+
+    mlir::Value inputA = op.getA();
+    mlir::Value inputB = op.getB();
+    mlir::Value newA = inputA;
+    mlir::Value newB = inputB;
+
+    auto squeezeA = inputA.getDefiningOp<ttir::ReshapeOp>();
+    auto squeezeB = inputB.getDefiningOp<ttir::ReshapeOp>();
+
+    bool isSqueezedA = squeezeA && isLeadingSqueeze(squeezeA);
+    bool isSqueezedB = squeezeB && isLeadingSqueeze(squeezeB);
+
+    if (!isSqueezedA && !isSqueezedB) {
+      return mlir::failure();
+    }
+
+    if (isSqueezedA) {
+      newA = squeezeA.getInput();
+    }
+    if (isSqueezedB) {
+      newB = squeezeB.getInput();
+    }
+
+    auto newAType = mlir::cast<mlir::RankedTensorType>(newA.getType());
+    auto newBType = mlir::cast<mlir::RankedTensorType>(newB.getType());
+
+    // Bail out if either matmul input is 1D. Un-squeezing would flip it to 2D,
+    // changing matmul semantics (1D inputs have special prepend/append-1
+    // behavior that affects which dimensions are inner vs outer).
+    if (mlir::cast<mlir::RankedTensorType>(inputA.getType()).getRank() < 2 ||
+        mlir::cast<mlir::RankedTensorType>(inputB.getType()).getRank() < 2) {
+      return mlir::failure();
+    }
+
+    // Bail out if the transformed inputs would have different ranks.
+    // When only one input had a leading squeeze, absorbing it promotes that
+    // input to a higher rank while the other stays unchanged, producing a
+    // matmul with mismatched input ranks (e.g. rank 3 vs rank 4) that TTNN
+    // rejects at runtime.
+    if (newAType.getRank() != newBType.getRank()) {
+      return mlir::failure();
+    }
+
+    // For same-rank >= 2D inputs, verify the rank matches the unsqueeze output.
+    // The inner dims and batch values are guaranteed compatible by the existing
+    // valid matmul (squeeze only removes leading 1s).
+    if (newAType.getRank() != unsqueezeOp.getType().getRank()) {
+      return mlir::failure();
+    }
+
+    auto newResultType =
+        mlir::RankedTensorType::get(unsqueezeOp.getType().getShape(),
+                                    unsqueezeOp.getType().getElementType(),
+                                    unsqueezeOp.getType().getEncoding());
+
+    rewriter.replaceOpWithNewOp<ttir::MatmulOp>(unsqueezeOp, newResultType,
+                                                newA, newB, op.getTransposeA(),
+                                                op.getTransposeB());
+
+    return mlir::success();
+  });
+}
 
 //===----------------------------------------------------------------------===//
 // UpsampleOp
@@ -3895,6 +4234,32 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
   if (!areElementsUnique(sourceTargetPairs)) {
     return emitOpError(
         "There are duplicate 'src' or 'dest' devices in source target pairs");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MeshPartitionOp
+//===----------------------------------------------------------------------===//
+
+// MeshPartitionOp verification
+::mlir::LogicalResult mlir::tt::ttir::MeshPartitionOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  int32_t dim = getDim();
+
+  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid tensor dimension for mesh partition op. Dimension "
+               "must be >= to input tensor rank or < -input tensor rank, got "
+               "dim = ")
+           << dim;
+  }
+
+  std::optional<uint32_t> clusterAxis = getClusterAxis();
+  if (clusterAxis.has_value() && clusterAxis.value() > 1) {
+    return emitOpError("Cluster axis must be either None, 0 or 1, got " +
+                       std::to_string(clusterAxis.value()));
   }
 
   return success();
@@ -4677,6 +5042,34 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
+// TopKOp
+//===----------------------------------------------------------------------===//
+
+// TopKOp verification
+::mlir::LogicalResult mlir::tt::ttir::TopKOp::verify() {
+  RankedTensorType inputType = getInputTensor().getType();
+  int64_t inputRank = inputType.getRank();
+  int32_t dim = getDim();
+  int32_t K = getK();
+
+  // Normalize dim to check if it's effectively the last dimension
+  int normalizedDim = dim < 0 ? dim + inputRank : dim;
+  if (normalizedDim < 0 || normalizedDim >= inputRank) {
+    return emitOpError() << "specified dimension should be between "
+                         << -inputRank << " and " << (inputRank - 1)
+                         << ", but got: " << dim;
+  }
+
+  if (K <= 0 || K > inputType.getDimSize(normalizedDim)) {
+    return emitOpError() << "K should be between 1 and the size of the "
+                            "specified dimension ("
+                         << normalizedDim << "), but got: " << K;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // CumSumOp
 //===----------------------------------------------------------------------===//
 
@@ -4991,6 +5384,52 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
     RankedTensorType biasType = getBias().getType();
     if (biasType.getShape() != normalizedShape) {
       return emitOpError("bias tensor shape must match normalized_shape");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// DistributedRMSNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::DistributedRMSNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("output shape must match input shape");
+  }
+
+  // Verify cluster_axis is valid (must be 0 or 1 for 2D mesh).
+  uint32_t clusterAxis = getClusterAxis();
+  if (clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  // Verify epsilon is positive.
+  float epsilon = getEpsilon().convertToFloat();
+  if (epsilon <= 0) {
+    return emitOpError("epsilon must be positive");
+  }
+
+  // Verify residual tensor shape matches input if present.
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError("residual tensor shape must match input tensor shape");
+    }
+  }
+
+  // Verify weight tensor's last dimension matches input's last dimension.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    int64_t inputLastDim = inputType.getShape().back();
+    int64_t weightLastDim = weightType.getShape().back();
+
+    if (weightLastDim != inputLastDim) {
+      return emitOpError(
+          "weight tensor's last dimension must match input's last dimension");
     }
   }
 
@@ -5400,6 +5839,227 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
                        "the same rank, "
                        "but got lhs rank ")
            << lhsRank << " and rhs rank " << rhsRank;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SparseMatmulOp
+//===----------------------------------------------------------------------===//
+
+// SparseMatmulOp verification
+::mlir::LogicalResult mlir::tt::ttir::SparseMatmulOp::verify() {
+  ::mlir::RankedTensorType inputAType = getA().getType();
+  ::mlir::RankedTensorType inputBType = getB().getType();
+  ::mlir::RankedTensorType sparsityType = getSparsity().getType();
+  ::mlir::RankedTensorType outputType = getType();
+
+  // Verify that input A is at least 4D tensor
+  if (inputAType.getRank() < 4) {
+    return emitOpError("Input A must be at least a 4D tensor");
+  }
+
+  // Verify that input B is exactly 4D tensor [1, E, K, N]
+  if (inputBType.getRank() != 4) {
+    return emitOpError("Input B must be a 4D tensor [1, E, K, N]");
+  }
+
+  // Verify that sparsity is a 4D tensor
+  if (sparsityType.getRank() != 4) {
+    return emitOpError("Sparsity tensor must be a 4D tensor");
+  }
+
+  bool isInputASparse = getIsInputASparse();
+  bool isInputBSparse = getIsInputBSparse();
+
+  // Verify that at least one input is sparse
+  if (!isInputASparse && !isInputBSparse) {
+    return emitOpError("At least one of is_input_a_sparse or is_input_b_sparse "
+                       "must be true");
+  }
+
+  // Get dimensions
+  llvm::ArrayRef<int64_t> aShape = inputAType.getShape();
+  llvm::ArrayRef<int64_t> bShape = inputBType.getShape();
+  int64_t E = bShape[1];
+  int64_t K = bShape[2];
+  int64_t N = bShape[3];
+  int64_t M = aShape[aShape.size() - 2];
+
+  // Verify input B first dimension is 1
+  if (bShape[0] != 1) {
+    return emitOpError("Input B first dimension must be 1");
+  }
+
+  // Verify inner dimensions match
+  if (aShape[aShape.size() - 1] != K) {
+    return emitOpError(
+        "Input A inner dimension must match Input B K dimension");
+  }
+
+  // Verify sparsity tensor has correct number of experts
+  if (sparsityType.getShape()[sparsityType.getRank() - 1] != E) {
+    return emitOpError("Sparsity tensor last dimension must match number of "
+                       "experts in Input B");
+  }
+
+  // Verify output shape based on sparse mode (including batch dimensions)
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  if (isInputASparse && isInputBSparse) {
+    // [1, E, M, K] @ [1, E, K, N] -> [1, E, M, N]
+    if (outputShape.size() != 4) {
+      return emitOpError("Output must be 4D for sparse-sparse mode");
+    }
+    if (outputShape[0] != 1 || outputShape[1] != E || outputShape[2] != M ||
+        outputShape[3] != N) {
+      return emitOpError(
+          "Output shape must be [1, E, M, N] for sparse-sparse mode");
+    }
+  } else if (!isInputASparse && isInputBSparse) {
+    // [A, B, M, K] @ [1, E, K, N] -> [A, B, 1, E, M, N]
+    if (outputShape.size() != 6) {
+      return emitOpError("Output must be 6D for dense-sparse mode");
+    }
+    int64_t A = aShape[0];
+    int64_t B = aShape[1];
+    if (outputShape[0] != A || outputShape[1] != B || outputShape[2] != 1 ||
+        outputShape[3] != E || outputShape[4] != M || outputShape[5] != N) {
+      return emitOpError(
+          "Output shape must be [A, B, 1, E, M, N] for dense-sparse mode");
+    }
+  } else if (isInputASparse && !isInputBSparse) {
+    // [A, E, M, K] @ [1, E, K, N] -> [A, E, M, N]
+    if (outputShape.size() != 4) {
+      return emitOpError("Output must be 4D for sparse-dense mode");
+    }
+    int64_t A = aShape[0];
+    if (outputShape[0] != A || outputShape[1] != E || outputShape[2] != M ||
+        outputShape[3] != N) {
+      return emitOpError(
+          "Output shape must be [A, E, M, N] for sparse-dense mode");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AllToAllDispatchOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::AllToAllDispatchOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType indicesType = getExpertIndices().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
+  ::mlir::RankedTensorType metadataType = getMetadata().getType();
+
+  // All tensors must be 4D
+  if (inputType.getRank() != 4) {
+    return emitOpError("input_tensor must be a 4D tensor [B, S, 1, H]");
+  }
+  if (indicesType.getRank() != 4) {
+    return emitOpError("expert_indices must be a 4D tensor [B, S, 1, K]");
+  }
+  if (mappingType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+  }
+  if (dispatchedType.getRank() != 4) {
+    return emitOpError("dispatched output must be a 4D tensor [1, B*D, S, H]");
+  }
+  if (metadataType.getRank() != 4) {
+    return emitOpError("metadata output must be a 4D tensor [1, B*D, S, K]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1.
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AllToAllCombineOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::AllToAllCombineOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType metadataType = getExpertMetadata().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType resultType = getResult().getType();
+
+  // All tensors must be 4D
+  if (inputType.getRank() != 4) {
+    return emitOpError("input_tensor must be a 4D tensor [E_local, B*D, S, H]");
+  }
+  if (metadataType.getRank() != 4) {
+    return emitOpError("expert_metadata must be a 4D tensor [1, B*D, S, K]");
+  }
+  if (mappingType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+  }
+  if (resultType.getRank() != 4) {
+    return emitOpError("result must be a 4D tensor [K, B, S, H]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1.
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  // Verify num_experts_per_tok > 0
+  if (getNumExpertsPerTok() <= 0) {
+    return emitOpError("num_experts_per_tok must be positive");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MoeExpertTokenRemapOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::MoeExpertTokenRemapOp::verify() {
+  ::mlir::RankedTensorType topkType = getTopkTensor().getType();
+  ::mlir::RankedTensorType mappingInputType = getExpertMapping().getType();
+  ::mlir::RankedTensorType metadataType = getExpertMetadata().getType();
+  ::mlir::RankedTensorType mappingOutputType = getMapping().getType();
+  ::mlir::RankedTensorType reducedType = getReduced().getType();
+
+  if (topkType.getRank() != 4) {
+    return emitOpError("topk_tensor must be a 4D tensor [D, B, S, E]");
+  }
+  if (mappingInputType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+  }
+  if (metadataType.getRank() != 4) {
+    return emitOpError("expert_metadata must be a 4D tensor [D, B, S, K]");
+  }
+  if (mappingOutputType.getRank() != 4) {
+    return emitOpError("mapping output must be a 4D tensor [1, B, S, E_local]");
+  }
+  if (reducedType.getRank() != 4) {
+    return emitOpError(
+        "reduced output must be a 4D tensor [1, 1, ceil(B*S/R), E_local]");
+  }
+
+  if (getReductionSize() <= 0) {
+    return emitOpError("reduction_size must be positive");
   }
 
   return success();

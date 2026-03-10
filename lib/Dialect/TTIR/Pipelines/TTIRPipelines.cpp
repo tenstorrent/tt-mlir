@@ -8,6 +8,7 @@
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
+#include "mlir/Conversion/MathToLibm/MathToLibm.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Conversion/TensorToLinalg/TensorToLinalgPass.h"
@@ -54,15 +55,6 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
-// We should explicitly allow-list any StableHLO ops that we want to hoist to
-// CPU here. Before adding an op here, make sure that the op is supported in
-// StableHLO to TOSA/Linalg conversion.
-// Note: when allow-listing an op, explicit template instantiation should be
-// added to HoistCPUOps.cpp.
-auto createHoistAllowlistedStablehloOpsPass() {
-  return ttir::createCPUHoistForOpsTransform<stablehlo::DynamicUpdateSliceOp,
-                                             stablehlo::EinsumOp>();
-}
 
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options) {
@@ -86,8 +78,8 @@ void createStableHLOToTTIRPipeline(
     // Wrap all ops in DeviceModule.
     pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
 
-    // Fallback allow-listed SHLO ops to the CPU module.
-    pm.addPass(createHoistAllowlistedStablehloOpsPass());
+    // Fallback non-lowerable SHLO ops to the CPU module.
+    pm.addPass(ttir::createCPUHoistNonLowerableSHLOOpsTransform());
 
     // Run StableHLOToTTIR pass again on the DeviceModule to produce a failure
     // if any unsupported ops have not been hoisted.
@@ -245,11 +237,18 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // These two passes convert scf to LLVM control flow.
   manager.addPass(mlir::createSCFToControlFlowPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
+
   // These passes convert corresponding primitives to their LLVM equivalents.
   manager.addPass(mlir::createArithToLLVMConversionPass());
   manager.addPass(mlir::createConvertMathToLLVMPass());
+
+  // Lower any remaining math operations to libm calls.
+  manager.addPass(mlir::createConvertMathToLibmPass());
+
+  // Finally, convert the func ops and finalize the memref to LLVM conversion.
   manager.addPass(mlir::createConvertFuncToLLVMPass());
   manager.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
+
   // This pass is a cleanup for any unrealized conversion casts between
   // types--we should be completely in LLVM Dialect now, so all unrealized
   // conversions should be removable.

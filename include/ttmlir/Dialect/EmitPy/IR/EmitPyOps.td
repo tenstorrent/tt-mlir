@@ -138,13 +138,13 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
   }];
 
   let arguments = (ins
-    Arg<AnyTypeOf<[EmitPy_OpaqueType, EmitPy_DictType]>, "the value to subscript">:$value,
+    Arg<AnyTypeOf<[EmitPy_OpaqueType, EmitPy_DictType]>, "the container to subscript">:$container,
     Arg<AnyTypeOf<[Index, EmitPy_StringType]>, "index or key value">:$index);
 
   let results = (outs EmitPy_Type:$result);
 
   let hasVerifier = 1;
-  let assemblyFormat = "$value `[` $index `]` attr-dict `:` functional-type(operands, results)";
+  let assemblyFormat = "$container `[` $index `]` attr-dict `:` functional-type(operands, results)";
 }
 
 def EmitPy_GetAttrOp : EmitPy_Op<"get_attr", [Pure, PyExpressionInterface]> {
@@ -324,7 +324,7 @@ def EmitPy_AssignOp : EmitPy_Op<"assign",
 
   let arguments = (ins
     Arg<EmitPy_Type, "target">:$target,
-    Arg<EmitPy_Type, "value to set">:$value
+    Arg<EmitPy_Type, "value to assign">:$value
   );
 
   let hasVerifier = 1;
@@ -496,7 +496,7 @@ def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
     [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "Assign a value to a global variable";
   let description = [{
-    The `emitpy.assign_global` assignes the value to an existing named global variable.
+    The `emitpy.assign_global` assigns the value to an existing named global variable.
 
     Example:
 

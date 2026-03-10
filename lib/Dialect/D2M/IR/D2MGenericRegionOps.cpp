@@ -94,25 +94,35 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
     return emitOpError("mcast start index defined but mcast shape is not");
   }
 
-  constexpr int64_t kExpectedIndicesRemote = 3;
-  constexpr int64_t kExpectedIndicesLocal = 1;
-
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();
 
-  if (isDstRemote()) {
-    if (numDstIndices != kExpectedIndicesRemote) {
-      return emitOpError("Must have 3 dst indices for remote dst operand");
+  if (isShardLevel()) {
+    if (numSrcIndices != 0) {
+      return emitOpError("Shard-level DMAWrite must have 0 src indices");
+    }
+    if (isMcast() && numDstIndices != 0) {
+      return emitOpError("Shard-level mcast DMAWrite must have 0 dst indices");
     }
   } else {
-    if (numDstIndices != kExpectedIndicesLocal) {
-      return emitOpError("Must have 1 dst index for local dst operand");
+    constexpr int64_t kExpectedIndicesRemote = 3;
+    constexpr int64_t kExpectedIndicesLocal = 1;
+
+    if (isDstRemote()) {
+      if (numDstIndices != kExpectedIndicesRemote) {
+        return emitOpError("Must have 3 dst indices for remote dst operand");
+      }
+    } else {
+      if (numDstIndices != kExpectedIndicesLocal) {
+        return emitOpError("Must have 1 dst index for local dst operand");
+      }
+    }
+
+    if (numSrcIndices != kExpectedIndicesLocal) {
+      return emitOpError("Must have 1 src index for local src operand");
     }
   }
 
-  if (numSrcIndices != kExpectedIndicesLocal) {
-    return emitOpError("Must have 1 src index for local src operand");
-  }
   return success();
 }
 
@@ -127,17 +137,25 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
     return emitOpError("For DMARead, src must be remote and dst must be local");
   }
   if (srcType.getElementType() != dstType.getElementType()) {
-    return emitOpError("Operands to DMAWrite must have the same element type");
+    return emitOpError("Operands to DMARead must have the same element type");
   }
-  constexpr int64_t kExpectedIndicesRemote = 3;
-  constexpr int64_t kExpectedIndicesLocal = 1;
+
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();
-  if (numSrcIndices != kExpectedIndicesRemote) {
-    return emitOpError("Must have 3 src indices for remote src operand");
-  }
-  if (numDstIndices != kExpectedIndicesLocal) {
-    return emitOpError("Must have 1 dst index for local dst operand");
+
+  if (isShardLevel()) {
+    if (numDstIndices != 0) {
+      return emitOpError("Shard-level DMARead must have 0 dst indices");
+    }
+  } else {
+    constexpr int64_t kExpectedIndicesRemote = 3;
+    constexpr int64_t kExpectedIndicesLocal = 1;
+    if (numSrcIndices != kExpectedIndicesRemote) {
+      return emitOpError("Must have 3 src indices for remote src operand");
+    }
+    if (numDstIndices != kExpectedIndicesLocal) {
+      return emitOpError("Must have 1 dst index for local dst operand");
+    }
   }
   return success();
 }
@@ -292,7 +310,8 @@ void DMAWriteOp::getEffects(
     mcastDimIndices.push_back(indexAttr.getInt());
   }
 
-  // Verify that memref references a generic op operand when inside a generic
+  // Verify that memref references a generic op operand or scratch allocation
+  // when inside a generic.
   if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
     Value memrefOperand = getMemref();
     std::optional<unsigned> operandIndex;
@@ -302,10 +321,12 @@ void DMAWriteOp::getEffects(
         break;
       }
     }
-    if (!operandIndex) {
+    // Also allow scratch allocations.
+    if (!operandIndex &&
+        !isa_and_nonnull<ScratchAllocateOp>(memrefOperand.getDefiningOp())) {
       return emitOpError(
           "memref operand must reference one of the parent generic op's "
-          "operands directly");
+          "operands or a scratch allocation");
     }
 
     // Forbid high-level mcast form in explicit datamovement form
@@ -467,7 +488,8 @@ void WriteColMaskTileOp::getEffects(
            << getIndices().size() << " indices but expected " << gridRank;
   }
 
-  // Verify that memref references a generic op operand when inside a generic
+  // Verify that memref references a generic op operand or scratch allocation
+  // when inside a generic.
   if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
     Value memrefOperand = getMemref();
     bool foundInOperands = false;
@@ -477,10 +499,12 @@ void WriteColMaskTileOp::getEffects(
         break;
       }
     }
-    if (!foundInOperands) {
+    // Also allow scratch allocations
+    if (!foundInOperands &&
+        !isa_and_nonnull<ScratchAllocateOp>(memrefOperand.getDefiningOp())) {
       return emitOpError(
           "memref operand must reference one of the parent generic op's "
-          "operands directly");
+          "operands or a scratch allocation");
     }
   }
 
@@ -1242,10 +1266,6 @@ void IterIndexOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
-mlir::OpFoldResult IterIndexOp::fold(FoldAdaptor adaptor) {
-  return adaptor.getDimAttr();
-}
-
 //===----------------------------------------------------------------------===//
 // BlockIndexOp
 //===----------------------------------------------------------------------===//
@@ -1263,9 +1283,42 @@ void BlockIndexOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
-mlir::OpFoldResult BlockIndexOp::fold(FoldAdaptor adaptor) {
-  return adaptor.getDimAttr();
+//===----------------------------------------------------------------------===//
+// BlockOffsetOp
+//===----------------------------------------------------------------------===//
+
+void BlockOffsetOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  int64_t dim = getDim();
+  setNameFn(getResult(), "block_offset" + std::to_string(dim));
 }
+
+void BlockOffsetOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+}
+
+//===----------------------------------------------------------------------===//
+// GetBlockFactorOp
+//===----------------------------------------------------------------------===//
+
+void GetBlockFactorOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  int64_t dim = getDim();
+  setNameFn(getResult(), "block_factor" + std::to_string(dim));
+}
+
+void GetBlockFactorOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+}
+//===----------------------------------------------------------------------===//
+// CoreIndexOp
+//===----------------------------------------------------------------------===//
 
 void CoreIndexOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
@@ -1273,21 +1326,34 @@ void CoreIndexOp::getAsmResultNames(
   setNameFn(getResult(), "core" + std::to_string(dim));
 }
 
+::mlir::LogicalResult CoreIndexOp::verify() {
+  auto genericOp = getOperation()->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    return success();
+  }
+  auto gridShape = genericOp.getGrid().getShape();
+  int64_t dim = getDim();
+  if (dim >= static_cast<int64_t>(gridShape.size())) {
+    return emitOpError("dim ")
+           << dim << " exceeds grid rank " << gridShape.size();
+  }
+  return success();
+}
+
 void CoreIndexOp::inferResultRanges(
     ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
     mlir::SetIntRangeFn setResultRange) {
-  setResultRange(getResult(),
-                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
-}
-
-mlir::OpFoldResult CoreIndexOp::fold(FoldAdaptor adaptor) {
-  // Only fold to the constant `dim` when no virtualization map is present.
-  // If a map is present, the result depends on runtime core coordinates and
-  // must not be folded.
-  if (adaptor.getPhysToVirtMapAttr()) {
-    return {};
+  auto genericOp = getOperation()->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    setResultRange(getResult(),
+                   getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+    return;
   }
-  return adaptor.getDimAttr();
+
+  auto gridShape = genericOp.getGrid().getShape();
+  int64_t dim = getDim();
+  assert(dim < static_cast<int64_t>(gridShape.size()) && "dim out of range");
+  setResultRange(getResult(), getIndexRange(0, gridShape[dim] - 1));
 }
 
 // TileMatmulBlockOp verification
@@ -1379,6 +1445,16 @@ TileTilizeBlockOp::getBufferType(
   assert(false && "should already have bufferized types via parent generic op "
                   "bufferization");
   return mlir::failure();
+}
+
+mlir::LogicalResult TileClampScalarOp::verify() {
+  bool minIsInt = mlir::isa<IntegerAttr>(getMinAttr());
+  bool maxIsInt = mlir::isa<IntegerAttr>(getMaxAttr());
+  if (minIsInt != maxIsInt) {
+    return emitOpError("min and max attributes must be the same type (both "
+                       "F32Attr or both I32Attr)");
+  }
+  return success();
 }
 
 mlir::LogicalResult TileTilizeBlockOp::verify() {

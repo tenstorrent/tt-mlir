@@ -13,7 +13,7 @@
 //   2. d2m.wait (after linalg.generic) - incorrect, causes domination error
 // The test verifies that the canonicalization picks #1, not #2.
 
-#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 #map = affine_map<(d0, d1) -> (d0, d1)>
 
 // CHECK-LABEL: func.func @canonicalize_with_multiple_reserves
@@ -24,7 +24,6 @@ func.func @canonicalize_with_multiple_reserves(%arg0: tensor<1x1x1x1x!ttcore.til
   // CHECK: ^compute0(%[[CB_IN:.*]]: !d2m.cb<{{.*}}>, %[[CB_OUT:.*]]: !d2m.cb<{{.*}}>):
   // CHECK-NEXT: d2m.wait %[[CB_IN]]
   // CHECK-NEXT: %[[RESERVE:.*]] = d2m.reserve %[[CB_OUT]]
-  // CHECK-NEXT: d2m.empty()
   // CHECK-NEXT: %[[RESULT:.*]] = linalg.generic
   // CHECK-SAME: outs(%[[RESERVE]] :
   // CHECK: d2m.store %[[RESERVE]], %[[RESULT]]
@@ -57,7 +56,7 @@ func.func @canonicalize_with_multiple_reserves(%arg0: tensor<1x1x1x1x!ttcore.til
 // This test verifies that the canonicalization does NOT happen when there is
 // no dominating wait/reserve operation for the output circular buffer.
 
-#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 #map = affine_map<(d0, d1) -> (d0, d1)>
 
 // CHECK-LABEL: func.func @no_canonicalization_without_dominating_op
@@ -100,7 +99,7 @@ func.func @no_canonicalization_without_dominating_op(%arg0: tensor<1x1x1x1x!ttco
 // a FuncOp. When d2m.generic is nested inside a loop (like scf.for), the
 // while loop at line 1270 executes, covering line 1271.
 
-#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 #map = affine_map<(d0, d1) -> (d0, d1)>
 
 // CHECK-LABEL: func.func @test_nested_in_loop
@@ -117,7 +116,6 @@ func.func @test_nested_in_loop(%arg0: tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #
     // CHECK: ^compute0(%[[CB_IN:.*]]: !d2m.cb<{{.*}}>, %[[CB_OUT:.*]]: !d2m.cb<{{.*}}>):
     // CHECK-NEXT: d2m.wait %[[CB_IN]]
     // CHECK-NEXT: %[[RESERVE:.*]] = d2m.reserve %[[CB_OUT]]
-    // CHECK-NEXT: d2m.empty()
     // CHECK-NEXT: linalg.generic
     // CHECK-SAME: outs(%[[RESERVE]] :
     %2 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
@@ -150,7 +148,7 @@ func.func @test_nested_in_loop(%arg0: tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #
 // block to ensure dominance analysis is required rather than simple same-block
 // ordering checks.
 
-#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 #map = affine_map<(d0, d1) -> (d0, d1)>
 
 // CHECK-LABEL: func.func @canonicalize_dps_cross_block_dominance

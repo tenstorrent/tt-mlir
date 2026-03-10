@@ -1521,13 +1521,13 @@ struct OpModel<ClampScalarOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(ttcore::GridAttr deviceGrid,
                    llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, llvm::APFloat min,
-                   llvm::APFloat max, TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr inputLayout, mlir::Attribute min,
+                   mlir::Attribute max, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
-                                             llvm::APFloat min,
-                                             llvm::APFloat max,
+                                             mlir::Attribute min,
+                                             mlir::Attribute max,
                                              TTNNLayoutAttr outputLayout);
 };
 
@@ -1741,6 +1741,24 @@ struct OpModel<mlir::tt::ttnn::AssignOp> {
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
                std::optional<mlir::tt::ttcore::DataType> outputDtype);
+};
+
+//===----------------------------------------------------------------------===//
+// TopKOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<TopKOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, int k, int dim, bool largest,
+                   bool sorted, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout, int k,
+                                             int dim, bool largest, bool sorted,
+                                             TTNNLayoutAttr outputLayout);
 };
 
 } // namespace mlir::tt::ttnn::op_model

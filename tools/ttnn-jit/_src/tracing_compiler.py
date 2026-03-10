@@ -16,8 +16,16 @@ from ttmlir.ir import (
     TypeAttr,
 )
 
-from ttnn_jit._src.utils import cleanup_source_code
-from ttnn_jit._src.tensor_translator import create_tensor_layout
+from ttnn_jit._src.utils import (
+    cleanup_source_code,
+    get_maximal_block_sharding_grid,
+    get_core_grid_from_tensor_args,
+    get_mesh_shape_from_tensor_args,
+)
+from ttnn_jit._src.tensor_translator import (
+    create_tensor_layout,
+    _get_logical_tensor_shape,
+)
 from ttnn_jit._src.conversions import (
     mlir_dtype_from_ttnn_dtype,
     ttnn_dtype_from_mlir_dtype,
@@ -34,11 +42,14 @@ import ttnn
 class JitContext:
     """Context for tracking MLIR values during tracing."""
 
-    def __init__(self, func_bb, ctx):
+    def __init__(self, func_bb, ctx, mesh_shape, core_grid):
         self.func_bb = func_bb
         self.ctx = ctx
         self.value_map = {}  # Maps id(python_obj) -> MLIR value
         self.func_arg_ids = set()  # Track IDs of original function arguments
+        # Mesh shape (rows, cols) from device; (1, 1) for single device. Used by CCL ops.
+        self.mesh_shape = mesh_shape
+        self.core_grid = core_grid
 
 
 class TracingCompiler:
@@ -76,8 +87,10 @@ class TracingCompiler:
                 )
                 func_bb = func_op.add_entry_block()
 
-        # Create JIT context
-        jit_ctx = JitContext(func_bb, ctx)
+        # Create JIT context with device core grid and mesh shape
+        core_grid = get_core_grid_from_tensor_args(self.tensor_args)
+        mesh_shape = get_mesh_shape_from_tensor_args(self.tensor_args)
+        jit_ctx = JitContext(func_bb, ctx, mesh_shape, core_grid)
 
         # Map original function arguments to MLIR block arguments
         for i, arg in enumerate(self.args):
@@ -112,6 +125,31 @@ class TracingCompiler:
 
         # Insert output layout conversion if memory_config provided
         try:
+
+            if self.memory_config is None:
+                # If no memory_config is provided, set output layout to block-sharded
+                output_tensor_shape = [int(dim) for dim in return_type.shape]
+
+                # Normalize shape to 2D (handles 0D and 1D tensors)
+                # TTNN memory configs require at least 2D shapes
+                logical_tensor_shape = _get_logical_tensor_shape(output_tensor_shape)
+
+                # Get the device core grid from the first tensor arg
+                core_grid = get_core_grid_from_tensor_args(self.tensor_args)
+                block_sharded_grid = get_maximal_block_sharding_grid(
+                    logical_tensor_shape, core_grid
+                )
+
+                block_sharded_memory_config = ttnn.create_sharded_memory_config(
+                    shape=logical_tensor_shape,
+                    core_grid=ttnn.CoreGrid(
+                        x=block_sharded_grid[0] + 1, y=block_sharded_grid[1] + 1
+                    ),
+                    strategy=ttnn.ShardStrategy.BLOCK,
+                    use_height_and_width_as_shard_shape=False,
+                )
+                self.memory_config = block_sharded_memory_config
+
             module = self._insert_output_layout_conversion(module, self.memory_config)
         except Exception as e:
             print(f"Output layout conversion insertion failed: {e}")

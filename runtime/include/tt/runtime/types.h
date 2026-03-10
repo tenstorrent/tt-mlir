@@ -235,6 +235,8 @@ public:
 
   MultiProcessArgs &withControllerHostname(std::string_view hostname);
 
+  MultiProcessArgs &withTcpInterface(std::string_view interfaceName);
+
   std::optional<std::string> getControllerHostname() const;
 
   std::string toArgString() const;
@@ -258,6 +260,8 @@ private:
   std::vector<std::string> extraMpiArgs_;
 
   std::optional<std::string> controllerHostname_;
+
+  std::optional<std::string> tcpInterface_;
 };
 
 struct DistributedOptions {
@@ -404,6 +408,21 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
 
 private:
   std::uint64_t nextTensorGlobalId();
+  std::uint64_t globalId;
+};
+
+struct GlobalSemaphore : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+  GlobalSemaphore() : globalId(nextGlobalSemaphoreGlobalId()) {}
+  GlobalSemaphore(std::shared_ptr<void> handle, DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime),
+        globalId(nextGlobalSemaphoreGlobalId()) {}
+
+  void setGlobalId(std::uint64_t id) { globalId = id; }
+  std::uint64_t getGlobalId() const { return globalId; }
+
+private:
+  std::uint64_t nextGlobalSemaphoreGlobalId();
   std::uint64_t globalId;
 };
 

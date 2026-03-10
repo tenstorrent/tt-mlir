@@ -263,51 +263,18 @@ TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(
       .addOutputOperandWorkaround(sysMemWorkaround);
 }
 
-// Factory method to create a set of workaround for concat operation operands.
-// tt-metal applies padding (before concatenation) to the input tensors if the
-// layout is tile and the shape is not divisible by tile size along concatenated
-// dimension for any input tensor. Padding can only be applied for float or
-// bfloat16 tensors.
+// Factory method to create a set of workarounds for mesh partition op operands.
+// The input and output tensors associated with the op should always be in
+// row-major layout.
+// TODO (hshah): Remove once
+// https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
-    mlir::Operation::operand_range inputs, int64_t numOperands, int32_t dim) {
-  mlir::RankedTensorType inputType =
-      mlir::cast<RankedTensorType>(inputs.front().getType());
-  ttnn::TTNNLayoutAttr layoutAttr =
-      mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
-  mlir::Type elementType = inputType.getElementType();
-
-  // Check if the op is using tile layout.
-  bool isDataTypeWARequired = layoutAttr.isTiled();
-  // Check if the tensor data type is neither float32 nor bfloat16.
-  isDataTypeWARequired &= (!elementType.isF32() && !elementType.isBF16());
-  // Check if shape (for any input tensor) along concatenated dimension is not
-  // divisible by tileHeight (Assuming TileWidth and TileHeigh are same).
-  int32_t tileWidth = 1;
-  int32_t tileHeight = 1;
-  if (isDataTypeWARequired) {
-    ttcore::TileType tile =
-        mlir::cast<ttcore::TileType>(layoutAttr.getMemref().getElementType());
-    tileWidth = tile.getWidth();
-    tileHeight = tile.getHeight();
-  }
-  assert(tileHeight == tileWidth);
-  isDataTypeWARequired &= llvm::any_of(inputs, [&](mlir::Value value) {
-    RankedTensorType inputTensor =
-        mlir::dyn_cast<RankedTensorType>(value.getType());
-    return inputTensor.getShape()[dim] % tileHeight != 0;
-  });
-
-  TTNNOperandWorkarounds bf16Workaround;
-  if (isDataTypeWARequired) {
-    bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
-  }
-  auto workaround =
-      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
-  for (int64_t count = 0; count < numOperands; ++count) {
-    workaround.addInputOperandWorkaround(bf16Workaround);
-  }
-  return workaround.addOutputOperandWorkaround(bf16Workaround);
+TTNNOperandsWorkaroundsFactory::createMeshPartitionOpOperandsWorkarounds() {
+  wa::TTNNOperandWorkarounds rowMajorWorkaround;
+  rowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorWorkaround)
+      .addOutputOperandWorkaround(rowMajorWorkaround);
 }
 
 // Factory method to create a set of workarounds for slice op input operands.
@@ -689,7 +656,6 @@ TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workarounds for Pad op operands.
-// tt-metal only supports float32 and bfloat16 data types.
 // tt-metal does not support front padding for tile layout.
 // https://github.com/tenstorrent/tt-metal/issues/10987
 TTNNOperandsWorkarounds
@@ -709,10 +675,6 @@ TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
 
   if (isFrontPadding && layoutAttr.isTiled()) {
     operandWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
-  }
-  if (isa<IntegerType>(input.getType().getElementType())) {
-    operandWorkaround.tensorDataTypeWorkaround =
-        mlir::tt::ttcore::DataType::BFloat16;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(operandWorkaround)
@@ -745,7 +707,7 @@ TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
 // optimizer is enabled this workaround is skipped because from what we observed
 // tile layout for activations works for the models we tested up to now.
 //
-// There is another workaround decompositon for conv2d and conv2d transpose
+// There is another workaround decomposition for conv2d and conv2d transpose
 // which is run regardless if optimizer is on or off.
 // Purpose of that decomposition is to move weight and bias to host memory
 // in row major layout and rewrite output of conv2d and conv2d transpose to
@@ -918,11 +880,125 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   return operandsWorkaround;
 }
 
+// Factory method to create workarounds for sparse_matmul op operands.
+// The sparsity tensor (3rd input) must be in ROW_MAJOR layout.
+// Issue page: https://github.com/tenstorrent/tt-metal/issues/39126
+// Inputs: a (input 0), b (input 1), sparsity (input 2)
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSparseMatmulOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds emptyWorkaround;
+  TTNNOperandWorkarounds rowMajorLayoutWorkaround;
+  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(emptyWorkaround)          // input a
+      .addInputOperandWorkaround(emptyWorkaround)          // input b
+      .addInputOperandWorkaround(rowMajorLayoutWorkaround) // sparsity tensor
+      .addOutputOperandWorkaround(emptyWorkaround);        // output
+}
+
+// Factory method to create workarounds for all_to_all_dispatch op operands.
+// Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
+// tt-metal CCL requirements:
+//   input_tensor:    ROW_MAJOR, BFLOAT16
+//   expert_indices:  ROW_MAJOR, UINT16
+//   expert_mapping:  ROW_MAJOR, UINT16
+//   dispatched out:  ROW_MAJOR, BFLOAT16
+//   metadata out:    ROW_MAJOR, UINT16
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createAllToAllDispatchOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds rowMajorBf16Workaround;
+  rowMajorBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorBf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds rowMajorUint16Workaround;
+  rowMajorUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorUint16Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorBf16Workaround)     // input_tensor
+      .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_indices
+      .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_mapping
+      .addOutputOperandWorkaround(rowMajorBf16Workaround)    // dispatched
+      .addOutputOperandWorkaround(rowMajorUint16Workaround); // metadata
+}
+
+// Factory method to create workarounds for all_to_all_combine op operands.
+// Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
+// tt-metal CCL requirements:
+//   input_tensor:      ROW_MAJOR, BFLOAT16
+//   expert_metadata:   ROW_MAJOR, UINT16
+//   expert_mapping:    ROW_MAJOR, UINT16
+//   result out:        ROW_MAJOR, BFLOAT16
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createAllToAllCombineOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds rowMajorBf16Workaround;
+  rowMajorBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorBf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds rowMajorUint16Workaround;
+  rowMajorUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorUint16Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorBf16Workaround)   // input_tensor
+      .addInputOperandWorkaround(rowMajorUint16Workaround) // expert_metadata
+      .addInputOperandWorkaround(rowMajorUint16Workaround) // expert_mapping
+      .addOutputOperandWorkaround(rowMajorBf16Workaround); // result
+}
+
+// Factory method to create workarounds for moe_expert_token_remap op operands.
+// Issue page: https://github.com/tenstorrent/tt-metal/issues/39128
+// tt-metal data_movement requirements:
+//   topk_tensor:      ROW_MAJOR, BFLOAT16
+//   expert_mapping:   ROW_MAJOR, UINT16
+//   expert_metadata:  ROW_MAJOR, UINT16
+//   mapping out:      ROW_MAJOR, BFLOAT16
+//   reduced out:      ROW_MAJOR, UINT16
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createMoeExpertTokenRemapOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds rowMajorBf16Workaround;
+  rowMajorBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorBf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds rowMajorUint16Workaround;
+  rowMajorUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorUint16Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorBf16Workaround)     // topk_tensor
+      .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_mapping
+      .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_metadata
+      .addOutputOperandWorkaround(rowMajorBf16Workaround)    // mapping
+      .addOutputOperandWorkaround(rowMajorUint16Workaround); // reduced
+}
+
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::Conv2dOp op);
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::ConvTranspose2dOp op);
+
+// TT-Metal's Conv3d requires BFloat16 inputs.
+// Tracked in: https://github.com/tenstorrent/tt-metal/issues/35436
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConv3dOpOperandsWorkarounds(
+    ttnn::Conv3dOp op) {
+  TTNNOperandWorkarounds bf16Workaround;
+  bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  auto workaround =
+      wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(bf16Workaround)
+          .addInputOperandWorkaround(bf16Workaround)
+          .addOutputOperandWorkaround(bf16Workaround);
+
+  if (op.getBias()) {
+    workaround = workaround.addInputOperandWorkaround(bf16Workaround);
+  }
+
+  return workaround;
+}
 
 } // namespace mlir::tt::ttnn::wa

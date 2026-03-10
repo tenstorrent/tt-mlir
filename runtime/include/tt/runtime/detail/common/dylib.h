@@ -19,6 +19,7 @@
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#include <unordered_map>
 #include <vector>
 // Linux memfd_create syscall number, if not available in <sys/mman.h>
 #ifndef MFD_CLOEXEC
@@ -131,6 +132,10 @@ std::vector<TensorType> inline unpackTensors(
   std::vector<TensorType> results;
   results.reserve(numOutputs);
 
+  // Track already-seen allocations so that outputs aliasing the same buffer
+  // share same ttnn::Tensor instance, in order to prevent double-free issues.
+  std::unordered_map<void *, std::shared_ptr<void>> seenPtrs;
+
   // Create tensors using the provided callback.
   for (size_t i = 0; i < numOutputs; ++i) {
     const WrappedTensor &wrappedTensor = outputArray[i];
@@ -140,9 +145,16 @@ std::vector<TensorType> inline unpackTensors(
     // destroyed.
     // Note: we use the alignedStart pointer for the tensor data, but
     // we need to free the original start pointer.
-    std::shared_ptr<void> dataPtr(
-        wrappedTensor.alignedStart,
-        [data = wrappedTensor.start](void *) { std::free(data); });
+    auto it = seenPtrs.find(wrappedTensor.start);
+    std::shared_ptr<void> dataPtr;
+    if (it != seenPtrs.end()) {
+      dataPtr = it->second;
+    } else {
+      dataPtr = std::shared_ptr<void>(
+          wrappedTensor.alignedStart,
+          [data = wrappedTensor.start](void *) { std::free(data); });
+      seenPtrs[wrappedTensor.start] = dataPtr;
+    }
 
     results.push_back(createTensorCallback(outs->Get(i), dataPtr));
   }

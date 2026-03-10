@@ -74,7 +74,7 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
         connectedDevice = device->get_connected_ethernet_core(ethernetCore);
       } catch (const std::runtime_error &e) {
         LOG_WARNING("Skipping ethernet core (", ethernetCore.str(),
-                    ") on chip ", device->id(), ": ", e.what());
+                    ") on chip ", device->id());
         continue;
       }
       addConnection(device->id(), ethernetCore, std::get<0>(connectedDevice),
@@ -291,7 +291,7 @@ createNewMeshDevice(
     meshDevicePtr->close();
   }
   if (eptr) {
-    LOG_ERROR("Exception occured when getting system descriptor");
+    LOG_ERROR("Exception occurred when getting system descriptor");
     std::rethrow_exception(eptr);
   }
   return *desc;

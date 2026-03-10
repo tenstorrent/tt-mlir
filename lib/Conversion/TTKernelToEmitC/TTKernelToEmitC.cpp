@@ -97,6 +97,17 @@ datatypeToDataformatEnumNameOpaqueAttr(Builder &builder,
   return builder.getType<emitc::OpaqueAttr>(expression.c_str());
 }
 
+static emitc::OpaqueAttr floatTypeToDataformatOpaqueAttr(Builder &builder,
+                                                         Type type) {
+  if (type.isF32()) {
+    return builder.getType<emitc::OpaqueAttr>("DataFormat::Float32");
+  }
+  if (type.isBF16()) {
+    return builder.getType<emitc::OpaqueAttr>("DataFormat::Float16_b");
+  }
+  llvm_unreachable("Unsupported float type for DataFormat conversion");
+}
+
 static emitc::OpaqueAttr
 datatypeToDataformatEnumValueOpaqueAttr(Builder &builder,
                                         ttcore::DataType dtype) {
@@ -112,6 +123,8 @@ class TTKernelToEmitCTypeConverter : public TypeConverter {
 public:
   TTKernelToEmitCTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
+    addConversion(
+        [ctx](BFloat16Type type) -> Type { return Float32Type::get(ctx); });
     addConversion([ctx](mlir::tt::ttkernel::NocAddrType type) -> Type {
       return Builder(ctx).getI64Type();
     });
@@ -154,6 +167,27 @@ public:
           return emitc::OpaqueType::get(
               ctx, "experimental::FabricConnectionManager");
         });
+  }
+};
+} // namespace
+
+namespace {
+class ArithConstantBF16ToF32Rewriter
+    : public OpConversionPattern<arith::ConstantOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::ConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto floatAttr = dyn_cast<FloatAttr>(op.getValue());
+    if (!floatAttr || !floatAttr.getType().isBF16()) {
+      return rewriter.notifyMatchFailure(op, "not a bf16 float constant");
+    }
+    double val = floatAttr.getValueAsDouble();
+    auto f32Attr = rewriter.getF32FloatAttr(static_cast<float>(val));
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, f32Attr);
+    return success();
   }
 };
 } // namespace
@@ -279,6 +313,14 @@ public:
 
       template_args.push_back(packTileOp.getOutOfOrderAttr());
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::AddIntTileOp> ||
+                         std::is_same_v<SourceOp, ttkernel::SubIntTileOp> ||
+                         std::is_same_v<SourceOp, ttkernel::MulIntTileInitOp> ||
+                         std::is_same_v<SourceOp, ttkernel::MulIntTileOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(
+          datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDtype()));
+      return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::TypecastTileOp> ||
                          std::is_same_v<SourceOp,
                                         ttkernel::TypecastTileInitOp>) {
@@ -320,10 +362,37 @@ public:
                          std::is_same_v<SourceOp,
                                         ttkernel::BitwiseOrBinaryTilesOp> ||
                          std::is_same_v<SourceOp,
-                                        ttkernel::BitwiseXorBinaryTilesOp>) {
+                                        ttkernel::BitwiseXorBinaryTilesOp> ||
+                         std::is_same_v<SourceOp, ttkernel::LogicalNotTileOp>) {
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(
           datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDtype()));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (
+        std::is_same_v<SourceOp, ttkernel::ExperimentalWriteRowMaskTileOp> ||
+        std::is_same_v<SourceOp, ttkernel::ExperimentalWriteColMaskTileOp>) {
+      auto cbType = mlir::cast<ttkernel::CBType>(op.getCb().getType());
+      auto tileType = mlir::cast<ttcore::TileType>(cbType.getElementType());
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(datatypeToDataformatEnumNameOpaqueAttr(
+          builder, tileType.getDataType()));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::PackUntilizeInitOp> ||
+                         std::is_same_v<
+                             SourceOp,
+                             ttkernel::ExperimentalPackUntilizeBlockOp>) {
+      SmallVector<Attribute, 2> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), std::to_string(op.getColsPerDstPass())));
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), std::to_string(op.getTotalColTiles())));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::ExperimentalTileFillOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(
+          floatTypeToDataformatOpaqueAttr(builder, op.getValue().getType()));
       return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
@@ -883,6 +952,26 @@ public:
   }
 };
 
+// PackReconfigL1AccOp must be wrapped in the PACK((...)) macro to ensure it
+// only executes on the TRISC_PACK thread.
+class TTKernelToEmitCPackReconfigL1AccToEmitCRewriter
+    : public OpConversionPattern<ttkernel::PackReconfigL1AccOp> {
+public:
+  using OpConversionPattern<ttkernel::PackReconfigL1AccOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::PackReconfigL1AccOp op,
+                  ttkernel::PackReconfigL1AccOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.create<emitc::VerbatimOp>(
+        op->getLoc(),
+        rewriter.getStringAttr("PACK((llk_pack_reconfig_l1_acc({})));"),
+        ValueRange{adaptor.getL1AccEn()});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 // Arith MaxUIOp doesn't have an emitc lowering. We can lower it to a call to
 // std::max.
 class ArithMaxUIRewriter : public OpConversionPattern<arith::MaxUIOp> {
@@ -968,6 +1057,9 @@ public:
     TTKernelToEmitCTypeConverter typeConverter(funcOp.getContext());
     RewritePatternSet patterns(funcOp.getContext());
 
+    patterns.add<ArithConstantBF16ToF32Rewriter>(typeConverter,
+                                                 funcOp.getContext(),
+                                                 /*benefit=*/2);
     populateArithToEmitCPatterns(typeConverter, patterns);
     populateSCFToEmitCConversionPatterns(patterns, typeConverter);
     populateMemRefToEmitCTypeConversion(typeConverter);
@@ -1009,11 +1101,16 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalTilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalUntilizeBlockOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeUninitOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::ExperimentalPackUntilizeBlockOp>,
 
         // Datamovement
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
+        TTKernelToEmitCPackReconfigL1AccToEmitCRewriter,
 
         // FPU Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
@@ -1058,6 +1155,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::CosTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AddIntTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AddIntTileOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::AddUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesOp>,
@@ -1077,9 +1176,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::HardsigmoidTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileI32Op>,
@@ -1100,16 +1198,25 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MulIntTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MulIntTileOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::MulUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SubIntTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SubIntTileOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::SubUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxInt32TileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxInt32TileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMinTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMinTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMinInt32TileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMinInt32TileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NegativeTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NegativeTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NegativeTileInt32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PowBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PowBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PowerTileInitOp>,
@@ -1149,6 +1256,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileInt32Op>,
 
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
@@ -1183,6 +1291,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetMyDeviceIdOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricMulticastWriteOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::FabricSemIncOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::CreateFabricConnectionManagerOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SetupFabricConnectionsOp>,

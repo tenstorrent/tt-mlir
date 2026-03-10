@@ -94,8 +94,17 @@ def test_cpu_hoistable_concat_op(
 
 
 # Pad tests
-@pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
-@pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
+@pytest.mark.parametrize(
+    "shape, padding",
+    [
+        ((1, 1024, 64, 64), [0, 1, 2, 3, 4, 5, 6, 7]),
+        ((1, 1024, 64, 64), [0, 0, 0, 0, -16, -16, -16, -16]),
+        ((1, 1024, 64, 64), [2, 2, 2, 2, -1, -1, -1, -1]),
+        ((1, 4, 8, 8, 32), [0, 0, 1, 1, 1, 1, 1, 1, 0, 0]),
+        ((1, 4, 8, 8, 32), [0, 0, 2, 2, 0, 0, 0, 0, 0, 0]),
+        ((2, 6, 4, 4, 16), [1, 1, 1, 1, 1, 1, 0, 0, 0, 0]),
+    ],
+)
 @pytest.mark.parametrize("value", [0])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_pad(
@@ -119,8 +128,15 @@ def test_pad(
 
 
 @x86_only
-@pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
-@pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
+@pytest.mark.parametrize("shape", [(1, 1024, 64, 64)], ids=shape_str)
+@pytest.mark.parametrize(
+    "padding",
+    [
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [0, 0, 0, 0, -16, -16, -16, -16],
+        [2, 2, 2, 2, -1, -1, -1, -1],
+    ],
+)
 @pytest.mark.parametrize("value", [0])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_cpu_hoistable_pad_op(
@@ -558,12 +574,6 @@ def test_typecast(
 ):
     if from_type == torch.float32 and to_type == torch.int32 and target == "ttmetal":
         pytest.xfail("ttmetal does not support float32 to int32 typecast")
-
-    if from_type == torch.float32 and to_type == torch.bfloat16 and target == "ttmetal":
-        pytest.xfail(
-            "f32->bf16 typecast fails due to LLK tiling issue. "
-            "See comment at: https://github.com/tenstorrent/tt-metal/issues/35302"
-        )
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [from_type])

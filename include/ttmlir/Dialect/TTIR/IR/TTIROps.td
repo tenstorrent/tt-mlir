@@ -130,7 +130,9 @@ def TTIR_TTNNMetalLayoutCastOp : TTIR_Op<"ttnn_metal_layout_cast",
     ```
   }];
 
-  let arguments = (ins AnyRankedTensorOrMemRef:$input);
+  let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                       OptionalAttr<AffineMapAttr>:$virtual_grid_inverse_mapping,
+                       OptionalAttr<AffineMapAttr>:$virtual_grid_forward_mapping);
   let results   = (outs AnyRankedTensorOrMemRef:$result);
 
   let assemblyFormat = [{
@@ -1340,6 +1342,8 @@ def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le"> {
 
       Mathematical definition: less_equal(x, y) = x <= y
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 // TODO (azecevic): NaN != NaN, otherwise lt(x, x) == 0.
@@ -1373,6 +1377,8 @@ def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt"> {
 
       Mathematical definition: less_than(x, y) = x < y
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdempotence]> {
@@ -1405,6 +1411,8 @@ def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdem
 
       Mathematical definition: logical_and(x, y) = x && y
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempotence]> {
@@ -1437,6 +1445,8 @@ def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempo
 
       Mathematical definition: logical_or(x, y) = x || y
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
@@ -2072,6 +2082,50 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
                        Optional<AnyRankedTensor>:$weight,
                        Optional<AnyRankedTensor>:$bias,
                        DenseI64ArrayAttr:$normalized_shape,
+                       DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
+  let summary = "Distributed RMS normalization with all-gather operation";
+  let description = [{
+    Fused distributed RMS normalization across mesh devices. Each device
+    computes local RMS statistics (E(x²)), the statistics are all-gathered
+    along cluster_axis to obtain globally-correct values, and each device
+    then normalizes its local shard. The steps are:
+    1. Optional residual addition (input + residual)
+    2. Compute local E(x²) and all-gather statistics across cluster_axis
+    3. RMS normalization: output = input * rsqrt(E(x²) + epsilon) * weight
+
+    Only statistics are communicated across devices — the input data itself
+    is not all-gathered. Each device's output shape equals its input shape.
+
+    This is a multi-device operation that requires the tensor to be sharded
+    across a device mesh.
+
+    Inputs:
+    - `input` (Tensor): The input tensor to be normalized.
+    - `weight` (Optional Tensor): The scale parameter (gamma).
+    - `residual` (Optional Tensor): Residual tensor for fused add before
+        normalization.
+
+    Attributes:
+    - `cluster_axis` specifies which mesh dimension to all-gather the
+        statistics across (0 or 1).
+    - `epsilon` is a small constant added for numerical stability
+        (default: 1e-05).
+
+    Output:
+    - `result` (Tensor): The normalized output tensor (same shape as input).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$residual,
+                       UI32Attr:$cluster_axis,
                        DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
 
   let results = (outs AnyRankedTensor:$result);
@@ -4405,8 +4459,8 @@ def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         F32Attr:$min,
-                         F32Attr:$max);
+                         AnyAttrOf<[F32Attr, I32Attr]>:$min,
+                         AnyAttrOf<[F32Attr, I32Attr]>:$max);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -4628,6 +4682,8 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
@@ -5241,6 +5297,18 @@ def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
     let hasVerifier = 1;
 }
 
+def TTIR_MeshPartitionOp: TTIR_NamedOp<"mesh_partition"> {
+  let summary = "Mesh partition operation.";
+  let description = [{
+    Mesh partition op.
+  }];
+  let arguments = (ins AnyRankedTensor:$input,
+                       SI32Attr:$dim,
+                       OptionalAttr<UI32Attr>:$cluster_axis);
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
+
 def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
   [ Pure
   , TTIROpInterface
@@ -5274,7 +5342,7 @@ def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
         %6 = "ttir.mesh_shard"(%4) <
           {..., shard_direction = #ttcore.shard_direction<shard_to_full>,
                 shard_shape = array<i64: 2, 1>,
-                shard_dims = arrray<i64: 1, -1>,
+                shard_dims = array<i64: 1, -1>,
                 shard_type = #ttcore.shard_type<devices>}> : (tensor<4096x16384xf32>, ...) -> tensor<8192x16384xf32>
     }];
 
@@ -5729,4 +5797,162 @@ def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_value_
 
     let hasVerifier = 1;
 }
+
+def TTIR_TopKOp : TTIR_NamedOp<"topk"> {
+  let summary = "Top-K selection operation.";
+  let description = [{
+    Returns the `k` largest or `k` smallest elements of the `input_tensor` along a given dimension `dim`.
+    If `dim` is not provided, the last dimension of the input_tensor is used.
+    If `largest` is True, the `k` largest elements are returned. Otherwise, the `k` smallest elements are returned.
+    The boolean option `sorted` if True, will make sure that the returned `k` elements are sorted.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input_tensor,
+                       I32Attr:$k,
+                       DefaultValuedAttr<I32Attr, "-1">:$dim,
+                       DefaultValuedAttr<BoolAttr, "true">:$largest,
+                       DefaultValuedAttr<BoolAttr, "false">:$sorted);
+
+  let results = (outs AnyRankedTensor:$values,
+                      AnyRankedTensor:$indices);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
+    let summary = "Sparse block matrix multiplication with sparsity mask.";
+    let description = [{
+      The `sparse_matmul` operation performs batched matrix multiplication where
+      computation is selectively skipped for blocks marked as zero in the sparsity
+      tensor. Input `b` is organized as a collection of weight matrices indexed by
+      a block dimension (dim 1), and the sparsity tensor controls which blocks
+      participate in the computation.
+
+      The operation supports three sparsity modes that determine which input
+      carries the block structure:
+
+      Inputs:
+      - `a` (Tensor): The first input tensor (activations or sparse input).
+      - `b` (Tensor): The second input tensor, always [1, num_blocks, K, N].
+      - `sparsity` (Tensor): 4D binary mask indicating active blocks.
+
+      Attributes:
+      - `is_input_a_sparse` (Boolean, default=false): Whether `a` has block structure.
+      - `is_input_b_sparse` (Boolean, default=true): Whether `b` has block structure.
+      - `nnz` (Optional Integer): Number of non-zero blocks per row. If 0 or absent,
+        inferred at runtime.
+
+      Supported Modes:
+      - is_input_a_sparse=false, is_input_b_sparse=true (column-parallel):
+        a: [A, B, M, K], b: [1, E, K, N], sparsity: [A, B, 1, E]
+        -> output: [A, B, 1, E, M, N]
+      - is_input_a_sparse=true, is_input_b_sparse=false (row-parallel):
+        a: [A, E, M, K], b: [1, E, K, N], sparsity: [1, 1, A, E]
+        -> output: [A, E, M, N]
+      - is_input_a_sparse=true, is_input_b_sparse=true (both sparse):
+        a: [1, E, M, K], b: [1, E, K, N], sparsity: [1, 1, 1, E]
+        -> output: [1, E, M, N]
+
+      Example (Mixture of Experts gate/up projection):
+      ```mlir
+      %result = "ttir.sparse_matmul"(%activations, %expert_weights, %sparsity) <{
+          is_input_a_sparse = false, is_input_b_sparse = true, nnz = 2
+      }> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>,
+            tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         AnyRankedTensor:$sparsity,
+                         DefaultValuedAttr<BoolAttr, "false">:$is_input_a_sparse,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_input_b_sparse,
+                         OptionalAttr<I64Attr>:$nnz);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch"> {
+    let summary = "Dispatch tokens to expert devices for MoE computation.";
+    let description = [{
+      Routes tokens to devices holding their selected experts via all-to-all
+      communication. Used before sparse_matmul in the MoE dispatch/combine flow.
+
+      Input shapes:
+      - input_tensor: [B, S, 1, H]
+      - expert_indices: [B, S, 1, K]
+      - expert_mapping: [1, 1, E, D]
+
+      Output shapes:
+      - dispatched: [1, B*D, S, H]
+      - metadata: [1, B*D, S, K]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$dispatched, AnyRankedTensor:$metadata);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine"> {
+    let summary = "Combine expert outputs back to original token positions.";
+    let description = [{
+      Inverse of dispatch: gathers expert computation results from expert devices
+      and restores tokens to their original device and order.
+
+      Input shapes:
+      - input_tensor: [E_local, B*D, S, H]
+      - expert_metadata: [1, B*D, S, K]
+      - expert_mapping: [1, 1, E, D]
+
+      Output shape:
+      - result: [K, B, S, H]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_metadata,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis,
+                         I64Attr:$num_experts_per_tok);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_MoeExpertTokenRemapOp : TTIR_NamedOp<"moe_expert_token_remap"> {
+    let summary = "Remap global expert routing to local device experts with sparsity.";
+    let description = [{
+      Converts global expert routing scores to local per-device expert mapping
+      and creates a sparsity pattern for efficient sparse_matmul. Used after
+      all_to_all_dispatch in the MoE dispatch/compute/combine flow.
+
+      Input shapes:
+      - topk_tensor: [D, B, S, E] (bf16 routing scores)
+      - expert_mapping: [1, 1, E, D] (uint16 one-hot mapping)
+      - expert_metadata: [D, B, S, K] (uint16 expert indices)
+
+      Output shapes:
+      - mapping: [1, B, S, E_local] (bf16 local routing weights)
+      - reduced: [1, 1, ceil(B*S/reduction_size), E_local] (uint16 sparsity)
+    }];
+
+    let arguments = (ins AnyRankedTensor:$topk_tensor,
+                         AnyRankedTensor:$expert_mapping,
+                         AnyRankedTensor:$expert_metadata,
+                         I64Attr:$reduction_size);
+
+    let results = (outs AnyRankedTensor:$mapping, AnyRankedTensor:$reduced);
+
+    let hasVerifier = 1;
+}
+
 #endif

@@ -4,17 +4,7 @@
 
 import os
 import json
-import importlib.machinery
-import sys
-import signal
 import os
-import io
-import subprocess
-import time
-import socket
-from pkg_resources import get_distribution
-import shutil
-import atexit
 
 from ttrt.common.util import *
 import ttrt.binary
@@ -377,7 +367,7 @@ class Read:
     def load_binaries_from_path(self, binary_path):
         """
         Load binaries from the specified path and perform preprocessing and constraint checks.
-        This function can be invoked to skip full execution pipeline, and use independant functions.
+        This function can be invoked to skip full execution pipeline, and use independent functions.
         Args:
             binary_path (str): The file path to the binary (or directory of Binaries) to be loaded.
         Raises:

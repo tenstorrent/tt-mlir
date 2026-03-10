@@ -6,6 +6,8 @@
 #define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 
 // ANCHOR: standalone_includes
+#include "operations/ccl/all_to_all_combine/all_to_all_combine.hpp"
+#include "operations/ccl/all_to_all_dispatch/all_to_all_dispatch.hpp"
 #include "operations/ccl/ccl_host_types.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
@@ -60,6 +62,7 @@
 #include "ttnn/operations/experimental/transformer/rotary_embedding/rotary_embedding.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
 #include "ttnn/operations/normalization/layernorm/layernorm.hpp"
+#include "ttnn/operations/reduction/topk/topk.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"

@@ -175,9 +175,15 @@ bool ShardSolver::resolveStep() {
           edgeConsumerBitset.set(configBitIndex);
         }
       } else {
-        llvm::SmallVector<OpConfig> testConfigs =
-            optimizer_utils::getUniqueTestConfigs(
-                consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
+        // D2M needs real output layouts in configs; getUniqueTestConfigs for
+        // non-matmul uses null output layout which D2M cannot handle.
+        llvm::SmallVector<OpConfig> testConfigs;
+        if (llvm::isa<ttnn::D2MSubgraphOp>(consumerOp)) {
+          testConfigs.assign(consumerConfigs.begin(), consumerConfigs.end());
+        } else {
+          testConfigs = optimizer_utils::getUniqueTestConfigs(
+              consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
+        }
 
         // Extract input layouts template once
         std::vector<TTNNLayoutAttr> inputLayouts =
@@ -188,7 +194,7 @@ bool ShardSolver::resolveStep() {
           // TODO(rpavlovicTT) After we inserted reshard in
           // preprocessFirstOp we dont need to try every producerId here, right?
 
-          // If the producer cannot accomodate this path, continue.
+          // If the producer cannot accommodate this path, continue.
           // Also if this is not the OpConfig we selected, continue.
           if (!producerBitset->test(producerId)) {
             continue;
@@ -212,16 +218,18 @@ bool ShardSolver::resolveStep() {
           for (std::size_t i = 0; i < results.size(); ++i) {
             const auto &result = results[i];
             if (result.isSuccess()) {
+              TTNNLayoutAttr actualFirstOutputLayout =
+                  result.checkAndGetFirstActualOutputLayout();
               // For elementwise binary ops with sharded input, reject configs
               // that shrink the core count. Implicit resharding in these ops
               // causes hangs. See: github.com/tenstorrent/tt-metal/issues/34765
               if (inputLayout.hasShardedL1TensorMemoryLayout() &&
-                  result.actualOutputLayout.hasShardedL1TensorMemoryLayout() &&
+                  actualFirstOutputLayout.hasShardedL1TensorMemoryLayout() &&
                   llvm::isa<ttnn::AddOp, ttnn::MultiplyOp, ttnn::MinimumOp>(
                       consumerOp)) {
                 int64_t inputCores = inputLayout.getGrid().getGridVolume();
                 int64_t outputCores =
-                    result.actualOutputLayout.getGrid().getGridVolume();
+                    actualFirstOutputLayout.getGrid().getGridVolume();
                 if (outputCores < inputCores) {
                   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                                "Rejecting {} config: elementwise binary op "
@@ -234,7 +242,8 @@ bool ShardSolver::resolveStep() {
               TTMLIR_TRACE(
                   ttmlir::LogComponent::Optimizer,
                   "Backend chose valid consumer layout {}, consumerId {}",
-                  result.actualOutputLayout, result.configIndex);
+                  result.checkAndGetFirstActualOutputLayout(),
+                  result.configIndex);
               edgeProducerBitset.set(producerId);
               edgeConsumerBitset.set(result.configIndex);
               paths.push_back(Path(
@@ -395,13 +404,14 @@ ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
     return llvm::createStringError(validationResult.errorMessage);
   }
 
-  if (!validationResult.actualOutputLayout.hasShardedL1TensorMemoryLayout()) {
+  if (!validationResult.checkAndGetFirstActualOutputLayout()
+           .hasShardedL1TensorMemoryLayout()) {
     return llvm::createStringError(
         "Interleaved to sharded not supported - backend did not return sharded "
         "layout");
   }
 
-  return validationResult.actualOutputLayout;
+  return validationResult.checkAndGetFirstActualOutputLayout();
 }
 
 // We need to check if first op requires sharded inputs and if so, insert
@@ -552,9 +562,15 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   //
   MemReconfigEntry memReconfigEntry;
 
-  llvm::SmallVector<OpConfig> testConfigs =
-      optimizer_utils::getUniqueTestConfigs(
-          consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
+  // D2M needs real output layouts; getUniqueTestConfigs for non-matmul uses
+  // null output layout which D2M cannot handle.
+  llvm::SmallVector<OpConfig> testConfigs;
+  if (llvm::isa<ttnn::D2MSubgraphOp>(consumerOp)) {
+    testConfigs.assign(consumerConfigs.begin(), consumerConfigs.end());
+  } else {
+    testConfigs = optimizer_utils::getUniqueTestConfigs(
+        consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
+  }
 
   // Extract and set input layouts for validation
   std::vector<TTNNLayoutAttr> consumerInputOperandLayouts =
@@ -898,7 +914,7 @@ void ShardSolver::set(Operation *op, const OpConfig &config) {
 // Preprocess ShardSolver search space to make a helper structure which links
 // op config choices to global max core usage. Example: Lets assume simple
 // case where configs at same index are compatible for input graph provided
-// below. Tupples represent grid core usage (Config0GridVolume,
+// below. Tuples represent grid core usage (Config0GridVolume,
 // Config1GridVolume, Config2GridVolume).
 //
 //    Op0 ----- (4, 8, 2)

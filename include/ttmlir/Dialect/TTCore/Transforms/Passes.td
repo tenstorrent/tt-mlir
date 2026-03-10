@@ -75,7 +75,9 @@ def TTCoreRegisterDevicePass : Pass<"ttcore-register-device", "::mlir::ModuleOp"
               clEnumValN(ttcore::Topology::Ring, "ring",
                "Ring topology"),
               clEnumValN(ttcore::Topology::Linear, "linear",
-               "Linear topology")
+               "Linear topology"),
+              clEnumValN(ttcore::Topology::Disabled, "disabled",
+               "Disabled topology")
              )}]>,
     ];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
@@ -98,7 +100,7 @@ def TTCoreOneShotBufferizePass : Pass<"ttcore-one-shot-bufferize", "::mlir::Modu
     handles tensor types with MetalLayoutAttr encoding. It converts such tensors
     to memref types with appropriate layout attributes (ShardLayoutAttr,
     ViewLayoutAttr, InterleavedLayoutAttr) and explicit memory space attributes.
-    In addition to function bounadaries, d2m.global tensors are also handled.
+    In addition to function boundaries, d2m.global tensors are also handled.
   }];
   let dependentDialects = [
     "::mlir::bufferization::BufferizationDialect",

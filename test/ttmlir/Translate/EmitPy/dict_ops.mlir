@@ -1,6 +1,5 @@
-// RUN: ttmlir-opt --split-input-file -o %t %s
-// RUN: ttmlir-translate --mlir-to-python -o %t2 %t
-// RUN: FileCheck %s --input-file=%t2
+// RUN: ttmlir-translate -mlir-to-python %s | FileCheck %s
+
 // Test EmitPy to Python translation for dictionary operations:
 // create_dict, subscript, assign
 

@@ -322,9 +322,9 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOp *op) {
   }
 }
 
-::ttnn::operations::conv::conv2d::Conv2dConfig
+::ttnn::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
-  ::ttnn::operations::conv::conv2d::Conv2dConfig conv2dConfig;
+  ::ttnn::Conv2dConfig conv2dConfig;
 
   if (config->weights_dtype()) {
     conv2dConfig.weights_dtype =
@@ -402,24 +402,21 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   return conv2dConfig;
 }
 
-::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType
+::ttnn::Conv2dSliceConfig::SliceType
 createConv2dSliceType(::tt::target::ttnn::Conv2dSliceType sliceType) {
   switch (sliceType) {
   case ::tt::target::ttnn::Conv2dSliceType::DramHeight:
-    return ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::
-        DRAM_HEIGHT;
+    return ::ttnn::Conv2dSliceConfig::SliceType::DRAM_HEIGHT;
   case ::tt::target::ttnn::Conv2dSliceType::DramWidth:
-    return ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::
-        DRAM_WIDTH;
+    return ::ttnn::Conv2dSliceConfig::SliceType::DRAM_WIDTH;
   case ::tt::target::ttnn::Conv2dSliceType::L1Full:
-    return ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::
-        L1_FULL;
+    return ::ttnn::Conv2dSliceConfig::SliceType::L1_FULL;
   }
 }
 
-::ttnn::operations::conv::conv2d::Conv2dSliceConfig
+::ttnn::Conv2dSliceConfig
 createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
-  ::ttnn::operations::conv::conv2d::Conv2dSliceConfig sliceConfig;
+  ::ttnn::Conv2dSliceConfig sliceConfig;
 
   sliceConfig.slice_type = createConv2dSliceType(config->slice_type());
   sliceConfig.num_slices = config->num_slices();
@@ -481,6 +478,19 @@ createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config) {
   }
 
   return sdpaConfig;
+}
+
+::ttnn::prim::LayerNormProgramConfig
+createLayerNormShardedMultiCoreProgramConfig(
+    const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig *config) {
+  const auto *gridSize = config->compute_with_storage_grid_size();
+  return ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig{
+      .compute_with_storage_grid_size = {gridSize->x(), gridSize->y()},
+      .subblock_w = config->subblock_w(),
+      .block_h = config->block_h(),
+      .block_w = config->block_w(),
+      .inplace = config->inplace(),
+  };
 }
 
 template <typename T>

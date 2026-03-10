@@ -325,7 +325,7 @@ private:
 
     // stablehlo.reduce op generates two results; the first output is maximum
     // value which is not consumed in subsequent graph and the second out is the
-    // index of maximum value which is consumend in subsequent graph. On other
+    // index of maximum value which is consumed in subsequent graph. On other
     // hand ttir.argmax generates one result only.
     // So 'rewriter.replaceOpWithNewOp' will not work due to difference in
     // number of outputs.
@@ -352,7 +352,7 @@ private:
   //   b. second init value is 0
   // 3. Two results generated; the first result is maximum value which is not
   //    consumed in subsequent graph and the second result is index of maximum
-  //    value which is consumend in subsequent graph.
+  //    value which is consumed in subsequent graph.
   // 4. One block in reducer body.
   // 5. Pattern match the ops of reducer body; tt-torch and tt-xla generates
   //    different pattern. So pattern matching is performed separately.
@@ -1398,7 +1398,7 @@ protected:
 
   // This function will generate the transpose indices needed to convert a
   // convolution input to a desired layout. The reason for the separate
-  // function is to encapsulate the logic for constructuring the inputLayout.
+  // function is to encapsulate the logic for constructing the inputLayout.
   static llvm::SmallVector<int64_t>
   generateConvPermutation(mlir::stablehlo::ConvolutionOp op,
                           llvm::ArrayRef<int64_t> ttnnConvolutionLayout) {
@@ -1421,7 +1421,7 @@ protected:
 
   // This function will generate the transpose indices needed to convert a
   // convolution input to a desired layout. The reason for the separate
-  // function is to encapsulate the logic for constructuring the kernelLayout.
+  // function is to encapsulate the logic for constructing the kernelLayout.
   static llvm::SmallVector<int64_t> generateConvKernelPermutation(
       mlir::stablehlo::ConvolutionOp op,
       llvm::ArrayRef<int64_t> ttnnConvolutionKernelLayout) {
@@ -3653,7 +3653,8 @@ public:
       if (auto constOp =
               initValue_.getDefiningOp<mlir::stablehlo::ConstantOp>()) {
         auto valAttr = mlir::cast<DenseFPElementsAttr>(constOp.getValue());
-        fillValue = valAttr.getValues<APFloat>()[0].convertToFloat();
+        fillValue = static_cast<float>(
+            valAttr.getValues<APFloat>()[0].convertToDouble());
       } else {
         llvm::report_fatal_error("initValue_ must be a stablehlo.constant");
       }
@@ -3923,7 +3924,7 @@ public:
 
     if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
       // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
-      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE communication.
       // Consider preserving this information in the future if the attribute
       // is non-DEVICE_TO_DEVICE values.
       auto channelType =
@@ -3997,7 +3998,7 @@ public:
 
     if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
       // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
-      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE communication.
       // Consider preserving this information in the future if the attribute
       // is non-DEVICE_TO_DEVICE values.
       auto channelType =
@@ -4097,7 +4098,7 @@ public:
 
     if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
       // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
-      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE communication.
       // Consider preserving this information in the future if the attribute
       // is non-DEVICE_TO_DEVICE values.
       auto channelType =
@@ -4182,10 +4183,9 @@ public:
     }
 
     // We also extract the shard status from the @Sharding op.
-    auto runtimeTensorShardingAttr =
-        definingOp->getAttrOfType<mlir::tt::ttcore::RuntimeTensorShardingAttr>(
-            mlir::tt::ttcore::RuntimeTensorShardingAttr::name);
-    auto shardStatusAttr = runtimeTensorShardingAttr.getShardStatus();
+    auto shardStatusAttr =
+        definingOp->getAttrOfType<mlir::tt::ttcore::ShardStatusAttr>(
+            mlir::tt::ttcore::ShardStatusAttr::name);
 
     // Insert default sharding status if not present.
     if (!shardStatusAttr) {
@@ -4475,7 +4475,7 @@ public:
         mlir::cast<RankedTensorType>(updates.getType());
 
     // If the cachePositions tensor has more than one element we assume it
-    // represents a set of aranged indices (0, cachePositions.size), so we
+    // represents a set of arranged indices (0, cachePositions.size), so we
     // replace it with FillCacheOp. If the tensor has only one element, we
     // assume it represents the update index for UpateCacheOp.
     if (cacheUpdateInputShape[0] != 1) {
@@ -5137,7 +5137,7 @@ private:
       }
 
       // Create constant tensor with shape [expandedNumIndices, 1].
-      // (to match the shape of individial slices generated in the next
+      // (to match the shape of individual slices generated in the next
       // step of the algorithm, since they are all pushed to indexSlices)
       RankedTensorType finalOffsetType =
           RankedTensorType::get({expandedNumIndices, 1}, indexElementType);
@@ -5349,7 +5349,7 @@ public:
 
     // Step 4: SortType-specific lowering.
 
-    // SortType::kValueOnly - Replace values output and ingnore indices output.
+    // SortType::kValueOnly - Replace values output and ignore indices output.
     if (sortType == SortType::kValueOnly) {
       rewriter.replaceOp(srcOp, sortOp.getValues());
       return success();
@@ -6462,7 +6462,7 @@ public:
         isCausal = false;
       } else {
         return rewriter.notifyMatchFailure(
-            srcOp, "is_causal attribute must be true or false. Recived \"" +
+            srcOp, "is_causal attribute must be true or false. Received \"" +
                        isCausalSringAttr.getValue() + "\".");
       }
     }
@@ -6476,7 +6476,7 @@ public:
       if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
         return rewriter.notifyMatchFailure(
             srcOp,
-            "scale attribute string must be convertible to float. Recived \"" +
+            "scale attribute string must be convertible to float. Received \"" +
                 scaleStringAttr.getValue() + "\".");
       }
       scale = _scale;
@@ -6501,6 +6501,68 @@ public:
         srcOp, outputType, query, key, value, attentionMask, isCausalAttr,
         scaleAttr, /*slidingWindowSize=*/nullptr);
 
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Pattern to convert mhlo.topk to ttir.topk
+class StableHLOTopKOpMHLOConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "mhlo.topk") {
+      return failure();
+    }
+
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+    auto input = adaptor.getOperands()[0];
+    IntegerAttr dimAttr = IntegerAttr::get(rewriter.getIntegerType(32), -1);
+    auto sortedAttr = BoolAttr::get(rewriter.getContext(), false);
+
+    auto dictAttr = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+        srcOp->getDiscardableAttr("mhlo.attributes"));
+    if (!dictAttr) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Missing mhlo.attributes dictionary");
+    }
+
+    auto kAttr = dictAttr.getAs<IntegerAttr>("k");
+    if (!kAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Missing k attribute in mhlo.attributes");
+    }
+    APInt kValueI64 = kAttr.getValue();
+    // Check if value fits in i32
+    if (!kValueI64.isIntN(32)) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "k value is too large for i32: " +
+                                             Twine(kValueI64.getSExtValue()));
+    }
+
+    // Convert i64 to i32
+    int32_t kValueI32 = static_cast<int32_t>(kValueI64.getSExtValue());
+    kAttr = IntegerAttr::get(rewriter.getIntegerType(32), kValueI32);
+
+    auto largestAttr = dictAttr.getAs<BoolAttr>("largest");
+    if (!largestAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Missing largest attribute in mhlo.attributes");
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::TopKOp>(srcOp, resultTypes, input, kAttr,
+                                              dimAttr, largestAttr, sortedAttr);
     return success();
   }
 };
@@ -6592,6 +6654,7 @@ static void addReduceOpsConversionPatterns(MLIRContext *ctx,
                                            RewritePatternSet &patterns,
                                            TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRReduceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOTopKOpMHLOConversionPattern>(typeConverter, ctx);
 }
 
 static void
@@ -6837,6 +6900,452 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
       typeConverter, ctx);
 }
 
+namespace {
+// This pattern recognizes and converts stablehlo.custom_call @tt.sparse_matmul
+// to ttir.sparse_matmul.
+class StableHLOToTTIRSparseMatmulOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.sparse_matmul") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "SparseMatmul op must have mhlo.frontend_attributes attribute.");
+    }
+
+    // Parse is_input_a_sparse attribute
+    auto isInputASparseStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_input_a_sparse");
+    bool isInputASparse = false;
+    if (isInputASparseStringAttr) {
+      if (isInputASparseStringAttr.getValue().lower() == "true") {
+        isInputASparse = true;
+      } else if (isInputASparseStringAttr.getValue().lower() == "false") {
+        isInputASparse = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "is_input_a_sparse attribute must be true or false. Received \"" +
+                isInputASparseStringAttr.getValue() + "\".");
+      }
+    }
+
+    // Parse is_input_b_sparse attribute
+    auto isInputBSparseStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_input_b_sparse");
+    bool isInputBSparse = true;
+    if (isInputBSparseStringAttr) {
+      if (isInputBSparseStringAttr.getValue().lower() == "true") {
+        isInputBSparse = true;
+      } else if (isInputBSparseStringAttr.getValue().lower() == "false") {
+        isInputBSparse = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "is_input_b_sparse attribute must be true or false. Received \"" +
+                isInputBSparseStringAttr.getValue() + "\".");
+      }
+    }
+
+    BoolAttr isInputASparseAttr = rewriter.getBoolAttr(isInputASparse);
+    BoolAttr isInputBSparseAttr = rewriter.getBoolAttr(isInputBSparse);
+
+    // Parse nnz attribute (optional)
+    auto nnzStringAttr = frontendAttributes.getAs<mlir::StringAttr>("nnz");
+    IntegerAttr nnzAttr = nullptr;
+    if (nnzStringAttr) {
+      int64_t nnz;
+      if (nnzStringAttr.getValue().getAsInteger(10, nnz)) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "nnz attribute string must be convertible to integer. Received \"" +
+                nnzStringAttr.getValue() + "\".");
+      }
+      nnzAttr = rewriter.getI64IntegerAttr(nnz);
+    }
+
+    // Get operands
+    if (adaptor.getOperands().size() != 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "SparseMatmul op expects exactly 3 operands (a, b, sparsity).");
+    }
+
+    Value inputA = adaptor.getOperands()[0];
+    Value inputB = adaptor.getOperands()[1];
+    Value sparsity = adaptor.getOperands()[2];
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    rewriter.replaceOpWithNewOp<ttir::SparseMatmulOp>(
+        srcOp, outputType, inputA, inputB, sparsity, isInputASparseAttr,
+        isInputBSparseAttr, nnzAttr);
+
+    return success();
+  }
+};
+// This pattern recognizes and converts stablehlo.custom_call
+// @tt.all_to_all_dispatch to ttir.all_to_all_dispatch.
+// Dispatch returns a tuple (dispatched, metadata), which stablehlo represents
+// as a tuple type with get_tuple_element users.
+class StableHLOToTTIRAllToAllDispatchOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.all_to_all_dispatch") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "all_to_all_dispatch op must have mhlo.frontend_attributes.");
+    }
+
+    // Parse num_devices attribute
+    auto numDevicesStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("num_devices");
+    int64_t numDevices = 1;
+    if (numDevicesStringAttr) {
+      if (numDevicesStringAttr.getValue().getAsInteger(10, numDevices)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "num_devices must be a valid integer.");
+      }
+    }
+
+    // Parse cluster_axis attribute
+    auto clusterAxisStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("cluster_axis");
+    int64_t clusterAxis = 0;
+    if (clusterAxisStringAttr) {
+      if (clusterAxisStringAttr.getValue().getAsInteger(10, clusterAxis)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "cluster_axis must be a valid integer.");
+      }
+    }
+
+    // Get operands: input_tensor, expert_indices, expert_mapping
+    if (adaptor.getOperands().size() != 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "all_to_all_dispatch expects exactly 3 operands.");
+    }
+
+    Value inputTensor = adaptor.getOperands()[0];
+    Value expertIndices = adaptor.getOperands()[1];
+    Value expertMapping = adaptor.getOperands()[2];
+
+    IntegerAttr numDevicesAttr = rewriter.getI64IntegerAttr(numDevices);
+    IntegerAttr clusterAxisAttr = rewriter.getI64IntegerAttr(clusterAxis);
+
+    // Handle multi-output: dispatch returns 2 results.
+    // Depending on the torch_xla version, the custom_call may produce:
+    //   (a) 2 separate results: %r:2 = custom_call -> (tensor, tensor)
+    //   (b) A tuple result extracted via get_tuple_element
+    auto resultType = srcOp.getResult(0).getType();
+    if (auto tupleType = mlir::dyn_cast<mlir::TupleType>(resultType)) {
+      // Tuple result: get individual element types
+      if (tupleType.size() != 2) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "all_to_all_dispatch must return a 2-element tuple.");
+      }
+
+      RankedTensorType dispatchedType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(tupleType.getType(0)));
+      RankedTensorType metadataType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(tupleType.getType(1)));
+
+      auto newOp = rewriter.create<ttir::AllToAllDispatchOp>(
+          srcOp.getLoc(), dispatchedType, metadataType, inputTensor,
+          expertIndices, expertMapping, numDevicesAttr, clusterAxisAttr);
+
+      // Replace get_tuple_element users with the new op's results
+      for (auto &use :
+           llvm::make_early_inc_range(srcOp.getResult(0).getUses())) {
+        if (auto getTupleOp =
+                dyn_cast<mlir::stablehlo::GetTupleElementOp>(use.getOwner())) {
+          int64_t index = getTupleOp.getIndex();
+          if (index == 0) {
+            rewriter.replaceOp(getTupleOp, newOp.getDispatched());
+          } else if (index == 1) {
+            rewriter.replaceOp(getTupleOp, newOp.getMetadata());
+          } else {
+            return rewriter.notifyMatchFailure(
+                srcOp, "Unexpected tuple element index.");
+          }
+        }
+      }
+      rewriter.eraseOp(srcOp);
+      return success();
+    }
+
+    // Non-tuple: 2 separate results (%r:2 = custom_call -> (tensor, tensor))
+    if (srcOp.getNumResults() == 2) {
+      RankedTensorType dispatchedType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+      RankedTensorType metadataType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResult(1).getType()));
+
+      auto newOp = rewriter.create<ttir::AllToAllDispatchOp>(
+          srcOp.getLoc(), dispatchedType, metadataType, inputTensor,
+          expertIndices, expertMapping, numDevicesAttr, clusterAxisAttr);
+
+      rewriter.replaceOp(srcOp, {newOp.getDispatched(), newOp.getMetadata()});
+      return success();
+    }
+
+    return rewriter.notifyMatchFailure(
+        srcOp, "all_to_all_dispatch must return 2 results.");
+  }
+};
+
+// This pattern recognizes and converts stablehlo.custom_call
+// @tt.all_to_all_combine to ttir.all_to_all_combine.
+class StableHLOToTTIRAllToAllCombineOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.all_to_all_combine") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "all_to_all_combine op must have mhlo.frontend_attributes.");
+    }
+
+    // Parse num_devices attribute
+    auto numDevicesStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("num_devices");
+    int64_t numDevices = 1;
+    if (numDevicesStringAttr) {
+      if (numDevicesStringAttr.getValue().getAsInteger(10, numDevices)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "num_devices must be a valid integer.");
+      }
+    }
+
+    // Parse cluster_axis attribute
+    auto clusterAxisStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("cluster_axis");
+    int64_t clusterAxis = 0;
+    if (clusterAxisStringAttr) {
+      if (clusterAxisStringAttr.getValue().getAsInteger(10, clusterAxis)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "cluster_axis must be a valid integer.");
+      }
+    }
+
+    // Parse num_experts_per_tok attribute
+    auto numExpertsPerTokStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("num_experts_per_tok");
+    int64_t numExpertsPerTok = 2;
+    if (numExpertsPerTokStringAttr) {
+      if (numExpertsPerTokStringAttr.getValue().getAsInteger(
+              10, numExpertsPerTok)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "num_experts_per_tok must be a valid integer.");
+      }
+    }
+
+    // Get operands: input_tensor, expert_metadata, expert_mapping
+    if (adaptor.getOperands().size() != 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "all_to_all_combine expects exactly 3 operands.");
+    }
+
+    Value inputTensor = adaptor.getOperands()[0];
+    Value expertMetadata = adaptor.getOperands()[1];
+    Value expertMapping = adaptor.getOperands()[2];
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    auto combineOp = rewriter.create<ttir::AllToAllCombineOp>(
+        srcOp.getLoc(), outputType, inputTensor, expertMetadata, expertMapping,
+        rewriter.getI64IntegerAttr(numDevices),
+        rewriter.getI64IntegerAttr(clusterAxis),
+        rewriter.getI64IntegerAttr(numExpertsPerTok));
+
+    Value result = combineOp.getResult();
+
+    // For 2D mesh with compound-sharded experts, the combine only handles
+    // communication along the dispatch axis (cluster_axis). If the non-cluster
+    // axis has multiple devices, insert all_reduce(sum) on that axis to
+    // aggregate partial expert results from devices holding different expert
+    // subsets.
+    // mapping shape: [1, 1, E_total, D_total] where D_total = total devices.
+    // nonClusterSize = D_total / dispatch_devices = devices on the other axis.
+    auto mappingType = cast<RankedTensorType>(expertMapping.getType());
+    int64_t totalDevices = mappingType.getShape()[3];
+    int64_t nonClusterSize =
+        totalDevices / std::max(numDevices, static_cast<int64_t>(1));
+    if (nonClusterSize > 1 && numDevices > 1) {
+      uint32_t reduceAxis = (clusterAxis == 0) ? 1 : 0;
+      auto allReduceOp = rewriter.create<ttir::AllReduceOp>(
+          srcOp.getLoc(), outputType, result, ttcore::ReduceType::Sum,
+          reduceAxis);
+      result = allReduceOp.getResult();
+    }
+
+    rewriter.replaceOp(srcOp, result);
+
+    return success();
+  }
+};
+
+// This pattern recognizes and converts stablehlo.custom_call
+// @tt.moe_expert_token_remap to ttir.moe_expert_token_remap.
+// Returns a tuple (mapping, reduced), same pattern as all_to_all_dispatch.
+class StableHLOToTTIRMoeExpertTokenRemapOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.moe_expert_token_remap") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "moe_expert_token_remap op must have mhlo.frontend_attributes.");
+    }
+
+    // Parse reduction_size attribute
+    auto reductionSizeStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("reduction_size");
+    int64_t reductionSize = 16;
+    if (reductionSizeStringAttr) {
+      if (reductionSizeStringAttr.getValue().getAsInteger(10, reductionSize)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "reduction_size must be a valid integer.");
+      }
+    }
+
+    if (adaptor.getOperands().size() != 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "moe_expert_token_remap expects exactly 3 operands.");
+    }
+
+    Value topkTensor = adaptor.getOperands()[0];
+    Value expertMapping = adaptor.getOperands()[1];
+    Value expertMetadata = adaptor.getOperands()[2];
+
+    IntegerAttr reductionSizeAttr = rewriter.getI64IntegerAttr(reductionSize);
+
+    // Handle multi-output: returns 2 results (mapping, reduced).
+    auto resultType = srcOp.getResult(0).getType();
+    if (auto tupleType = mlir::dyn_cast<mlir::TupleType>(resultType)) {
+      if (tupleType.size() != 2) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "moe_expert_token_remap must return a 2-element tuple.");
+      }
+
+      RankedTensorType mappingType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(tupleType.getType(0)));
+      RankedTensorType reducedType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(tupleType.getType(1)));
+
+      auto newOp = rewriter.create<ttir::MoeExpertTokenRemapOp>(
+          srcOp.getLoc(), mappingType, reducedType, topkTensor, expertMapping,
+          expertMetadata, reductionSizeAttr);
+
+      for (auto &use :
+           llvm::make_early_inc_range(srcOp.getResult(0).getUses())) {
+        if (auto getTupleOp =
+                dyn_cast<mlir::stablehlo::GetTupleElementOp>(use.getOwner())) {
+          int64_t index = getTupleOp.getIndex();
+          if (index == 0) {
+            rewriter.replaceOp(getTupleOp, newOp.getMapping());
+          } else if (index == 1) {
+            rewriter.replaceOp(getTupleOp, newOp.getReduced());
+          } else {
+            return rewriter.notifyMatchFailure(
+                srcOp, "Unexpected tuple element index.");
+          }
+        }
+      }
+      rewriter.eraseOp(srcOp);
+      return success();
+    }
+
+    // Non-tuple: 2 separate results
+    if (srcOp.getNumResults() == 2) {
+      RankedTensorType mappingType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+      RankedTensorType reducedType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResult(1).getType()));
+
+      auto newOp = rewriter.create<ttir::MoeExpertTokenRemapOp>(
+          srcOp.getLoc(), mappingType, reducedType, topkTensor, expertMapping,
+          expertMetadata, reductionSizeAttr);
+
+      rewriter.replaceOp(srcOp, {newOp.getMapping(), newOp.getReduced()});
+      return success();
+    }
+
+    return rewriter.notifyMatchFailure(
+        srcOp, "moe_expert_token_remap must return 2 results.");
+  }
+};
+
+} // namespace
+
+static void addSparseMatmulOpConversionPattern(MLIRContext *ctx,
+                                               RewritePatternSet &patterns,
+                                               TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRSparseMatmulOpConversionPattern>(typeConverter,
+                                                               ctx);
+}
+
+static void addAllToAllOpsConversionPattern(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRAllToAllDispatchOpConversionPattern,
+               StableHLOToTTIRAllToAllCombineOpConversionPattern,
+               StableHLOToTTIRMoeExpertTokenRemapOpConversionPattern>(
+      typeConverter, ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -6876,6 +7385,8 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);
   addScaledDotProductAttentionDecodeOpConversionPattern(ctx, patterns,
                                                         typeConverter);
+  addSparseMatmulOpConversionPattern(ctx, patterns, typeConverter);
+  addAllToAllOpsConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

@@ -186,6 +186,10 @@ struct TTIRToTTMetalPipelineOptions
                      "analytical and sampling-based coalescing checks and "
                      "prints debug output comparing them."),
       llvm::cl::init(false)};
+
+  Option<bool> enableL1Acc{*this, "enable-l1-acc",
+                           llvm::cl::desc("Enable L1 accumulation."),
+                           llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(

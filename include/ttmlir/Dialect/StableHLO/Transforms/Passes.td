@@ -42,14 +42,15 @@ def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::
 {
   let summary = "Annotate arguments with their shard status.";
   let description = [{
-    This pass will analyze the module arguments and annotate arguments with whether they are pre-sharded or not. It will determine this based on analyzing shardy or mhlo annotations.
-    If shardy or mhlo annotations exist, the argument/results is presharded. If not, it is unsharded.
+    This pass will analyze the module arguments and annotate arguments with whether they are pre-sharded or not.
+    For argument, if a sdy.sharding or mhlo.sharding exists, it is presharded.
+    For results, the user must pass that as a compiler option.
 
     Example, this pass will convert the following code:
     ```mlir
     module {
       sdy.mesh @mesh = <["x"=1, "batch"=8]>
-      func.func @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>}) -> (tensor<2048x1024xf32>) {
+      func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>}) -> (tensor<2048x1024xf32>) {
         %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
         return %0 : tensor<2048x1024xf32>
       }
@@ -60,7 +61,7 @@ def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::
     ```mlir
     module {
       sdy.mesh @mesh = <["x"=1, "batch"=8]>
-      func.func @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>, ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<2048x1024xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+      func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>, ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<2048x1024xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
         %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
         return %0 : tensor<2048x1024xf32>
       }
@@ -71,6 +72,10 @@ def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::
   let dependentDialects = [
     "::mlir::sdy::SdyDialect",
     "::mlir::tt::ttir::TTIRDialect"
+  ];
+
+  let options = [
+    ListOption<"resultPresharded", "result-presharded", "int64_t", "Set whether each result is presharded or not">,
   ];
 }
 
@@ -328,6 +333,46 @@ def WrapUnderManualComputationPass : Pass<"wrap-under-manual-computation", "::ml
   ];
 }
 
+def AnnotateLocalShapesPass : Pass<"annotate-local-shapes", "::mlir::ModuleOp">
+{
+  let summary = "Annotate all arguments and results with their local shape.";
+  let description = [{
+    This pass will iterate through all arguments and results and annotate the local shape of that argument/result.
+    For single device graphs, the local shape is the original shape.
+    For multi-device graphs, the local shape can be sharded or replicated depending on the sharding config set in the graph.
+    This information is required by any tool calling ttmlir runtime to tell it how the inputs should be preprocessed.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    module {
+      sdy.mesh @mesh = <["x"=1, "batch"=8]>
+      func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>}) -> (tensor<2048x1024xf32>) {
+        %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
+        return %0 : tensor<2048x1024xf32>
+      }
+    }
+    ```
+
+    Into:
+    ```mlir
+    module {
+      sdy.mesh @mesh = <["x"=1, "batch"=8]>
+      func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<128x2x32x32xf32>>, ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<2048x1024xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch", ?}, {?}\]>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<2048x1024xf32>>, ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+        %0 = sdy.manual_computation(%arg0) in_shardings=\[<@mesh, \[{"batch"}, {}, {}, {}\]>\] out_shardings=\[<@mesh, \[{"batch", ?}, {?}\]>\] manual_axes={} (%arg1: tensor<1024x2x32x32xf32>) {
+          %1 = stablehlo.reshape %arg1 {sdy.sharding = #sdy.sharding_per_value<\[<@mesh, \[{"batch", ?}, {?}\]>\]>} : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
+          sdy.return %1 : tensor<2048x1024xf32>
+        } : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
+        return %0 : tensor<2048x1024xf32>
+      }
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mlir::ModuleOp">
 {
   let summary = "Update all the tensor dimensions based on their tensor sharding annotation from global shapes to local per device shapes.";
@@ -361,6 +406,35 @@ def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mli
       }
     }
     ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
+def ReplicateNonSplittableConstantsPass : Pass<"replicate-non-splittable-constants", "::mlir::ModuleOp">
+{
+  let summary = "Change sharding of non-splittable constants to replicated.";
+  let description = [{
+    This pass identifies stablehlo.constant operations whose values are
+    non-splat and non-periodic across the sharding dimension, meaning they
+    cannot be meaningfully sharded in SPMD (all devices run the same program
+    and would need to split constant data that has no repeating pattern).
+
+    For such constants, the pass changes their sharding annotation to fully
+    replicated (all dimensions closed, no sharding axes). This must run
+    before InsertExplicitReshards so that Shardy detects the mismatch between
+    the replicated constant and its sharded consumers, and inserts the
+    appropriate sdy.reshard operations. Those reshards are later converted to
+    concrete collective operations by ReshardToCollectives.
+
+    Without this pass, UpdateGlobalToLocalShapes would try to shard the
+    constant value, which fails for non-splat, non-periodic data.
+
+    Example constants that are non-splittable:
+      - dense<[0, 1, 2, ..., 63]> : tensor<64xi64>  (iota / position indices)
+      - dense<[[[0.0, 1.0, ..., 63.0]]]> : tensor<1x1x64xf32>  (RoPE freqs)
   }];
 
   let dependentDialects = [

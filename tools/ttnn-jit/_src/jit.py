@@ -16,7 +16,7 @@ from ttmlir.passes import (
     ttkernel_to_cpp_file,
 )
 
-from ttnn_jit._src.utils import cleanup_source_code, get_dispatch_core_type
+from ttnn_jit._src.utils import cleanup_source_code
 from ttnn_jit._src.dispatch_op import run_binary, run_binary_from_capsule
 from ttnn_jit._src import JitCache
 from ttnn_jit._src.ir_generator import generate_ir
@@ -74,18 +74,15 @@ class JitFunction:
         Uses the MLIR runtime bindings directly, replicating the logic from
         ttrt query --save-artifacts.
         """
-        dispatch_core_type = get_dispatch_core_type()
         try:
             # Use input tensor device to query if available.
             if ttnn_device:
                 runtime_device = create_runtime_device_from_ttnn(ttnn_device)
-                system_desc = get_current_system_desc(
-                    dispatch_core_type, runtime_device
-                )
+                system_desc = get_current_system_desc(mesh_device=runtime_device)
                 if self.debug:
                     print(f"System descriptor queried using existing device.")
             else:
-                system_desc = get_current_system_desc(dispatch_core_type)
+                system_desc = get_current_system_desc()
                 if self.debug:
                     print(f"System descriptor queried by creating new device")
 

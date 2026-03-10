@@ -11,6 +11,7 @@ include "ttmlir/Dialect/D2M/IR/D2MBase.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.td"
 
+include "mlir/Dialect/Affine/IR/AffineMemoryOpInterfaces.td"
 include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/IR/OpAsmInterface.td"
@@ -568,8 +569,10 @@ def D2M_TileClampScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_clamp_scala
         the range [min, max] specified by scalar attributes.
     }];
 
-    let arguments = (ins TTCore_Tile:$input, F32Attr:$min, F32Attr:$max);
+    let arguments = (ins TTCore_Tile:$input, AnyAttrOf<[F32Attr, I32Attr]>:$min, AnyAttrOf<[F32Attr, I32Attr]>:$max);
     let results = (outs TTCore_Tile:$result);
+
+    let hasVerifier = 1;
 }
 
 def D2M_TileWhereOp : D2M_GenericRegionComputeTernaryDstOp<"tile_where", D2M_TileComputeOpTraitBundle>{
@@ -719,7 +722,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
   ]> {
     let summary = "D2M Tile Untilize Block Op";
     let description = [{
-        The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref contianing the row major data.
+        The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref containing the row major data.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
@@ -889,6 +892,18 @@ def D2M_AcquireDstOp : D2M_GenericRegionComputeOp<"acquire_dst",
     let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
 }
 
+def D2M_SetL1AccumulateOp : D2M_GenericRegionOp<"set_l1_accumulate"> {
+    let summary = "Enable L1 accumulation mode.";
+    let description = [{
+      Configures HW state such that all subsequent stores to L1 memory space
+      will be accumulated to in place.
+    }];
+
+    let arguments = (ins I32:$enable);
+
+    let assemblyFormat = [{ `(` $enable `)` attr-dict }];
+}
+
 def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Transpose Op";
     let description = [{
@@ -910,16 +925,29 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
   , D2M_DMAOpInterface
   ]> {
 
-    let summary = "Fully indexed and lowered D2M DMA Op for writes";
+    let summary = "Lowered D2M DMA Write Op";
     let description = [{
-      This op performs a fully indexed DMA write operation from src memref to dst memref, where src and dst indices are fully resolved
-      (all view and memspace-specific affine maps applied). It corresponds 1:1 to a single concrete DMA write operation.
+      This op performs a DMA write operation from src memref to dst memref. This operation supports multicast; providing an empty multicast shape
+      argument _implies a unicast write_.
 
-      This operation supports multicast; providing an empty multicast shape argument _implies a unicast write_.
+      It supports two forms distinguished by numElems:
+      Fully indexed form (numElems > 0): src and dst indices are fully
+      resolved (all view and memspace-specific affine maps applied). Corresponds
+      1:1 to a single concrete DMA write operation.
 
       ```mlir
-      %tx = d2m.dma_write %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], <%size>
-        : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>) -> !d2m.mem_tx
+      %tx = d2m.dma_write %src[%offset], %dst[%gridy, %gridx, %offset], <%size>
+        : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x2x4x!ttcore.tile<32x32, f32>, #dram>) -> !d2m.mem_tx
+      ```
+
+      Shard-level form (numElems == 0): indices are grid-level only.
+      Represents "write entire shard at grid position". The indexing expansion
+      is deferred to D2MLowerDMAToFullyIndexedForm.
+
+      ```mlir
+      %tx = d2m.dma_write %src, %dst[%grid_i, %grid_j], <0>
+        : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>,
+           memref<2x2x2x4x!ttcore.tile<32x32, f32>, #dram>) -> !d2m.mem_tx
       ```
 
       Constraints:
@@ -935,27 +963,42 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
 
     let builders =
     [
-      // Unicast - multicast args are defaulted
+      // Fully indexed unicast - multicast args are defaulted
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
       [{
         build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange());
       }]>,
 
-      // Multicast - multicast args must be provided
+      // Fully indexed multicast - multicast args must be provided
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
       [{
         build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
       }]>,
+
+      // Shard-level unicast (no src indices, grid indices on dst, numElems = 0)
+      OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange());
+      }]>,
+
+      // Shard-level multicast (no indices on either, numElems = 0)
+      OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape);
+      }]>,
     ];
 
-    let assemblyFormat = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)?  `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src (`[` $srcIndices^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)?  `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
       MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
       MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      bool isShardLevel() { return getNumElems() == 0; }
+      bool isFullyIndexed() { return getNumElems() > 0; }
       size_t getSizeBytes() {
+        assert(isFullyIndexed() && "getSizeBytes() requires fully indexed form");
         auto elementSizeBytes =
           ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
         return getNumElems() * elementSizeBytes;
@@ -976,17 +1019,33 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
   , D2M_DMAOpInterface
   ]> {
 
-    let summary = "Fully indexed and lowered D2M DMA Op for read";
+    let summary = "Lowered D2M DMA Read Op.";
     let description = [{
-      This op performs a fully indexed DMA read operation from src memref to dst memref, where src and dst indices are fully resolved
-      (all view and memspace-specific affine maps applied). It corresponds 1:1 to a single concrete DMA read operation. The dst memref _must_ be local!
+      This op performs a DMA read operation from src memref to dst memref. The dst memref must be local!
 
-      This operation only supports unicast (mulicast are write-only).
+      It supports two forms distinguished by numElems:
+      Fully indexed form (numElems > 0): src and dst indices are fully
+      resolved (all view and memspace-specific affine maps applied). Corresponds
+      1:1 to a single concrete DMA read operation.
 
       ```mlir
-      %tx = d2m.dma_read %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], %size
-        : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+      %tx = d2m.dma_read %src[%gridy, %gridx, %offset], %dst[%offset], <8>
+        : (memref<2x2x2x4x!ttcore.tile<32x32, f32>, #dram>,
+           memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
       ```
+
+      Shard-level form (numElems == 0): indices are grid-level only on the
+      remote src operand, no indices on the local dst. Represents "read entire
+      shard at grid position". The indexing expansion is deferred to
+      D2MLowerDMAToFullyIndexedForm.
+
+      ```mlir
+      %tx = d2m.dma_read %src[%grid_i, %grid_j], %dst, <0>
+        : (memref<2x2x2x4x!ttcore.tile<32x32, f32>, #dram>,
+           memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+      ```
+
+      This operation only supports unicast (multicast are write-only).
 
       Constraints:
       - src MUST be a REMOTE memref! if both operands are local, use DMAWriteOp
@@ -999,14 +1058,25 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
                          I64Attr:$numElems);
     let results = (outs D2M_MemTx:$result);
 
-    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let builders = [
+      // Shard-level form (grid indices on src, no indices on dst, numElems = 0)
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0));
+      }]>,
+    ];
+
+    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst (`[` $dstIndices^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
       MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
       MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      bool isShardLevel() { return getNumElems() == 0; }
+      bool isFullyIndexed() { return getNumElems() > 0; }
       size_t getSizeBytes() {
+        assert(isFullyIndexed() && "getSizeBytes() requires fully indexed form");
         auto elementSizeBytes =
           ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
         return getNumElems() * elementSizeBytes;
@@ -1056,6 +1126,8 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
   , DestinationStyleOpInterface
+  , DeclareOpInterfaceMethods<AffineReadOpInterface>
+  , DeclareOpInterfaceMethods<AffineMapAccessInterface>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
@@ -1163,7 +1235,8 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       (mcore/mshape) or high-level (mcast dims), not both
     }];
 
-    let arguments = (ins Optional<AnyRankedTensorOrMemRef>:$localBuffer,
+    let arguments = (ins Arg<Optional<AnyRankedTensorOrMemRef>, "the local buffer to load into",
+        [MemWrite]>:$localBuffer,
         Arg<AnyRankedTensorOrMemRef, "the reference to load from",
         [MemRead]>:$memref,
         Variadic<Index>:$indices,
@@ -1237,12 +1310,18 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
 
       void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
 
-      /// Returns the identity affine map used to index the memref/tensor for this operation.
-      /// The map always has N/2 results where N is the memref/tensor rank (grid dimensions).
+      /// Returns the affine map for AffineReadOpInterface. Returns an identity
+      /// map over the actual index operands, since the indices on this op are
+      /// already the final computed grid indices (not raw iteration variables).
+      /// The parent GenericOp's indexing maps describe the iteration-space-to-
+      /// operand relationship and may have a different dimensionality (e.g.
+      /// after loop fusion), so they cannot be used here.
       AffineMap getAffineMap() {
-        auto shapedType = getShapedType();
-        int64_t gridRank = shapedType.getRank() / 2;
-        return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
+        unsigned numIndices = getIndices().size();
+        if (numIndices == 0) {
+          return AffineMap();
+        }
+        return AffineMap::getMultiDimIdentityMap(numIndices, getContext());
       }
 
       /// Returns the CB type, or null CBType if CB is not present.
@@ -1281,6 +1360,30 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
 
       /// Returns true if using low-level mcast form (mcore/mshape).
       bool isLowLevelMcast() { return !getMcastShape().empty(); }
+
+      // --- AffineReadOpInterface / AffineMapAccessInterface support ---
+
+      /// Returns the affine map operands (the grid indices).
+      Operation::operand_range getMapOperands() { return getIndices(); }
+
+      /// Returns the value read by this operation.
+      Value getValue() { return getResult(); }
+
+      /// Returns an AffineMapAttr wrapping the affine map for this operation.
+      AffineMapAttr getAffineMapAttr() {
+        return AffineMapAttr::get(getAffineMap());
+      }
+
+      /// Returns the name of the map attribute.
+      static StringRef getMapAttrStrName() { return "map"; }
+
+      /// Returns the AffineMapAttr associated with the given memref value.
+      NamedAttribute getAffineMapAttrForMemRef(Value memref) {
+        assert(memref == getMemref() &&
+               "Expected memref argument to match memref operand");
+        return {StringAttr::get(getContext(), getMapAttrStrName()),
+                getAffineMapAttr()};
+      }
     }];
 }
 
@@ -1288,6 +1391,8 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
   , DestinationStyleOpInterface
+  , DeclareOpInterfaceMethods<AffineWriteOpInterface>
+  , DeclareOpInterfaceMethods<AffineMapAccessInterface>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
@@ -1345,7 +1450,8 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
     let arguments = (ins Arg<AnyRankedTensorOrMemRef, "the reference to store to",
         [MemWrite]>:$memref,
         Variadic<Index>:$indices,
-        Optional<AnyRankedTensorOrMemRef>:$localBuffer,
+        Arg<Optional<AnyRankedTensorOrMemRef>, "the local buffer to store from",
+        [MemRead]>:$localBuffer,
         Optional<D2M_CB>:$cb);
 
     let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
@@ -1379,12 +1485,18 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
 
       void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
 
-      /// Returns the identity affine map used to index the memref/tensor for this operation.
-      /// The map always has N/2 results where N is the memref/tensor rank (grid dimensions).
+      /// Returns the affine map for AffineWriteOpInterface. Returns an identity
+      /// map over the actual index operands, since the indices on this op are
+      /// already the final computed grid indices (not raw iteration variables).
+      /// The parent GenericOp's indexing maps describe the iteration-space-to-
+      /// operand relationship and may have a different dimensionality (e.g.
+      /// after loop fusion), so they cannot be used here.
       AffineMap getAffineMap() {
-        auto shapedType = getShapedType();
-        int64_t gridRank = shapedType.getRank() / 2;
-        return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
+        unsigned numIndices = getIndices().size();
+        if (numIndices == 0) {
+          return AffineMap();
+        }
+        return AffineMap::getMultiDimIdentityMap(numIndices, getContext());
       }
 
       /// Returns the CB type, or null CBType if CB is not present.
@@ -1413,6 +1525,39 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
           return memrefType;
         }
         llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
+      }
+
+      // --- AffineWriteOpInterface / AffineMapAccessInterface support. ---
+
+      /// Returns the affine map operands (the grid indices).
+      Operation::operand_range getMapOperands() { return getIndices(); }
+
+      /// Returns the value to store (the local buffer).
+      Value getValueToStore() { return getLocalBuffer(); }
+
+      /// Returns the operand index of the value to store.
+      unsigned getStoredValOperandIndex() {
+        // LocalBuffer follows memref and indices in the operand list.
+        // Use the ODS segment info to find the correct index.
+        return getLocalBuffer()
+          ? static_cast<unsigned>(getODSOperandIndexAndLength(2).first)
+          : UINT_MAX;
+      }
+
+      /// Returns an AffineMapAttr wrapping the affine map for this operation.
+      AffineMapAttr getAffineMapAttr() {
+        return AffineMapAttr::get(getAffineMap());
+      }
+
+      /// Returns the name of the map attribute.
+      static StringRef getMapAttrStrName() { return "map"; }
+
+      /// Returns the AffineMapAttr associated with the given memref value.
+      NamedAttribute getAffineMapAttrForMemRef(Value memref) {
+        assert(memref == getMemref() &&
+               "Expected memref argument to match memref operand");
+        return {StringAttr::get(getContext(), getMapAttrStrName()),
+                getAffineMapAttr()};
       }
     }];
 }
@@ -1445,10 +1590,10 @@ class D2M_SemaphoreUpdateOp<string mnemonic> : D2M_GenericRegionOp<mnemonic,
       ```
     }];
 
-    let arguments = (ins D2M_Semaphore:$semaphore, Index:$value,
+    let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value,
                          Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
 
-    let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict }];
+    let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` type($semaphore) }];
 
     let builders =
     [
@@ -1470,7 +1615,7 @@ def D2M_SemaphoreIncOp : D2M_SemaphoreUpdateOp<"semaphore_inc"> {}
 def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "D2M Semaphore Set Op.";
     let description = [{
-      Wait for the semaphore value to reach the specified value. Optionall supply a reset value as a shorthand syntax.
+      Wait for the semaphore value to reach the specified value. Optionally supply a reset value as a shorthand syntax.
 
       ```mlir
       d2m.semaphore_wait %sem1, %c1 reset %c0
@@ -1480,9 +1625,9 @@ def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[
       ```
     }];
 
-    let arguments = (ins D2M_Semaphore:$semaphore, Index:$value, Optional<Index>:$resetValue);
+    let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value, Optional<Index>:$resetValue);
 
-    let assemblyFormat = [{ $semaphore `,` $value (`reset` $resetValue^)? attr-dict }];
+    let assemblyFormat = [{ $semaphore `,` $value (`reset` $resetValue^)? attr-dict `:` type($semaphore) }];
 
     let builders =
     [
@@ -1950,7 +2095,7 @@ class D2M_IndexOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionO
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
     let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
-    let hasFolder = true;
+    let hasFolder = false;
 
     let builders =
     [
@@ -1979,6 +2124,24 @@ def D2M_BlockIndexOp : D2M_IndexOp<"block_index"> {
     }];
 }
 
+def D2M_BlockOffsetOp : D2M_IndexOp<"block_offset"> {
+    let summary = "Block Offset op.";
+    let description = [{
+      Represents block_factor * core_index as a constant-like operation. Useful
+      for representing blocking index math in an affine dialect compatible way.
+    }];
+    let hasFolder = false;
+}
+
+def D2M_GetBlockFactorOp : D2M_IndexOp<"get_block_factor"> {
+    let summary = "Get block factor op.";
+    let description = [{
+      Retrieve the block factor from the block factor array attribute in
+      the parent generic op at the provided dimension index.
+    }];
+    let hasFolder = false;
+}
+
 def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
   [ Pure
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
@@ -1999,7 +2162,7 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
 
     let results = (outs Index:$result);
     let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
-    let hasFolder = true;
+    let hasFolder = false;
 
     let builders =
     [
@@ -2014,6 +2177,8 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
               $_builder.getI64IntegerAttr(dim), mlir::AffineMapAttr::get(map));
       }]>
     ];
+
+    let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -2063,7 +2228,7 @@ def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
     }];
 
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$operand_index);
-    let results = (outs DeviceMemRef:$result);
+    let results = (outs AnyType:$result);
 
     let assemblyFormat = [{ `(` $operand_index `)` attr-dict `:` type($result) }];
 }

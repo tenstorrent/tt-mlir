@@ -86,6 +86,11 @@ struct WormholeComputeKernelConfig;
 // Math fidelity enum (mock for EmitPy conversion)
 struct MathFidelity;
 
+// LayerNorm program config types (mock for EmitPy conversion)
+namespace prim {
+struct LayerNormShardedMultiCoreProgramConfig;
+} // namespace prim
+
 } // namespace ttnn
 
 namespace mlir {
@@ -163,6 +168,12 @@ struct TypeName<::ttnn::operations::matmul::
 template <>
 struct TypeName<::ttnn::WormholeComputeKernelConfig> {
   inline static const std::string value = "ttnn.WormholeComputeKernelConfig";
+};
+
+template <>
+struct TypeName<::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> {
+  inline static const std::string value =
+      "ttnn.LayerNormShardedMultiCoreProgramConfig";
 };
 
 template <typename T>
@@ -375,9 +386,9 @@ struct EmitPyTypeConverter<mlir::tt::ttcore::Topology> {
     case ::mlir::tt::ttcore::Topology::Linear:
       return "ttnn.Topology.Linear";
     default:
-      // Mesh and Torus are not defined in ttnn.Topology yet, so we don't need
-      // to handle them here. See ccl_pybind.cpp for the definition of
-      // ttnn.Topology.
+      // Mesh, Torus, and Disabled are not defined in ttnn.Topology yet, so we
+      // don't need to handle them here. See ccl_pybind.cpp for the definition
+      // of ttnn.Topology.
       llvm_unreachable("Unknown ttnn.Topology");
     }
   }
@@ -590,6 +601,14 @@ struct EmitPyTypeConverter<::ttnn::DataType> {
       return convert(dataTypeAttr);
     }
     return {};
+  }
+
+  static std::string convert(ttcore::DataTypeAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    return convert(attr.getValue());
   }
 
   static std::string convert(ttcore::DataType attr) {
@@ -1793,6 +1812,34 @@ struct EmitPyTypeConverter<::ttnn::WormholeComputeKernelConfig> {
   }
 };
 
+// Specialization for LayerNormShardedMultiCoreProgramConfig
+template <>
+struct EmitPyTypeConverter<
+    ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> {
+  static std::optional<std::string>
+  convert(ttnn::LayerNormShardedMultiCoreProgramConfigAttr attr) {
+    if (!attr) {
+      return std::string("ttnn.LayerNormDefaultProgramConfig()");
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<
+               ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> << "(";
+
+    auto gridSize = attr.getComputeWithStorageGridSize();
+    rso << "compute_with_storage_grid_size=(" << gridSize.getX() << ", "
+        << gridSize.getY() << ")";
+    rso << ", subblock_w=" << attr.getSubblockW();
+    rso << ", block_h=" << attr.getBlockH();
+    rso << ", block_w=" << attr.getBlockW();
+    rso << ", inplace=" << (attr.getInplace() ? "True" : "False");
+
+    rso << ")";
+    return buf;
+  }
+};
+
 // This template struct retrieves the most relevant C++ type with a one-to-one
 // Python type correspondence for a given template type.
 template <typename T>
@@ -1886,6 +1933,11 @@ struct TTNNTarget<tt::ttnn::Conv2dSliceConfigAttr> {
 template <>
 struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
   using type = ::ttnn::WormholeComputeKernelConfig;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr> {
+  using type = ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig;
 };
 
 // Marker type for matmul program config union (AnyAttrOf<[...]>)
@@ -2025,6 +2077,12 @@ public:
     llvm_unreachable("Invalid operand range");
   }
 
+  mlir::Attribute emitExpression(llvm::StringRef expression,
+                                 std::string attrName = "") {
+    addKeywordArgument(attrName);
+    return rewriter.getAttr<emitpy::OpaqueAttr>(expression);
+  }
+
   mlir::Attribute emitMeshCoordinate(const mlir::ArrayRef<int64_t> &coords,
                                      std::string attrName = "") {
     std::string code = "ttnn.MeshCoordinate((";
@@ -2151,6 +2209,14 @@ public:
             layoutAttr, deviceOp.getDeviceAttr().getWorkerGrid()));
 
     return memoryConfigAttr;
+  }
+
+  ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
+    auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    return ttcore::DataTypeAttr::get(resultLayoutAttr.getContext(),
+                                     resultLayoutAttr.getDataType());
   }
 
   template <typename OpConversionPatternTy>
