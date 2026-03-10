@@ -52,39 +52,38 @@ bool TTAlchemist::modelToPython(const std::string &input_file) {
     return false;
   }
 
-  // Check if the module has file ops (split-files mode).
-  bool hasSplitFiles = false;
-  module->walk([&](mlir::tt::emitpy::FileOp) { hasSplitFiles = true; });
-
   // Convert MLIR module to Python
   //
   std::string output;
   llvm::raw_string_ostream outputStream(output);
 
-  // Generate main.py
-  std::cout << "#=== main.py ===\n";
-  std::optional<std::string> mainFileId =
-      hasSplitFiles ? std::optional<std::string>("main") : std::nullopt;
-  if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, outputStream,
-                                                       mainFileId))) {
-    std::cout << "Failed to translate MLIR module to main.py" << std::endl;
-    return false;
-  }
-  outputStream.flush();
-  std::cout << output << std::endl;
+  // Check if the module has file ops (split-files mode).
+  llvm::SmallVector<mlir::tt::emitpy::FileOp> fileOps;
+  module->walk(
+      [&fileOps](mlir::tt::emitpy::FileOp op) { fileOps.push_back(op); });
 
-  // Generate consteval.py only when files were split.
-  if (hasSplitFiles) {
-    std::cout << "\n#=== consteval.py ===\n";
-    std::optional<std::string> constevalFileId("consteval");
-    if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, outputStream,
-                                                         constevalFileId))) {
-      std::cout << "Failed to translate MLIR module to consteval.py"
-                << std::endl;
+  // Generate output
+  if (fileOps.empty()) {
+    if (mlir::failed(
+            mlir::tt::emitpy::translateToPython(*module, outputStream))) {
+      std::cout << "Failed to translate MLIR module to main.py" << std::endl;
       return false;
     }
     outputStream.flush();
     std::cout << output << std::endl;
+  } else {
+    for (auto fileOp : fileOps) {
+      auto fileId = fileOp.getId().str();
+      std::cout << "#=== " << fileId << ".py ===#\n";
+      if (mlir::failed(mlir::tt::emitpy::translateToPython(
+              *module, outputStream, std::optional<std::string>(fileId)))) {
+        std::cout << "Failed to translate MLIR module to " << fileId << ".py"
+                  << std::endl;
+        return false;
+      }
+      outputStream.flush();
+      std::cout << output << std::endl;
+    }
   }
 
   return true;

@@ -1251,6 +1251,7 @@ def compile_ttir_module_to_flatbuffer(
         )
         to_target = emitpy_to_executable
         target_extension = "py"
+        pipeline_options.append("split-files=false")
     else:
         raise ValueError("Unsupported target: " + target)
 
