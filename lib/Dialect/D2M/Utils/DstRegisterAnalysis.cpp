@@ -110,6 +110,11 @@ static std::optional<int64_t> getMaxDstTilesForLinalgOp(linalg::GenericOp op) {
 
 static std::optional<int64_t> getLargestLegalChunkSize(int64_t shardSizeTiles,
                                                        int64_t maxDstTiles) {
+  // Single-tile shards bypass the two-phase scratch structure.
+  // One flip is allowed exclusively for this case.
+  if (shardSizeTiles == 1) {
+    return 1;
+  }
   int64_t largestCandidate = std::min(maxDstTiles, shardSizeTiles / 2);
   for (int64_t numTilesPerFlip = largestCandidate; numTilesPerFlip >= 1;
        --numTilesPerFlip) {
@@ -134,6 +139,10 @@ getLargestCommonNumOuterLoopIters(ArrayRef<int64_t> numDstFlipsPerOp) {
     // num_outer_loop_iters <= num_dst_flips / 2.
     maxCandidate = std::min(maxCandidate, numDstFlips / 2);
     gcdNumDstFlips = std::gcd(gcdNumDstFlips, numDstFlips);
+  }
+  // All ops are single-tile shards: one outer iteration, no scratch loop.
+  if (maxCandidate == 0) {
+    return 1;
   }
   TT_assertv(maxCandidate >= 1, "maxCandidate must be >= 1");
 
@@ -225,8 +234,12 @@ DSTPackingInfo analyzeGenericForDSTPacking(d2m::GenericOp generic) {
       return DSTPackingInfo();
     }
     if (numDstFlips < 2) {
-      linalgOp.emitOpError("failed to satisfy num_dst_flips >= 2");
-      return DSTPackingInfo();
+      // One flip is permitted exclusively for single-tile shards
+      // (shardSizeTiles == 1).
+      if (shardSizeTiles != 1) {
+        linalgOp.emitOpError("failed to satisfy num_dst_flips >= 2");
+        return DSTPackingInfo();
+      }
     }
 
     pendingResults.push_back(
@@ -251,8 +264,13 @@ DSTPackingInfo analyzeGenericForDSTPacking(d2m::GenericOp generic) {
   std::optional<int64_t> commonNumTilesPerResult;
   for (const PendingDSTPackingResult &pending : pendingResults) {
     int64_t numDstFlips = pending.numDstFlips / *commonNumOuterLoopIters;
-    if ((pending.numDstFlips % *commonNumOuterLoopIters) != 0 ||
-        numDstFlips < 2) {
+    if ((pending.numDstFlips % *commonNumOuterLoopIters) != 0) {
+      generic.emitOpError("failed to satisfy common num_outer_loop_iters");
+      return DSTPackingInfo();
+    }
+    // numDstFlips >= 2 is required except for single-tile shards (numDstFlips
+    // == 1 at the op level implies shardSizeTiles == 1).
+    if (numDstFlips < 2 && pending.numDstFlips != 1) {
       generic.emitOpError("failed to satisfy common num_outer_loop_iters and "
                           "num_dst_flips >= 2");
       return DSTPackingInfo();
@@ -284,6 +302,7 @@ DSTPackingInfo analyzeGenericForDSTPacking(d2m::GenericOp generic) {
              "non-empty");
   results.numTilesPerResult = *commonNumTilesPerResult;
   results.numOuterLoopIters = *commonNumOuterLoopIters;
+  results.isSingleTile = (results.numTilesPerResult == 1);
 
   return results;
 }

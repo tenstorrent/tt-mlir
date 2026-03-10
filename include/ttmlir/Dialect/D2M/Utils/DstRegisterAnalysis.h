@@ -23,6 +23,7 @@ struct DSTPackingInfo {
   llvm::SmallDenseMap<Value, DSTPackingPerResultInfo> perResult;
   int64_t numTilesPerResult = 0;
   int64_t numOuterLoopIters = 0;
+  bool isSingleTile = false; // true when shardSizeTiles == 1 for all ops
 };
 
 // Analyze linalg.generic ops in a unified d2m.generic region and compute legal
