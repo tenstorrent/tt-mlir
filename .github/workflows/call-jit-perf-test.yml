@@ -130,10 +130,9 @@ jobs:
 
     - name: Run JIT perf collection
       shell: bash
-      env:
-        INSTALL_DIR: ${{ steps.strings.outputs.install-output-dir }}
       run: |
         source env/activate
+        export PYTHONPATH="${{ steps.strings.outputs.install-output-dir }}/tt-metal/ttnn:${{ steps.strings.outputs.install-output-dir }}/tt-metal"
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         export TT_METAL_RUNTIME_ROOT="${{ steps.strings.outputs.install-output-dir }}/tt-metal"

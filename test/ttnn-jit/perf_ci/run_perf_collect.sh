@@ -21,16 +21,10 @@ set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$REPO_ROOT"
 
-# Activate venv if present
-if [ -f env/activate ]; then
+# Activate venv if not already active
+if [ -z "$VIRTUAL_ENV" ] && [ -f env/activate ]; then
   # shellcheck source=/dev/null
   source env/activate
-fi
-
-# In CI, INSTALL_DIR points to extracted install artifacts containing tt-metal.
-# Set PYTHONPATH so pytest can find the ttnn module (same as ttnn_jit.sh).
-if [ -n "$INSTALL_DIR" ]; then
-  export PYTHONPATH="$INSTALL_DIR/tt-metal/ttnn:$INSTALL_DIR/tt-metal"
 fi
 
 OUT_DIR="${1:-generated/jit_perf_reports/run_$(date +%Y%m%d_%H%M%S)}"
