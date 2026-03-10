@@ -56,10 +56,10 @@ static void runTraceProgramAndCaptureTrace(
   ProgramExecutor executor(deviceHandle, context.getExecutableHandle(),
                            op->capture_program_id(), inputTensors,
                            /*constEvalProgram=*/false);
-  // Input slots must not overlap with intermediates allocated during trace
-  // capture. Intermediates use the default bottom-up allocation (low
-  // addresses); we flip input-slot EmptyOp allocations to top-down so they
-  // live at high addresses and can't collide.
+  // Input/output slots must not overlap with intermediates allocated during
+  // trace capture. Intermediates use the default bottom-up allocation (low
+  // addresses); we flip all EmptyOp allocations in this capture program to
+  // top-down so slots live at high addresses and can't collide with them.
   executor.getContext().setAllocateTopDown(true);
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputTensors =

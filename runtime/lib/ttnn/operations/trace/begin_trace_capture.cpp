@@ -24,6 +24,10 @@ void run(const ::tt::target::ttnn::BeginTraceCaptureOp *op,
           &traceId.get(), ::ttnn::Shape(), ::ttnn::DataType::UINT32);
   context.getTensorPool().insertTTNNTensorAndValidate(op->trace_id(),
                                                       traceIdTensor);
+
+  // EmptyOps inside the trace recording must use default bottom-up allocation
+  // so that traced intermediates don't collide with the top-down slots.
+  context.setAllocateTopDown(false);
 }
 
 } // namespace tt::runtime::ttnn::operations::trace

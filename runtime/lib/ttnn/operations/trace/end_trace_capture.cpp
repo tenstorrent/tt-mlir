@@ -29,6 +29,10 @@ void run(const ::tt::target::ttnn::EndTraceCaptureOp *op,
 
   ::ttnn::operations::trace::end_trace_capture(&meshDevice, meshTraceId,
                                                ttnnCqId);
+
+  // Restore top-down allocation after the trace ends so that any EmptyOps
+  // following end_trace (e.g., output slot allocations) stay at high addresses.
+  context.setAllocateTopDown(true);
 }
 
 } // namespace tt::runtime::ttnn::operations::trace
