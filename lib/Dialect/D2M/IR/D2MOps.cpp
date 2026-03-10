@@ -2053,8 +2053,8 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
         // It's defined outside - check if it's one of our operands.
         bool isOurOperand = llvm::is_contained(getOperands(), operand);
         if (!isOurOperand) {
-          emitOpError("region uses value defined outside that is "
-                      "not an operand of this generic op: ")
+          emitOpError("region uses value defined outside that is not an "
+                      "operand of this generic op: ")
               << operand;
         }
       }
@@ -2084,20 +2084,22 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
   }
 
   // Each region has exactly one generic op. Verify its grid (2D only) fits
-  // within the region's CoreRange. When mapping is present, verify the
-  // physical grid bounding box is contained in the CoreRange.
+  // within the region: when mapping is empty, compare shape only; when
+  // mapping is present, require virtual grid contained in region's virtual
+  // bbox.
   for (auto [region, coreRange] : llvm::zip(getRegions(), coreRanges)) {
-    int64_t rangeStartY = coreRange.getStartCoord().getY();
-    int64_t rangeStartX = coreRange.getStartCoord().getX();
-    int64_t rangeEndY = coreRange.getEndCoord().getY();
-    int64_t rangeEndX = coreRange.getEndCoord().getX();
-    int64_t extentY = rangeEndY - rangeStartY + 1;
-    int64_t extentX = rangeEndX - rangeStartX + 1;
+    utils::BoundingBox regionBox;
+    regionBox.start = {coreRange.getStartCoord().getY(),
+                       coreRange.getStartCoord().getX()};
+    regionBox.end = {coreRange.getEndCoord().getY(),
+                     coreRange.getEndCoord().getX()};
+    int64_t regionShapeY = regionBox.end[0] - regionBox.start[0] + 1;
+    int64_t regionShapeX = regionBox.end[1] - regionBox.start[1] + 1;
 
     auto genericOps = llvm::to_vector(region.front().getOps<GenericOp>());
     if (genericOps.size() != 1) {
-      return emitOpError("each region must contain exactly one d2m.generic op, "
-                         "got ")
+      return emitOpError(
+                 "each region must contain exactly one d2m.generic op, got ")
              << genericOps.size();
     }
     GenericOp genericOp = genericOps.front();
@@ -2106,37 +2108,34 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     llvm::ArrayRef<int64_t> gridShape = grid.getShape();
 
     if (gridShape.size() != 2) {
-      return genericOp.emitOpError("d2m.generic inside d2m.spatial: only 2D "
-                                   "grid is considered for "
-                                   "now, got ")
+      return emitOpError("d2m.generic inside d2m.spatial: only 2D "
+                         "grid is considered for now, got ")
              << gridShape.size() << "D";
     }
 
-    if (gridShape[0] > extentY || gridShape[1] > extentX) {
-      return genericOp.emitOpError("generic op grid shape [")
-             << gridShape[0] << ", " << gridShape[1]
-             << "] exceeds region CoreRange extent [" << extentY << ", "
-             << extentX << "]";
-    }
-
-    if (!grid.getMapping().isEmpty() && !genericOp.getOutputs().empty()) {
-      SmallVector<int64_t> physicalShape =
-          utils::getPhysicalGridShape(genericOp.getOutputs().front());
-      if (physicalShape.size() < 2) {
-        return genericOp.emitOpError(
-            "physical grid shape must have at least 2 dimensions");
+    if (grid.getMapping().isEmpty()) {
+      if (gridShape[0] > regionShapeY || gridShape[1] > regionShapeX) {
+        return emitOpError("generic op grid shape [")
+               << gridShape[0] << ", " << gridShape[1]
+               << "] exceeds region CoreRange shape [" << regionShapeY << ", "
+               << regionShapeX << "]";
       }
-      // Physical grid is placed at the region's start. Check that all four
-      // corners (start/end in Y and X) lie inside the CoreRange.
-      int64_t physEndY = rangeStartY + physicalShape[0] - 1;
-      int64_t physEndX = rangeStartX + physicalShape[1] - 1;
-      if (physEndY > rangeEndY || physEndX > rangeEndX) {
-        return genericOp.emitOpError("generic op physical grid [(")
-               << rangeStartY << "," << rangeStartX << ") to (" << physEndY
-               << "," << physEndX
-               << ")] is not contained in region CoreRange [(" << rangeStartY
-               << "," << rangeStartX << ") to (" << rangeEndY << ","
-               << rangeEndX << ")]";
+    } else {
+      AffineMap physicalToVirtual = grid.getMapping();
+      if (physicalToVirtual.getNumResults() == 3u) {
+        physicalToVirtual = physicalToVirtual.dropResult(0);
+      }
+      utils::BoundingBox regionVirtualBbox =
+          utils::getProjectedBoundingBox(regionBox, physicalToVirtual);
+      int64_t gridEndY = gridShape[0] - 1, gridEndX = gridShape[1] - 1;
+      if (regionVirtualBbox.start[0] > 0 ||
+          regionVirtualBbox.end[0] < gridEndY ||
+          regionVirtualBbox.start[1] > 0 ||
+          regionVirtualBbox.end[1] < gridEndX) {
+        return emitOpError(
+                   "generic op grid not contained in region grid_ranges [")
+               << regionBox.start[0] << ", " << regionBox.start[1] << "] to ["
+               << regionBox.end[0] << ", " << regionBox.end[1] << "]";
       }
     }
   }
