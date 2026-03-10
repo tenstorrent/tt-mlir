@@ -28,4 +28,3 @@ module @TuplePartialUse {
     return %1 : tensor<4xi32>
   }
 }
-

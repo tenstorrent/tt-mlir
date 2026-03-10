@@ -42,7 +42,6 @@ public:
         rewriter.eraseOp(op);
       }
     }
-
   }
 };
 } // namespace mlir::tt::stablehlo
