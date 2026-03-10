@@ -41,8 +41,6 @@ def D2M_ViewLayoutOp
   let assemblyFormat = [{
     $input `remapping` `=` $remapping attr-dict `:` type($input) `->` type($result)  }];
 
-  let builders = [OpBuilder<(ins "Type":$outputType, "Value":$input)>];
-
   let extraClassDeclaration = [{
     bool isReblockOnly();
   }];
@@ -375,6 +373,9 @@ def D2M_GenericOp
           OpBuilder &builder, std::optional<ttcore::GridAttr> newGrid,
           std::optional<ArrayRef<int64_t>> newBlockFactors,
           bool generateReturnView = true);
+      FailureOr<ParallelizedGeneric> withParallelization(
+          OpBuilder &builder,
+          ArrayRef<SmallVector<int64_t>> newOperandGridShapes);
       static Value findAssocOperand(memref::AllocOp allocOp);
       static Value findAssocOperand(::mlir::tensor::EmptyOp emptyOp);
       static Value findAssocCBByOperandIndex(Operation *op, unsigned operandIndex);
