@@ -71,6 +71,42 @@ mlir::tt::ttcore::DeviceAttr d2m::GenericOp::getDevice() {
 }
 
 //===----------------------------------------------------------------------===//
+// EmptyOp Builder
+//===----------------------------------------------------------------------===//
+
+void d2m::EmptyOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
+                         ArrayRef<int64_t> shape, Type elementType,
+                         Attribute encoding,
+                         ArrayRef<int64_t> targetGridShape) {
+  auto resultType = RankedTensorType::get(shape, elementType, encoding);
+  AffineMapAttr invAttr = nullptr;
+  AffineMapAttr fwdAttr = nullptr;
+
+  if (auto metalLayout =
+          mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(encoding)) {
+    auto gridShape = llvm::to_vector(metalLayout.getGridShape(resultType));
+    if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
+                                                       targetGridShape)) {
+      auto squareGrid = utils::getSquareTargetGrid(targetGridShape);
+      auto physGrid = utils::findLegalPhysicalGridForVolume(
+          ttmlir::utils::volume<int64_t>(gridShape), squareGrid);
+      TT_assertv(!physGrid.empty(),
+                 "Virtual grid required but no legal physical grid found for "
+                 "volume {}; target grid [{},{}]",
+                 ttmlir::utils::volume<int64_t>(gridShape), targetGridShape[0],
+                 targetGridShape[1]);
+      auto *ctx = builder.getContext();
+      auto [fwdMap, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+          ctx, gridShape, physGrid);
+      invAttr = AffineMapAttr::get(invMap);
+      fwdAttr = AffineMapAttr::get(fwdMap);
+    }
+  }
+
+  build(builder, state, resultType, invAttr, fwdAttr);
+}
+
+//===----------------------------------------------------------------------===//
 // EmptyOp Bufferization Interface Implementation
 //===----------------------------------------------------------------------===//
 
@@ -1367,30 +1403,6 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
         }
       }
 
-      // 3. Fallback: if the logical grid differs from the physical grid
-      //    (e.g. ND grids) and no explicit mapping was found, derive one
-      //    and store the VGM attrs on the output so verifier invariants hold.
-      if (!grid) {
-        SmallVector<int64_t> physGridShape =
-            d2m::utils::getPhysicalGridShape(output);
-        if (!llvm::equal(gridShape, physGridShape)) {
-          auto [fwdMap, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-              builder.getContext(), gridShape, physGridShape);
-          grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
-          if (auto emptyOp = output.getDefiningOp<d2m::EmptyOp>()) {
-            emptyOp.setVirtualGridInverseMappingAttr(
-                AffineMapAttr::get(invMap));
-            emptyOp.setVirtualGridForwardMappingAttr(
-                AffineMapAttr::get(fwdMap));
-          } else if (Operation *defOp = output.getDefiningOp()) {
-            defOp->setAttr(d2m::utils::kVirtualGridInverseMappingAttr,
-                           AffineMapAttr::get(invMap));
-            defOp->setAttr(d2m::utils::kVirtualGridForwardMappingAttr,
-                           AffineMapAttr::get(fwdMap));
-          }
-        }
-      }
-
       if (!grid) {
         // Output aligns with its underlying physical grid shape and has no
         // permuted indices; no need to have a virtualization mapping.
@@ -1628,7 +1640,7 @@ static mlir::LogicalResult verifyAffineBlocking(
   assert(factors.size() == blockingFactors.size());
   for (size_t i = 0; i < blockingFactors.size(); ++i) {
     if (factors[i] == 0) {
-      // The "Broacast" part of inverseAndBroadcastProjectedPermutation will 0
+      // The "Broadcast" part of inverseAndBroadcastProjectedPermutation will 0
       // fill unparticipating dims.  Promote these to 1's so that we can
       // multiply by blocking factor.
       factors[i] = 1;
@@ -1742,20 +1754,37 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
              << deviceVolume << ")";
     }
 
+    auto isDRAM = [](Value output) {
+      if (auto memrefType = mlir::dyn_cast<MemRefType>(output.getType())) {
+        return ttcore::getMemorySpace(memrefType) ==
+               ttcore::MemorySpace::DeviceDRAM;
+      }
+      if (auto tensorType =
+              mlir::dyn_cast<RankedTensorType>(output.getType())) {
+        if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+                tensorType.getEncoding())) {
+          return layout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
+        }
+      }
+      return false;
+    };
     // Verify per-output VGM consistency:
-    // 1. The output's inverse VGM must match the GridAttr's inverse map.
+    // 1. For non-DRAM outputs, the output's inverse VGM must match the
+    // GridAttr's inverse map.
     // 2. The inverse map applied to the physical grid shape must produce
     //    a virtual grid shape matching the output's grid shape.
     AffineMap gridInvMap = getGrid().getMapping();
     for (Value output : getOutputs()) {
-      auto outputInvMap = utils::getVirtualGridInverseMapping(output);
-      if (outputInvMap && *outputInvMap != gridInvMap) {
-        return emitOpError("grid inverse map does not match output operand's "
-                           "inverse VGM");
-      }
-      if (!outputInvMap && !gridInvMap.isEmpty()) {
-        return emitOpError("grid has an inverse map but output operand "
-                           "does not have a VGM");
+      if (!isDRAM(output)) {
+        auto outputInvMap = utils::getVirtualGridInverseMapping(output);
+        if (outputInvMap && *outputInvMap != gridInvMap) {
+          return emitOpError("grid inverse map does not match output operand's "
+                             "inverse VGM");
+        }
+        if (!outputInvMap && !gridInvMap.isEmpty()) {
+          return emitOpError("grid has an inverse map but output operand "
+                             "does not have a VGM");
+        }
       }
 
       SmallVector<int64_t> physicalGridShape =

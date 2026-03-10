@@ -179,4 +179,18 @@ LogicalResult LoadCachedOp::verify() {
   return success();
 }
 
+LogicalResult SetKeyValueOp::verify() {
+  if (getValues().empty()) {
+    return emitOpError() << "requires at least one value";
+  }
+  return success();
+}
+
+LogicalResult GetKeyValueOp::verify() {
+  if (getResults().empty()) {
+    return emitOpError() << "requires at least one result";
+  }
+  return success();
+}
+
 } // namespace mlir::tt::ttcore

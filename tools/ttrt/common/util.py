@@ -923,7 +923,7 @@ class Binary(Flatbuffer):
     def get_program(self, program_index):
         if program_index > self.get_num_programs():
             raise Exception(
-                f"program index={program_index} is greater than number of programs availabe={self.get_num_programs()}!"
+                f"program index={program_index} is greater than number of programs available={self.get_num_programs()}!"
             )
 
         return self.programs[program_index]

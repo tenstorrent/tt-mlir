@@ -28,7 +28,7 @@ module {
   }
 }
 
-// Verifty that the parsing fails if the output is a scalar.
+// Verify that the parsing fails if the output is a scalar.
 // -----
 module {
   func.func @linear_negative_1d_1d_scalar_output(%arg0: tensor<128xbf16>, %arg1: tensor<128xbf16>) -> tensor<bf16> {

@@ -67,8 +67,8 @@ bool LegalOpLayoutAnalysis::applyOverrides() {
   OutputLayoutOverrideParams layoutOverride = overrideIt->getValue();
 
   // If all layout parameters are set (except data type), we can skip analysis
-  // and create the overriden layout. Otherwise, we need to perform analysis and
-  // apply partial overrides.
+  // and create the overridden layout. Otherwise, we need to perform analysis
+  // and apply partial overrides.
   if (!layoutOverride.fullLayoutOverride()) {
     return false;
   }
@@ -262,7 +262,7 @@ void LegalOpLayoutAnalysis::fillTTNNLayoutAttrs(TTNNLayoutAttr baseLayout) {
                         shardedLayouts.end());
 
   // Apply partial layout overrides. Remove layouts that conflict with at least
-  // one overriden param.
+  // one overridden param.
   if (override.has_value()) {
     auto shouldRemoveLayout =
         std::bind(incompatibleWithOverride, std::placeholders::_1, override);

@@ -175,9 +175,15 @@ bool ShardSolver::resolveStep() {
           edgeConsumerBitset.set(configBitIndex);
         }
       } else {
-        llvm::SmallVector<OpConfig> testConfigs =
-            optimizer_utils::getUniqueTestConfigs(
-                consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
+        // D2M needs real output layouts in configs; getUniqueTestConfigs for
+        // non-matmul uses null output layout which D2M cannot handle.
+        llvm::SmallVector<OpConfig> testConfigs;
+        if (llvm::isa<ttnn::D2MSubgraphOp>(consumerOp)) {
+          testConfigs.assign(consumerConfigs.begin(), consumerConfigs.end());
+        } else {
+          testConfigs = optimizer_utils::getUniqueTestConfigs(
+              consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
+        }
 
         // Extract input layouts template once
         std::vector<TTNNLayoutAttr> inputLayouts =
@@ -188,7 +194,7 @@ bool ShardSolver::resolveStep() {
           // TODO(rpavlovicTT) After we inserted reshard in
           // preprocessFirstOp we dont need to try every producerId here, right?
 
-          // If the producer cannot accomodate this path, continue.
+          // If the producer cannot accommodate this path, continue.
           // Also if this is not the OpConfig we selected, continue.
           if (!producerBitset->test(producerId)) {
             continue;
@@ -556,9 +562,15 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   //
   MemReconfigEntry memReconfigEntry;
 
-  llvm::SmallVector<OpConfig> testConfigs =
-      optimizer_utils::getUniqueTestConfigs(
-          consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
+  // D2M needs real output layouts; getUniqueTestConfigs for non-matmul uses
+  // null output layout which D2M cannot handle.
+  llvm::SmallVector<OpConfig> testConfigs;
+  if (llvm::isa<ttnn::D2MSubgraphOp>(consumerOp)) {
+    testConfigs.assign(consumerConfigs.begin(), consumerConfigs.end());
+  } else {
+    testConfigs = optimizer_utils::getUniqueTestConfigs(
+        consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
+  }
 
   // Extract and set input layouts for validation
   std::vector<TTNNLayoutAttr> consumerInputOperandLayouts =
@@ -902,7 +914,7 @@ void ShardSolver::set(Operation *op, const OpConfig &config) {
 // Preprocess ShardSolver search space to make a helper structure which links
 // op config choices to global max core usage. Example: Lets assume simple
 // case where configs at same index are compatible for input graph provided
-// below. Tupples represent grid core usage (Config0GridVolume,
+// below. Tuples represent grid core usage (Config0GridVolume,
 // Config1GridVolume, Config2GridVolume).
 //
 //    Op0 ----- (4, 8, 2)

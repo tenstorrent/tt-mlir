@@ -104,6 +104,11 @@ updateResultShardStatus(MLIRContext *context, mlir::ModuleOp &module,
     newResultAttrs.push_back(shardStatusNamedAttr);
     funcOp.setResultAttrs(i,
                           mlir::DictionaryAttr::get(context, newResultAttrs));
+
+    if (!shardy_utils::sdyAnnotationsExist(module)) {
+      gspmd_utils::updateShardStatusForResult(context, funcOp, i,
+                                              shardStatusNamedAttr);
+    }
   }
 
   return mlir::success();
@@ -175,6 +180,9 @@ public:
     llvm::SmallVector<int64_t> resultPreshardedRef = llvm::to_vector(
         llvm::map_range(resultPresharded, [](int64_t val) { return val; }));
     rootModule.walk([&](func::FuncOp funcOp) {
+      if (!funcOp.isPublic()) {
+        return;
+      }
       if (failed(mlir::tt::stablehlo::updateResultShardStatus(
               context, rootModule, builder, funcOp, resultPreshardedRef))) {
         rootModule.emitError("Failed to update shard status");

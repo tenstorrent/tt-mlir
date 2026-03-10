@@ -988,21 +988,10 @@ public:
   matchAndRewrite(ttir::PadOp op, ttir::PadOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn::MemoryConfigAttr memcfg = nullptr;
-    if (ttnn::TTNNLayoutAttr layoutAttr =
-            mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
-                op.getResult().getType().getEncoding());
-        layoutAttr.getBufferType() != ttnn::BufferType::SystemMemory) {
-      memcfg = ttnn::MemoryConfigAttr::get(
-          op.getContext(), layoutAttr.getMemLayout(),
-          ttnn::BufferTypeAttr::get(op.getContext(),
-                                    layoutAttr.getBufferType()),
-          std::nullopt);
-    }
     rewriter.replaceOpWithNewOp<ttnn::PadOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getPaddingAttr(), adaptor.getValue(),
-        /*use_multicore=*/true, memcfg);
+        /*use_multicore=*/true, /*memory_config=*/nullptr);
 
     return success();
   }
@@ -1353,6 +1342,171 @@ public:
 };
 } // namespace
 // ANCHOR_END: adding_an_op_matmul_op_rewriter
+
+namespace {
+
+// Generate a default MatmulMultiCoreReuseMultiCast1DProgramConfig for
+// sparse_matmul based on tensor shapes and device grid size.
+// Mirrors the runtime logic in createSparseMatmulProgramConfig.
+static ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr
+createSparseMatmulProgramConfigAttr(MLIRContext *ctx, RankedTensorType aType,
+                                    RankedTensorType bType,
+                                    ttcore::DeviceAttr deviceAttr) {
+  constexpr int64_t tileH = 32;
+  constexpr int64_t tileW = 32;
+
+  // Get compute grid from device
+  auto gridShape = deviceAttr.getWorkerGrid().getShape();
+  int64_t coreY = gridShape[0];
+  int64_t coreX = gridShape[1];
+
+  auto aShape = aType.getShape();
+  auto bShape = bType.getShape();
+
+  // A is [..., M, K], B is [..., K, N]
+  int64_t M = aShape[aShape.size() - 2];
+  int64_t N = bShape[bShape.size() - 1];
+
+  int64_t NTiles = (N + tileW - 1) / tileW;
+
+  // For 1D multicast (mcast_in0=true), Y rows replicate and X columns
+  // distribute N tiles. The runtime requires ceil(NTiles / perCoreN) to equal
+  // usedCoreX (all X-columns must have work). Reduce coreX until this holds.
+  int64_t usedCoreX = std::min(coreX, NTiles);
+  while (usedCoreX > 1) {
+    int64_t pcn = (NTiles + usedCoreX - 1) / usedCoreX;
+    if ((NTiles + pcn - 1) / pcn == usedCoreX) {
+      break;
+    }
+    --usedCoreX;
+  }
+
+  int64_t perCoreM = std::max(static_cast<int64_t>(1), M / tileH);
+  int64_t perCoreN =
+      std::max(static_cast<int64_t>(1), (NTiles + usedCoreX - 1) / usedCoreX);
+
+  auto gridAttr = ttnn::CoreCoordAttr::get(ctx, usedCoreX, coreY);
+  auto hopCoresAttr = ttnn::CoreRangeSetAttr::get(ctx, {});
+
+  return ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
+      ctx, gridAttr,
+      /*in0_block_w=*/1,
+      /*out_subblock_h=*/1,
+      /*out_subblock_w=*/1,
+      /*out_block_h=*/1,
+      /*out_block_w=*/1,
+      /*per_core_m=*/static_cast<uint64_t>(perCoreM),
+      /*per_core_n=*/static_cast<uint64_t>(perCoreN),
+      /*fuse_batch=*/false,
+      /*fused_activation=*/nullptr,
+      /*mcast_in0=*/true,
+      /*gather_in0=*/false,
+      /*hop_cores=*/hopCoresAttr,
+      /*num_global_cb_receivers=*/0,
+      /*untilize_out=*/false);
+}
+
+class SparseMatmulOpConversionPattern
+    : public OpConversionPattern<ttir::SparseMatmulOp> {
+public:
+  using OpConversionPattern<ttir::SparseMatmulOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SparseMatmulOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Convert nnz to IntegerAttr
+    mlir::IntegerAttr nnzAttr = nullptr;
+    if (auto nnz = op.getNnz()) {
+      nnzAttr = rewriter.getI64IntegerAttr(*nnz);
+    }
+
+    // Generate program config from tensor shapes and device grid
+    auto aType = mlir::cast<RankedTensorType>(adaptor.getA().getType());
+    auto bType = mlir::cast<RankedTensorType>(adaptor.getB().getType());
+    auto deviceAttr = ttcore::lookupDevice(op);
+    auto programConfigAttr = createSparseMatmulProgramConfigAttr(
+        rewriter.getContext(), aType, bType, deviceAttr);
+
+    rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
+        adaptor.getB(), adaptor.getSparsity(), op.getIsInputASparse(),
+        op.getIsInputBSparse(), nnzAttr,
+        /*program_config=*/programConfigAttr,
+        /*memory_config=*/nullptr,
+        /*dtype=*/nullptr,
+        /*compute_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class AllToAllDispatchOpConversionPattern
+    : public OpConversionPattern<ttir::AllToAllDispatchOp> {
+public:
+  using OpConversionPattern<ttir::AllToAllDispatchOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AllToAllDispatchOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto dispatchedType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getDispatched().getType()));
+    auto metadataType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getMetadata().getType()));
+
+    rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchOp>(
+        op, dispatchedType, metadataType, adaptor.getInputTensor(),
+        adaptor.getExpertIndices(), adaptor.getExpertMapping(),
+        op.getNumDevicesAttr(), op.getClusterAxisAttr(),
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class AllToAllCombineOpConversionPattern
+    : public OpConversionPattern<ttir::AllToAllCombineOp> {
+public:
+  using OpConversionPattern<ttir::AllToAllCombineOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AllToAllCombineOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::AllToAllCombineOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInputTensor(), adaptor.getExpertMetadata(),
+        adaptor.getExpertMapping(), op.getNumDevicesAttr(),
+        op.getClusterAxisAttr(), op.getNumExpertsPerTokAttr(),
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class MoeExpertTokenRemapOpConversionPattern
+    : public OpConversionPattern<ttir::MoeExpertTokenRemapOp> {
+public:
+  using OpConversionPattern<ttir::MoeExpertTokenRemapOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MoeExpertTokenRemapOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto mappingType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getMapping().getType()));
+    auto reducedType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getReduced().getType()));
+
+    rewriter.replaceOpWithNewOp<ttnn::MoeExpertTokenRemapOp>(
+        op, mappingType, reducedType, adaptor.getTopkTensor(),
+        adaptor.getExpertMapping(), adaptor.getExpertMetadata(),
+        op.getReductionSizeAttr(),
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
 
 namespace {
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
@@ -3206,6 +3360,10 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            DistributedRMSNormOpConversionPattern,
            LayerNormOpConversionPattern,
            MatmulOpConversionPattern,
+           SparseMatmulOpConversionPattern,
+           AllToAllDispatchOpConversionPattern,
+           AllToAllCombineOpConversionPattern,
+           MoeExpertTokenRemapOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,

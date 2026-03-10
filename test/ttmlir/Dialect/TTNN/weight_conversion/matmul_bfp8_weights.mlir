@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-weight-bfp8-conversion %s | FileCheck %s
+// RUN: ttmlir-opt --ttnn-weight-dtype-conversion="target-dtype=bfp_bf8" %s | FileCheck %s
 
 // Test that the BFP8 weight conversion pass correctly:
 // 1. Inserts a ttnn.typecast operation before the matmul

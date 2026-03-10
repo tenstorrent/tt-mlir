@@ -187,6 +187,9 @@ func.func @masking_no_collapse_4d(%arg0: tensor<2x2x50x50xf32>) -> tensor<1x1x1x
   %0 = d2m.empty() : tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
 
   // CHECK-LABEL: @masking_no_collapse_4d
+  // Virtual-grid intermediates must carry VGM attrs (regression guard).
+  // CHECK: d2m.empty() {virtualGridForwardMapping = #map
+  // CHECK-SAME: virtualGridInverseMapping = #map
   // Tilize then mask with zero OOBVal on a >2D grid (no collapse)
   // CHECK: d2m.tile_tilize_block
   // CHECK: d2m.block_mask

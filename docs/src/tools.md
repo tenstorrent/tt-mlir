@@ -1,6 +1,6 @@
 # Tools
 
-The `ttmlir` project currenly exposes the following tools:
+The `ttmlir` project currently exposes the following tools:
 
 - [`ttmlir-opt`](./ttmlir-opt.md): The `ttmlir` optimizer driver. This tool is used to run the `ttmlir` compiler passes on a `.mlir` source files and is central to developing and testing the compiler.
 - [`ttmlir-translate`](./ttmlir-translate.md): The `ttmlir` translation tool. This tool can convert from IR to external representation (and inverse). For example, IR in EmitC dialect can be converted into C++ code.

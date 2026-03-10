@@ -488,7 +488,7 @@ builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir
 
 ## interface with mlir runtime
 
-All mlir runtime C++ APIs are nanobinded. See full list here: `runtime/python/runtime/runtime.cpp`. You can also pass in `enable_intermediate_verification` in `compile_and_execute_ttir` to give you back a report of all intermediate golden results.
+All mlir runtime C++ APIs are exposed through nanobind. See full list here: `runtime/python/runtime/runtime.cpp`. You can also pass in `enable_intermediate_verification` in `compile_and_execute_ttir` to give you back a report of all intermediate golden results.
 
 ```python
 import _ttmlir_runtime as tt_runtime
@@ -501,7 +501,7 @@ device = tt_runtime.runtime.open_mesh_device(mesh_options)
 tt_runtime.runtime.close_mesh_device(device)
 ```
 
-## nanobinds
+## nanobind
 
 runtime: `runtime/python/runtime/runtime.cpp`
 ttcore, ttir, ttnn, d2m: `python/`
@@ -1327,6 +1327,18 @@ with open(mlir_file_path, 'r') as f:
 
 module, builder = load_mlir_file(mlir_ir_string, target="ttir", golden_inputs={"modela": [torch.randn(32, 32), torch.randn(32, 32)], "modelb": [torch.randn(32, 32), torch.randn(32, 32)]})
 print(module)
+```
+
+## load large mlir file
+
+The process of loading large modules can get killed for exceeding memory storage limits. Builder's deallocate_goldens feature dumps goldens to file as it parses a module.
+
+```python
+mlir_file_path = "test.mlir"
+with open(mlir_file_path, 'r') as f:
+    mlir_ir_string = f.read()
+
+module, builder = load_mlir_file(mlir_ir_string, target="ttir", deallocate_goldens=True)
 ```
 
 ## execute loaded mlir file

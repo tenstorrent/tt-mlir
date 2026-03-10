@@ -266,25 +266,15 @@ static ttcore::MetalLayoutAttr
 layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
                       const GridSelectionConfig &config,
                       ArrayRef<int64_t> optimalGrid, OpBuilder &builder) {
-  DenseIntElementsAttr collapsedIntervals;
   llvm::SmallVector<int64_t> newDimAlignments;
-
   if (config.ttnnMode) {
-    // In TTNN mode, hardcode collapsed intervals and dim alignments similar to
-    // TTIRToD2M.cpp.
-    auto i64Ty = IntegerType::get(builder.getContext(), 64);
-    auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
-    // Collapse all leading dimensions into the height dimension.
-    collapsedIntervals =
-        DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
-
-    // Set dim alignments: all 1s except last two are tile default shape.
+    // TTNN tensors use simple tile-aligned dim alignments without grid-aware
+    // padding adjustments.
     newDimAlignments.assign(oldLayout.getLogicalShape().size(), 1);
     auto defaultTileShape = ttcore::TileType::getDefaultShape();
     newDimAlignments[newDimAlignments.size() - 1] = defaultTileShape[1];
     newDimAlignments[newDimAlignments.size() - 2] = defaultTileShape[0];
   } else {
-    collapsedIntervals = oldLayout.getCollapsedIntervals();
     newDimAlignments = ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
         oldLayout.getLogicalShape(), config.targetSquareGridShape,
         oldLayout.getNormalizedIntervals());
@@ -293,7 +283,7 @@ layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
   return ttcore::MetalLayoutAttr::get(
       builder.getContext(), oldLayout.getLogicalShape(), oldLayout.getOobVal(),
       oldLayout.getMemorySpace(), oldLayout.getMemoryLayout(),
-      collapsedIntervals, newDimAlignments);
+      oldLayout.getCollapsedIntervals(), newDimAlignments);
 }
 
 static RankedTensorType tensorWithOptimalGrid(RankedTensorType oldTensor,

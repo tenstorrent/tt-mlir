@@ -12,6 +12,9 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/aggregate_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_combine.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_dispatch.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/moe_expert_token_remap.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/distribute_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_partition.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
@@ -31,6 +34,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full_with.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/global_semaphore/global_semaphore.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/assign.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/pad.cpp
