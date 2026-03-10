@@ -89,8 +89,11 @@ OutputHints getOutputHints(Operation *op,
       // Disabling Slice ops due to
       // https://github.com/tenstorrent/tt-metal/issues/38016
       // TODO(rpavlovicTT): re-enable slice ops.
+      // Concat: sharded output causes device close hang in tt-metal.
+      // https://github.com/tenstorrent/tt-metal/issues/39419
+      // TODO(rpavlovicTT): re-enable sharded concat once tt-metal fixes it.
       .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp, PadOp, SliceStaticOp,
-            SliceDynamicOp>([&](auto) {
+            SliceDynamicOp, ConcatOp>([&](auto) {
         auto nonShardedConfigs = filterNonSharded(legalConfigs);
         return OutputHints{nonShardedConfigs, {}, /*attemptL1Sharding=*/false};
       })
@@ -135,7 +138,7 @@ OutputHints getOutputHints(Operation *op,
 
 bool shouldExploreReshards(Operation *op) {
   return llvm::TypeSwitch<Operation *, bool>(op)
-      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp>(
+      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp, ConcatOp>(
           [](auto) { return false; })
       .Default([](Operation *) { return true; });
 }
