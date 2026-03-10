@@ -439,10 +439,8 @@ public:
       llvm::SmallVector<int64_t> paddedShape(inputShape.begin(),
                                              inputShape.end());
       paddedShape[selectedDim] = tilePaddedShape[selectedDim];
-      auto paddedType = RankedTensorType::get(
-          paddedShape, inputType.getElementType(),
-          mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding())
-              .withTensorShape(paddedShape));
+      auto paddedType =
+          ttnn::utils::RankedTensorTypeFactory::create(inputType, paddedShape);
 
       reduceScatterInput = rewriter.create<ttnn::PadOp>(
           ttmlir::utils::appendLocationSuffix(loc, "_pad_for_reduce_scatter"),
