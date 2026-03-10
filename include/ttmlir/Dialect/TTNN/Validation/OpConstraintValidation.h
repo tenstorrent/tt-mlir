@@ -47,6 +47,9 @@ struct ValidationResult {
   // Success). This is the per-core L1 footprint of the output tensor.
   uint64_t outputL1Usage = 0;
 
+  // CB peak L1 usage from op_model. Only valid if Success.
+  uint64_t cbPeakUsage = 0;
+
   // Error message if status != Success.
   std::string errorMessage;
 
@@ -54,10 +57,10 @@ struct ValidationResult {
 
   explicit ValidationResult(
       size_t configIndex, llvm::SmallVector<TTNNLayoutAttr> actualOutputLayouts,
-      uint64_t outputL1Usage = 0)
+      uint64_t outputL1Usage = 0, uint64_t cbPeakUsage = 0)
       : configIndex(configIndex),
         actualOutputLayouts(std::move(actualOutputLayouts)),
-        outputL1Usage(outputL1Usage) {}
+        outputL1Usage(outputL1Usage), cbPeakUsage(cbPeakUsage) {}
 
   // Accessors for the first actual output layout (convenience for single-output
   // ops).
@@ -73,18 +76,19 @@ struct ValidationResult {
 
   static ValidationResult success(size_t configIndex,
                                   TTNNLayoutAttr actualOutputLayout,
-                                  uint64_t outputL1Usage = 0) {
+                                  uint64_t outputL1Usage = 0,
+                                  uint64_t cbPeakUsage = 0) {
     return ValidationResult(
         configIndex, llvm::SmallVector<TTNNLayoutAttr>{actualOutputLayout},
-        outputL1Usage);
+        outputL1Usage, cbPeakUsage);
   }
 
   static ValidationResult
   success(size_t configIndex,
           llvm::SmallVector<TTNNLayoutAttr> actualOutputLayouts,
-          uint64_t outputL1Usage = 0) {
+          uint64_t outputL1Usage = 0, uint64_t cbPeakUsage = 0) {
     return ValidationResult(configIndex, std::move(actualOutputLayouts),
-                            outputL1Usage);
+                            outputL1Usage, cbPeakUsage);
   }
 
   static ValidationResult error(ValidationStatus status, std::string message) {
