@@ -5248,14 +5248,14 @@ private:
 } // namespace
 
 namespace {
-// Conversion: stablehlo::SortOp → ttir::SortOp + optional ttir::GatherOp(s)
+// Conversion: stablehlo::SortOp -> ttir::SortOp + optional ttir::EmbeddingOp(s)
 //
 // StableHLO's SortOp supports sorting tuples of tensors with an arbitrary
 // comparator function. This pattern lowers such SortOps into TTIR by
 // decomposing them into one or more of the following:
 //   - ttir::SortOp: handles sorting a single tensor and producing sorted tensor
 //                   along with sort indices.
-//   - ttir::GatherOp: reorders other tensors based on the computed indices.
+//   - ttir::EmbeddingOp: reorders other tensors based on the computed indices.
 //
 // This conversion supports three types of SortOps:
 //
@@ -5263,7 +5263,7 @@ namespace {
 //     - Only one input (e.g., SortOp(values))
 //     - Lowered to ttir::SortOp producing sorted values
 //     - indices output ignored.
-//     - No gather needed.
+//     - No embedding needed.
 //
 // [2] ValueIndex Sort:
 //     - Two inputs: a value tensor and an index tensor.
@@ -5271,14 +5271,14 @@ namespace {
 //       reshape/broadcast), the pattern assumes it's requesting both sorted
 //       values and their original indices.
 //     - Lowered to ttir::SortOp producing both values and indices
-//     - No gather needed.
+//     - No embedding needed.
 //
 // [3] KeyValue Sort:
 //     - Two inputs where the second input is not recognized as iota or
 //       more than two inputs.
 //     - Only the first input is directly sorted.
 //     - The resulting indices are used to reorder all other inputs via
-//       ttir::GatherOp
+//       ttir::EmbeddingOp
 //     - This emulates tuple sorting (e.g., SortOp(keys, values, ...)) by
 //       aligning all value tensors with the sorted indices of the key.
 //
@@ -5286,14 +5286,13 @@ namespace {
 // - Determine SortType (ValueOnly, ValueIndex, or KeyValue) based on input
 //   count and type.
 // - Emit ttir::SortOp using only the first input tensor.
-// - If needed, emit one or more ttir::GatherOps to reorder the rest of the
+// - If needed, emit one or more ttir::EmbeddingOps to reorder the rest of the
 //   inputs.
 // - Replace the original stablehlo::SortOp with the results of the new
 //   operations.
-// - TTIR GatherOp is based on StableHLO GatherOp which requires full
-//   multi-dimensional index tuples for each index into the input. This is
-//   generated using iota (ArangeOp) tensors for static dimensions and using
-//   ConcatOp to combine them with the index tensor.
+// - For KeyValue Sort, sortDim is permuted to the last position so flat index
+//   computation is a simple ArangeOp + Add. After EmbeddingOp, the result is
+//   permuted back to the original dimension order.
 class StableHLOToTTIRSortOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::SortOp> {
   using OpConversionPattern::OpConversionPattern;
@@ -5361,97 +5360,126 @@ public:
       return success();
     }
 
-    // SortType::kKeyValue — sort additional inputs using indices and GatherOp.
+    // SortType::kKeyValue - reorder each value tensor according to the sort
+    // order. ttir::SortOp gives us per-element sort indices.
+    // We need to use those indices to gather from each value tensor, but
+    // ttir::EmbeddingOp only supports flat (1D) index lookups into a 2D table,
+    // so we must convert the N-D sort indices into flat indices first.
+    //
+    // The flat index of an element at position [i0, i1, ..., k, ..., iN]
+    // (where k is along sortDim) is:
+    //   flat = i0 * stride0 + i1 * stride1 + ... + k * strideSort + ...
+    // Computing this directly requires multiplying sort indices tensor with
+    // stride.
+    //
+    // Instead, we permute sortDim to the last axis. With that permutation, the
+    // tensor logically becomes [prePost, dSort], where prePost is the product
+    // of all non-sort dimension sizes and dSort is size of sortDim.
+    // The flat index then simplifies to:
+    //   flat[i, j] = i * dSort + j
+    // where i is the row (linearized non-sort dims) and j is the column
+    // (sortDim). The stride of the sort dimension is now always 1, so we only
+    // need to add a row offset: i * dSort. That offset pattern is exactly what
+    // ArangeOp(start=0, end=total, step=dSort, dim=0) produces - one entry per
+    // row, broadcast across columns - making the full formula just an addition:
+    //   flat_indices = ArangeOp(step=dSort) + indices_2d
+    //
+    // Steps:
+    //   1. Build permutation that moves sortDim to the last axis (rank-1).
+    //   2. Apply that permutation to the sort indices, then reshape to
+    //      [prePost, dSort].
+    //   3. Compute flat indices: ArangeOp(0, total, step=dSort, dim=0) +
+    //      indices_2d.
+    //   4. For each value tensor: permute (sortDim last), flatten to [total,
+    //   1], EmbeddingOp with flat_indices, reshape to permuted shape, permute
+    //   back to original axis order.
     Value indices = sortOp.getIndices();
     auto indicesType = cast<RankedTensorType>(indices.getType());
     int64_t rank = indicesType.getRank();
+    ArrayRef<int64_t> origShape = indicesType.getShape();
+    Type indexElemType = indicesType.getElementType();
 
-    // TTIR GatherOp is based on StableHLO GatherOp which requires full
-    // multi-dimensional index tuples for each index into the input. This is
-    // generated using iota (ArangeOp) tensors for static dimensions and using
-    // ConcatOp to combine them with the index tensor.
-    SmallVector<int64_t> shape(indicesType.getShape());
-    shape.push_back(1);
-    auto expandedType = RankedTensorType::get(
-        shape, indicesType.getElementType(), indicesType.getEncoding());
+    int64_t dSort = origShape[sortDim];
+    int64_t prePost = indicesType.getNumElements() / dSort;
+    int64_t total = prePost * dSort;
 
-    // Reshape indices to [*shape, 1]
-    SmallVector<int32_t> reshapeDim(shape.begin(), shape.end());
-    auto reshape = rewriter.create<ttir::ReshapeOp>(
-        loc, expandedType, indices, rewriter.getI32ArrayAttr(reshapeDim));
-
-    // Generate iota-based index components (for all dims except sorting dim).
-    // Sorted indices is used for sorting dim.
-    SmallVector<Value> toConcat;
-    for (int64_t idx = 0; idx < rank; ++idx) {
-      if (idx == sortDim) {
-        toConcat.push_back(reshape);
-        continue;
+    // Build permutation: all dims except sortDim, then sortDim last.
+    SmallVector<int64_t> perm;
+    perm.reserve(rank);
+    for (int64_t i = 0; i < rank; ++i) {
+      if (i != sortDim) {
+        perm.push_back(i);
       }
-
-      Value arangeOp = rewriter.create<ttir::ArangeOp>(
-          loc, expandedType, /*start=*/0,
-          /*end=*/shape[idx], /*step=*/1, /*arange_dimension=*/idx);
-      toConcat.push_back(arangeOp);
     }
+    perm.push_back(sortDim);
+    SmallVector<int64_t> invPerm = ttmlir::utils::inversePermutation(perm);
 
-    // Concat along new trailing dimension to get [*, rank].
-    shape.back() = rank;
-    auto concatType = RankedTensorType::get(shape, indicesType.getElementType(),
-                                            indicesType.getEncoding());
-    // Concatenate iota(s) with the original indices tensor; this will act as
-    // index tensor for GatherOp.
-    Value concatIndices =
-        rewriter.create<ttir::ConcatOp>(loc, concatType, toConcat, rank);
+    // Permute indices so sortDim is last, then reshape to [prePost, dSort].
+    Value indices2D = indices;
+    SmallVector<int64_t> permShape =
+        ttmlir::utils::applyPermutation(origShape, perm);
+    auto permType = RankedTensorType::get(permShape, indexElemType);
+    indices2D =
+        rewriter.create<ttir::PermuteOp>(loc, permType, indices2D, perm);
+    auto indices2DType = RankedTensorType::get({prePost, dSort}, indexElemType);
+    indices2D = rewriter.create<ttir::ReshapeOp>(
+        loc, indices2DType, indices2D,
+        rewriter.getI32ArrayAttr(
+            {static_cast<int32_t>(prePost), static_cast<int32_t>(dSort)}));
 
-    // Prepare Gather attributes
-    // collapsedDims specifies which dimensions of the gathered slice should be
-    // "collapsed" (i.e., dropped from the result shape).
-    // Since we're gathering scalar elements (sliceSize = 1 in every dimension),
-    // we collapse all dimensions to get a scalar output at each gather point.
-    // collapsedDims = [0, 1, ..., rank-1]
-    SmallVector<int64_t> collapsedDims(/*size=*/rank);
-    std::iota(collapsedDims.begin(), collapsedDims.end(), /*start_value=*/0);
+    // Flat indices: row i gets offset i*dSort, so flat[i,j] = i*dSort +
+    // idx[i,j].
+    auto rowOffsets = rewriter.create<ttir::ArangeOp>(
+        loc, indices2DType, /*start=*/0, /*end=*/total,
+        /*step=*/dSort, /*arange_dimension=*/0);
+    Value flatIndices =
+        rewriter.create<ttir::AddOp>(loc, indices2DType, rowOffsets, indices2D);
 
-    // startIndexMap defines how to map each element of a start index vector to
-    // a dimension in the input.
-    // A value of `i` at position `i` means index[i] maps to dimension i in the
-    // input. This is a one-to-one mapping from index vector components to input
-    // dimensions.
-    // startIndexMap = [0, 1, ..., rank-1]
-    SmallVector<int64_t> startIndexMap(/*size=*/rank);
-    std::iota(startIndexMap.begin(), startIndexMap.end(), /*start_value=*/0);
-
-    // These are left empty because we are not using batching in this gather.
-    // - operand_batch_dims: for batching in the input tensor
-    // - start_index_batch_dims: for batching in the start_indices tensor
-    // Since we're gathering without batching semantics, these remain empty.
-    llvm::ArrayRef<int64_t> empty;
-
-    // sliceSizes determines the size of the slice to extract at each index.
-    // Since we are gathering scalars (individual elements), the slice size is 1
-    // in every dimension. e.g., for rank=4 → [1, 1, 1, 1]
-    SmallVector<int64_t> sliceSizes(rank, 1);
-
-    // Collect output values: sorted keys + gathered values
+    // Per value tensor: permute sortDim to last -> flatten -> EmbeddingOp ->
+    // reshape -> permute back.
     SmallVector<Value> results{sortOp.getValues()};
 
     for (size_t i = 1; i < srcOp.getInputs().size(); ++i) {
       auto valType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResultTypes()[i]));
+      SmallVector<int64_t> permValShape =
+          ttmlir::utils::applyPermutation(valType.getShape(), perm);
 
-      auto gathered = rewriter.create<ttir::GatherOp>(
-          loc, valType, srcOp.getInputs()[i], concatIndices,
-          /*offsetDims=*/empty,
-          /*collapsedSliceDims=*/collapsedDims,
-          /*operandBatchDims=*/empty,
-          /*startIndexBatchDims=*/empty,
-          /*startIndexMap=*/startIndexMap,
-          /*indexVectorDim=*/rank,
-          /*sliceSizes=*/sliceSizes,
-          /*indicesAreSorted=*/false);
+      Value val = srcOp.getInputs()[i];
 
-      results.push_back(gathered);
+      // Permute value tensor so sortDim is last.
+      auto permValType =
+          RankedTensorType::get(permValShape, valType.getElementType());
+      val = rewriter.create<ttir::PermuteOp>(loc, permValType, val, perm);
+
+      // Flatten to [total, 1] - EmbeddingOp requires 2D weights.
+      auto weightType =
+          RankedTensorType::get({total, 1}, valType.getElementType());
+      val = rewriter.create<ttir::ReshapeOp>(
+          loc, weightType, val,
+          rewriter.getI32ArrayAttr({static_cast<int32_t>(total), 1}));
+
+      // EmbeddingOp: indices [prePost, dSort] * weights [total, 1]
+      //   -> output [prePost, dSort, 1].
+      auto embOutType =
+          RankedTensorType::get({prePost, dSort, 1}, valType.getElementType());
+      val =
+          rewriter.create<ttir::EmbeddingOp>(loc, embOutType, flatIndices, val);
+
+      // Reshape [prePost, dSort, 1] -> permuted shape [...non-sort dims...,
+      // dSort].
+      SmallVector<int32_t> permValShapeI32(permValShape.begin(),
+                                           permValShape.end());
+      auto permValResultType =
+          RankedTensorType::get(permValShape, valType.getElementType());
+      val = rewriter.create<ttir::ReshapeOp>(
+          loc, permValResultType, val,
+          rewriter.getI32ArrayAttr(permValShapeI32));
+
+      // Permute back to original dimension order.
+      val = rewriter.create<ttir::PermuteOp>(loc, valType, val, invPerm);
+
+      results.push_back(val);
     }
 
     rewriter.replaceOp(srcOp, results);

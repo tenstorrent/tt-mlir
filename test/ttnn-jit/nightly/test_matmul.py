@@ -32,9 +32,6 @@ MATMUL_SHAPE_GRIDS_SINGLE_OR_FULL = [
 ]
 
 
-@pytest.mark.skip(
-    reason="Skipping matmul tests until JIT frontend is adapted to intermediate layout inference. Issue #7163"
-)
 @pytest.mark.parametrize(
     "shape_grids",
     MATMUL_SHAPE_GRIDS_SINGLE_OR_FULL,
@@ -101,9 +98,6 @@ INPUT_LAYOUTS = [
 ]
 
 
-@pytest.mark.skip(
-    reason="Skipping matmul tests until JIT frontend is adapted to intermediate layout inference. Issue #7163"
-)
 @pytest.mark.parametrize(
     "shapes",
     MATMUL_SHAPES,
