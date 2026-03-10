@@ -180,9 +180,8 @@ private:
   /// addresses. Uses min(speculativeOutputAddr, lowestOccupiedAddress) as
   /// the effective lowest tensor address.
   /// See: https://github.com/tenstorrent/tt-mlir/issues/7396
-  bool wouldCBsOverlapTensors(Operation *op, int64_t pos,
-                               uint64_t cbPeakUsage,
-                               uint64_t speculativeOutputAddr);
+  bool wouldCBsOverlapTensors(Operation *op, int64_t pos, uint64_t cbPeakUsage,
+                              uint64_t speculativeOutputAddr);
 
   /// Fragmentation recovery: evict tensors in the CB danger zone, re-validate,
   /// or demote output to DRAM. Returns L1 bytes to add to live set (0 if
