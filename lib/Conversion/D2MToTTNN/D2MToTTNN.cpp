@@ -329,13 +329,19 @@ public:
 
       ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
 
-      // TODO (#7158): This is brittle. Ideally we should specifically identify
-      // outputs and handle them separately from inputs, but that will require a
-      // larger refactor of this pass.
+      // An alloc is an "aliased output" (needs global buffer binding) unless
+      // it serves as the STORAGE operand of a StreamLayoutOp. Allocs used as
+      // the INPUT of a StreamLayoutOp are intermediate data buffers that still
+      // need buffer bindings so kernels write results to the tensor's backing
+      // buffer.
+      Value cbVal = cb;
       bool isAliasedOutput =
           mlir::dyn_cast_if_present<memref::AllocOp>(cb.getDefiningOp()) &&
-          llvm::none_of(cb.getUsers(), [](Operation *user) {
-            return mlir::isa<d2m::StreamLayoutOp>(user);
+          llvm::none_of(cb.getUsers(), [cbVal](Operation *user) {
+            if (auto streamOp = mlir::dyn_cast<d2m::StreamLayoutOp>(user)) {
+              return streamOp.getStorage() == cbVal;
+            }
+            return false;
           });
 
       if ((mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
@@ -360,14 +366,26 @@ public:
   // IO comes from converted operands (e.g., ttnn.empty results).
   // CB comes from original operands (memref types for CB descriptors).
   static IOAndCB extractIOAndCBFromGenericOperand(Value origOperand,
-                                                  Value convertedOperand) {
+                                                  Value convertedOperand,
+                                                  bool isOutput) {
     if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
             origOperand.getDefiningOp())) {
-      auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-          streamLayoutOp.getInput().getDefiningOp());
-      TT_assertv(castOp,
-                 "Expected TTNNMetalLayoutCastOp producing stream input.");
-      return {castOp.getOperand(), streamLayoutOp.getStorage()};
+      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+              streamLayoutOp.getInput().getDefiningOp())) {
+        TT_assertv(castOp,
+                   "Expected TTNNMetalLayoutCastOp producing stream input.");
+        return {castOp.getOperand(), streamLayoutOp.getStorage()};
+      }
+
+      // Stream input is a plain alloc (intermediate buffer between generics).
+      // For outputs: use the data alloc as CB so it gets a global buffer
+      //   binding and the kernel writes results to the tensor's backing buffer.
+      // For inputs: use the storage as CB (streaming CB, no buffer binding
+      //   needed since the kernel reads via runtime args).
+      if (isOutput) {
+        return {convertedOperand, streamLayoutOp.getInput()};
+      }
+      return {convertedOperand, streamLayoutOp.getStorage()};
     }
 
     if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
@@ -468,7 +486,9 @@ public:
                                            adaptor.getOutputs().size());
     for (auto [i, orig, converted] :
          llvm::enumerate(op.getInputsAndOutputs(), adaptorInputsAndOutputs)) {
-      auto [io, cb] = extractIOAndCBFromGenericOperand(orig, converted);
+      bool isOutput = (i >= op.getInputs().size());
+      auto [io, cb] =
+          extractIOAndCBFromGenericOperand(orig, converted, isOutput);
       ios[i] = io;
       cbs[i] = cb;
     }
