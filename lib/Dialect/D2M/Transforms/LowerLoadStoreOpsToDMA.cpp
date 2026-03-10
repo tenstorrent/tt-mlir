@@ -471,8 +471,8 @@ public:
           // filled by the DMA read above.
           Value mcastTx = builder.create<DMAWriteOp>(
               loc, localMemref, mcastLocalIndices, localMemref,
-              mcastLocalIndices, shardVolume, remoteLoad.getMcastStartIndex(),
-              remoteLoad.getMcastShape());
+              mcastLocalIndices, remoteLoad.getMcastStartIndex(),
+              remoteLoad.getMcastShape(), shardVolume);
           builder.create<DMAWaitOp>(loc, mcastTx);
 
           // Signal receivers that sender is finished
@@ -617,7 +617,8 @@ public:
                                  ArrayRef<int64_t> shardShape,
                                  AffineMap remoteMemoryMap,
                                  AffineMap localMemoryMap, Value cb,
-                                 size_t coalescingFactor, size_t shardVolume) {
+                                 size_t coalescingFactor, size_t shardVolume,
+                                 ValueRange startDevice, ValueRange endDevice) {
     // Reserve CB to get the local memref
     Value localMemref = builder.create<WaitOp>(loc, cb).getResult();
 
@@ -638,9 +639,9 @@ public:
       localIndices =
           applyMap(builder, loc, localMemoryMap, localIndices, false);
 
-      return builder.create<DMAWriteOp>(loc, localMemref, localIndices,
-                                        remoteMemref, remoteIndices,
-                                        coalescingFactor);
+      return builder.create<DMAWriteOp>(
+          loc, localMemref, localIndices, remoteMemref, remoteIndices,
+          coalescingFactor, startDevice, endDevice);
     }
 
     // Strided/non-contiguous: generate loops with guarded DMAs
@@ -704,7 +705,7 @@ public:
           auto thenBuilder = ifExpr.getThenBodyBuilder();
           Value dmaTx = thenBuilder.create<DMAWriteOp>(
               innerLoc, localMemref, localIndices, remoteMemref, remoteIndices,
-              coalescingFactor);
+              coalescingFactor, startDevice, endDevice);
           thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
 
           auto elseBuilder = ifExpr.getElseBodyBuilder();
@@ -766,13 +767,16 @@ public:
 
     size_t shardVolume = ttmlir::utils::volume(shardShape);
 
-    // Get grid indices from the remote_store operation
+    // Get grid indices and device range from the remote_store operation
     SmallVector<Value> gridIndices = remoteStore.getIndices();
+    ValueRange startDevice = remoteStore.getStartDevice();
+    ValueRange endDevice = remoteStore.getEndDevice();
 
     // Generate DMA writes with proper coalescing
-    Value dmaTx = generateDMAWrites(rewriter, loc, remoteMemref, gridIndices,
-                                    shardShape, remoteMemoryMap, localMemoryMap,
-                                    cb, coalescingFactor, shardVolume);
+    Value dmaTx =
+        generateDMAWrites(rewriter, loc, remoteMemref, gridIndices, shardShape,
+                          remoteMemoryMap, localMemoryMap, cb, coalescingFactor,
+                          shardVolume, startDevice, endDevice);
 
     rewriter.eraseOp(remoteStore);
 

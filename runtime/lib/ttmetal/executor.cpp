@@ -27,6 +27,7 @@
 
 #include <cstdint>
 #include <string>
+#include <tt-metalium/host_api.hpp>
 #include <unordered_map>
 
 namespace tt::runtime::ttmetal {
@@ -306,9 +307,13 @@ void MCQExecutor::execute(
              "Global semaphore with id ", command->ref()->global_id(),
              " already exists.");
   // todo(sohaibnadeem): add address parameter once metal API is added
-  auto global_semaphore = tt::tt_metal::GlobalSemaphore(
+  auto global_semaphore = tt::tt_metal::experimental::CreateGlobalSemaphore(
       meshDevice, common::toCoreRangeSet(command->core_range_set()),
-      *command->initial_value(), tt_metal::BufferType::L1);
+      command->initial_value(), tt_metal::BufferType::L1,
+      command->ref()->address());
+  LOG_INFO("----------address of global smepahore:",
+           global_semaphore.address());
+  LOG_ASSERT(global_semaphore.address() == command->ref()->address());
   global_semaphores.emplace(command->ref()->global_id(),
                             std::move(global_semaphore));
 }
@@ -360,11 +365,13 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           command->arg_refs(), meshBuffers, global_semaphores, command->cbs(),
           deviceAddressValidator, createSemaphore);
 
+      LOG_ERROR("before fabric config args\n");
       if (command->fabric_connection_config() &&
           kernelConfig->type_type() ==
               target::metal::KernelConfigType::NocConfig &&
           command->fabric_connection_config()->noc_index() ==
               kernelConfig->type_as_NocConfig()->noc_index()) {
+        LOG_ERROR("appending fabric config args for kernel \n");
         auto fabricConfigArgs = common::appendFabricConfigArgs(
             command->fabric_connection_config(), kernelConfig, program, handle,
             deviceCoord, meshDevice, rtArgsVec, coreRangeSet);
@@ -550,7 +557,9 @@ void MCQExecutor::execute(const target::metal::CpuCommand *command) {
 
 void MCQExecutor::execute(const target::metal::FinishCommand *) {
   ZoneScopedN("FinishCommand");
+
   distributed::Finish(*mcq);
+  //::tt::tt_metal::ReadMeshDeviceProfilerResults(*meshDevice);
 }
 
 void MCQExecutor::execute(const target::metal::MeshShardCommand *command) {

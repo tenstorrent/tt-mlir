@@ -3064,17 +3064,17 @@ def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_
 // TTKernel Logical Mesh Position operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_GetLogicalMeshPositionOp : TTKernel_Op<"experimental::get_logical_mesh_position"> {
-  let summary = "GetLogicalMeshPosition";
+def TTKernel_GetMyLogicalMeshPositionOp : TTKernel_Op<"experimental::get_my_logical_mesh_position"> {
+  let summary = "GetMyLogicalMeshPosition";
   let description = [{
-    Get the logical mesh position for a given device ID.
+    Get the mesh position for the current device at the given dimension.
   }];
 
-  let arguments = (ins TTKernel_FabricConnectionManager:$fcm, I32:$device_id);
-  let results = (outs TTKernel_MeshPosition:$position);
+  let arguments = (ins TTKernel_FabricConnectionManager:$fcm, ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
+  let results = (outs Index:$result);
 
   let assemblyFormat = [{
-    `(` $fcm `,` $device_id `)` attr-dict `:` functional-type(operands, results)
+    `(` $fcm `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
@@ -3082,15 +3082,15 @@ def TTKernel_GetDeviceIdFromLogicalMeshPositionOp : TTKernel_Op<"experimental::g
   let summary = "GetDeviceIdFromLogicalMeshPosition";
   let description = [{
     Get the device ID for a given logical mesh position.
-    Takes a MeshPosition and returns the corresponding device ID.
+    Takes a list of indices representing the logical mesh position and returns the corresponding device ID.
     Maps to get_device_id_from_logical_mesh_position(fcm, position) in device code.
   }];
 
-  let arguments = (ins TTKernel_FabricConnectionManager:$fcm, TTKernel_MeshPosition:$position);
+  let arguments = (ins TTKernel_FabricConnectionManager:$fcm, Variadic<Index>:$position_indices);
   let results = (outs I16:$device_id);
 
   let assemblyFormat = [{
-    `(` $fcm `,` $position `)` attr-dict `:` functional-type(operands, results)
+    `(` $fcm `,` $position_indices `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
