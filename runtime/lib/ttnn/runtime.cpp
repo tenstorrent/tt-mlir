@@ -36,155 +36,69 @@
 #include <tt-metalium/memory_pin.hpp>
 #include <vector>
 
-#include <algorithm>
 #include <fcntl.h>
-#include <filesystem>
-#include <numeric>
-#include <string>
 #include <sys/mman.h>
-#include <sys/stat.h>
 #include <unistd.h>
-
-namespace fs = std::filesystem;
 
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
 
-void *create_and_mmap_tmp_file(const std::string &file_path, size_t size) {
-  std::string full_path = "/tmp/" + file_path;
+// Returns a raw pointer to a disk-backed mmap'd region of `total_size` bytes.
+// Uses O_TMPFILE so no filesystem entry is ever created or needs cleanup;
+// the kernel releases the backing storage when the mapping is destroyed.
+// The base directory defaults to /var/tmp but can be overridden via the
+// TT_MMAP_DIR environment variable.
+void *mmap_tensor_data(const void *data,
+                       const std::vector<std::uint32_t> &shape,
+                       std::uint32_t itemsize) {
+  size_t total_size =
+      std::accumulate(shape.begin(), shape.end(), static_cast<size_t>(1),
+                      std::multiplies<size_t>()) *
+      itemsize;
+  if (total_size == 0) {
+    LOG_ERROR("mmap_tensor_data: cannot mmap a zero-size tensor");
+    return nullptr;
+  }
 
-  // 1. Open the file (Create if doesn't exist, Read/Write mode)
-  // Mode 0666 sets standard read/write permissions
-  int fd = open(full_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
-  unlink(full_path.c_str()); // destruct the file on fd release
+  const char *base_dir = std::getenv("TT_MMAP_DIR");
+  if (!base_dir) {
+    base_dir = "/var/tmp";
+  }
+
+  LOG_INFO("mmap_tensor_data: allocating ", total_size,
+           " bytes via O_TMPFILE in ", base_dir);
+
+  // O_TMPFILE creates an unnamed inode on a real (disk-backed) filesystem.
+  // No unlink needed; the inode is freed when the fd is closed and the
+  // mapping is destroyed.
+  int fd = open(base_dir, O_TMPFILE | O_RDWR, 0600);
   if (fd == -1) {
-    LOG_ERROR("create_and_mmap_tmp_file: Failed to open file '", full_path,
+    LOG_ERROR("mmap_tensor_data: open(O_TMPFILE) failed in '", base_dir,
               "': ", strerror(errno));
     return nullptr;
   }
 
-  // 2. Stretch the file to the desired size
-  // A new file has 0 bytes; mmap will fail if the file is smaller than 'size'
-  if (ftruncate(fd, size) == -1) {
-    LOG_ERROR("create_and_mmap_tmp_file: Failed to set file size to ", size,
-              " bytes for '", full_path, "': ", strerror(errno));
+  if (ftruncate(fd, static_cast<off_t>(total_size)) == -1) {
+    LOG_ERROR("mmap_tensor_data: ftruncate failed: ", strerror(errno));
     close(fd);
     return nullptr;
   }
 
-  // 3. Map the file into memory
-  // PROT_READ | PROT_WRITE allows us to read and write to the pointer
-  // MAP_SHARED ensures changes are written back to the file
-  void *map = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  void *map =
+      mmap(nullptr, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  close(fd); // mapping keeps the backing store alive; fd is no longer needed
 
   if (map == MAP_FAILED) {
-    LOG_ERROR("create_and_mmap_tmp_file: mmap failed for '", full_path,
-              "' with size ", size, " bytes: ", strerror(errno));
-    close(fd);
+    LOG_ERROR("mmap_tensor_data: mmap failed: ", strerror(errno));
     return nullptr;
   }
 
-  // 4. Close the file descriptor
-  // We can close the FD immediately; the mapping survives until proc
-  // termination
-  close(fd);
-  return map;
-}
-
-// Helper to find the max integer prefix in a directory and return max + 1
-uint32_t get_next_index(const fs::path &dir) {
-  if (!fs::exists(dir)) {
-    fs::create_directories(dir);
-    return 0;
-  }
-  uint32_t max_idx = 0;
-  bool found = false;
-  for (const auto &entry : fs::directory_iterator(dir)) {
-    std::string name = entry.path().stem().string();
-    // Take the part before the first underscore (for the M files)
-    std::string prefix = name.substr(0, name.find('_'));
-    try {
-      uint32_t val = std::stoul(prefix);
-      max_idx = std::max(max_idx, val);
-      found = true;
-    } catch (...) {
-      continue;
-    }
-  }
-  return found ? max_idx + 1 : 0;
-}
-
-// returns a raw pointer to the mmap'd region
-void *mmap_tensor_data_to_tmp_file(const void *data,
-                                   const std::vector<std::uint32_t> &shape,
-                                   const std::vector<std::uint32_t> &stride,
-                                   std::uint32_t itemsize,
-                                   ::tt::target::DataType dataType) {
-
-  LOG_DEBUG("mmap_tensor_data_to_tmp_file: Enter - itemsize=", itemsize,
-            ", data_ptr=", data, ", shape_size=", shape.size());
-
-  // 3. Calculate Total Size (early-out for zero-size tensors, e.g. shape=[0])
-  size_t total_size =
-      std::accumulate(shape.begin(), shape.end(), static_cast<uint64_t>(1),
-                      std::multiplies<size_t>()) *
-      itemsize;
-  if (total_size == 0) {
-    LOG_ERROR("mmap_tensor_data_to_tmp_file: Cannot mmap a zero-size tensor "
-              "(total_size=0, itemsize=",
-              itemsize, ")");
-    return nullptr;
-  }
-
-  // 1. Determine N (The subdirectory)
-  fs::path base_path = "/tmp/mmap";
-  uint32_t N = get_next_index(base_path);
-  fs::path n_dir = base_path / std::to_string(N);
-  fs::create_directories(n_dir);
-
-  // 2. Determine M (The file) and Append Shape
-  uint32_t M = get_next_index(n_dir);
-  std::string filename = std::to_string(M);
-  for (auto s : shape) {
-    filename += "_" + std::to_string(s);
-  }
-
-  fs::path final_path = n_dir / filename;
-
-  LOG_INFO("mmap_tensor_data_to_tmp_file: Creating mmap file at ",
-           final_path.string(), " with size ", total_size, " bytes");
-
-  // 4. Use your previous helper to get the mmap pointer
-  // Note: create_and_mmap_tmp_file expects a relative path and will prepend
-  // /tmp/
-  std::string relative_path = "mmap/" + std::to_string(N) + "/" + filename;
-  void *mmap_ptr = create_and_mmap_tmp_file(relative_path, total_size);
-
-  if (!mmap_ptr) {
-    LOG_DEBUG("mmap_tensor_data_to_tmp_file: Failed to create mmap, returning "
-              "nullptr");
-    return nullptr;
-  }
-
-  LOG_DEBUG("mmap_tensor_data_to_tmp_file: Successfully mmap'd at address ",
-            mmap_ptr);
-
-  // 5. Copy data into the mmap'd region
   if (data) {
-    LOG_DEBUG("mmap_tensor_data_to_tmp_file: Copying ", total_size,
-              " bytes to mmap region");
-    std::memcpy(mmap_ptr, data, total_size);
-    LOG_DEBUG("mmap_tensor_data_to_tmp_file: Data copy complete");
-  } else {
-    LOG_DEBUG(
-        "mmap_tensor_data_to_tmp_file: No data to copy (data ptr is null)");
+    std::memcpy(map, data, total_size);
   }
 
-  // 6. Return the shared_ptr with a custom deleter
-  LOG_DEBUG(
-      "mmap_tensor_data_to_tmp_file: Returning memory pin with custom deleter");
-  return mmap_ptr;
+  return map;
 }
 
 static ::ttnn::Tensor
@@ -410,8 +324,7 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
   if (std::getenv("TT_USE_MMAP") != nullptr &&
       ::tt::runtime::utils::isSupportedDataType(dataType)) {
-    void *raw_mmap_ptr =
-        mmap_tensor_data_to_tmp_file(data, shape, stride, itemsize, dataType);
+    void *raw_mmap_ptr = mmap_tensor_data(data, shape, itemsize);
     if (raw_mmap_ptr != nullptr) {
       ::ttnn::Shape ttnnShape(shape);
       uint64_t num_elements =
