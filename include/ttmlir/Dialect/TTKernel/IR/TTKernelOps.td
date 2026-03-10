@@ -42,7 +42,19 @@ def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_start
 // TTKernel Register operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_TileRegsAcquireOp : TTKernel_Op<"experimental::tile_regs_acquire"> {
+def TTKernel_UnpackStallOnPackOp
+    : TTKernel_Op<"experimental::unpack_stall_on_pack"> {
+  let summary = "Stall UNPACK thread until previous PACK write is committed to L1.";
+  let description = [{
+    Issues a hardware semaphore wait on the MATH_PACK semaphore from the
+    UNPACK thread, blocking until the previous packer cycle's write to L1
+    is visible. Used between consecutive linalg.generics sharing an
+    intermediate L1 buffer in the single-tile shard path.
+  }];
+  let assemblyFormat = [{ attr-dict }];
+}
+
+def TTKernel_TileRegsAcquireOp : TTKernel_Op<"tile_regs_acquire"> {
     let summary = "tile_regs_acquire";
     let description = [{
       Acquire an exclusive lock on the DST register for the MATH thread.
