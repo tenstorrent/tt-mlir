@@ -301,3 +301,86 @@ def test_interleaved_dma(
             return untilize_out
 
     compile_dma_test(module, shape, request, device=device)
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "shape, src_grid, dst_grid",
+    [
+        ((128, 128), (1, 1), (2, 2)),
+        ((128, 128), (2, 2), (1, 1)),
+        ((128, 128), (2, 4), (4, 2)),
+        ((128, 128), (4, 2), (2, 4)),
+        ((128, 128), (1, 4), (4, 1)),
+        ((128, 128), (1, 2), (2, 1)),
+    ],
+)
+def test_dram_to_dram_tiled(
+    shape: Shape,
+    src_grid: tuple,
+    dst_grid: tuple,
+    target: str,
+    request,
+    device,
+):
+    """Tests DRAM-to-DRAM reblocking via to_layout with tiled tensors."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def dram_to_dram(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            to_device = builder.tilize(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=True,
+                    memorySpace=ttcore.MemorySpace.DeviceL1,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            to_dram_a = builder.to_layout(
+                to_device,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=True,
+                    memorySpace=ttcore.MemorySpace.DeviceDRAM,
+                    grid=src_grid,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            to_dram_b = builder.to_layout(
+                to_dram_a,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=True,
+                    memorySpace=ttcore.MemorySpace.DeviceDRAM,
+                    grid=dst_grid,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            to_l1 = builder.to_layout(
+                to_dram_b,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=True,
+                    memorySpace=ttcore.MemorySpace.DeviceL1,
+                    grid=dst_grid,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            untilize_out = builder.untilize(
+                to_l1,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+            )
+
+            return untilize_out
+
+    compile_dma_test(module, shape, request, device=device)
