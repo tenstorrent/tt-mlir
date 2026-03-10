@@ -690,6 +690,12 @@ mlir::AffineMap collapsedLinearAffineMap(
   auto map = mlir::AffineMap::getMinorIdentityMap(shape.size(),
                                                   numResultsClamped, context);
 
+  if (ttmlir::utils::volume(shape) == 0u) {
+    while (map.getNumResults() < gridShape.size()) {
+      map = map.insertResult(getAffineConstantExpr(0, context), 0);
+    }
+    return mlir::simplifyAffineMap(map);
+  }
   std::int64_t minimumDim = static_cast<std::int64_t>(shape.size());
   for (auto [begin, end] : collapseIntervals) {
     if (begin < 0) {
@@ -1351,7 +1357,7 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
   assert(virtualGrid.size() == meshShape.size());
 
   // Special case the inner 2 dimensions of the device indexing to support
-  // horizonally/vertically stacked virtual grids.  For these cases we need an
+  // horizontally/vertically stacked virtual grids.  For these cases we need an
   // affine expression that rolls over the device index when we reach the end of
   // single-chip boundaries.
   int meshStride = 1;

@@ -4,6 +4,7 @@
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
+#include "llvm/ADT/SmallVector.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -112,7 +113,7 @@ executeConstraintQuery(Callable &callable) {
  * @param name The name of the operation to query constraints for.
  * @param context The MLIRContext to use for creating the TTNNLayoutAttr for the
  * output tensor
- * @param deviceGrid The worker grid of the device the op is targetted for.
+ * @param deviceGrid The worker grid of the device the op is targeted for.
  * Required for creating the output tensor layout
  * @param callable A callable object that performs the query.
  * @return A tuple containing query results or a string error.
@@ -130,13 +131,17 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
 
   ::ttnn::graph::ConstraintQueryResponse response = query.get();
 
+  llvm::SmallVector<TTNNLayoutAttr> layoutAttrs;
+  for (const auto &outputTensorSpec : response.output_tensor_specs.value()) {
+    layoutAttrs.push_back(conversion::getLayoutAttrFromTensorSpec(
+        context, outputTensorSpec, deviceGrid.getShape()));
+  }
+
   return OpConstraints(response.resource_usage.cb_peak_size_per_core,
                        response.resource_usage.l1_buffers_peak_per_core,
                        response.resource_usage.peak_memory_usage_per_core,
                        response.resource_usage.l1_output_buffer_per_core,
-                       conversion::getLayoutAttrFromTensorSpec(
-                           context, response.output_tensor_specs.value()[0],
-                           deviceGrid.getShape()));
+                       layoutAttrs);
 }
 
 template <class Callable>
@@ -554,7 +559,7 @@ createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
 
 // Returns the output tensor spec of the prepared weights for a conv2d op.
 // Transform the standard OIHW weights layout to the ttnn convolution internal
-// layout that is desired. The output shape is dependant on the conv2d config
+// layout that is desired. The output shape is dependent on the conv2d config
 // and input memory config.
 llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -953,12 +958,12 @@ llvm::Expected<OpConstraints> OpModel<SigmoidOp>::getOpConstraints(
   // Add default parameters
   int32_t vectorMode =
       static_cast<int32_t>(::ttnn::operations::unary::VecMode::RC);
-  bool approximateMode = false;
+  auto sigmoidMode = ::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE;
 
   // Create query closure
   auto query = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::sigmoid, device, inputSpec, vectorMode, approximateMode,
+        ::ttnn::sigmoid, device, inputSpec, vectorMode, sigmoidMode,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -987,12 +992,12 @@ OpModel<SigmoidOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   // Add default parameters
   int32_t vectorMode =
       static_cast<int32_t>(::ttnn::operations::unary::VecMode::RC);
-  bool approximateMode = false;
+  auto sigmoidMode = ::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE;
 
   // Create query closure
   auto query = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::sigmoid, device, inputSpec, vectorMode, approximateMode,
+        ::ttnn::sigmoid, device, inputSpec, vectorMode, sigmoidMode,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -6384,18 +6389,29 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ClampScalar
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+/// Convert a clamp min/max mlir::Attribute (F32Attr or I32Attr) to the
+/// std::variant tt-metal expects, mirroring the runtime's NumberType dispatch.
+static std::optional<std::variant<float, int32_t>>
+clampAttrToVariant(mlir::Attribute attr) {
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return static_cast<int32_t>(intAttr.getValue().getSExtValue());
+  }
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return static_cast<float>(floatAttr.getValueAsDouble());
+  }
+  return std::nullopt;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, llvm::APFloat min, llvm::APFloat max,
+    TTNNLayoutAttr inputLayout, mlir::Attribute min, mlir::Attribute max,
     TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-
-  // Convert float
-  float minVal = min.convertToFloat();
-  float maxVal = max.convertToFloat();
 
   auto inputSpecExp =
       detail::convertToTensorSpec(device, inputShape, inputLayout);
@@ -6404,11 +6420,13 @@ llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  // Create query closure
+  auto memConfig = detail::getNullableMemoryConfig(outputLayout);
+  auto minVariant = clampAttrToVariant(min);
+  auto maxVariant = clampAttrToVariant(max);
+
   auto clampScalarQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::clamp, device, inputSpec, minVal, maxVal,
-        detail::getNullableMemoryConfig(outputLayout));
+        ::ttnn::clamp, device, inputSpec, minVariant, maxVariant, memConfig);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6420,15 +6438,11 @@ llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
 
 llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::APFloat min, llvm::APFloat max, TTNNLayoutAttr outputLayout) {
+    mlir::Attribute min, mlir::Attribute max, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-
-  // Convert float
-  float minVal = min.convertToFloat();
-  float maxVal = max.convertToFloat();
 
   auto inputSpecExp =
       detail::convertToTensorSpec(device, inputShape, inputLayout);
@@ -6437,11 +6451,13 @@ llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  // Create query closure
+  auto memConfig = detail::getNullableMemoryConfig(outputLayout);
+  auto minVariant = clampAttrToVariant(min);
+  auto maxVariant = clampAttrToVariant(max);
+
   auto clampScalarQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::clamp, device, inputSpec, minVal, maxVal,
-        detail::getNullableMemoryConfig(outputLayout));
+    return ::ttnn::graph::query_op_runtime(::ttnn::clamp, device, inputSpec,
+                                           minVariant, maxVariant, memConfig);
   };
 
   return operation::getOpRuntime(clampScalarQuery);
@@ -6953,7 +6969,7 @@ OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
 //===----------------------------------------------------------------------===//
 // sgholamiTT: There are two reasons why receiving the start, end, and step as
 // attributes is better than as integers:
-//   1. That is the only valid way to aquire a pointer to MLIRContext.
+//   1. That is the only valid way to acquire a pointer to MLIRContext.
 //   2. Using getInt() member function of ::mlir::IntegerAttr is safer and more
 //      mlir idiomatic than static_cast<int64_t>(start).
 llvm::Expected<OpConstraints>

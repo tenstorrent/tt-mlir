@@ -49,6 +49,7 @@ unary_ops = [
     "logical_not",
     "bitwise_not",
     "reciprocal",
+    "clamp",
 ]
 
 # Binary operations - two input tensors or tensor + scalar
@@ -96,8 +97,17 @@ data_movement_ops = [
     "gather",
 ]
 
+# CCL (collective communication) operations
+ccl_ops = [
+    "all_gather",
+    "all_reduce",
+    "reduce_scatter",
+]
+
 # All supported operations (excluding composite ops that need expansion)
-all_ops = set(unary_ops + binary_ops + reduction_ops + tm_ops + data_movement_ops)
+all_ops = set(
+    unary_ops + binary_ops + reduction_ops + tm_ops + data_movement_ops + ccl_ops
+)
 
 
 def is_supported(op_name: str) -> bool:
@@ -117,5 +127,7 @@ def get_op_category(op_name: str) -> str:
         return "tm"
     elif op_name in data_movement_ops:
         return "data_movement"
+    elif op_name in ccl_ops:
+        return "ccl"
     else:
         return "unsupported"

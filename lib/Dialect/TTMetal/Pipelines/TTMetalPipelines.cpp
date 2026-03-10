@@ -69,6 +69,7 @@ void createOptimizationPasses(OpPassManager &pm,
   pm.addPass(mlir::createSCCPPass());
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::arith::createIntRangeOptimizationsPass());
+  pm.addPass(mlir::createLoopInvariantCodeMotionPass());
 }
 
 void createTTIRToTTMetalFrontendPipeline(
@@ -83,18 +84,21 @@ void createTTIRToTTMetalFrontendPipeline(
   }
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(ttir::createTTIRExplicateTMs());
+  pm.addPass(ttir::createTTIREraseInverseOps());
   pm.addPass(ttir::createTTIRMoveReshapeToConstant());
   pm.addPass(ttir::createTTIRFoldConstantReshapeBroadcast());
   pm.addPass(ttir::createTTIRReductionForceKeepDim());
-  pm.addPass(d2m::createD2MRankNormalization());
+  pm.addPass(ttir::createTTIRRankNormalization());
   pm.addPass(ttir::createTTIRDecomposeComplexReshape());
+  pm.addPass(ttir::createTTIRImplicitBroadcastFold());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   if (!options.globalDataFormatTarget.empty()) {
-    d2m::D2MGlobalDataFormatConversionOptions globalFormatOptions;
+    ttir::TTIRGlobalDataFormatConversionOptions globalFormatOptions;
     { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
-    pm.addPass(d2m::createD2MGlobalDataFormatConversion(globalFormatOptions));
+    pm.addPass(ttir::createTTIRGlobalDataFormatConversion(globalFormatOptions));
   }
-  pm.addPass(d2m::createD2MDecomposeComplexPermute());
+  pm.addPass(ttir::createTTIRDecomposeComplexPermute());
   tt::TTIRToD2MOptions toD2MOptions;
   {
     toD2MOptions.defaultInputMemSpace = options.defaultInputMemSpace;
@@ -109,6 +113,7 @@ void createTTIRToTTMetalFrontendPipeline(
   {
     gridOptOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
+    gridOptOptions.ttnnMode = options.ttnnMode;
   }
   pm.addPass(d2m::createD2MMaterializeViewReturns());
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
@@ -226,8 +231,8 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MPreallocateMcastSemaphores());
   pm.addPass(d2m::createD2MScheduleDMA());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
+  pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
 
-  pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());

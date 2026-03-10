@@ -23,7 +23,7 @@ pydantic_reports = run_op_by_op_workflow(
     model.as_mlir_module(),  # or `model.as_mlir_module_str()`, both work
     compile_before_split=False,
     compile_each_submodule_after_split=False, # This combination of parameters targets `split_and_execute` workflow
-    # Following are informations that cannot be filled in infra but have to come from frontend
+    # Following are information that cannot be filled in infra but have to come from frontend
     frontend=frontend,
     model_name=model_name,
 )

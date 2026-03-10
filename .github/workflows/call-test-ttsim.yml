@@ -29,14 +29,24 @@ permissions:
 
 jobs:
   ttsim-golden:
-    name: "TTSim golden (wormhole_b0)"
+    name: "TTSim golden (${{ matrix.arch }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: wormhole_b0
+            soc_desc: wormhole_b0_80_arch.yaml
+            ttsim_asset: libttsim_wh.so
+          - arch: blackhole
+            soc_desc: blackhole_140_arch.yaml
+            ttsim_asset: libttsim_bh.so
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.timeout }}
     container:
       image: ${{ inputs.docker_image }}
     env:
-      ARCH_NAME: wormhole_b0
-      SOC_DESC: wormhole_b0_80_arch.yaml
+      ARCH_NAME: ${{ matrix.arch }}
+      SOC_DESC: ${{ matrix.soc_desc }}
       TT_METAL_SIMULATOR_HOME: ${{ github.workspace }}/sim
       TT_METAL_SIMULATOR: ${{ github.workspace }}/sim/libttsim.so
       TT_METAL_SLOW_DISPATCH_MODE: 1
@@ -85,16 +95,12 @@ jobs:
           path: build
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute TTSim asset name
-        id: ttsim-asset
-        run: echo "asset_name=libttsim_wh.so" >> "$GITHUB_OUTPUT"
-
       - name: Download TTSim binary
         uses: robinraju/release-downloader@daf26c55d821e836577a15f77d86ddc078948b05 # v1.12
         with:
           repository: tenstorrent/ttsim
           tag: ${{ inputs.ttsim-version }}
-          fileName: ${{ steps.ttsim-asset.outputs.asset_name }}
+          fileName: ${{ matrix.ttsim_asset }}
           out-file-path: /tmp/ttsim
 
       - name: Install TTSim
@@ -104,7 +110,7 @@ jobs:
           export INSTALL_DIR="${{ steps.strings.outputs.install-output-dir }}"
           export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
           mkdir -p "$TT_METAL_SIMULATOR_HOME"
-          mv "/tmp/ttsim/${{ steps.ttsim-asset.outputs.asset_name }}" "$TT_METAL_SIMULATOR_HOME/libttsim.so"
+          mv "/tmp/ttsim/${{ matrix.ttsim_asset }}" "$TT_METAL_SIMULATOR_HOME/libttsim.so"
 
           soc_desc_path=""
           for candidate in \
@@ -141,24 +147,39 @@ jobs:
           export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
           export LD_LIBRARY_PATH="$INSTALL_DIR/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
           export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+          export TT_METAL_INSPECTOR="0"
+          export TT_METAL_INSPECTOR_RPC="0"
           mkdir -p test_reports
-          pytest -ssv "test/python/golden/ttir_ops/eltwise/test_ttir_unary.py::test_unary_ops" \
-            -k "ttmetal" \
-            --sys-desc "$SYSTEM_DESC_PATH" \
-            --junit-xml="test_reports/ttsim_unary.xml"
-          pytest -ssv "test/python/golden/ttir_ops/eltwise/test_ttir_binary.py::test_binary_ops" \
-            -k "ttmetal" \
-            --sys-desc "$SYSTEM_DESC_PATH" \
-            --junit-xml="test_reports/ttsim_binary.xml"
-          pytest -ssv "test/python/golden/test_metal_matmul.py::test_matmul_ttnn_shapes_double_buffered" \
-            --sys-desc "$SYSTEM_DESC_PATH" \
-            --junit-xml="test_reports/ttsim_matmul.xml"
+
+          run_sim_test() {
+            local nodeid="$1"
+            local kexpr="$2"
+            local report="$3"
+            if [[ -n "$kexpr" ]]; then
+              pytest -ssv "$nodeid" -k "$kexpr" --sys-desc "$SYSTEM_DESC_PATH" --junit-xml "$report"
+            else
+              pytest -ssv "$nodeid" --sys-desc "$SYSTEM_DESC_PATH" --junit-xml "$report"
+            fi
+          }
+
+          if [[ "$ARCH_NAME" == "wormhole_b0" ]]; then
+            # Wormhole list: broadest simulator smoke coverage.
+            run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_unary.py::test_unary_ops" "ttmetal" "test_reports/ttsim_unary_wh.xml"
+            run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_binary.py::test_binary_ops" "ttmetal" "test_reports/ttsim_binary_wh.xml"
+            run_sim_test "test/python/golden/test_metal_matmul.py::test_matmul_ttnn_shapes_double_buffered" "" "test_reports/ttsim_matmul_wh.xml"
+          elif [[ "$ARCH_NAME" == "blackhole" ]]; then
+            # Blackhole list: start smaller and expand as BH simulator support improves.
+            run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_unary.py::test_unary_ops" "ttmetal" "test_reports/ttsim_unary_bh.xml"
+          else
+            echo "Unsupported ARCH_NAME: $ARCH_NAME"
+            exit 1
+          fi
 
       - name: Upload TTSim test report xml
         if: success() || failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports-ttsim
+          name: test-reports-ttsim-${{ matrix.arch }}
           path: test_reports
           if-no-files-found: ignore
 
@@ -168,5 +189,5 @@ jobs:
         uses: mikepenz/action-junit-report@v5
         with:
           report_paths: test_reports/ttsim_*.xml
-          check_name: TTSim golden tests
+          check_name: TTSim golden tests (${{ matrix.arch }})
           job_summary: false

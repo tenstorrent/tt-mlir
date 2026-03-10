@@ -11,7 +11,8 @@ from loguru import logger
 @pytest.fixture(scope="function")
 def device():
     # Only care about single device, multi-device will use mesh_device fixture
-    if ttnn.cluster.get_cluster_type() == ttnn.cluster.ClusterType.P150:
+    blackhole_clusters = [ttnn.cluster.ClusterType.P150, ttnn.cluster.ClusterType.P100]
+    if ttnn.cluster.get_cluster_type() in blackhole_clusters:
         dispatch_core_type = ttnn.DispatchCoreType.WORKER
     else:
         dispatch_core_type = ttnn.DispatchCoreType.ETH
@@ -100,7 +101,7 @@ def mesh_device(request, device_params):
 
     If `request.param` is an integer, it specifies the number of devices to use (up to available devices).
     If `request.param` is a tuple, it defines the 2D grid dimensions (rows, columns) for TG, e.g., (8, 4) creates
-    a devish mesh grid of 8 rows and 4 columns, totaling 32 devices. The total number of devices should not exceed available devices.
+    a device mesh grid of 8 rows and 4 columns, totaling 32 devices. The total number of devices should not exceed available devices.
 
     Args:
         request: Pytest request object.

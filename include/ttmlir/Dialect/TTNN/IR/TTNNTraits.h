@@ -16,11 +16,11 @@ class ExplicateOperandBroadcastsTrait
     : public mlir::OpTrait::TraitBase<ConcreteType,
                                       ExplicateOperandBroadcastsTrait> {};
 
-// bfp8_b is tile type so we need some way to check if op which returns
-// it has correct layout information in encoding.
+// For ops that return tile-typed tensors, verify that the element type
+// on the tensor matches the element type in the TTNNLayoutAttr encoding.
 template <typename ConcreteType>
-class CheckBFloat8BTrait
-    : public mlir::OpTrait::TraitBase<ConcreteType, CheckBFloat8BTrait> {
+class CheckTileTypeTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, CheckTileTypeTrait> {
 public:
   static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
     if (op->getNumResults() == 0) {

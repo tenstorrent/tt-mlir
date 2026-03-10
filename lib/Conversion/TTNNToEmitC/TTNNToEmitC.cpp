@@ -234,7 +234,8 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC)),
-        /*parameter=*/emitter.emit(false),
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            "::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE"),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
@@ -685,11 +686,10 @@ public:
         emitter.emit(srcOp.getTransposeA()),
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*dtype=*/emitter.emit(std::nullopt),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
         /*program_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getActivation()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -725,11 +725,10 @@ public:
         emitter.emit(srcOp.getTransposeA()),
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*dtype=*/emitter.emit(std::nullopt),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
         /*program_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getActivation()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
     };
     // ANCHOR_END: adding_an_op_matmul_ttnn_to_emitc_array_attrs
 
@@ -740,6 +739,47 @@ public:
 };
 } // namespace
 // ANCHOR_END: adding_an_op_matmul_op_rewriter_emitc
+
+// SparseMatmul op conversion pattern
+//
+namespace {
+class SparseMatmulOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SparseMatmulOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SparseMatmulOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SparseMatmulOp srcOp,
+                  mlir::tt::ttnn::SparseMatmulOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SparseMatmulOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getA()),
+        emitter.emit(srcOp.getB()),
+        emitter.emit(srcOp.getSparsity()),
+        emitter.template emit<ttnn_to_emitc::SparseMatmulProgramConfig>(
+            srcOp.getProgramConfig()),
+        emitter.emit(srcOp.getNnz()),
+        emitter.emit(srcOp.getIsInputASparse()),
+        emitter.emit(srcOp.getIsInputBSparse()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
 
 // AvgPool2d op conversion pattern
 //
@@ -849,7 +889,7 @@ public:
         emitter.emit(
             /*reallocate_halo_output=*/srcOp.getReallocateHaloOutput()),
         /*return_indices=*/emitter.emit(false),
-        emitter.emit(/*dtype=*/ttcore::DataType::BFloat16),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
         emitter.emit(/*output_layout=*/mlir::tt::ttnn::Layout::RowMajor),
         /*config_tensors_in_dram=*/emitter.emit(srcOp.getConfigTensorsInDram()),
     };
@@ -918,7 +958,7 @@ public:
         /*reallocate_halo_output=*/
         emitter.emit(srcOp.getReallocateHaloOutput()),
         /*return_indices=*/emitter.emit(true),
-        emitter.emit(/*dtype=*/ttcore::DataType::BFloat16),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
         emitter.emit(/*output_layout=*/mlir::tt::ttnn::Layout::
                          RowMajor), // ROW_MAJOR required for return_indices
                                     /*config_tensors_in_dram=*/
@@ -1116,8 +1156,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDimension()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
         emitter.emit(srcOp.getNumericStable()),
     };
 
@@ -1154,12 +1193,16 @@ public:
         embeddingOp.getContext(), resultLayoutAttr.isTiled()
                                       ? mlir::tt::ttnn::Layout::Tile
                                       : mlir::tt::ttnn::Layout::RowMajor);
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(embeddingOp.getInput()),
         emitter.emit(embeddingOp.getWeight()),
         emitter.emit(std::nullopt),
         emitter.emit(layoutAttr),
+        emitc::OpaqueAttr::get(rewriter.getContext(),
+                               "::ttnn::prim::EmbeddingsType::GENERIC"),
+        emitter.emit(emitter.getOutputDtype(embeddingOp.getResult())),
+        emitter.emit(std::nullopt) |
+            emitter.getMemoryConfig(embeddingOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1225,8 +1268,7 @@ public:
         emitter.template emit<::ttsl::SmallVector<int32_t>>(srcOp.getDimArg()),
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1354,8 +1396,7 @@ public:
         emitter.emit(srcOp.getInputDtype()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
     };
 
@@ -1413,8 +1454,7 @@ public:
         emitter.emit(srcOp.getInputDtype()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1476,8 +1516,7 @@ public:
         emitter.emit(srcOp.getInputDtype()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
         emitter.emit(srcOp.getMirrorKernel()),
         emitter.emit(srcOp.getConv2dSliceConfig()),
     };
@@ -1539,8 +1578,7 @@ public:
         emitter.emit(srcOp.getInputDtype()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
         emitter.emit(srcOp.getConv2dSliceConfig()),
     };
 
@@ -1588,8 +1626,7 @@ public:
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getBias()),
         emitter.emit(srcOp.getConv2dConfig()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getConv2dSliceConfigAttr()),
     };
@@ -1645,8 +1682,7 @@ public:
         emitter.emit(srcOp.getPaddingMode()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1693,8 +1729,7 @@ public:
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getBias()),
         emitter.emit(srcOp.getConv2dConfig()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getConv2dSliceConfig()),
     };
@@ -3178,8 +3213,7 @@ public:
         emitter.emit(srcOp.getBias()),
         emitter.emit(/* output= */ std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -3219,8 +3253,7 @@ public:
         emitter.emit(srcOp.getBias()),
         emitter.emit(/* output= */ std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
     };
 
     // ttnn::batch_norm with training=true returns the output tensor and
@@ -3429,8 +3462,7 @@ public:
         emitter.emit(/* residual_input_tensor= */ std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(/* program_config= */ std::nullopt),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
-            srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -3532,6 +3564,151 @@ public:
     };
     // ::ttsl::SmallVector<int64_t>>(srcOp.getSendCoord())
     emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// AllToAllDispatchOp conversion pattern (multi-result: dispatched + metadata)
+//
+namespace {
+class AllToAllDispatchOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::AllToAllDispatchOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AllToAllDispatchOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllToAllDispatchOp srcOp,
+                  mlir::tt::ttnn::AllToAllDispatchOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AllToAllDispatchOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getExpertIndices()),
+        emitter.emit(srcOp.getExpertMapping()),
+        /*axis=*/emitter.emit(srcOp.getClusterAxis()),
+        /*optional_output_tensors=*/emitter.emit(std::nullopt),
+        /*num_links=*/emitter.emit(std::nullopt),
+        /*topology=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getMemoryConfig()),
+    };
+
+    // Multi-result: returns std::array<ttnn::Tensor, 2>.
+    static constexpr llvm::StringLiteral kReturnTypeName =
+        "::std::array<::ttnn::Tensor, 2>";
+    static constexpr llvm::StringLiteral kElemTypeName = "::ttnn::Tensor";
+    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), rewriter.getType<emitc::OpaqueType>(kReturnTypeName),
+        this->convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    SmallVector<Value> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
+      auto lvalueType = emitc::LValueType::get(
+          emitc::OpaqueType::get(rewriter.getContext(), kElemTypeName));
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, callOp.getResult(0), indexOp.getResult());
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(), kElemTypeName),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
+// AllToAllCombineOp conversion pattern
+//
+namespace {
+class AllToAllCombineOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::AllToAllCombineOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AllToAllCombineOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllToAllCombineOp srcOp,
+                  mlir::tt::ttnn::AllToAllCombineOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AllToAllCombineOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getExpertMapping()),
+        emitter.emit(srcOp.getExpertMetadata()),
+        /*locally_reduced=*/emitter.emit(false),
+        /*num_links=*/emitter.emit(std::nullopt),
+        /*topology=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getMemoryConfig()),
+        /*axis=*/emitter.emit(srcOp.getClusterAxis()),
+        /*output_shard_dim=*/emitter.emit(std::nullopt)};
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// MoeExpertTokenRemapOp conversion pattern
+//
+namespace {
+class MoeExpertTokenRemapOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::MoeExpertTokenRemapOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::MoeExpertTokenRemapOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MoeExpertTokenRemapOp srcOp,
+                  mlir::tt::ttnn::MoeExpertTokenRemapOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MoeExpertTokenRemapOp>
+        emitter(srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getTopkTensor()),
+        emitter.emit(srcOp.getExpertMapping()),
+        emitter.emit(srcOp.getExpertMetadata()),
+        emitter.emit(srcOp.getReductionSize()),
+        emitter.emit(srcOp.getMemoryConfig()),
+    };
+
+    // Multi-result: returns std::vector<ttnn::Tensor> with 2 elements.
+    using ReturnTy = std::vector<::ttnn::Tensor>;
+    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        this->convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    SmallVector<Value> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
+      auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
+          rewriter.getContext(),
+          ttnn_to_emitc::TypeNameV<ReturnTy::value_type>));
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, callOp.getResult(0), indexOp.getResult());
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(
+              rewriter.getContext(),
+              ttnn_to_emitc::TypeNameV<ReturnTy::value_type>),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+    rewriter.replaceOp(srcOp, results);
     return success();
   }
 };
@@ -4667,8 +4844,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Matmul ops
   //
-  patterns.add<LinearOpConversionPattern, MatmulOpConversionPattern>(
-      typeConverter, ctx);
+  patterns.add<LinearOpConversionPattern, MatmulOpConversionPattern,
+               SparseMatmulOpConversionPattern>(typeConverter, ctx);
 
   // Reduction ops
   //
@@ -4718,6 +4895,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DistributeTensorOpConversionPattern>(typeConverter, ctx);
   patterns.add<AggregateTensorOpConversionPattern>(typeConverter, ctx);
   patterns.add<PointToPointOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AllToAllDispatchOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AllToAllCombineOpConversionPattern>(typeConverter, ctx);
+  patterns.add<MoeExpertTokenRemapOpConversionPattern>(typeConverter, ctx);
 
   // KV Cache ops
   //

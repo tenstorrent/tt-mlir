@@ -211,4 +211,59 @@ def TTCore_GetGlobalOp : TTCore_Op<"get_global", [Pure]> {
   let assemblyFormat = "$sym_name attr-dict `:` type($result)";
 }
 
+def TTCore_SetKeyValueOp : TTCore_Op<"set_key_value", [MemoryEffects<[MemWrite]>]> {
+  let summary = "Set or update dictionary value";
+  let description = [{
+    Sets or updates a value(s) for the given key in the dictionary.
+    The key can either be a string or an index.
+
+    Example:
+    ```mlir
+    ttcore.set_key_value %dict[3 : index] = %0
+        : !ttcore.dict, tensor<32x32xbf16>
+    ttcore.set_key_value %dict["key"] = %0, %1
+        : !ttcore.dict, tensor<32x32xbf16>, tensor<64x64xbf16>
+    ```
+  }];
+
+  let arguments = (ins
+    TTCore_DictType:$dict,
+    AnyAttrOf<[StrAttr, IndexAttr]>:$key,
+    Variadic<AnyType>:$values
+  );
+
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $dict `[` $key `]` `=` $values attr-dict `:`
+    type($dict) `,` type($values)
+  }];
+}
+
+def TTCore_GetKeyValueOp : TTCore_Op<"get_key_value", [MemoryEffects<[MemRead]>]> {
+  let summary = "Get dictionary value";
+  let description = [{
+    Retrieves the value(s) stored under the given key from the dictionary.
+    The key can either be a string or an index.
+
+    Example:
+    ```mlir
+    %0 = ttcore.get_key_value %dict[3 : index] : (!ttcore.dict) -> tensor<32x32xbf16>
+    %0, %1 = ttcore.get_key_value %dict["key"]
+        : (!ttcore.dict) -> (tensor<32x32xbf16>, tensor<64x64xbf16>)
+    ```
+  }];
+
+  let arguments = (ins
+    TTCore_DictType:$dict,
+    AnyAttrOf<[StrAttr, IndexAttr]>:$key
+  );
+  let results = (outs Variadic<AnyType>:$results);
+
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $dict `[` $key `]` attr-dict `:`
+    functional-type(operands, results)
+  }];
+}
+
 #endif // TTMLIR_DIALECT_TTCORE_IR_TTCOREOPS_TD

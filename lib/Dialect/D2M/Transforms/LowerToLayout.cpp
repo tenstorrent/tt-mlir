@@ -222,15 +222,14 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
     // with alignments used by the D2MGridSelection pass.
     std::pair<DenseIntElementsAttr, llvm::SmallVector<int64_t>>
     computeGridAwareCollapsedIntervalsAndDimAlignments(
-        ttcore::MetalLayoutAttr referenceLayout,
-        ArrayRef<int64_t> targetGridShape) {
+        ttcore::MetalLayoutAttr referenceLayout, ArrayRef<int64_t> gridShape) {
       auto logicalShape = referenceLayout.getLogicalShape();
       auto collapsedIntervals =
           referenceLayout.computeDefaultCollapsedIntervals(ctx,
                                                            logicalShape.size());
       auto dimAlignments =
           ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
-              logicalShape, targetGridShape,
+              logicalShape, gridShape,
               ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
                   collapsedIntervals, logicalShape.size()));
       return {collapsedIntervals, dimAlignments};
@@ -342,7 +341,7 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         // grid shape is being reblocked.
         auto [collapsedIntervals, dimAlignments] =
             computeGridAwareCollapsedIntervalsAndDimAlignments(baseLayout,
-                                                               targetGridShape);
+                                                               tensorGrid);
         layout = ttcore::MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
                                               dimAlignments, collapsedIntervals,
                                               baseLayout.getOobVal(), memSpace,
@@ -848,10 +847,10 @@ public:
       }
 
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(type.getEncoding());
-      return rewriter
-          .create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
-                                type.getElementType(), layout)
-          .getResult();
+      auto emptyOp = rewriter.create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
+                                                   type.getElementType(),
+                                                   layout, targetGridShape);
+      return emptyOp.getResult();
     };
 
     // 1. SYSTEM→DEVICE: Transfer to L1/DRAM with same element type as input.
@@ -925,11 +924,10 @@ public:
       // buffers via createEmpty().
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(
           currentInfo.type.getEncoding());
-      auto maskedEmpty =
-          rewriter
-              .create<d2m::EmptyOp>(op.getLoc(), currentInfo.type.getShape(),
-                                    currentInfo.type.getElementType(), layout)
-              .getResult();
+      auto maskedEmptyOp = rewriter.create<d2m::EmptyOp>(
+          op.getLoc(), currentInfo.type.getShape(),
+          currentInfo.type.getElementType(), layout, targetGridShape);
+      auto maskedEmpty = maskedEmptyOp.getResult();
       currentValue =
           lowerMaskingGeneric(rewriter, currentValue, maskedEmpty, op.getLoc(),
                               currentInfo.layout->getLogicalShape(),
@@ -951,11 +949,11 @@ public:
       auto targetRemapping = utils::getAssociatedRemapping(op.getOutput());
       bool remappingsDiffer = currentRemapping != targetRemapping;
 
-      // Compare virtualGridMappings: different shard strategies (e.g.
+      // Compare virtualGridInverseMappings: different shard strategies (e.g.
       // height_sharded vs block_sharded) produce different VGMs even when
       // all other layout properties match.
-      auto currentVGM = utils::getVirtualGridMapping(currentValue);
-      auto targetVGM = utils::getVirtualGridMapping(op.getOutput());
+      auto currentVGM = utils::getVirtualGridInverseMapping(currentValue);
+      auto targetVGM = utils::getVirtualGridInverseMapping(op.getOutput());
       bool vgmsDiffer = currentVGM != targetVGM;
 
       bool needsMappingChange =
@@ -1067,7 +1065,7 @@ public:
     bool needsUntilize =
         ttcore::isTiled(currentInfo.type) && !ttcore::isTiled(targetInfo.type);
     if (needsUntilize) {
-      Type scalarType = getScalarType(currentInfo.type.getElementType());
+      Type scalarType = targetInfo.type.getElementType();
       // Avoid reblocking virtual grid shapes here. Output type here retains
       // input's virtual grid shape; only transformation is to scalar dtype.
       auto existingRemapping =

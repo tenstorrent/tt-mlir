@@ -47,7 +47,7 @@ def TTNN_Dialect : Dialect {
 //===----------------------------------------------------------------------===//
 
 class TTNN_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [Pure, CheckBFloat8BTrait, TTNN_WorkaroundInterface,
+        Op<TTNN_Dialect, mnemonic, [Pure, CheckTileTypeTrait, TTNN_WorkaroundInterface,
         DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
 
 class TTNN_InplaceOp<string mnemonic, list<Trait> traits = []> :

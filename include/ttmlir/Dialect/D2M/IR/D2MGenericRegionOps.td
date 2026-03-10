@@ -569,8 +569,10 @@ def D2M_TileClampScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_clamp_scala
         the range [min, max] specified by scalar attributes.
     }];
 
-    let arguments = (ins TTCore_Tile:$input, F32Attr:$min, F32Attr:$max);
+    let arguments = (ins TTCore_Tile:$input, AnyAttrOf<[F32Attr, I32Attr]>:$min, AnyAttrOf<[F32Attr, I32Attr]>:$max);
     let results = (outs TTCore_Tile:$result);
+
+    let hasVerifier = 1;
 }
 
 def D2M_TileWhereOp : D2M_GenericRegionComputeTernaryDstOp<"tile_where", D2M_TileComputeOpTraitBundle>{
@@ -720,7 +722,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
   ]> {
     let summary = "D2M Tile Untilize Block Op";
     let description = [{
-        The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref contianing the row major data.
+        The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref containing the row major data.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
@@ -923,16 +925,29 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
   , D2M_DMAOpInterface
   ]> {
 
-    let summary = "Fully indexed and lowered D2M DMA Op for writes";
+    let summary = "Lowered D2M DMA Write Op";
     let description = [{
-      This op performs a fully indexed DMA write operation from src memref to dst memref, where src and dst indices are fully resolved
-      (all view and memspace-specific affine maps applied). It corresponds 1:1 to a single concrete DMA write operation.
+      This op performs a DMA write operation from src memref to dst memref. This operation supports multicast; providing an empty multicast shape
+      argument _implies a unicast write_.
 
-      This operation supports multicast; providing an empty multicast shape argument _implies a unicast write_.
+      It supports two forms distinguished by numElems:
+      Fully indexed form (numElems > 0): src and dst indices are fully
+      resolved (all view and memspace-specific affine maps applied). Corresponds
+      1:1 to a single concrete DMA write operation.
 
       ```mlir
-      %tx = d2m.dma_write %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], <%size>
-        : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>) -> !d2m.mem_tx
+      %tx = d2m.dma_write %src[%offset], %dst[%gridy, %gridx, %offset], <%size>
+        : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x2x4x!ttcore.tile<32x32, f32>, #dram>) -> !d2m.mem_tx
+      ```
+
+      Shard-level form (numElems == 0): indices are grid-level only.
+      Represents "write entire shard at grid position". The indexing expansion
+      is deferred to D2MLowerDMAToFullyIndexedForm.
+
+      ```mlir
+      %tx = d2m.dma_write %src, %dst[%grid_i, %grid_j], <0>
+        : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>,
+           memref<2x2x2x4x!ttcore.tile<32x32, f32>, #dram>) -> !d2m.mem_tx
       ```
 
       Constraints:
@@ -948,27 +963,42 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
 
     let builders =
     [
-      // Unicast - multicast args are defaulted
+      // Fully indexed unicast - multicast args are defaulted
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
       [{
         build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange());
       }]>,
 
-      // Multicast - multicast args must be provided
+      // Fully indexed multicast - multicast args must be provided
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
       [{
         build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
       }]>,
+
+      // Shard-level unicast (no src indices, grid indices on dst, numElems = 0)
+      OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange());
+      }]>,
+
+      // Shard-level multicast (no indices on either, numElems = 0)
+      OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape);
+      }]>,
     ];
 
-    let assemblyFormat = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)?  `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src (`[` $srcIndices^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)?  `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
       MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
       MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      bool isShardLevel() { return getNumElems() == 0; }
+      bool isFullyIndexed() { return getNumElems() > 0; }
       size_t getSizeBytes() {
+        assert(isFullyIndexed() && "getSizeBytes() requires fully indexed form");
         auto elementSizeBytes =
           ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
         return getNumElems() * elementSizeBytes;
@@ -989,17 +1019,33 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
   , D2M_DMAOpInterface
   ]> {
 
-    let summary = "Fully indexed and lowered D2M DMA Op for read";
+    let summary = "Lowered D2M DMA Read Op.";
     let description = [{
-      This op performs a fully indexed DMA read operation from src memref to dst memref, where src and dst indices are fully resolved
-      (all view and memspace-specific affine maps applied). It corresponds 1:1 to a single concrete DMA read operation. The dst memref _must_ be local!
+      This op performs a DMA read operation from src memref to dst memref. The dst memref must be local!
 
-      This operation only supports unicast (mulicast are write-only).
+      It supports two forms distinguished by numElems:
+      Fully indexed form (numElems > 0): src and dst indices are fully
+      resolved (all view and memspace-specific affine maps applied). Corresponds
+      1:1 to a single concrete DMA read operation.
 
       ```mlir
-      %tx = d2m.dma_read %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], %size
-        : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+      %tx = d2m.dma_read %src[%gridy, %gridx, %offset], %dst[%offset], <8>
+        : (memref<2x2x2x4x!ttcore.tile<32x32, f32>, #dram>,
+           memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
       ```
+
+      Shard-level form (numElems == 0): indices are grid-level only on the
+      remote src operand, no indices on the local dst. Represents "read entire
+      shard at grid position". The indexing expansion is deferred to
+      D2MLowerDMAToFullyIndexedForm.
+
+      ```mlir
+      %tx = d2m.dma_read %src[%grid_i, %grid_j], %dst, <0>
+        : (memref<2x2x2x4x!ttcore.tile<32x32, f32>, #dram>,
+           memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+      ```
+
+      This operation only supports unicast (multicast are write-only).
 
       Constraints:
       - src MUST be a REMOTE memref! if both operands are local, use DMAWriteOp
@@ -1012,14 +1058,25 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
                          I64Attr:$numElems);
     let results = (outs D2M_MemTx:$result);
 
-    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let builders = [
+      // Shard-level form (grid indices on src, no indices on dst, numElems = 0)
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0));
+      }]>,
+    ];
+
+    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst (`[` $dstIndices^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
       MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
       MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      bool isShardLevel() { return getNumElems() == 0; }
+      bool isFullyIndexed() { return getNumElems() > 0; }
       size_t getSizeBytes() {
+        assert(isFullyIndexed() && "getSizeBytes() requires fully indexed form");
         auto elementSizeBytes =
           ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
         return getNumElems() * elementSizeBytes;
@@ -1558,7 +1615,7 @@ def D2M_SemaphoreIncOp : D2M_SemaphoreUpdateOp<"semaphore_inc"> {}
 def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "D2M Semaphore Set Op.";
     let description = [{
-      Wait for the semaphore value to reach the specified value. Optionall supply a reset value as a shorthand syntax.
+      Wait for the semaphore value to reach the specified value. Optionally supply a reset value as a shorthand syntax.
 
       ```mlir
       d2m.semaphore_wait %sem1, %c1 reset %c0
@@ -2120,6 +2177,8 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
               $_builder.getI64IntegerAttr(dim), mlir::AffineMapAttr::get(map));
       }]>
     ];
+
+    let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//

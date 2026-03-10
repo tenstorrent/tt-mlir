@@ -345,6 +345,19 @@ def TTNN_KernelCoreType : I32EnumAttr<"KernelCoreType", "TT KernelCoreType",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+// RISCV0 = BRISC, RISCV1 = NCRISC
+def TTNN_DataMovementProcessorRiscV0 : I32EnumAttrCase<"RiscV0", 0, "riscv0">;
+def TTNN_DataMovementProcessorRiscV1 : I32EnumAttrCase<"RiscV1", 1, "riscv1">;
+
+def TTNN_DataMovementProcessor : I32EnumAttr<"DataMovementProcessor", "TT DataMovementProcessor",
+                           [
+                            TTNN_DataMovementProcessorRiscV0,
+                            TTNN_DataMovementProcessorRiscV1,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 def TTNN_Conv2dSliceType : I32EnumAttr<"Conv2dSliceType", "Conv2d slice type", [
   I32EnumAttrCase<"DramHeight", 0, "dram_height">,
   I32EnumAttrCase<"DramWidth", 1, "dram_width">,
@@ -365,6 +378,20 @@ def TTNN_PlacementType : I32EnumAttr<"PlacementType", "TTNN Placement Type",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_WeightDtypeNone : I32EnumAttrCase<"None", 0, "none">;
+def TTNN_WeightDtypeBfpBf8 : I32EnumAttrCase<"BFP_BFloat8", 1, "bfp_bf8">;
+def TTNN_WeightDtypeBfpBf4 : I32EnumAttrCase<"BFP_BFloat4", 2, "bfp_bf4">;
+
+def TTNN_WeightDtype : I32EnumAttr<"WeightDtype", "Weight data type for conversion",
+                           [
+                            TTNN_WeightDtypeNone,
+                            TTNN_WeightDtypeBfpBf8,
+                            TTNN_WeightDtypeBfpBf4,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 def TTNN_NocIndexNoc0 : I32EnumAttrCase<"Noc0", 0, "noc0">;
 def TTNN_NocIndexNoc1 : I32EnumAttrCase<"Noc1", 1, "noc1">;
 
@@ -377,6 +404,17 @@ def TTNN_NocIndex : I32EnumAttr<"NocIndex", "TT NocIndex",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_NocModeDedicatedNoc : I32EnumAttrCase<"DedicatedNoc", 0, "dedicated_noc">;
+def TTNN_NocModeDynamicNoc : I32EnumAttrCase<"DynamicNoc", 1, "dynamic_noc">;
+
+def TTNN_NocMode : I32EnumAttr<"NocMode", "TT NocMode",
+                           [
+                            TTNN_NocModeDedicatedNoc,
+                            TTNN_NocModeDynamicNoc,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
 def TTNN_RoutingModeBidirLineMesh : I32EnumAttrCase<"BidirLineMesh", 0, "bidir_line_mesh">;
 def TTNN_RoutingModeUnidirRingTorus : I32EnumAttrCase<"UnidirRingTorus", 1, "unidir_ring_torus">;
 

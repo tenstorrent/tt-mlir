@@ -333,6 +333,27 @@ public:
   static TTNNOperandsWorkarounds
   createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
+
+  // Create workarounds for sparse_matmul op operands.
+  // Sparsity tensor must be in ROW_MAJOR layout.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/39126
+  static TTNNOperandsWorkarounds createSparseMatmulOpOperandsWorkarounds();
+
+  // Create workarounds for all_to_all_dispatch op operands.
+  // Expert indices and mapping require uint16 dtype and ROW_MAJOR layout.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
+  static TTNNOperandsWorkarounds createAllToAllDispatchOpOperandsWorkarounds();
+
+  // Create workarounds for all_to_all_combine op operands.
+  // Expert metadata and mapping require uint16 dtype and ROW_MAJOR layout.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
+  static TTNNOperandsWorkarounds createAllToAllCombineOpOperandsWorkarounds();
+
+  // Create workarounds for moe_expert_token_remap op operands.
+  // expert_metadata requires uint16 dtype and ROW_MAJOR layout.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/39128
+  static TTNNOperandsWorkarounds
+  createMoeExpertTokenRemapOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

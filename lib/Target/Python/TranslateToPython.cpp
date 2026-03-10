@@ -282,7 +282,7 @@ FailureOr<std::string> ExpressionBuilder::buildSubscriptExpr(SubscriptOp op) {
   std::string expr;
   llvm::raw_string_ostream os(expr);
 
-  auto valueExpr = buildExpression(op.getValue());
+  auto valueExpr = buildExpression(op.getContainer());
   if (failed(valueExpr)) {
     return failure();
   }
@@ -333,7 +333,13 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
   std::string name;
   llvm::raw_string_ostream ss(name);
   auto index = op.getIndex();
-  std::string indexName = "index_" + std::to_string(valueInScopeCount.top()++);
+
+  // Only generate a new name if index doesn't already have one
+  std::string indexName;
+  if (!valueMapper.count(index)) {
+    indexName = "index_" + std::to_string(valueInScopeCount.top()++);
+  }
+
   ss << "[" << getOrCreateName(index, indexName) << "]";
   return name;
 }
@@ -579,14 +585,6 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
-static LogicalResult printOperation(PythonEmitter &emitter, AssignOp assignOp) {
-  if (failed(emitter.emitAssignPrefix(*assignOp))) {
-    return failure();
-  }
-
-  return emitter.emitOperands(*assignOp);
-}
-
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     GetAttrOp getAttrOp) {
   if (failed(emitter.emitAssignPrefix(*getAttrOp))) {
@@ -741,43 +739,38 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
-static LogicalResult printOperation(PythonEmitter &emitter,
-                                    SetValueForDictKeyOp op) {
+static LogicalResult printOperation(PythonEmitter &emitter, AssignOp op) {
   raw_indented_ostream &os = emitter.ostream();
 
-  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
-    return failure();
+  Value target = op.getTarget();
+  Operation *targetDefOp = target.getDefiningOp();
+
+  if (auto subscriptOp = dyn_cast_or_null<SubscriptOp>(targetDefOp)) {
+    // Subscript assignment: dict[key] = value.
+    if (failed(emitter.emitOperand(subscriptOp.getContainer(),
+                                   "subscript_target"))) {
+      return failure();
+    }
+
+    os << "[";
+    if (failed(
+            emitter.emitOperand(subscriptOp.getIndex(), "subscript_index"))) {
+      return failure();
+    }
+    os << "]";
+
+  } else {
+    // Regular assignment: target = value.
+    if (failed(emitter.emitOperand(target, "target"))) {
+      return failure();
+    }
   }
 
-  os << "[";
-  if (failed(emitter.emitOperand(op.getKey(), "dict_key"))) {
+  os << " = ";
+
+  if (failed(emitter.emitOperand(op.getValue(), "value"))) {
     return failure();
   }
-  os << "] = ";
-
-  if (failed(emitter.emitOperand(op.getValue(), "dict_value"))) {
-    return failure();
-  }
-  return success();
-}
-
-static LogicalResult printOperation(PythonEmitter &emitter,
-                                    GetValueForDictKeyOp op) {
-  if (failed(emitter.emitAssignPrefix(*op))) {
-    return failure();
-  }
-
-  raw_indented_ostream &os = emitter.ostream();
-
-  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
-    return failure();
-  }
-
-  os << "[";
-  if (failed(emitter.emitOperand(op.getKey(), "dict_key"))) {
-    return failure();
-  }
-  os << "]";
 
   return success();
 }
@@ -811,8 +804,108 @@ static FailureOr<std::string> buildExpressionString(ExpressionOp expressionOp,
   return builder.buildExpression(yieldValue);
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter, IfOp ifOp) {
+  raw_indented_ostream &os = emitter.ostream();
+
+  auto emitConditionAndThenBody = [&](IfOp op,
+                                      StringRef keyword) -> LogicalResult {
+    os << keyword;
+
+    auto items = op.parseFormatString();
+    if (failed(items)) {
+      return failure();
+    }
+
+    size_t idx = 0;
+    for (auto &item : *items) {
+      if (auto *str = std::get_if<StringRef>(&item)) {
+        os << *str;
+      } else {
+        if (failed(emitter.emitOperand(op.getCondArgs()[idx++], ""))) {
+          return failure();
+        }
+      }
+    }
+
+    os << ":\n";
+
+    os.indent();
+    for (Operation &bodyOp : op.getThenRegion().front().getOperations()) {
+      if (failed(emitter.emitOperation(bodyOp))) {
+        return failure();
+      }
+    }
+    os.unindent();
+
+    return success();
+  };
+
+  if (failed(emitConditionAndThenBody(ifOp, "if "))) {
+    return failure();
+  }
+
+  while (!ifOp.getElseRegion().empty()) {
+    Block &elseBlock = ifOp.getElseRegion().front();
+    auto *firstOp = &elseBlock.front();
+    if (auto nestedIf = dyn_cast<IfOp>(firstOp);
+        nestedIf && elseBlock.getOperations().size() == 1 &&
+        nestedIf.getElseRegion().empty()) {
+      if (failed(emitConditionAndThenBody(nestedIf, "elif "))) {
+        return failure();
+      }
+      ifOp = nestedIf;
+      continue;
+    }
+    os << "else:\n";
+    os.indent();
+    for (Operation &bodyOp : elseBlock.getOperations()) {
+      if (failed(emitter.emitOperation(bodyOp))) {
+        return failure();
+      }
+    }
+    os.unindent();
+    break;
+  }
+
+  return success();
+}
+
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     ExpressionOp expressionOp) {
+
+  // Check if this expression contains a subscript assignment.
+  Block *bodyBlock = expressionOp.getBodyBlock();
+  bool isSubscriptAssignment = false;
+  AssignOp assignOp = nullptr;
+
+  for (Operation &bodyOp : bodyBlock->getOperations()) {
+    if (auto asgOp = dyn_cast<AssignOp>(&bodyOp)) {
+      if (dyn_cast_or_null<SubscriptOp>(asgOp.getTarget().getDefiningOp())) {
+        isSubscriptAssignment = true;
+        assignOp = asgOp;
+        break;
+      }
+    }
+  }
+
+  // Handle subscript assignment.
+  if (isSubscriptAssignment && assignOp) {
+    raw_indented_ostream &os = emitter.ostream();
+
+    for (auto [blockArg, operand] :
+         llvm::zip(bodyBlock->getArguments(), expressionOp.getOperands())) {
+      emitter.registerDeferredValue(
+          blockArg, emitter.getOrCreateName(operand, "expr_arg"));
+    }
+
+    if (failed(printOperation(emitter, assignOp))) {
+      return failure();
+    }
+
+    os << "\n";
+
+    return success();
+  }
 
   // Check if we should emit inline or not
   bool shouldInline = !expressionOp.getDoNotInline();
@@ -834,7 +927,6 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     PythonEmitter::Scope scope(emitter);
 
     // Map block arguments to operands
-    Block *bodyBlock = expressionOp.getBodyBlock();
     for (auto [blockArg, operand] :
          llvm::zip(bodyBlock->getArguments(), expressionOp.getOperands())) {
       emitter.registerDeferredValue(
@@ -868,8 +960,7 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
-                GlobalStatementOp, CreateDictOp, SetValueForDictKeyOp,
-                GetValueForDictKeyOp, ExpressionOp, YieldOp>(
+                GlobalStatementOp, CreateDictOp, ExpressionOp, YieldOp, IfOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
@@ -890,7 +981,9 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
     return success();
   }
 
-  os << "\n";
+  if (!isa<IfOp>(op)) {
+    os << "\n";
+  }
 
   return success();
 }

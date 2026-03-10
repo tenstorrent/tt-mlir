@@ -187,6 +187,9 @@ func.func @masking_no_collapse_4d(%arg0: tensor<2x2x50x50xf32>) -> tensor<1x1x1x
   %0 = d2m.empty() : tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
 
   // CHECK-LABEL: @masking_no_collapse_4d
+  // Virtual-grid intermediates must carry VGM attrs (regression guard).
+  // CHECK: d2m.empty() {virtualGridForwardMapping = #map
+  // CHECK-SAME: virtualGridInverseMapping = #map
   // Tilize then mask with zero OOBVal on a >2D grid (no collapse)
   // CHECK: d2m.tile_tilize_block
   // CHECK: d2m.block_mask
@@ -241,4 +244,15 @@ func.func @test_virtual_dram_bounce_unaligned(%arg0: tensor<4x128x32xf32>) -> te
   %0 = d2m.empty() : tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned>
   %1 = d2m.to_layout %arg0, %0 : tensor<4x128x32xf32> into tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned> -> tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned>
   return %1 : tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned>
+}
+
+#layout_indivisible_bounce_grid = #ttcore.metal_layout<logical_shape = 19x160x32, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+
+func.func @test_uncollapsed_indivisible_bounce_grid(%arg0: tensor<1x5x1x19x32x32xbf16, #layout_indivisible_bounce_grid>) -> tensor<19x160x32xbf16> {
+  // CHECK-LABEL: @test_uncollapsed_indivisible_bounce_grid
+  // CHECK: d2m.view_layout {{.*}} -> tensor<5x1x608x32xbf16
+  // CHECK: d2m.to_host {{.*}} tensor<5x1x608x32xbf16, #{{.*}}> into tensor<19x160x32xbf16> -> tensor<19x160x32xbf16>
+  %0 = d2m.empty() : tensor<19x160x32xbf16>
+  %1 = d2m.to_layout %arg0, %0 : tensor<1x5x1x19x32x32xbf16, #layout_indivisible_bounce_grid> into tensor<19x160x32xbf16> -> tensor<19x160x32xbf16>
+  return %1 : tensor<19x160x32xbf16>
 }

@@ -187,7 +187,6 @@ def test_concatenate_heads(
         concatenate_heads_module,
         target=target,
         device=device,
-        print_ir=True,
         **get_request_kwargs(request),
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
     )
@@ -296,7 +295,9 @@ def shapes_to_id(shapes) -> str:
 @pytest.mark.parametrize(
     "shapes", RESHAPE_SHAPES, ids=[shapes_to_id(s) for s in RESHAPE_SHAPES]
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reshape(
     shapes: Tuple[Tuple[int, ...], Tuple[int, ...]],

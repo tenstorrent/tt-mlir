@@ -164,6 +164,27 @@ def sum_all_keepdim_func(a):
 
 
 # ============================================================
+# CCL operations - kept local due to specific parameters
+# ============================================================
+
+
+def all_gather_func(a):
+    return ttnn.all_gather(a, dim=0, cluster_axis=0)
+
+
+def all_reduce_func(a):
+    return ttnn.all_reduce(a, cluster_axis=0)
+
+
+def reduce_scatter_func(a):
+    return ttnn.reduce_scatter(a, dim=1, cluster_axis=0)
+
+
+def reduce_scatter_max_func(a):
+    return ttnn.reduce_scatter(a, dim=1, cluster_axis=0, reduce_type="max")
+
+
+# ============================================================
 # Composite/chained operations - kept local due to specific patterns
 # ============================================================
 
@@ -228,14 +249,43 @@ def test_ir_generation(func, *tensors, debug=True):
     return ir
 
 
+# ============================================================
+# Clamp (ttnn.clamp) helpers
+# ============================================================
+
+
+def clamp_min_max_func(a):
+    """Clamp with scalar min and max."""
+    return ttnn.clamp(a, min=-0.001, max=0.001)
+
+
+def clamp_min_only_func(a):
+    """Clamp with scalar min only."""
+    return ttnn.clamp(a, min=-0.001)
+
+
+def clamp_max_only_func(a):
+    """Clamp with scalar max only."""
+    return ttnn.clamp(a, max=0.001)
+
+
+def clamp_tensor_bounds_func(a, b, c):
+    """Clamp with tensor min and max bounds."""
+    return ttnn.clamp(a, min=b, max=c)
+
+
 if __name__ == "__main__":
     device = ttnn.open_device(device_id=0)
 
     # Create test tensors
     input_a = create_sharded_tile_tensor(device, (64, 64), (0, 0), torch.bfloat16)
     input_b = create_sharded_tile_tensor(device, (64, 64), (0, 0), torch.bfloat16)
-    input_c = create_sharded_tile_tensor(device, (64, 128), (0, 0), torch.bfloat16)
-    input_d = create_sharded_tile_tensor(device, (128, 32), (0, 0), torch.bfloat16)
+    # Use input_c as a 64x64 tensor for clamp & other 64x64 tests
+    input_c = create_sharded_tile_tensor(device, (64, 64), (0, 0), torch.bfloat16)
+    # input_d is now the 64x128 tensor used by permute/transpose/matmul
+    input_d = create_sharded_tile_tensor(device, (64, 128), (0, 0), torch.bfloat16)
+    # input_e is the original 128x32 tensor used for matmul
+    input_e = create_sharded_tile_tensor(device, (128, 32), (0, 0), torch.bfloat16)
 
     # ============================================================
     # Unary operations tests
@@ -280,6 +330,43 @@ if __name__ == "__main__":
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(sqrt_func, input_a)
+
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @clamp_min_max_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.clamp_scalar"(%arg0) <{{.*max = 1.000000e-03 : f32, min = -1.000000e-03 : f32.*}}> : ([[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
+    test_ir_generation(clamp_min_max_func, input_a)
+
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @clamp_min_only_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.clamp_scalar"(%arg0) <{{.*min = -1.000000e-03 : f32.*}}> : ([[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
+    test_ir_generation(clamp_min_only_func, input_a)
+
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @clamp_max_only_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.clamp_scalar"(%arg0) <{{.*max = 1.000000e-03 : f32.*}}> : ([[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
+    test_ir_generation(clamp_max_only_func, input_a)
+
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @clamp_tensor_bounds_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]], %arg1: [[IN_TYPE]], %arg2: [[IN_TYPE]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.clamp_tensor"(%arg0, %arg1, %arg2)
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]], [[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
+    test_ir_generation(clamp_tensor_bounds_func, input_a, input_b, input_c)
 
     # ============================================================
     # Binary operations tests
@@ -340,7 +427,7 @@ if __name__ == "__main__":
     # CHECK: %[[VAL:[0-9]+]] = "ttir.sum"(%arg0)
     # CHECK-SAME: dim_arg = [0 : i32]
     # CHECK-SAME: keep_dim = true
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<1x64xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<1x64xbf16>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(sum_func, input_a)
@@ -352,7 +439,7 @@ if __name__ == "__main__":
     # CHECK: %[[VAL:[0-9]+]] = "ttir.max"(%arg0)
     # CHECK-SAME: dim_arg = [1 : i32]
     # CHECK-SAME: keep_dim = true
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<64x1xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x1xbf16>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(max_func, input_a)
@@ -364,7 +451,7 @@ if __name__ == "__main__":
     # CHECK: %[[VAL:[0-9]+]] = "ttir.mean"(%arg0)
     # CHECK-SAME: dim_arg = [0 : i32]
     # CHECK-SAME: keep_dim = false
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<64xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64xbf16>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(mean_func, input_a)
@@ -376,7 +463,7 @@ if __name__ == "__main__":
     # CHECK-SAME: -> [[OUT_TYPE:tensor<bf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.sum"(%arg0)
     # CHECK-SAME: keep_dim = false
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<bf16, #ttnn_layout[0-9]*>]]
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<bf16>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(sum_all_func, input_a)
@@ -388,7 +475,7 @@ if __name__ == "__main__":
     # CHECK-SAME: -> [[OUT_TYPE:tensor<1x1xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.sum"(%arg0)
     # CHECK-SAME: keep_dim = true
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<1x1xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<1x1xbf16>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(sum_all_keepdim_func, input_a)
@@ -408,7 +495,47 @@ if __name__ == "__main__":
     # CHECK-SAME: (tensor<64x128xbf16, #ttnn_layout>, tensor<128x32xbf16, #ttnn_layout1>) -> tensor<{{.*}}>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
-    test_ir_generation(matmul_func, input_c, input_d)
+    # matmul expects (64x128) x (128x32) -> (64x32)
+    test_ir_generation(matmul_func, input_d, input_e)
+
+    # ============================================================
+    # CCL operations tests
+    # ============================================================
+
+    # all_gather: output shape from mesh_shape (e.g. input[dim]*mesh[cluster_axis]; 1x1 -> same)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @all_gather_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK: ttir.all_gather
+    # CHECK-DAG: all_gather_dim = 0
+    # CHECK-DAG: cluster_axis = 0
+    test_ir_generation(all_gather_func, input_a)
+
+    # all_reduce: output shape = input shape
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @all_reduce_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK: ttir.all_reduce
+    # CHECK-DAG: cluster_axis = 0
+    test_ir_generation(all_reduce_func, input_a)
+
+    # reduce_scatter: output shape from mesh_shape (e.g. input[dim]/mesh[cluster_axis]; 1x1 -> same)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @reduce_scatter_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK: ttir.reduce_scatter
+    # CHECK-DAG: scatter_dim = 1
+    # CHECK-DAG: cluster_axis = 0
+    test_ir_generation(reduce_scatter_func, input_a)
+
+    # reduce_scatter with reduce_type="max"
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @reduce_scatter_max_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK: ttir.reduce_scatter
+    # CHECK-DAG: scatter_dim = 1
+    # CHECK-DAG: cluster_axis = 0
+    test_ir_generation(reduce_scatter_max_func, input_a)
 
     # ============================================================
     # Chained operations test
@@ -508,7 +635,7 @@ if __name__ == "__main__":
     # CHECK-SAME: (tensor<64x128xbf16, #ttnn_layout>) -> tensor<{{.*}}>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
-    test_ir_generation(permute_2d_func, input_c)
+    test_ir_generation(permute_2d_func, input_d)
 
     # 4D permute (attention-style BHSD -> BSHD)
     input_4d = create_sharded_tile_tensor(
@@ -540,7 +667,7 @@ if __name__ == "__main__":
     # CHECK-SAME: (tensor<64x128xbf16, #ttnn_layout>) -> tensor<{{.*}}>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
-    test_ir_generation(transpose_2d_func, input_c)
+    test_ir_generation(transpose_2d_func, input_d)
 
     # 4D transpose (swap dims 1 and 2 - BHSD -> BSHD style)
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----

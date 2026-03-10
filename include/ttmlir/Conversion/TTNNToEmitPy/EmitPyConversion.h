@@ -603,6 +603,14 @@ struct EmitPyTypeConverter<::ttnn::DataType> {
     return {};
   }
 
+  static std::string convert(ttcore::DataTypeAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    return convert(attr.getValue());
+  }
+
   static std::string convert(ttcore::DataType attr) {
     std::string buf;
     llvm::raw_string_ostream rso(buf);
@@ -2069,6 +2077,12 @@ public:
     llvm_unreachable("Invalid operand range");
   }
 
+  mlir::Attribute emitExpression(llvm::StringRef expression,
+                                 std::string attrName = "") {
+    addKeywordArgument(attrName);
+    return rewriter.getAttr<emitpy::OpaqueAttr>(expression);
+  }
+
   mlir::Attribute emitMeshCoordinate(const mlir::ArrayRef<int64_t> &coords,
                                      std::string attrName = "") {
     std::string code = "ttnn.MeshCoordinate((";
@@ -2195,6 +2209,14 @@ public:
             layoutAttr, deviceOp.getDeviceAttr().getWorkerGrid()));
 
     return memoryConfigAttr;
+  }
+
+  ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
+    auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    return ttcore::DataTypeAttr::get(resultLayoutAttr.getContext(),
+                                     resultLayoutAttr.getDataType());
   }
 
   template <typename OpConversionPatternTy>

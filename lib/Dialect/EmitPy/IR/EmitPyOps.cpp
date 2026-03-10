@@ -7,6 +7,8 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/LogicalResult.h"
 
 #include <string_view>
@@ -20,7 +22,7 @@ using namespace mlir::tt::emitpy;
 
 /// Parse a format string and return a list of its parts.
 /// A part is either a StringRef that has to be printed as-is, or
-/// a Placeholder which requires printing the next operand of the VerbatimOp.
+/// a Placeholder which requires printing the next argument.
 /// In the format string, all `{}` are replaced by Placeholders, except if the
 /// `{` is escaped by `{{` - then it doesn't start a placeholder.
 template <class ArgType>
@@ -571,6 +573,20 @@ LogicalResult LiteralOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// SubscriptOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult SubscriptOp::verify() {
+  Type valueType = getContainer().getType();
+  Type indexType = getIndex().getType();
+  if (isa<StringType>(indexType) && !isa<DictType>(valueType)) {
+    return emitOpError() << "cannot use string index on non-dict type "
+                         << valueType;
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // VerbatimOp
 //===----------------------------------------------------------------------===//
 
@@ -597,6 +613,53 @@ LogicalResult VerbatimOp::verify() {
 FailureOr<SmallVector<ReplacementItem>> VerbatimOp::parseFormatString() {
   // Error checking is done in verify.
   return ::parseFormatString(getValue(), getFmtArgs());
+}
+
+//===----------------------------------------------------------------------===//
+// IfOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult IfOp::verify() {
+  if (getCondition().empty()) {
+    return emitOpError() << "condition string must not be empty";
+  }
+
+  if (getThenRegion().front().empty()) {
+    return emitOpError() << "then block must contain at least one operation";
+  }
+
+  if (!getElseRegion().empty()) {
+    if (!llvm::hasSingleElement(getElseRegion())) {
+      return emitOpError() << "else region must have exactly one block";
+    }
+    if (getElseRegion().front().empty()) {
+      return emitOpError()
+             << "else block must contain at least one operation if present";
+    }
+  }
+
+  auto errorCallback = [&]() -> InFlightDiagnostic {
+    return this->emitOpError();
+  };
+  FailureOr<SmallVector<ReplacementItem>> fmt =
+      ::parseFormatString(getCondition(), getCondArgs(), errorCallback);
+  if (failed(fmt)) {
+    return failure();
+  }
+  size_t numPlaceholders = llvm::count_if(*fmt, [](ReplacementItem &item) {
+    return std::holds_alternative<Placeholder>(item);
+  });
+
+  if (numPlaceholders != getCondArgs().size()) {
+    return emitOpError()
+           << "requires operands for each placeholder in the condition string";
+  }
+  return success();
+}
+
+FailureOr<SmallVector<ReplacementItem>> IfOp::parseFormatString() {
+  // Error checking is done in verify.
+  return ::parseFormatString(getCondition(), getCondArgs());
 }
 
 //===----------------------------------------------------------------------===//
@@ -743,38 +806,32 @@ LogicalResult CreateDictOp::verify() {
     return emitOpError() << "dictionary name must be a valid Python identifier";
   }
 
-  if (getLiteralExpr() && !getItems().empty()) {
-    return emitOpError(
-        "cannot have both literal_expr and items operands; use either "
-        "literal_expr for Python dict literals or items for key-value pairs");
-  }
-
-  if (!getLiteralExpr() && getItems().size() % 2 != 0) {
-    return emitOpError(
-        "items must be alternating key-value pairs (even count required)");
-  }
-
-  if (getLiteralExpr() && getLiteralExpr()->empty()) {
-    return emitOpError("literal_expr must not be empty");
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// SetValueForDictKeyOp
-//===----------------------------------------------------------------------===//
-
-LogicalResult SetValueForDictKeyOp::verify() {
-  Type keyType = getKey().getType();
-
-  // If key is an opaque type, verify it represents a string
-  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
-    StringRef value = opaqueType.getValue();
-    if (value != "str") {
-      return emitOpError()
-             << "key with opaque type must represent a string type "
-             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+  if (getLiteralExpr()) {
+    if (getLiteralExpr()->empty()) {
+      return emitOpError("literal_expr must not be empty");
+    }
+    if (!getItems().empty()) {
+      return emitOpError(
+          "cannot have both literal_expr and items operands; use either "
+          "literal_expr for Python dict literals or items for key-value pairs");
+    }
+  } else {
+    if (getItems().empty()) {
+      return emitOpError(
+          "cannot have both literal_expr and items empty; for an "
+          "empty dict, use literal_expr = \"{}\" instead");
+    }
+    if (getItems().size() % 2 != 0) {
+      return emitOpError(
+          "items must be alternating key-value pairs (even count required)");
+    }
+    for (size_t i = 0; i < getItems().size(); i += 2) {
+      Type keyType = getItems()[i].getType();
+      if (!isa<IndexType, StringType>(keyType)) {
+        return emitOpError()
+               << "dictionary keys must be index or string type, but got "
+               << keyType << " at position " << i;
+      }
     }
   }
 
@@ -782,20 +839,71 @@ LogicalResult SetValueForDictKeyOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// GetValueForDictKeyOp
+// AssignOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult GetValueForDictKeyOp::verify() {
-  Type keyType = getKey().getType();
+void AssignOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  // Assign modifies the target in-place
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       SideEffects::DefaultResource::get());
+}
 
-  // If key is an opaque type, verify it represents a string
-  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
-    StringRef value = opaqueType.getValue();
-    if (value != "str") {
+LogicalResult AssignOp::verify() {
+  // Check if the target is a subscript operation
+  Operation *definingOp = getTarget().getDefiningOp();
+  if (definingOp && isa_and_nonnull<SubscriptOp>(definingOp)) {
+    // Allow subscript assignment inside an expression block
+    if (!isa_and_nonnull<ExpressionOp>(getOperation()->getParentOp())) {
       return emitOpError()
-             << "key with opaque type must represent a string type "
-             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+             << "subscript assignment (e.g., dict[key] = value) must be "
+                "wrapped in emitpy.expression. "
+             << "Example: emitpy.expression(%dict, %key, %value) : "
+                "(!emitpy.dict, index, T) -> !emitpy.opaque<\"None\"> { "
+                "^bb0(%d: !emitpy.dict, %k: index, %v: T): "
+                "%sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> T; "
+                "emitpy.assign %sub = %v : (T, T); "
+                "%none = emitpy.constant ... : !emitpy.opaque<\"None\">; "
+                "emitpy.yield %none : !emitpy.opaque<\"None\"> }";
     }
+  }
+
+  return success();
+}
+
+void AssignOp::print(OpAsmPrinter &p) {
+  p << " " << getTarget();
+  p << " = " << getValue() << " : (";
+  p << getTarget().getType();
+  p << ", " << getValue().getType() << ")";
+  p.printOptionalAttrDict(getOperation()->getAttrs());
+}
+
+ParseResult AssignOp::parse(OpAsmParser &parser, OperationState &result) {
+  OpAsmParser::UnresolvedOperand target, value;
+  Type targetType, valueType;
+
+  // Parse: %target = %value : (target_type, value_type)
+  if (parser.parseOperand(target) || parser.parseEqual() ||
+      parser.parseOperand(value)) {
+    return parser.emitError(parser.getNameLoc(), "expected '%target = %value'");
+  }
+
+  if (parser.parseColon() || parser.parseLParen() ||
+      parser.parseType(targetType) || parser.parseComma() ||
+      parser.parseType(valueType) || parser.parseRParen()) {
+    return parser.emitError(parser.getNameLoc(),
+                            "expected ': (target_type, value_type)'");
+  }
+
+  if (parser.resolveOperand(target, targetType, result.operands) ||
+      parser.resolveOperand(value, valueType, result.operands)) {
+    return parser.emitError(parser.getNameLoc(), "failed to resolve operands");
+  }
+
+  if (parser.parseOptionalAttrDict(result.attributes)) {
+    return failure();
   }
 
   return success();
@@ -849,20 +957,53 @@ LogicalResult ExpressionOp::verify() {
     return emitOpError("requires yielded type to match return type");
   }
 
+  // Check if this is a subscript assignment pattern
+  bool isSubscriptAssignment = false;
+
   for (Operation &op : region.front().without_terminator()) {
-    auto expressionInterface = dyn_cast<PyExpressionInterface>(op);
-    // Ensure each operation implements the expression interface
-    if (!expressionInterface) {
-      return emitOpError("contains an unsupported operation");
+    if (auto assignOp = dyn_cast<AssignOp>(&op)) {
+      if (auto subscriptOp = dyn_cast_or_null<SubscriptOp>(
+              assignOp.getTarget().getDefiningOp())) {
+        isSubscriptAssignment = true;
+        break;
+      }
     }
-    // Ensure each operation has exactly one result
-    if (op.getNumResults() != 1) {
-      return emitOpError("requires exactly one result for each operation");
+  }
+
+  // For subscript assignment pattern, verify it contains exactly the expected
+  // ops: one SubscriptOp, one AssignOp targeting it, and one constant for the
+  // yield. The translator only emits the AssignOp, so any other operations
+  // would be silently dropped.
+  if (isSubscriptAssignment) {
+    unsigned nonTerminatorCount = 0;
+    for (Operation &op : region.front().without_terminator()) {
+      ++nonTerminatorCount;
+      if (!isa<SubscriptOp, AssignOp, ConstantOp>(op)) {
+        return emitOpError("subscript assignment expression must only contain "
+                           "subscript, assign, and constant operations");
+      }
     }
-    Value result = op.getResult(0);
-    // Ensure each operation's result is used at least once
-    if (result.use_empty()) {
-      return emitOpError("contains an unused operation");
+    if (nonTerminatorCount != 3) {
+      return emitOpError(
+          "subscript assignment expression must contain exactly three "
+          "operations (subscript, assign, constant) before the yield");
+    }
+  } else {
+    for (Operation &op : region.front().without_terminator()) {
+      auto expressionInterface = dyn_cast<PyExpressionInterface>(op);
+      // Ensure each operation implements the expression interface
+      if (!expressionInterface) {
+        return emitOpError("contains an unsupported operation");
+      }
+      // Ensure each operation has exactly one result
+      if (op.getNumResults() != 1) {
+        return emitOpError("requires exactly one result for each operation");
+      }
+      Value result = op.getResult(0);
+      // Ensure each operation's result is used at least once
+      if (result.use_empty()) {
+        return emitOpError("contains an unused operation");
+      }
     }
   }
 

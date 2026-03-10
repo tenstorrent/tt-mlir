@@ -4,8 +4,9 @@
 
 from abc import ABC, abstractmethod
 from functools import partial
+import math
 
-from ttmlir.dialects import ttir, arith
+from ttmlir.dialects import ttir, ttcore, arith
 from ttmlir.ir import (
     InsertionPoint,
     Location,
@@ -25,6 +26,7 @@ from ttnn_jit._src.supported_ops import (
     binary_ops,
     reduction_ops,
     tm_ops,
+    ccl_ops,
     get_ttir_name,
     TTIR_NAME_MAP,
 )
@@ -32,6 +34,7 @@ from ttnn_jit._src.tensor_translator import (
     create_default_dram_interleaved_layout,
     create_output_tensor,
 )
+import ttnn
 
 """
 Set this to True to create encoding for intermediate tensors (and the final output tensor), False otherwise.
@@ -42,7 +45,7 @@ Encodings are created based on the following logic:
    - Reductions (Sum, Mean, Max, Min)
    - TMs (Permute, Transpose, Reshape)
 """
-CREATE_INTERMEDIATE_LAYOUT = True
+CREATE_INTERMEDIATE_LAYOUT = False
 
 
 class ResultWrapper:
@@ -413,12 +416,48 @@ class ReductionOpHandler(BaseOpHandler):
 class MatmulOpHandler(BaseOpHandler):
     """Handler for matrix multiplication operation."""
 
-    def _infer_result_type(self, lhs_type, rhs_type):
-        """Infer result type for matmul using create_output_tensor."""
-        # Use create_output_tensor which handles matmul output layout inference
-        return create_output_tensor(
-            self.jit_ctx.ctx, "matmul", [lhs_type, rhs_type], CREATE_INTERMEDIATE_LAYOUT
-        )
+    def _infer_result_type(
+        self, lhs_type, rhs_type, transpose_a=False, transpose_b=False
+    ):
+        """Infer result type for matmul."""
+
+        lhs_shape = list(lhs_type.shape)
+        rhs_shape = list(rhs_type.shape)
+
+        if transpose_a:
+            lhs_shape = [lhs_shape[1], lhs_shape[0]]
+        if transpose_b:
+            rhs_shape = [rhs_shape[1], rhs_shape[0]]
+
+        if CREATE_INTERMEDIATE_LAYOUT:
+            if transpose_a or transpose_b:
+                with Location.unknown(self.jit_ctx.ctx):
+                    transposed_lhs_type = RankedTensorType.get(
+                        lhs_shape, lhs_type.element_type, lhs_type.encoding
+                    )
+                    transposed_rhs_type = RankedTensorType.get(
+                        rhs_shape, rhs_type.element_type, rhs_type.encoding
+                    )
+                return create_output_tensor(
+                    self.jit_ctx.ctx,
+                    "matmul",
+                    [transposed_lhs_type, transposed_rhs_type],
+                    True,
+                    self.jit_ctx.core_grid,
+                )
+            return create_output_tensor(
+                self.jit_ctx.ctx,
+                "matmul",
+                [lhs_type, rhs_type],
+                True,
+                self.jit_ctx.core_grid,
+            )
+
+        shape = [lhs_shape[0], rhs_shape[-1]]
+        element_type = lhs_type.element_type
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(shape, element_type)
 
     def create_operation(self, *args, **kwargs):
         """Create matmul operation."""
@@ -432,8 +471,10 @@ class MatmulOpHandler(BaseOpHandler):
         transpose_a = kwargs.get("transpose_a", False)
         transpose_b = kwargs.get("transpose_b", False)
 
-        # Infer result type using create_output_tensor
-        result_type = self._infer_result_type(lhs.type, rhs.type)
+        # Infer result type
+        result_type = self._infer_result_type(
+            lhs.type, rhs.type, transpose_a, transpose_b
+        )
 
         # Create the operation
         with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
@@ -1208,6 +1249,370 @@ class EmbeddingOpHandler(BaseOpHandler):
         return self._finalize_result(op_result, args)
 
 
+class ClampOpHandler(BaseOpHandler):
+    """Handler for clamp operation.
+
+    Supports two modes:
+    1. Scalar bounds: ttnn.clamp(input, min=2.0, max=5.0) -> ttir.clamp_scalar
+    2. Tensor bounds: ttnn.clamp(input, min=min_tensor, max=max_tensor) -> ttir.clamp_tensor
+    """
+
+    _F32_MAX = 3.4028235e38
+
+    def __init__(self, jit_ctx):
+        super().__init__(jit_ctx)
+        self.op_name = "clamp"
+
+    def _infer_output_layout(self, operand):
+        """Infer output layout for clamp operation - preserves input encoding."""
+        return operand.type.encoding if CREATE_INTERMEDIATE_LAYOUT else None
+
+    def _infer_result_type(self, operand):
+        """Infer result type from operand, preserving encoding (layout unchanged)."""
+        element_type = operand.type.element_type
+        shape = list(operand.type.shape)
+        encoding = self._infer_output_layout(operand)
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(shape, element_type, encoding)
+
+    def _normalize_scalar_value(self, value):
+        """Normalize Python scalar for MLIR attribute/tensor creation."""
+        if isinstance(value, float) and math.isinf(value):
+            return math.copysign(self._F32_MAX, value)
+        return value
+
+    def _convert_scalar_to_attr(self, value, element_type):
+        """Convert Python scalar to MLIR attribute matching element type."""
+        value = self._normalize_scalar_value(value)
+
+        # Convert to appropriate MLIR attribute
+        with Location.unknown(self.jit_ctx.ctx):
+            if isinstance(element_type, (F32Type, F64Type, BF16Type)):
+                return FloatAttr.get(F32Type.get(self.jit_ctx.ctx), float(value))
+            elif isinstance(element_type, IntegerType):
+                return IntegerAttr.get(
+                    IntegerType.get_signless(32, self.jit_ctx.ctx), int(value)
+                )
+            else:
+                raise ValueError(f"Unsupported element type for clamp: {element_type}")
+
+    def _is_scalar(self, value):
+        """Check if value is a scalar (not a tensor)."""
+        return isinstance(value, (int, float, bool))
+
+    def create_operation(self, *args, **kwargs):
+        """Create clamp operation.
+
+        Signature: ttnn.clamp(input, min=..., max=...) or ttnn.clamp(input, min_val, max_val)
+        Supports both keyword and positional arguments.
+        """
+        if len(args) < 1:
+            raise ValueError("clamp requires at least 1 argument (input tensor)")
+
+        operands = self._get_operands(args[:1])
+        input_operand = operands[0]
+
+        min_val = kwargs.get("min", None)
+        max_val = kwargs.get("max", None)
+
+        if min_val is None and len(args) >= 2:
+            min_val = args[1]
+        if max_val is None and len(args) >= 3:
+            max_val = args[2]
+
+        if min_val is None and max_val is None:
+            raise ValueError("clamp requires at least one of 'min' or 'max' arguments")
+
+        # Infer result type
+        result_type = self._infer_result_type(input_operand)
+
+        # Determine whether to use clamp_scalar or clamp_tensor
+        min_is_scalar = min_val is None or self._is_scalar(min_val)
+        max_is_scalar = max_val is None or self._is_scalar(max_val)
+
+        if min_is_scalar and max_is_scalar:
+            # Use ttir.clamp_scalar
+            element_type = input_operand.type.element_type
+
+            if min_val is None:
+                min_val = float("-inf")
+            if max_val is None:
+                max_val = float("inf")
+
+            min_attr = self._convert_scalar_to_attr(min_val, element_type)
+            max_attr = self._convert_scalar_to_attr(max_val, element_type)
+
+            with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(
+                self.jit_ctx.ctx
+            ):
+                op_result = ttir.clamp_scalar(
+                    result=result_type,
+                    input=input_operand,
+                    min=min_attr,
+                    max=max_attr,
+                )
+        else:
+            # Use ttir.clamp_tensor
+            # Resolve min and max operands
+            if min_val is None:
+                # Create a tensor filled with -inf
+                min_operand = self._create_scalar_tensor_constant(
+                    self._normalize_scalar_value(float("-inf")), input_operand
+                )
+            elif self._is_scalar(min_val):
+                min_operand = self._create_scalar_tensor_constant(
+                    self._normalize_scalar_value(min_val), input_operand
+                )
+            else:
+                min_operand = self._resolve_operand(min_val, 1, self.jit_ctx)
+
+            if max_val is None:
+                # Create a tensor filled with inf
+                max_operand = self._create_scalar_tensor_constant(
+                    self._normalize_scalar_value(float("inf")), input_operand
+                )
+            elif self._is_scalar(max_val):
+                max_operand = self._create_scalar_tensor_constant(
+                    self._normalize_scalar_value(max_val), input_operand
+                )
+            else:
+                max_operand = self._resolve_operand(max_val, 2, self.jit_ctx)
+
+            with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(
+                self.jit_ctx.ctx
+            ):
+                op_result = ttir.clamp_tensor(
+                    result=result_type,
+                    input=input_operand,
+                    min=min_operand,
+                    max=max_operand,
+                )
+
+        return self._finalize_result(op_result, args)
+
+
+class AllGatherOpHandler(BaseOpHandler):
+    """Handler for all_gather CCL op. Signature: all_gather(input, dim, cluster_axis=0)."""
+
+    def __init__(self, jit_ctx):
+        super().__init__(jit_ctx)
+
+    def _infer_result_type(self, operand, all_gather_dim, cluster_axis):
+        """
+        Output shape: same as input except output[all_gather_dim] = input[all_gather_dim] * mesh_shape[cluster_axis].
+        Matches TTIR/ttnn: gather concatenates along dim across devices on cluster_axis.
+        """
+        element_type = operand.type.element_type
+        shape = list(operand.type.shape)
+        mesh_shape = getattr(self.jit_ctx, "mesh_shape", (1, 1))
+        if cluster_axis < len(mesh_shape):
+            num_devices = mesh_shape[cluster_axis]
+            dim_size = int(shape[all_gather_dim])
+            shape[all_gather_dim] = dim_size * num_devices
+        encoding = (
+            create_default_dram_interleaved_layout(
+                self.jit_ctx.ctx, shape, element_type
+            )
+            if CREATE_INTERMEDIATE_LAYOUT
+            else None
+        )
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(shape, element_type, encoding)
+
+    def create_operation(self, *args, **kwargs):
+        """Create all_gather operation. Matches ttnn.all_gather(input, dim, cluster_axis=...)."""
+        if len(args) < 1:
+            raise ValueError("all_gather requires at least 1 argument (input)")
+
+        operands = self._get_operands([args[0]])
+        operand = operands[0]
+        if isinstance(operand, (int, float, bool)):
+            raise ValueError("all_gather requires a tensor operand as first argument")
+
+        # dim can be positional (args[1]) or keyword
+        dim_arg = args[1] if len(args) >= 2 else kwargs.get("dim")
+        if dim_arg is None:
+            raise ValueError("all_gather requires dim (positional or keyword)")
+        if not isinstance(dim_arg, int):
+            raise ValueError("all_gather dim must be an integer")
+
+        input_rank = len(operand.type.shape)
+        all_gather_dim = self._normalize_dim(dim_arg, input_rank)
+        cluster_axis = kwargs.get("cluster_axis", 0)
+        if not isinstance(cluster_axis, int) or cluster_axis < 0:
+            raise ValueError("all_gather cluster_axis must be a non-negative integer")
+        mesh_shape = getattr(self.jit_ctx, "mesh_shape", (1, 1))
+        if cluster_axis >= len(mesh_shape):
+            raise ValueError(
+                f"all_gather cluster_axis {cluster_axis} must be < mesh rank {len(mesh_shape)}"
+            )
+
+        result_type = self._infer_result_type(operand, all_gather_dim, cluster_axis)
+        all_gather_dim_attr = IntegerAttr.get(
+            IntegerType.get_signed(32, self.jit_ctx.ctx), all_gather_dim
+        )
+        cluster_axis_attr = IntegerAttr.get(
+            IntegerType.get_unsigned(32, self.jit_ctx.ctx), cluster_axis
+        )
+
+        with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
+            op_result = ttir.all_gather(
+                result=result_type,
+                input=operand,
+                all_gather_dim=all_gather_dim_attr,
+                cluster_axis=cluster_axis_attr,
+            )
+
+        return self._finalize_result(op_result, [args[0]])
+
+
+class AllReduceOpHandler(BaseOpHandler):
+    """Handler for all_reduce CCL op. Signature: all_reduce(input, cluster_axis=0)."""
+
+    def __init__(self, jit_ctx):
+        super().__init__(jit_ctx)
+
+    def _infer_result_type(self, operand):
+        """Output shape: same as input."""
+        element_type = operand.type.element_type
+        shape = list(operand.type.shape)
+        encoding = operand.type.encoding if CREATE_INTERMEDIATE_LAYOUT else None
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(shape, element_type, encoding)
+
+    def create_operation(self, *args, **kwargs):
+        """Create all_reduce operation. Matches ttnn.all_reduce(input, cluster_axis=...)."""
+        if len(args) < 1:
+            raise ValueError("all_reduce requires at least 1 argument (input)")
+
+        operands = self._get_operands(args)
+        operand = operands[0]
+        if isinstance(operand, (int, float, bool)):
+            raise ValueError("all_reduce requires a tensor operand")
+
+        cluster_axis = kwargs.get("cluster_axis", 0)
+        if not isinstance(cluster_axis, int) or cluster_axis < 0:
+            raise ValueError("all_reduce cluster_axis must be a non-negative integer")
+
+        result_type = self._infer_result_type(operand)
+        reduce_type_attr = ttcore.ir.ReduceTypeAttr.get(
+            self.jit_ctx.ctx, ttcore.ir.ReduceType.Sum
+        )
+        cluster_axis_attr = IntegerAttr.get(
+            IntegerType.get_unsigned(32, self.jit_ctx.ctx), cluster_axis
+        )
+
+        with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
+            op_result = ttir.all_reduce(
+                result=result_type,
+                input=operand,
+                reduce_type=reduce_type_attr,
+                cluster_axis=cluster_axis_attr,
+            )
+
+        return self._finalize_result(op_result, args)
+
+
+class ReduceScatterOpHandler(BaseOpHandler):
+    """Handler for reduce_scatter CCL op. Signature: reduce_scatter(input, dim, ...)."""
+
+    def __init__(self, jit_ctx):
+        super().__init__(jit_ctx)
+
+    def _infer_result_type(self, operand, scatter_dim, cluster_axis):
+        """
+        Output shape: same as input except output[scatter_dim] = input[scatter_dim] / mesh_shape[cluster_axis].
+        Matches TTIR/ttnn: reduce then split along scatter_dim across devices on cluster_axis.
+        """
+        element_type = operand.type.element_type
+        shape = list(operand.type.shape)
+        mesh_shape = getattr(self.jit_ctx, "mesh_shape", (1, 1))
+        if cluster_axis < len(mesh_shape):
+            num_devices = mesh_shape[cluster_axis]
+            dim_size = int(shape[scatter_dim])
+            if dim_size % num_devices != 0:
+                raise ValueError(
+                    f"reduce_scatter: scatter_dim size {dim_size} must be divisible by "
+                    f"mesh_shape[cluster_axis={cluster_axis}] = {num_devices}"
+                )
+            shape[scatter_dim] = dim_size // num_devices
+        encoding = (
+            create_default_dram_interleaved_layout(
+                self.jit_ctx.ctx, shape, element_type
+            )
+            if CREATE_INTERMEDIATE_LAYOUT
+            else None
+        )
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(shape, element_type, encoding)
+
+    def create_operation(self, *args, **kwargs):
+        """Create reduce_scatter. Matches ttnn.reduce_scatter(input, dim, cluster_axis=..., reduce_type=...)."""
+        if len(args) < 1:
+            raise ValueError("reduce_scatter requires at least 1 argument (input)")
+
+        operands = self._get_operands([args[0]])
+        operand = operands[0]
+        if isinstance(operand, (int, float, bool)):
+            raise ValueError(
+                "reduce_scatter requires a tensor operand as first argument"
+            )
+
+        # dim can be positional (args[1]) or keyword
+        dim_arg = args[1] if len(args) >= 2 else kwargs.get("dim")
+        if dim_arg is None:
+            raise ValueError("reduce_scatter requires dim (positional or keyword)")
+        if not isinstance(dim_arg, int):
+            raise ValueError("reduce_scatter dim must be an integer")
+
+        input_rank = len(operand.type.shape)
+        scatter_dim = self._normalize_dim(dim_arg, input_rank)
+        cluster_axis = kwargs.get("cluster_axis", 0)
+        if not isinstance(cluster_axis, int) or cluster_axis < 0:
+            raise ValueError(
+                "reduce_scatter cluster_axis must be a non-negative integer"
+            )
+        mesh_shape = getattr(self.jit_ctx, "mesh_shape", (1, 1))
+        if cluster_axis >= len(mesh_shape):
+            raise ValueError(
+                f"reduce_scatter cluster_axis {cluster_axis} must be < mesh rank {len(mesh_shape)}"
+            )
+
+        reduce_type_str = kwargs.get("reduce_type", "sum")
+        reduce_type_map = {
+            "sum": ttcore.ir.ReduceType.Sum,
+            "max": ttcore.ir.ReduceType.Max,
+            "min": ttcore.ir.ReduceType.Min,
+        }
+        if reduce_type_str not in reduce_type_map:
+            raise ValueError(
+                f"reduce_scatter reduce_type must be one of {list(reduce_type_map.keys())}, got {reduce_type_str!r}"
+            )
+        reduce_type_attr = ttcore.ir.ReduceTypeAttr.get(
+            self.jit_ctx.ctx, reduce_type_map[reduce_type_str]
+        )
+
+        result_type = self._infer_result_type(operand, scatter_dim, cluster_axis)
+        scatter_dim_attr = IntegerAttr.get(
+            IntegerType.get_signed(32, self.jit_ctx.ctx), scatter_dim
+        )
+        cluster_axis_attr = IntegerAttr.get(
+            IntegerType.get_unsigned(32, self.jit_ctx.ctx), cluster_axis
+        )
+
+        with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
+            op_result = ttir.reduce_scatter(
+                result=result_type,
+                input=operand,
+                reduce_type=reduce_type_attr,
+                scatter_dim=scatter_dim_attr,
+                cluster_axis=cluster_axis_attr,
+            )
+
+        return self._finalize_result(op_result, [args[0]])
+
+
 class TTNNJitNamespaceUpdater:
     """Namespace updater that provides jit functions for tracing mode."""
 
@@ -1218,10 +1623,15 @@ class TTNNJitNamespaceUpdater:
     def register_all_operations(self, jit_ctx):
         """Register all operations in the namespace."""
         ######################## Unary operations ########################
+        # Skip ops that have dedicated/special handlers
+        special_unary_ops = {"clamp"}
+
         self._unary_handlers = {
-            op_name: UnaryOpHandler(jit_ctx, op_name) for op_name in unary_ops
+            op_name: UnaryOpHandler(jit_ctx, op_name)
+            for op_name in unary_ops
+            if op_name not in special_unary_ops
         }
-        for op_name in unary_ops:
+        for op_name in self._unary_handlers:
             setattr(
                 self,
                 op_name,
@@ -1290,6 +1700,28 @@ class TTNNJitNamespaceUpdater:
         ######################## Gather operation ########################
         self._gather_handler = GatherOpHandler(jit_ctx)
         self.gather = partial(self._call_handler, self._gather_handler)
+
+        ######################## Clamp operation ########################
+        self._clamp_handler = ClampOpHandler(jit_ctx)
+        self.clamp = partial(self._call_handler, self._clamp_handler)
+
+        ######################## CCL operations ########################
+        self._all_gather_handler = AllGatherOpHandler(jit_ctx)
+        self.all_gather = partial(self._call_handler, self._all_gather_handler)
+        self._all_reduce_handler = AllReduceOpHandler(jit_ctx)
+        self.all_reduce = partial(self._call_handler, self._all_reduce_handler)
+        self._reduce_scatter_handler = ReduceScatterOpHandler(jit_ctx)
+        self.reduce_scatter = partial(self._call_handler, self._reduce_scatter_handler)
+
+    def __getattr__(self, name):
+        """Forward non-op attributes (e.g. Tensor, types, enums) to the real ttnn module.
+
+        When the traced function source is rewritten so that 'ttnn.' becomes 'ttnn_jit.',
+        type hints like ttnn.Tensor become ttnn_jit.Tensor. This namespace only defines
+        op handlers (exp, add, etc.); type hints and other ttnn attributes are resolved
+        by forwarding to the real ttnn module.
+        """
+        return getattr(ttnn, name)
 
     def _call_handler(self, handler, *args, **kwargs):
         """Call the handler's create_operation method."""

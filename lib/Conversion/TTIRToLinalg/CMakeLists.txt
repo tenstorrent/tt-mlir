@@ -1,6 +1,8 @@
 add_mlir_conversion_library(TTMLIRTTIRToLinalg
+  EltwiseUnary.cpp
   TTIRToLinalg.cpp
   TTIRToLinalgPass.cpp
+  Utils.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTIRToLinalg
