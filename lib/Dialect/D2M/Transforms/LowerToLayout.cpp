@@ -858,7 +858,7 @@ public:
       return emptyOp.getResult();
     };
 
-    // 1. SYSTEM→DEVICE: Transfer to L1/DRAM with same element type as input.
+    // SYSTEM→DEVICE: Transfer to L1/DRAM with same element type as input.
     if (!currentInfo.hasLayout() && targetInfo.hasLayout()) {
       // System transfer can ONLY change memory space, not element type.
       // Create intermediate with scalar element type (same as system input).
@@ -879,7 +879,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 2. DRAM→L1: Must happen before other device ops.
+    // DRAM→L1: Must happen before other device ops.
     // Use target's layout characteristics.
     if (currentInfo.hasLayout() && currentInfo.isDRAM() &&
         targetInfo.hasLayout() && !targetInfo.isDRAM()) {
@@ -901,7 +901,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 3. TILIZE: Before mapping (so mapping operates on final format).
+    // TILIZE: Before mapping (so mapping operates on final format).
     bool needsTilize =
         !ttcore::isTiled(currentInfo.type) && ttcore::isTiled(targetInfo.type);
     if (needsTilize && currentInfo.hasLayout()) {
@@ -918,7 +918,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 4. UNTILIZE: Before L1→DRAM or Device→System.
+    // UNTILIZE: Before L1→DRAM or Device→System.
     bool needsUntilize =
         ttcore::isTiled(currentInfo.type) && !ttcore::isTiled(targetInfo.type);
     if (needsUntilize) {
@@ -937,7 +937,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 5. L1→DRAM (lowerDatamovementGeneric handles grid mismatch via views).
+    // L1→DRAM (lowerDatamovementGeneric handles grid mismatch via views).
     if (currentInfo.hasLayout() && !currentInfo.isDRAM() &&
         targetInfo.hasLayout() && targetInfo.isDRAM()) {
       currentValue = lowerDatamovementGeneric(rewriter, currentValue,
@@ -945,7 +945,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 6. MASKING: Apply boundary masking after tilization if needed.
+    // MASKING: Apply boundary masking after tilization if needed.
     // Insert TileMaskBoundaryOp when the target layout has non-Undef OOBVal
     // and padding exists.
     if (currentInfo.hasLayout() && ttcore::isTiled(currentInfo.type) &&
@@ -967,7 +967,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 7. MAPPING CHANGE: Grid/index_map/logical_shape/dim_alignments (after
+    // MAPPING CHANGE: Grid/index_map/logical_shape/dim_alignments (after
     // tilize). Includes all reblocking (both virtual and normal grids). Must
     // happen in L1 (can't reblock in DRAM). Only when element type formats
     // match (tilize/untilize should happen first).
@@ -1015,7 +1015,7 @@ public:
           // shapes don't divide evenly into tiles. Decompose via scalar space:
           // untilize → map in scalar space → tilize back.
 
-          // 7a. Untilize to scalar space (preserve current layout properties).
+          // Untilize to scalar space (preserve current layout properties).
           // Reblock virtual grid shape here to align with earlier splitting
           // phases that use reblocked intermediates to bounce virtual grid
           // shapes from host to device.
@@ -1031,7 +1031,7 @@ public:
               rewriter, currentValue, untilizedEmpty, op.getLoc());
           currentInfo = TensorInfo::from(currentValue);
 
-          // 7b. Apply complex mapping change in scalar space.
+          // Apply complex mapping change in scalar space.
           // Build scalar target with ALL target's layout properties.
           auto scalarTargetLayout = ttcore::MetalLayoutAttr::get(
               rewriter.getContext(), targetInfo.layout->getLogicalShape(),
@@ -1053,7 +1053,7 @@ public:
                                  op.getLoc(), targetGridShape);
           currentInfo = TensorInfo::from(currentValue);
 
-          // 7c. Tilize back to match target format.
+          // Tilize back to match target format.
           ArrayRef<int64_t> tileShape =
               ttcore::getTensorTileShape(targetInfo.type);
           auto tiledDeviceShape = targetInfo.layout->getDeviceShape(
@@ -1093,7 +1093,7 @@ public:
       }
     }
 
-    // 8. VIRTUAL GRID COLLAPSE: If current has virtual grid but target doesn't
+    // VIRTUAL GRID COLLAPSE: If current has virtual grid but target doesn't
     // need it. This should happen BEFORE any system transfer or whenever grid
     // needs to shrink.
     if (currentInfo.hasLayout() && targetInfo.isSystem()) {
@@ -1122,7 +1122,7 @@ public:
       }
     }
 
-    // 9. DEVICE→SYSTEM: Creates final ToLayoutOp with layout attribute.
+    // DEVICE→SYSTEM: Creates final ToLayoutOp with layout attribute.
     if (currentInfo.hasLayout() && !targetInfo.hasLayout()) {
       // Device→system creates a ToLayoutOp with layout attribute set.
       currentValue = lowerSystemLayoutChange(rewriter, currentValue,
