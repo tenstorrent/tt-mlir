@@ -311,6 +311,12 @@ public:
   //
   size_t getProgramIndex() const { return programIndex; }
 
+  //
+  // Trace allocation direction flag
+  //
+  bool getAllocateTopDown() const { return allocateTopDown; }
+  void setAllocateTopDown(bool val) { allocateTopDown = val; }
+
 private:
   ProgramTensorPool tensorPool;
 
@@ -325,6 +331,11 @@ private:
 
   // The index of the program within the binary
   const size_t programIndex;
+
+  // When true, EmptyOp device allocations use top-down (bottom_up=false)
+  // direction to avoid overlapping with bottom-up intermediates during trace
+  // capture.
+  bool allocateTopDown = false;
 };
 
 } // namespace tt::runtime::ttnn
