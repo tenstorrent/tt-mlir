@@ -1136,10 +1136,7 @@ public:
   mlir::LogicalResult
   matchAndRewrite(ReshapeOp reshapeOp,
                   mlir::PatternRewriter &rewriter) const override {
-    // Skip through typecast ops to find the permute.
-    Value reshapeInput =
-        ttmlir::utils::lookThrough<TypecastOp>(reshapeOp.getInput());
-    auto permuteOp = reshapeInput.getDefiningOp<PermuteOp>();
+    auto permuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
     if (!permuteOp) {
       return failure();
     }
@@ -1151,7 +1148,6 @@ public:
       return failure();
     }
 
-    // Validate permute input is a 4D tensor.
     Value input = permuteOp.getInput();
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
 
@@ -1176,15 +1172,11 @@ public:
       return failure();
     }
 
-    // Construct the NLPConcatHeadsDecodeOp output type.
-    // Output shape: [S, 1, B, num_heads * head_dim].
     SmallVector<int64_t> concatHeadsOutputShape = {seqLen, 1, batchSize,
                                                    numHeads * headDim};
     auto concatHeadsResultType = utils::RankedTensorTypeFactory::create(
         inputType, concatHeadsOutputShape);
 
-    // Create the fused op with original (unsharded) input. The workaround
-    // pass will insert the height-sharded ToLayoutOp later.
     op_model::ScopedSingletonDeviceGuard deviceGuard(reshapeOp);
 
     auto nlpConcatHeadsDecodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
@@ -1224,12 +1216,8 @@ public:
       }
     }
 
-    // Restore insertion point after the fused op.
     rewriter.setInsertionPointAfter(nlpConcatHeadsDecodeOp);
 
-    // Create a new reshape from 4D fused output to original output
-    // shape. The old permute and transparent ops become dead code and are
-    // eliminated by DCE.
     auto newReshapeOp = rewriter.create<ReshapeOp>(
         reshapeOp.getLoc(), reshapeOp.getType(),
         nlpConcatHeadsDecodeOp.getResult(), reshapeOp.getShapeAttr(),
@@ -1268,6 +1256,11 @@ public:
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
     }
 #endif // TTMLIR_ENABLE_OPMODEL
+
+    // Add TypecastOp canonicalization patterns to fold consecutive typecasts
+    // (e.g. bf16->f32->bf16) that appear after SDPA fusing, enabling
+    // patterns like NLPConcatHeadsDecodeFusing to match cleanly.
+    TypecastOp::getCanonicalizationPatterns(patterns, &getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);

@@ -6,7 +6,6 @@
 //   1. Basic decode pattern: permute + reshape fuses to nlp_concat_heads_decode
 //   2. Negative: wrong permutation (should not fuse)
 //   3. Negative: non-decode seq_len > 1 (should not fuse)
-//   4. Negative: non-4D input (should not fuse)
 
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true" %s | FileCheck %s
