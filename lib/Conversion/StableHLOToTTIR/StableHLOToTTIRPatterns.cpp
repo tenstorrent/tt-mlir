@@ -5361,7 +5361,7 @@ public:
       return success();
     }
 
-    // SortType::kKeyValue — reorder each value tensor according to the sort
+    // SortType::kKeyValue - reorder each value tensor according to the sort
     // order. ttir::SortOp gives us per-element sort indices.
     // We need to use those indices to gather from each value tensor, but
     // ttir::EmbeddingOp only supports flat (1D) index lookups into a 2D table,
@@ -5370,16 +5370,17 @@ public:
     // The flat index of an element at position [i0, i1, ..., k, ..., iN]
     // (where k is along sortDim) is:
     //   flat = i0 * stride0 + i1 * stride1 + ... + k * strideSort + ...
-    // Computing this directly requires multiplying sort indices tensor with stride.
+    // Computing this directly requires multiplying sort indices tensor with
+    // stride.
     //
     // Instead, we permute sortDim to the last axis. With that permutation, the
     // tensor logically becomes [prePost, dSort], where prePost is the product
     // of all non-sort dimension sizes and dSort is size of sortDim.
     // The flat index then simplifies to:
     //   flat[i, j] = i * dSort + j
-    // where i is the row (linearized non-sort dims) and j is the column (sort
-    // dim). The stride of the sort dimension is now always 1, so we only need
-    // to add a row offset: i * dSort. That offset pattern is exactly what
+    // where i is the row (linearized non-sort dims) and j is the column
+    // (sortDim). The stride of the sort dimension is now always 1, so we only
+    // need to add a row offset: i * dSort. That offset pattern is exactly what
     // ArangeOp(start=0, end=total, step=dSort, dim=0) produces — one entry per
     // row, broadcast across columns — making the full formula just an addition:
     //   flat_indices = ArangeOp(step=dSort) + indices_2d
@@ -5390,9 +5391,9 @@ public:
     //      [prePost, dSort].
     //   3. Compute flat indices: ArangeOp(0, total, step=dSort, dim=0) +
     //      indices_2d.
-    //   4. For each value tensor: permute (sortDim last), flatten to [total, 1],
-    //      EmbeddingOp with flat_indices, reshape to permuted shape, permute
-    //      back to original axis order.
+    //   4. For each value tensor: permute (sortDim last), flatten to [total,
+    //   1], EmbeddingOp with flat_indices, reshape to permuted shape, permute
+    //   back to original axis order.
     Value indices = sortOp.getIndices();
     auto indicesType = cast<RankedTensorType>(indices.getType());
     int64_t rank = indicesType.getRank();
@@ -5400,7 +5401,7 @@ public:
     Type indexElemType = indicesType.getElementType();
 
     int64_t dSort = origShape[sortDim];
-    int64_t prePost = indicesType.getNumElements() / dSort; // product of all non-sort dimensions
+    int64_t prePost = indicesType.getNumElements() / dSort;
     int64_t total = prePost * dSort;
 
     // Build permutation: all dims except sortDim, then sortDim last.
@@ -5435,8 +5436,8 @@ public:
     Value flatIndices =
         rewriter.create<ttir::AddOp>(loc, indices2DType, rowOffsets, indices2D);
 
-    // Per value tensor: permute sortDim to last → flatten → EmbeddingOp →
-    // reshape → permute back.
+    // Per value tensor: permute sortDim to last -> flatten -> EmbeddingOp ->
+    // reshape -> permute back.
     SmallVector<Value> results{sortOp.getValues()};
 
     for (size_t i = 1; i < srcOp.getInputs().size(); ++i) {
@@ -5452,21 +5453,21 @@ public:
           RankedTensorType::get(permValShape, valType.getElementType());
       val = rewriter.create<ttir::PermuteOp>(loc, permValType, val, perm);
 
-      // Flatten to [total, 1] — EmbeddingOp requires 2D weights.
+      // Flatten to [total, 1] - EmbeddingOp requires 2D weights.
       auto weightType =
           RankedTensorType::get({total, 1}, valType.getElementType());
       val = rewriter.create<ttir::ReshapeOp>(
           loc, weightType, val,
           rewriter.getI32ArrayAttr({static_cast<int32_t>(total), 1}));
 
-      // EmbeddingOp: indices [prePost, dSort] × weights [total, 1]
-      //   → output [prePost, dSort, 1].
+      // EmbeddingOp: indices [prePost, dSort] * weights [total, 1]
+      //   -> output [prePost, dSort, 1].
       auto embOutType =
           RankedTensorType::get({prePost, dSort, 1}, valType.getElementType());
       val =
           rewriter.create<ttir::EmbeddingOp>(loc, embOutType, flatIndices, val);
 
-      // Reshape [prePost, dSort, 1] → permuted shape [...non-sort dims...,
+      // Reshape [prePost, dSort, 1] -> permuted shape [...non-sort dims...,
       // dSort].
       SmallVector<int32_t> permValShapeI32(permValShape.begin(),
                                            permValShape.end());
