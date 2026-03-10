@@ -129,16 +129,21 @@ struct StablehloComplexToDecomposedPattern
   }
 };
 
-// stablehlo.real(operand: tensor<...x2xfN>):
-//   1. Transpose trailing dim to front → [2, ...]
-//   2. Slice dim 0 at [0, 1)           → [1, ...]
-//   3. Reshape to squeeze the size-1   → [...]
-struct StablehloRealToDecomposedPattern
-    : public OpConversionPattern<mlir::stablehlo::RealOp> {
-  using OpConversionPattern<mlir::stablehlo::RealOp>::OpConversionPattern;
+// stablehlo.real/imag(operand: tensor<...x2xfN>):
+//   1. Transpose trailing dim to front for tilize/ untilize performance → [2,
+//   ...]
+//   2. Slice dim 0 at [Offset, Offset+1) → [1, ...]
+//   3. Reshape to squeeze the size-1    → [...]
+template <typename OpTy>
+struct StablehloRealImagToDecomposedPattern : public OpConversionPattern<OpTy> {
+  using OpConversionPattern<OpTy>::OpConversionPattern;
+
+  static constexpr int Offset =
+      std::is_same_v<OpTy, mlir::stablehlo::RealOp> ? 0 : 1;
 
   LogicalResult
-  matchAndRewrite(mlir::stablehlo::RealOp op, OpAdaptor adaptor,
+  matchAndRewrite(OpTy op,
+                  typename OpConversionPattern<OpTy>::OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
 
@@ -149,11 +154,11 @@ struct StablehloRealToDecomposedPattern
     int64_t rank = transposedType.getRank();
     auto transposedShape = transposedType.getShape();
 
-    // Step 2: slice dim 0 at [0, 1) → real plane, shape [1, ...]
+    // Step 2: slice dim 0 at [Offset, Offset+1)
     SmallVector<int64_t> begins(rank, 0),
         ends(transposedShape.begin(), transposedShape.end()), steps(rank, 1);
-    begins[0] = 0;
-    ends[0] = 1;
+    begins[0] = Offset;
+    ends[0] = Offset + 1;
     SmallVector<int64_t> sliceShape(transposedShape.begin(),
                                     transposedShape.end());
     sliceShape[0] = 1;
@@ -165,57 +170,13 @@ struct StablehloRealToDecomposedPattern
 
     // Step 3: squeeze size-1 leading dim away → [...]
     auto resultType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(op.getResult().getType()));
+        this->getTypeConverter()->convertType(op.getResult().getType()));
     rewriter.replaceOpWithNewOp<mlir::stablehlo::ReshapeOp>(
         op, resultType, sliceOp.getResult());
     return success();
   }
 };
 
-// stablehlo.imag(operand: tensor<...x2xfN>):
-//   1. Transpose trailing dim to front → [2, ...]
-//   2. Slice dim 0 at [1, 2)           → [1, ...]
-//   3. Reshape to squeeze the size-1   → [...]
-struct StablehloImagToDecomposedPattern
-    : public OpConversionPattern<mlir::stablehlo::ImagOp> {
-  using OpConversionPattern<mlir::stablehlo::ImagOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(mlir::stablehlo::ImagOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-
-    // Step 1: transpose [..., 2] → [2, ...]
-    auto transposed =
-        transposeTrailingToLeading(loc, adaptor.getOperand(), rewriter);
-    auto transposedType = mlir::cast<RankedTensorType>(transposed.getType());
-    int64_t rank = transposedType.getRank();
-    auto transposedShape = transposedType.getShape();
-
-    // Step 2: slice dim 0 at [1, 2) → imag plane, shape [1, ...]
-    SmallVector<int64_t> begins(rank, 0),
-        ends(transposedShape.begin(), transposedShape.end()), steps(rank, 1);
-    begins[0] = 1;
-    ends[0] = 2;
-    SmallVector<int64_t> sliceShape(transposedShape.begin(),
-                                    transposedShape.end());
-    sliceShape[0] = 1;
-    auto sliceOp = rewriter.create<mlir::stablehlo::SliceOp>(
-        loc, RankedTensorType::get(sliceShape, transposedType.getElementType()),
-        transposed, rewriter.getDenseI64ArrayAttr(begins),
-        rewriter.getDenseI64ArrayAttr(ends),
-        rewriter.getDenseI64ArrayAttr(steps));
-
-    // Step 3: squeeze size-1 leading dim away → [...]
-    auto resultType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(op.getResult().getType()));
-    rewriter.replaceOpWithNewOp<mlir::stablehlo::ReshapeOp>(
-        op, resultType, sliceOp.getResult());
-    return success();
-  }
-};
-
-// ConstantOp: no transpose needed.
 // DenseElementsAttr stores complex values as interleaved (real, imag) pairs in
 // row-major order, which already matches the [..., 2] trailing layout.
 struct ConstantComplexConversionPattern
@@ -366,33 +327,20 @@ struct StableHLOComplexDataTypeConversionPass
   void runOnOperation() override {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<mlir::stablehlo::StablehloDialect>();
-    target.addLegalDialect<mlir::func::FuncDialect>();
-    target.addLegalDialect<BuiltinDialect>();
 
-    target.addDynamicallyLegalOp<mlir::stablehlo::ConstantOp>(
-        [](mlir::stablehlo::ConstantOp op) {
-          auto resultType =
-              mlir::cast<RankedTensorType>(op.getResult().getType());
-          return !mlir::isa<mlir::ComplexType>(resultType.getElementType());
-        });
+    auto isNotComplexType = [](mlir::Operation *op) {
+      auto resultType =
+          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+      return !mlir::isa<mlir::ComplexType>(resultType.getElementType());
+    };
 
-    target.addIllegalOp<mlir::stablehlo::ComplexOp>();
-    target.addIllegalOp<mlir::stablehlo::RealOp>();
-    target.addIllegalOp<mlir::stablehlo::ImagOp>();
+    target.addDynamicallyLegalOp<mlir::stablehlo::ConstantOp,
+                                 mlir::stablehlo::ReshapeOp,
+                                 mlir::stablehlo::BroadcastInDimOp>(
+        isNotComplexType);
 
-    target.addDynamicallyLegalOp<mlir::stablehlo::ReshapeOp>(
-        [](mlir::stablehlo::ReshapeOp op) {
-          auto resultType =
-              mlir::cast<RankedTensorType>(op.getResult().getType());
-          return !mlir::isa<mlir::ComplexType>(resultType.getElementType());
-        });
-
-    target.addDynamicallyLegalOp<mlir::stablehlo::BroadcastInDimOp>(
-        [](mlir::stablehlo::BroadcastInDimOp op) {
-          auto resultType =
-              mlir::cast<RankedTensorType>(op.getResult().getType());
-          return !mlir::isa<mlir::ComplexType>(resultType.getElementType());
-        });
+    target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
+                        mlir::stablehlo::ImagOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.
@@ -416,16 +364,12 @@ struct StableHLOComplexDataTypeConversionPass
         });
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<ConstantComplexConversionPattern>(typeConverter,
-                                                   &getContext());
-    patterns.add<StablehloComplexToDecomposedPattern>(typeConverter,
-                                                      &getContext());
-    patterns.add<StablehloRealToDecomposedPattern>(typeConverter,
-                                                   &getContext());
-    patterns.add<StablehloImagToDecomposedPattern>(typeConverter,
-                                                   &getContext());
-    patterns.add<ReshapeComplexConversionPattern>(typeConverter, &getContext());
-    patterns.add<BroadcastInDimComplexConversionPattern>(typeConverter,
+    patterns.add<ConstantComplexConversionPattern,
+                 StablehloComplexToDecomposedPattern,
+                 StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
+                 StablehloRealImagToDecomposedPattern<mlir::stablehlo::ImagOp>,
+                 ReshapeComplexConversionPattern,
+                 BroadcastInDimComplexConversionPattern>(typeConverter,
                                                          &getContext());
 
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
@@ -444,7 +388,5 @@ struct StableHLOComplexDataTypeConversionPass
     }
   }
 };
-
 } // namespace
-
 } // namespace mlir::tt::stablehlo
