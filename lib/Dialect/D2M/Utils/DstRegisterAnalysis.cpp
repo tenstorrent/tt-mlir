@@ -152,9 +152,7 @@ struct PendingDSTPackingResult {
   int64_t numDstFlips = 0;
 };
 
-} // namespace
-
-DSTPackingInfo analyzeGenericForDSTPacking(d2m::GenericOp generic) {
+static DSTPackingInfo computeDSTPackingForGeneric(d2m::GenericOp generic) {
   DSTPackingInfo results;
   SmallVector<PendingDSTPackingResult> pendingResults;
   SmallVector<int64_t> numDstFlipsPerOp;
@@ -283,6 +281,32 @@ DSTPackingInfo analyzeGenericForDSTPacking(d2m::GenericOp generic) {
   results.numOuterLoopIters = *commonNumOuterLoopIters;
 
   return results;
+}
+
+} // namespace
+
+DstRegisterAnalysis::DstRegisterAnalysis(Operation *op) {
+  op->walk([&](d2m::GenericOp generic) {
+    packingInfoMap.try_emplace(generic.getOperation(),
+                               computeDSTPackingForGeneric(generic));
+  });
+}
+
+const DSTPackingInfo *
+DstRegisterAnalysis::lookup(d2m::GenericOp generic) const {
+  auto it = packingInfoMap.find(generic.getOperation());
+  if (it == packingInfoMap.end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
+DSTPackingInfo analyzeGenericForDSTPacking(d2m::GenericOp generic) {
+  DstRegisterAnalysis analysis(generic);
+  if (const DSTPackingInfo *packingInfo = analysis.lookup(generic)) {
+    return *packingInfo;
+  }
+  return DSTPackingInfo();
 }
 
 } // namespace mlir::tt::d2m::utils

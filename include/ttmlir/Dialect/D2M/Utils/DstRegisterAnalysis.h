@@ -5,7 +5,8 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_DSTREGISTERANALYSIS_H
 #define TTMLIR_DIALECT_D2M_UTILS_DSTREGISTERANALYSIS_H
 
-#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/Value.h"
 #include "llvm/ADT/DenseMap.h"
 
 namespace mlir::tt::d2m {
@@ -23,6 +24,14 @@ struct DSTPackingInfo {
   llvm::SmallDenseMap<Value, DSTPackingPerResultInfo> perResult;
   int64_t numTilesPerResult = 0;
   int64_t numOuterLoopIters = 0;
+};
+
+struct DstRegisterAnalysis {
+  DstRegisterAnalysis(Operation *op);
+
+  const DSTPackingInfo *lookup(d2m::GenericOp generic) const;
+
+  llvm::DenseMap<Operation *, DSTPackingInfo> packingInfoMap;
 };
 
 // Analyze linalg.generic ops in a unified d2m.generic region and compute legal
