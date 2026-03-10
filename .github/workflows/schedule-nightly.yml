@@ -32,16 +32,19 @@ jobs:
       runner: ${{ needs.prepare-run.outputs.runner }}
       sh_builder: ${{ fromJson(needs.prepare-run.outputs.sh_builder) }}
       component_matrix: ${{ needs.prepare-run.outputs.build_matrix }}
+  # TODO: Re-enable wheels-build after JIT perf CI debugging is complete.
   wheels-build:
+    if: false
     needs: [ prepare-run, build-image, release-build ] # release-build required so ttnn-jit wheel is built
     uses: ./.github/workflows/call-build-wheels.yml
     secrets: inherit
     with:
       docker-tag: ${{ needs.build-image.outputs.docker-tag }}
       docker_image: ${{ needs.build-image.outputs.docker-image }}
+  # TODO: Re-enable test after JIT perf CI debugging is complete.
   test:
+    if: false
     needs: [ prepare-run, build-image, release-build ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
     uses: ./.github/workflows/call-test.yml
     secrets: inherit
     with:
@@ -49,8 +52,16 @@ jobs:
       test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
       timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
 
+  jit-perf-test:
+    needs: [ build-image, release-build ]
+    uses: ./.github/workflows/call-jit-perf-test.yml
+    secrets: inherit
+    with:
+      docker_image: ${{ needs.build-image.outputs.docker-image }}
+
+  # TODO: Re-enable fail-notify after JIT perf CI debugging is complete.
   fail-notify:
-    if: always()
+    if: false
     needs:
       - prepare-run
       - build-image
@@ -71,8 +82,9 @@ jobs:
         with:
           jobs: ${{ toJSON(needs) }}
 
+  # TODO: Re-enable fail-send-msg after JIT perf CI debugging is complete.
   fail-send-msg:
-    if: always()
+    if: false
     needs:
       - fail-notify
       - test

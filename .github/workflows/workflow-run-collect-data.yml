@@ -26,6 +26,8 @@ jobs:
           run_attempt: ${{ github.event.workflow_run.run_attempt }}
           sftp_host: ${{ secrets.SFTP_CICD_WRITER_HOSTNAME }}
           sftp_user: ${{ secrets.SFTP_CICD_WRITER_USERNAME }}
+          sftp_perf_host: ${{ secrets.SFTP_PERF_WRITER_HOSTNAME }}
+          sftp_perf_user: ${{ secrets.SFTP_PERF_WRITER_USERNAME }}
           sftp_optest_host: ${{ secrets.SFTP_OP_TEST_WRITER_HOSTNAME }}
           sftp_optest_user: ${{ secrets.SFTP_OP_TEST_WRITER_USERNAME }}
           ssh-private-key: ${{ secrets.SFTP_CICD_WRITER_KEY }}
