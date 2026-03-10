@@ -11,12 +11,16 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-namespace mlir::tt {
+namespace mlir::tt::ttir_to_linalg {
 
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter);
 void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                 TypeConverter &typeConverter);
+
+} // namespace mlir::tt::ttir_to_linalg
+
+namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToLinalgPass();
 

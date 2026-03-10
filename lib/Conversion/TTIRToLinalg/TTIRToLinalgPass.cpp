@@ -49,10 +49,12 @@ struct ConvertTTIRToLinalgPass
     RewritePatternSet patterns(&getContext());
 
     // Add TTIR to Tosa patterns.
-    populateTTIRToTosaPatterns(&getContext(), patterns, typeConverter);
+    ttir_to_linalg::populateTTIRToTosaPatterns(&getContext(), patterns,
+                                               typeConverter);
 
     // Add direct TTIR to Linalg patterns.
-    populateTTIRToLinalgPatterns(&getContext(), patterns, typeConverter);
+    ttir_to_linalg::populateTTIRToLinalgPatterns(&getContext(), patterns,
+                                                 typeConverter);
 
     // Apply full conversion for both paths.
     //
