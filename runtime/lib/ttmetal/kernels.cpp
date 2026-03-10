@@ -127,6 +127,9 @@ createKernelConfig(
     case tt::target::NocIndex::Noc1: {
       return tt_metal::WriterDataMovementConfig(compileArgs);
     }
+    default: {
+      LOG_FATAL("Unsupported NOC index in KernelConfig");
+    }
     }
   }
   case target::metal::KernelConfigType::EthernetConfig: {
