@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -31,7 +30,12 @@ static DstExecutionClass classifyComputeOp(Operation *op) {
   if (mlir::isa<TileAddOp, TileSubOp, TileMulOp>(op)) {
     TT_assertv(op->getNumOperands() == 2u,
                "expected binary op for tile add/sub/mul");
+    Type lhsType = op->getOperand(0).getType();
     Type rhsType = op->getOperand(1).getType();
+    if (ttcore::getDataType(lhsType) == ttcore::DataType::Float32 ||
+        ttcore::getDataType(rhsType) == ttcore::DataType::Float32) {
+      return DstExecutionClass::SFPU;
+    }
     if (mlir::isa<ttcore::TileType>(rhsType)) {
       return DstExecutionClass::FPU;
     }
