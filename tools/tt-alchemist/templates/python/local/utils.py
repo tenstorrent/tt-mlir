@@ -222,7 +222,8 @@ def perform_golden_workarounds():
     #
     # Golden function operates only on 4D tensors.
     #
-    def new_repeat_golden_function(tensor, repeats):
+    # Golden function doesn't accept memory_config keyword argument.
+    def new_repeat_golden_function(tensor, repeats, memory_config):
         return tensor.repeat(*repeats)
 
     ttnn.repeat.golden_function = new_repeat_golden_function

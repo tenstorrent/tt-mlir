@@ -27,10 +27,10 @@
 // CHECK:   ttnn.add.golden_function(
 // CHECK-LABEL: def forward_const_eval_0(input):
 // CHECK:   cpu_hoisted_const_eval_{{.*}}(
-// CHECK-LABEL: def consteval_forward(caching_dict, input_1):
-// CHECK:   if not caching_dict:
+// CHECK-LABEL: def consteval_forward(ce_cache, input_1):
+// CHECK:   if not ce_cache:
 // CHECK:     forward_const_eval_0(
-// CHECK:   return caching_dict
+// CHECK:   return ce_cache
 
 module {
   func.func @forward(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},

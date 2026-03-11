@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
-#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -21,13 +21,16 @@ namespace mlir::tt {
 //
 namespace {
 
+using ttnn_to_emitpy::kConstEvaledAttr;
+using ttnn_to_emitpy::kNameAttr;
+
 class EmitPyConstEvalCaching
     : public impl::EmitPyConstEvalCachingBase<EmitPyConstEvalCaching> {
 public:
   using impl::EmitPyConstEvalCachingBase<
       EmitPyConstEvalCaching>::EmitPyConstEvalCachingBase;
 
-  // Collect all ops in the def-use chain starting from the seed ops.
+  // Collect all ops in the def-use chain.
   // Forward pass: transitively collect users of each seed op's results.
   // Backward pass: collect operand-defining ops, excluding the cache dict
   // defining op which must remain outside the if-guard.
@@ -106,7 +109,7 @@ public:
           for (auto *user : cacheDict.getUsers()) {
             if (auto callOp = dyn_cast<func::CallOp>(user)) {
               callOp->setDiscardableAttr(
-                  "emitpy.name", builder.getStringAttr(globalStmt.getName()));
+                  kNameAttr, builder.getStringAttr(globalStmt.getName()));
             }
           }
           break;
@@ -126,11 +129,11 @@ public:
       llvm::SetVector<Operation *> opsToGuard;
       for (auto &op : body) {
         auto callOp = dyn_cast<emitpy::CallOpaqueOp>(&op);
-        if (!callOp || !callOp->hasAttr("emitpy.const_evaled")) {
+        if (!callOp || !callOp->hasAttr(kConstEvaledAttr)) {
           continue;
         }
         opsToGuard.insert(callOp);
-        callOp->removeDiscardableAttr("emitpy.const_evaled");
+        callOp->removeDiscardableAttr(kConstEvaledAttr);
       }
 
       if (opsToGuard.empty()) {

@@ -96,7 +96,7 @@ public:
                 funcOp.getArgAttrOfType<StringAttr>(i, "emitpy.name")) {
           argName = existingNameAttr.getValue().str();
         } else if (isa<emitpy::DictType>(funcOp.getArgument(i).getType())) {
-          argName = "caching_dict";
+          argName = "ce_cache";
         } else {
           argName = funcOp.getNumArguments() > 1 ? "input_" + std::to_string(i)
                                                  : "input";

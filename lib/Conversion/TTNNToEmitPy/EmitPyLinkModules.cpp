@@ -37,6 +37,10 @@ namespace {
 // 2. Ops from the CPU module (CPU-hoisted function definitions).
 // 3. Ops from the Device module (excluding CPU-hoisted function declarations).
 //
+
+constexpr const char *kMainFileName = "main";
+constexpr const char *kConstevalFileName = "consteval";
+
 class EmitPyLinkModulesPass
     : public impl::EmitPyLinkModulesBase<EmitPyLinkModulesPass> {
 public:
@@ -57,7 +61,7 @@ public:
 
     builder.setInsertionPointToStart(&mainFile.getBodyRegion().front());
     builder.create<emitpy::ImportOp>(
-        mainFile.getLoc(), builder.getStringAttr("consteval"),
+        mainFile.getLoc(), builder.getStringAttr(kConstevalFileName),
         /*module_alias=*/nullptr,
         /*members_to_import=*/builder.getArrayAttr(memberNames),
         /*member_aliases=*/builder.getArrayAttr(emptyAliases),
@@ -99,10 +103,10 @@ public:
     //
     emitpy::FileOp mainFileOp, constevalFileOp;
     for (auto fileOp : deviceModule.getOps<emitpy::FileOp>()) {
-      if (fileOp.getId() == "main") {
+      if (fileOp.getId() == kMainFileName) {
         mainFileOp = fileOp;
       }
-      if (fileOp.getId() == "consteval") {
+      if (fileOp.getId() == kConstevalFileName) {
         constevalFileOp = fileOp;
       }
     }

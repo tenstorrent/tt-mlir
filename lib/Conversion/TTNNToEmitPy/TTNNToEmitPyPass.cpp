@@ -210,7 +210,7 @@ private:
       Block &entryBlock = funcOp.getBody().front();
       BlockArgument deviceArg =
           entryBlock.addArgument(deviceType, funcOp.getLoc());
-      funcOp.setArgAttr(newInputTypes.size() - 1, "emitpy.name",
+      funcOp.setArgAttr(newInputTypes.size() - 1, ttnn_to_emitpy::kNameAttr,
                         rewriter.getStringAttr("device"));
 
       // Replace all GetDeviceOp operations with the new device argument.

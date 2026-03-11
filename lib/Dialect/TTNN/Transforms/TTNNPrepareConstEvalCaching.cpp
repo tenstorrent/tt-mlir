@@ -26,6 +26,8 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 namespace {
+
+constexpr const char *kCachePrefix = "_cached_";
 class TTNNPrepareConstEvalCaching
     : public impl::TTNNPrepareConstEvalCachingBase<
           TTNNPrepareConstEvalCaching> {
@@ -46,7 +48,7 @@ public:
       }
 
       auto dictType = ttcore::DictType::get(&getContext());
-      std::string cacheName = "_cached_" + funcOp.getName().str();
+      std::string cacheName = kCachePrefix + funcOp.getName().str();
 
       // Create the global caching dictionary before the function.
       builder.setInsertionPoint(funcOp);
@@ -59,7 +61,7 @@ public:
       builder.setInsertionPointToStart(&entryBlock);
       auto dictVal = builder.create<ttcore::GetGlobalOp>(funcOp.getLoc(),
                                                          dictType, cacheName);
-      dictVal->setDiscardableAttr("ttcore.caching_dict", builder.getUnitAttr());
+      dictVal->setDiscardableAttr(kCachingDictAttr, builder.getUnitAttr());
 
       // For each LoadCachedOp, store its results under one key in the caching
       // dictionary. The key is the callee name of the LoadCachedOp.

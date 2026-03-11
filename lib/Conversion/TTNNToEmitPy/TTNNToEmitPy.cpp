@@ -2697,7 +2697,8 @@ public:
     // identify that the result is a const-eval in the caching pass afterwards.
     auto callOp = rewriter.create<emitpy::CallOpaqueOp>(
         loc, tensorListType, calleeName.str(), callOperands);
-    callOp->setDiscardableAttr("emitpy.const_evaled", rewriter.getUnitAttr());
+    callOp->setDiscardableAttr(ttnn_to_emitpy::kConstEvaledAttr,
+                               rewriter.getUnitAttr());
 
     // Subscript individual results from the returned tensor list.
     llvm::SmallVector<Value> results;
@@ -2950,7 +2951,7 @@ public:
       // attributes.
       SmallVector<Attribute> emitPyNames;
       for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
-        emitPyNames.push_back(funcOp.getArgAttr(i, "emitpy.name"));
+        emitPyNames.push_back(funcOp.getArgAttr(i, ttnn_to_emitpy::kNameAttr));
       }
 
       funcOp.removeArgAttrsAttr();
@@ -2958,7 +2959,7 @@ public:
       // Restore emitpy.name attributes.
       for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
         if (emitPyNames[i]) {
-          funcOp.setArgAttr(i, "emitpy.name", emitPyNames[i]);
+          funcOp.setArgAttr(i, ttnn_to_emitpy::kNameAttr, emitPyNames[i]);
         }
       }
     });

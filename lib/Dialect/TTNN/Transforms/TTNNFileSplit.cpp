@@ -47,6 +47,7 @@ namespace {
 
 constexpr const char *kMainFileName = "main";
 constexpr const char *kConstevalFileName = "consteval";
+constexpr const char *kConstevalPrefix = "consteval_";
 
 // Collect all ops in the def chain of the given LoadCachedOps.
 static llvm::SetVector<Operation *>
@@ -189,7 +190,7 @@ private:
       llvm::SmallVector<ttcore::LoadCachedOp> &loadCachedOps) {
 
     // Create the wrapper function in the consteval file.
-    std::string wrapperName = "consteval_" + forwardFunc.getName().str();
+    std::string wrapperName = kConstevalPrefix + forwardFunc.getName().str();
     auto dictType = ttcore::DictType::get(&getContext());
     llvm::SmallVector<Type> wrapperArgTypes;
     wrapperArgTypes.push_back(dictType);
@@ -209,9 +210,9 @@ private:
     ttcore::GetGlobalOp cacheDict = nullptr;
     for (auto &op : forwardBody) {
       if (auto getGlobalOp = dyn_cast<ttcore::GetGlobalOp>(&op);
-          getGlobalOp && getGlobalOp->hasAttr("ttcore.caching_dict")) {
+          getGlobalOp && getGlobalOp->hasAttr(kCachingDictAttr)) {
         cacheDict = getGlobalOp;
-        getGlobalOp->removeDiscardableAttr("ttcore.caching_dict");
+        getGlobalOp->removeDiscardableAttr(kCachingDictAttr);
         break;
       }
     }

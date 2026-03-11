@@ -19,6 +19,8 @@
 
 namespace mlir::tt::ttnn {
 
+constexpr const char *kCachingDictAttr = "ttcore.caching_dict";
+
 enum class FileSplitTarget { EmitPy, EmitC };
 
 // TTNN Passes
