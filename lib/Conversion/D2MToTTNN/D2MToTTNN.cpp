@@ -363,11 +363,17 @@ public:
                                                   Value convertedOperand) {
     if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
             origOperand.getDefiningOp())) {
-      auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-          streamLayoutOp.getInput().getDefiningOp());
-      TT_assertv(castOp,
-                 "Expected TTNNMetalLayoutCastOp producing stream input.");
-      return {castOp.getOperand(), streamLayoutOp.getStorage()};
+      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+              streamLayoutOp.getInput().getDefiningOp())) {
+        return {castOp.getOperand(), streamLayoutOp.getStorage()};
+      }
+      if (mlir::isa_and_present<memref::AllocOp>(
+              streamLayoutOp.getInput().getDefiningOp())) {
+        return {convertedOperand, streamLayoutOp.getStorage()};
+      }
+      llvm_unreachable(
+          "Expected TTNNMetalLayoutCastOp or memref.alloc producing stream "
+          "input.");
     }
 
     if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
