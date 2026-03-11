@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTNN/Analysis/DecisionTrace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1SpillManagement.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
@@ -51,9 +52,27 @@ public:
         return;
       }
 
-      L1SpillManagement<SumL1MemoryTracker> spill(func, deviceGrid,
-                                                  l1BudgetPerCore);
+      // Create observer if tracing is enabled.
+      std::unique_ptr<L1SpillObserver> observer;
+      if (enableDecisionTrace) {
+        observer = std::make_unique<DecisionTraceObserver>();
+      }
+
+      L1SpillManagement<SumL1MemoryTracker> spill(
+          func, deviceGrid, l1BudgetPerCore, std::move(observer));
       spill.run();
+
+      // Merge spill management data into the existing decision trace JSON.
+      if (enableDecisionTrace) {
+        if (const DecisionTrace *dt = spill.getObserver()->getDecisionTrace()) {
+          if (DecisionTrace::mergeSpillTrace(decisionTraceDir, func.getName(),
+                                             *dt)) {
+            TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                         "Merged spill management trace into {0}/{1}",
+                         decisionTraceDir, func.getName());
+          }
+        }
+      }
     });
   }
 };
