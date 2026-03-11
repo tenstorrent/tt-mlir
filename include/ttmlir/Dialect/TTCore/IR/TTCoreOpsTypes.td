@@ -284,7 +284,7 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
   }];
 }
 
-def TTCore_CBBufferLayoutAttr : TTCore_Attr<"CBBufferLayout", "cb_buffer_layout", [MemRefLayoutAttrInterface]> {
+def TTCore_CBLayoutAttr : TTCore_Attr<"CBLayout", "cb_layout", [MemRefLayoutAttrInterface]> {
   let summary = "Circular buffer layout attribute for core-local buffers.";
   let description = [{
     Describes the layout of a core-local circular buffer in L1 memory.
@@ -305,9 +305,9 @@ def TTCore_CBBufferLayoutAttr : TTCore_Attr<"CBBufferLayout", "cb_buffer_layout"
   let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers `,` `grid` `=` `[` custom<DimensionList>($gridShape) `]` `>`";
 
   let extraClassDeclaration = [{
-    static CBBufferLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
-    static CBBufferLayoutAttr get(ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
-    static CBBufferLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers, ArrayRef<int64_t> gridShape);
+    static CBLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
+    static CBLayoutAttr get(ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
+    static CBLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers, ArrayRef<int64_t> gridShape);
 
     AffineMap getAffineMap() const;
 

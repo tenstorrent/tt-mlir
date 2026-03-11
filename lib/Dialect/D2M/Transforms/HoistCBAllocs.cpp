@@ -37,7 +37,7 @@ private:
     for (Region &region : genericOp->getRegions()) {
       region.walk([&](memref::AllocOp allocOp) {
         auto memrefType = allocOp.getType();
-        if (mlir::isa<ttcore::CBBufferLayoutAttr>(memrefType.getLayout()) &&
+        if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout()) &&
             allocOp->getAttrOfType<IntegerAttr>("address")) {
           int64_t idx = findRegularOperandIndex(genericOp, allocOp);
           allocsToHoist.push_back({allocOp, idx});
@@ -52,7 +52,7 @@ private:
     for (auto [allocOp, operandIdx] : allocsToHoist) {
       auto allocType = allocOp.getType();
 
-      // The CBBufferLayoutAttr already carries the per-operand grid shape
+      // The CBLayoutAttr already carries the per-operand grid shape
       // (from bufferType in insertStream).  No grid derivation needed
       // here — just move the alloc outside.
 

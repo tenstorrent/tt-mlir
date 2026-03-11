@@ -420,7 +420,7 @@ public:
     // The ttnn.generic op requires ttnn tensor operands. Defer rewriting until
     // memref.alloc operands are converted so we have the memref->ttnn
     // tensor translations.  Skip hoisted CB allocs (additionalArgs with
-    // CBBufferLayoutAttr) — they stay as memref.alloc intentionally.
+    // CBLayoutAttr) — they stay as memref.alloc intentionally.
     unsigned ioSize = op.getInputsAndOutputs().size();
     for (auto [idx, orig, converted] :
          llvm::enumerate(op->getOperands(), adaptor.getOperands())) {
@@ -725,9 +725,8 @@ public:
         }
       }
       rewriter.eraseOp(op);
-    } else if (auto cbLayout =
-                   mlir::dyn_cast_if_present<ttcore::CBBufferLayoutAttr>(
-                       memrefType.getLayout())) {
+    } else if (auto cbLayout = mlir::dyn_cast_if_present<ttcore::CBLayoutAttr>(
+                   memrefType.getLayout())) {
       // Hoisted CB alloc.  Build a ShardLayoutAttr memref (needed by
       // convertMemrefToTTNNTensor) from the CB info, then create ttnn.empty.
       auto gridShape = cbLayout.getGridShape();

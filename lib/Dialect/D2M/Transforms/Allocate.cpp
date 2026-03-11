@@ -605,7 +605,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // operands that already have pre-existing streams (created by earlier
       // passes like LowerToLayout).  In both cases the internal alloc needs
       // a planner-assigned L1 address and will be stamped with
-      // CBBufferLayoutAttr.
+      // CBLayoutAttr.
       if (genericIt != analysis.generics.end() &&
           !genericIt->second.isDMAOnly &&
           !genericIt->second.isExplicitDatamovement) {
@@ -1335,7 +1335,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         } else if (operandCtx.hasStream) {
           // Pre-existing stream (created by an earlier pass).  The stream
           // itself is already in place, but the internal allocs still need
-          // CBBufferLayoutAttr + planner addresses so they can be hoisted.
+          // CBLayoutAttr + planner addresses so they can be hoisted.
           stampInternalAllocsForStream(rewriter, genericOp, operandCtx,
                                        analysis);
         }
@@ -1507,7 +1507,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   }
 
   /// For operands with pre-existing streams, stamp the in-generic allocs
-  /// with CBBufferLayoutAttr and transfer planner-assigned addresses.
+  /// with CBLayoutAttr and transfer planner-assigned addresses.
   /// This mirrors the internal alloc replacement in insertStream but
   /// without creating a new stream_layout op.
   void stampInternalAllocsForStream(RewriterBase &rewriter,
@@ -1547,13 +1547,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         continue;
       }
       // Skip if already stamped.
-      if (mlir::isa<ttcore::CBBufferLayoutAttr>(
-              oldAllocOp.getType().getLayout())) {
+      if (mlir::isa<ttcore::CBLayoutAttr>(oldAllocOp.getType().getLayout())) {
         continue;
       }
 
       auto oldMemRefType = oldAllocOp.getType();
-      auto cbLayout = ttcore::CBBufferLayoutAttr::get(
+      auto cbLayout = ttcore::CBLayoutAttr::get(
           genericOp.getContext(), shardShape,
           ttcore::getElementSizeBytes(operandType.getElementType()),
           numStreamBuffers, operandGrid);
@@ -1652,12 +1651,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               // Extract the per-operand grid from bufferType.  This is the
               // same grid that main uses for stream storage allocs
               // (gridShapeRescaled from analyzeGenericOps).  Store it as-is
-              // in CBBufferLayoutAttr — the serializer handles N-D grids
+              // in CBLayoutAttr — the serializer handles N-D grids
               // via the existing ShardLayoutAttr conversion path.
               auto bufferLayout =
                   mlir::cast<ttcore::ShardLayoutAttr>(bufferType.getLayout());
               auto operandGrid = bufferLayout.getGridShape(bufferType);
-              auto cbLayout = ttcore::CBBufferLayoutAttr::get(
+              auto cbLayout = ttcore::CBLayoutAttr::get(
                   streamType.getContext(), shardShape,
                   ttcore::getElementSizeBytes(streamType.getElementType()),
                   numStreamBuffers, operandGrid);

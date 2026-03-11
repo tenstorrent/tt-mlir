@@ -46,7 +46,7 @@ Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
       generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1);
 
   // Derive the CB underlying type for this operand.  Try:
-  //   1. In-generic alloc with CBBufferLayoutAttr (set by
+  //   1. In-generic alloc with CBLayoutAttr (set by
   //   Allocate/insertStream)
   //   2. The generic operand's device layout (shard shape)
   MemRefType cbUnderlyingType;
@@ -54,7 +54,7 @@ Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
   if (operandAlloc) {
     if (auto allocOp = operandAlloc.getDefiningOp<memref::AllocOp>()) {
       auto allocType = allocOp.getType();
-      if (mlir::isa<ttcore::CBBufferLayoutAttr>(allocType.getLayout())) {
+      if (mlir::isa<ttcore::CBLayoutAttr>(allocType.getLayout())) {
         cbUnderlyingType = allocType;
       }
     }
