@@ -266,3 +266,74 @@ def shard_wrap_factory(
             ) from e
 
     return ShardWrapperData(input_shape=full_input_shape, test_fn=wrapped_fn)
+
+
+class SystemDesc:
+    def __init__(self, system_desc):
+        self._system_desc = system_desc
+        print(self._system_desc)
+
+    def __getitem__(self, key):
+        return self._system_desc[key]
+
+    def __iter__(self):
+        return iter(self._system_desc)
+
+    def __len__(self):
+        return len(self._system_desc)
+
+    def _readonly(self, *_, **__) -> None:
+        raise TypeError(f"{type(self).__name__!r} is read-only")
+
+    __setitem__ = __delitem__ = _readonly
+
+    def get_arch(self, chip_id=0):
+        return self._system_desc["chip_descs"][chip_id]["arch"]
+
+    def get_grid_shape(self, chip_id=0):
+        grid_shape = self._system_desc["chip_descs"][chip_id]["grid_size"]
+        return (grid_shape["y"], grid_shape["x"])
+
+    def get_num_cores(self, chip_id=0):
+        y, x = self.get_grid_shape(chip_id=chip_id)
+        return y * x
+
+    def calc_fpu_tops(
+        self, num_fpu_ops, dtype="bf16", units="ns", format_as_string=True
+    ):
+        arch_tensix_tops = {
+            "Wormhole_b0": {
+                "bfp4": 5.45,
+                "bfp8": 2.72,
+                "fp16": 1.36,  # maps to tf32
+                "bf16": 1.36,  # maps to tf32
+                "fp32": 1.36,  # maps to tf32
+                "tf32": 1.36,
+                "int8": 1.36,
+            },
+            "Blackhole": {
+                "bfp4": 6.14,
+                "bfp8": 3.07,
+                "fp16": 1.54,  # maps to tf32
+                "bf16": 1.54,  # maps to tf32
+                "fp32": 1.54,  # maps to tf32
+                "tf32": 1.54,
+                "int8": 1.54,
+            },
+        }[self.get_arch()][dtype]
+
+        unit_scale = {
+            "ns": 9,
+            "us": 6,
+            "ms": 3,
+            "s": 1,
+        }[units]
+
+        arch_tops = arch_tensix_tops * self.get_num_cores()
+        compute_tops = num_fpu_ops / (10**12)
+        sec = compute_tops / arch_tops
+        result = sec * 10**unit_scale
+        if format_as_string:
+            return f"{result:.4g}{units}"
+        else:
+            return result
