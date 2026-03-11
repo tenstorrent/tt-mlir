@@ -36,18 +36,8 @@ tt_metal::KernelHandle createKernel(
     const char *kernelDebugInfo, const char *kernelLoc);
 
 std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig>
-createKernelConfig(
-    const target::metal::KernelConfig *kernelConfig,
-    const flatbuffers::Vector<target::metal::ArgRef> *argRefsType,
-    const flatbuffers::Vector<flatbuffers::Offset<void>> *argRefs,
-    const std::unordered_map<
-        std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers,
-    const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
-        &global_semaphores_cache,
-    const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
-        *cbs,
-    const DeviceAddressValidator &deviceAddressValidator,
-    std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn);
+createKernelConfig(const target::metal::KernelConfig *kernelConfig,
+                   std::vector<uint32_t> compileArgs);
 
 } // namespace tt::runtime::ttmetal
 

@@ -24,34 +24,59 @@ template <bool isCompileTime>
 std::vector<std::uint32_t> processKernelArgs(
     const flatbuffers::Vector<flatbuffers::Offset<target::metal::KernelArg>>
         *args,
-    const flatbuffers::Vector<target::metal::ArgRef> *argRefsType,
     const flatbuffers::Vector<flatbuffers::Offset<void>> *argRefs,
+    const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
+        *cbs,
+    const std::unordered_map<std::uint32_t, Tensor> &hostBuffers,
     const std::unordered_map<
         std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers,
     const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
-        &global_semaphores_cache,
-    const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
-        *cbs,
+        &globalSemaphoresCache,
+    const std::unordered_map<std::uint32_t, std::uint32_t>
+        &localSemaphoresCache,
     const DeviceAddressValidator &deviceAddressValidator,
     std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn) {
+
+  // Goal of this function is to convert the kernel args into a vector of
+  // uint32_t. This vector will be passed to the kernel at runtime.
   std::vector<std::uint32_t> argsVec;
   if (args == nullptr || args->size() == 0) {
     return argsVec;
   }
+
+  // Iterate through all args and process them based on their type.
   argsVec.reserve(args->size());
   for (const auto *kernelArg : *args) {
+
     switch (kernelArg->arg_type()) {
+
+    // For CB arg, we want the port number.
     case target::metal::KernelArgType::KernelArgCBPort: {
       const auto *arg = kernelArg->arg_as_KernelArgCBPort();
-      LOG_ASSERT(arg->operand_idx() < cbs->size(), "invalid operand ",
-                 arg->operand_idx());
-      argsVec.push_back(cbs->Get(arg->operand_idx())->port());
+      auto operand_idx = arg->operand_idx();
+
+      // CB operand index can be:
+      // -1: signify scratchpad CB
+      // >=0: index into the enqueue program command cb list
+      LOG_ASSERT(operand_idx >= -1,
+                 "Invalid operand index for CB arg: ", operand_idx);
+
+      if (operand_idx == -1) {
+        // We need to update this to support scratch pad CBs.
+        LOG_ASSERT(false, "Runtime currently does not support scratchpad CBs.");
+      } else {
+        LOG_ASSERT(operand_idx < static_cast<int32_t>(cbs->size()),
+                   "Invalid operand index: ", operand_idx);
+        argsVec.push_back(cbs->Get(operand_idx)->port());
+      }
+
       break;
     }
+
+    // For buffer address arg, we want the device address. We also need to
+    // validate that the buffer is still alive.
     case target::metal::KernelArgType::KernelArgBufferAddress: {
       const auto *arg = kernelArg->arg_as_KernelArgBufferAddress();
-      LOG_ASSERT(argRefsType->Get(arg->operand_idx()) ==
-                 target::metal::ArgRef::BufferRef);
       const target::metal::BufferRef *buffer =
           reinterpret_cast<const target::metal::BufferRef *>(
               argRefs->Get(arg->operand_idx()));
@@ -69,37 +94,89 @@ std::vector<std::uint32_t> processKernelArgs(
                                                metalBuffer->buffer_type()));
       break;
     }
-    case target::metal::KernelArgType::KernelArgSemaphore: {
+
+    // For local semaphore arg, look up the LocalSemaphoreRef via operand_idx to
+    // get the initial_value, then create a new semaphore with that value.
+    case target::metal::KernelArgType::KernelArgLocalSemaphore: {
+      // LOG_ASSERT(createSemaphoreFn, "createSemaphoreFn is not set");
+      // const auto *arg = kernelArg->arg_as_KernelArgLocalSemaphore();
+      // const tt::target::metal::LocalSemaphoreRef *local_sem_ref =
+      //     reinterpret_cast<const target::metal::LocalSemaphoreRef *>(
+      //         argRefs->Get(arg->operand_idx()));
+      // argsVec.push_back(createSemaphoreFn(local_sem_ref->initial_value()));
+
       LOG_ASSERT(createSemaphoreFn, "createSemaphoreFn is not set");
-      const auto *arg = kernelArg->arg_as_KernelArgSemaphore();
-      argsVec.push_back(createSemaphoreFn(arg->initial_value()));
+      const auto *arg = kernelArg->arg_as_KernelArgLocalSemaphore();
+      const tt::target::metal::LocalSemaphoreRef *local_sem_ref =
+          reinterpret_cast<const target::metal::LocalSemaphoreRef *>(
+              argRefs->Get(arg->operand_idx()));
+      LOG_ASSERT(localSemaphoresCache.find(local_sem_ref->global_id()) !=
+                     localSemaphoresCache.end(),
+                 "Local semaphore id referenced by rt args is no longer alive "
+                 "or was never created ",
+                 logger::Buffer(local_sem_ref->global_id()));
+      argsVec.push_back(createSemaphoreFn(
+          localSemaphoresCache.at(local_sem_ref->global_id())));
+
       break;
     }
+
+    // For named argument, we just need to pass the value specified in the arg.
     case target::metal::KernelArgType::KernelArgNamedArgument: {
       const auto *arg = kernelArg->arg_as_KernelArgNamedArgument();
       argsVec.push_back(arg->value());
       break;
     }
+
+    // For global semaphore arg, we need to look up the global semaphore cache
+    // with the global id specified in the arg, validate that it's still alive,
+    // and pass its address to the kernel.
     case target::metal::KernelArgType::KernelArgGlobalSemaphore: {
       const auto *arg = kernelArg->arg_as_KernelArgGlobalSemaphore();
-      LOG_ASSERT(argRefsType->Get(arg->operand_idx()) ==
-                 target::metal::ArgRef::GlobalSemaphoreRef);
       const tt::target::metal::GlobalSemaphoreRef *global_semaphore_operand =
           reinterpret_cast<const target::metal::GlobalSemaphoreRef *>(
               argRefs->Get(arg->operand_idx()));
       LOG_ASSERT(
-          global_semaphores_cache.find(global_semaphore_operand->global_id()) !=
-              global_semaphores_cache.end(),
+          globalSemaphoresCache.find(global_semaphore_operand->global_id()) !=
+              globalSemaphoresCache.end(),
           "Global semaphore id referenced by rt args is no longer alive or was "
           "never created ",
           logger::Buffer(global_semaphore_operand->global_id()));
 
       argsVec.push_back(deviceAddressValidator(
-          global_semaphores_cache.at(global_semaphore_operand->global_id())
+          globalSemaphoresCache.at(global_semaphore_operand->global_id())
               .address(),
           target::BufferType::L1));
       break;
     }
+
+    // For scalar arg, we look up the scalar value from the global index and
+    // pass it to the kernel.
+    case target::metal::KernelArgType::KernelArgScalar: {
+      const auto *arg = kernelArg->arg_as_KernelArgScalar();
+      const tt::target::metal::BufferRef *buffer =
+          reinterpret_cast<const target::metal::BufferRef *>(
+              argRefs->Get(arg->operand_idx()));
+      LOG_ASSERT(hostBuffers.find(buffer->global_id()) != hostBuffers.end(),
+                 "Scalar id is no longer alive or was never created ",
+                 logger::Buffer(buffer->global_id()));
+      const Tensor &scalarTensor = hostBuffers.at(buffer->global_id());
+      LOG_ASSERT(scalarTensor.data != nullptr,
+                 "Scalar tensor data is null for global id ",
+                 buffer->global_id());
+
+      // Get the scalar value and cast it to uint32_t. We also need to validate
+      // that the scalar value can fit into uint32_t.
+      uint32_t scalarValue = 0;
+      std::memcpy(&scalarValue, scalarTensor.data.get(), sizeof(uint32_t));
+      LOG_ASSERT(scalarValue <= std::numeric_limits<uint32_t>::max(),
+                 "Scalar value ", scalarValue,
+                 " cannot fit into uint32_t for global id ",
+                 buffer->global_id());
+      argsVec.push_back(scalarValue);
+      break;
+    }
+
     case target::metal::KernelArgType::NONE:
       LOG_FATAL("Unsupported runtime arg type");
     }

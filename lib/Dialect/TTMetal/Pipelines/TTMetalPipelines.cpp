@@ -237,6 +237,12 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
   pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
 
+  // Normalize thread arguments: promote d2m.get_cb ops and any remaining
+  // additional arguments into the thread block argument list so that the
+  // D2MToTTKernel lowering pass can uniformly treat all arguments.
+  pm.addPass(d2m::createD2MNormalizeThreadArgs());
+
+  pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());

@@ -38,9 +38,21 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
     }];
 }
 
-def TTKernel_Semaphore : TTKernel_Type<"Semaphore", "semaphore"> {
-  let summary = "TTKernel semaphore";
-  let description = "Semaphore type in TTKernel dialect";
+def TTKernel_LocalSemaphore : TTKernel_Type<"LocalSemaphore", "local_semaphore"> {
+  let summary = "TTKernel local semaphore";
+  let description = "Local Semaphore type in TTKernel dialect";
+}
+
+def TTKernel_GlobalSemaphore : TTKernel_Type<"GlobalSemaphore", "global_semaphore"> {
+  let summary = "TTKernel global semaphore";
+  let description = "Global Semaphore type in TTKernel dialect";
+}
+
+def TTKernel_Scalar : TTKernel_Type<"Scalar", "scalar"> {
+  let summary = "TTKernel scalar";
+  let description = "Scalar type in TTKernel dialect";
+  let parameters = (ins "Type":$value);
+  let assemblyFormat = "`<` $value `>`";
 }
 
 def TTKernel_NocAddr : TTKernel_Type<"NocAddr", "noc_addr"> {
@@ -132,14 +144,14 @@ def TTKernel_ArgAttr : TTKernel_Attr<"Arg", "arg"> {
   let summary = "Kernel argument.";
   let description = [{
   }];
-  let parameters = (ins "ArgType":$arg_type, "size_t":$operand_index,
+  let parameters = (ins "ArgType":$arg_type, "int64_t":$operand_index,
                         DefaultValuedParameter<"bool", "true">:$is_uniform,
                         DefaultValuedParameter<"StringAttr", "StringAttr::get($_ctxt, \"\")">:$argument_name,
                         DefaultValuedParameter<"int64_t", "-1">:$port);
   let assemblyFormat = "`<` struct(params) `>`";
 
   let extraClassDeclaration = [{
-    static ArgAttr get(::mlir::MLIRContext *context, ArgType argType, size_t index) {
+    static ArgAttr get(::mlir::MLIRContext *context, ArgType argType, int64_t index) {
       return ArgAttr::get(context, argType, index, true, StringAttr::get(context, ""), /*port=*/-1);
     }
 

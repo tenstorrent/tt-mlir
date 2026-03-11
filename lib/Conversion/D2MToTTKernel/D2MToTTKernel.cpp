@@ -1854,54 +1854,36 @@ public:
 } // namespace
 
 namespace {
-class D2MGetGlobalOperandRewriter
-    : public OpConversionPattern<d2m::GetGlobalOperandOp> {
+class D2MGetBufferRewriter : public OpConversionPattern<d2m::GetBufferOp> {
 public:
-  D2MGetGlobalOperandRewriter(TypeConverter &typeConverter,
-                              MLIRContext *context, bool ttnnMode)
-      : OpConversionPattern<d2m::GetGlobalOperandOp>(typeConverter, context),
-        ttnnMode(ttnnMode) {}
+  using OpConversionPattern<d2m::GetBufferOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(d2m::GetGlobalOperandOp op,
-                  d2m::GetGlobalOperandOpAdaptor adaptor,
+  matchAndRewrite(d2m::GetBufferOp op, d2m::GetBufferOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
-    ArgAttr arg;
+    ArgAttr arg =
+        rewriter.getAttr<ArgAttr>(ArgType::BufferAddress, op.getOperandIndex());
     size_t argIndex;
-    Type arg_result_type;
 
-    if (mlir::isa<MemRefType>(op.getResult().getType())) {
-      arg = rewriter.getAttr<ArgAttr>(ArgType::BufferAddress,
-                                      op.getOperandIndex());
-      arg_result_type = rewriter.getI32Type();
-    } else if (mlir::isa<d2m::GlobalSemaphoreType>(op.getResult().getType())) {
-      arg = rewriter.getAttr<ArgAttr>(ArgType::GlobalSemaphore,
-                                      op.getOperandIndex());
-      arg_result_type = ttkernel::L1AddrType::get(rewriter.getContext());
-    } else {
-      llvm_unreachable("unexpected arg type to GetGlobalOperandOp");
-    }
-
-    if (ttnnMode) {
+    auto evalTimeAttr = op.getResolutionStageAttr();
+    bool isRuntime = evalTimeAttr &&
+                     evalTimeAttr.getValue() == d2m::ResolutionStage::Runtime;
+    if (isRuntime) {
       rewriter.modifyOpInPlace(entry, [&]() {
         argIndex = ArgSpecAttr::appendRuntimeArg(entry, arg);
       });
       rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
-          op, arg_result_type, index(rewriter, op->getLoc(), argIndex));
-
+          op, rewriter.getI32Type(), index(rewriter, op->getLoc(), argIndex));
     } else {
       rewriter.modifyOpInPlace(entry, [&]() {
         argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
       });
       rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
-          op, arg_result_type, argIndex);
+          op, rewriter.getI32Type(), argIndex);
     }
     return success();
   }
-
-private:
-  bool ttnnMode;
 };
 
 class D2MGetCBRewriter : public OpConversionPattern<d2m::GetCBOp> {
@@ -1916,7 +1898,7 @@ public:
     int64_t port = op.getPort();
     // The operand_index records which generic op operand this CB backs;
     // the port is the actual hardware CB port number (may differ for spatial).
-    int64_t operandIndex = op.getOperandIndex().value_or(port);
+    int64_t operandIndex = op.getOperandIndex().value_or(-1);
 
     // Append a CBPort entry to the parent function's ArgSpec so that
     // D2MToTTNN can generate the corresponding cb_buffer_index in the
@@ -1925,16 +1907,159 @@ public:
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
     ArgAttr cbArg =
         ArgAttr::getCBPort(rewriter.getContext(), operandIndex, port);
-    size_t ctArgIndex;
-    rewriter.modifyOpInPlace(entry, [&]() {
-      ctArgIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);
-    });
+    size_t argIndex;
 
-    // Emit a get_compile_time_arg_val that reads the port from ct_args at
-    // runtime. This allows the spatial op to remap CB ports per grid range
-    // by overriding compile-time arguments.
-    rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
-        op, cbType, static_cast<int32_t>(ctArgIndex));
+    auto evalTimeAttr = op.getResolutionStageAttr();
+    bool isRuntime = evalTimeAttr &&
+                     evalTimeAttr.getValue() == d2m::ResolutionStage::Runtime;
+    if (isRuntime) {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendRuntimeArg(entry, cbArg);
+      });
+      rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
+          op, cbType, index(rewriter, op->getLoc(), argIndex));
+    } else {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);
+      });
+      // Emit a get_compile_time_arg_val that reads the port from ct_args at
+      // runtime. This allows the spatial op to remap CB ports per grid range
+      // by overriding compile-time arguments.
+      rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
+          op, cbType, static_cast<int32_t>(argIndex));
+    }
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MGetScalarRewriter : public OpConversionPattern<d2m::GetScalarOp> {
+public:
+  using OpConversionPattern<d2m::GetScalarOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::GetScalarOp op, d2m::GetScalarOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    MLIRContext *ctx = rewriter.getContext();
+    Type rawType = op.getResult().getType();
+
+    // CT args are always passed as ui32; other types are reinterpret-cast.
+    Type ui32Type = IntegerType::get(ctx, 32, IntegerType::Unsigned);
+    Type ui32ScalarType = ttkernel::ScalarType::get(ctx, ui32Type);
+
+    int64_t operandIndex = op.getOperandIndex();
+    ArgAttr scalarArg =
+        rewriter.getAttr<ArgAttr>(ArgType::Scalar, operandIndex);
+
+    func::FuncOp entry = op->getParentOfType<func::FuncOp>();
+    size_t argIndex;
+    Value argVal;
+
+    auto evalTimeAttr = op.getResolutionStageAttr();
+    bool isRuntime = evalTimeAttr &&
+                     evalTimeAttr.getValue() == d2m::ResolutionStage::Runtime;
+    if (isRuntime) {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendRuntimeArg(entry, scalarArg);
+      });
+      argVal = rewriter.create<ttkernel::GetCommonArgValOp>(
+          op.getLoc(), ui32ScalarType, index(rewriter, op->getLoc(), argIndex));
+    } else {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendCompileTimeArg(entry, scalarArg);
+      });
+      argVal = rewriter.create<ttkernel::GetCompileArgValOp>(
+          op.getLoc(), ui32ScalarType, static_cast<int32_t>(argIndex));
+    }
+
+    if (rawType == ui32Type) {
+      rewriter.replaceOp(op, argVal);
+    } else {
+      Type targetScalarType = ttkernel::ScalarType::get(ctx, rawType);
+      rewriter.replaceOpWithNewOp<ttkernel::ReinterpretCastOp>(
+          op, targetScalarType, argVal);
+    }
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MGetLocalSemaphoreRewriter
+    : public OpConversionPattern<d2m::GetLocalSemaphoreOp> {
+public:
+  using OpConversionPattern<d2m::GetLocalSemaphoreOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::GetLocalSemaphoreOp op,
+                  d2m::GetLocalSemaphoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    int64_t operandIndex = op.getOperandIndex();
+    ArgAttr semArg =
+        rewriter.getAttr<ArgAttr>(ArgType::LocalSemaphore, operandIndex);
+
+    func::FuncOp entry = op->getParentOfType<func::FuncOp>();
+    size_t argIndex;
+
+    Type semType = getTypeConverter()->convertType(op.getResult().getType());
+
+    auto evalTimeAttr = op.getResolutionStageAttr();
+    bool isRuntime = evalTimeAttr &&
+                     evalTimeAttr.getValue() == d2m::ResolutionStage::Runtime;
+    if (isRuntime) {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendRuntimeArg(entry, semArg);
+      });
+      rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
+          op, semType, index(rewriter, op->getLoc(), argIndex));
+    } else {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendCompileTimeArg(entry, semArg);
+      });
+      rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
+          op, semType, static_cast<int32_t>(argIndex));
+    }
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MGetGlobalSemaphoreRewriter
+    : public OpConversionPattern<d2m::GetGlobalSemaphoreOp> {
+public:
+  using OpConversionPattern<d2m::GetGlobalSemaphoreOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::GetGlobalSemaphoreOp op,
+                  d2m::GetGlobalSemaphoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type semType = getTypeConverter()->convertType(op.getResult().getType());
+
+    int64_t operandIndex = op.getOperandIndex();
+    ArgAttr semArg =
+        rewriter.getAttr<ArgAttr>(ArgType::GlobalSemaphore, operandIndex);
+
+    func::FuncOp entry = op->getParentOfType<func::FuncOp>();
+    size_t argIndex;
+
+    auto evalTimeAttr = op.getResolutionStageAttr();
+    bool isRuntime = evalTimeAttr &&
+                     evalTimeAttr.getValue() == d2m::ResolutionStage::Runtime;
+    if (isRuntime) {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendRuntimeArg(entry, semArg);
+      });
+      rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
+          op, semType, index(rewriter, op->getLoc(), argIndex));
+    } else {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendCompileTimeArg(entry, semArg);
+      });
+      rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
+          op, semType, static_cast<int32_t>(argIndex));
+    }
     return success();
   }
 };
@@ -1972,6 +2097,7 @@ public:
 } // namespace
 
 namespace {
+// Rewrites kernel func::FuncOp signatures from D2M to TTKernel ABI.
 class D2MKernelFunctionArgsRewriter : public OpConversionPattern<func::FuncOp> {
 public:
   using OpConversionPattern<func::FuncOp>::OpConversionPattern;
@@ -1994,6 +2120,8 @@ public:
     }
   }
 
+  // Replace D2M-specific function attributes with their TTKernel equivalents
+  // and record the compile-time argument specification on the function.
   static void convertFunctionAttrs(Builder &builder, func::FuncOp op,
                                    ArrayRef<ArgAttr> rtArgs,
                                    ArrayRef<ArgAttr> ctArgs) {
@@ -2017,50 +2145,6 @@ public:
     SmallVector<ArgAttr> rtArgSpecVector;
     SmallVector<ArgAttr> ctArgSpecVector;
 
-    // Zero-input functions: just convert attrs and set function type.
-    // The D2MGetCBRewriter will append CB entries to the ArgSpec as it
-    // processes get_cb ops within the function body.
-    if (op.getFunctionType().getNumInputs() == 0) {
-      rewriter.modifyOpInPlace(op, [&]() {
-        op.setType(rewriter.getFunctionType(TypeRange(), TypeRange()));
-        convertFunctionAttrs(rewriter, op, rtArgSpecVector, ctArgSpecVector);
-      });
-      return success();
-    }
-
-    Block *block = &op.getCallableRegion()->front();
-    auto blockArgs = block->getArguments();
-    assert(!blockArgs.empty());
-
-    size_t currentSemaphoreIndex = 0;
-    TypeConverter::SignatureConversion signatureConverter(op.getNumArguments());
-    OpBuilder::InsertionGuard funcInsertionGuard(rewriter);
-    rewriter.setInsertionPointToStart(block);
-    // Block arguments are semaphores only. CB args have been replaced by
-    // d2m.get_cb ops, which are lowered by D2MGetCBRewriter.
-    for (auto arg : blockArgs) {
-      Type argType = getTypeConverter()->convertType(arg.getType());
-      if (mlir::isa<SemaphoreType>(argType)) {
-        if (getTTKernelThreadType(op) != ThreadType::Noc) {
-          continue;
-        }
-        size_t ctArgIndex = ctArgSpecVector.size();
-        auto semaphoreIndex = rewriter.create<GetCompileArgValOp>(
-            op.getLoc(), rewriter.getI32Type(),
-            rewriter.getI32IntegerAttr(ctArgIndex));
-        auto semaphore =
-            rewriter.create<GetSemaphoreOp>(op.getLoc(), semaphoreIndex);
-        signatureConverter.remapInput(arg.getArgNumber(),
-                                      semaphore.getResult());
-        ctArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(
-            ArgType::Semaphore, currentSemaphoreIndex++));
-      } else {
-        llvm_unreachable("unexpected block argument type");
-      }
-    }
-
-    rewriter.applySignatureConversion(block, signatureConverter,
-                                      getTypeConverter());
     rewriter.modifyOpInPlace(op, [&]() {
       op.setType(rewriter.getFunctionType(TypeRange(), TypeRange()));
       convertFunctionAttrs(rewriter, op, rtArgSpecVector, ctArgSpecVector);
@@ -2175,6 +2259,23 @@ public:
 };
 } // namespace
 
+namespace {
+class D2MPrintArgOpRewriter : public OpConversionPattern<d2m::PrintArg> {
+public:
+  using OpConversionPattern<d2m::PrintArg>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::PrintArg op, d2m::PrintArgAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    std::string fmt =
+        op.getFmt() ? (op.getFmt()->str() + ": {}") : "Printing arg: {}";
+    rewriter.replaceOpWithNewOp<ttkernel::DPrintOp>(op, fmt.c_str(),
+                                                    adaptor.getValue());
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttkernel
 
 namespace mlir::tt {
@@ -2275,11 +2376,16 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,
                ttkernel::D2MSemaphoreWaitRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx,
-                                                      ttnnMode);
+  patterns.add<ttkernel::D2MGetBufferRewriter>(typeConverter, ctx);
   patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx);
+  patterns.add<ttkernel::D2MGetScalarRewriter>(typeConverter, ctx);
+  patterns.add<ttkernel::D2MGetLocalSemaphoreRewriter>(typeConverter, ctx);
+  patterns.add<ttkernel::D2MGetGlobalSemaphoreRewriter>(typeConverter, ctx);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
+
+  // Debug op patterns.
+  patterns.add<ttkernel::D2MPrintArgOpRewriter>(typeConverter, ctx);
 
   // This is needed to lower affine apply ops that may be generated when
   // `d2m.core_index` is used with a `phys_to_virt_map`.

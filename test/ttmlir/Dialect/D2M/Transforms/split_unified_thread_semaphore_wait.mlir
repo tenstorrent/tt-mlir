@@ -58,7 +58,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
-    ^unified0(%sem0: !d2m.semaphore):
+    ^unified0(%sem0: !d2m.local_semaphore):
       %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
@@ -70,7 +70,7 @@ module attributes {ttcore.system_desc = #system_desc} {
           %0 = arith.addi %core0, %arg1 : index
           %1 = arith.addi %core1, %arg2 : index
           d2m.remote_load %stream[%0, %1] into %cb0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-          d2m.semaphore_wait %sem0, %c1 : !d2m.semaphore
+          d2m.semaphore_wait %sem0, %c1 : !d2m.local_semaphore
           %2 = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
           linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%2 : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) outs(%2 : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
@@ -112,14 +112,14 @@ module attributes {ttcore.system_desc = #system_desc} {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
-    ^unified0(%sem0: !d2m.semaphore):
+    ^unified0(%sem0: !d2m.local_semaphore):
       %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg1 = %c0 to %c1 step %c1 {
         scf.for %arg2 = %c0 to %c1 step %c1 {
-          d2m.semaphore_wait %sem0, %c1 : !d2m.semaphore
+          d2m.semaphore_wait %sem0, %c1 : !d2m.local_semaphore
           %0 = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
           linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%0 : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) outs(%0 : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
