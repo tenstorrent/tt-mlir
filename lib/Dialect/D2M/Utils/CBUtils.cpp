@@ -75,9 +75,21 @@ Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
 
   auto cbType = CBType::get(cbUnderlyingType);
 
-  unsigned port =
-      getNextAvailablePort(region, portCounters, generic.getOperation());
-  portCounters[generic.getOperation()] = port + 1;
+  // For IO operands, use operandIndex as the port so the hardware CB port
+  // matches the CB descriptor array position in D2MToTTNN (indexed by
+  // operand).  The sequential counter is for non-IO CBs (scratch,
+  // intermediates) that don't map 1:1 to operands.
+  // TODO: When fusion with intermediates requires decoupled port assignment,
+  // introduce a port remapping in D2MToTTNN instead of relying on
+  // port == operand index for IO operands.
+  unsigned ioSize = generic.getInputsAndOutputs().size();
+  unsigned port;
+  if (operandIndex < ioSize) {
+    port = operandIndex;
+  } else {
+    port = getNextAvailablePort(region, portCounters, generic.getOperation());
+    portCounters[generic.getOperation()] = port + 1;
+  }
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointToStart(&region.front());

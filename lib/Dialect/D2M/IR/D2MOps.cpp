@@ -2699,6 +2699,10 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
         if (forOp->hasAttr("d2m.blocking_loop")) {
           scanBlock(*forOp.getBody());
         }
+      } else if (auto forOp = mlir::dyn_cast<mlir::scf::ForOp>(&op)) {
+        if (forOp->hasAttr("d2m.blocking_loop")) {
+          scanBlock(*forOp.getBody());
+        }
       }
     }
   };

@@ -97,7 +97,7 @@ module attributes {ttcore.system_desc = #system_desc} {
   // Test transformation of remote_store from implicit form to explicit CB form
   // The pass converts implicit remote_store to explicit CB form with reserve/store from CB/push.
   // CHECK-LABEL: func.func @test_remote_store_to_explicit_cb
-  // CHECK: %[[CB1:.*]] = d2m.get_cb(0)
+  // CHECK: %[[CB1:.*]] = d2m.get_cb(1)
   // CHECK: d2m.reserve %[[CB1]]
   // CHECK: affine.for
   // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %[[CB1]]

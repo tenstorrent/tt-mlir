@@ -1913,16 +1913,23 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Type cbType = getTypeConverter()->convertType(op.getResult().getType());
 
-    // Use the operand index recorded by getOrCreateCB if available;
-    // otherwise fall back to the port number (for standalone test funcs, etc.).
-    int64_t operandIndex = op.getOperandIndex().value_or(op.getPort());
+    int64_t port = op.getPort();
+    // The operand_index records which generic op operand this CB backs;
+    // the port is the actual hardware CB port number.
+    int64_t operandIndex = op.getOperandIndex().value_or(port);
 
-    // Emit a direct CB port reference — the hardware CB index is the
-    // operand index.  This avoids the fragile positional dependency on
-    // compile-time arg append order.
+    // Append a CBPort entry to the parent function's ArgSpec so that
+    // D2MToTTNN can generate the corresponding cb_buffer_index in the
+    // kernel descriptor's ct_args.  The operand index tells the runtime
+    // which operand this CB is associated with.
+    func::FuncOp entry = op->getParentOfType<func::FuncOp>();
+    ArgAttr cbArg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, operandIndex);
+    rewriter.modifyOpInPlace(
+        entry, [&]() { ArgSpecAttr::appendCompileTimeArg(entry, cbArg); });
+
+    // Emit a direct CB port reference using the hardware port number.
     rewriter.replaceOpWithNewOp<ttkernel::CBPortOp>(
-        op, cbType,
-        rewriter.getI32IntegerAttr(static_cast<int32_t>(operandIndex)));
+        op, cbType, rewriter.getI32IntegerAttr(static_cast<int32_t>(port)));
     return success();
   }
 };
