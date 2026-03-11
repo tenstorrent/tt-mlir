@@ -84,9 +84,6 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
   pm.addPass(mlir::tt::ttir::createTTIRFoldFullToScalar());
-
-  pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::createCSEPass());
 }
 
 void createTTNNPipelineAnalysisPasses(
@@ -240,7 +237,6 @@ void createTTIRToTTNNDevicePipeline(
   pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
 
   pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::createCSEPass());
 
   // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
@@ -271,6 +267,12 @@ void createTTIRToTTNNDevicePipeline(
       // Hoist const-eval subgraphs into separate functions in Device module.
       devicePm.addPass(transforms::createConstEvalHoistTransform());
     }
+
+    // CSE pass was put after const-eval pass, since putting it before
+    // const-eval can lead to having many const-eval subgraphs merged into a
+    // single one, which can lead to high peak DRAM usage during the
+    // execution of const-eval subgraphs.
+    devicePm.addPass(mlir::createCSEPass());
   }
 
   // CPU-hoisting pass for const-eval subgraphs.
