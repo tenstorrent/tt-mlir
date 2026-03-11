@@ -8,6 +8,34 @@ import torch
 import pytest
 
 from op_definitions import exp
+from utils import all_close_check
+
+
+def test_l1_interleaved_fallback(device):
+    """L1 interleaved tensors are not supported by JIT, but fallback to ttnn works."""
+    shape = (32, 32)
+    torch_tensor = torch.randn(shape, dtype=torch.float32)
+
+    memory_config = ttnn.MemoryConfig(
+        memory_layout=ttnn.TensorMemoryLayout.INTERLEAVED,
+        buffer_type=ttnn.BufferType.L1,
+    )
+
+    ttnn_tensor = ttnn.from_torch(
+        torch_tensor,
+        dtype=ttnn.DataType.FLOAT32,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=memory_config,
+    )
+
+    op_jit = ttnn_jit.jit(debug=True, fallback=True)(exp)
+    output_tensor = op_jit(ttnn_tensor)
+
+    assert op_jit.fallback_used, "Expected fallback to be used for L1 interleaved"
+
+    golden = ttnn.exp(ttnn_tensor)
+    assert all_close_check(output_tensor, golden)
 
 
 @pytest.mark.skip(
