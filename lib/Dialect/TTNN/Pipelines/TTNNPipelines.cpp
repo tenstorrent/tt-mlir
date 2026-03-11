@@ -97,7 +97,6 @@ void createTTNNPipelineAnalysisPasses(
   }
   if (options.optimizerPassEnabled) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-    ttnn::TTNNOptimizerOptions optimizerOptions(options);
     // Wrap all Optimizer passes with device lifecycle management.
     DevicePassesWrapperOptions wrapperOptions;
     wrapperOptions.devicePtr = options.devicePtr;
@@ -107,21 +106,56 @@ void createTTNNPipelineAnalysisPasses(
     validationOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
-    pm.addPass(createDevicePassesWrapper(
-        [optimizerOptions, validationOptions](OpPassManager &innerPm) {
-          // All Optimizer passes will be run inside the wrapper.
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
-          innerPm.addPass(mlir::createCanonicalizerPass());
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
-                  validationOptions));
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
-        },
-        wrapperOptions));
+    if (options.enableGreedyOptimizer) {
+      TTNNGreedyLayoutPropagationPipelineOptions propagationOptions;
+      propagationOptions.maxLegalLayouts = options.maxLegalLayouts;
+      propagationOptions.rowMajorEnabled = options.rowMajorEnabled;
+      propagationOptions.beamWidth = 8;
+      propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
+      propagationOptions.overrideConv2dConfig = options.overrideConv2dConfig;
+      propagationOptions.enableDecisionTrace = options.enableDecisionTrace;
+      propagationOptions.decisionTraceDir = options.decisionTraceDir;
+      propagationOptions.enableCompileTimeStats =
+          options.enableCompileTimeStats;
+
+      TTNNGreedyL1SpillManagementOptions spillOptions;
+      spillOptions.enableDecisionTrace = options.enableDecisionTrace;
+      spillOptions.decisionTraceDir = options.decisionTraceDir;
+
+      pm.addPass(createDevicePassesWrapper(
+          [propagationOptions, spillOptions,
+           validationOptions](OpPassManager &innerPm) {
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
+            innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyLayoutPropagation(
+                propagationOptions));
+            innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyL1SpillManagement(
+                spillOptions));
+            innerPm.addPass(mlir::createCanonicalizerPass());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
+                    validationOptions));
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+          },
+          wrapperOptions));
+    } else {
+      ttnn::TTNNOptimizerOptions optimizerOptions(options);
+      pm.addPass(createDevicePassesWrapper(
+          [optimizerOptions, validationOptions](OpPassManager &innerPm) {
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
+            innerPm.addPass(mlir::createCanonicalizerPass());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
+                    validationOptions));
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+          },
+          wrapperOptions));
+    }
 #else
     llvm::llvm_unreachable_internal(
         "TTNNOptimizer passes require OpModel support to be enabled.");
