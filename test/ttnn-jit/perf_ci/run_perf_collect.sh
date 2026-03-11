@@ -6,7 +6,8 @@
 # Run each parametrized test in perf_tests.py under the device profiler (tracy)
 # and dump results into a directory per test. Use TT_METAL_PROFILER_DIR so each
 # run writes to a known subdir. At the end, runs summarize_perf_results.py to
-# produce OUT_DIR/jit_perf_summary.json.
+# produce OUT_DIR/perf_jit_summary[_JOB_ID].json.
+# Set JOB_ID env var to include the job ID in the filename (required for CI).
 #
 # Usage:
 #   ./test/ttnn-jit/perf_ci/run_perf_collect.sh [OUT_DIR]
@@ -64,9 +65,10 @@ done
 
 echo ""
 echo "Results written under: $OUT_DIR"
+SUMMARY_FILE="$OUT_DIR/perf_jit_summary${JOB_ID:+_$JOB_ID}.json"
 echo "Summarizing..."
-if python test/ttnn-jit/perf_ci/summarize_perf_results.py "$OUT_DIR" -o "$OUT_DIR/jit_perf_summary.json"; then
-  echo "Summary written to $OUT_DIR/jit_perf_summary.json"
+if python test/ttnn-jit/perf_ci/summarize_perf_results.py "$OUT_DIR" -o "$SUMMARY_FILE"; then
+  echo "Summary written to $SUMMARY_FILE"
 else
   echo "Warning: summarizer exited with an error (run dir may be partial)." >&2
 fi

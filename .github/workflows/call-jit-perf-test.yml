@@ -138,6 +138,8 @@ jobs:
 
     - name: Run JIT perf collection
       shell: bash
+      env:
+        JOB_ID: ${{ steps.fetch-job-id.outputs.job_id }}
       run: |
         source env/activate
         export PYTHONPATH="${{ steps.strings.outputs.install-output-dir }}/tt-metal/ttnn:${{ steps.strings.outputs.install-output-dir }}/tt-metal"
@@ -154,7 +156,7 @@ jobs:
       if: success() || failure()
       with:
         name: jit-perf-summary-${{ steps.fetch-job-id.outputs.job_id }}
-        path: ${{ steps.strings.outputs.perf-output-dir }}/jit_perf_summary.json
+        path: ${{ steps.strings.outputs.perf-output-dir }}/perf_jit_summary_${{ steps.fetch-job-id.outputs.job_id }}.json
         if-no-files-found: warn
 
     - name: Upload JIT perf reports
