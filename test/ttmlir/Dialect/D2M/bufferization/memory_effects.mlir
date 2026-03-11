@@ -52,3 +52,17 @@ func.func @to_layout_memref(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttc
   "d2m.to_layout"(%arg0, %alloc) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> ()
   return %alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
 }
+
+// CHECK-LABEL: func.func @unused_empty_removed
+// CHECK-NOT: d2m.empty
+func.func @unused_empty_removed(%arg0: tensor<2x4x!ttcore.tile<32x32, f32>>) -> tensor<2x4x!ttcore.tile<32x32, f32>> {
+  %0 = d2m.empty() : tensor<2x4x!ttcore.tile<32x32, f32>>
+  return %arg0 : tensor<2x4x!ttcore.tile<32x32, f32>>
+}
+
+// CHECK-LABEL: func.func @used_empty_kept
+// CHECK: d2m.empty
+func.func @used_empty_kept() -> tensor<2x4x!ttcore.tile<32x32, f32>> {
+  %0 = d2m.empty() : tensor<2x4x!ttcore.tile<32x32, f32>>
+  return %0 : tensor<2x4x!ttcore.tile<32x32, f32>>
+}

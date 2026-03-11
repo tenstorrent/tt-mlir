@@ -107,6 +107,18 @@ void d2m::EmptyOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
 }
 
 //===----------------------------------------------------------------------===//
+// EmptyOp Memory Effects
+//===----------------------------------------------------------------------===//
+
+void d2m::EmptyOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(MemoryEffects::Allocate::get(),
+                       getOperation()->getResult(0),
+                       SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
 // EmptyOp Bufferization Interface Implementation
 //===----------------------------------------------------------------------===//
 
