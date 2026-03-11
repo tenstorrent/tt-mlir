@@ -23,7 +23,7 @@ namespace {
 // Represents the assignment of DMA operations to a hardware thread.
 // Each thread is responsible for a set of circular buffers (CBs).
 struct DMAThreadAssignment {
-  // Set of CB indices (block argument indices) assigned to this thread.
+  // Set of CB indices (generic operand indices) assigned to this thread.
   DenseSet<unsigned> assignedCBs;
 
   // Estimated workload for this thread (number of DMA ops).
@@ -32,6 +32,17 @@ struct DMAThreadAssignment {
   // Assigned NoC index for this thread (0 = DRAM reader, 1 = DRAM writer).
   int32_t nocIndex = -1;
 };
+
+// Get the CB port number from a remote_load or remote_store operation.
+static unsigned getCBPort(Operation *dmaOp) {
+  if (auto load = mlir::dyn_cast<RemoteLoadOp>(dmaOp)) {
+    return load.getCBPort();
+  }
+  if (auto store = mlir::dyn_cast<RemoteStoreOp>(dmaOp)) {
+    return store.getCBPort();
+  }
+  llvm_unreachable("getCBPort called on non-DMA op");
+}
 
 // Collect all remote_load and remote_store operations from a block,
 // recursively walking into nested scf.for loops.
@@ -44,17 +55,8 @@ collectDMAOps(Block *block,
       continue;
     }
 
-    if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(&op)) {
-      // Get the CB operand and find which block argument it corresponds to.
-      Value cb = remoteLoad.getCb();
-      if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
-        dmaOps.push_back({&op, blockArg.getArgNumber()});
-      }
-    } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(&op)) {
-      Value cb = remoteStore.getCb();
-      if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
-        dmaOps.push_back({&op, blockArg.getArgNumber()});
-      }
+    if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(&op)) {
+      dmaOps.push_back({&op, getCBPort(&op)});
     }
   }
 }
@@ -158,16 +160,8 @@ assignCBsToThreads(const DenseMap<unsigned, size_t> &cbWorkloads,
 // Returns true if the operation uses a CB assigned to this thread.
 static bool shouldKeepOpForThread(Operation *op,
                                   const DenseSet<unsigned> &assignedCBs) {
-  if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(op)) {
-    Value cb = remoteLoad.getCb();
-    if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
-      return assignedCBs.contains(blockArg.getArgNumber());
-    }
-  } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(op)) {
-    Value cb = remoteStore.getCb();
-    if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
-      return assignedCBs.contains(blockArg.getArgNumber());
-    }
+  if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(op)) {
+    return assignedCBs.contains(getCBPort(op));
   }
   return false;
 }

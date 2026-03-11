@@ -26,10 +26,14 @@ func.func @skip_grid_selection_explicit_datamovement(
     operandSegmentSizes = array<i32: 1, 1, 0>,
     threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
   }> ({
-  ^bb0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
+  ^bb0:
+    %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
     %1 = "d2m.reserve"(%cb0) : (!d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>
   }, {
-  ^bb0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
+  ^bb0:
+    %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
     %2 = "d2m.wait"(%cb0) : (!d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>
   }) : (tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
 
