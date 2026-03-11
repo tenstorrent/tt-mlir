@@ -18,11 +18,12 @@ inline constexpr llvm::StringRef kDefaultMeshName = "mesh";
 inline constexpr llvm::StringRef kTTShardingConstraintTargetName =
     "tt.sharding_constraint";
 
-inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
+inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 13>
     SupportedMeshes = {{{1, 1},
                         {1, 2},
                         {1, 4},
                         {1, 8},
+                        {1, 16},
                         {2, 4},
                         {1, 32},
                         {4, 8},
