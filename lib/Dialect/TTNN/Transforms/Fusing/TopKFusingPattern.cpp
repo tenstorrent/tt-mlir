@@ -17,9 +17,22 @@ namespace mlir::tt::ttnn::fusing {
 
 namespace {
 
-// Helper to extract k value from slice attributes
-// Returns nullopt if the slice doesn't start at 0 or has non-unit step
-std::optional<int32_t> extractKFromSlice(SliceStaticOp sliceOp, int64_t dim) {
+// Result of extracting k from a slice operation.
+// `fromEnd` indicates the slice takes elements from the end of the sorted
+// dimension, which requires inverting the `largest` flag when creating TopK.
+struct SliceKResult {
+  int32_t k;
+  bool fromEnd;
+};
+
+// Helper to extract k value from slice attributes.
+// Handles two cases:
+//   1. begin=0, end=k (slice from start) -> k elements, largest matches sort
+//   2. begin=n-k, end=n (slice from end) -> k elements, largest is inverted
+// Returns nullopt if the slice doesn't match either pattern or has non-unit
+// step.
+std::optional<SliceKResult> extractKFromSlice(SliceStaticOp sliceOp,
+                                              int64_t dim, int64_t dimSize) {
   auto beginsAttr = sliceOp.getBeginsAttr();
   auto endsAttr = sliceOp.getEndsAttr();
   auto stepsAttr = sliceOp.getStepAttr();
@@ -28,16 +41,27 @@ std::optional<int32_t> extractKFromSlice(SliceStaticOp sliceOp, int64_t dim) {
   auto ends = llvm::cast<ArrayAttr>(endsAttr);
   auto steps = llvm::cast<ArrayAttr>(stepsAttr);
 
-  // Check that we're slicing from the beginning with unit step
   auto beginValue = llvm::cast<IntegerAttr>(begins[dim]).getInt();
+  auto endValue = llvm::cast<IntegerAttr>(ends[dim]).getInt();
   auto stepValue = llvm::cast<IntegerAttr>(steps[dim]).getInt();
 
-  if (beginValue != 0 || stepValue != 1) {
+  // Must have unit step
+  if (stepValue != 1) {
     return std::nullopt;
   }
 
-  // The end value is our k
-  return llvm::cast<IntegerAttr>(ends[dim]).getInt();
+  // Case 1: slice from the beginning [0, k)
+  if (beginValue == 0) {
+    return SliceKResult{static_cast<int32_t>(endValue), /*fromEnd=*/false};
+  }
+
+  // Case 2: slice from the end [n-k, n)
+  if (endValue == dimSize) {
+    int32_t k = static_cast<int32_t>(dimSize - beginValue);
+    return SliceKResult{k, /*fromEnd=*/true};
+  }
+
+  return std::nullopt;
 }
 
 // Check if two slice operations have identical parameters
@@ -87,9 +111,12 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
     sortDim += rank;
   }
 
+  auto inputShape = inputType.getShape();
+
   // Extract k from the slice operation
-  auto k = extractKFromSlice(valuesSlice, sortDim);
-  if (!k.has_value()) {
+  int64_t sortDimSize = inputShape[sortDim];
+  auto sliceResult = extractKFromSlice(valuesSlice, sortDim, sortDimSize);
+  if (!sliceResult.has_value()) {
     return failure();
   }
 
@@ -98,7 +125,6 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
   auto beginsAttr = llvm::cast<ArrayAttr>(valuesSlice.getBeginsAttr());
   auto endsAttr = llvm::cast<ArrayAttr>(valuesSlice.getEndsAttr());
   auto stepsAttr = llvm::cast<ArrayAttr>(valuesSlice.getStepAttr());
-  auto inputShape = inputType.getShape();
 
   for (int64_t i = 0; i < rank; ++i) {
     if (i != sortDim) {
@@ -113,8 +139,14 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
     }
   }
 
-  // Map sort's descending attribute to topk's largest attribute
-  bool largest = srcOp.getDescending();
+  // Map sort's descending attribute to topk's largest attribute.
+  // When slicing from the end, the relationship is inverted:
+  //   descending + slice_from_start -> largest=true
+  //   ascending  + slice_from_start -> largest=false
+  //   descending + slice_from_end   -> largest=false (tail of descending = smallest)
+  //   ascending  + slice_from_end   -> largest=true  (tail of ascending = largest)
+  bool largest = sliceResult->fromEnd ? !srcOp.getDescending()
+                                      : srcOp.getDescending();
 
   // TopK always produces sorted output when replacing a sort operation
   bool sorted = true;
@@ -126,7 +158,7 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
   auto validationResult = validator.validateFusion<TopKOp>(
       srcOp.getOperation(), // Pass source op for context
       srcOp.getLoc(), {valuesSlice.getType(), indicesSlice.getType()},
-      srcOp.getInput(), rewriter.getI32IntegerAttr(*k),
+      srcOp.getInput(), rewriter.getI32IntegerAttr(sliceResult->k),
       rewriter.getI32IntegerAttr(sortDim), rewriter.getBoolAttr(largest),
       rewriter.getBoolAttr(sorted),
       nullptr // memory_config
@@ -147,7 +179,7 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
                               valuesSlice.getType(),  // values result type
                               indicesSlice.getType(), // indices result type
                               srcOp.getInput(),       // input tensor
-                              rewriter.getI32IntegerAttr(*k),      // k value
+                              rewriter.getI32IntegerAttr(sliceResult->k),      // k value
                               rewriter.getI32IntegerAttr(sortDim), // dimension
                               rewriter.getBoolAttr(largest),       // largest
                               rewriter.getBoolAttr(sorted),        // sorted
