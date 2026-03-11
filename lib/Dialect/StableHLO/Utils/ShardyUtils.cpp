@@ -119,8 +119,10 @@ mlir::LogicalResult normalizeMeshTo2D(mlir::ModuleOp &module) {
     return mlir::success();
   }
 
+  std::string axisName = meshOps[0].getMeshAttr().getAxes()[0].getName().str();
+  std::string auxAxisName = axisName + "_aux";
   removeMeshOps(module);
-  addMeshToModule(module, meshOps[0].getSymName().str(), "_axis_0", "_axis_1",
+  addMeshToModule(module, meshOps[0].getSymName().str(), auxAxisName, axisName,
                   1, meshShape[0]);
 
   return mlir::success();
