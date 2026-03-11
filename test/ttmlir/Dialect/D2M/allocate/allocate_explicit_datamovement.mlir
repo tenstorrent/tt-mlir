@@ -17,7 +17,7 @@ module {
     %arg_in: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram_>,
     %arg_out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>
   ) {
-    // CHECK: %[[ALLOC:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64}{{.+}} #l1>
+    // CHECK: %[[ALLOC:.*]] = memref.alloc(){{.*}}#l1>
     %in_buf = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>
     // CHECK: %[[STREAM:.*]] = "d2m.stream_layout"(%{{.*}}, %[[ALLOC]]) <{remapping = #map}> : {{.*}}#dram>
     %in_stream = "d2m.stream_layout"(%arg_in, %in_buf) {remapping = #map} : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram_>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram_>

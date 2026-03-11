@@ -528,6 +528,22 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             op->getParentOfType<d2m::GenericOp>()) {
           return;
         }
+        // Skip pre-existing stream storage allocs (2nd operand of
+        // stream_layout).  Like insertStream-created storages, these
+        // should not enter the planner — the internal CB alloc from
+        // analyzeGenericRegionAllocs handles L1 allocation for the
+        // same operand.
+        if (llvm::isa<memref::AllocOp>(op)) {
+          Value result = op->getResult(0);
+          bool isStreamStorage =
+              llvm::any_of(result.getUsers(), [&](Operation *user) {
+                auto streamOp = mlir::dyn_cast<d2m::StreamLayoutOp>(user);
+                return streamOp && streamOp.getStorage() == result;
+              });
+          if (isStreamStorage) {
+            return;
+          }
+        }
 
         TT_assert(op->getNumResults() == 1u);
         Value result = op->getResult(0);
@@ -1029,24 +1045,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         // data.
         if (memref.getDefiningOp<memref::AllocOp>() &&
             memspace == MemorySpace::DeviceL1) {
-          // Skip planner request for allocs that serve as pre-existing
-          // stream storage (2nd operand of stream_layout).  Their L1
-          // space is managed by the stream; registering them would
-          // double-count against the internal CB alloc that
-          // analyzeGenericRegionAllocs creates for the same operand.
-          bool isStreamStorage =
-              llvm::any_of(memref.getUsers(), [&](Operation *user) {
-                if (auto streamOp = mlir::dyn_cast<d2m::StreamLayoutOp>(user)) {
-                  return streamOp.getStorage() == memref;
-                }
-                return false;
-              });
-          if (!isStreamStorage) {
-            memrefCtx.reqIndex = b.request(
-                PlannerSpace::Scratch,
-                memrefCtx.allocSize[ordinal(asPlannerSpace(memspace))],
-                memrefCtx.live.first, memrefCtx.live.last);
-          }
+          memrefCtx.reqIndex =
+              b.request(PlannerSpace::Scratch,
+                        memrefCtx.allocSize[ordinal(asPlannerSpace(memspace))],
+                        memrefCtx.live.first, memrefCtx.live.last);
         }
 
         // This decision variable must be bound to its incoming memspace
@@ -1233,11 +1235,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       const auto &solution = analysis.problem(remappedMemorySpace);
       const auto &memInfo = memSpaces[ordinal(remappedMemorySpace)];
 
-      // Stream storage allocs that were skipped (no planner request)
-      // don't get an address — they are placeholders for now.
-      if (memrefCtx.reqIndex < 0) {
-        continue;
-      }
       assignAddressAndAlignment(rewriter, allocOp,
                                 solution.request(memrefCtx.reqIndex).offset,
                                 memInfo);
