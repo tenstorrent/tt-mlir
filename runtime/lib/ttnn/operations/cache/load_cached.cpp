@@ -11,8 +11,8 @@
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/types.h"
 #include "ttnn/distributed/tensor_topology.hpp"
-#include "ttnn/operations/data_movement/copy/copy.hpp"
 #include "ttnn/tensor/storage.hpp"
+#include "ttnn/tensor/tensor_impl.hpp"
 #include <string_view>
 #include <tt-metalium/mesh_buffer.hpp>
 #include <vector>
@@ -137,8 +137,10 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
       continue;
     }
 
+    // Round-trip through host to avoid device-to-device copy issues.
+    ::ttnn::Tensor hostTensor = ::ttnn::from_device(original);
     ::ttnn::Tensor topDown = allocateTopDown(original, meshDevice);
-    ::ttnn::copy(original, topDown);
+    ::tt::tt_metal::tensor_impl::copy_to_device(hostTensor, topDown);
     output = utils::createRuntimeTensorFromTTNN(topDown);
   }
 
