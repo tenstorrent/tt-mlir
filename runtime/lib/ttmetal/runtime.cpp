@@ -488,8 +488,11 @@ getMemoryView(Device deviceHandle) {
 }
 
 void setFabricConfig(tt::runtime::FabricConfig config) {
+  LOG_INFO("ttmetal::setFabricConfig called with config=",
+           static_cast<uint32_t>(config));
   ::tt::tt_fabric::SetFabricConfig(common::toMetalFabricConfig(config));
   RuntimeContext::instance().setCurrentFabricConfig(config);
+  LOG_INFO("ttmetal::setFabricConfig complete");
 }
 
 void wait(Event event) {

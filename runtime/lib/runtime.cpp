@@ -1151,6 +1151,8 @@ void updateTensorInPool(CallbackContext programContextHandle,
 }
 
 void setFabricConfig(tt::runtime::FabricConfig config) {
+  LOG_INFO("setFabricConfig called with config=",
+           static_cast<uint32_t>(config));
   using RetType = void;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,

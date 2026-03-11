@@ -73,8 +73,11 @@ SystemDesc getCurrentSystemDesc(
 }
 
 void setFabricConfig(const ::tt::runtime::FabricConfig &fabricConfig) {
+  LOG_INFO("distributed::setFabricConfig called with config=",
+           static_cast<uint32_t>(fabricConfig));
   assertControllerLaunched();
   ControllerSingleton::get().setFabricConfig(fabricConfig);
+  LOG_INFO("distributed::setFabricConfig complete");
 }
 
 size_t getNumAvailableDevices() {
