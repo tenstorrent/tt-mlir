@@ -31,6 +31,26 @@ module {
     return %1 : tensor<64x64xi32>
   }
 
+  func.func @neg_full_bf() -> tensor<64x64xbf16> {
+    %0 = "ttir.full"() <{shape = array<i32: 64, 64>, fill_value = 4.000000e+00 : f32}> : () -> tensor<64x64xbf16>
+    // CHECK-LABEL: func.func @neg_full_bf
+    // CHECK-NOT: "ttir.neg"
+    // CHECK: "ttir.full"
+    // CHECK-SAME: fill_value = -4.000000e+00
+    %1 = "ttir.neg"(%0) : (tensor<64x64xbf16>) -> tensor<64x64xbf16>
+    return %1 : tensor<64x64xbf16>
+  }
+
+  func.func @neg_full_si64() -> tensor<64x64xsi64> {
+    %0 = "ttir.full"() <{shape = array<i32: 64, 64>, fill_value = 2 : i32}> : () -> tensor<64x64xsi64>
+    // CHECK-LABEL: func.func @neg_full_si64
+    // CHECK-NOT: "ttir.neg"
+    // CHECK: "ttir.full"
+    // CHECK-SAME: fill_value = -2
+    %1 = "ttir.neg"(%0) : (tensor<64x64xsi64>) -> tensor<64x64xsi64>
+    return %1 : tensor<64x64xsi64>
+  }
+
   func.func @neg_zeros_float() -> tensor<64x64xf32> {
     %0 = "ttir.zeros"() <{shape = array<i32: 64, 64>}> : () -> tensor<64x64xf32>
     // CHECK-LABEL: func.func @neg_zeros

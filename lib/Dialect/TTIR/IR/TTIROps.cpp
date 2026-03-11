@@ -39,6 +39,7 @@
 
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
 #include <cstdint>
 #include <numeric>
 #include <string>
@@ -204,7 +205,7 @@ static mlir::Attribute makeScalarAttr(mlir::Type elemType, double val) {
   if (auto intType = mlir::dyn_cast<mlir::IntegerType>(elemType)) {
     return mlir::IntegerAttr::get(intType, static_cast<int64_t>(val));
   }
-  return {};
+  llvm_unreachable("Expected a FloatType or IntegerType");
 }
 
 // Extract constant fill value by looking through layout ops (broadcast,
@@ -4885,13 +4886,8 @@ verifyReplicaGroups(mlir::DenseIntElementsAttr replicaGroups) {
 }
 
 // Helper to convert type of scalar attribute.
-mlir::Attribute convertScalarAttribute(mlir::Attribute attr,
+mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
                                        mlir::Type targetType) {
-  auto typedAttr = llvm::dyn_cast_if_present<TypedAttr>(attr);
-  if (!typedAttr) {
-    return {};
-  }
-
   if (typedAttr.getType() == targetType) {
     return typedAttr;
   }
@@ -4935,21 +4931,18 @@ mlir::Attribute convertScalarAttribute(mlir::Attribute attr,
     }
   }
 
-  return nullptr;
+  llvm_unreachable("Expected floating point or integer types");
 }
 
 // FullOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::FullOp::fold(FoldAdaptor adaptor) {
-  auto fillValue = llvm::dyn_cast_if_present<TypedAttr>(getFillValueAttr());
+  auto fillValue = llvm::dyn_cast<TypedAttr>(getFillValueAttr());
   RankedTensorType resultType = getResult().getType();
 
   // Fill value is 32-bit float or 32-bit signless integer, but result type
   // might differ.
   auto convertedFillValue =
       convertScalarAttribute(fillValue, resultType.getElementType());
-  if (!convertedFillValue) {
-    return nullptr;
-  }
 
   return SplatElementsAttr::get(resultType, convertedFillValue);
 }
@@ -4962,9 +4955,6 @@ mlir::Attribute convertScalarAttribute(mlir::Attribute attr,
 ::mlir::OpFoldResult mlir::tt::ttir::ZerosOp::fold(FoldAdaptor adaptor) {
   RankedTensorType resultType = getResult().getType();
   mlir::Attribute value = makeScalarAttr(resultType.getElementType(), 0.0);
-  if (!value) {
-    return nullptr;
-  }
   return SplatElementsAttr::get(resultType, value);
 }
 
@@ -4976,9 +4966,6 @@ mlir::Attribute convertScalarAttribute(mlir::Attribute attr,
 ::mlir::OpFoldResult mlir::tt::ttir::OnesOp::fold(FoldAdaptor adaptor) {
   RankedTensorType resultType = getResult().getType();
   mlir::Attribute value = makeScalarAttr(resultType.getElementType(), 1.0);
-  if (!value) {
-    return nullptr;
-  }
   return SplatElementsAttr::get(resultType, value);
 }
 
