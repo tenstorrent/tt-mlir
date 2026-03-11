@@ -809,9 +809,16 @@ def pytest_collection_modifyitems(config, items):
     # Update the items list (collected tests)
     items[:] = valid_items
 
-    # Sort tests alphabetically by their target and then nodeid to ensure consistent ordering.
-    items.sort(key=lambda x: (x.callspec.params.get("target", "ttnn"), x.nodeid))
-    items.reverse()
+    # Define target execution order: emitc, ttnn, ttmetal, emitpy
+    target_order = {"emitc": 0, "ttnn": 1, "ttmetal": 2, "emitpy": 3}
+
+    # Sort tests by target order and then nodeid to ensure consistent ordering.
+    items.sort(
+        key=lambda x: (
+            target_order.get(x.callspec.params.get("target", "ttnn"), 999),
+            x.nodeid,
+        )
+    )
 
     # Report deselected items to pytest
     if deselected:
