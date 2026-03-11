@@ -5,7 +5,7 @@
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
-#include "Constants.h"
+
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 
@@ -30,7 +30,7 @@ void SingletonDeviceContext::resetInstance() {
          "Cannot reset instance when using an external device.");
   bool wasMock = instance.m_isMockDevice;
   instance.closeInstance();
-  instance.openDevice(opModelDefaultTraceRegionSize, wasMock);
+  instance.openDevice(::tt::constants::opModelDefaultTraceRegionSize, wasMock);
 }
 
 void SingletonDeviceContext::closeInstance() {
@@ -60,12 +60,15 @@ void SingletonDeviceContext::setSystemDesc(ttcore::SystemDescAttr systemDesc) {
   instance.m_systemDesc = systemDesc;
 }
 
-void SingletonDeviceContext::openMockDevice(const size_t traceRegionSize) {
-  openDevice(traceRegionSize, /*isMock=*/true);
+void SingletonDeviceContext::openMockDevice(
+    const size_t traceRegionSize,
+    const std::optional<std::pair<size_t, size_t>> &meshShape) {
+  openDevice(traceRegionSize, /*isMock=*/true, meshShape);
 }
 
-void SingletonDeviceContext::openDevice(const size_t traceRegionSize,
-                                        bool isMock) {
+void SingletonDeviceContext::openDevice(
+    const size_t traceRegionSize, bool isMock,
+    const std::optional<std::pair<size_t, size_t>> &meshShape) {
   assert(m_device == nullptr &&
          "Device is already initialized. Cannot open device again.");
 
@@ -95,11 +98,36 @@ void SingletonDeviceContext::openDevice(const size_t traceRegionSize,
       numDevices == numPCIeDevices ? ::tt::tt_metal::DispatchCoreType::WORKER
                                    : ::tt::tt_metal::DispatchCoreType::ETH;
 
-  ::tt::tt_metal::distributed::MeshShape shape{1, 1};
+  ::tt::tt_metal::distributed::MeshShape shape{
+      meshShape ? static_cast<unsigned int>(meshShape->first) : 1,
+      meshShape ? static_cast<unsigned int>(meshShape->second) : 1};
   m_device = ::tt::tt_metal::distributed::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{shape},
-      /* l1_small_size = */ ::tt::constants::L1_SMALL_SIZE,
-      /* trace_region_size = */ traceRegionSize,
+      ::tt::constants::L1_SMALL_SIZE, traceRegionSize,
+      /* num_hw_cqs = */ 1, dispatchCoreType);
+
+  m_device->disable_and_clear_program_cache();
+}
+
+void SingletonDeviceContext::reshapeMeshDevice(
+    const std::pair<size_t, size_t> &meshShape, size_t traceRegionSize) {
+  assert(m_device != nullptr && "Device must be initialized to reshape");
+  assert(m_isMockDevice && "Can only reshape mock devices");
+
+  m_device.reset();
+
+  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
+  size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
+  ::tt::tt_metal::DispatchCoreType dispatchCoreType =
+      numDevices == numPCIeDevices ? ::tt::tt_metal::DispatchCoreType::WORKER
+                                   : ::tt::tt_metal::DispatchCoreType::ETH;
+
+  ::tt::tt_metal::distributed::MeshShape shape{
+      static_cast<unsigned int>(meshShape.first),
+      static_cast<unsigned int>(meshShape.second)};
+  m_device = ::tt::tt_metal::distributed::MeshDevice::create(
+      ::tt::tt_metal::distributed::MeshDeviceConfig{shape},
+      ::tt::constants::L1_SMALL_SIZE, traceRegionSize,
       /* num_hw_cqs = */ 1, dispatchCoreType);
 
   m_device->disable_and_clear_program_cache();
