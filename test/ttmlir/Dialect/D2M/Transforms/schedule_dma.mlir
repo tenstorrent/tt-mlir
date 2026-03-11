@@ -18,14 +18,16 @@ module {
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
-    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
-      // CHECK: ^datamovement0
-      // CHECK:   d2m.remote_load{{.*}}into %cb0
-      // CHECK-NOT: into %cb1
-      // CHECK: ^datamovement1
-      // CHECK:   d2m.remote_load{{.*}}into %cb1
-      // CHECK-NOT: into %cb0
-      // CHECK: ^compute0
+    ^datamovement0:
+        %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      // CHECK: d2m.remote_load %arg0{{.*}}into %{{.*}}
+      // CHECK-NOT: d2m.remote_load %arg1
+      // CHECK: }, {
+      // CHECK: d2m.remote_load %arg1{{.*}}into %{{.*}}
+      // CHECK-NOT: d2m.remote_load %arg0
+      // CHECK: }, {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg2 = %c0 to %c1 step %c1 {
@@ -39,7 +41,10 @@ module {
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^compute0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg2 = %c0 to %c1 step %c1 {
@@ -65,10 +70,11 @@ module {
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
-    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
-      // CHECK: ^datamovement0
-      // CHECK: d2m.remote_load{{.*}}into %cb0
-      // CHECK: ^compute0
+    ^datamovement0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      // CHECK: d2m.remote_load{{.*}}into %{{.*}}
+      // CHECK: }, {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg1 = %c0 to %c1 step %c1 {
@@ -81,7 +87,9 @@ module {
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^compute0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg1 = %c0 to %c1 step %c1 {
@@ -103,13 +111,16 @@ module {
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
-    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
-      // CHECK: ^datamovement0
+    ^datamovement0:
+        %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       // CHECK-NOT: d2m.remote_load
       // CHECK-NOT: d2m.remote_store
-      // CHECK: ^compute0
+      // CHECK: }, {
     }, {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^compute0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg1 = %c0 to %c1 step %c1 {
@@ -134,10 +145,15 @@ module {
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1, %arg2 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
-    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
-      // CHECK: ^datamovement0
-      // CHECK: ^datamovement1
-      // CHECK: ^compute0
+    ^datamovement0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb3 = d2m.get_cb(3) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      // CHECK: d2m.remote_load
+      // CHECK: }, {
+      // CHECK: d2m.remote_load
+      // CHECK: }, {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg3 = %c0 to %c1 step %c1 {
@@ -152,7 +168,11 @@ module {
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^compute0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb3 = d2m.get_cb(3) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg3 = %c0 to %c1 step %c1 {
@@ -178,10 +198,14 @@ module {
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%arg1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
-    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
-      // CHECK: ^datamovement0
-      // CHECK: ^datamovement1
-      // CHECK: ^compute0
+    ^datamovement0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      // CHECK: d2m.remote_load
+      // CHECK: }, {
+      // CHECK: d2m.remote_store
+      // CHECK: }, {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg2 = %c0 to %c1 step %c1 {
@@ -195,7 +219,10 @@ module {
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^compute0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg2 = %c0 to %c1 step %c1 {
@@ -221,17 +248,20 @@ module {
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1, %alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%arg2 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
-    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^datamovement0:
+        %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb3 = d2m.get_cb(3) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       // With greedy load balancing: cb0 (1 op) -> thread0, cb1 (1 op) -> thread1, cb3 (1 op) -> thread0
       // Thread0 gets cb0 + cb3, Thread1 gets cb1
-      // CHECK: ^datamovement0
-      // CHECK: d2m.remote_load{{.*}}into %cb0
-      // CHECK: d2m.remote_store{{.*}}from %cb3
-      // CHECK: ^datamovement1
-      // CHECK: d2m.remote_load{{.*}}into %cb1
-      // CHECK-NOT: into %cb0
+      // CHECK: d2m.remote_load %arg0{{.*}}into %{{.*}}
+      // CHECK: d2m.remote_store %arg2{{.*}}from %{{.*}}
+      // CHECK: }, {
+      // CHECK: d2m.remote_load %arg1{{.*}}into %{{.*}}
+      // CHECK-NOT: d2m.remote_load %arg0
       // CHECK-NOT: d2m.remote_store
-      // CHECK: ^compute0
+      // CHECK: }, {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg3 = %c0 to %c1 step %c1 {
@@ -246,7 +276,11 @@ module {
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^compute0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb3 = d2m.get_cb(3) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg3 = %c0 to %c1 step %c1 {
@@ -272,11 +306,12 @@ module {
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%arg1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
-    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
-      // CHECK: ^datamovement0
+    ^datamovement0:
+        %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       // CHECK: d2m.remote_store
       // CHECK-NOT: d2m.remote_load
-      // CHECK: ^compute0
+      // CHECK: }, {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg2 = %c0 to %c1 step %c1 {
@@ -289,7 +324,9 @@ module {
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^compute0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg2 = %c0 to %c1 step %c1 {
@@ -317,19 +354,23 @@ module {
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1, %arg2, %alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%arg3 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
-    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb4: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^datamovement0:
+        %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb3 = d2m.get_cb(3) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb4 = d2m.get_cb(4) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       // With greedy assignment (all ops have count 1):
       // cb0 -> thread0, cb4 -> thread0, cb1 -> thread1, cb2 -> thread1
       // Thread0 gets cb0 + cb4, Thread1 gets cb1 + cb2
-      // CHECK: ^datamovement0
       // Thread 0 should have 2 operations: cb0 load and cb4 store
-      // CHECK: d2m.remote_load{{.*}}into %cb0
-      // CHECK: d2m.remote_store{{.*}}from %cb4
-      // CHECK: ^datamovement1
+      // CHECK: d2m.remote_load %arg0{{.*}}into %{{.*}}
+      // CHECK: d2m.remote_store %arg3{{.*}}from %{{.*}}
+      // CHECK: }, {
       // Thread 1 should have 2 operations: cb1 load and cb2 load
-      // CHECK: d2m.remote_load{{.*}}into %cb1
-      // CHECK: d2m.remote_load{{.*}}into %cb2
-      // CHECK: ^compute0
+      // CHECK: d2m.remote_load %arg1{{.*}}into %{{.*}}
+      // CHECK: d2m.remote_load %arg2{{.*}}into %{{.*}}
+      // CHECK: }, {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg4 = %c0 to %c1 step %c1 {
@@ -345,7 +386,12 @@ module {
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb4: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^compute0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb3 = d2m.get_cb(3) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb4 = d2m.get_cb(4) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg4 = %c0 to %c1 step %c1 {
@@ -371,15 +417,18 @@ module {
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
-    ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %sem0: !d2m.semaphore):
+    ^datamovement0(%sem0: !d2m.semaphore):
+        %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       // CHECK: ^datamovement0
       // CHECK:   d2m.semaphore_wait %{{.*}}, %{{.*}}
-      // CHECK:   d2m.remote_load{{.*}}into %cb0
-      // CHECK-NOT: into %cb1
+      // CHECK:   d2m.remote_load %arg0{{.*}}into %{{.*}}
+      // CHECK-NOT: d2m.remote_load %arg1
       // CHECK: ^datamovement1
       // CHECK:   d2m.semaphore_wait %{{.*}}, %{{.*}}
-      // CHECK:   d2m.remote_load{{.*}}into %cb1
-      // CHECK-NOT: into %cb0
+      // CHECK:   d2m.remote_load %arg1{{.*}}into %{{.*}}
+      // CHECK-NOT: d2m.remote_load %arg0
       // CHECK: ^compute0
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
@@ -395,7 +444,10 @@ module {
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %sem0: !d2m.semaphore):
+    ^compute0(%sem0: !d2m.semaphore):
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg2 = %c0 to %c1 step %c1 {

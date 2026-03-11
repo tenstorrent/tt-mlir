@@ -1903,6 +1903,36 @@ public:
 private:
   bool ttnnMode;
 };
+
+class D2MGetCBRewriter : public OpConversionPattern<d2m::GetCBOp> {
+public:
+  using OpConversionPattern<d2m::GetCBOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::GetCBOp op, d2m::GetCBOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type cbType = getTypeConverter()->convertType(op.getResult().getType());
+
+    int64_t port = op.getPort();
+    // The operand_index records which generic op operand this CB backs;
+    // the port is the actual hardware CB port number.
+    int64_t operandIndex = op.getOperandIndex().value_or(port);
+
+    // Append a CBPort entry to the parent function's ArgSpec so that
+    // D2MToTTNN can generate the corresponding cb_buffer_index in the
+    // kernel descriptor's ct_args.  The operand index tells the runtime
+    // which operand this CB is associated with.
+    func::FuncOp entry = op->getParentOfType<func::FuncOp>();
+    ArgAttr cbArg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, operandIndex);
+    rewriter.modifyOpInPlace(
+        entry, [&]() { ArgSpecAttr::appendCompileTimeArg(entry, cbArg); });
+
+    // Emit a direct CB port reference using the hardware port number.
+    rewriter.replaceOpWithNewOp<ttkernel::CBPortOp>(
+        op, cbType, rewriter.getI32IntegerAttr(static_cast<int32_t>(port)));
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -1975,31 +2005,37 @@ public:
   LogicalResult
   matchAndRewrite(func::FuncOp op, func::FuncOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (!op->hasAttr(d2m::ThreadAttr::name) ||
-        (op.getFunctionType().getNumInputs() == 0)) {
+    if (!op->hasAttr(d2m::ThreadAttr::name)) {
       return failure();
+    }
+
+    SmallVector<ArgAttr> rtArgSpecVector;
+    SmallVector<ArgAttr> ctArgSpecVector;
+
+    // Zero-input functions: just convert attrs and set function type.
+    // The D2MGetCBRewriter will append CB entries to the ArgSpec as it
+    // processes get_cb ops within the function body.
+    if (op.getFunctionType().getNumInputs() == 0) {
+      rewriter.modifyOpInPlace(op, [&]() {
+        op.setType(rewriter.getFunctionType(TypeRange(), TypeRange()));
+        convertFunctionAttrs(rewriter, op, rtArgSpecVector, ctArgSpecVector);
+      });
+      return success();
     }
 
     Block *block = &op.getCallableRegion()->front();
     auto blockArgs = block->getArguments();
     assert(!blockArgs.empty());
 
-    SmallVector<ArgAttr> rtArgSpecVector;
-    SmallVector<ArgAttr> ctArgSpecVector;
     size_t currentSemaphoreIndex = 0;
     TypeConverter::SignatureConversion signatureConverter(op.getNumArguments());
     OpBuilder::InsertionGuard funcInsertionGuard(rewriter);
     rewriter.setInsertionPointToStart(block);
+    // Block arguments are semaphores only. CB args have been replaced by
+    // d2m.get_cb ops, which are lowered by D2MGetCBRewriter.
     for (auto arg : blockArgs) {
       Type argType = getTypeConverter()->convertType(arg.getType());
-      if (mlir::isa<CBType>(argType)) {
-        auto cb = rewriter.create<GetCompileArgValOp>(
-            op.getLoc(), argType,
-            rewriter.getI32IntegerAttr(arg.getArgNumber()));
-        signatureConverter.remapInput(arg.getArgNumber(), {cb});
-        ctArgSpecVector.push_back(
-            rewriter.getAttr<ArgAttr>(ArgType::CBPort, arg.getArgNumber()));
-      } else if (mlir::isa<SemaphoreType>(argType)) {
+      if (mlir::isa<SemaphoreType>(argType)) {
         if (getTTKernelThreadType(op) != ThreadType::Noc) {
           continue;
         }
@@ -2234,7 +2270,9 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,
                ttkernel::D2MSemaphoreWaitRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx, ttnnMode);
+  patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx,
+                                                      ttnnMode);
+  patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
 

@@ -1164,8 +1164,8 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         -> memref<SY x SX x f32, ...>
       ```
 
-      The explicit CB form takes a CB block arg as additional input; the load is
-      produced into the CB. The CB provided must be the CB block arg associated
+      The explicit CB form takes a CB (from `d2m.get_cb`) as additional input;
+      the load is produced into the CB. The CB provided must be the CB associated
       with the operand. In explicit CB form, no local buffer is required.
 
       ```mlir
@@ -1332,6 +1332,15 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         return mlir::cast<CBType>(cb.getType());
       }
 
+      /// Return the CB port number from this op's CB operand.
+      /// The op must be in explicit CB form with a GetCBOp-defined CB.
+      unsigned getCBPort() {
+        assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
+        auto getCBOp = getCb().getDefiningOp<GetCBOp>();
+        assert(getCBOp && "CB operand must be defined by a GetCBOp");
+        return getCBOp.getPort();
+      }
+
       /// Returns true if the circular buffer operand is present (explicit CB form).
       bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
 
@@ -1426,7 +1435,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         -> memref<GY x GX x SY x SX x f32, ...>
       ```
 
-      - Explicit CB form stores data from a concrete CB block arg to the remote operand.
+      - Explicit CB form stores data from a concrete CB (from `d2m.get_cb`) to the remote operand.
 
       ```mlir
       d2m.remote_store %generic_operand[%i, %j] from %cb
@@ -1505,6 +1514,16 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         Value cb = getCb();
         if (!cb) return CBType();
         return mlir::cast<CBType>(cb.getType());
+      }
+
+      /// Return the CB port number from this op's CB operand, or UINT_MAX if
+      /// Return the CB port number from this op's CB operand.
+      /// The op must be in explicit CB form with a GetCBOp-defined CB.
+      unsigned getCBPort() {
+        assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
+        auto getCBOp = getCb().getDefiningOp<GetCBOp>();
+        assert(getCBOp && "CB operand must be defined by a GetCBOp");
+        return getCBOp.getPort();
       }
 
       /// Returns true if the circular buffer operand is present (explicit CB form).
@@ -1964,9 +1983,10 @@ def D2M_GetScratchFromCBOp : D2M_GenericRegionOp<"get_scratch_from_cb",
   let summary = "Unwrap scratch circular buffer into a memref.";
   let description = [{
     The `get_scratch_from_cb` operation extracts the underlying memref from
-    a scratch circular buffer (CB) block argument. This op is inserted by the
-    LowerScratchAllocate pass at the beginning of the `d2m.generic` region to
-    make the scratch buffer available as a plain memref for use by downstream
+    a scratch circular buffer (CB) obtained via `d2m.get_cb`. This op is
+    inserted by the LowerScratchAllocate pass at the beginning of the
+    `d2m.generic` region to make the scratch buffer available as a plain memref
+    for use by downstream
     scratch allocation ops (e.g. `d2m.scratch_allocate` lowered to
     `memref.subview`).
 
@@ -2184,6 +2204,29 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
 //===----------------------------------------------------------------------===//
 // D2M Remote Access ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
+
+def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
+    let summary = "Get a circular buffer for the given port.";
+    let description = [{
+      Obtain a CB handle for the specified port number.  Each unique port maps
+      to exactly one physical circular buffer.
+
+      The port number is a local identifier — it does not correspond to the
+      parent generic op's operand index.  The binding between a CB port and a
+      generic operand is established by `remote_load`/`remote_store` ops.
+
+      ```mlir
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
+      %buf = d2m.wait %cb0 : !d2m.cb<memref<...>> -> memref<...>
+      ```
+    }];
+
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$port,
+                         OptionalAttr<I64Attr>:$operand_index);
+    let results = (outs D2M_CB:$result);
+
+    let assemblyFormat = [{ `(` $port `)` (`operand_index` `=` $operand_index^)? attr-dict `:` type($result) }];
+}
 
 def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
     let summary = "Get global operand op.";

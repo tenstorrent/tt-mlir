@@ -913,6 +913,23 @@ def D2MLowerDMAToFullyIndexedForm : Pass<"d2m-lower-dma-to-fully-indexed-form", 
   ];
 }
 
+def D2MHoistCBAllocs : Pass<"d2m-hoist-cb-allocs", "::mlir::ModuleOp"> {
+  let summary = "Hoist in-generic CB allocs to external additionalArgs.";
+  let description = [{
+    This pass scans in-generic memref.alloc ops that carry a CBLayoutAttr
+    (set by the Allocate pass to mark circular buffer storage).  For each such
+    alloc it creates an external memref.alloc (with ShardLayoutAttr) as an
+    additionalArg on the enclosing d2m.generic op.  The in-generic alloc is
+    annotated with a `d2m.hoisted_operand_idx` attr pointing to the
+    additionalArg's operand index so that downstream passes (getOrCreateCB)
+    can wire the CB to the correct external buffer.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
+}
+
 def D2MLowerLoadStoreOpsToExplicitCBForm : Pass<"d2m-lower-load-store-ops-to-explicit-cb-form", "::mlir::ModuleOp"> {
   let summary = "Lower load/store operations to explicit CB form.";
   let description = [{

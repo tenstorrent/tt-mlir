@@ -193,8 +193,9 @@ func.func @test(
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
     ins(%in : memref<1x1x8x!ttcore.tile<32x32, f32>>)
     outs(%out : memref<1x1x8x!ttcore.tile<32x32, f32>>) {
-    ^unified0(%cb0: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>,
-              %cb1: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>):
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>
       %in_m = d2m.wait %cb0 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
       %out_m = d2m.reserve %cb1 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
       %c0 = arith.constant 0 : index
@@ -246,8 +247,9 @@ func.func @test(
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
     ins(%in : memref<1x1x8x!ttcore.tile<32x32, f32>>)
     outs(%out : memref<1x1x8x!ttcore.tile<32x32, f32>>) {
-    ^unified0(%cb0: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>,
-              %cb1: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>):
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>
       %in_m = d2m.wait %cb0 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
       %out_m = d2m.reserve %cb1 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
       linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
@@ -292,8 +294,9 @@ func.func @test(
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
     ins(%in : memref<1x1x1x!ttcore.tile<32x32, f32>>)
     outs(%out : memref<1x1x1x!ttcore.tile<32x32, f32>>) {
-    ^unified0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>>,
-              %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>>):
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>>
       %in_m = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>> -> memref<1x1x!ttcore.tile<32x32, f32>>
       %out_m = d2m.reserve %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>> -> memref<1x1x!ttcore.tile<32x32, f32>>
       linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
@@ -341,9 +344,10 @@ func.func @test(
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
     ins(%in0, %in1 : memref<1x1x1x!ttcore.tile<32x32, f32>>, memref<1x1x1x!ttcore.tile<32x32, f32>>)
     outs(%out : memref<1x1x1x!ttcore.tile<32x32, f32>>) {
-  ^unified0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>>,
-            %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>>,
-            %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>>):
+  ^unified0:
+    %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>>
+    %cb2 = d2m.get_cb(2) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>>
     %in0_m = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>> -> memref<1x1x!ttcore.tile<32x32, f32>>
     %in1_m = d2m.wait %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>> -> memref<1x1x!ttcore.tile<32x32, f32>>
     %out_m = d2m.reserve %cb2 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>>> -> memref<1x1x!ttcore.tile<32x32, f32>>
@@ -416,9 +420,10 @@ func.func @test(
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
     ins(%in0, %in1 : memref<1x1x8x!ttcore.tile<32x32, f32>>, memref<1x1x8x!ttcore.tile<32x32, f32>>)
     outs(%out : memref<1x1x8x!ttcore.tile<32x32, f32>>) {
-    ^unified0(%cb0: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>,
-              %cb1: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>,
-              %cb2: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>):
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>
       %in0_m = d2m.wait %cb0 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
       %in1_m = d2m.wait %cb1 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
       %out_m = d2m.reserve %cb2 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
@@ -470,8 +475,9 @@ func.func @test(
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
     ins(%in : memref<1x1x8x!ttcore.tile<32x32, f32>>)
     outs(%out : memref<1x1x8x!ttcore.tile<32x32, f32>>) {
-    ^unified0(%cb0: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>,
-              %cb1: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>):
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>
       %in_m = d2m.wait %cb0 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
       %out_m = d2m.reserve %cb1 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
       %c0 = arith.constant 0 : index
@@ -535,9 +541,10 @@ func.func @test(
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
     ins(%in0, %in1 : memref<1x1x8x!ttcore.tile<32x32, f32>>, memref<1x1x8x!ttcore.tile<32x32, f32>>)
     outs(%out : memref<1x1x8x!ttcore.tile<32x32, f32>>) {
-  ^unified0(%cb0: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>,
-            %cb1: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>,
-            %cb2: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>):
+  ^unified0:
+    %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>
+    %cb2 = d2m.get_cb(2) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>>
     %in0_m = d2m.wait %cb0 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
     %in1_m = d2m.wait %cb1 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
     %out_m = d2m.reserve %cb2 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
@@ -632,9 +639,10 @@ func.func @test(
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
     ins(%in0, %in1 : memref<1x1x7x!ttcore.tile<32x32, f32>>, memref<1x1x7x!ttcore.tile<32x32, f32>>)
     outs(%out : memref<1x1x7x!ttcore.tile<32x32, f32>>) {
-  ^unified0(%cb0: !d2m.cb<memref<1x7x!ttcore.tile<32x32, f32>>>,
-            %cb1: !d2m.cb<memref<1x7x!ttcore.tile<32x32, f32>>>,
-            %cb2: !d2m.cb<memref<1x7x!ttcore.tile<32x32, f32>>>):
+  ^unified0:
+    %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x7x!ttcore.tile<32x32, f32>>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x7x!ttcore.tile<32x32, f32>>>
+    %cb2 = d2m.get_cb(2) : !d2m.cb<memref<1x7x!ttcore.tile<32x32, f32>>>
     %in0_m = d2m.wait %cb0 : !d2m.cb<memref<1x7x!ttcore.tile<32x32, f32>>> -> memref<1x7x!ttcore.tile<32x32, f32>>
     %in1_m = d2m.wait %cb1 : !d2m.cb<memref<1x7x!ttcore.tile<32x32, f32>>> -> memref<1x7x!ttcore.tile<32x32, f32>>
     %out_m = d2m.reserve %cb2 : !d2m.cb<memref<1x7x!ttcore.tile<32x32, f32>>> -> memref<1x7x!ttcore.tile<32x32, f32>>
@@ -730,9 +738,10 @@ func.func @test(
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
     ins(%in0, %in1 : memref<1x1x15x!ttcore.tile<32x32, f32>>, memref<1x1x15x!ttcore.tile<32x32, f32>>)
     outs(%out : memref<1x1x15x!ttcore.tile<32x32, f32>>) {
-  ^unified0(%cb0: !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>>,
-            %cb1: !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>>,
-            %cb2: !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>>):
+  ^unified0:
+    %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>>
+    %cb2 = d2m.get_cb(2) : !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>>
     %in0_m = d2m.wait %cb0 : !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>> -> memref<1x15x!ttcore.tile<32x32, f32>>
     %in1_m = d2m.wait %cb1 : !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>> -> memref<1x15x!ttcore.tile<32x32, f32>>
     %out_m = d2m.reserve %cb2 : !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>> -> memref<1x15x!ttcore.tile<32x32, f32>>
@@ -828,9 +837,10 @@ func.func @test(
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
     ins(%in0, %in1 : memref<1x1x8x8x!ttcore.tile<32x32, bf16>>, memref<1x1x8x8x!ttcore.tile<32x32, bf16>>)
     outs(%out : memref<1x1x8x8x!ttcore.tile<32x32, bf16>>) {
-    ^unified0(%cb0: !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>>,
-              %cb1: !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>>,
-              %cb2: !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>>):
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>>
       %in0_m = d2m.wait %cb0 : !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>> -> memref<8x8x!ttcore.tile<32x32, bf16>>
       %in1_m = d2m.wait %cb1 : !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>> -> memref<8x8x!ttcore.tile<32x32, bf16>>
       %out_m = d2m.reserve %cb2 : !d2m.cb<memref<8x8x!ttcore.tile<32x32, bf16>>> -> memref<8x8x!ttcore.tile<32x32, bf16>>

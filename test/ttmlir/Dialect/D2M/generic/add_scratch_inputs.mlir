@@ -28,7 +28,7 @@ func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   }
   ins(%arg0, %arg1 : !memref_tiled, !memref_tiled)
   outs(%out : !memref_tiled) {
-  ^unified0(%cb0: !cb, %cb1: !cb, %cb2: !cb):
+  ^unified0:
     %block0 = d2m.block_index(0) : index
     %block1 = d2m.block_index(1) : index
     %e0 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
@@ -78,7 +78,7 @@ func.func @add_and_mul_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) 
   }
   ins(%arg0, %arg1 : !memref_tiled, !memref_tiled)
   outs(%out : !memref_tiled) {
-  ^unified0(%cb0: !cb, %cb1: !cb, %cb2: !cb):
+  ^unified0:
     %block0 = d2m.block_index(0) : index
     %block1 = d2m.block_index(1) : index
     %e0 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
@@ -125,7 +125,7 @@ func.func @single_add_no_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   }
   ins(%arg0, %arg1 : !memref_tiled, !memref_tiled)
   outs(%out : !memref_tiled) {
-  ^unified0(%cb0: !cb, %cb1: !cb, %cb2: !cb):
+  ^unified0:
     %block0 = d2m.block_index(0) : index
     %block1 = d2m.block_index(1) : index
     %e0 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>

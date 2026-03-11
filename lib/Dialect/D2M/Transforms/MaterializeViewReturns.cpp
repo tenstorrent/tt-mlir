@@ -81,15 +81,10 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
       [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
         SmallVector<Value> indices =
             utils::buildGridIndices(builder, innerLoc, indexingMap);
-        auto inputCbType = mlir::cast<d2m::CBType>(blockArgs[0].getType());
-        auto inputShardType = inputCbType.getUnderlying();
-
-        // Create a buffer for the load result
-        auto inputTensorType = mlir::cast<RankedTensorType>(inputShardType);
-        auto inputBufferOp = builder.create<tensor::EmptyOp>(
-            innerLoc, inputTensorType.getShape(),
-            inputTensorType.getElementType());
-        Value inputBuffer = inputBufferOp.getResult();
+        // operandAllocs are tensor.empty results with shard shapes,
+        // one per generic operand.
+        Type inputShardType = blockArgs[0].getType();
+        Value inputBuffer = blockArgs[0];
 
         Value loadedData =
             builder

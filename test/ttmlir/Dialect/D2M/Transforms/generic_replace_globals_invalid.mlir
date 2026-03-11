@@ -13,7 +13,9 @@ module {
       threads = [#d2m.thread<compute>]}
       ins(%arg0 : tensor<2x2xf32>)
       outs(%0 : tensor<2x2xf32>) {
-    ^bb0(%cb0: !d2m.cb<tensor<2x2xf32>>, %cb1: !d2m.cb<tensor<2x2xf32>>):
+    ^bb0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<2x2xf32>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<2x2xf32>>
       %arg0_val = d2m.wait %cb0 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       %arg1_val = d2m.reserve %cb1 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       // expected-error@+2 {{Global must have a valid index attribute}}
@@ -38,7 +40,9 @@ module {
       threads = [#d2m.thread<compute>]}
       ins(%arg0 : tensor<2x2xf32>)
       outs(%0 : tensor<2x2xf32>) {
-    ^bb0(%cb0: !d2m.cb<tensor<2x2xf32>>, %cb1: !d2m.cb<tensor<2x2xf32>>):
+    ^bb0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<2x2xf32>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<2x2xf32>>
       %arg0_val = d2m.wait %cb0 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       %arg1_val = d2m.reserve %cb1 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       // expected-error@+2 {{Global symbol not found: "nonexistent_global"}}

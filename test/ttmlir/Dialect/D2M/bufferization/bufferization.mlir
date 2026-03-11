@@ -68,11 +68,14 @@ func.func @remote_load_bufferization() -> tensor<2x2x1x1x!ttcore.tile<32x32, f32
   // CHECK: d2m.generic
   // CHECK-NEXT: ins(%[[VIEW]] : memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
   // CHECK-NEXT: outs(%[[ALLOC1]] : memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
-  // CHECK: ^unified0(%{{.*}}: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>):
+  // CHECK: d2m.get_cb(0) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+  // CHECK: d2m.get_cb(1) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
   %result = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x2>, indexing_maps = [#map3, #map3], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
       ins(%view : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view>)
       outs(%output : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>)  {
-  ^unified0(%cb0: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
+  ^unified0:
+    %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>
     %iter0 = d2m.block_index(0) : index
     %iter1 = d2m.block_index(1) : index
     %buffer = tensor.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
