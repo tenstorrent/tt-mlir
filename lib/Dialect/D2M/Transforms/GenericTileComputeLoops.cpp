@@ -151,9 +151,9 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<GenericOp> {
 
   LogicalResult matchAndRewrite(GenericOp genericOp,
                                 PatternRewriter &rewriter) const final {
-    utils::DSTPackingInfo packingInfo =
-        utils::analyzeGenericForDSTPacking(genericOp);
-    if (packingInfo.perResult.empty()) {
+    utils::DstRegisterAnalysis analysis(genericOp);
+    const utils::DSTPackingInfo *packingInfo = analysis.lookup(genericOp);
+    if (!packingInfo || packingInfo->empty()) {
       return failure();
     }
 
@@ -183,7 +183,13 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<GenericOp> {
     }
 
     for (linalg::GenericOp linalgOp : linalgOps) {
-      if (failed(tileLinalgOp(linalgOp, packingInfo, rewriter))) {
+      Region *parentRegion = linalgOp->getParentRegion();
+      const utils::DSTPackingRegionInfo *regionInfo =
+          packingInfo->lookup(parentRegion);
+      if (!regionInfo) {
+        return failure();
+      }
+      if (failed(tileLinalgOp(linalgOp, *regionInfo, rewriter))) {
         return failure();
       }
     }
@@ -193,11 +199,11 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<GenericOp> {
 
 private:
   LogicalResult tileLinalgOp(linalg::GenericOp linalgOp,
-                             const utils::DSTPackingInfo &packingInfo,
+                             const utils::DSTPackingRegionInfo &regionInfo,
                              PatternRewriter &rewriter) const {
     Value outputValue = linalgOp.getOutputs().front();
-    auto it = packingInfo.perResult.find(outputValue);
-    if (it == packingInfo.perResult.end()) {
+    auto it = regionInfo.perResult.find(outputValue);
+    if (it == regionInfo.perResult.end()) {
       return failure();
     }
     const utils::DSTPackingPerResultInfo &perResult = it->second;
@@ -210,9 +216,9 @@ private:
       llvm::dbgs() << "  output shape: [";
       llvm::interleaveComma(outputType.getShape(), llvm::dbgs());
       llvm::dbgs() << "]\n";
-      llvm::dbgs() << "  numOuterLoopIters: " << packingInfo.numOuterLoopIters
+      llvm::dbgs() << "  numOuterLoopIters: " << regionInfo.numOuterLoopIters
                    << "\n";
-      llvm::dbgs() << "  numTilesPerResult: " << packingInfo.numTilesPerResult
+      llvm::dbgs() << "  numTilesPerResult: " << regionInfo.numTilesPerResult
                    << "\n";
       llvm::dbgs() << "  numDstFlips: " << perResult.numDstFlips << "\n";
       llvm::dbgs() << "  numTilesPerFlip: " << perResult.numTilesPerFlip
@@ -225,7 +231,7 @@ private:
     SmallVector<int64_t> phase1TileSizes = calculateOptimalSubblockSizes(
         linalgOp.getIndexingMapsArray(), linalgOp.getInputs(),
         outputType.getShape(),
-        static_cast<unsigned>(packingInfo.numTilesPerResult));
+        static_cast<unsigned>(regionInfo.numTilesPerResult));
 
     LLVM_DEBUG({
       llvm::dbgs() << "  phase1 tile sizes: [";
