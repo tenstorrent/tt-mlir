@@ -244,17 +244,6 @@ static bool isZeroAttr(mlir::Attribute attr) {
   return false;
 }
 
-// Check if the attribute represents one.
-static bool isOneAttr(mlir::Attribute attr) {
-  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
-    return floatAttr.getValue().isExactlyValue(1.0);
-  }
-  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-    return intAttr.getValue().isOne();
-  }
-  return false;
-}
-
 static bool isConstantZero(mlir::Value value) {
   mlir::Attribute attr = getConstantValue(value);
   return attr && isZeroAttr(attr);
@@ -824,132 +813,27 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 // NegOp
 //===----------------------------------------------------------------------===//
 
-static mlir::Attribute negateScalarAttribute(mlir::Attribute attr) {
-  if (auto floatAttr = llvm::dyn_cast_if_present<FloatAttr>(attr)) {
-    llvm::APFloat attrValue = floatAttr.getValue();
-    mlir::Type attrType = floatAttr.getType();
-    return mlir::FloatAttr::get(attrType, -attrValue);
+// NegOp folder
+::mlir::OpFoldResult mlir::tt::ttir::NegOp::fold(FoldAdaptor adaptor) {
+  Attribute attr = adaptor.getInput();
+  if (!attr) {
+    return nullptr;
   }
-  if (auto intAttr = llvm::dyn_cast_if_present<IntegerAttr>(attr)) {
-    llvm::APInt attrValue = intAttr.getValue();
-    mlir::Type attrType = intAttr.getType();
-    return mlir::IntegerAttr::get(attrType, -attrValue);
-  }
-  return {};
-}
 
-static mlir::DenseElementsAttr
-negateDenseElementsAttribute(mlir::Attribute attr,
-                             RankedTensorType desiredType) {
-  if (auto denseAttr = llvm::dyn_cast_if_present<DenseElementsAttr>(attr)) {
-    if (denseAttr.isSplat()) {
-      // ConstantOp's canonicalizer will replace it with FullOp.
-      return {};
+  if (auto denseAttr = dyn_cast<DenseElementsAttr>(attr)) {
+    Type elementType = denseAttr.getElementType();
+    if (elementType.isInteger()) {
+      return denseAttr.mapValues(elementType,
+                                 [](const APInt &val) { return -val; });
     }
-    ShapedType tensorType = llvm::cast<ShapedType>(denseAttr.getType());
-    mlir::Type elementType = tensorType.getElementType();
-
-    if (llvm::isa<FloatType>(elementType)) {
-      SmallVector<llvm::APFloat> newValues;
-      newValues.reserve(denseAttr.getNumElements());
-      for (auto val : denseAttr.getValues<llvm::APFloat>()) {
-        newValues.push_back(-val);
-      }
-      return DenseElementsAttr::get(desiredType, newValues);
-    }
-
-    if (llvm::isa<IntegerType>(elementType)) {
-      SmallVector<llvm::APInt> newValues;
-      newValues.reserve(denseAttr.getNumElements());
-      for (auto val : denseAttr.getValues<llvm::APInt>()) {
-        newValues.push_back(-val);
-      }
-      return DenseElementsAttr::get(desiredType, newValues);
+    if (elementType.isFloat()) {
+      return denseAttr.mapValues(elementType, [](const llvm::APFloat &val) {
+        return (-val).bitcastToAPInt();
+      });
     }
   }
 
-  return {};
-}
-
-// NegOp canonicalization: neg(full(x)) -> full(-x)
-void mlir::tt::ttir::NegOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  patterns.add(+[](mlir::tt::ttir::NegOp op, mlir::PatternRewriter &rewriter) {
-    Value operand = op->getOperand(0);
-    RankedTensorType resultType = op.getResult().getType();
-    mlir::DenseI32ArrayAttr shapeAttr =
-        rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType));
-
-    bool hasTypecast = false;
-    bool onlyReshape = true;
-    auto checkLayoutOps = [&hasTypecast, &onlyReshape](Operation *op) {
-      if (llvm::isa<TypecastOp>(op)) {
-        hasTypecast = true;
-      }
-      if (!llvm::isa<ReshapeOp>(op)) {
-        onlyReshape = false;
-      }
-      return true;
-    };
-    Operation *operandOp =
-        mlir::tt::ttir::utils::lookThroughLayoutOpsIf(operand, checkLayoutOps)
-            .getDefiningOp();
-
-    if (isa_and_present<mlir::tt::ttir::ZerosOp>(operandOp)) {
-      rewriter.replaceOpWithNewOp<mlir::tt::ttir::ZerosOp>(op, resultType,
-                                                           shapeAttr);
-      return mlir::success();
-    }
-
-    if (isa_and_present<mlir::tt::ttir::OnesOp>(operandOp)) {
-      Type elementType = op.getResult().getType().getElementType();
-      mlir::Attribute fillValueAttr = makeScalarAttr(elementType, -1.0);
-      rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
-          op, resultType, shapeAttr, fillValueAttr);
-      return mlir::success();
-    }
-
-    if (auto full =
-            mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(operandOp)) {
-      if (hasTypecast) {
-        return mlir::failure();
-      }
-      mlir::Attribute negatedFillValueAttr =
-          negateScalarAttribute(full.getFillValueAttr());
-      if (!negatedFillValueAttr) {
-        return mlir::failure();
-      }
-
-      if (isOneAttr(negatedFillValueAttr)) {
-        rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(op, resultType,
-                                                            shapeAttr);
-        return mlir::success();
-      }
-
-      rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
-          op, resultType, shapeAttr, negatedFillValueAttr);
-      return mlir::success();
-    }
-
-    if (auto constant =
-            mlir::dyn_cast_if_present<mlir::tt::ttir::ConstantOp>(operandOp)) {
-      if (!onlyReshape) {
-        return mlir::failure();
-      }
-      mlir::DenseElementsAttr negatedValueAttr =
-          negateDenseElementsAttribute(constant.getValueAttr(), resultType);
-      if (!negatedValueAttr) {
-        return mlir::failure();
-      }
-      rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(op, resultType,
-                                                              negatedValueAttr);
-      return mlir::success();
-    }
-
-    return mlir::failure();
-  });
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -4998,6 +4882,104 @@ verifyReplicaGroups(mlir::DenseIntElementsAttr replicaGroups) {
     }
   }
   return std::nullopt;
+}
+
+// Helper to convert type of scalar attribute.
+mlir::Attribute convertScalarAttribute(mlir::Attribute attr,
+                                       mlir::Type targetType) {
+  auto typedAttr = llvm::dyn_cast_if_present<TypedAttr>(attr);
+  if (!typedAttr) {
+    return {};
+  }
+
+  if (typedAttr.getType() == targetType) {
+    return typedAttr;
+  }
+
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(typedAttr)) {
+    llvm::APFloat floatVal = floatAttr.getValue();
+
+    // Case A: Float -> Float (e.g., f64 -> f32)
+    if (auto targetFloatType = mlir::dyn_cast<mlir::FloatType>(targetType)) {
+      bool losesInfo;
+      floatVal.convert(targetFloatType.getFloatSemantics(),
+                       llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+      return mlir::FloatAttr::get(targetType, floatVal);
+    }
+
+    // Case B: Float -> Integer (e.g., f32 -> i32)
+    if (auto targetIntType = mlir::dyn_cast<mlir::IntegerType>(targetType)) {
+      llvm::APSInt intVal(targetIntType.getWidth(), !targetIntType.isSigned());
+      bool isExact;
+      floatVal.convertToInteger(intVal, llvm::APFloat::rmTowardZero, &isExact);
+      return mlir::IntegerAttr::get(targetType, intVal);
+    }
+  }
+
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(typedAttr)) {
+    llvm::APInt intVal = intAttr.getValue();
+
+    // Case C: Integer -> Integer (e.g., i64 -> i32)
+    if (auto targetIntType = mlir::dyn_cast<mlir::IntegerType>(targetType)) {
+      intVal = intVal.sextOrTrunc(targetIntType.getWidth());
+      return mlir::IntegerAttr::get(targetType, intVal);
+    }
+
+    // Case D: Integer -> Float (e.g., i32 -> f32)
+    if (auto targetFloatType = mlir::dyn_cast<mlir::FloatType>(targetType)) {
+      llvm::APFloat floatVal(targetFloatType.getFloatSemantics());
+      auto sourceIntType = mlir::cast<mlir::IntegerType>(intAttr.getType());
+      floatVal.convertFromAPInt(intVal, sourceIntType.isSigned(),
+                                llvm::APFloat::rmNearestTiesToEven);
+      return mlir::FloatAttr::get(targetType, floatVal);
+    }
+  }
+
+  return nullptr;
+}
+
+// FullOp folder
+::mlir::OpFoldResult mlir::tt::ttir::FullOp::fold(FoldAdaptor adaptor) {
+  auto fillValue = llvm::dyn_cast_if_present<TypedAttr>(getFillValueAttr());
+  RankedTensorType resultType = getResult().getType();
+
+  // Fill value is 32-bit float or 32-bit signless integer, but result type
+  // might differ.
+  auto convertedFillValue =
+      convertScalarAttribute(fillValue, resultType.getElementType());
+  if (!convertedFillValue) {
+    return nullptr;
+  }
+
+  return SplatElementsAttr::get(resultType, convertedFillValue);
+}
+
+//===----------------------------------------------------------------------===//
+// ZerosOp
+//===----------------------------------------------------------------------===//
+
+// ZerosOp folder
+::mlir::OpFoldResult mlir::tt::ttir::ZerosOp::fold(FoldAdaptor adaptor) {
+  RankedTensorType resultType = getResult().getType();
+  mlir::Attribute value = makeScalarAttr(resultType.getElementType(), 0.0);
+  if (!value) {
+    return nullptr;
+  }
+  return SplatElementsAttr::get(resultType, value);
+}
+
+//===----------------------------------------------------------------------===//
+// OnesOp
+//===----------------------------------------------------------------------===//
+
+// OnesOp folder
+::mlir::OpFoldResult mlir::tt::ttir::OnesOp::fold(FoldAdaptor adaptor) {
+  RankedTensorType resultType = getResult().getType();
+  mlir::Attribute value = makeScalarAttr(resultType.getElementType(), 1.0);
+  if (!value) {
+    return nullptr;
+  }
+  return SplatElementsAttr::get(resultType, value);
 }
 
 //===----------------------------------------------------------------------===//
