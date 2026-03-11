@@ -570,11 +570,10 @@ def TTNNConfigureCCLOps : Pass<"ttnn-configure-ccl-ops", "::mlir::ModuleOp"> {
   }];
 }
 
-def TTNNSlicePropagation : Pass<"ttnn-slice-propagation", "::mlir::ModuleOp"> {
-  let summary = "Propagate ttnn.slice ops upwards to reduce DRAM pressure.";
+def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
+  let summary = "Memory usage optimization pass.";
   let description = [{
-    This pass propagates ttnn.slice operations upwards through the IR graph
-    to reduce DRAM pressure by narrowing intermediate tensors earlier.
+    This pass moves slice ops and reorganizes repeat ops to reduce memory usage.
   }];
 }
 

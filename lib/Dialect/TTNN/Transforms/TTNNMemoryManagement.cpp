@@ -9,7 +9,7 @@
 #include <cstdint>
 
 namespace mlir::tt::ttnn {
-#define GEN_PASS_DEF_TTNNSLICEPROPAGATION
+#define GEN_PASS_DEF_TTNNMEMORYMANAGEMENT
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 namespace {
@@ -38,10 +38,9 @@ struct DimGroup {
 // dims to a range of consecutive output dims with equal products.
 // Inserted size-1 output dims (with no corresponding input dim) are
 // represented as groups with inCount=0.
-static bool
-computeDimGroupMapping(ArrayRef<int64_t> inputShape,
-                       ArrayRef<int64_t> outputShape,
-                       SmallVector<DimGroup> &groups) {
+static bool computeDimGroupMapping(ArrayRef<int64_t> inputShape,
+                                   ArrayRef<int64_t> outputShape,
+                                   SmallVector<DimGroup> &groups) {
   groups.clear();
   int64_t inIdx = 0, outIdx = 0;
   int64_t inRank = inputShape.size(), outRank = outputShape.size();
@@ -100,6 +99,7 @@ public:
       return failure();
     }
 
+    // Slice can always be propagated through Permute.
     ArrayRef<int64_t> permutation = permuteOp.getPermutation();
     SmallVector<int64_t> invPerm =
         ttmlir::utils::inversePermutation(permutation);
@@ -157,6 +157,8 @@ public:
     ArrayRef<int64_t> inputShape = inputType.getShape();
     ArrayRef<int64_t> outputShape = outputType.getShape();
 
+    // Reshape cannot be propagated through if the input and output shapes
+    // are not compatible.
     SmallVector<DimGroup> groups;
     if (!computeDimGroupMapping(inputShape, outputShape, groups)) {
       return failure();
@@ -166,7 +168,7 @@ public:
     SmallVector<int32_t> ends = toI32Vec(op.getEnds());
     SmallVector<int32_t> step = toI32Vec(op.getStep());
 
-    // Start with "no slicing" (full extent on every input dim).
+    // Start with no slicing (full extent on every input dim).
     int64_t inputRank = inputShape.size();
     SmallVector<int32_t> newBegins(inputRank, 0);
     SmallVector<int32_t> newEnds(inputShape.begin(), inputShape.end());
@@ -191,7 +193,8 @@ public:
       if (!anyPartial) {
         continue;
       }
-
+      // Cannot propagate partial slice through a multi-dimension group (merge
+      // or split).
       if (group.inCount != 1 || group.outCount != 1) {
         return failure();
       }
@@ -215,10 +218,8 @@ public:
         rewriter.getI32ArrayAttr(newBegins), rewriter.getI32ArrayAttr(newEnds),
         rewriter.getI32ArrayAttr(newStep));
 
-    SmallVector<int32_t> outShape32;
-    for (int64_t s : slicedOutputShape) {
-      outShape32.push_back(static_cast<int32_t>(s));
-    }
+    SmallVector<int32_t> outShape32(slicedOutputShape.begin(),
+                                    slicedOutputShape.end());
     auto newReshapeOp = rewriter.create<ttnn::ReshapeOp>(
         op.getLoc(), slicedOutputType, newSliceOp.getResult(),
         rewriter.getI32ArrayAttr(outShape32),
@@ -259,9 +260,11 @@ public:
     SmallVector<int64_t> slicedInputShape;
 
     for (int64_t d = 0; d < rank; ++d) {
-      int64_t sliceSize = (ends[d] - begins[d] + step[d] - 1) / step[d];
+      int64_t sliceSize = llvm::divideCeil(ends[d] - begins[d], step[d]);
       if (repeatDims[d] != 1) {
         if (sliceSize != repeatOutputShape[d]) {
+          // If a repeat is happening on a dimension that is being sliced,
+          // propagation is not possible.
           return failure();
         }
         slicedInputShape.push_back(repeatInputShape[d]);
@@ -332,14 +335,12 @@ public:
     SmallVector<int32_t> ends = toI32Vec(op.getEnds());
     SmallVector<int32_t> step = toI32Vec(op.getStep());
 
-    // First pass: analyze only.
     struct SliceInfo {
       SmallVector<int32_t> begins, ends, step;
       SmallVector<int64_t> slicedShape;
       bool needSlice = false;
     };
     SmallVector<SliceInfo, 0> infos;
-    int64_t numSlicedOperands = 0;
 
     for (uint32_t i = 0; i < eltwiseOp->getNumOperands(); ++i) {
       Value operand = eltwiseOp->getOperand(i);
@@ -374,15 +375,7 @@ public:
       if (ArrayRef<int64_t>(info.slicedShape) == operandShape) {
         info.needSlice = false;
       }
-      if (info.needSlice) {
-        numSlicedOperands++;
-      }
       infos.push_back(std::move(info));
-    }
-
-    // Must slice at least one operand, otherwise nothing changes.
-    if (numSlicedOperands == 0) {
-      return failure();
     }
 
     // Second pass: create ops.
@@ -421,12 +414,11 @@ public:
 
   LogicalResult matchAndRewrite(ttnn::RepeatOp op,
                                 PatternRewriter &rewriter) const override {
-    // Only fire if the repeat feeds into exactly one reshape.
-    if (!op->hasOneUse()) {
-      return failure();
-    }
-    auto reshapeOp = dyn_cast<ttnn::ReshapeOp>(*op->user_begin());
-    if (!reshapeOp) {
+    // This pattern realignes repeat to make inner dims tile-aligned.
+    // Only fire if the repeat feeds only into reshapes.
+    if (!llvm::all_of(op->getUsers(), [](Operation *user) {
+          return isa<ttnn::ReshapeOp>(user);
+        })) {
       return failure();
     }
 
@@ -434,22 +426,14 @@ public:
     ArrayRef<int64_t> inputShape = inputType.getShape();
     int64_t rank = inputShape.size();
 
-    if (!hasNonTileAlignedInnerDims(inputShape)) {
-      return failure();
-    }
-
     ShapeAttr repeatDimsAttr = op.getRepeatDims();
     SmallVector<int64_t> dims(repeatDimsAttr.getShape().begin(),
                               repeatDimsAttr.getShape().end());
 
-    // Compute the current output shape.
-    SmallVector<int64_t> outputShape;
-    for (int64_t d = 0; d < rank; ++d) {
-      outputShape.push_back(inputShape[d] * dims[d]);
-    }
+    ArrayRef<int64_t> outputShape = op.getResult().getType().getShape();
 
     // Check if inner dims are already tile-aligned — nothing to do.
-    if (outputShape[rank - 1] % 32 == 0 && outputShape[rank - 2] % 32 == 0) {
+    if (!hasNonTileAlignedInnerDims(outputShape)) {
       return failure();
     }
 
@@ -522,6 +506,7 @@ public:
     int64_t tiledEltwiseVolume =
         ttmlir::utils::volume(llvm::ArrayRef(paddedEltwiseShape));
 
+    // If the elementwise is already in target space, nothing to do.
     if (tiledVolume >= tiledEltwiseVolume) {
       return failure();
     }
@@ -549,27 +534,19 @@ public:
           continue;
         }
 
-        int64_t operandProduct = 1;
-        for (int64_t k = group.inStart; k < group.inStart + group.inCount;
-             ++k) {
-          operandProduct *= operandShape[k];
-        }
+        auto operandSub = operandShape.slice(group.inStart, group.inCount);
+        int64_t operandProduct =
+            std::accumulate(operandSub.begin(), operandSub.end(), 1LL,
+                            std::multiplies<int64_t>());
 
-        int64_t finalProduct = 1;
-        for (int64_t k = group.outStart; k < group.outStart + group.outCount;
-             ++k) {
-          finalProduct *= finalShape[k];
-        }
+        auto finalSub = finalShape.slice(group.outStart, group.outCount);
+        int64_t finalProduct = std::accumulate(finalSub.begin(), finalSub.end(),
+                                               1LL, std::multiplies<int64_t>());
 
         if (operandProduct == finalProduct) {
-          for (int64_t k = group.outStart;
-               k < group.outStart + group.outCount; ++k) {
-            operandTargetShape.push_back(finalShape[k]);
-          }
+          operandTargetShape.append(finalSub.begin(), finalSub.end());
         } else if (operandProduct == 1) {
-          for (int64_t k = 0; k < group.outCount; ++k) {
-            operandTargetShape.push_back(1);
-          }
+          operandTargetShape.append(group.outCount, 1);
         } else {
           valid = false;
           break;
@@ -619,21 +596,18 @@ public:
     }
     newEltwise->getResult(0).setType(finalType);
 
-    // Replace the reshape (not the eltwise) — the reshape's users
+    // Replace the reshape — the reshape's users
     // get the new eltwise's output directly.
     rewriter.replaceOp(op, newEltwise->getResult(0));
-
-    // Original eltwise is now dead (had single use = the reshape we replaced).
-    rewriter.eraseOp(eltwiseOp);
     return success();
   }
 };
 
-class TTNNSlicePropagation
-    : public impl::TTNNSlicePropagationBase<TTNNSlicePropagation> {
+class TTNNMemoryManagement
+    : public impl::TTNNMemoryManagementBase<TTNNMemoryManagement> {
 public:
-  using impl::TTNNSlicePropagationBase<
-      TTNNSlicePropagation>::TTNNSlicePropagationBase;
+  using impl::TTNNMemoryManagementBase<
+      TTNNMemoryManagement>::TTNNMemoryManagementBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
