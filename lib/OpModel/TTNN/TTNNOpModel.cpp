@@ -6399,7 +6399,8 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
-    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
+    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+    std::optional<CoreCoordAttr> coreGrid) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -6421,6 +6422,10 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
 
   int numGroupsInt = static_cast<int>(numGroups);
   float epsilonFloat = epsilon.convertToFloat();
+  std::optional<::ttnn::types::CoreGrid> coreGridCoord = std::nullopt;
+  if (coreGrid) {
+    coreGridCoord = ::ttnn::CoreGrid(coreGrid->getX(), coreGrid->getY());
+  }
 
   auto groupNormQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -6429,7 +6434,7 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
         /*reciprocals=*/std::nullopt,
         detail::getNullableMemoryConfig(outputLayout),
         /*dtype=*/std::nullopt,
-        /*core_grid=*/std::nullopt,
+        /*core_grid=*/coreGridCoord,
         /*inplace=*/std::nullopt,
         /*output_layout=*/std::nullopt,
         /*num_out_blocks=*/std::nullopt,
@@ -6453,7 +6458,8 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
-    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
+    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+    std::optional<CoreCoordAttr> coreGrid) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -6475,6 +6481,10 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
 
   int numGroupsInt = static_cast<int>(numGroups);
   float epsilonFloat = epsilon.convertToFloat();
+  std::optional<::ttnn::types::CoreGrid> coreGridCoord = std::nullopt;
+  if (coreGrid) {
+    coreGridCoord = ::ttnn::CoreGrid(coreGrid->getX(), coreGrid->getY());
+  }
 
   // Create query closure
   auto groupNormQuery = [=]() {
@@ -6484,7 +6494,7 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
         /*reciprocals=*/std::nullopt,
         detail::getNullableMemoryConfig(outputLayout),
         /*dtype=*/std::nullopt,
-        /*core_grid=*/std::nullopt,
+        /*core_grid=*/coreGridCoord,
         /*inplace=*/std::nullopt,
         /*output_layout=*/std::nullopt,
         /*num_out_blocks=*/std::nullopt,

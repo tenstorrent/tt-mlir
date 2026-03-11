@@ -14533,15 +14533,7 @@ class TTIRBuilder(Builder):
                         else None
                     )
 
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(
-                        input0,
-                        weight0,
-                        bias0,
-                        num_groups_attr,
-                        old_op.epsilon,
-                        result.element_type,
-                    )
+                    golden_output = self._get_golden_tensor(old_op.result)
                     group_norm_builder._set_golden_tensor(new_op_result, golden_output)
                     group_norm_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)

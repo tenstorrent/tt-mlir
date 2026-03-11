@@ -4080,7 +4080,7 @@ GroupNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       optionalArgs.inputMaskLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
       optionalArgs.biasLayout, getNumGroups(), getEpsilon(),
-      opConfig.outputLayout);
+      opConfig.outputLayout, getCoreGrid());
 }
 
 llvm::Expected<size_t>
@@ -4097,7 +4097,7 @@ GroupNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputs[0], optionalArgs.inputMaskShape, optionalArgs.inputMaskLayout,
       optionalArgs.weightShape, optionalArgs.weightLayout,
       optionalArgs.biasShape, optionalArgs.biasLayout, getNumGroups(),
-      getEpsilon(), opConfig.outputLayout);
+      getEpsilon(), opConfig.outputLayout, getCoreGrid());
 }
 
 //===----------------------------------------------------------------------===//

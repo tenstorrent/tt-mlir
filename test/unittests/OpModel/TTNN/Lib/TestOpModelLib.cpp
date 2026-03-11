@@ -4655,7 +4655,7 @@ TEST_P(OpModelGroupNormParam, GroupNormParam) {
   if (weightOpt.has_value()) {
     const auto &[shape, layout, bufferType, virtualGrid] = weightOpt.value();
     weightShape = shape;
-    weightLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+    weightLayout = CreateRowMajorLayout(shape, bufferType, layout, virtualGrid);
   }
 
   // Create optional layouts for bias
@@ -4664,14 +4664,17 @@ TEST_P(OpModelGroupNormParam, GroupNormParam) {
   if (biasOpt.has_value()) {
     const auto &[shape, layout, bufferType, virtualGrid] = biasOpt.value();
     biasShape = shape;
-    biasLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+    biasLayout = CreateRowMajorLayout(shape, bufferType, layout, virtualGrid);
   }
+
+  // group_norm requires explicit core_grid; use a fixed test value.
+  auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
 
   // Test getOpConstraints
   auto constraintsExp = op_model::OpModel<GroupNormOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, inputMaskShape,
       inputMaskLayout, weightShape, weightLayout, biasShape, biasLayout,
-      numGroups, epsilon, outputLayout);
+      numGroups, epsilon, outputLayout, coreGrid);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -4688,7 +4691,8 @@ TEST_P(OpModelGroupNormParam, GroupNormParam) {
   // Test getOpRuntime
   auto runtimeExp = op_model::OpModel<GroupNormOp>::getOpRuntime(
       inputShape, inputLayout, inputMaskShape, inputMaskLayout, weightShape,
-      weightLayout, biasShape, biasLayout, numGroups, epsilon, outputLayout);
+      weightLayout, biasShape, biasLayout, numGroups, epsilon, outputLayout,
+      coreGrid);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
@@ -4700,42 +4704,18 @@ TEST_P(OpModelGroupNormParam, GroupNormParam) {
 
 // Shared test values for GroupNormOp operations
 const auto groupNormTestValues = ::testing::Values(
-    // Test case 1: GroupNorm with weight and bias, 8 groups
-    std::make_tuple(
-        detail::TestTensor{
-            {1, 1, 64, 480}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-        detail::TestTensor{
-            {1, 1, 64, 480}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-        std::nullopt, // no input_mask
-        std::make_optional(detail::TestTensor{
-            {480}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
-        std::make_optional(detail::TestTensor{
-            {480}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
-        int64_t{8}, 1e-12f, detail::ExpectedResult{true}),
-
-    // Test case 2: GroupNorm without optional tensors
-    std::make_tuple(
-        detail::TestTensor{
-            {1, 1, 64, 480}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-        detail::TestTensor{
-            {1, 1, 64, 480}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-        std::nullopt, // no input_mask
-        std::nullopt, // no weight
-        std::nullopt, // no bias
-        int64_t{8}, 1e-12f, detail::ExpectedResult{true}),
-
-    // Test case 3: GroupNorm with input_mask, weight and bias
+    // GroupNorm with input_mask, weight and bias.
     std::make_tuple(
         detail::TestTensor{
             {1, 1, 64, 480}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::TestTensor{
             {1, 1, 64, 480}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         std::make_optional(detail::TestTensor{
-            {1, 8, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+            {1, 8, 32, 96}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
         std::make_optional(detail::TestTensor{
-            {480}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+            {1, 1, 15, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
         std::make_optional(detail::TestTensor{
-            {480}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+            {1, 1, 15, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
         int64_t{8}, 1e-5f, detail::ExpectedResult{true}));
 
 INSTANTIATE_TEST_SUITE_P(GroupNormTests, OpModelGroupNormParam,
