@@ -392,7 +392,6 @@ struct NamedFullOpModel {
                    mlir::tt::ttnn::ShapeAttr shape,
                    std::optional<mlir::tt::ttcore::DataType> dtype,
                    std::optional<mlir::tt::ttnn::Layout> layout,
-                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
                    mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
@@ -592,12 +591,10 @@ struct OpModel<ToMemoryConfigOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(ttcore::GridAttr deviceGrid,
                    llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, MemoryConfigAttr memoryConfig,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
-                                             MemoryConfigAttr memoryConfig,
                                              TTNNLayoutAttr outputLayout);
 };
 
@@ -1679,7 +1676,6 @@ struct OpModel<mlir::tt::ttnn::EmptyOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
       mlir::tt::ttcore::DataTypeAttr dtype, mlir::tt::ttnn::Layout inputLayout,
-      mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
       mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
@@ -1693,7 +1689,6 @@ struct OpModel<mlir::tt::ttnn::ArangeOp> {
                    ::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
                    ::mlir::IntegerAttr step,
                    std::optional<mlir::tt::ttcore::DataType> dtype,
-                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig,
                    mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
@@ -1708,7 +1703,6 @@ struct OpModel<mlir::tt::ttnn::FullOp> {
                    mlir::tt::ttnn::ShapeAttr shape, mlir::Attribute fillValue,
                    std::optional<mlir::tt::ttcore::DataType> dtype,
                    std::optional<mlir::tt::ttnn::Layout> layout,
-                   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
                    mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
@@ -1731,10 +1725,9 @@ template <>
 struct OpModel<mlir::tt::ttnn::RandOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       mlir::tt::ttcore::GridAttr deviceGrid, mlir::tt::ttnn::ShapeAttr size,
-      mlir::tt::ttcore::DataType dtype,
-      mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
-      mlir::tt::ttnn::Layout layout, llvm::APFloat low, llvm::APFloat high,
-      uint32_t seed, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+      mlir::tt::ttcore::DataType dtype, mlir::tt::ttnn::Layout layout,
+      llvm::APFloat low, llvm::APFloat high, uint32_t seed,
+      mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1764,12 +1757,10 @@ struct OpModel<mlir::tt::ttnn::AssignOp> {
   getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
                    llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout,
-                   mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
                    std::optional<mlir::tt::ttcore::DataType> outputDtype);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-               mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
                std::optional<mlir::tt::ttcore::DataType> outputDtype);
 };
 

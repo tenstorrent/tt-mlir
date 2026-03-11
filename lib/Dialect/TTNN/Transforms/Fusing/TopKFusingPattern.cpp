@@ -227,9 +227,7 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
       srcOp.getLoc(), {valuesResultType, indicesResultType}, srcOp.getInput(),
       rewriter.getI32IntegerAttr(sliceResult->k),
       rewriter.getI32IntegerAttr(sortDim), rewriter.getBoolAttr(largest),
-      rewriter.getBoolAttr(sorted),
-      nullptr // memory_config
-  );
+      rewriter.getBoolAttr(sorted));
 
   // If validation fails, don't fuse
   if (!validationResult.isSuccess()) {
@@ -247,8 +245,7 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
       rewriter.getI32IntegerAttr(sliceResult->k), // k value
       rewriter.getI32IntegerAttr(sortDim),        // dimension
       rewriter.getBoolAttr(largest),              // largest
-      rewriter.getBoolAttr(sorted),               // sorted
-      nullptr                                     // memory_config (optional)
+      rewriter.getBoolAttr(sorted)                // sorted
   );
 
   // Replace the slice operations with TopK results (only for used results)

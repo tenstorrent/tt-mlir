@@ -95,15 +95,15 @@ public:
         mlir::RankedTensorType::get(inputShape, builder.getBF16Type(), layout);
 
     // Create two input tensors using OnesOp (simpler than EmptyOp)
-    auto input1 = builder.create<OnesOp>(
-        builder.getUnknownLoc(), tensorType,
-        /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
-        /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
+    auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
+                                         /*device=*/nullptr,
+                                         ShapeAttr::get(&context, inputShape),
+                                         /*dtype=*/nullptr, /*layout=*/nullptr);
 
-    auto input2 = builder.create<OnesOp>(
-        builder.getUnknownLoc(), tensorType,
-        /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
-        /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
+    auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
+                                         /*device=*/nullptr,
+                                         ShapeAttr::get(&context, inputShape),
+                                         /*dtype=*/nullptr, /*layout=*/nullptr);
 
     // Create AddOp
     return builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
@@ -177,7 +177,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
   auto cacheOp = builder.create<OnesOp>(
       builder.getUnknownLoc(), cacheTensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, cacheShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
+      /*dtype=*/nullptr, /*layout=*/nullptr);
 
   // Create input tensor (4D tensor with dim 2 = 1)
   llvm::SmallVector<int64_t> inputShape = {1, 1, 1, 32};
@@ -188,7 +188,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
   auto inputOp = builder.create<OnesOp>(
       builder.getUnknownLoc(), inputTensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
+      /*dtype=*/nullptr, /*layout=*/nullptr);
 
   // Create update_index tensor with WRONG type (BF16 instead of uint32)
   // This should cause validation to fail
@@ -200,7 +200,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
   auto updateIndexOp = builder.create<OnesOp>(
       builder.getUnknownLoc(), updateIndexTensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, updateIndexShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
+      /*dtype=*/nullptr, /*layout=*/nullptr);
 
   // Create UpdateCacheOp (inplace operation, no result type)
   auto updateCacheOp = builder.create<ttnn::UpdateCacheOp>(
@@ -231,7 +231,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
   auto uint32UpdateIndexOp = builder.create<OnesOp>(
       builder.getUnknownLoc(), uint32UpdateIndexTensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, updateIndexShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
+      /*dtype=*/nullptr, /*layout=*/nullptr);
 
   // Create UpdateCacheOp with correct uint32 type
   auto validUpdateCacheOp = builder.create<ttnn::UpdateCacheOp>(
@@ -303,10 +303,10 @@ TEST_F(OpConstraintValidationTest, ValidationStatusMetalBackendError) {
   auto inputTensorType = mlir::RankedTensorType::get(
       tensorShape, builder.getBF16Type(), inputLayout);
 
-  auto input = builder.create<OnesOp>(
-      builder.getUnknownLoc(), inputTensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, tensorShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
+  auto input = builder.create<OnesOp>(builder.getUnknownLoc(), inputTensorType,
+                                      /*device=*/nullptr,
+                                      ShapeAttr::get(&context, tensorShape),
+                                      /*dtype=*/nullptr, /*layout=*/nullptr);
 
   // Output: L1 RowMajor HeightSharded layout (incompatible with DRAM Tiled)
   auto outputLayout = createRowMajorHSLayout(tensorShape, BufferType::L1,
@@ -319,8 +319,7 @@ TEST_F(OpConstraintValidationTest, ValidationStatusMetalBackendError) {
       builder.getUnknownLoc(), outputTensorType, input.getResult(),
       LayoutAttr::get(&context, Layout::RowMajor),
       // ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16),
-      /*dtype=*/nullptr,
-      /*memory_config=*/nullptr);
+      /*dtype=*/nullptr);
 
   auto layouts = ttnn::utils::extractInputLayouts(toLayoutOp);
   OpConfig config(outputLayout, OpConfig::OpSpecificAttrs{});
@@ -351,15 +350,15 @@ TEST_F(OpConstraintValidationTest, ValidationStatusOutOfMemoryError) {
   auto tensorType =
       mlir::RankedTensorType::get(largeShape, builder.getBF16Type(), layout);
 
-  auto input1 = builder.create<OnesOp>(
-      builder.getUnknownLoc(), tensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, largeShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
+  auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
+                                       /*device=*/nullptr,
+                                       ShapeAttr::get(&context, largeShape),
+                                       /*dtype=*/nullptr, /*layout=*/nullptr);
 
-  auto input2 = builder.create<OnesOp>(
-      builder.getUnknownLoc(), tensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, largeShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
+  auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
+                                       /*device=*/nullptr,
+                                       ShapeAttr::get(&context, largeShape),
+                                       /*dtype=*/nullptr, /*layout=*/nullptr);
 
   auto addOp = builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
                                      input1.getResult(), input2.getResult());

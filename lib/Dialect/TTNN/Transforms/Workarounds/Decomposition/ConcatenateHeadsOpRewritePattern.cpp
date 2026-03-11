@@ -46,8 +46,7 @@ LogicalResult ConcatenateHeadsOpRewritePattern::matchAndRewrite(
 
   PermuteOp permuteOp = rewriter.create<ttnn::PermuteOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_concat_heads"),
-      permutedType, input, permutationAttr, ttnn::MemoryConfigAttr(),
-      mlir::FloatAttr());
+      permutedType, input, permutationAttr, mlir::FloatAttr());
 
   // Step 2: Create reshape to concatenate heads
   // Reshape: [batch_size, sequence_size, num_heads, head_size]
@@ -59,8 +58,7 @@ LogicalResult ConcatenateHeadsOpRewritePattern::matchAndRewrite(
       rewriter.getI32ArrayAttr(reshapedShapeI32);
 
   rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
-      srcOp, outputType, permuteOp.getResult(), reshapedShapeAttr,
-      ttnn::MemoryConfigAttr());
+      srcOp, outputType, permuteOp.getResult(), reshapedShapeAttr);
 
   return success();
 }

@@ -90,10 +90,12 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
       } else {
         emptyOp.setLayout(ttnn::Layout::RowMajor);
       }
-      emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-          dispatchOp.getContext(), tensorMemoryLayoutAttr,
-          BufferTypeAttr::get(dispatchOp.getContext(), bufferType),
-          utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+      mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+          emptyOp.getOperation())
+          .setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
+              dispatchOp.getContext(), tensorMemoryLayoutAttr,
+              BufferTypeAttr::get(dispatchOp.getContext(), bufferType),
+              utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
     } else {
       llvm::report_fatal_error(
           "Expected EmptyOp for D2MSubgraphOp output buffer");
@@ -126,15 +128,9 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
               dispatchOp.getContext(), layoutAttr.getDataType());
           LayoutAttr newLayout =
               LayoutAttr::get(dispatchOp.getContext(), layoutAttr.getLayout());
-          MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-              dispatchOp.getContext(), layoutAttr.getMemLayout(),
-              BufferTypeAttr::get(dispatchOp.getContext(),
-                                  layoutAttr.getBufferType()),
-              utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
           Location loc = mainFunc.getLoc();
-          ToLayoutOp toLayoutOp =
-              builder.create<ToLayoutOp>(loc, newTensorType, currentResultValue,
-                                         newLayout, dataType, memConfigAttr);
+          ToLayoutOp toLayoutOp = builder.create<ToLayoutOp>(
+              loc, newTensorType, currentResultValue, newLayout, dataType);
           returnOp.setOperand(0, toLayoutOp.getResult());
         }
       }
@@ -607,10 +603,12 @@ public:
               emptyOp.setLayout(ttnn::Layout::RowMajor);
             }
 
-            emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-                op->getContext(), tensorMemoryLayoutAttr,
-                BufferTypeAttr::get(op->getContext(), bufferType),
-                utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+            mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+                emptyOp.getOperation())
+                .setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
+                    op->getContext(), tensorMemoryLayoutAttr,
+                    BufferTypeAttr::get(op->getContext(), bufferType),
+                    utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
           }
           // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Align
           // MemoryConfigAttr with layout attribute of its output tensor. This
@@ -625,10 +623,12 @@ public:
             // Update the device op with the new tensor type.
             //
             ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
-            toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-                op->getContext(), tensorMemoryLayoutAttr,
-                ttnn::BufferTypeAttr::get(op->getContext(), bufferType),
-                utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+            mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+                toLayoutOp.getOperation())
+                .setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
+                    op->getContext(), tensorMemoryLayoutAttr,
+                    ttnn::BufferTypeAttr::get(op->getContext(), bufferType),
+                    utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
           }
 
           // Set specific Conv(Transpose)2d Op configuration if it is exists.
@@ -916,7 +916,9 @@ private:
       if (isa_and_nonnull<ToLayoutOp>(producerOp)) {
         ToLayoutOp toLayoutOp = llvm::cast<ToLayoutOp>(producerOp);
         toLayoutOp.setLayout(reshardOpLayout.getLayout());
-        toLayoutOp.setMemoryConfigAttr(outputMemConfigAttr);
+        mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+            toLayoutOp.getOperation())
+            .setMemoryConfigAttr(outputMemConfigAttr);
         toLayoutOp.getResult().setType(newTensorType);
       } else {
         OpBuilder builder(consumerOp);
@@ -929,8 +931,7 @@ private:
             LayoutAttr::get(consumerOp->getContext(),
                             reshardOpLayout.getLayout()),
             ttcore::DataTypeAttr::get(consumerOp->getContext(),
-                                      reshardOpLayout.getDataType()),
-            outputMemConfigAttr);
+                                      reshardOpLayout.getDataType()));
 
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
@@ -983,11 +984,6 @@ private:
       LayoutAttr newLayout =
           LayoutAttr::get(spilledOp->getContext(), dramLayout.getLayout());
 
-      MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-          spilledOp->getContext(), dramLayout.getMemLayout(),
-          BufferTypeAttr::get(spilledOp->getContext(), BufferType::DRAM),
-          utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
-
       builder.setInsertionPointAfter(spilledOp);
       Location loc =
           ttmlir::utils::appendLocationSuffix(spilledOp->getLoc(), "_spill");
@@ -1000,8 +996,7 @@ private:
 
       // Step 2: Insert spilling to DRAM.
       Operation *spillToDRAMOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
-          memConfigAttr);
+          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType);
 
       // Step 3: Reconnect uses.
       for (auto &use : uses) {
@@ -1097,11 +1092,6 @@ private:
           spilledOp->getContext(), l1InterleavedLayout.getDataType());
       LayoutAttr newLayout = LayoutAttr::get(spilledOp->getContext(),
                                              l1InterleavedLayout.getLayout());
-      MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-          spilledOp->getContext(), l1InterleavedLayout.getMemLayout(),
-          BufferTypeAttr::get(spilledOp->getContext(), BufferType::L1),
-          utils::createShardSpecIfNeeded(l1InterleavedLayout, deviceGrid));
-
       builder.setInsertionPointAfter(spilledOp);
       Location loc = ttmlir::utils::appendLocationSuffix(spilledOp->getLoc(),
                                                          "_to_l1_interleaved");
@@ -1113,8 +1103,7 @@ private:
       }
 
       Operation *toLayoutOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
-          memConfigAttr);
+          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType);
 
       for (auto &[useOp, operandIdx] : uses) {
         useOp->setOperand(operandIdx, toLayoutOp->getResult(0));

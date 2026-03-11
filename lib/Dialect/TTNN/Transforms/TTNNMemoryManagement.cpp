@@ -150,7 +150,7 @@ public:
 
     auto newPermuteOp = rewriter.create<ttnn::PermuteOp>(
         op.getLoc(), op.getType(), newSliceOp.getResult(), permutation,
-        /*memory_config=*/nullptr, /*pad_value=*/permuteOp.getPadValue());
+        /*pad_value=*/permuteOp.getPadValue());
 
     rewriter.replaceOp(op, newPermuteOp.getResult());
     return success();
@@ -248,8 +248,7 @@ public:
                                     slicedOutputShape.end());
     auto newReshapeOp = rewriter.create<ttnn::ReshapeOp>(
         op.getLoc(), slicedOutputType, newSliceOp.getResult(),
-        rewriter.getI32ArrayAttr(outShape32),
-        /*memory_config=*/nullptr);
+        rewriter.getI32ArrayAttr(outShape32));
 
     rewriter.replaceOp(op, newReshapeOp.getResult());
     return success();
@@ -341,8 +340,7 @@ public:
         ttnn::ShapeAttr::get(rewriter.getContext(), repeatDims);
 
     auto newRepeatOp = rewriter.create<ttnn::RepeatOp>(
-        op.getLoc(), newRepeatType, newSliceOp.getResult(), newRepeatDimsAttr,
-        /*memory_config=*/nullptr);
+        op.getLoc(), newRepeatType, newSliceOp.getResult(), newRepeatDimsAttr);
 
     rewriter.replaceOp(op, newRepeatOp.getResult());
     return success();
@@ -529,8 +527,7 @@ public:
         ttnn::ShapeAttr::get(rewriter.getContext(), adjustedDims);
 
     auto newRepeatOp = rewriter.create<ttnn::RepeatOp>(
-        op.getLoc(), newRepeatType, op.getInput(), newRepeatDimsAttr,
-        /*memory_config=*/nullptr);
+        op.getLoc(), newRepeatType, op.getInput(), newRepeatDimsAttr);
 
     // The reshape stays the same — it takes the new repeat output
     // (different shape, same element count) and produces the same final shape.
@@ -654,8 +651,7 @@ public:
           reshapeInputType, operandTargetShape);
       auto newReshape = rewriter.create<ttnn::ReshapeOp>(
           op.getLoc(), newOperandType, reshapeInput,
-          rewriter.getI32ArrayAttr(targetShape32),
-          /*memory_config=*/nullptr);
+          rewriter.getI32ArrayAttr(targetShape32));
       newOperands.push_back(newReshape.getResult());
     }
 
