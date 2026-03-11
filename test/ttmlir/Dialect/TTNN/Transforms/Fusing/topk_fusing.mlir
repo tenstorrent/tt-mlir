@@ -135,6 +135,34 @@ module {
     }
 }
 
+// Test fusing sort + slice into topk when only indices are used (values unused)
+module {
+    func.func @sort_slice_to_topk_only_indices(%arg0: tensor<2x6xf32, #layout_2x6_f32>) -> tensor<2x3xsi32, #layout_2x3_si32> {
+        // CHECK: %[[VALUES:.*]], %[[INDICES:.*]] = "ttnn.topk"(%arg0)
+        // CHECK-SAME: <{dim = 1 : i32, k = 3 : i32, largest = true, sorted = true}>
+        // CHECK-NOT: ttnn.sort
+        // CHECK-NOT: ttnn.slice_static
+        // CHECK: return %[[INDICES]]
+        %values, %indices = "ttnn.sort"(%arg0) <{descending = true, dim = 1 : si8, stable = false}> : (tensor<2x6xf32, #layout_2x6_f32>) -> (tensor<2x6xf32, #layout_2x6_f32>, tensor<2x6xsi32, #layout_2x6_si32>)
+        %0 = "ttnn.slice_static"(%indices) <{begins = [0 : i32, 0 : i32], ends = [2 : i32, 3 : i32], step = [1 : i32, 1 : i32]}> : (tensor<2x6xsi32, #layout_2x6_si32>) -> tensor<2x3xsi32, #layout_2x3_si32>
+        return %0 : tensor<2x3xsi32, #layout_2x3_si32>
+    }
+}
+
+// Test fusing sort + slice into topk when only values are used (indices unused)
+module {
+    func.func @sort_slice_to_topk_only_values(%arg0: tensor<2x6xf32, #layout_2x6_f32>) -> tensor<2x3xf32, #layout_2x3_f32> {
+        // CHECK: %[[VALUES:.*]], %[[INDICES:.*]] = "ttnn.topk"(%arg0)
+        // CHECK-SAME: <{dim = 1 : i32, k = 3 : i32, largest = true, sorted = true}>
+        // CHECK-NOT: ttnn.sort
+        // CHECK-NOT: ttnn.slice_static
+        // CHECK: return %[[VALUES]]
+        %values, %indices = "ttnn.sort"(%arg0) <{descending = true, dim = 1 : si8, stable = false}> : (tensor<2x6xf32, #layout_2x6_f32>) -> (tensor<2x6xf32, #layout_2x6_f32>, tensor<2x6xsi32, #layout_2x6_si32>)
+        %0 = "ttnn.slice_static"(%values) <{begins = [0 : i32, 0 : i32], ends = [2 : i32, 3 : i32], step = [1 : i32, 1 : i32]}> : (tensor<2x6xf32, #layout_2x6_f32>) -> tensor<2x3xf32, #layout_2x3_f32>
+        return %0 : tensor<2x3xf32, #layout_2x3_f32>
+    }
+}
+
 // Negative test: slices don't start at 0 and don't end at dim size (should NOT be fused)
 module {
     func.func @sort_slice_no_fusion_nonzero_begin(%arg0: tensor<2x6xf32, #layout_2x6_f32>) -> (tensor<2x3xf32, #layout_2x3_f32>, tensor<2x3xsi32, #layout_2x3_si32>) {
