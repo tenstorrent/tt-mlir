@@ -389,7 +389,8 @@ def D2M_GenericOp
 
 def D2M_EmptyOp
     : D2M_Op<
-          "empty", [Pure, DeclareOpInterfaceMethods<
+          "empty", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                    DeclareOpInterfaceMethods<
                         BufferizableOpInterface,
                         ["bufferizesToMemoryRead", "bufferizesToMemoryWrite",
                          "bufferize", "getAliasingValues", "getBufferType"]>]> {
