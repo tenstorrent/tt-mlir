@@ -22,6 +22,13 @@ public:
         [](mlir::RankedTensorType type) -> std::optional<RankedTensorType> {
           Type elementType = type.getElementType();
 
+          // Tensor-of-tile types use TTCore TileType as element type; do not
+          // run float/integer normalization on them (TileType has
+          // FloatTypeInterface but getFloatSemantics is not fully implemented).
+          if (mlir::isa<mlir::tt::ttcore::TileType>(elementType)) {
+            return type;
+          }
+
           if (mlir::isa<mlir::quant::QuantizedType>(elementType)) {
             return type;
           }
@@ -159,6 +166,154 @@ public:
 
 private:
   mlir::TypeConverter converter;
+};
+
+// Generic downstream propagation for unary tensor-manipulation ops.
+// Propagation intentionally stops at typecast, which is an explicit type
+// boundary.
+struct PropagateUnaryTensorManipulationResultElementTypePattern
+    : public mlir::RewritePattern {
+  explicit PropagateUnaryTensorManipulationResultElementTypePattern(
+      mlir::MLIRContext *ctx)
+      : mlir::RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::Operation *op,
+                  mlir::PatternRewriter &rewriter) const override {
+    if (!op->hasTrait<mlir::OpTrait::OneOperand>() ||
+        !op->hasTrait<mlir::OpTrait::OneResult>()) {
+      return rewriter.notifyMatchFailure(op, "not unary single-result op");
+    }
+
+    if (!(op->hasTrait<TensorManipulation::Trait>() ||
+          mlir::isa<BroadcastOp>(op)) ||
+        mlir::isa<TypecastOp>(op)) {
+      return rewriter.notifyMatchFailure(op, "not a propagation candidate");
+    }
+
+    auto inputType =
+        mlir::dyn_cast<mlir::RankedTensorType>(op->getOperand(0).getType());
+    auto resultType =
+        mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
+    if (!inputType || !resultType) {
+      return rewriter.notifyMatchFailure(op, "expected ranked tensor types");
+    }
+
+    if (inputType.getElementType() == resultType.getElementType()) {
+      return rewriter.notifyMatchFailure(op, "already propagated");
+    }
+
+    auto newResultType = mlir::RankedTensorType::get(resultType.getShape(),
+                                                     inputType.getElementType(),
+                                                     resultType.getEncoding());
+    rewriter.modifyOpInPlace(
+        op, [&]() { op->getResult(0).setType(newResultType); });
+    return mlir::success();
+  }
+};
+
+// Propagate gather output element type from data input element type.
+struct GatherResultTypePattern : public mlir::OpRewritePattern<GatherOp> {
+  using mlir::OpRewritePattern<GatherOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(GatherOp op, mlir::PatternRewriter &rewriter) const override {
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    auto resultType =
+        mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+    if (inputType.getElementType() == resultType.getElementType()) {
+      return rewriter.notifyMatchFailure(op, "already propagated");
+    }
+
+    auto newResultType = mlir::RankedTensorType::get(resultType.getShape(),
+                                                     inputType.getElementType(),
+                                                     resultType.getEncoding());
+    rewriter.replaceOpWithNewOp<GatherOp>(
+        op, newResultType, op.getInput(), op.getStartIndices(),
+        op.getOffsetDimsAttr(), op.getCollapsedSliceDimsAttr(),
+        op.getOperandBatchingDimsAttr(), op.getStartIndicesBatchingDimsAttr(),
+        op.getStartIndexMapAttr(), op.getIndexVectorDimAttr(),
+        op.getSliceSizesAttr(), op.getIndicesAreSortedAttr());
+    return mlir::success();
+  }
+};
+
+// Harmonize mixed elementwise-binary operand/result dtypes by replacing i1 with
+// the non-i1 type. This normalizes ops like logical_and(i1, i32) -> i32.
+struct HarmonizeElementwiseBinaryTypesPattern : public mlir::RewritePattern {
+  explicit HarmonizeElementwiseBinaryTypesPattern(mlir::MLIRContext *ctx)
+      : mlir::RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::Operation *op,
+                  mlir::PatternRewriter &rewriter) const override {
+    if (!op->hasTrait<ElementwiseBinary::Trait>() ||
+        op->getNumOperands() != 2 || op->getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(op, "not a binary single-result op");
+    }
+
+    auto lhsType =
+        mlir::dyn_cast<mlir::RankedTensorType>(op->getOperand(0).getType());
+    auto rhsType =
+        mlir::dyn_cast<mlir::RankedTensorType>(op->getOperand(1).getType());
+    auto resultType =
+        mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType());
+    if (!lhsType || !rhsType || !resultType) {
+      return rewriter.notifyMatchFailure(op, "expected ranked tensor types");
+    }
+
+    Type lhsElemType = lhsType.getElementType();
+    Type rhsElemType = rhsType.getElementType();
+    Type resultElemType = resultType.getElementType();
+
+    Type targetElemType;
+    auto accumulateTarget = [&](Type candidate) {
+      if (candidate.isInteger(1)) {
+        return true;
+      }
+      if (!targetElemType) {
+        targetElemType = candidate;
+        return true;
+      }
+      return targetElemType == candidate;
+    };
+
+    if (!accumulateTarget(lhsElemType) || !accumulateTarget(rhsElemType) ||
+        !accumulateTarget(resultElemType) || !targetElemType) {
+      return rewriter.notifyMatchFailure(
+          op, "cannot infer a single non-i1 target element type");
+    }
+
+    if (lhsElemType == targetElemType && rhsElemType == targetElemType &&
+        resultElemType == targetElemType) {
+      return rewriter.notifyMatchFailure(op, "already harmonized");
+    }
+
+    auto castOperandIfNeeded =
+        [&](mlir::Value v, mlir::RankedTensorType operandType) -> mlir::Value {
+      if (operandType.getElementType() == targetElemType) {
+        return v;
+      }
+      auto castType = mlir::RankedTensorType::get(
+          operandType.getShape(), targetElemType, operandType.getEncoding());
+      return static_cast<mlir::Value>(
+          rewriter.create<TypecastOp>(op->getLoc(), castType, v).getResult());
+    };
+
+    mlir::Value newLhs = castOperandIfNeeded(op->getOperand(0), lhsType);
+    mlir::Value newRhs = castOperandIfNeeded(op->getOperand(1), rhsType);
+    auto newResultType = mlir::RankedTensorType::get(
+        resultType.getShape(), targetElemType, resultType.getEncoding());
+
+    mlir::OperationState state(op->getLoc(), op->getName().getStringRef());
+    state.addOperands({newLhs, newRhs});
+    state.addAttributes(op->getAttrs());
+    state.addTypes(newResultType);
+    mlir::Operation *newOp = rewriter.create(state);
+    rewriter.replaceOp(op, newOp->getResults());
+    return mlir::success();
+  }
 };
 
 // Rewrite comparison ops so the result type matches the input (lhs) type
@@ -313,6 +468,10 @@ struct Normalize64BitAndBooleanElementTypes
     // types.
     {
       mlir::RewritePatternSet patterns(&getContext());
+      patterns.add<PropagateUnaryTensorManipulationResultElementTypePattern>(
+          &getContext());
+      patterns.add<GatherResultTypePattern>(&getContext());
+      patterns.add<HarmonizeElementwiseBinaryTypesPattern>(&getContext());
       patterns.add<ComparisonResultTypePattern<EqualOp>>(&getContext());
       patterns.add<ComparisonResultTypePattern<NotEqualOp>>(&getContext());
       patterns.add<ComparisonResultTypePattern<GreaterThanOp>>(&getContext());
