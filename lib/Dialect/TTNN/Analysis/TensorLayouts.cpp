@@ -35,4 +35,15 @@ std::vector<TTNNLayoutAttr> getShardedLayoutsForTensorTypeAndScalarType(
   return layouts;
 }
 
+void clearShardedLayouts(TensorTypeLayoutsMap &map) {
+  for (auto &[tensorType, scalarTypeMap] : map) {
+    for (auto &[scalarType, pageLayouts] : scalarTypeMap) {
+      for (auto &memLayouts : pageLayouts) {
+        memLayouts[static_cast<size_t>(TensorMemoryLayoutIndex::Sharded)]
+            .clear();
+      }
+    }
+  }
+}
+
 } // namespace mlir::tt::ttnn

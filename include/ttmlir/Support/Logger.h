@@ -41,7 +41,8 @@ enum class LogComponent {
   General,
   D2MFusion,
   FusionValidator,
-  ValidationFallback
+  ValidationFallback,
+  GreedyOptimizer
 };
 
 // Log levels in order of verbosity
@@ -76,6 +77,8 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
     return "fusion-validator";
   case LogComponent::ValidationFallback:
     return "validation-fallback";
+  case LogComponent::GreedyOptimizer:
+    return "greedy-optimizer";
   }
   return "unknown";
 }
