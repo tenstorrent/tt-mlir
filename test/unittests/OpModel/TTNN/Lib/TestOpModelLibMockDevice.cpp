@@ -87,10 +87,10 @@ public:
 TEST_P(MeshPartitionLibMockDeviceTest, MeshPartitionOp) {
   const auto &p = GetParam();
 
-  // {64, 192} — both dims tile-aligned (multiples of 32). After splitting,
+  // {64, 128} — both dims tile-aligned (multiples of 32). After splitting,
   // tiling succeeds only if the split dimension stays a multiple of 32.
-  // e.g. 192/2=96 ✓, 192/4=48 ✗, 192/8=24 ✗, 64/2=32 ✓, 64/4=16 ✗
-  const llvm::SmallVector<int64_t> inputShape = {64, 192};
+  // e.g. 128/2=64 ✓, 128/4=32 ✓, 128/8=16 ✗, 64/2=32 ✓, 64/4=16 ✗
+  const llvm::SmallVector<int64_t> inputShape = {64, 128};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
   const TTNNLayoutAttr layoutDRAMRowMajor = CreateRowMajorLayout(
       inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
