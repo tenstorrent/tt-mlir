@@ -107,6 +107,32 @@ datatypeToDataformatEnumValueOpaqueAttr(Builder &builder,
 }
 
 // Type converter used for TTKernel/TTMetal conversions:
+static std::string scalarUnderlyingToCppType(Type underlying) {
+  if (auto intTy = mlir::dyn_cast<IntegerType>(underlying)) {
+    bool isSigned = !intTy.isUnsigned();
+    switch (intTy.getWidth()) {
+    case 1:
+      return "bool";
+    case 8:
+      return isSigned ? "int8_t" : "uint8_t";
+    case 16:
+      return isSigned ? "int16_t" : "uint16_t";
+    case 32:
+      return isSigned ? "int32_t" : "uint32_t";
+    }
+  }
+  if (mlir::isa<Float32Type>(underlying)) {
+    return "float";
+  }
+  if (mlir::isa<Float16Type>(underlying)) {
+    return "float16";
+  }
+  if (mlir::isa<BFloat16Type>(underlying)) {
+    return "bfloat16";
+  }
+  llvm_unreachable("unsupported scalar underlying type");
+}
+
 namespace {
 class TTKernelToEmitCTypeConverter : public TypeConverter {
 public:
@@ -120,8 +146,8 @@ public:
     addConversion([ctx](mlir::tt::ttkernel::CBType type) -> Type {
       return Builder(ctx).getType<emitc::OpaqueType>("::tt::CB");
     });
-    addConversion([ctx](mlir::tt::ttkernel::SemaphoreType type) -> Type {
-      // Convert semaphore to an address type. (i32)
+    addConversion([ctx](mlir::tt::ttkernel::LocalSemaphoreType type) -> Type {
+      // Convert local semaphore to an address type. (i32)
       return Builder(ctx).getI32Type();
     });
     addConversion([ctx](mlir::tt::ttkernel::L1AddrType type) -> Type {
@@ -156,6 +182,10 @@ public:
           return emitc::OpaqueType::get(
               ctx, "experimental::FabricConnectionManager");
         });
+    addConversion([ctx](mlir::tt::ttkernel::ScalarType type) -> Type {
+      return emitc::OpaqueType::get(ctx,
+                                    scalarUnderlyingToCppType(type.getValue()));
+    });
   }
 };
 } // namespace
@@ -584,6 +614,31 @@ public:
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, TypeRange(), "ttmlir::dprint", nullptr, nullptr, vargs);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TTKernelReinterpretCastOpRewriter
+    : public OpConversionPattern<ttkernel::ReinterpretCastOp> {
+public:
+  using OpConversionPattern<ttkernel::ReinterpretCastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::ReinterpretCastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto resultScalarType =
+        mlir::cast<ttkernel::ScalarType>(op.getResult().getType());
+    Type resultUnderlying = resultScalarType.getValue();
+    std::string cppType = scalarUnderlyingToCppType(resultUnderlying);
+    Type emitcType = emitc::OpaqueType::get(rewriter.getContext(), cppType);
+
+    auto templateArgs = rewriter.getArrayAttr(
+        {emitc::OpaqueAttr::get(rewriter.getContext(), cppType)});
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, emitcType, "static_cast", templateArgs, nullptr,
+        adaptor.getInput());
     return success();
   }
 };
@@ -1181,6 +1236,7 @@ public:
         TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
         TTKernelToEmitCGetDeviceIdFromLogicalMeshPositionOpRewriter,
         TTKernelToEmitCGetMyLogicalMeshPositionOpRewriter,
+        TTKernelReinterpretCastOpRewriter,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,

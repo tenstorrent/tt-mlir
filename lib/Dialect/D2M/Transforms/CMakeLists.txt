@@ -31,7 +31,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         LowerDMAToFullyIndexedForm.cpp
         LowerLoadStoreOpsToDMA.cpp
         ExpandDMAReadCompositeView.cpp
-
+        NormalizeThreadArgs.cpp
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
 

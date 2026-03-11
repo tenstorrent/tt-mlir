@@ -1879,9 +1879,10 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     // Block arguments may only be semaphore type.
     // Semaphore block args are added by PreallocateMcastSemaphores.
     for (BlockArgument arg : region.getArguments()) {
-      if (!mlir::isa<d2m::SemaphoreType>(arg.getType())) {
-        return emitOpError(
-            "region block arguments must be of 'semaphore' type");
+      if (!mlir::isa<d2m::CBType, d2m::LocalSemaphoreType,
+                     d2m::GlobalSemaphoreType>(arg.getType())) {
+        return emitOpError("all regions must either be cb, local semaphore, "
+                           "or global semaphore type");
       }
 
       if (arg.getType() !=
@@ -2754,10 +2755,18 @@ std::optional<SmallVector<int64_t>> d2m::GenericOp::computeGridDimConstraints(
 
 void d2m::GenericOp::getAsmBlockArgumentNames(
     Region &region, function_ref<void(Value, StringRef)> setNameFn) {
-  int semIndex = 0;
+  int cbIndex = 0;
+  int localSemIndex = 0;
+  int globalSemIndex = 0;
   for (BlockArgument arg : region.getArguments()) {
-    if (mlir::isa<SemaphoreType>(arg.getType())) {
-      setNameFn(arg, "sem" + std::to_string(semIndex++));
+    if (mlir::isa<CBType>(arg.getType())) {
+      setNameFn(arg, "cb" + std::to_string(cbIndex++));
+    } else if (mlir::isa<LocalSemaphoreType>(arg.getType())) {
+      setNameFn(arg, "lsem" + std::to_string(localSemIndex++));
+    } else if (mlir::isa<GlobalSemaphoreType>(arg.getType())) {
+      setNameFn(arg, "gsem" + std::to_string(globalSemIndex++));
+    } else {
+      llvm_unreachable("Unexpected region argument type");
     }
   }
 }

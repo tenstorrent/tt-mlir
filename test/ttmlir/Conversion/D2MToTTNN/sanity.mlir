@@ -94,8 +94,8 @@ module {
       rt_args = [<arg_type = buffer_address, operand_index = 0>]
       ct_args = [
         <arg_type = cb_port, operand_index = 0>,
-        <arg_type = semaphore, operand_index = 0>,
-        <arg_type = semaphore, operand_index = 1>
+        <arg_type = local_semaphore, operand_index = 0>,
+        <arg_type = local_semaphore, operand_index = 1>
       ]
     >,
     ttkernel.thread = #ttkernel.thread<noc>
@@ -118,8 +118,8 @@ module {
       rt_args = [<arg_type = buffer_address, operand_index = 1>]
       ct_args = [
         <arg_type = cb_port, operand_index = 1>,
-        <arg_type = semaphore, operand_index = 2>,
-        <arg_type = semaphore, operand_index = 3>
+        <arg_type = local_semaphore, operand_index = 2>,
+        <arg_type = local_semaphore, operand_index = 3>
       ]
     >,
     ttkernel.thread = #ttkernel.thread<noc>

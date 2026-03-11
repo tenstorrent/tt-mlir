@@ -95,7 +95,9 @@ Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
   rewriter.setInsertionPointToStart(&region.front());
   auto getCBOp = rewriter.create<GetCBOp>(
       generic.getLoc(), cbType, port,
-      rewriter.getI64IntegerAttr(static_cast<int64_t>(operandIndex)));
+      rewriter.getI64IntegerAttr(static_cast<int64_t>(operandIndex)),
+      ResolutionStageAttr::get(rewriter.getContext(),
+                               ResolutionStage::Compile));
 
   Value result = getCBOp.getResult();
   cache[key] = result;

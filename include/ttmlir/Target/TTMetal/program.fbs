@@ -61,16 +61,15 @@ union Kernel {
 }
 
 table KernelArgCBPort {
-  operand_idx: uint32;
+  operand_idx: int32;
 }
 
 table KernelArgBufferAddress {
-  operand_idx: uint32;
+  operand_idx: int32;
 }
 
-table KernelArgSemaphore {
-  initial_value: uint32;
-  core_type: CoreType;
+table KernelArgLocalSemaphore {
+  operand_idx: int32;
 }
 
 table KernelArgNamedArgument {
@@ -79,15 +78,20 @@ table KernelArgNamedArgument {
 }
 
 table KernelArgGlobalSemaphore {
-  operand_idx: uint32;
+  operand_idx: int32;
+}
+
+table KernelArgScalar {
+  operand_idx: int32;
 }
 
 union KernelArgType {
   KernelArgCBPort,
   KernelArgBufferAddress,
-  KernelArgSemaphore,
+  KernelArgLocalSemaphore,
   KernelArgNamedArgument,
   KernelArgGlobalSemaphore,
+  KernelArgScalar,
 }
 
 table KernelArg {

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-generic-regions-to-funcs -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --normalize-thread-args --d2m-generic-regions-to-funcs -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>
@@ -39,5 +39,5 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0
   return %alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0, 1>, #l1_>
 }
 // CHECK: func.func private @datamovement_kernel0{{.*}} attributes {d2m.thread = #d2m.thread<datamovement>, tt.function_type = "kernel"}
-// CHECK: d2m.get_global_operand(0)
+// CHECK: d2m.get_arg(0)
 // CHECK: func.func private @compute_kernel1{{.*}} attributes {d2m.thread = #d2m.thread<compute>, tt.function_type = "kernel"}

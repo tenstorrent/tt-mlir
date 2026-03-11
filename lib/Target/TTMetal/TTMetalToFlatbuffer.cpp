@@ -541,12 +541,31 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                         ttcore::SystemDescAttr systemDesc, uint64_t address) {
   auto device = ttcore::lookupDevice(value.getParentBlock()->getParentOp());
   assert(device);
-  auto memrefType = mlir::cast<MemRefType>(value.getType());
 
-  std::optional<AffineMap> virtualGridInverseMapping;
-  if (auto createBufferOp = value.getDefiningOp<ttmetal::CreateBufferOp>()) {
-    if (auto mapAttr = createBufferOp.getVirtualGridInverseMappingAttr()) {
-      virtualGridInverseMapping = mapAttr.getValue();
+  if (mlir::isa<MemRefType>(value.getType())) {
+    auto memrefType = mlir::cast<MemRefType>(value.getType());
+
+    std::optional<AffineMap> virtualGridInverseMapping;
+    if (auto createBufferOp = value.getDefiningOp<ttmetal::CreateBufferOp>()) {
+      if (auto mapAttr = createBufferOp.getVirtualGridInverseMappingAttr()) {
+        virtualGridInverseMapping = mapAttr.getValue();
+      }
+
+      // Hoisted CB buffers carry CBLayoutAttr (shard-only shape).
+      // Reconstruct a full [grid..shard..] + ShardLayoutAttr memref type so
+      // we fall through to the existing memrefTypeToFlatbuffer path, which
+      // already handles N-D grids, CB configs, and worker grid overrides.
+      if (auto cbLayout =
+              mlir::dyn_cast<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+        auto shardShape = memrefType.getShape();
+        SmallVector<int64_t> fullShape(shardShape.size(), 1);
+        fullShape.append(shardShape.begin(), shardShape.end());
+        auto shardLayoutAttr = ttcore::ShardLayoutAttr::get(
+            shardShape, memrefType.getElementType(), cbLayout.getBuffers());
+        memrefType =
+            MemRefType::get(fullShape, memrefType.getElementType(),
+                            shardLayoutAttr, memrefType.getMemorySpace());
+      }
     }
 
     // Hoisted CB buffers carry CBLayoutAttr (per-core local shape).
@@ -564,39 +583,75 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
           MemRefType::get(fullShape, memrefType.getElementType(),
                           shardLayoutAttr, memrefType.getMemorySpace());
     }
+    auto bufferDesc =
+        cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device,
+                          systemDesc, virtualGridInverseMapping);
+    return target::metal::CreateBufferRef(*cache.fbb, cache.nextGlobalId(),
+                                          address, bufferDesc);
+  } else {
+    auto elementType = value.getType();
+    ttcore::DataType dtype = ttcore::elementTypeToDataType(elementType);
+    target::Dim2d elementShape(1, 1);
+    std::vector<int32_t> shape = {};
+    std::vector<int32_t> hostStrides = {};
+    std::vector<int32_t> stride = {};
+    int32_t hostVolume = 0;
+    auto bufferDetail =
+        target::metal::CreateSystemBufferDirect(*cache.fbb, &stride).Union();
+
+    auto bufferDesc = target::metal::CreateBufferDescDirect(
+        *cache.fbb, &shape, &hostStrides, hostVolume,
+        toFlatbuffer(cache, dtype), &elementShape,
+        target::metal::BufferDetail::SystemBuffer, bufferDetail, nullptr);
+
+    return target::metal::CreateBufferRef(*cache.fbb, cache.nextGlobalId(),
+                                          address, bufferDesc);
   }
 
-  auto bufferDesc =
-      cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device, systemDesc,
-                        virtualGridInverseMapping);
-  return target::metal::CreateBufferRef(*cache.fbb, cache.nextGlobalId(),
-                                        address, bufferDesc);
+  llvm_unreachable("Unsupported value type for buffer reference");
 }
 
 static flatbuffers::Offset<target::metal::TensorRef>
 tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
   auto device = ttcore::lookupDevice(value.getParentBlock()->getParentOp());
   assert(device);
-  auto memref = mlir::cast<MemRefType>(value.getType());
 
-  Type elementType = memref.getElementType();
-  assert(!mlir::isa<ttcore::TileType>(elementType));
-  ttcore::DataType dtype = ttcore::elementTypeToDataType(elementType);
+  if (mlir::isa<MemRefType>(value.getType())) {
+    auto memref = mlir::cast<MemRefType>(value.getType());
+    Type elementType = memref.getElementType();
+    assert(!mlir::isa<ttcore::TileType>(elementType));
+    ttcore::DataType dtype = ttcore::elementTypeToDataType(elementType);
 
-  assert(!mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout()));
-  std::vector<int32_t> shape =
-      ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
-  std::vector<int32_t> meshShape;
-  int32_t elementSize = getElementSizeBytes(dtype);
-  std::uint64_t size =
-      ttmlir::utils::volume(mlir::ArrayRef<int32_t>(shape), elementSize);
+    assert(!mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout()));
+    std::vector<int32_t> shape =
+        ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
+    std::vector<int32_t> meshShape;
+    int32_t elementSize = getElementSizeBytes(dtype);
+    std::uint64_t size =
+        ttmlir::utils::volume(mlir::ArrayRef<int32_t>(shape), elementSize);
 
-  auto memoryDesc =
-      target::metal::CreateMemoryDesc(*cache.fbb, toFlatbuffer(cache, dtype));
-  auto layoutDesc = target::metal::CreateLayoutDesc(*cache.fbb, memoryDesc);
-  auto tensorDesc = target::metal::CreateTensorDescDirect(
-      *cache.fbb, &shape, &meshShape, layoutDesc);
-  return target::metal::CreateTensorRef(*cache.fbb, size, tensorDesc);
+    auto memoryDesc =
+        target::metal::CreateMemoryDesc(*cache.fbb, toFlatbuffer(cache, dtype));
+    auto layoutDesc = target::metal::CreateLayoutDesc(*cache.fbb, memoryDesc);
+    auto tensorDesc = target::metal::CreateTensorDescDirect(
+        *cache.fbb, &shape, &meshShape, layoutDesc);
+    return target::metal::CreateTensorRef(*cache.fbb, size, tensorDesc);
+  } else {
+    std::uint64_t size = 0;
+    std::vector<int32_t> shape = {};
+    std::vector<int32_t> meshShape = {};
+    Type elementType = value.getType();
+    ttcore::DataType dtype = ttcore::elementTypeToDataType(elementType);
+    auto memoryDesc =
+        target::metal::CreateMemoryDesc(*cache.fbb, toFlatbuffer(cache, dtype));
+    auto layoutDesc = target::metal::CreateLayoutDesc(*cache.fbb, memoryDesc);
+    auto tensorDesc = target::metal::CreateTensorDescDirect(
+        *cache.fbb, &shape, &meshShape, layoutDesc);
+
+    return target::metal::CreateTensorRef(*cache.fbb, size, tensorDesc);
+  }
+
+  llvm_unreachable("Unsupported value type for tensor reference");
 }
 
 static flatbuffers::Offset<target::metal::GlobalSemaphoreRef>
@@ -604,6 +659,13 @@ globalSemaphoreValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                                  uint64_t address) {
   return target::metal::CreateGlobalSemaphoreRef(*cache.fbb,
                                                  cache.nextGlobalId(), address);
+}
+
+static flatbuffers::Offset<target::metal::LocalSemaphoreRef>
+localSemaphoreValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
+                                uint32_t initialValue) {
+  return target::metal::CreateLocalSemaphoreRef(
+      *cache.fbb, cache.nextGlobalId(), initialValue);
 }
 
 static flatbuffers::Offset<target::metal::KernelArg>
@@ -625,9 +687,11 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
               .Union();
     break;
   }
-  case ttkernel::ArgType::Semaphore: {
-    argType = target::metal::KernelArgType::KernelArgSemaphore;
-    arg = target::metal::CreateKernelArgSemaphore(*cache.fbb).Union();
+  case ttkernel::ArgType::LocalSemaphore: {
+    argType = target::metal::KernelArgType::KernelArgLocalSemaphore;
+    arg = target::metal::CreateKernelArgLocalSemaphore(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
     break;
   }
   case ttkernel::ArgType::NamedArgument: {
@@ -639,6 +703,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     argType = target::metal::KernelArgType::KernelArgGlobalSemaphore;
     arg = target::metal::CreateKernelArgGlobalSemaphore(
               *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::Scalar: {
+    argType = target::metal::KernelArgType::KernelArgScalar;
+    arg = target::metal::CreateKernelArgScalar(*cache.fbb,
+                                               kernelArg.getOperandIndex())
               .Union();
     break;
   }
@@ -784,6 +855,16 @@ memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
   return data;
 }
 
+// Returns true if `type` is one of the supported scalar underlying types:
+// bool (i1), ui8, si8, ui16, si16, ui32, si32, f16, bf16, f32, or index.
+static bool isSupportedScalarType(Type type) {
+  if (auto intTy = mlir::dyn_cast<IntegerType>(type)) {
+    unsigned w = intTy.getWidth();
+    return w == 1 || w == 8 || w == 16 || w == 32;
+  }
+  return mlir::isa<Float32Type, Float16Type, BFloat16Type, IndexType>(type);
+}
+
 std::shared_ptr<void> translateTTMetalToFlatbuffer(
     Operation *op,
     const std::unordered_map<std::string,
@@ -854,6 +935,11 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
 
     cqBuilder.inputs.reserve(entry.getBody().getArguments().size());
     for (auto &input : entry.getBody().getArguments()) {
+      if (!mlir::isa<MemRefType>(input.getType()) &&
+          !isSupportedScalarType(input.getType())) {
+        llvm::report_fatal_error(
+            "Only memref inputs and scalar types are supported in entry functions");
+      }
       cqBuilder.inputs.push_back(
           cache.getOrCreate(input, bufferValueToFlatbuffer, systemDesc, 0));
       tensorInputs.push_back(tensorValueToFlatbuffer(cache, input));
@@ -882,6 +968,15 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
             argTypes.push_back(target::metal::ArgRef::GlobalSemaphoreRef);
             args.push_back(
                 cache.at<target::metal::GlobalSemaphoreRef>(arg).Union());
+          } else if (mlir::isa<LocalSemaphoreType>(arg.getType())) {
+            argTypes.push_back(target::metal::ArgRef::LocalSemaphoreRef);
+            args.push_back(
+                cache.at<target::metal::LocalSemaphoreRef>(arg).Union());
+          } else if (isSupportedScalarType(arg.getType())) {
+            argTypes.push_back(target::metal::ArgRef::BufferRef);
+            args.push_back(cache.at<target::metal::BufferRef>(arg).Union());
+          } else {
+            llvm::report_fatal_error("Unsupported kernel argument type");
           }
         }
 
@@ -1046,6 +1141,19 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                 meshShardType, meshShardDirection,
                 cache.fbb->CreateVector<int64_t>(meshShardOp.getShardShape()),
                 cache.fbb->CreateVector<int64_t>(meshShardOp.getShardDims())),
+            op);
+      } else if (auto createLocalSemaphoreOp =
+                     dyn_cast_if_present<tt::ttmetal::CreateLocalSemaphoreOp>(
+                         op);
+                 createLocalSemaphoreOp) {
+        uint32_t initialValue = createLocalSemaphoreOp.getInitialValue()
+                                    ? *createLocalSemaphoreOp.getInitialValue()
+                                    : 0;
+        cqBuilder.appendCommand(
+            target::metal::CreateCreateLocalSemaphoreCommand(
+                fbb, cache.getOrCreate(createLocalSemaphoreOp.getResult(),
+                                       localSemaphoreValueToFlatbuffer,
+                                       initialValue)),
             op);
       } else if (auto createGlobalSemaphoreOp =
                      dyn_cast_if_present<tt::ttmetal::CreateGlobalSemaphoreOp>(

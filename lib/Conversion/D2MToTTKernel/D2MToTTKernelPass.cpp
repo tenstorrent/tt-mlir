@@ -77,6 +77,7 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<d2m::GenericOp>();
     target.addLegalOp<d2m::EmptyOp>();
     target.addLegalOp<d2m::MeshShardOp>();
+    target.addLegalOp<d2m::CreateLocalSemaphoreOp>();
     target.addLegalOp<d2m::CreateGlobalSemaphoreOp>();
     target.addLegalOp<d2m::ResetGlobalSemaphoreOp>();
     target.addLegalOp<d2m::SpatialOp>();
@@ -135,11 +136,11 @@ struct ConvertD2MToTTKernel
     typeConverter.addConversion([](d2m::CBType cb) -> Type {
       return ttkernel::CBType::get(cb.getUnderlyingAs<MemRefType>());
     });
-    typeConverter.addConversion([](d2m::SemaphoreType semaphore) {
-      return ttkernel::SemaphoreType::get(semaphore.getContext());
+    typeConverter.addConversion([](d2m::LocalSemaphoreType semaphore) {
+      return ttkernel::LocalSemaphoreType::get(semaphore.getContext());
     });
     typeConverter.addConversion([](d2m::GlobalSemaphoreType globalSemaphore) {
-      return ttkernel::L1AddrType::get(globalSemaphore.getContext());
+      return ttkernel::GlobalSemaphoreType::get(globalSemaphore.getContext());
     });
 
     d2m::CBProducerConsumer cbProducerConsumer =

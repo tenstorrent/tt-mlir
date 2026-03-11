@@ -21,6 +21,16 @@
 
 namespace mlir::tt::ttmetal {
 
+// Returns true if `type` is one of the supported scalar underlying types:
+// bool (i1), ui8, si8, ui16, si16, ui32, si32, f16, bf16, f32, or index.
+static bool isSupportedScalarType(Type type) {
+  if (auto intTy = mlir::dyn_cast<IntegerType>(type)) {
+    unsigned w = intTy.getWidth();
+    return w == 1 || w == 8 || w == 16 || w == 32;
+  }
+  return mlir::isa<Float32Type, Float16Type, BFloat16Type, IndexType>(type);
+}
+
 namespace {
 
 // Returns true if the kernel function contains an op of type OpT.
@@ -156,6 +166,10 @@ public:
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operand = adaptor.getOperands()[ioSize + i];
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
+        args.push_back(operand);
+      } else if (mlir::isa<ttmetal::LocalSemaphoreType>(operand.getType())) {
+        args.push_back(operand);
+      } else if (isSupportedScalarType(operand.getType())) {
         args.push_back(operand);
       } else if (mlir::isa<MemRefType>(operand.getType())) {
         // Hoisted CB buffer (already converted to CreateBufferOp by
@@ -370,6 +384,24 @@ public:
 } // namespace
 
 namespace {
+class D2MCreateLocalSemaphoreRewriter
+    : public OpConversionPattern<d2m::CreateLocalSemaphoreOp> {
+public:
+  using OpConversionPattern<d2m::CreateLocalSemaphoreOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::CreateLocalSemaphoreOp op,
+                  d2m::CreateLocalSemaphoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttmetal::CreateLocalSemaphoreOp>(
+        op, ttmetal::LocalSemaphoreType::get(rewriter.getContext()),
+        adaptor.getInitialValueAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class D2MCreateGlobalSemaphoreRewriter
     : public OpConversionPattern<d2m::CreateGlobalSemaphoreOp> {
 public:
@@ -443,12 +475,15 @@ namespace mlir::tt {
 void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter & /*typeConverter*/,
                                   ttmetal::MathFidelity mathFidelity) {
-  patterns.add<
-      ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
-      ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
-      ttmetal::D2MMeshShardRewriter, ttmetal::D2MCreateGlobalSemaphoreRewriter,
-      ttmetal::D2MResetGlobalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter>(
-      ctx);
+  patterns.add<ttmetal::MemrefAllocRewriter,
+               ttmetal::MemrefDeallocRewriter,
+               ttmetal::D2MToDeviceRewriter,
+               ttmetal::D2MToHostRewriter,
+               ttmetal::D2MMeshShardRewriter,
+               ttmetal::D2MCreateLocalSemaphoreRewriter,
+               ttmetal::D2MCreateGlobalSemaphoreRewriter,
+               ttmetal::D2MResetGlobalSemaphoreRewriter,
+               ttmetal::D2MViewLayoutRewriter>(ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
 }
 
