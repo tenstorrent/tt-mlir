@@ -96,6 +96,36 @@ void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
       builder.getUnknownLoc(), builder.getStringAttr(meshName), sdyMeshAttr);
 }
 
+// Normalize a 1D mesh to 2D by prepending an axis of size 1.
+mlir::LogicalResult normalizeMeshTo2D(mlir::ModuleOp &module) {
+  auto meshOps = getMeshOps(module);
+  if (meshOps.empty()) {
+    return mlir::success();
+  }
+
+  if (meshOps.size() > 1) {
+    module.emitError("Pass expects a single mesh op, got ") << meshOps.size();
+    return mlir::failure();
+  }
+
+  auto meshShape = getMeshShapeFromMeshAttr(meshOps[0].getMeshAttr());
+  size_t meshRank = meshShape.size();
+  if (meshRank > 2) {
+    module.emitError("Pass expects a 1D or 2D mesh, got ") << meshRank << "D";
+    return mlir::failure();
+  }
+
+  if (meshRank == 2) {
+    return mlir::success();
+  }
+
+  removeMeshOps(module);
+  addMeshToModule(module, meshOps[0].getSymName().str(), "_axis_0", "_axis_1",
+                  1, meshShape[0]);
+
+  return mlir::success();
+}
+
 // Create a TTMeshAttr from a sdy::meshOp.
 mlir::tt::ttcore::MeshAttr
 createTTMeshAttrFromSdyMeshOp(mlir::sdy::MeshOp meshOp) {

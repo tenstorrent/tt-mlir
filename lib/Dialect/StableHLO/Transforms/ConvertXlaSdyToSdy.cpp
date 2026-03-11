@@ -27,11 +27,7 @@ public:
     MLIRContext *context = rootModule.getContext();
     mlir::OpBuilder builder(context);
 
-    // Check if we have frontend_attributes with sdy information.
-    bool hasFrontendSdyAttrs =
-        gspmd_utils::hasFrontendSdyAttributes(rootModule);
-
-    if (hasFrontendSdyAttrs) {
+    if (gspmd_utils::hasFrontendSdyAttributes(rootModule)) {
       // Handle frontend_attributes conversion
       // Parse mesh information from module attributes and create sdy.mesh
       if (mlir::failed(gspmd_utils::parseMeshFromFrontendAttributes(rootModule,
@@ -46,6 +42,12 @@ public:
         signalPassFailure();
         return;
       }
+    }
+
+    // Mesh may be squashed to 1D by the calling framework.
+    if (mlir::failed(shardy_utils::normalizeMeshTo2D(rootModule))) {
+      signalPassFailure();
+      return;
     }
 
     // Convert stablehlo.custom_call @Sharding, @tt.sharding_constraint, and
