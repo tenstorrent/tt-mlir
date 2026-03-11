@@ -3695,6 +3695,51 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
+def TTIR_GatherDimOp : TTIR_NamedOp<"gather_dim"> {
+  let summary = "Gather operation along a dimension.";
+  let description = [{
+    The `gather_dim` operation selects values from an input tensor along a given
+    dimension using an index tensor. This uses torch.gather semantics where for a
+    3-D tensor the output is specified by:
+
+      out[i][j][k] = input[index[i][j][k]][j][k]  # if dim == 0
+      out[i][j][k] = input[i][index[i][j][k]][k]  # if dim == 1
+      out[i][j][k] = input[i][j][index[i][j][k]]  # if dim == 2
+
+    The input and index tensors must have the same number of dimensions. The
+    index tensor must have the same size as the input tensor in all dimensions
+    except the gather dimension.
+
+    This maps directly to the ttnn.gather device operation.
+
+    Example:
+    ```mlir
+    %input = ... : tensor<3x4xf32>
+    %index = ... : tensor<3x2xi32>
+    %result = ttir.gather_dim(%input, %index) {dim = 1}
+        : (tensor<3x4xf32>, tensor<3x2xi32>) -> tensor<3x2xf32>
+    ```
+
+    Inputs:
+    - `input` (Tensor): The source tensor from which to gather values.
+    - `index` (Tensor): The index tensor containing indices to gather along dim.
+
+    Attributes:
+    - `dim` (Integer): The dimension along which to gather.
+
+    Output:
+    - `result` (Tensor): The gathered tensor with the same shape as the index tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$index,
+                       SI32Attr:$dim);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
   let summary = "2D average pooling operation.";
   let description = [{

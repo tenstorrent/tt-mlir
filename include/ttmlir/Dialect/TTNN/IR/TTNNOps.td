@@ -2708,6 +2708,34 @@ def TTNN_ScatterOp : TTNN_Op<"scatter">{
     }];
 }
 
+def TTNN_GatherOp : TTNN_Op<"gather", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Gather op.";
+    let description = [{
+      Selects values from an input tensor along a given dimension using an
+      index tensor. Uses torch.gather semantics where for a 3-D tensor:
+
+        out[i][j][k] = input[index[i][j][k]][j][k]  # if dim == 0
+        out[i][j][k] = input[i][index[i][j][k]][k]  # if dim == 1
+        out[i][j][k] = input[i][j][index[i][j][k]]  # if dim == 2
+
+      Maps directly to the ttnn::gather device operation.
+
+      Parameters:
+        - `input` (ttnn.Tensor): The source tensor from which to gather values.
+        - `index` (ttnn.Tensor): The index tensor containing indices to gather.
+        - `dim` (int32_t): The dimension along which to gather.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$index,
+                         I32Attr:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
     let summary = "All gather op.";
     let description = [{

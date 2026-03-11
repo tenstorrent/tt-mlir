@@ -1509,6 +1509,61 @@ def test_unary_ops_int32(
     )
 
 
+@pytest.mark.parametrize(
+    "input_shape,index_shape,dim",
+    [
+        ((32, 64), (32, 32), 1),
+        ((64, 32), (32, 32), 0),
+        ((4, 8, 16), (4, 8, 8), 2),
+        ((4, 8, 16), (4, 4, 16), 1),
+    ],
+    ids=[
+        "2d_dim1",
+        "2d_dim0",
+        "3d_dim2",
+        "3d_dim1",
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_gather_dim(
+    input_shape: Shape,
+    index_shape: Shape,
+    dim: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape, index_shape], [dtype, torch.uint32])
+        def gather_dim(
+            in0: Operand,
+            index: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Generate valid indices within [0, input_shape[dim]) range
+            valid_indices = torch.randint(
+                0, input_shape[dim], index_shape, dtype=torch.int32
+            ).to(torch.uint32)
+            builder.set_goldens(inputs={index: valid_indices})
+
+            return builder.gather_dim(
+                in0,
+                index,
+                dim=dim,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttnn", "emitc", "emitpy"])

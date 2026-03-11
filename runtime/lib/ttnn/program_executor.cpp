@@ -32,6 +32,7 @@
 #include "operations/creation/full_with.h"
 #include "operations/data_movement/assign.h"
 #include "operations/data_movement/concat.h"
+#include "operations/data_movement/gather.h"
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
 #include "operations/data_movement/repeat.h"
@@ -305,6 +306,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ScatterOp: {
     return operations::data_movement::run(op->type_as_ScatterOp(),
                                           getContext());
+  }
+  case ::tt::target::ttnn::OpType::GatherOp: {
+    return operations::data_movement::run(op->type_as_GatherOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
     return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),

@@ -75,6 +75,7 @@ union OpType {
   FromDeviceOp,
   FullOp,
   FuncCallOp,
+  GatherOp,
   GenericOp,
   GetDeviceOp,
   GlobalAvgPool2dOp,

@@ -1140,6 +1140,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ScatterOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::GatherOp: {
+    tensorRef = opContext.type_as_GatherOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::PermuteOp: {
     tensorRef = opContext.type_as_PermuteOp()->out();
     break;
@@ -1540,6 +1544,11 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_ScatterOp()->input(),
                   opContext.type_as_ScatterOp()->index(),
                   opContext.type_as_ScatterOp()->source()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GatherOp: {
+    tensorRefs = {opContext.type_as_GatherOp()->input(),
+                  opContext.type_as_GatherOp()->index()};
     break;
   }
   case ::tt::target::ttnn::OpType::PermuteOp: {

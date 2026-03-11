@@ -2753,6 +2753,28 @@ public:
 };
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// GatherDimOp
+//===----------------------------------------------------------------------===//
+
+namespace {
+class GatherDimOpConversionPattern
+    : public OpConversionPattern<ttir::GatherDimOp> {
+  using OpConversionPattern<ttir::GatherDimOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::GatherDimOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::GatherOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getIndex(),
+        rewriter.getI32IntegerAttr(op.getDim()), /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
 namespace {
 class PermuteOpConversionPattern : public OpConversionPattern<ttir::PermuteOp> {
 public:
@@ -3380,6 +3402,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
+           GatherDimOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,

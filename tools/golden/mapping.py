@@ -4202,6 +4202,31 @@ def ttir_scatter_golden(
     return out_tensor.to(output_dtype)
 
 
+def ttir_gather_dim_golden(
+    input_tensor: GoldenMapTensor,
+    index: GoldenMapTensor,
+    dim: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim_value = unpack_mlir_attr(dim)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    index_copy = index.clone().to(torch.int64)
+    return torch.gather(input_tensor.float(), dim_value, index_copy).to(output_dtype)
+
+
+def ttnn_gather_golden(
+    input_tensor: GoldenMapTensor,
+    index: GoldenMapTensor,
+    dim: IntegerAttr,
+    output_type_mlir: Type,
+    **kwargs,
+) -> GoldenMapTensor:
+    dim_value = unpack_mlir_attr(dim)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    index_copy = index.clone().to(torch.int64)
+    return torch.gather(input_tensor.float(), dim_value, index_copy).to(output_dtype)
+
+
 def ttir_reverse_golden(
     input_tensor: GoldenMapTensor,
     dimensions_attr: DenseI64ArrayAttr,
@@ -6391,6 +6416,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LinearOp: linear_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
+    ttir.GatherDimOp: ttir_gather_dim_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: ttir_to_layout_golden,
     # Cache operations
@@ -6551,6 +6577,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.ConcatOp: ttnn_concat_golden,
     ttnn.RepeatOp: ttnn_repeat_golden,
     ttnn.RepeatInterleaveOp: ttnn_repeat_interleave_golden,
+    ttnn.GatherOp: ttnn_gather_golden,
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
     # ----- DEBUG OPS -----

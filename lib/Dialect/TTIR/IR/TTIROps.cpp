@@ -4151,6 +4151,50 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
 }
 
 //===----------------------------------------------------------------------===//
+// GatherDimOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::GatherDimOp::verify() {
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+  const ::mlir::RankedTensorType indexType = getIndex().getType();
+  const ::mlir::RankedTensorType resultType = getResult().getType();
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> indexShape = indexType.getShape();
+  llvm::ArrayRef<int64_t> resultShape = resultType.getShape();
+
+  const int64_t inputRank = inputShape.size();
+  const int64_t indexRank = indexShape.size();
+
+  if (inputRank != indexRank) {
+    return emitOpError() << "Input tensor and index tensor must have the same "
+                            "rank. Got input rank = "
+                         << inputRank << ", index rank = " << indexRank;
+  }
+
+  int32_t dim = getDim();
+  if (dim >= inputRank || dim < -inputRank) {
+    return emitOpError()
+           << "Invalid dimension for gather_dim op. Dimension must be in "
+              "range [-"
+           << inputRank << ", " << inputRank << "), got dim = " << dim;
+  }
+
+  // Normalize negative dim
+  if (dim < 0) {
+    dim += inputRank;
+  }
+
+  // Result shape must match index shape
+  if (indexShape != resultShape) {
+    return emitOpError(
+        "Result tensor must have the same shape as the index tensor.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllReduceOp
 //===----------------------------------------------------------------------===//
 

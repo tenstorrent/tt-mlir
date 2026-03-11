@@ -1273,6 +1273,21 @@ createOp(FlatbufferObjectCache &cache, ScatterOp op) {
       toFlatbuffer(op.getScatterReduceType()));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::GatherOp>
+createOp(FlatbufferObjectCache &cache, GatherOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto index = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getIndex()));
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  return ::tt::target::ttnn::CreateGatherOp(*cache.fbb, input, output, index,
+                                            op.getDim(), memoryConfig);
+}
+
 // NOTE: This legacy mesh_shard path only handles the "identity" variant.
 // All non-identity behavior has been split out to distribute_tensor /
 // aggregate_tensor. It remains because current TTIR lowering still generates
@@ -4095,6 +4110,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
     return createOperation(cache, createOp(cache, scatterOp), debugString,
+                           locInfo);
+  }
+  if (auto gatherOp = dyn_cast<GatherOp>(op); gatherOp) {
+    return createOperation(cache, createOp(cache, gatherOp), debugString,
                            locInfo);
   }
   if (auto meshShardOp = dyn_cast<MeshShardOp>(op); meshShardOp) {
