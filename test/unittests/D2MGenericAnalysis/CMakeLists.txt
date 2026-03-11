@@ -15,6 +15,7 @@ target_link_libraries(${TESTSUITE}
     MLIRD2MAnalysis
     MLIRD2MDialect
     MLIRD2MUtils
+    MLIRTTTransforms
     MLIRTTCoreDialect
     MLIRTTIRDialect
     MLIRTTNNDialect
