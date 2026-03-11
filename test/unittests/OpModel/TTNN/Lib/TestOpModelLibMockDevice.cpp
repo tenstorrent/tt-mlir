@@ -51,8 +51,16 @@ public:
     mlir::tt::ttcore::registerDevice(module.get());
   }
 
+  void SetUp() override {
+    // Override OpModelFixture::SetUp to prevent it from opening a real device;
+    // MockDeviceEnvironment opens the mock device once per binary.
+    // Subclasses should call setupMockDevice() instead to get desired grid
+    // shapes.
+  }
+
   void TearDown() override {
-    // Empty — MockDeviceEnvironment handles the final close.
+    // Override OpModelFixture::TearDown to prevent it from closing the device;
+    // MockDeviceEnvironment handles the final close.
   }
 };
 
