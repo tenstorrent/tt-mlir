@@ -208,8 +208,10 @@ private:
 
     ttcore::GetGlobalOp cacheDict = nullptr;
     for (auto &op : forwardBody) {
-      if (auto getGlobalOp = dyn_cast<ttcore::GetGlobalOp>(&op)) {
+      if (auto getGlobalOp = dyn_cast<ttcore::GetGlobalOp>(&op);
+          getGlobalOp && getGlobalOp->hasAttr("ttcore.caching_dict")) {
         cacheDict = getGlobalOp;
+        getGlobalOp->removeDiscardableAttr("ttcore.caching_dict");
         break;
       }
     }

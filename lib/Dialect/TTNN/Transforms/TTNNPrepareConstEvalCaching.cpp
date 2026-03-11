@@ -59,6 +59,7 @@ public:
       builder.setInsertionPointToStart(&entryBlock);
       auto dictVal = builder.create<ttcore::GetGlobalOp>(funcOp.getLoc(),
                                                          dictType, cacheName);
+      dictVal->setDiscardableAttr("ttcore.caching_dict", builder.getUnitAttr());
 
       // For each LoadCachedOp, store its results under one key in the caching
       // dictionary. The key is the callee name of the LoadCachedOp.
