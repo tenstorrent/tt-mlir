@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/TopologicalSortUtils.h"
@@ -1291,172 +1290,193 @@ private:
 };
 
 // Fuse MatmulOp followed by AddOp into a single LinearOp.
-// This pattern looks for an AddOp where one of its operands is the result of
-// a MatmulOp and the other operand is a bias term. It then replaces the
-// AddOp with a LinearOp that combines the functionality of both operations.
-// The pattern also handles the case where the MatmulOp is followed by a
-// ReshapeOp before the AddOp. In this case, it creates a LinearOp followed by
-// a ReshapeOp to maintain the original output shape.
+//
+// Matches an AddOp where exactly one operand traces back to a MatmulOp
+// (possibly through a ReshapeOp) and the other is a bias term
+// (possibly wrapped in ReshapeOps/BroadcastOps).
+//
+// The reshape between matmul and add is validated by checking that
+// the trailing dimensions covered by the bias are identical before and
+// after the reshape, ensuring that bias addition commutes with the reshape.
 class MatmulWithBiasFusionPattern : public mlir::OpRewritePattern<AddOp> {
 public:
   using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
+
   mlir::LogicalResult
   matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
-    // Matmul -> Add pattern.
-    MatmulOp matmulOp = nullptr;
-    TypedValue<RankedTensorType> bias = nullptr;
-    if (matmulOp = getFusableMatmulOp(addOp); matmulOp) {
-      bias = addOp.getLhs() == matmulOp.getResult() ? addOp.getRhs()
-                                                    : addOp.getLhs();
-    } else if (matmulOp = getFusableReshapedMatmulOp(addOp); matmulOp) {
-      ReshapeOp reshapeOp =
-          mlir::dyn_cast<ReshapeOp>(*matmulOp.getResult().getUsers().begin());
-      bias = (addOp.getLhs() == reshapeOp.getResult()) ? addOp.getRhs()
-                                                       : addOp.getLhs();
-    } else {
+    // Phase 1: Identify matmul and bias branches.
+    auto [lhsMatmul, lhsReshape] = findMatmulThroughReshape(addOp.getLhs());
+    auto [rhsMatmul, rhsReshape] = findMatmulThroughReshape(addOp.getRhs());
+
+    // Exactly one branch must have a matmul.
+    if ((lhsMatmul && rhsMatmul) || (!lhsMatmul && !rhsMatmul)) {
       return mlir::failure();
     }
 
-    ReshapeOp biasReshapeOp = bias.getDefiningOp<ReshapeOp>();
+    MatmulOp matmulOp = lhsMatmul ? lhsMatmul : rhsMatmul;
+    ReshapeOp matmulReshape = lhsMatmul ? lhsReshape : rhsReshape;
+    TypedValue<RankedTensorType> rawBias =
+        lhsMatmul ? addOp.getRhs() : addOp.getLhs();
+
+    ArrayRef<int64_t> matmulShape = matmulOp.getType().getShape();
+    ArrayRef<int64_t> addOutputShape = addOp.getType().getShape();
+
+    // Peel bias reshapes/broadcasts that are redundant for LinearOp.
+    TypedValue<RankedTensorType> bias =
+        peelBiasTransformations(rawBias, matmulShape);
+
+    // If bias is a scalar (0D), reshape it to 1D so that
+    // LinearOp receives a valid ranked bias operand.
+    if (bias.getType().getRank() == 0) {
+      auto scalarType = bias.getType();
+      auto reshapedType = RankedTensorType::get(
+          {1}, scalarType.getElementType(), scalarType.getEncoding());
+      bias = rewriter.create<ttir::ReshapeOp>(bias.getLoc(), reshapedType, bias,
+                                              rewriter.getI32ArrayAttr({1}));
+    }
+
+    ArrayRef<int64_t> biasShape = bias.getType().getShape();
+
     llvm::SmallVector<int64_t> broadcastShape;
-    // Remove bias reshape op if the input can be broadcasted to matmul or add
-    // output shape.
-    if (biasReshapeOp &&
-        mlir::OpTrait::util::getBroadcastedShape(
-            matmulOp.getType().getShape(),
-            biasReshapeOp.getInput().getType().getShape(), broadcastShape) &&
-        (llvm::equal(broadcastShape, addOp.getType().getShape()) ||
-         llvm::equal(broadcastShape, matmulOp.getType().getShape()))) {
-      bias = biasReshapeOp.getInput();
+    if (!mlir::OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
+                                                  broadcastShape)) {
+      return mlir::failure();
     }
 
-    Value matmulOpA = matmulOp.getA();
-    Value matmulOpB = matmulOp.getB();
-    RankedTensorType outputType = matmulOp.getResult().getType();
-    RankedTensorType biasType = bias.getType();
-    // tt-metal uses a composite LinearOp where the bias is added after the
-    // matmul, and ttnn.add supports broadcasting of both operands. Otherwise,
-    // tt-metal lowers to a fused LinearOp, which uses the matmul result shape
-    // as the output shape. The composite LinearOp requires that the bias
-    // second-to-last dim (of padded shape) does not match the tile height.
-    // Update the output type to match the broadcasted shape in this case.
-    llvm::SmallVector<int64_t> paddedBiasShape =
-        ttnn::utils::getTilePaddedShape(biasType.getShape());
-    if (paddedBiasShape.size() > 1 &&
-        paddedBiasShape[paddedBiasShape.size() - 2] != ttnn::TILE_HEIGHT) {
-      llvm::SmallVector<int64_t> broadcastOutputShape;
-      mlir::OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
-                                               bias.getType().getShape(),
-                                               broadcastOutputShape);
-      outputType = RankedTensorType::get(broadcastOutputShape,
-                                         outputType.getElementType(),
-                                         outputType.getEncoding());
+    if (ttmlir::utils::volume(ArrayRef<int64_t>(broadcastShape)) !=
+        ttmlir::utils::volume(addOutputShape)) {
+      return mlir::failure();
     }
+
+    // Validate reshape preserves bias dims.
+    if (matmulReshape) {
+      if (!reshapePreservesBiasDims(
+              matmulShape, matmulReshape.getType().getShape(), biasShape)) {
+        return mlir::failure();
+      }
+    }
+
+    // Create LinearOp and replay reshapes if needed.
+    RankedTensorType linearOutputType = RankedTensorType::get(
+        broadcastShape, matmulOp.getType().getElementType(),
+        matmulOp.getType().getEncoding());
+
     LinearOp linearOp = rewriter.create<ttir::LinearOp>(
-        addOp.getLoc(), outputType, matmulOpA, matmulOpB, bias,
-        matmulOp.getTransposeA(), matmulOp.getTransposeB());
+        addOp.getLoc(), linearOutputType, matmulOp.getA(), matmulOp.getB(),
+        bias, matmulOp.getTransposeA(), matmulOp.getTransposeB());
 
-    llvm::SmallVector<int32_t> addShapeI32(addOp.getType().getShape().begin(),
-                                           addOp.getType().getShape().end());
-    Value finalReshape = rewriter.create<ttir::ReshapeOp>(
-        addOp.getLoc(), addOp.getType(), linearOp.getResult(),
-        rewriter.getI32ArrayAttr(addShapeI32));
-    rewriter.replaceOp(addOp, finalReshape);
+    Value result = linearOp.getResult();
 
+    if (!llvm::equal(broadcastShape, addOutputShape)) {
+      llvm::SmallVector<int32_t> addShapeI32(addOutputShape.begin(),
+                                             addOutputShape.end());
+      result = rewriter.create<ttir::ReshapeOp>(
+          addOp.getLoc(), addOp.getType(), result,
+          rewriter.getI32ArrayAttr(addShapeI32));
+    }
+
+    rewriter.replaceOp(addOp, result);
     return mlir::success();
   }
 
 private:
-  // Shared helper function to validate the matmul ops from an add op or reshape
-  // op.
-  MatmulOp getValidMatmulOp(MatmulOp matmulOpLHS, MatmulOp matmulOpRHS) const {
-    if (matmulOpLHS && matmulOpRHS) {
-      // Both operands are MatmulOps, cannot fuse.
-      return nullptr;
+  // Check whether a reshape preserves the trailing dimensions that the
+  // bias spans. Leading 1s in the bias are pure broadcast and don't
+  // constrain which dimensions may be reshaped.
+  static bool reshapePreservesBiasDims(ArrayRef<int64_t> matmulShape,
+                                       ArrayRef<int64_t> reshapedShape,
+                                       ArrayRef<int64_t> biasShape) {
+    while (!biasShape.empty() && biasShape.front() == 1) {
+      biasShape = biasShape.drop_front();
     }
-
-    MatmulOp matmulOp = matmulOpLHS ? matmulOpLHS : matmulOpRHS;
-    if (!matmulOp) {
-      return nullptr;
+    int64_t suffixLen = biasShape.size();
+    if (static_cast<int64_t>(matmulShape.size()) < suffixLen ||
+        static_cast<int64_t>(reshapedShape.size()) < suffixLen) {
+      return false;
     }
-
-    // Check that the MatmulOp has only one user.
-    if (!matmulOp.getResult().hasOneUse()) {
-      return nullptr;
-    }
-
-    return matmulOp;
+    return llvm::equal(matmulShape.take_back(suffixLen),
+                       reshapedShape.take_back(suffixLen));
   }
 
-  MatmulOp getFusableReshapedMatmulOp(AddOp addOp) const {
-    // Check MatmulOp -> ReshapeOp -> AddOp pattern.
-    // This pattern should be either the LHS or RHS of the AddOp.
-    // Find the valid matmul op and the reshape op it is coming from.
-    ReshapeOp reshapeOnAddLHS = addOp.getLhs().getDefiningOp<ReshapeOp>();
-    ReshapeOp reshapeOnAddRHS = addOp.getRhs().getDefiningOp<ReshapeOp>();
-
-    MatmulOp matmulOnReshapeLHS =
-        reshapeOnAddLHS ? reshapeOnAddLHS.getInput().getDefiningOp<MatmulOp>()
-                        : nullptr;
-    MatmulOp matmulOnReshapeRHS =
-        reshapeOnAddRHS ? reshapeOnAddRHS.getInput().getDefiningOp<MatmulOp>()
-                        : nullptr;
-
-    MatmulOp validMatmulOp =
-        getValidMatmulOp(matmulOnReshapeLHS, matmulOnReshapeRHS);
-    if (!validMatmulOp) {
-      return nullptr;
+  // Walk backward through at most one single-use ReshapeOp looking for
+  // a MatmulOp. Returns {MatmulOp, ReshapeOp}.
+  static std::pair<MatmulOp, ReshapeOp> findMatmulThroughReshape(Value value) {
+    ReshapeOp reshapeOp = value.getDefiningOp<ReshapeOp>();
+    if (reshapeOp) {
+      if (!reshapeOp.getResult().hasOneUse()) {
+        return {nullptr, nullptr};
+      }
+      value = reshapeOp.getInput();
     }
-    ReshapeOp validReshapeOp = (validMatmulOp == matmulOnReshapeLHS)
-                                   ? reshapeOnAddLHS
-                                   : reshapeOnAddRHS;
-    if (!validReshapeOp.getResult().hasOneUse()) {
-      return nullptr;
+    if (auto matmulOp = value.getDefiningOp<MatmulOp>()) {
+      if (matmulOp.getResult().hasOneUse()) {
+        return {matmulOp, reshapeOp};
+      }
     }
-
-    // Bias will come from the other operand of the AddOp. Check that its shape
-    // is broadcastable with the matmul output shape. Check that expected new
-    // linear shape volume matches the add output shape volume.
-    TypedValue<RankedTensorType> bias =
-        (validMatmulOp == matmulOnReshapeLHS) ? addOp.getRhs() : addOp.getLhs();
-    if (!bias.hasOneUse()) {
-      return nullptr;
-    }
-
-    RankedTensorType biasType = bias.getType();
-    SmallVector<int64_t> linearWithBiasExpectedShape;
-    if (!OpTrait::util::getBroadcastedShape(validMatmulOp.getType().getShape(),
-                                            biasType.getShape(),
-                                            linearWithBiasExpectedShape)) {
-      return nullptr;
-    }
-
-    RankedTensorType addOpType = addOp.getType();
-    ArrayRef<int64_t> addOpShape = addOpType.getShape();
-    if (ttmlir::utils::volume(
-            llvm::ArrayRef<int64_t>(linearWithBiasExpectedShape)) !=
-        ttmlir::utils::volume(addOpShape)) {
-      return nullptr;
-    }
-
-    return validMatmulOp;
+    return {nullptr, nullptr};
   }
 
-  MatmulOp getFusableMatmulOp(AddOp addOp) const {
-    // Check if one operand is a MatmulOp with only this AddOp as its user.
-    // Check bias operand has only one use.
-    MatmulOp matmulOpLHS = addOp.getLhs().getDefiningOp<MatmulOp>();
-    MatmulOp matmulOpRHS = addOp.getRhs().getDefiningOp<MatmulOp>();
-    MatmulOp validMatmulOp = getValidMatmulOp(matmulOpLHS, matmulOpRHS);
-    if (!validMatmulOp) {
-      return nullptr;
+  // Walk backward from `bias` through single-use BroadcastOps and ReshapeOps,
+  // peeling operations that are redundant once fused into LinearOp:
+  //  - BroadcastOps: safe to peel when the matmul output already covers every
+  //    dimension the broadcast expands. Checked by verifying that
+  //    broadcast(matmulShape, inputShape) == broadcast(matmulShape,
+  //    outputShape).
+  //  - ReshapeOps that only add or remove leading singleton dimensions
+  //    (equivalent to repeated unsqueeze(dim=0)).
+  static TypedValue<RankedTensorType>
+  peelBiasTransformations(TypedValue<RankedTensorType> bias,
+                          ArrayRef<int64_t> matmulShape) {
+    Value current = bias;
+    while (true) {
+      if (!current.hasOneUse()) {
+        break;
+      }
+
+      // Peel BroadcastOps when the matmul output covers all expanded dims.
+      if (auto broadcast = current.getDefiningOp<BroadcastOp>()) {
+        ArrayRef<int64_t> bcInputShape =
+            mlir::cast<RankedTensorType>(broadcast.getInput().getType())
+                .getShape();
+        ArrayRef<int64_t> bcOutputShape = broadcast.getType().getShape();
+
+        llvm::SmallVector<int64_t> withInput, withOutput;
+        if (mlir::OpTrait::util::getBroadcastedShape(matmulShape, bcInputShape,
+                                                     withInput) &&
+            mlir::OpTrait::util::getBroadcastedShape(matmulShape, bcOutputShape,
+                                                     withOutput) &&
+            llvm::equal(withInput, withOutput)) {
+          current = broadcast.getInput();
+          continue;
+        }
+        break;
+      }
+
+      // Peel ReshapeOps that only add/remove leading 1s.
+      if (auto reshape = current.getDefiningOp<ReshapeOp>()) {
+        ArrayRef<int64_t> reshapeOutShape =
+            mlir::cast<RankedTensorType>(reshape.getType()).getShape();
+        auto peeled =
+            mlir::cast<TypedValue<RankedTensorType>>(reshape.getInput());
+        ArrayRef<int64_t> peeledShape = peeled.getType().getShape();
+        while (!peeledShape.empty() && peeledShape.front() == 1) {
+          peeledShape = peeledShape.drop_front();
+        }
+        while (!reshapeOutShape.empty() && reshapeOutShape.front() == 1) {
+          reshapeOutShape = reshapeOutShape.drop_front();
+        }
+
+        if (llvm::equal(peeledShape, reshapeOutShape)) {
+          current = peeled;
+          continue;
+        }
+        break;
+      }
+
+      break;
     }
-    TypedValue<RankedTensorType> bias =
-        (validMatmulOp == matmulOpLHS) ? addOp.getRhs() : addOp.getLhs();
-    if (!bias.hasOneUse()) {
-      return nullptr;
-    }
-    return validMatmulOp;
+
+    return mlir::cast<TypedValue<RankedTensorType>>(current);
   }
 };
 
@@ -3452,6 +3472,7 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<ConvTagWeights<Conv2dOp>>(&getContext());
       patterns.add<ConvTagWeights<Conv3dOp>>(&getContext());
+      patterns.add<MatmulWithBiasFusionPattern>(&getContext());
       if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
         signalPassFailure();
         return;
@@ -3495,7 +3516,6 @@ public:
           &getContext());
       patterns.add<ScaledSumToMeanPattern>(&getContext());
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
-      patterns.add<MatmulWithBiasFusionPattern>(&getContext());
       patterns.add<RMSNormFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
