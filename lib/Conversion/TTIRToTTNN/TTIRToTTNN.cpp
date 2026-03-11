@@ -127,8 +127,11 @@ public:
 
     // Get data type, tensor layout, device and memory config
     //
+    Type resultElementType =
+        mlir::cast<RankedTensorType>(op.getResult().getType()).getElementType();
+    Type dtypeType = adaptor.getDtype() ? adaptor.getDtype() : resultElementType;
     ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
-        rewriter.getContext(), layoutAttr.getDataType());
+        rewriter.getContext(), ttcore::elementTypeToDataType(dtypeType));
     ttnn::BufferType bufferType = layoutAttr.getBufferType();
     ttnn::LayoutAttr tensorLayoutAttr =
         ttnn::LayoutAttr::get(op.getContext(), layoutAttr.getLayout());
@@ -2637,8 +2640,10 @@ public:
     ttnn::TTNNLayoutAttr ttnnLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
 
+    Type dtypeType = adaptor.getDtype() ? adaptor.getDtype()
+                                        : outputType.getElementType();
     ttcore::DataTypeAttr dtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
-        ttcore::elementTypeToDataType(outputType.getElementType()));
+        ttcore::elementTypeToDataType(dtypeType));
 
     mlir::Value device =
         ttnnLayoutAttr.isDeviceBufferType()

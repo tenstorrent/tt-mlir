@@ -618,7 +618,31 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
 // ArangeOp
 //===----------------------------------------------------------------------===//
 
+namespace {
+template <typename OpT>
+::mlir::LogicalResult verifyCreationOpDtype(OpT op) {
+  Type dtype = op.getDtype();
+  if (!dtype) {
+    return success();
+  }
+
+  Type outputType = op.getResult().getType().getElementType();
+  if (dtype != outputType) {
+    return op.emitOpError() << "dtype does not match with output tensor type "
+                               "[dtype = '"
+                            << dtype << "', output tensor type = '" << outputType
+                            << "'].";
+  }
+
+  return success();
+}
+} // namespace
+
 ::mlir::LogicalResult mlir::tt::ttir::ArangeOp::verify() {
+  if (failed(verifyCreationOpDtype(*this))) {
+    return failure();
+  }
+
   int64_t start = getStart();
   int64_t end = getEnd();
   int64_t step = getStep();
@@ -643,6 +667,18 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ZerosOp / OnesOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::ZerosOp::verify() {
+  return verifyCreationOpDtype(*this);
+}
+
+::mlir::LogicalResult mlir::tt::ttir::OnesOp::verify() {
+  return verifyCreationOpDtype(*this);
 }
 
 //===----------------------------------------------------------------------===//

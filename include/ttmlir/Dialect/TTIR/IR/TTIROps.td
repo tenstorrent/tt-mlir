@@ -4909,6 +4909,8 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
     - `end` (Integer): The end value of the sequence (exclusive).
     - `step` (Integer): The step size between values in the sequence.
     - `arange_dimension` (Integer): The dimension along which to generate the sequence.
+    - `dtype` (Type, optional): Element type override. If specified, must
+      match the result tensor element type.
 
     Output:
     - `result` (Tensor): The generated tensor containing the sequence.
@@ -4917,7 +4919,8 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
   let arguments = (ins SI64Attr:$start,
                        SI64Attr:$end,
                        SI64Attr:$step,
-                       I64Attr:$arange_dimension);
+                       I64Attr:$arange_dimension,
+                       OptionalAttr<TypeAttr>:$dtype);
 
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
@@ -5032,6 +5035,8 @@ class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
 
     Attributes:
     - `shape` (Array of Integer): The shape of the tensor to create.
+    - `dtype` (Type, optional): Element type override. If specified, must
+      match the result tensor element type.
 
     Output:
     - `result` (Tensor): The created tensor with the specified shape.
@@ -5041,7 +5046,8 @@ class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
     by providing common argument and result definitions.
   }];
 
-  let arguments = (ins DenseI32ArrayAttr:$shape);
+  let arguments = (ins DenseI32ArrayAttr:$shape,
+                       OptionalAttr<TypeAttr>:$dtype);
 
   let results = (outs AnyRankedTensor:$result);
 }
@@ -5081,6 +5087,7 @@ def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
     This operation is useful for initializing tensors before filling them with computed values or as a
     starting point for accumulation operations.
   }];
+  let hasVerifier = 1;
 }
 
 def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
@@ -5118,6 +5125,7 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
     This operation is useful for initializing tensors before scaling them or as a starting point for
     operations that require tensors filled with ones, such as creating masks or constant multipliers.
   }];
+  let hasVerifier = 1;
 }
 
 def TTIR_EmptyOp : TTIR_CreationOp<"empty", [TTCore_NonCacheableTrait]> {

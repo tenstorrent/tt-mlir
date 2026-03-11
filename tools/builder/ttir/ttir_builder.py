@@ -1502,6 +1502,7 @@ class TTIRBuilder(Builder):
             end_attr,
             step_attr,
             arange_dimension_attr,
+            mlir_output_type,
             loc=loc,
         )
         new_op_result = op.result
@@ -1537,6 +1538,11 @@ class TTIRBuilder(Builder):
         end_attr = old_op.end
         step_attr = old_op.step
         arange_dimension_attr = old_op.arange_dimension
+        dtype_attr = (
+            old_op.dtype
+            if old_op.dtype is not None
+            else old_op.result.type.element_type
+        )
 
         new_op = ttir_op(
             result,
@@ -1544,6 +1550,7 @@ class TTIRBuilder(Builder):
             end_attr,
             step_attr,
             arange_dimension_attr,
+            dtype_attr,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -1557,7 +1564,7 @@ class TTIRBuilder(Builder):
             step_attr,
             arange_dimension_attr,
             mesh_shape_attr,
-            old_op.result.type.element_type,
+            dtype_attr,
         )
         self._set_golden_tensor(new_op_result, golden_output)
 
@@ -1590,6 +1597,11 @@ class TTIRBuilder(Builder):
                     end_attr = old_op.end
                     step_attr = old_op.step
                     arange_dimension_attr = old_op.arange_dimension
+                    dtype_attr = (
+                        old_op.dtype
+                        if old_op.dtype is not None
+                        else old_op.result.type.element_type
+                    )
                     result = old_op.result.type
 
                     new_op = ttir_op(
@@ -1598,6 +1610,7 @@ class TTIRBuilder(Builder):
                         end_attr,
                         step_attr,
                         arange_dimension_attr,
+                        dtype_attr,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result
@@ -1952,6 +1965,7 @@ class TTIRBuilder(Builder):
         op = ttir_op(
             result,
             shape_attr,
+            mlir_output_type,
             loc=loc,
         )
         op_result = op.result
@@ -1978,10 +1992,16 @@ class TTIRBuilder(Builder):
         ttir_op = self.get_opview_from_parser(TTIRBuilder.ones_parser)
         result = old_op.result.type
         shape_attr = old_op.shape
+        dtype_attr = (
+            old_op.dtype
+            if old_op.dtype is not None
+            else old_op.result.type.element_type
+        )
 
         new_op = ttir_op(
             result,
             shape_attr,
+            dtype_attr,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -2019,8 +2039,15 @@ class TTIRBuilder(Builder):
                 @func.func(*op_input_types, name="ones_module")
                 def decorated_func():
                     result = old_op.result.type
+                    dtype_attr = (
+                        old_op.dtype
+                        if old_op.dtype is not None
+                        else old_op.result.type.element_type
+                    )
 
-                    new_op = ttir_op(result, old_op.shape, loc=old_op.location)
+                    new_op = ttir_op(
+                        result, old_op.shape, dtype_attr, loc=old_op.location
+                    )
                     new_op_result = new_op.result
 
                     old_op_result = self._get_golden_tensor(old_op.result)
@@ -2060,6 +2087,7 @@ class TTIRBuilder(Builder):
         op = ttir_op(
             result,
             shape_attr,
+            mlir_output_type,
             loc=loc,
         )
         op_result = op.result
@@ -2086,10 +2114,16 @@ class TTIRBuilder(Builder):
         ttir_op = self.get_opview_from_parser(TTIRBuilder.zeros_parser)
         result = old_op.result.type
         shape_attr = old_op.shape
+        dtype_attr = (
+            old_op.dtype
+            if old_op.dtype is not None
+            else old_op.result.type.element_type
+        )
 
         new_op = ttir_op(
             result,
             shape_attr,
+            dtype_attr,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -2127,10 +2161,16 @@ class TTIRBuilder(Builder):
                 @func.func(*op_input_types, name="zeros_module")
                 def decorated_func():
                     result = old_op.result.type
+                    dtype_attr = (
+                        old_op.dtype
+                        if old_op.dtype is not None
+                        else old_op.result.type.element_type
+                    )
 
                     new_op = ttir_op(
                         result,
                         old_op.shape,
+                        dtype_attr,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result

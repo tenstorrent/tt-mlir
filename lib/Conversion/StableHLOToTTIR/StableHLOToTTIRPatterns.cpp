@@ -821,10 +821,12 @@ public:
     FloatAttr momentumAttr = rewriter.getF32FloatAttr(1.0f);
 
     auto runningMean = rewriter.create<ttir::ZerosOp>(
-        loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()));
+        loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()),
+        meanType.getElementType());
     auto runningVariance = rewriter.create<ttir::OnesOp>(
         loc, varianceType,
-        llvm::to_vector_of<int32_t>(varianceType.getShape()));
+        llvm::to_vector_of<int32_t>(varianceType.getShape()),
+        varianceType.getElementType());
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormTrainingOp>(
         srcOp, TypeRange{outputType, meanType, varianceType},
@@ -4406,7 +4408,7 @@ public:
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
     rewriter.replaceOpWithNewOp<ttir::ArangeOp>(
         srcOp, outputType, 0, outputType.getDimSize(adaptor.getIotaDimension()),
-        1, adaptor.getIotaDimension());
+        1, adaptor.getIotaDimension(), outputType.getElementType());
 
     // Dynamic Iota has an output_shape attribute but the output shape is
     // already known by the result type This is to remove the operand that
@@ -5431,7 +5433,8 @@ public:
     // idx[i,j].
     auto rowOffsets = rewriter.create<ttir::ArangeOp>(
         loc, indices2DType, /*start=*/0, /*end=*/total,
-        /*step=*/dSort, /*arange_dimension=*/0);
+        /*step=*/dSort, /*arange_dimension=*/0,
+        indices2DType.getElementType());
     Value flatIndices =
         rewriter.create<ttir::AddOp>(loc, indices2DType, rowOffsets, indices2D);
 
