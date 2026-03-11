@@ -1170,6 +1170,9 @@ public:
       if (genericOp.isExplicitDatamovementForm()) {
         return;
       }
+      if (genericOp->hasAttr("d2m.skip_grid_selection")) {
+        return;
+      }
       assignGrids(genericOp, config);
     });
   }

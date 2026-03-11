@@ -1721,7 +1721,13 @@ static mlir::LogicalResult verifyAffineBlocking(
   for (size_t operand = 0; operand < indexingMaps.size(); ++operand) {
     auto shape = shapes[operand];
     auto factor = indexingMaps[operand].compose(factors);
-    assert(shape.size() == factor.size());
+    if (shape.size() != factor.size()) {
+      return diagFn() << shapeName << " rank mismatch for operand[" << operand
+                      << "] " << shapeName << "_shape=[" << shapes[operand]
+                      << "] expected " << shapeName << "_shape=[" << factor
+                      << "]";
+    }
+
     if (auto dim = isNotEqualOrBroadcast(shape, factor)) {
       return diagFn() << shapeName << " dim unexpected for operand[" << operand
                       << "] " << shapeName << "_shape=[" << shapes[operand]
@@ -1757,7 +1763,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
 
     // Only check yield terminator for non-explicit-datamovement form.
     // Explicit datamovement form allows users to manage terminators themselves.
-    if (!isExplicitDatamovementForm()) {
+    if (!isExplicitDatamovementForm() && !this->getRegion(0).empty()) {
       Region &region = this->getRegion(0);
 
       Block &block = region.front();
@@ -1969,7 +1975,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
 
   // Unified form will be replicated across compute and datamovement threads.
   // Reject semaphore ops that would create race conditions when replicated.
-  if (isUnifiedForm()) {
+  if (isUnifiedForm() && !this->getRegion(0).empty()) {
     if (failed(utils::checkForIllegalSemaphoreOps(&getRegion(0).front()))) {
       return failure();
     }

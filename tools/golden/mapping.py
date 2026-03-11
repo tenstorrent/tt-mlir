@@ -6789,9 +6789,7 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
     """
 
     # Handle special cases with parameters
-    if (
-        ttir_op_class == ttir.ToLayoutOp or ttir_op_class == d2m.ToLayoutOp
-    ) and "tilize" in kwargs:
+    if (ttir_op_class == ttir.ToLayoutOp) and "tilize" in kwargs:
         if kwargs["tilize"]:
             return tilize_golden
         else:

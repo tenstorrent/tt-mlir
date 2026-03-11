@@ -1729,8 +1729,23 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     rewriter.setInsertionPoint(op);
 
+    auto streamShardShape =
+        mlir::cast<ttcore::DeviceLayoutInterface>(bufferType.getLayout())
+            .getShardShape(bufferType);
+    // This is kind of a workaround, but a grid shape for the stream buffer
+    // doesn't really make sense and is frustratingly complicated to calculate
+    // correctly.  Since stream buffers are going away anyway, we can just use a
+    // unit grid as a placeholder for this allocation.  Note this fix is
+    // required for block factors > 1.
+    SmallVector<int64_t> streamGridShape(streamShardShape.size(), 1);
+    auto streamBufferType = getStreamBufferType(
+        streamGridShape,
+        mlir::cast<ttcore::DeviceLayoutInterface>(bufferType.getLayout())
+            .getShardShape(bufferType),
+        bufferType.getElementType(), L1Attr, numStreamBuffers);
+
     auto bufferAllocOp =
-        rewriter.create<memref::AllocOp>(op.getLoc(), bufferType);
+        rewriter.create<memref::AllocOp>(op.getLoc(), streamBufferType);
 
     if (req) {
       assignAddressAndAlignment(rewriter, bufferAllocOp, req->offset, info);
