@@ -21,9 +21,29 @@ def D2M_MemTx : D2M_Type<"MemTx", "mem_tx"> {
     let description = "Memory transaction returned by dma op, used to wait for completion.";
 }
 
-def D2M_Semaphore : D2M_Type<"Semaphore", "semaphore"> {
-    let summary = "D2M semaphore type.";
-    let description = "Semaphore primitive type used with semaphore ops to synchronize cores.";
+def D2M_LocalSemaphore : D2M_Type<"LocalSemaphore", "local_semaphore"> {
+    let summary = "D2M local semaphore type.";
+    let description = "Local semaphore primitive type used with semaphore ops to synchronize cores.";
+}
+
+def D2M_GlobalSemaphore : D2M_Type<"GlobalSemaphore", "global_semaphore"> {
+    let summary = "D2M global semaphore type.";
+    let description = "Global semaphore type used with semaphore wait/set ops to synchronize cores.";
+}
+
+def D2M_Scalar : D2M_Type<"Scalar", "scalar"> {
+    let summary = "D2M scalar type.";
+    let description = "Used for passing scalar values into kernels.";
+    let parameters = (ins "Type":$underlying);
+    let assemblyFormat = "`<` $underlying `>`";
+    let genVerifyDecl = 1;
+
+    let extraClassDeclaration = [{
+        template <typename T>
+        T getUnderlyingAs() {
+          return mlir::cast<T>(getUnderlying());
+        }
+    }];
 }
 
 def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLikeTypeInterface, Bufferization_BufferLikeTypeInterface]> {
@@ -100,11 +120,6 @@ def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLike
                        getShape() == shapedType.getShape());
       }
     }];
-}
-
-def D2M_GlobalSemaphore : D2M_Type<"GlobalSemaphore", "global_semaphore"> {
-    let summary = "D2M global semaphore type.";
-    let description = "Global semaphore type used with semaphore wait/set ops to synchronize cores.";
 }
 
 #endif  // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSTYPES_TD

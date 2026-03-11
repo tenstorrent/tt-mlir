@@ -1967,6 +1967,7 @@ public:
 } // namespace
 
 namespace {
+// Rewrites kernel func::FuncOp signatures from D2M to TTKernel ABI.
 class D2MKernelFunctionArgsRewriter : public OpConversionPattern<func::FuncOp> {
 public:
   using OpConversionPattern<func::FuncOp>::OpConversionPattern;
@@ -1989,6 +1990,8 @@ public:
     }
   }
 
+  // Replace D2M-specific function attributes with their TTKernel equivalents
+  // and record the compile-time argument specification on the function.
   static void convertFunctionAttrs(Builder &builder, func::FuncOp op,
                                    ArrayRef<ArgAttr> rtArgs,
                                    ArrayRef<ArgAttr> ctArgs) {
@@ -2027,7 +2030,6 @@ public:
     auto blockArgs = block->getArguments();
     assert(!blockArgs.empty());
 
-    size_t currentSemaphoreIndex = 0;
     TypeConverter::SignatureConversion signatureConverter(op.getNumArguments());
     OpBuilder::InsertionGuard funcInsertionGuard(rewriter);
     rewriter.setInsertionPointToStart(block);
@@ -2035,21 +2037,31 @@ public:
     // d2m.get_cb ops, which are lowered by D2MGetCBRewriter.
     for (auto arg : blockArgs) {
       Type argType = getTypeConverter()->convertType(arg.getType());
-      if (mlir::isa<SemaphoreType>(argType)) {
+      if (mlir::isa<ttkernel::LocalSemaphoreType>(argType)) {
         if (getTTKernelThreadType(op) != ThreadType::Noc) {
           continue;
         }
-        size_t ctArgIndex = ctArgSpecVector.size();
         auto semaphoreIndex = rewriter.create<GetCompileArgValOp>(
             op.getLoc(), rewriter.getI32Type(),
-            rewriter.getI32IntegerAttr(ctArgIndex));
+            rewriter.getI32IntegerAttr(arg.getArgNumber()));
         auto semaphore =
             rewriter.create<GetSemaphoreOp>(op.getLoc(), semaphoreIndex);
         signatureConverter.remapInput(arg.getArgNumber(),
                                       semaphore.getResult());
         ctArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(
-            ArgType::Semaphore, currentSemaphoreIndex++));
-      } else {
+            ArgType::LocalSemaphore, arg.getArgNumber()));
+      } 
+      else if (mlir::isa<ttkernel::GlobalSemaphoreType>(argType)) {
+        auto globalSemAddr = rewriter.create<GetCompileArgValOp>(op.getLoc(), argType, rewriter.getI32IntegerAttr(arg.getArgNumber()));
+        signatureConverter.remapInput(arg.getArgNumber(),globalSemAddr.getResult());
+        ctArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(ArgType::GlobalSemaphore, arg.getArgNumber()));
+      } 
+      else if (mlir::isa<ttkernel::ScalarType>(argType)) {
+        auto scalar = rewriter.create<GetCompileArgValOp>(op.getLoc(), argType, rewriter.getI32IntegerAttr(arg.getArgNumber()));
+        signatureConverter.remapInput(arg.getArgNumber(), {scalar});
+        ctArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(ArgType::Scalar, arg.getArgNumber()));
+      } 
+      else {
         llvm_unreachable("unexpected block argument type");
       }
     }
@@ -2170,6 +2182,24 @@ public:
 };
 } // namespace
 
+namespace {
+class D2MPrintArgOpRewriter : public OpConversionPattern<d2m::PrintArg> {
+public:
+  using OpConversionPattern<d2m::PrintArg>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::PrintArg op, d2m::PrintArgAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    std::string fmt = op.getFmt()
+                          ? (op.getFmt()->str() + ": {}")
+                          : "Printing arg: {}";
+    rewriter.replaceOpWithNewOp<ttkernel::DPrintOp>(op, fmt.c_str(),
+                                                    adaptor.getValue());
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttkernel
 
 namespace mlir::tt {
@@ -2275,6 +2305,9 @@ void populateD2MToTTKernelPatterns(
   patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
+
+  // Debug op patterns.
+  patterns.add<ttkernel::D2MPrintArgOpRewriter>(typeConverter, ctx);
 
   // This is needed to lower affine apply ops that may be generated when
   // `d2m.core_index` is used with a `phys_to_virt_map`.

@@ -69,9 +69,9 @@ std::vector<std::uint32_t> processKernelArgs(
                                                metalBuffer->buffer_type()));
       break;
     }
-    case target::metal::KernelArgType::KernelArgSemaphore: {
+    case target::metal::KernelArgType::KernelArgLocalSemaphore: {
       LOG_ASSERT(createSemaphoreFn, "createSemaphoreFn is not set");
-      const auto *arg = kernelArg->arg_as_KernelArgSemaphore();
+      const auto *arg = kernelArg->arg_as_KernelArgLocalSemaphore();
       argsVec.push_back(createSemaphoreFn(arg->initial_value()));
       break;
     }
@@ -98,6 +98,11 @@ std::vector<std::uint32_t> processKernelArgs(
           global_semaphores_cache.at(global_semaphore_operand->global_id())
               .address(),
           target::BufferType::L1));
+      break;
+    }
+    case target::metal::KernelArgType::KernelArgScalar: {
+      const auto *arg = kernelArg->arg_as_KernelArgScalar();
+      argsVec.push_back(arg->operand_idx());
       break;
     }
     case target::metal::KernelArgType::NONE:

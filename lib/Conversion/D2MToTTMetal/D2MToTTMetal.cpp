@@ -162,7 +162,11 @@ public:
       auto operand = adaptor.getOperands()[ioSize + i];
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
         args.push_back(operand);
-      } else if (mlir::isa<MemRefType>(operand.getType())) {
+      }
+      else if (mlir::isa<ttmetal::LocalSemaphoreType>(operand.getType())) {
+        args.push_back(operand);
+      }
+      else if (mlir::isa<MemRefType>(operand.getType())) {
         // Hoisted CB buffer (already converted to CreateBufferOp by
         // MemrefAllocRewriter).  If it backs a regular operand, override
         // that operand's CB; otherwise add as a new CB entry.
@@ -178,7 +182,8 @@ public:
           cbs.push_back(operand);
           cbPorts.push_back(cbPort++);
         }
-      } else {
+      }
+      else {
         op.emitOpError(
             "unexpected operand type in d2m.generic's additionalArgs: ")
             << operand.getType();
@@ -379,6 +384,24 @@ public:
 } // namespace
 
 namespace {
+class D2MCreateLocalSemaphoreRewriter
+    : public OpConversionPattern<d2m::CreateLocalSemaphoreOp> {
+public:
+  using OpConversionPattern<d2m::CreateLocalSemaphoreOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::CreateLocalSemaphoreOp op,
+                  d2m::CreateLocalSemaphoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttmetal::CreateLocalSemaphoreOp>(
+        op, ttmetal::LocalSemaphoreType::get(rewriter.getContext()),
+        adaptor.getInitialValueAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class D2MCreateGlobalSemaphoreRewriter
     : public OpConversionPattern<d2m::CreateGlobalSemaphoreOp> {
 public:
@@ -440,6 +463,7 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
                ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
                ttmetal::D2MMeshShardRewriter,
+               ttmetal::D2MCreateLocalSemaphoreRewriter,
                ttmetal::D2MCreateGlobalSemaphoreRewriter,
                ttmetal::D2MResetGlobalSemaphoreRewriter>(ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);

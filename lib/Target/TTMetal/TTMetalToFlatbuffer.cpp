@@ -637,9 +637,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
               .Union();
     break;
   }
-  case ttkernel::ArgType::Semaphore: {
-    argType = target::metal::KernelArgType::KernelArgSemaphore;
-    arg = target::metal::CreateKernelArgSemaphore(*cache.fbb).Union();
+  case ttkernel::ArgType::LocalSemaphore: {
+    argType = target::metal::KernelArgType::KernelArgLocalSemaphore;
+    arg = target::metal::CreateKernelArgLocalSemaphore(*cache.fbb).Union();
     break;
   }
   case ttkernel::ArgType::NamedArgument: {
@@ -651,6 +651,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     argType = target::metal::KernelArgType::KernelArgGlobalSemaphore;
     arg = target::metal::CreateKernelArgGlobalSemaphore(
               *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::Scalar: {
+    argType = target::metal::KernelArgType::KernelArgScalar;
+    arg = target::metal::CreateKernelArgScalar(*cache.fbb,
+                                               kernelArg.getOperandIndex())
               .Union();
     break;
   }
@@ -866,6 +873,10 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
 
     cqBuilder.inputs.reserve(entry.getBody().getArguments().size());
     for (auto &input : entry.getBody().getArguments()) {
+      if (!mlir::isa<MemRefType>(input.getType())) {
+        llvm::report_fatal_error("Only memref inputs are supported in entry functions");
+      }
+
       cqBuilder.inputs.push_back(
           cache.getOrCreate(input, bufferValueToFlatbuffer, systemDesc, 0));
       tensorInputs.push_back(tensorValueToFlatbuffer(cache, input));
@@ -879,7 +890,8 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                 fbb, cache.getOrCreate(allocOp.getResult(),
                                        bufferValueToFlatbuffer, systemDesc, 0)),
             op);
-      } else if (auto enqueueProgramOp =
+      } 
+      else if (auto enqueueProgramOp =
                      dyn_cast_if_present<tt::ttmetal::EnqueueProgramOp>(op);
                  enqueueProgramOp) {
         std::vector<target::metal::ArgRef> argTypes;
