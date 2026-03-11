@@ -1145,7 +1145,6 @@ public:
       patterns.add<fusing::RoPEFusing>(&getContext());
       patterns.add<fusing::RoPEDecodeFusing>(&getContext());
       patterns.add<SDPAFusing>(&getContext());
-      patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<MatmulOp>>(
           &getContext());
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<LinearOp>>(
