@@ -2856,7 +2856,7 @@ mlir::LogicalResult d2m::SpatialOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
-
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   if (getNumResults() == 0) {
     return failure();
   }
@@ -2883,11 +2883,9 @@ mlir::LogicalResult d2m::SpatialOp::bufferize(
     }
     bufferOutputs.push_back(*maybeValue);
   }
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   auto bufferSpatial = rewriter.create<d2m::SpatialOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGridRanges(),
       getNumRegions());
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
   for (mlir::Region &region : bufferSpatial.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }
@@ -2897,6 +2895,7 @@ mlir::LogicalResult d2m::SpatialOp::bufferize(
   // boundary (operands/results) with buffers and move the body.
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      bufferOutputs);
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
   return success();
 }
 
