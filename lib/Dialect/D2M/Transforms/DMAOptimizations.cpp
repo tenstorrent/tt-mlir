@@ -116,6 +116,7 @@ static bool canBarrierSinkPast(DMAWaitOp dmaWait, Operation *sinkOver,
 // Push can't sink past:
 //   - reserve of same CB (reserve needs push to free the slot)
 //   - another push of same CB
+//   - wait of same CB (wait blocks until push)
 //   - dma_wait of same CB (barrier must complete before push signals readiness)
 static bool canPushSinkPast(Operation *sinkOver, Value sinkCB) {
   if (auto reserveOp = mlir::dyn_cast<ReserveOp>(sinkOver)) {
@@ -123,6 +124,9 @@ static bool canPushSinkPast(Operation *sinkOver, Value sinkCB) {
   }
   if (auto otherPush = mlir::dyn_cast<PushOp>(sinkOver)) {
     return areDifferentCBs(otherPush.getCb(), sinkCB);
+  }
+  if (auto waitOp = mlir::dyn_cast<WaitOp>(sinkOver)) {
+    return areDifferentCBs(waitOp.getCb(), sinkCB);
   }
   if (mlir::isa<DMAWaitOp>(sinkOver)) {
     return areDifferentCBs(getCBForOp(sinkOver), sinkCB);
@@ -133,6 +137,7 @@ static bool canPushSinkPast(Operation *sinkOver, Value sinkCB) {
 // Pop can't sink past:
 //   - wait (CB) of same CB (wait needs pop to release the slot)
 //   - another pop of same CB
+//   - reserve of same CB (reserve blocks until pop frees the slot)
 //   - dma_wait of same CB (barrier must complete before pop releases the slot)
 static bool canPopSinkPast(Operation *sinkOver, Value sinkCB) {
   if (auto waitOp = mlir::dyn_cast<WaitOp>(sinkOver)) {
@@ -140,6 +145,9 @@ static bool canPopSinkPast(Operation *sinkOver, Value sinkCB) {
   }
   if (auto otherPop = mlir::dyn_cast<PopOp>(sinkOver)) {
     return areDifferentCBs(otherPop.getCb(), sinkCB);
+  }
+  if (auto reserveOp = mlir::dyn_cast<ReserveOp>(sinkOver)) {
+    return areDifferentCBs(reserveOp.getCb(), sinkCB);
   }
   if (mlir::isa<DMAWaitOp>(sinkOver)) {
     return areDifferentCBs(getCBForOp(sinkOver), sinkCB);
