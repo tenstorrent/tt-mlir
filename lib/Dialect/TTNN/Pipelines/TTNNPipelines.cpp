@@ -483,10 +483,24 @@ void createTTNNToEmitPyDevicePipeline(
     } else {
       devicePm.addPass(createTTNNCreateInputGenerators());
     }
+
+    // Create main_for_test wrapper for frontend-driven execution (e.g.
+    // PythonModelRunner). This must run after the input generator/loader
+    // pass so that _main already exists.
+    //
+    devicePm.addPass(createTTNNCreateMainForTest());
   }
 
+  // Both paths (targetModule and TTNNCreateMainForTest) inject device as an
+  // explicit argument into the forward function. Const-eval functions also
+  // need device injected, but this can't be done as a separate MLIR pass
+  // because load_cached ops verify callee argument count between passes
+  // (issue #6746). Setting targetModule=true on the EmitPy pass tells it to
+  // handle const-eval device injection inside its runOnOperation, before
+  // applyFullConversion.
+  //
   ConvertTTNNToEmitPyOptions emitpyOptions;
-  emitpyOptions.targetModule = options.targetModule;
+  emitpyOptions.targetModule = true;
   devicePm.addPass(createConvertTTNNToEmitPyPass(emitpyOptions));
 
   devicePm.addPass(createEmitPyNameVarsPass());
