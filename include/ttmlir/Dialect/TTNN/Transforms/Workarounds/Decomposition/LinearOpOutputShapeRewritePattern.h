@@ -17,6 +17,7 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // broadcasted shape. This pattern adjusts the LinearOp output from the
 // broadcasted shape to the matmul shape and inserts a ReshapeOp to restore the
 // original shape.
+// See: https://github.com/tenstorrent/tt-metal/issues/39392
 class LinearOpOutputShapeRewritePattern
     : public OpRewritePattern<ttnn::LinearOp> {
 public:
