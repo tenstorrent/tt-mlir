@@ -15,3 +15,20 @@ target_link_libraries(OptimizerTests
     MLIRTTNNAnalysis
     MLIRTTNNValidation
 )
+
+if (TTMLIR_ENABLE_OPMODEL)
+    add_mlir_unittest(OpModelStrategyTests
+        TestOpModelStrategy.cpp
+        TestBeamSearch.cpp
+        TestReshardCandidates.cpp
+        PARTIAL_SOURCES_INTENDED
+    )
+
+    target_link_libraries(OpModelStrategyTests
+        PRIVATE
+        MLIRTTNNDialect
+        MLIRTTTransforms
+        MLIRTTNNAnalysis
+        MLIRTTNNValidation
+    )
+endif()
