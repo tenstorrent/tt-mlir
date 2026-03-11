@@ -32,7 +32,7 @@ namespace workaround {
 // Stub for workaround::Env::get
 const Env &Env::get(bool swapBinaryOperands,
                     bool readUpdateIndexFromDeviceForKVCache,
-                    bool blackholeWorkarounds) {
+                    bool traceImplicitFromDevice, bool blackholeWorkarounds) {
   __builtin_trap();
 }
 

@@ -352,11 +352,10 @@ void createTTIRToTTNNDevicePipeline(
         devicePm.addPass(mlir::createCanonicalizerPass());
       }
     }
+    createTTNNPipelineLayoutDecompositionPass(devicePm, options);
     if (options.enableTrace) {
       devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
     }
-    createTTNNPipelineLayoutDecompositionPass(devicePm, options);
-
     // Fold ttcore.optimization_barrier ops before deallocation.
     devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
 
