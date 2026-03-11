@@ -77,8 +77,21 @@ def TTNN_MemoryConfigOpInterface : OpInterface<"TTNNMemoryConfigOpInterface"> {
       /*retTy=*/"MemoryConfigAttr",
       /*methodName=*/"getMemoryConfigAttr",
       /*args=*/(ins),
-      /*methodBody=*/[{
-        return $_op.getMemoryConfigAttr();
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return getMemoryConfigFromResult($_op.getOperation());
+      }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Compatibility getter that forwards to getMemoryConfigAttr().
+      }],
+      /*retTy=*/"std::optional<MemoryConfigAttr>",
+      /*methodName=*/"getMemoryConfig",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return getMemoryConfigFromResult($_op.getOperation());
       }]
     >,
     InterfaceMethod<
@@ -87,8 +100,21 @@ def TTNN_MemoryConfigOpInterface : OpInterface<"TTNNMemoryConfigOpInterface"> {
       /*retTy=*/"void",
       /*methodName=*/"setMemoryConfigAttr",
       /*args=*/(ins "MemoryConfigAttr": $memoryConfigAttr),
-      /*methodBody=*/[{
-        $_op.setMemoryConfigAttr(memoryConfigAttr);
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        setMemoryConfigOnResult($_op.getOperation(), memoryConfigAttr);
+      }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Compatibility setter that forwards to setMemoryConfigAttr().
+      }],
+      /*retTy=*/"void",
+      /*methodName=*/"setMemoryConfig",
+      /*args=*/(ins "MemoryConfigAttr": $memoryConfigAttr),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        setMemoryConfigOnResult($_op.getOperation(), memoryConfigAttr);
       }]
     >,
   ];

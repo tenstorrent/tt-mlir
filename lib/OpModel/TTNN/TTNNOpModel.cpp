@@ -261,7 +261,7 @@ getNullableMemoryConfig(TTNNLayoutAttr layout) {
   if (!layout) {
     return std::nullopt;
   }
-  return conversion::getMemoryConfig(layout);
+  return conversion::getMemoryConfig(layout.getMemoryConfigAttr());
 }
 
 /**
@@ -1621,7 +1621,6 @@ llvm::Expected<OpConstraints> NamedFullOpModel<OpTy>::getOpConstraints(
     mlir::tt::ttcore::GridAttr deviceGrid, mlir::tt::ttnn::ShapeAttr shape,
     std::optional<mlir::tt::ttcore::DataType> dtype,
     std::optional<mlir::tt::ttnn::Layout> layout,
-    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -1634,12 +1633,8 @@ llvm::Expected<OpConstraints> NamedFullOpModel<OpTy>::getOpConstraints(
   if (layout.has_value()) {
     metalLayout = conversion::getPageLayout(layout.value());
   }
-  std::optional<::ttnn::MemoryConfig> metalMemoryConfig = std::nullopt;
-  if (outputLayout) {
-    metalMemoryConfig = conversion::getMemoryConfig(outputLayout);
-  } else if (memoryConfig.has_value()) {
-    metalMemoryConfig = conversion::getMemoryConfig(memoryConfig.value());
-  }
+  std::optional<::ttnn::MemoryConfig> metalMemoryConfig =
+      conversion::getMemoryConfig(outputLayout.getMemoryConfigAttr());
   std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
       deviceRef = *device;
 
@@ -2204,8 +2199,7 @@ llvm::Expected<size_t> OpModel<ToLayoutOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<ToMemoryConfigOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, MemoryConfigAttr memoryConfig,
-    TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2216,8 +2210,9 @@ llvm::Expected<OpConstraints> OpModel<ToMemoryConfigOp>::getOpConstraints(
 
   // Create query closure
   auto toMemoryConfigOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::to_memory_config, device, inputSpec,
-                                conversion::getMemoryConfig(memoryConfig));
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::to_memory_config, device, inputSpec,
+        conversion::getMemoryConfig(outputLayout.getMemoryConfigAttr()));
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -2227,9 +2222,10 @@ llvm::Expected<OpConstraints> OpModel<ToMemoryConfigOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> OpModel<ToMemoryConfigOp>::getOpRuntime(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    MemoryConfigAttr memoryConfig, TTNNLayoutAttr outputLayout) {
+llvm::Expected<size_t>
+OpModel<ToMemoryConfigOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                        TTNNLayoutAttr inputLayout,
+                                        TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2240,8 +2236,9 @@ llvm::Expected<size_t> OpModel<ToMemoryConfigOp>::getOpRuntime(
 
   // Create query closure
   auto toMemoryConfigOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::to_memory_config, device, inputSpec,
-                            conversion::getMemoryConfig(memoryConfig));
+    return QUERY_OP_RUNTIME(
+        ::ttnn::to_memory_config, device, inputSpec,
+        conversion::getMemoryConfig(outputLayout.getMemoryConfigAttr()));
   };
 
   return operation::getOpRuntime(toMemoryConfigOpQuery);
@@ -7150,16 +7147,13 @@ llvm::Expected<OpConstraints>
 OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
     mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttcore::DataTypeAttr dtype, mlir::tt::ttnn::Layout inputLayout,
-    mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Use the output layout if possible:
   ::tt::tt_metal::MemoryConfig memConfig =
-      outputLayout ? conversion::getMemoryConfig(outputLayout)
-                   : conversion::getMemoryConfig(memoryConfig);
+      conversion::getMemoryConfig(outputLayout.getMemoryConfigAttr());
 
   auto emptyOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
@@ -7188,7 +7182,6 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
     mlir::tt::ttcore::GridAttr deviceGrid, ::mlir::IntegerAttr start,
     ::mlir::IntegerAttr end, ::mlir::IntegerAttr step,
     std::optional<mlir::tt::ttcore::DataType> dtype,
-    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7207,16 +7200,11 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
   if (dtype.has_value()) {
     dataType = conversion::getDataType(dtype.value());
   }
-  ::ttnn::MemoryConfig memoryConfig = defaultMemoryConfigInMetal;
+  ::ttnn::MemoryConfig memoryConfig =
+      conversion::getMemoryConfig(outputLayout.getMemoryConfigAttr());
   ::ttnn::Layout layout = defaultLayoutInMetal;
-  // Prefer the output layout if possible:
-  if (outputLayout) {
-    memoryConfig = conversion::getMemoryConfig(outputLayout);
-    layout =
-        outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
-  } else if (memConfig.has_value()) {
-    memoryConfig = conversion::getMemoryConfig(memConfig.value());
-  }
+  layout =
+      outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
   std::optional<std::reference_wrapper<::tt::tt_metal::distributed::MeshDevice>>
       deviceRef = *device;
 
@@ -7241,19 +7229,13 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
     mlir::tt::ttcore::GridAttr deviceGrid, mlir::tt::ttnn::ShapeAttr shape,
     mlir::Attribute fillValue, std::optional<mlir::tt::ttcore::DataType> dtype,
     std::optional<mlir::tt::ttnn::Layout> layout,
-    std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prefer the output layout if possible:
-  std::optional<::ttnn::MemoryConfig> metalMemConfig = std::nullopt;
-  if (outputLayout) {
-    metalMemConfig = conversion::getMemoryConfig(outputLayout);
-  } else if (memoryConfig.has_value()) {
-    metalMemConfig = conversion::getMemoryConfig(memoryConfig.value());
-  }
+  std::optional<::ttnn::MemoryConfig> metalMemConfig =
+      conversion::getMemoryConfig(outputLayout.getMemoryConfigAttr());
 
   std::optional<::ttnn::DataType> metalDtype = std::nullopt;
   if (dtype.has_value()) {
@@ -7304,21 +7286,15 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
 
 llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::RandOp>::getOpConstraints(
     mlir::tt::ttcore::GridAttr deviceGrid, mlir::tt::ttnn::ShapeAttr size,
-    mlir::tt::ttcore::DataType dtype,
-    mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
-    mlir::tt::ttnn::Layout layout, llvm::APFloat low, llvm::APFloat high,
-    uint32_t seed, mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+    mlir::tt::ttcore::DataType dtype, mlir::tt::ttnn::Layout layout,
+    llvm::APFloat low, llvm::APFloat high, uint32_t seed,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Prefer the output layout if possible:
-  ::ttnn::MemoryConfig metalMemConfig = ::ttnn::DRAM_MEMORY_CONFIG;
-  if (outputLayout) {
-    metalMemConfig = conversion::getMemoryConfig(outputLayout);
-  } else if (memoryConfig) {
-    metalMemConfig = conversion::getMemoryConfig(memoryConfig);
-  }
+  ::ttnn::MemoryConfig metalMemConfig =
+      conversion::getMemoryConfig(outputLayout.getMemoryConfigAttr());
 
   auto randOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
@@ -7519,7 +7495,6 @@ llvm::Expected<OpConstraints>
 OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints(
     mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout,
-    mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
     std::optional<mlir::tt::ttcore::DataType> outputDtype) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7530,9 +7505,8 @@ OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Convert output memory config
   ::tt::tt_metal::MemoryConfig metalMemConfig =
-      conversion::getMemoryConfig(outputMemConfig);
+      conversion::getMemoryConfig(inputLayout.getMemoryConfigAttr());
 
   // Convert optional output dtype
   std::optional<::tt::tt_metal::DataType> metalOutputDtype = std::nullopt;
@@ -7555,7 +7529,6 @@ OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints(
 
 llvm::Expected<size_t> OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
     std::optional<mlir::tt::ttcore::DataType> outputDtype) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7566,9 +7539,8 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Convert output memory config
   ::tt::tt_metal::MemoryConfig metalMemConfig =
-      conversion::getMemoryConfig(outputMemConfig);
+      conversion::getMemoryConfig(inputLayout.getMemoryConfigAttr());
 
   // Convert optional output dtype
   std::optional<::tt::tt_metal::DataType> metalOutputDtype = std::nullopt;

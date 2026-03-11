@@ -2306,23 +2306,6 @@ public:
     return rewriter.getType<emitpy::OpaqueAttr>(result);
   }
 
-  // This is a temporary solution for handling the case when
-  // the value of the MemoryConfigAttr is nullptr. This should be removed once
-  // https://github.com/tenstorrent/tt-mlir/issues/2415 lands.
-  ttnn::MemoryConfigAttr getMemoryConfig(mlir::Value val) {
-    auto deviceOp = ttcore::lookupDeviceOp(op);
-
-    TT_assertv(deviceOp, "ttcore.device must exist in the enclosing scope");
-
-    auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
-
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        ttnn::MemoryConfigAttr::get(layoutAttr);
-
-    return memoryConfigAttr;
-  }
-
   ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
     auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
@@ -2381,20 +2364,6 @@ private:
   llvm::SmallVector<mlir::Value> operands;
   llvm::SmallVector<mlir::Attribute> keywordArgs;
 };
-
-// Helper function to secure memory config attribute.
-// Currently, memory config is an optional attribute. If the attribute is
-// explicitly provided by an op, it is used directly. Otherwise, the attribute
-// is deduced from a tensor output layout attribute in the `getMemoryConfig`
-// function.
-inline ttnn::MemoryConfigAttr
-operator|(std::optional<ttnn::MemoryConfigAttr> lhs,
-          ttnn::MemoryConfigAttr rhs) {
-  if (!lhs) {
-    return rhs;
-  }
-  return *lhs;
-}
 
 // Helper function that serves as an alternative to the
 // `emit<std::variant<...>>` member function of the `EmitPyTTNNEmitter` class.

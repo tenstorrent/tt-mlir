@@ -24,7 +24,6 @@ module attributes {} {
         // Verify that we only insert the to_device op when there are no layout or data type changes.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
         // CHECK: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%arg0, %[[GET_DEVICE_OP]])
-        // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
         // CHECK: return %[[TO_DEVICE_OP]]
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
         return %0 : tensor<64x128xf32, #ttnn_layout_device_rm>
@@ -60,7 +59,6 @@ module attributes {} {
         // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%[[CASTING_OP]], %[[GET_DEVICE_OP]])
-        // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
         // CHECK-NEXT: return %[[TO_DEVICE_OP]]
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
@@ -71,7 +69,6 @@ module attributes {} {
         // Typecast on device only works for tile layout. Verify that for the tile case we insert the to_device op and the typecast op to cast the data type on device.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
         // CHECK-NEXT: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%arg0, %[[GET_DEVICE_OP]])
-        // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
         // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK-NEXT: return %[[CASTING_OP]]

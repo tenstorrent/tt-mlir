@@ -466,18 +466,12 @@ private:
           mlir::cast<RankedTensorType>(traceInputSlotType);
 
       ttnn::TTNNLayoutAttr ttnnLayoutAttr =
-          utils::getLayoutAttrFromTensor(deviceTensorType);
-      ttnn::MemoryConfigAttr memoryConfigAttr =
-          ttnn::MemoryConfigAttr::get(ttnnLayoutAttr);
-
-      // Allocate an empty tensor on the device to serve as the trace input slot
-      // for this argument.
+          mlir::cast<ttnn::TTNNLayoutAttr>(deviceTensorType.getEncoding());
       auto emptyOp = builder.create<ttnn::EmptyOp>(
           runAndCaptureTraceFunc.getLoc(), deviceTensorType, deviceOp,
           ttnn::ShapeAttr::get(context, deviceTensorType.getShape()),
           ttcore::DataTypeAttr::get(context, ttnnLayoutAttr.getDataType()),
-          ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()),
-          memoryConfigAttr);
+          ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()));
 
       traceInputSlots.push_back(emptyOp.getResult());
     }

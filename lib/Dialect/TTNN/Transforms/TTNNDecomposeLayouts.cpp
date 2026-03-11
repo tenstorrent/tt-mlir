@@ -189,8 +189,15 @@ private:
     auto outputLayoutAttr =
         mlir::cast<TTNNLayoutAttr>(op.getResult().getType().getEncoding());
 
-    assert(op.getMemoryConfig().has_value());
-    MemoryConfigAttr outputMemoryConfig = op.getMemoryConfig().value();
+    assert(mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+               op.getOperation())
+               .getMemoryConfig()
+               .has_value());
+    MemoryConfigAttr outputMemoryConfig =
+        mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+            op.getOperation())
+            .getMemoryConfig()
+            .value();
 
     input.bufferType = inputLayoutAttr.getBufferType();
     output.bufferType = outputMemoryConfig.getBufferType().getValue();
@@ -335,13 +342,12 @@ private:
             .build();
     RankedTensorType newResultType =
         utils::RankedTensorTypeFactory::create(currentInputType, newEncoding);
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        ttnn::MemoryConfigAttr::get(newEncoding);
 
     mlir::Value device = utils::getOrInsertDevice(rewriter, op);
 
-    return this->createOp<ttnn::ToDeviceOp>(
-        rewriter, op, newResultType, currentInput, device, memoryConfigAttr);
+    // Create new ranked tensor type with host memory buffer type
+    return this->createOp<ttnn::ToDeviceOp>(rewriter, op, newResultType,
+                                            currentInput, device);
   }
 
   // FromDeviceOp
@@ -376,8 +382,7 @@ private:
 
     return this->createOp<ttnn::ToLayoutOp>(rewriter, op, newResultType,
                                             currentInput, layoutAttr,
-                                            /*dtype*/ nullptr,
-                                            /*memory_config*/ nullptr);
+                                            /*dtype*/ nullptr);
   }
 
   mlir::Value createDataTypeCastingOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
@@ -468,10 +473,8 @@ private:
             .build();
     RankedTensorType newResultType =
         utils::RankedTensorTypeFactory::create(currentInputType, newLayout);
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        ttnn::MemoryConfigAttr::get(newLayout);
-    mlir::Value result = this->createOp<ttnn::ToMemoryConfigOp>(
-        rewriter, op, newResultType, currentInput, memoryConfigAttr);
+    mlir::Value result = this->createOp<ttnn::ToMemoryConfigOp>(rewriter, op, newResultType,
+      currentInput);
 
     if (needsWorkaround) {
       ttcore::DataTypeAttr origDtypeAttr =
