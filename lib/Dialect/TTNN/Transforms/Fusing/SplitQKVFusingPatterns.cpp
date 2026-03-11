@@ -206,47 +206,11 @@ identifyQKVRoles(SmallVector<SliceReshapeMatch> &matches) {
   return heads;
 }
 
-// Returns the ConcatOp feeding the matmul RHS, handling both direct concat
-// and load_cached wrapping a const_eval function containing concat.
-ConcatOp getConcatOp(Value matmulRHS) {
-  // Case 1: Direct concat
-  if (auto concatOp = matmulRHS.getDefiningOp<ConcatOp>()) {
-    return concatOp;
-  }
-
-  // Case 2: load_cached wrapping concat in const_eval function
-  if (auto loadCached = matmulRHS.getDefiningOp<ttcore::LoadCachedOp>()) {
-    // Ensure load_cached has only one user so we can safely modify the
-    // const_eval function's concat.
-    if (!loadCached->hasOneUse()) {
-      return nullptr;
-    }
-
-    auto moduleOp = loadCached->getParentOfType<ModuleOp>();
-    if (!moduleOp) {
-      return nullptr;
-    }
-
-    auto funcOp = moduleOp.lookupSymbol<func::FuncOp>(loadCached.getCallee());
-    if (!funcOp) {
-      return nullptr;
-    }
-
-    // Find concat inside the const_eval function that feeds the return.
-    ConcatOp foundConcat = nullptr;
-    funcOp.walk([&](func::ReturnOp returnOp) {
-      if (returnOp.getNumOperands() == 1) {
-        if (auto concat = returnOp.getOperand(0).getDefiningOp<ConcatOp>()) {
-          foundConcat = concat;
-        }
-      }
-      return WalkResult::interrupt();
-    });
-
-    return foundConcat;
-  }
-
-  return nullptr;
+// Check if heads are already in Q, K, V order by slice position.
+// Heads are sorted by slice position from validateSliceCoverage.
+bool isQKVOrder(const SmallVector<QKVHead> &heads) {
+  return heads[0].role == QKVRole::Query && heads[1].role == QKVRole::Key &&
+         heads[2].role == QKVRole::Value;
 }
 
 // Reorder concat inputs to match Q, K, V order based on head roles.
@@ -271,12 +235,87 @@ void reorderConcatInputs(mlir::PatternRewriter &rewriter, ConcatOp concatOp,
       break;
     }
   }
-  // Append any non-QKV inputs (e.g. fc1) after the reordered QKV inputs.
   for (size_t i = heads.size(); i < inputs.size(); ++i) {
     reorderedInputs.push_back(inputs[i]);
   }
   rewriter.modifyOpInPlace(
       concatOp, [&]() { concatOp.getInputsMutable().assign(reorderedInputs); });
+}
+
+// Reorder the matmul RHS weight by slicing Q/K/V portions from the weight
+// tensor and concatenating them in Q, K, V order. Used when the RHS is a
+// LoadCachedOp (const-eval has folded the original concat). The new slice +
+// concat ops are on constant weights, so the second const-eval pass folds
+// them away.
+template <typename MatMulOpType>
+void reorderWeightViaSliceConcat(mlir::PatternRewriter &rewriter,
+                                 MatMulOpType matmulOp,
+                                 const SmallVector<QKVHead> &heads) {
+  Value weight = matmulOp.getB();
+  auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+  auto weightShape = weightType.getShape();
+
+  // The slice dimension on the weight corresponds to the output feature dim.
+  // For transpose_b=false: last dim. For transpose_b=true: first dim.
+  bool transB = matmulOp.getTransposeB();
+  size_t sliceDim = transB ? 0 : weightShape.size() - 1;
+
+  auto matmulShape = matmulOp.getType().getShape();
+
+  rewriter.setInsertionPoint(matmulOp);
+
+  // Slice each head's portion from the weight, placed in Q, K, V order.
+  SmallVector<Value> slices(3);
+  for (size_t i = 0; i < heads.size(); ++i) {
+    auto dimAndBounds =
+        findSlicedDimensionWithBounds(heads[i].match.sliceOp, matmulShape);
+    auto [dim, start, end] = *dimAndBounds;
+
+    SmallVector<int32_t> begins(weightShape.size(), 0);
+    SmallVector<int32_t> ends(weightShape.begin(), weightShape.end());
+    SmallVector<int32_t> step(weightShape.size(), 1);
+    begins[sliceDim] = static_cast<int32_t>(start);
+    ends[sliceDim] = static_cast<int32_t>(end);
+
+    SmallVector<int64_t> sliceShape(weightShape);
+    sliceShape[sliceDim] = end - start;
+    auto sliceTy =
+        utils::RankedTensorTypeFactory::create(weightType, sliceShape);
+
+    auto sliceOp = rewriter.create<SliceStaticOp>(
+        matmulOp.getLoc(), sliceTy, weight, rewriter.getI32ArrayAttr(begins),
+        rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(step));
+
+    size_t targetIdx;
+    switch (heads[i].role) {
+    case QKVRole::Query:
+      targetIdx = 0;
+      break;
+    case QKVRole::Key:
+      targetIdx = 1;
+      break;
+    case QKVRole::Value:
+      targetIdx = 2;
+      break;
+    }
+    slices[targetIdx] = sliceOp.getResult();
+  }
+
+  SmallVector<int64_t> concatShape(weightShape);
+  concatShape[sliceDim] = 0;
+  for (auto &s : slices) {
+    concatShape[sliceDim] +=
+        mlir::cast<RankedTensorType>(s.getType()).getShape()[sliceDim];
+  }
+  auto concatTy =
+      utils::RankedTensorTypeFactory::create(weightType, concatShape);
+
+  auto concatOp = rewriter.create<ConcatOp>(matmulOp.getLoc(), concatTy, slices,
+                                            static_cast<int32_t>(sliceDim),
+                                            MemoryConfigAttr());
+
+  rewriter.modifyOpInPlace(
+      matmulOp, [&]() { matmulOp.getBMutable().assign(concatOp.getResult()); });
 }
 
 // ============================================================================
@@ -557,9 +596,11 @@ SplitQueryKeyValueAndSplitHeadsFusing<MatMulOpType>::matchAndRewrite(
     return mlir::failure();
   }
 
-  // Get concat from matmul RHS.
-  ConcatOp concatOp = getConcatOp(matmulOp.getB());
-  if (!concatOp) {
+  // Matmul RHS must be a ConcatOp or LoadCachedOp (const-eval'd weights).
+  Value rhs = matmulOp.getB();
+  bool isDirectConcat = rhs.getDefiningOp<ConcatOp>() != nullptr;
+  bool isLoadCached = rhs.getDefiningOp<ttcore::LoadCachedOp>() != nullptr;
+  if (!isDirectConcat && !isLoadCached) {
     return mlir::failure();
   }
 
@@ -577,8 +618,17 @@ SplitQueryKeyValueAndSplitHeadsFusing<MatMulOpType>::matchAndRewrite(
     return mlir::failure();
   }
 
-  // Reorder concat inputs to match Q, K, V order.
-  reorderConcatInputs(rewriter, concatOp, *heads);
+  // Ensure QKV portions are in Q, K, V order on the matmul RHS.
+  if (!isQKVOrder(*heads)) {
+    if (isDirectConcat) {
+      // Fast path: reorder concat inputs in-place.
+      reorderConcatInputs(rewriter, rhs.getDefiningOp<ConcatOp>(), *heads);
+    } else {
+      // LoadCachedOp: slice + reconcat on the weight. The second const-eval
+      // pass folds these away.
+      reorderWeightViaSliceConcat(rewriter, matmulOp, *heads);
+    }
+  }
 
   return createFusedOp(rewriter, matmulOp, *q, *k, *v);
 }
