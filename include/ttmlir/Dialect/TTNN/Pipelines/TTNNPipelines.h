@@ -413,6 +413,12 @@ struct TTIRToTTNNDevicePipelineOptions
           "Validation and Fallback pass. 0 means unlimited attempts."),
       llvm::cl::init(10000)};
 
+  Option<bool> enablePrepareConv2dWeightsAndBias{
+      *this, "enable-prepare-conv2d-weights-and-bias",
+      llvm::cl::desc(
+        "Enable PrepareConv2dWeightsAndBias pass."),
+      llvm::cl::init(true)};
+
   // Option to provide a pointer to an already opened device. When provided,
   // the optimizer will use this device instead of opening a new one.
   // This allows frontends to pass in an active device without closing it.
