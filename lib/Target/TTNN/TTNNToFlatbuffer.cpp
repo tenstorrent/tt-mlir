@@ -629,9 +629,7 @@ createOp(FlatbufferObjectCache &cache, MorehCumSumOp op) {
                                             /*local_shape*/ std::nullopt);
 
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
-  auto memoryConfig = op.getMemoryConfig()
-                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
-                          : 0;
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateMorehCumSumOp(*cache.fbb, in, output,
                                                  op.getDim(), memoryConfig);
