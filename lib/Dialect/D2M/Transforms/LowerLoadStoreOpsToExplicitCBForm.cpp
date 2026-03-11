@@ -205,11 +205,12 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
       rewriter.setInsertionPointAfter(pushOp);
       auto waitOp = rewriter.create<WaitOp>(loc, loadTargetCb);
 
-      rewriter.setInsertionPointAfter(waitOp);
+      rewriter.setInsertionPoint(forwardableStore);
       if (!eraseForwardableStoreWithoutReplacement) {
         rewriter.create<RemoteStoreOp>(
             forwardableStore.getLoc(), forwardableStore.getMemref(),
-            forwardableStore.getIndices(), loadTargetCb, forwardableStore.getStartDevice(), forwardableStore.getEndDevice());
+            forwardableStore.getIndices(), loadTargetCb,
+            forwardableStore.getStartDevice(), forwardableStore.getEndDevice());
       }
 
       if (remoteLoad.getResult()) {

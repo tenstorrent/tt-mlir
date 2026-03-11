@@ -986,6 +986,12 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
         build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*endDevice=*/ValueRange());
       }]>,
 
+      // Shard-level unicast (no src indices, grid indices on dst, numElems = 0), with destination device range
+      OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $startDevice, "ValueRange": $endDevice),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), startDevice, endDevice);
+      }]>,
+
       // Fully indexed unicast, with destination device range
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems, "ValueRange": $startDevice, "ValueRange": $endDevice),
       [{

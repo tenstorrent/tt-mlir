@@ -7,6 +7,7 @@
 
 // #include "experimental_fabric_topology_info.h"
 #include "api/debug/dprint.h" // required in all kernels using DPRINT
+#include "tt_metal/tools/profiler/fabric_event_profiler.hpp"
 
 namespace experimental {
 
@@ -106,22 +107,23 @@ FORCE_INLINE uint32_t get_device_id_from_logical_mesh_position(
 
 FORCE_INLINE void
 setup_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
-  // DPRINT << "setup_fabric_connections" << ENDL();
+  DPRINT << "setup_fabric_connections" << ENDL();
   uint32_t num_topology_args =
       get_arg_val<uint32_t>(fabric_setup_args_start_idx);
   uint32_t num_fabric_connection_args =
       get_arg_val<uint32_t>(fabric_setup_args_start_idx + num_topology_args);
   uint32_t num_send_dir = get_arg_val<uint32_t>(fabric_setup_args_start_idx +
                                                 num_topology_args + 1);
-  // DPRINT << "num_topology_args: " << num_topology_args << ENDL();
-  // DPRINT << "num_fabric_connection_args: " << num_fabric_connection_args <<
-  // ENDL(); DPRINT << "num_send_dir: " << num_send_dir << ENDL();
+  DPRINT << "num_topology_args: " << num_topology_args << ENDL();
+  DPRINT << "num_fabric_connection_args: " << num_fabric_connection_args
+         << ENDL();
+  DPRINT << "num_send_dir: " << num_send_dir << ENDL();
 
   if (!fabric_connection_manager.initialized) {
     // set up topology
     size_t topology_arg_idx = fabric_setup_args_start_idx + 1;
     fabric_connection_manager.topology_info.build_from_args(topology_arg_idx);
-    // DPRINT << "build_from_args done" << ENDL();
+    DPRINT << "build_from_args done" << ENDL();
 
     // set up routing plane connection manager
     size_t fabric_connection_arg_idx =
@@ -137,10 +139,10 @@ setup_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
         PacketHeaderPool::allocate_header_n(num_send_dir);
     WAYPOINT("DA19");
     ASSERT(fabric_connection_manager.route_id != -1);
-    // DPRINT << "allocate_header_n done" << ENDL();
+    DPRINT << "allocate_header_n done" << ENDL();
   }
   fabric_connection_manager.initialized = true;
-  // DPRINT << "setup_fabric_connections done" << ENDL();
+  DPRINT << "setup_fabric_connections done" << ENDL();
 }
 
 // teardown fabric connections (packet header pool and topology don't need
@@ -171,6 +173,7 @@ fabric_fast_write(WorkerToFabricEdmSender &connection,
   connection.wait_for_empty_write_slot();
   connection.send_payload_without_header_non_blocking_from_address(src_addr,
                                                                    len_bytes);
+  RECORD_FABRIC_HEADER(packet_header);
   connection.send_payload_flush_non_blocking_from_address(
       reinterpret_cast<uint32_t>(packet_header), sizeof(PACKET_HEADER_TYPE));
 

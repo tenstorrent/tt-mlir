@@ -434,6 +434,9 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
   distributed::EnqueueMeshWorkload(*mcq, meshWorkload, blockingCQ);
 
+  // sleep for 1 second; remove once global semaphores are added
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
   if (perf::Env::get().enablePerfTrace) {
     ::tt::tt_metal::ReadMeshDeviceProfilerResults(*meshDevice);
   }

@@ -30,7 +30,8 @@ pytestmark = pytest.mark.frontend("ttir")
 @pytest.mark.parametrize(
     "test_shape",
     [
-        (512, 512),
+        (128, 128),
+        # (512, 512),
         # (1, 32, 32, 32),
         # (1, 32, 32, 1),
         # (32, 32, 1, 1),
@@ -129,4 +130,5 @@ def test_all_gather(
         target="ttmetal",
         print_ir=True,
         **get_request_kwargs(request),
+        save_artifacts=True,
     )

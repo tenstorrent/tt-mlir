@@ -1631,6 +1631,10 @@ public:
         rewriter.create<ttkernel::FabricMulticastWriteOp>(
             op.getLoc(), fcm, meshId, startDeviceId, endDeviceId, dstNocAddr,
             srcL1Addr, size);
+        // TODO: fix to be conditioned on if device is contained within mcast
+        // region
+        rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
+                                                   dstNocAddr, size);
       }
     } else if (op.isDstLocal()) {
       // Local to Local Datamovement & Multicast

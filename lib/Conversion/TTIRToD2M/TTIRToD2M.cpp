@@ -2233,19 +2233,29 @@ public:
                 .getResult();
 
         SmallVector<Value> startDevice;
-        startDevice.push_back(rewriter.create<d2m::MeshPositionOp>(loc, 0));
+        int clusterAxis = 1;
+        // Insert remote_store operations for each output before yield
+        llvm::SmallVector<int64_t> meshShape = {1, 8};
+        startDevice.push_back(rewriter.create<d2m::MeshPositionOp>(
+            loc, 1 - clusterAxis)); // other dim from cluster axis
         startDevice.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
         SmallVector<Value> endDevice;
-        endDevice.push_back(rewriter.create<d2m::MeshPositionOp>(loc, 0));
+        endDevice.push_back(rewriter.create<d2m::MeshPositionOp>(
+            loc, 1 - clusterAxis)); // other dim from cluster axis
         endDevice.push_back(rewriter.create<arith::ConstantIndexOp>(
-            loc, 7)); // getMeshShape()[cluster_axis] - 1;
-        // Insert remote_store operations for each output before yield
+            loc, meshShape[clusterAxis] - 1));
         SmallVector<Value> storeResults;
         SmallVector<Value> outputIndices;
-        outputIndices.push_back(rewriter.create<arith::ConstantIndexOp>(
-            loc, 0)); // getMeshPosition[cluster_axis]
+        outputIndices.push_back(
+            rewriter.create<d2m::MeshPositionOp>(loc, clusterAxis));
         outputIndices.push_back(
             rewriter.create<d2m::CoreIndexOp>(loc, static_cast<int64_t>(1)));
+
+        // rewriter.create<d2m::RemoteStoreOp>(loc,
+        // outputStreamResult.getType(),
+        //                                     outputStreamResult,
+        //                                     outputIndices, loadResult)
+        //         .getResult();
         Value storeResult =
             rewriter
                 .create<d2m::RemoteStoreOp>(loc, outputStreamResult.getType(),

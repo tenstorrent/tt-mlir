@@ -185,7 +185,7 @@ public:
       return WalkResult::advance();
     });
     if (generic_op_idx == 1) {
-      NocIndex noc_index = NocIndex::Noc1;
+      NocIndex noc_index = NocIndex::Noc0;
       uint32_t cluster_axis = 1; // get from op
       uint32_t num_links = 1;    // get from sys desc
       ttcore::Topology topology =
