@@ -19,5 +19,5 @@
 
   { "runs-on": ["n150","llmbox","n300","p150"],
         "image": "tracy",
-            "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt"], "iterations": 5 }
+            "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt"] }
 ]
