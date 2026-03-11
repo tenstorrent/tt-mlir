@@ -72,7 +72,8 @@ ToLayoutOp createToLayoutOp(Operation *op,
                             BufferType targetTensorBufferType,
                             TensorMemoryLayoutAttr targetTensorMemoryLayout,
                             ttcore::DataType targetTensorDataType,
-                            llvm::StringRef locSuffix) {
+                            llvm::StringRef locSuffix,
+                            std::optional<ttcore::GridAttr> targetGrid) {
   TTNNLayoutAttr inputLayoutAttr =
       getLayoutAttrFromTensor(inputValue.getType());
 
@@ -89,6 +90,12 @@ ToLayoutOp createToLayoutOp(Operation *op,
           .withElementType(elementType, inputToLayoutOpType.getShape())
           .withBufferType(targetTensorBufferType)
           .withMemoryLayout(targetTensorMemoryLayout);
+
+  // Override the grid when a custom target grid is specified.
+  if (targetGrid) {
+    toLayoutOpResultEncoding = toLayoutOpResultEncoding.withGrid(
+        inputToLayoutOpType.getShape(), *targetGrid);
+  }
 
   // Create the output result type with the new data type and encoding.
   RankedTensorType toLayoutOpResultType = RankedTensorTypeFactory::create(
