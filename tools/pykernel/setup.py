@@ -70,6 +70,7 @@ class CMakeBuild(build_ext):
             "-DTTMLIR_ENABLE_STABLEHLO=OFF",
             "-DTTMLIR_ENABLE_OPMODEL=OFF",
             "-DTTMLIR_ENABLE_EXPLORER=OFF",
+            "-DTT_USE_SYSTEM_SFPI=ON",
         ]
 
         # Set source
