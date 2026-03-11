@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -15,6 +15,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/SDPAFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/TopKFusingPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #endif
@@ -197,8 +198,9 @@ private:
 //      |
 //   matmul (Q @ K^T)
 //
-// Uses skipTransparent() to handle type conversions and layout ops that don't
-// change semantics, making the pattern robust to variations in the IR.
+// Uses ttmlir::utils::lookThrough to skip transparent ops (ToLayoutOp,
+// ToMemoryConfigOp, TypecastOp) that don't change semantics, making the
+// pattern robust to variations in the IR.
 //
 class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
   using SDPAFusing::OpRewritePattern<MatmulOp>::OpRewritePattern;
@@ -258,26 +260,6 @@ private:
     SoftmaxOp softmax;
     Operation *scoreOp = nullptr;
   };
-
-  // ============================================================================
-  // Transparent Op Utilities
-  // ============================================================================
-
-  // Operations that don't change semantic meaning - can be traced through.
-  static bool isTransparentOp(Operation *op) {
-    return isa<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(op);
-  }
-
-  // Skip through transparent ops to find the semantic operation.
-  Value skipTransparent(Value v) const {
-    while (Operation *defOp = v.getDefiningOp()) {
-      if (!isTransparentOp(defOp)) {
-        break;
-      }
-      v = defOp->getOperand(0);
-    }
-    return v;
-  }
 
   // ============================================================================
   // Layout / Transpose Utilities
@@ -350,7 +332,7 @@ private:
 
   std::optional<float> extractConstant(Value v) const {
     // Skip transparent ops to find the actual constant.
-    v = skipTransparent(v);
+    v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
 
     // Direct FullOp.
     if (auto fullOp = v.getDefiningOp<FullOp>()) {
@@ -398,7 +380,8 @@ private:
     std::optional<float> scale;
 
     // Check if transparent ops lead to a multiply (scale applied to tensor).
-    Value skipped = skipTransparent(v);
+    Value skipped =
+        ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
     if (auto mulOp = skipped.getDefiningOp<MultiplyOp>()) {
       if (auto s = extractConstant(mulOp.getRhs())) {
         scale = s;
@@ -447,11 +430,13 @@ private:
 
   // Match: [Typecast] -> [where(cond, zeros, softmax)] -> softmax
   bool matchSoftmaxPath(Value v, SDPAComponents &c) const {
-    v = skipTransparent(v);
+    v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
 
     // Try where(cond, zeros, softmax) pattern first
     if (auto whereOp = v.getDefiningOp<WhereOp>()) {
-      Value softmaxCandidate = skipTransparent(whereOp.getThird());
+      Value softmaxCandidate =
+          ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(
+              whereOp.getThird());
       if (auto softmax = softmaxCandidate.getDefiningOp<SoftmaxOp>()) {
         c.softmax = softmax;
         return true;
@@ -473,7 +458,7 @@ private:
   //   2. [transparent] -> add(score_chain, mask)
   //   3. [transparent] -> score_chain (no mask)
   bool matchScoreComputation(Value v, SDPAComponents &c) const {
-    v = skipTransparent(v);
+    v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
 
     // Try linear(Q_scaled, K_scaled, mask) first
     if (auto linearOp = v.getDefiningOp<LinearOp>()) {
@@ -510,16 +495,18 @@ private:
   //        [transparent] -> matmul
   // Extracts scale if present, then matches the Q@K matmul.
   bool matchScoreChain(Value v, SDPAComponents &c) const {
-    v = skipTransparent(v);
+    v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
 
     // Optional multiply for scale (post-matmul scaling)
     if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
       if (auto scale = extractConstant(mulOp.getRhs())) {
         c.scale = scale;
-        v = skipTransparent(mulOp.getLhs());
+        v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp,
+                                       TypecastOp>(mulOp.getLhs());
       } else if (auto scale = extractConstant(mulOp.getLhs())) {
         c.scale = scale;
-        v = skipTransparent(mulOp.getRhs());
+        v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp,
+                                       TypecastOp>(mulOp.getRhs());
       }
     }
 
@@ -529,7 +516,8 @@ private:
       if (auto divisor = extractConstant(divOp.getRhs())) {
         if (*divisor != 0.0f) {
           c.scale = 1.0f / *divisor;
-          v = skipTransparent(divOp.getLhs());
+          v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp,
+                                         TypecastOp>(divOp.getLhs());
         }
       }
     }
@@ -1274,6 +1262,11 @@ public:
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
     }
 #endif // TTMLIR_ENABLE_OPMODEL
+
+    // Add TypecastOp canonicalization patterns to fold consecutive typecasts
+    // (e.g. bf16->f32->bf16) that appear after SDPA fusing, enabling
+    // patterns like NLPConcatHeadsDecodeFusing to match cleanly.
+    TypecastOp::getCanonicalizationPatterns(patterns, &getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
