@@ -94,36 +94,31 @@ public:
 
       Block &body = funcOp.getBody().front();
 
-      // Identify the cache dictionary value.
-      // No-split files case: produced by a GlobalStatementOp with dict type
-      // at the top of the forward function body.
-      // Split files case: first argument of the wrapper function.
-      Value cacheDict = nullptr;
-
-      for (auto globalStmt : body.getOps<emitpy::GlobalStatementOp>()) {
-        if (isa<emitpy::DictType>(globalStmt.getResult().getType())) {
-          cacheDict = globalStmt.getResult();
-          // Set the name attribute of the callOp (this is the consteval wrapper
-          // function call) to the name of the cache dictionary for that
-          // function.
-          for (auto *user : cacheDict.getUsers()) {
-            if (auto callOp = dyn_cast<func::CallOp>(user)) {
-              callOp->setDiscardableAttr(
-                  kNameAttr, builder.getStringAttr(globalStmt.getName()));
+      // Set the name attribute of the consteval wrapper function call in the
+      // forward function body.
+      if (ttmlir::utils::isForwardDeviceFunc(funcOp)) {
+        for (auto globalStmt : body.getOps<emitpy::GlobalStatementOp>()) {
+          if (isa<emitpy::DictType>(globalStmt.getResult().getType())) {
+            Value cacheDict = globalStmt.getResult();
+            for (auto *user : cacheDict.getUsers()) {
+              if (auto callOp = dyn_cast<func::CallOp>(user)) {
+                callOp->setDiscardableAttr(
+                    "emitpy.name", builder.getStringAttr(globalStmt.getName()));
+                return;
+              }
             }
           }
-          break;
         }
       }
 
-      if (!cacheDict && body.getNumArguments() > 0 &&
-          isa<emitpy::DictType>(body.getArgument(0).getType())) {
-        cacheDict = body.getArgument(0);
-      }
-
-      if (!cacheDict) {
+      if (!funcOp->hasAttr(kWrapperAttr)) {
         return;
       }
+
+      // Identify the cache dictionary value. It is the first argument of the
+      // wrapper function.
+      Value cacheDict = funcOp.getArgument(0);
+      assert(cacheDict && "Cache dictionary not found");
 
       // Collect caching ops to put in the if body.
       llvm::SetVector<Operation *> opsToGuard;
