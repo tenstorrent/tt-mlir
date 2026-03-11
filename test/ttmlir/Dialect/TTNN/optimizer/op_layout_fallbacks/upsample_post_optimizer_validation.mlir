@@ -17,7 +17,6 @@ module attributes {} {
 
     // CHECK: "ttnn.to_layout"
     // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
     // CHECK-NEXT: "ttnn.upsample"
     // CHECK-NEXT: "ttnn.to_layout"
     // CHECK-SAME: layout = #ttnn.layout<tile>

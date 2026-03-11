@@ -46,8 +46,7 @@ LogicalResult Conv3dPadOutputChannelsRewritePattern::matchAndRewrite(
                                  srcOp.getWeight().getLoc(), "_pad_out_ch"),
                              paddedWeightType, srcOp.getWeight(), weightPadding,
                              /*pad_value=*/mlir::APFloat(0.0f),
-                             /*use_multicore=*/false,
-                             /*memory_config=*/nullptr);
+                             /*use_multicore=*/false);
 
   // Pad bias tensor if present: (1, O) -> (1, O_padded)
   Value paddedBias = srcOp.getBias();
@@ -68,8 +67,7 @@ LogicalResult Conv3dPadOutputChannelsRewritePattern::matchAndRewrite(
                                    srcOp.getBias().getLoc(), "_pad_out_ch"),
                                paddedBiasType, srcOp.getBias(), biasPadding,
                                /*pad_value=*/mlir::APFloat(0.0f),
-                               /*use_multicore=*/false,
-                               /*memory_config=*/nullptr);
+                               /*use_multicore=*/false);
   }
 
   // Build padded output type: (N, D, H, W, O) -> (N, D, H, W, O_padded)

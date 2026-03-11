@@ -441,7 +441,8 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
   auto layout =
       CreateTiledLayout(tensorShape, mlirBufferType, mlirTensorMemoryLayout);
 
-  const auto memoryConfig = conversion::getMemoryConfig(layout);
+  const auto memoryConfig =
+      conversion::getMemoryConfig(layout.getMemoryConfigAttr());
 
   EXPECT_EQ(memoryConfig.is_l1(), mlirBufferType == BufferType::L1);
   EXPECT_EQ(memoryConfig.is_dram(), mlirBufferType == BufferType::DRAM);
@@ -455,9 +456,10 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
     EXPECT_TRUE(partialLayout.getIgnorePhysicalLayout());
     EXPECT_TRUE(partialLayout.hasShardedTensorMemoryLayout());
 
-    const auto partialConfig = conversion::getMemoryConfig(partialLayout);
+    const auto partialConfig =
+        conversion::getMemoryConfig(partialLayout.getMemoryConfigAttr());
     EXPECT_TRUE(partialConfig.is_sharded());
-    EXPECT_FALSE(partialConfig.shard_spec().has_value());
+    EXPECT_TRUE(partialConfig.shard_spec().has_value());
   }
 }
 

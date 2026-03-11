@@ -250,6 +250,25 @@ mlir::Type TTNNLayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
 
+MemoryConfigAttr TTNNLayoutAttr::getMemoryConfigAttr() const {
+  std::optional<ShardSpecAttr> shardSpec = std::nullopt;
+  const auto memLayout = getMemLayout();
+  const auto grid = getGrid();
+
+  // ShardSpec requires a physical 2D core mapping. Some TTNN layouts carry an
+  // empty/non-physical mapping, so skip shard spec synthesis in that case.
+  if (memLayout && isShardedMemoryLayout(memLayout.getValue()) &&
+      grid.getShape().size() == 2 && !grid.getMapping().isEmpty() &&
+      grid.getMapping().getNumResults() ==
+          ttcore::PhysGridResultIdx::NumIndices) {
+    shardSpec = utils::createShardSpecIfNeeded(*this, grid);
+  }
+
+  return MemoryConfigAttr::get(
+      getContext(), memLayout,
+      mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()), shardSpec);
+}
+
 // If the element type is TileType, return the nested element type i.e
 // FloatType/IntegerType
 mlir::Type TTNNLayoutAttr::getScalarElementType() const {
@@ -1365,4 +1384,16 @@ bool TTNNNDLayoutAttr::isSharded() const {
 
 mlir::Type TTNNNDLayoutAttr::getElementType() const {
   return getMemref().getElementType();
+}
+
+MemoryConfigAttr TTNNNDLayoutAttr::getMemoryConfigAttr() const {
+  std::optional<NDShardSpecAttr> ndShardSpec = std::nullopt;
+  if (isSharded() && getGrid().getShape().size() >= 2) {
+    ndShardSpec = utils::createNDShardSpecIfNeeded(*this);
+  }
+
+  return MemoryConfigAttr::get(
+      getContext(), getMemLayout(),
+      mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()),
+      /*shardSpec=*/std::nullopt, ndShardSpec);
 }

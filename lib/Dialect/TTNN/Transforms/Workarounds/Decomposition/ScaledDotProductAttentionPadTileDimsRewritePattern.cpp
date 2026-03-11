@@ -36,8 +36,7 @@ Value padDimension(Value tensor, int64_t targetLen, int64_t dim,
       .create<PadOp>(loc, paddedType, tensor,
                      rewriter.getDenseI32ArrayAttr(padding),
                      rewriter.getF32FloatAttr(padValue),
-                     /*use_multicore=*/rewriter.getBoolAttr(true),
-                     /*memory_config=*/nullptr)
+                     /*use_multicore=*/rewriter.getBoolAttr(true))
       .getResult();
 }
 
@@ -109,8 +108,7 @@ ScaledDotProductAttentionPadTileDimsRewritePattern::matchAndRewrite(
   auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
       srcOp.getLoc(), resultType, paddedQuery, paddedKey, paddedValue,
       srcOp.getAttentionMask(), srcOp.getIsCausal(), srcOp.getScaleAttr(),
-      srcOp.getSlidingWindowSizeAttr(), srcOp.getAttentionSink(),
-      srcOp.getMemoryConfigAttr());
+      srcOp.getSlidingWindowSizeAttr(), srcOp.getAttentionSink());
 
   // Slice the result back to original head_dim
   Value result = sdpaOp.getResult();

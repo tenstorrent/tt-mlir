@@ -10,7 +10,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/IRMapping.h"
@@ -129,9 +128,7 @@ public:
       args.push_back(emitter.emit(srcOp.getMax()));
     }
 
-    args.push_back(emitter.emit(srcOp.getMemoryConfig() |
-                                    emitter.getMemoryConfig(srcOp.getResult()),
-                                "memory_config"));
+    args.push_back(emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"));
 
     emitter.replaceOp(*this, args);
 
@@ -159,9 +156,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseUnaryOp.getInput()),
-        emitter.emit(eltwiseUnaryOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(eltwiseUnaryOp.getResult()),
-                     "memory_config"),
+        emitter.emit(eltwiseUnaryOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -198,9 +193,7 @@ public:
         emitter.emit(srcOp.getLhs()),
         emitter.emit(srcOp.getRhs()),
         emitter.emit(srcOp.getApproximate(), "approximate"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -230,9 +223,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseUnaryOp.getInput()),
         /*parameter=*/emitter.emit(false, "fast_and_approximate_mode"),
-        emitter.emit(eltwiseUnaryOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(eltwiseUnaryOp.getResult()),
-                     "memory_config"),
+        emitter.emit(eltwiseUnaryOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -264,9 +255,7 @@ public:
         emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC),
                      "vector_mode"),
         emitter.emitExpression("ttnn.SigmoidMode.Accurate", "mode"),
-        emitter.emit(eltwiseUnaryOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(eltwiseUnaryOp.getResult()),
-                     "memory_config"),
+        emitter.emit(eltwiseUnaryOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -298,8 +287,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getParameter()),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -330,9 +318,7 @@ public:
         emitter.emit(eltwiseBinaryOp.getLhs()),
         emitter.emit(eltwiseBinaryOp.getRhs()),
         emitter.emit(eltwiseBinaryOp.getDtype(), "dtype"),
-        emitter.emit(eltwiseBinaryOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(eltwiseBinaryOp.getResult()),
-                     "memory_config"),
+        emitter.emit(eltwiseBinaryOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -362,9 +348,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseBinaryOp.getLhs()),
         emitter.emit(eltwiseBinaryOp.getRhs()),
-        emitter.emit(eltwiseBinaryOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(eltwiseBinaryOp.getResult()),
-                     "memory_config"),
+        emitter.emit(eltwiseBinaryOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -412,9 +396,7 @@ public:
         emitter.emit(eltwiseBinaryOp.getLhs()),
         emitter.emit(eltwiseBinaryOp.getRhs()),
         emitter.emit(std::nullopt, "dtype"),
-        emitter.emit(eltwiseBinaryOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(eltwiseBinaryOp.getResult()),
-                     "memory_config"),
+        emitter.emit(eltwiseBinaryOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -425,9 +407,6 @@ public:
 } // namespace
 
 // PowScalar op conversion pattern
-//
-// Currently, it has to insert nullopts for some parameters that are not
-// modelled in the dialect (memcfg).
 //
 namespace {
 class PowScalarOpConversionPattern
@@ -453,8 +432,7 @@ private:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getLhs()),
         emitter.template emit<ExponentT>(exponent),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -506,9 +484,7 @@ public:
         emitter.emit(ternaryOp.getFirst()),
         emitter.emit(ternaryOp.getSecond()),
         emitter.emit(ternaryOp.getThird()),
-        emitter.emit(ternaryOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(ternaryOp.getResult()),
-                     "memory_config"),
+        emitter.emit(ternaryOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -549,9 +525,7 @@ public:
     if (constantOp.getDevice()) {
       args.push_back(emitter.emit(constantOp.getDevice()));
       args.push_back(
-          emitter.emit(constantOp.getMemoryConfig() |
-                           emitter.getMemoryConfig(constantOp.getResult()),
-                       "memory_config"));
+          emitter.emit(constantOp.getMemoryConfigAttr(), "memory_config"));
     }
 
     emitter.replaceOp(*this, args);
@@ -582,9 +556,7 @@ public:
         emitter.emit(matmulOp.getB()),
         emitter.emit(matmulOp.getTransposeA(), "transpose_a"),
         emitter.emit(matmulOp.getTransposeB(), "transpose_b"),
-        emitter.emit(std::nullopt |
-                         emitter.getMemoryConfig(matmulOp.getResult()),
-                     "memory_config"),
+        emitter.emit(matmulOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(emitter.getOutputDtype(matmulOp.getResult()), "dtype"),
         emitter.emit<ttnn_to_emitpy::MatmulProgramConfig>(
             matmulOp.getMatmulProgramConfig(), "program_config"),
@@ -625,7 +597,7 @@ public:
         emitter.emit(srcOp.getNnz(), "nnz"),
         emitter.emit(srcOp.getIsInputASparse(), "is_input_a_sparse"),
         emitter.emit(srcOp.getIsInputBSparse(), "is_input_b_sparse"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getDtype(), "dtype"),
     };
 
@@ -660,8 +632,7 @@ public:
         emitter.emit(srcOp.getBias(), "bias"),
         emitter.emit(srcOp.getTransposeA(), "transpose_a"),
         emitter.emit(srcOp.getTransposeB(), "transpose_b"),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(emitter.getOutputDtype(srcOp.getResult()), "dtype"),
         emitter.emit<ttnn_to_emitpy::MatmulProgramConfig>(
             srcOp.getMatmulProgramConfig(), "program_config"),
@@ -719,9 +690,7 @@ public:
         emitter.emit(srcOp.getCeilMode()),
         emitter.emit(srcOp.getCountIncludePad()),
         emitter.emit(/*divisor_override=*/std::nullopt),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getAppliedShardScheme(), "applied_shard_scheme"),
         emitter.emit(std::nullopt, "compute_kernel_config"),
         emitter.emit(srcOp.getReallocateHaloOutput(), "reallocate_halo_output"),
@@ -779,9 +748,7 @@ public:
         emitter.template emit<std::vector<uint32_t>>(
             maxPool2dOp.getDilationAttr()),
         emitter.emit(maxPool2dOp.getCeilMode(), "ceil_mode"),
-        emitter.emit(maxPool2dOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(maxPool2dOp.getResult()),
-                     "memory_config"),
+        emitter.emit(maxPool2dOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(maxPool2dOp.getAppliedShardScheme(),
                      "applied_shard_scheme"),
         emitter.emit(maxPool2dOp.getReallocateHaloOutput(),
@@ -857,9 +824,8 @@ public:
         emitter.template emit<std::vector<uint32_t>>(
             maxPool2dWithIndicesOp.getDilationAttr()),
         emitter.emit(maxPool2dWithIndicesOp.getCeilMode(), "ceil_mode"),
-        emitter.emit(
-            emitter.getMemoryConfig(maxPool2dWithIndicesOp.getResult()),
-            "memory_config"),
+        emitter.emit(maxPool2dWithIndicesOp.getMemoryConfigAttr(),
+                     "memory_config"),
         emitter.emit(maxPool2dWithIndicesOp.getAppliedShardScheme(),
                      "applied_shard_scheme"),
         emitter.emit(maxPool2dWithIndicesOp.getReallocateHaloOutput(),
@@ -907,9 +873,7 @@ public:
         emitter.emit(srcOp.getInput()),
         scaleFactorAttr,
         emitter.emit(srcOp.getMode(), "mode"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -940,9 +904,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getDtype(), "dtype"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -968,9 +930,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(softmaxOp.getInput()),
         emitter.emit(softmaxOp.getDimension()),
-        emitter.emit(std::nullopt |
-                         emitter.getMemoryConfig(softmaxOp.getResult()),
-                     "memory_config"),
+        emitter.emit(softmaxOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(softmaxOp.getComputeConfig(), "compute_kernel_config"),
         emitter.emit(softmaxOp.getNumericStable(), "numeric_stable"),
     };
@@ -1107,9 +1067,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(toDeviceOp.getInput()),
         emitter.emit(toDeviceOp.getDevice(), "device"),
-        emitter.emit(toDeviceOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(toDeviceOp.getResult()),
-                     "memory_config"),
+        emitter.emit(toDeviceOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1167,8 +1125,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDtype()),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1199,10 +1156,7 @@ public:
         emitter.emit(toLayoutOp.getInput()),
         emitter.emit(toLayoutOp.getLayout()),
         emitter.emit(toLayoutOp.getDtype()),
-        // Emit MemoryConfig only if it exists as an argument to the op.
-        // Most other ops will read the TTNNLayout object on the output tensor
-        // as well, but we are skipping that here as runtime skips it as well.
-        emitter.emit(toLayoutOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(toLayoutOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1232,8 +1186,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getMemoryConfig()) |
-            emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1267,9 +1220,7 @@ public:
         emitter.emit(srcOp.getDtype(), "dtype"),
         emitter.emit(srcOp.getDevice(), "device"),
         emitter.emit(srcOp.getLayout(), "layout"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1301,8 +1252,7 @@ public:
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getLayout()),
         emitter.emit(srcOp.getDevice()),
-        emitter.emit(srcOp.getMemoryConfig()) |
-            emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1354,9 +1304,7 @@ private:
         emitter.emit(fullOp.getDtype(), "dtype"),
         emitter.emit(fullOp.getLayout(), "layout"),
         emitter.emit(fullOp.getDevice(), "device"),
-        emitter.emit(fullOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(fullOp.getResult()),
-                     "memory_config"),
+        emitter.emit(fullOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1390,9 +1338,7 @@ public:
         emitter.emit(namedFullOp.getDtype(), "dtype"),
         emitter.emit(namedFullOp.getLayout(), "layout"),
         emitter.emit(namedFullOp.getDevice(), "device"),
-        /*  emitter.emit(namedFullOp.getMemoryConfig() |
-                          emitter.getMemoryConfig(namedFullOp.getResult()),
-                      "memory_config"), */
+        emitter.emit(namedFullOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1423,7 +1369,7 @@ public:
         emitter.emit(srcOp.getDevice()),
         emitter.emit(srcOp.getDtype(), "dtype"),
         emitter.emit(srcOp.getLayout(), "layout"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getLow(), "low"),
         emitter.emit(srcOp.getHigh(), "high"),
         emitter.emit(srcOp.getSeed(), "seed"),
@@ -1494,9 +1440,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDimArg()),
         emitter.emit(srcOp.getKeepDim()),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1530,9 +1474,7 @@ public:
         emitter.template emit<::ttsl::SmallVector<int32_t>>(
             reductionOp.getDimArg()),
         emitter.emit(reductionOp.getKeepDim()),
-        emitter.emit(std::nullopt |
-                         emitter.getMemoryConfig(reductionOp.getResult()),
-                     "memory_config"),
+        emitter.emit(reductionOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(reductionOp.getComputeConfig(), "compute_kernel_config"),
     };
 
@@ -1567,9 +1509,7 @@ public:
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(std::nullopt, "sub_core_grids"),
         emitter.emit(srcOp.getUseMulticore(), "use_multicore"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1619,9 +1559,7 @@ public:
         emitter.emit(conv2dOp.getConv2dConfig(), "conv_config"),
         emitter.emit(conv2dOp.getComputeConfig(), "compute_config"),
         emitter.emit(conv2dOp.getConv2dSliceConfig(), "slice_config"),
-        emitter.emit(std::nullopt |
-                         emitter.getMemoryConfig(conv2dOp.getResult()),
-                     "memory_config"),
+        emitter.emit(conv2dOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1712,9 +1650,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(globalAvgPool2dOp.getInput(), "input_tensor"),
-        emitter.emit(std::nullopt |
-                         emitter.getMemoryConfig(globalAvgPool2dOp.getResult()),
-                     "memory_config"),
+        emitter.emit(globalAvgPool2dOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(globalAvgPool2dOp.getDtype(), "dtype"),
     };
 
@@ -1767,9 +1703,7 @@ public:
         emitter.emit(srcOp.getBias(), "bias_tensor"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_config"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getConv2dSliceConfig(), "dram_slice_config"),
     };
 
@@ -2064,9 +1998,7 @@ public:
             paddingPairsArrayAttr),
         emitter.emit(padOp.getValue()),
         emitter.emit(padOp.getUseMulticore(), "use_multicore"),
-        emitter.emit(padOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(padOp.getResult()),
-                     "memory_config"),
+        emitter.emit(padOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2096,9 +2028,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(reshapeOp.getInput()),
         emitter.emit<std::vector<int32_t>>(reshapeOp.getShape()),
-        emitter.emit(reshapeOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(reshapeOp.getResult()),
-                     "memory_config"),
+        emitter.emit(reshapeOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2128,9 +2058,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(repeatOp.getInput()),
         emitter.emit(repeatOp.getRepeatDims()),
-        emitter.emit(repeatOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(repeatOp.getResult()),
-                     "memory_config"),
+        emitter.emit(repeatOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2162,9 +2090,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getRepeats()),
         emitter.emit(srcOp.getDim()),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2195,9 +2121,7 @@ public:
         emitter.emit(srcOp.getDim(), "dim"),
         emitter.emit(srcOp.getIndex(), "index"),
         emitter.emit(srcOp.getSource(), "src"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2228,8 +2152,7 @@ public:
         emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getDescending()),
         emitter.emit(srcOp.getStable()),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getValues()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2260,8 +2183,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim0()),
         emitter.emit(srcOp.getDim1()),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2290,9 +2212,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(concatOp.getInputs()),
         emitter.emit(concatOp.getDim()),
-        emitter.emit(std::nullopt |
-                         emitter.getMemoryConfig(concatOp.getResult()),
-                     "memory_config"),
+        emitter.emit(concatOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2321,9 +2241,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(permuteOp.getInput()),
         emitter.emit(permuteOp.getPermutation()),
-        emitter.emit(std::nullopt |
-                         emitter.getMemoryConfig(permuteOp.getResult()),
-                     "memory_config"),
+        emitter.emit(permuteOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(permuteOp.getPadValue(), "pad_value"),
     };
 
@@ -2366,9 +2284,7 @@ public:
         emitter.emit(std::nullopt, "padding_idx"),
         emitter.emit(layoutAttr, "layout"),
         emitter.emit(emitter.getOutputDtype(embeddingOp.getResult()), "dtype"),
-        emitter.emit(std::nullopt |
-                         emitter.getMemoryConfig(embeddingOp.getResult()),
-                     "memory_config"),
+        emitter.emit(embeddingOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2400,9 +2316,7 @@ public:
         emitter.emit(srcOp.getWeight()),
         emitter.emit(srcOp.getInGradient()),
         emitter.emit(srcOp.getDtype(), "dtype"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2440,8 +2354,7 @@ public:
         emitter.emit(srcOp.getBegins()),
         emitter.emit(srcOp.getEnds()),
         emitter.template emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep()),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2479,8 +2392,7 @@ public:
         emitter.template emit<::ttsl::SmallVector<int32_t>>(srcOp.getBegins()),
         emitter.template emit<::ttsl::SmallVector<int32_t>>(srcOp.getEnds()),
         emitter.template emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep()),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2514,8 +2426,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3088,7 +2999,7 @@ public:
         emitter.emit(mlir::tt::ttcore::elementTypeToDataType(
             layoutAttr.getScalarElementType())),
         emitter.emit(srcOp.getDevice()),
-        emitter.emit(emitter.getMemoryConfig(srcOp.getResult())),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
     };
 
     emitter.replaceOp(*this, args);
@@ -3125,9 +3036,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3167,9 +3076,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getNumHeads(), "num_heads"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config")};
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config")};
 
     emitter.replaceOp(*this, args);
 
@@ -3214,9 +3121,7 @@ public:
         emitter.emit(0.1f, "momentum"),
         emitter.emit(srcOp.getWeight(), "weight"),
         emitter.emit(srcOp.getBias(), "bias"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
@@ -3263,10 +3168,7 @@ public:
         emitter.emit(srcOp.getMomentum(), "momentum"),
         emitter.emit(srcOp.getWeight(), "weight"),
         emitter.emit(srcOp.getBias(), "bias"),
-        emitter.emit(srcOp.getMemoryConfig() |
-
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
@@ -3298,9 +3200,7 @@ public:
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3503,9 +3403,7 @@ public:
         emitter.emit(srcOp.getAllGatherDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -3539,9 +3437,7 @@ public:
         emitter.emit(srcOp.getScatterDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
@@ -3574,9 +3470,7 @@ public:
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -3643,7 +3537,7 @@ public:
         emitter.emit(srcOp.getExpertIndices(), "expert_indices_tensor"),
         emitter.emit(srcOp.getExpertMapping(), "expert_mapping_tensor"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3675,7 +3569,7 @@ public:
         emitter.emit(srcOp.getExpertMetadata(), "expert_metadata_tensor"),
         emitter.emit(srcOp.getExpertMapping(), "expert_mapping_tensor"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3709,7 +3603,7 @@ public:
         emitter.emit(srcOp.getExpertMapping(), "expert_mapping"),
         emitter.emit(srcOp.getExpertMetadata(), "expert_metadata"),
         emitter.emit(srcOp.getReductionSize(), "reduction_size"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3741,9 +3635,7 @@ public:
         emitter.emit(srcOp.getWeight(), "weight"),
         emitter.emit(srcOp.getBias(), "bias"),
         emitter.emit(std::nullopt, "residual_input_tensor"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(std::nullopt, "program_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
@@ -3797,9 +3689,7 @@ public:
         emitter.emit(srcOp.getStats(), "stats"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getResidual(), "residual_input_tensor"),
         emitter.emit(srcOp.getEpsilon(), "epsilon"),
         emitter.emit(srcOp.getWeight(), "weight"),
@@ -3834,9 +3724,7 @@ public:
         emitter.emit(srcOp.getWeight(), "weight"),
         emitter.emit(srcOp.getBias(), "bias"),
         emitter.emit(std::nullopt, "residual_input_tensor"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(std::nullopt, "program_config"),
     };
 
@@ -3883,9 +3771,7 @@ public:
         emitter.emit(srcOp.getBias(), "bias"),
         emitter.emit(srcOp.getNumGroups(), "num_groups"),
         emitter.emit(srcOp.getEpsilon(), "epsilon"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit<::ttnn::CoreGrid>(coreGridValue, "core_grid"),
         emitter.emit(false, "inplace"),
         emitter.emit(-1, "num_out_blocks"),
@@ -3931,9 +3817,7 @@ public:
         emitter.emit(srcOp.getOverlapQkCoregrid(), "overlap_qk_coregrid"),
         emitter.emit(srcOp.getBatchOffset(), "batch_offset"),
         emitter.emit(srcOp.getSliceSize(), "slice_size"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult(0)),
-                     "memory_config")};
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config")};
 
     emitter.replaceOp(*this, args);
 
@@ -3975,9 +3859,7 @@ public:
         emitter.emit(srcOp.getNumHeads(), "num_heads"),
         emitter.emit(srcOp.getNumKvHeads(), "num_kv_heads"),
         emitter.emit(srcOp.getTransposeKey(), "transpose_key"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult(0)),
-                     "memory_config")};
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config")};
 
     emitter.replaceOp(*this, args);
 
@@ -4019,9 +3901,7 @@ public:
         emitter.emit(srcOp.getSinCache()),
         emitter.emit(srcOp.getTransMat()),
         emitter.emit(srcOp.getIsDecodeMode(), "is_decode_mode"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
@@ -4062,9 +3942,7 @@ public:
         emitter.emit(srcOp.getCosCache()),
         emitter.emit(srcOp.getSinCache()),
         emitter.emit(srcOp.getTokenIndex()),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
@@ -4112,9 +3990,7 @@ public:
         emitter.emit(srcOp.getIsCausal(), "is_causal"),
         emitter.emit<float>(srcOp.getScaleAttr(), "scale"),
         emitter.emit(srcOp.getSlidingWindowSize(), "sliding_window_size"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -4164,9 +4040,7 @@ public:
         emitter.emit(srcOp.getAttentionSink(), "attention_sink"),
         emitter.emit(srcOp.getScale(), "scale"),
         emitter.emit(std::nullopt, "sliding_window_size"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
@@ -4198,9 +4072,7 @@ public:
         emitter.emit(srcOp.getZeroPoint()),
         emitter.emit(srcOp.getAxis(), "axis"),
         emitter.emit(srcOp.getOutputDtype(), "dtype"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -4232,9 +4104,7 @@ public:
         emitter.emit(srcOp.getOutZeroPoint()),
         emitter.emit(srcOp.getAxis(), "axis"),
         emitter.emit(srcOp.getOutputDtype(), "dtype"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -4262,7 +4132,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDtype(), "dtype"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -4293,8 +4163,7 @@ public:
         emitter.template emit<int32_t>(srcOp.getDim()),
         emitter.emit(srcOp.getLargest()),
         emitter.emit(srcOp.getSorted()),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getValues()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);

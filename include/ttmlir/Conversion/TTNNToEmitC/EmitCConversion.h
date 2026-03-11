@@ -2295,27 +2295,6 @@ public:
     return callOpaqueOp.getResult(0);
   }
 
-  // TODO (azecevic): This is a temporary solution for handling the case when
-  // the value of the MemoryConfigAttr is nullptr. This should be removed once
-  // https://github.com/tenstorrent/tt-mlir/issues/2415 lands.
-  mlir::Attribute getMemoryConfig(mlir::Value val) {
-    auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
-
-    ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
-        layoutAttr.getContext(), layoutAttr.getBufferType());
-    ttnn::TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
-
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        layoutAttr.getContext(), tensorMemoryLayout, bufferTypeAttr,
-        ttnn::utils::createShardSpecIfNeeded(layoutAttr,
-                                             deviceAttr.getWorkerGrid()));
-
-    return emit(memoryConfigAttr);
-  }
-
   ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
     auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());

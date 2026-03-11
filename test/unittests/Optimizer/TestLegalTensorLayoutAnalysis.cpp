@@ -96,22 +96,13 @@ protected:
         mlir::tt::ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
         mlir::tt::ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
-    // Create a memory configuration
-    auto memConfig = mlir::tt::ttnn::MemoryConfigAttr::get(
-        &context,
-        mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-            &context, mlir::tt::ttnn::TensorMemoryLayout::Interleaved),
-        mlir::tt::ttnn::BufferTypeAttr::get(&context,
-                                            mlir::tt::ttnn::BufferType::DRAM),
-        std::nullopt);
-
     // Create an empty op with all required parameters
     builder.create<mlir::tt::ttnn::EmptyOp>(
         builder.getUnknownLoc(), tensorType, device,
         mlir::tt::ttnn::ShapeAttr::get(&context, getTensorShape()),
         mlir::tt::ttcore::DataTypeAttr::get(
             &context, mlir::tt::ttcore::DataType::Float32),
-        mlir::tt::ttnn::LayoutAttr::get(&context, Layout::Tile), memConfig);
+        mlir::tt::ttnn::LayoutAttr::get(&context, Layout::Tile));
 
     // Add return op
     builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc());
