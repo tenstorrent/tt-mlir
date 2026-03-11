@@ -990,7 +990,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// Note: Stream buffer storage allocs are currently skipped by the planner
   /// (no L1 space reserved). `insertStream` still creates the alloc and
   /// `stream_layout` for IR correctness, but without an address; both are
-  /// expected to be DCE'd before conversion to TTMetal.  Ticket: #6613 tracks
+  /// expected to be placeholders for now.  Ticket: #6613 tracks
   /// the removal of stream buffer storage allocs entirely.
   ///
   LogicalResult prepareMemoryPlanner(func::FuncOp funcOp,
@@ -1029,10 +1029,24 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         // data.
         if (memref.getDefiningOp<memref::AllocOp>() &&
             memspace == MemorySpace::DeviceL1) {
-          memrefCtx.reqIndex =
-              b.request(PlannerSpace::Scratch,
-                        memrefCtx.allocSize[ordinal(asPlannerSpace(memspace))],
-                        memrefCtx.live.first, memrefCtx.live.last);
+          // Skip planner request for allocs that serve as pre-existing
+          // stream storage (2nd operand of stream_layout).  Their L1
+          // space is managed by the stream; registering them would
+          // double-count against the internal CB alloc that
+          // analyzeGenericRegionAllocs creates for the same operand.
+          bool isStreamStorage =
+              llvm::any_of(memref.getUsers(), [&](Operation *user) {
+                if (auto streamOp = mlir::dyn_cast<d2m::StreamLayoutOp>(user)) {
+                  return streamOp.getStorage() == memref;
+                }
+                return false;
+              });
+          if (!isStreamStorage) {
+            memrefCtx.reqIndex = b.request(
+                PlannerSpace::Scratch,
+                memrefCtx.allocSize[ordinal(asPlannerSpace(memspace))],
+                memrefCtx.live.first, memrefCtx.live.last);
+          }
         }
 
         // This decision variable must be bound to its incoming memspace
@@ -1219,6 +1233,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       const auto &solution = analysis.problem(remappedMemorySpace);
       const auto &memInfo = memSpaces[ordinal(remappedMemorySpace)];
 
+      // Stream storage allocs that were skipped (no planner request)
+      // don't get an address — they are placeholders for now.
+      if (memrefCtx.reqIndex < 0) {
+        continue;
+      }
       assignAddressAndAlignment(rewriter, allocOp,
                                 solution.request(memrefCtx.reqIndex).offset,
                                 memInfo);
