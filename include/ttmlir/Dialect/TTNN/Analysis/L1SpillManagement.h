@@ -104,6 +104,9 @@ private:
   ttcore::GridAttr deviceGrid;
   uint64_t l1BudgetPerCore;
 
+  /// Precomputed CB fragmentation cushion (bytes). See kCBFragCushionFraction.
+  uint64_t cbFragCushion;
+
   /// Observer (NullObject pattern: always non-null).
   std::unique_ptr<L1SpillObserver> observer_;
 
@@ -195,6 +198,22 @@ private:
                  llvm::ArrayRef<OpResult> tensorResults,
                  const ScheduleData &data, uint64_t opL1Usage,
                  std::function<void(uint64_t)> addResultsToLiveSet);
+
+  /// Evict all live tensors whose simulated address falls below |threshold|.
+  /// Spills each victim to DRAM, removes it from the memory tracker and live
+  /// set, and revalidates downstream consumers.
+  void evictTensorsBelow(uint64_t threshold, int64_t pos,
+                         const ScheduleData &data);
+
+  /// After demoting an op's output to DRAM, re-query op_model for the DRAM
+  /// config's cbPeakUsage and evict any live tensors that fall within the
+  /// (potentially larger) static CB region.  When output switches from
+  /// L1-sharded to DRAM, the output CB flips from globally_allocated (aliased
+  /// to the shard, not in the static CB region) to locally_allocated (bottom-up
+  /// in the static CB region), which can significantly increase the CB
+  /// footprint.
+  void evictForDramCBGrowth(Operation *op, int64_t pos,
+                            const ScheduleData &data);
 
   /// Collect downstream consumers of an op, following through spill ops.
   static llvm::SmallVector<Operation *>

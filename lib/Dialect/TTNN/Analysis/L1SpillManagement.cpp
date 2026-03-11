@@ -23,6 +23,16 @@
 
 namespace mlir::tt::ttnn {
 
+// Safety margin for the CB fragmentation check, expressed as a fraction of
+// the L1 budget per core.  The compile-time address simulator cannot model
+// transient internal allocations that ops (e.g. matmul, SDPA) make and
+// release during program execution.  These "ghost" allocations fragment the
+// runtime free list, pushing subsequent tensor allocations to lower
+// addresses than the simulator predicts.  The cushion accounts for this
+// gap so that the CB region (growing bottom-up) never overlaps with tensor
+// buffers at runtime.
+static constexpr double kCBFragCushionFraction = 0.10;
+
 //===----------------------------------------------------------------------===//
 // SumL1MemoryTracker
 //===----------------------------------------------------------------------===//
@@ -185,7 +195,9 @@ template <typename MemoryTracker>
 L1SpillManagement<MemoryTracker>::L1SpillManagement(
     func::FuncOp func, ttcore::GridAttr deviceGrid, uint64_t l1BudgetPerCore,
     std::unique_ptr<L1SpillObserver> observer)
-    : func(func), deviceGrid(deviceGrid), l1BudgetPerCore(l1BudgetPerCore) {
+    : func(func), deviceGrid(deviceGrid), l1BudgetPerCore(l1BudgetPerCore),
+      cbFragCushion(
+          static_cast<uint64_t>(kCBFragCushionFraction * l1BudgetPerCore)) {
   if (observer) {
     observer_ = std::move(observer);
   } else {
@@ -591,45 +603,25 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
   // eviction without knowing which tensors to free. Demote directly.
   if (cbPeakUsage == 0) {
     demoteToDram(op);
+    evictForDramCBGrowth(op, pos, data);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    FRAG_DEMOTE (no-fit, no CB info): output to DRAM");
     return 0;
   }
 
-  // Evict tensors in the CB danger zone: those with simulated address below
-  // cbPeakUsage. These could be inputs or unrelated live tensors.
-  auto dangerTensors = memoryTracker.getTensorsBelow(cbPeakUsage);
-  llvm::SmallVector<Operation *> evictedOps;
-  for (Value victim : dangerTensors) {
-    if (!liveValues.count(victim)) {
-      continue;
-    }
-    uint64_t freedBytes = memoryTracker.getTensorSize(victim);
-    if (freedBytes == 0) {
-      continue;
-    }
-    Operation *victimOp = victim.getDefiningOp();
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    FRAG_EVICT: {0} (L1: {1} bytes, addr below {2})",
-                 ttmlir::opToString(victimOp), freedBytes, cbPeakUsage);
-    observer_->onEviction(victimOp, pos, freedBytes);
-    spillToDram(victim);
-    memoryTracker.removeTensor(victim);
-    liveValues.erase(victim);
-    if (victimOp) {
-      evictedOps.push_back(victimOp);
-    }
-  }
+  // Add the same safety cushion as wouldCBsOverlapTensors to account for
+  // unmodeled runtime fragmentation from transient internal op allocations.
+  uint64_t cushionedCBUsage = cbPeakUsage + cbFragCushion;
 
-  // Revalidate consumers of all evicted tensors (limited to pos < current).
-  for (Operation *evictedOp : evictedOps) {
-    revalidateConsumers(evictedOp, pos, data.positionMap);
-  }
+  // Evict tensors in the CB danger zone (including cushion): those with
+  // simulated address below the cushioned CB region.
+  evictTensorsBelow(cushionedCBUsage, pos, data);
 
   // After eviction, re-check both conditions with the updated free list.
   auto freshOutputAddr = memoryTracker.wouldAllocateAt(outputL1Size);
   if (!freshOutputAddr) {
     demoteToDram(op);
+    evictForDramCBGrowth(op, pos, data);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    FRAG_DEMOTE (still no-fit after eviction): output to "
                  "DRAM");
@@ -638,12 +630,14 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
 
   uint64_t freshEffectiveLowest =
       std::min(*freshOutputAddr, memoryTracker.getLowestOccupiedAddress());
-  if (cbPeakUsage > freshEffectiveLowest) {
+  if (cushionedCBUsage > freshEffectiveLowest) {
     demoteToDram(op);
+    evictForDramCBGrowth(op, pos, data);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    FRAG_DEMOTE (CB overlap persists): cbPeak={0} > "
-                 "effectiveLowest={1}",
-                 cbPeakUsage, freshEffectiveLowest);
+                 "    FRAG_DEMOTE (CB overlap persists): cb={0}+cushion={1}"
+                 "={2} > effectiveLowest={3}",
+                 cbPeakUsage, cbFragCushion, cushionedCBUsage,
+                 freshEffectiveLowest);
     return 0;
   }
 
@@ -662,6 +656,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
   }
 
   demoteToDram(op);
+  evictForDramCBGrowth(op, pos, data);
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "    FRAG_DEMOTE: output to DRAM");
   return 0;
@@ -686,12 +681,23 @@ bool L1SpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
   uint64_t effectiveLowest =
       std::min(speculativeOutputAddr, lowestExistingAddr);
 
-  if (cbPeakUsage > effectiveLowest) {
+  // Add a safety cushion to account for unmodeled runtime fragmentation
+  // from transient internal op allocations (ghost holes).
+  uint64_t cushionedCBUsage = cbPeakUsage + cbFragCushion;
+
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+               "    CB FRAG CHECK: cbPeakUsage={0}, cushion={1}, "
+               "speculativeOutputAddr={2}, lowestExistingAddr={3}, "
+               "effectiveLowest={4}",
+               cbPeakUsage, cbFragCushion, speculativeOutputAddr,
+               lowestExistingAddr, effectiveLowest);
+
+  if (cushionedCBUsage > effectiveLowest) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    FRAG_RISK: cbPeakUsage={0} > effectiveLowest={1} "
-                 "(speculativeOutput={2}, lowestExisting={3}, occupied={4})",
-                 cbPeakUsage, effectiveLowest, speculativeOutputAddr,
-                 lowestExistingAddr, memoryTracker.getOccupiedL1());
+                 "    FRAG_RISK: cb={0}+cushion={1}={2} > "
+                 "effectiveLowest={3} (occupied={4})",
+                 cbPeakUsage, cbFragCushion, cushionedCBUsage, effectiveLowest,
+                 memoryTracker.getOccupiedL1());
     observer_->onFragmentationDemote(op, pos, cbPeakUsage, cbPeakUsage,
                                      /*inputL1Size=*/0, /*holeL1Size=*/0,
                                      effectiveLowest,
@@ -942,6 +948,70 @@ void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer, "Demoted to DRAM: {0}",
                ttmlir::opToString(op));
+}
+
+//===----------------------------------------------------------------------===//
+// evictTensorsBelow
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::evictTensorsBelow(
+    uint64_t threshold, int64_t pos, const ScheduleData &data) {
+  auto dangerTensors = memoryTracker.getTensorsBelow(threshold);
+  for (Value victim : dangerTensors) {
+    if (!liveValues.count(victim)) {
+      continue;
+    }
+    uint64_t freedBytes = memoryTracker.getTensorSize(victim);
+    if (freedBytes == 0) {
+      continue;
+    }
+    Operation *victimOp = victim.getDefiningOp();
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    CB_EVICT: {0} (L1: {1} bytes, addr below {2})",
+                 ttmlir::opToString(victimOp), freedBytes, threshold);
+    observer_->onEviction(victimOp, pos, freedBytes);
+    spillToDram(victim);
+    memoryTracker.removeTensor(victim);
+    liveValues.erase(victim);
+    if (victimOp) {
+      revalidateConsumers(victimOp, pos, data.positionMap);
+    }
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// evictForDramCBGrowth
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
+    Operation *op, int64_t pos, const ScheduleData &data) {
+
+  auto inputLayouts = utils::extractInputLayouts(op);
+  auto config = extractOpConfigFromIR(op);
+  auto result =
+      op_constraint_validation::validateOperation(op, inputLayouts, config,
+                                                  /*additionalL1Usage=*/0);
+  if (!result.isSuccess()) {
+    op->emitError("L1SpillManagement: DRAM output config failed validation "
+                  "after demotion (")
+        << result.errorMessage << "); this indicates a compiler bug";
+    return;
+  }
+  if (result.cbPeakUsage == 0) {
+    return;
+  }
+
+  uint64_t dramCBCushioned = result.cbPeakUsage + cbFragCushion;
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "    DRAM_CB_CHECK: dramCBPeak={0}, cushion={1}, "
+               "cushionedDramCB={2}, lowestExisting={3}",
+               result.cbPeakUsage, cbFragCushion, dramCBCushioned,
+               memoryTracker.getLowestOccupiedAddress());
+
+  evictTensorsBelow(dramCBCushioned, pos, data);
 }
 
 //===----------------------------------------------------------------------===//
