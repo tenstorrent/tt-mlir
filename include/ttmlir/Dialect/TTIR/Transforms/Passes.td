@@ -92,7 +92,13 @@ def CPUHoistConstEvalTransform: Pass<"cpu-hoist-const-eval", "::mlir::ModuleOp">
     and reduces peak DRAM/L1 usage by keeping intermediate tensors in host memory.
   }];
 
-  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect",
+                           "::mlir::tt::ttir::TTIRDialect",
+                           "::mlir::linalg::LinalgDialect",
+                           "::mlir::tosa::TosaDialect",
+                           "::mlir::arith::ArithDialect",
+                           "::mlir::math::MathDialect",
+                           "::mlir::tensor::TensorDialect"];
 }
 
 def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">

@@ -49,6 +49,17 @@ llvm::SmallVector<CPUHoistedOpsDescriptor> createDescriptorsWithPredicate(
 // module. Returns nullptr if not found.
 mlir::ModuleOp getDeviceInnerModule(mlir::ModuleOp rootModule);
 
+// Checks whether a given TTIR op can be lowered to Linalg by attempting
+// TTIRToTTIRDecomposition (CPUFallback) followed by TTIRToLinalg conversion
+// on a temporary module containing only the op (wrapped in a func).
+// Returns true if the lowering succeeds, false otherwise.
+//
+// TODO(dmilinkovic): this is a temporary safety precaution which introduces
+// artificial coupling between different stages of the pipeline.
+// We should remove this once TTIR -> Linalg coverage is sufficient (issue
+// #7392).
+bool canLowerTTIRToLinalg(mlir::Operation *op);
+
 } // namespace mlir::tt::ttir
 
 #endif
