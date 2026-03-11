@@ -69,8 +69,11 @@ static bool shouldTransferArgumentToDevice(BlockArgument blockArgument) {
     return true;
   }
 
-  return toLayoutOp.getMemoryConfig()->getBufferType().getValue() !=
-         BufferType::SystemMemory;
+  return mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+             toLayoutOp.getOperation())
+             .getMemoryConfig()
+             ->getBufferType()
+             .getValue() != BufferType::SystemMemory;
 }
 
 // Converts the arguments of the forward function which are const-eval inputs
@@ -179,8 +182,7 @@ static void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
 
     auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
         blockArgument.getLoc(), deviceTensorType, blockArgument,
-        deviceTensorLayout.getLayout(), originalDataTypeAttr,
-        MemoryConfigAttr::get(deviceTensorLayout, deviceGrid));
+        deviceTensorLayout.getLayout(), originalDataTypeAttr);
 
     // Replace the argument usages with the to_layout op result.
     //

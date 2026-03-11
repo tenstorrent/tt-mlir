@@ -66,8 +66,7 @@ LogicalResult UpsampleOpBilinearPaddingRewritePattern::matchAndRewrite(
   auto padOp = rewriter.create<ttnn::PadOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getInput().getLoc(), "pad"),
       paddedType, srcOp.getInput(), padding, /*pad_value=*/mlir::APFloat(0.0f),
-      /*use_multicore=*/false,
-      /*memory_config=*/nullptr);
+      /*use_multicore=*/false);
 
   RankedTensorType outputType = srcOp.getResult().getType();
   llvm::SmallVector<int64_t> upsamplePaddedShape(outputType.getShape());
@@ -80,7 +79,7 @@ LogicalResult UpsampleOpBilinearPaddingRewritePattern::matchAndRewrite(
 
   auto paddedUpsampleOp = rewriter.create<ttnn::UpsampleOp>(
       srcOp.getLoc(), upsampledPaddedType, padOp, srcOp.getScaleFactorAttr(),
-      srcOp.getModeAttr(), /*memory_config=*/nullptr);
+      srcOp.getModeAttr());
 
   // Create SliceStaticOp to remove padding from the upsampled result.
   SmallVector<int32_t> begins(/*size=*/DIM_COUNT, /*value=*/0);

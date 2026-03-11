@@ -61,8 +61,7 @@ LogicalResult Conv3dDepthPaddingRewritePattern::matchAndRewrite(
                                  srcOp.getInput().getLoc(), "_pad_conv3d"),
                              paddedInputType, srcOp.getInput(), inputPadding,
                              /*pad_value=*/mlir::APFloat(0.0f),
-                             /*use_multicore=*/false,
-                             /*memory_config=*/nullptr);
+                             /*use_multicore=*/false);
 
   rewriter.modifyOpInPlace(srcOp, [&]() {
     srcOp.getInputMutable().assign(paddedInput);

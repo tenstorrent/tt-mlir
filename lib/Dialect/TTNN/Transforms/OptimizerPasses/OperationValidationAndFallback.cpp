@@ -913,11 +913,7 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
       loc, resultType, inputValue,
       LayoutAttr::get(builder.getContext(), targetLayout.getLayout()),
       ttcore::DataTypeAttr::get(builder.getContext(),
-                                targetLayout.getDataType()),
-      MemoryConfigAttr::get(builder.getContext(), targetLayout.getMemLayout(),
-                            BufferTypeAttr::get(builder.getContext(),
-                                                targetLayout.getBufferType()),
-                            /*shardSpec=*/std::nullopt));
+                                targetLayout.getDataType()));
 }
 
 // Try config fallbacks for Conv2d-like operations

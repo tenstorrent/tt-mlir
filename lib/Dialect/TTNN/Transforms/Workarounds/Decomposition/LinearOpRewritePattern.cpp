@@ -166,8 +166,7 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
   AddOp addOp = rewriter.create<ttnn::AddOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_add"),
       addOutputType, matmulOp.getResult(), srcOp.getBias(),
-      /*dtype=*/dataTypeAttr,
-      /*memory_config=*/ttnn::MemoryConfigAttr());
+      /*dtype=*/dataTypeAttr);
 
   // Step 3: Reshape the add result back to original output shape.
   // Reshape op will be no-op if addOp output shape is same as original LinearOp

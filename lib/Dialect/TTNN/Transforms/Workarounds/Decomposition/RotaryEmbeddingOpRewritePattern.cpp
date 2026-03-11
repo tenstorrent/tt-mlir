@@ -35,7 +35,7 @@ getWorkaroundedOp(RotaryEmbeddingOp ropeOp, PatternRewriter &rewriter) {
   auto paddedOp = rewriter.create<RotaryEmbeddingOp>(
       ropeOp.getLoc(), paddedType, ropeOp.getInput(), ropeOp.getCosCache(),
       ropeOp.getSinCache(), ropeOp.getTokenIndexAttr(),
-      ropeOp.getMemoryConfigAttr(), ropeOp.getComputeConfigAttr());
+      ropeOp.getComputeConfigAttr());
 
   // Slice to original shape.
   SmallVector<int32_t> begins(resultShape.size(), 0);

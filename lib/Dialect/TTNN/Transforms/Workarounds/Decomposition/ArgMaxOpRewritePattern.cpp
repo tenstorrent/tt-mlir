@@ -64,7 +64,7 @@ ArgMaxOpRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
   // Create new ttnn.argmax op with updated input tensor, dimension, etc.
   ArgMaxOp argMaxOp = rewriter.create<mlir::tt::ttnn::ArgMaxOp>(
       srcOp->getLoc(), newOutputType, preReshapeOp, dimAttr, srcOp.getKeepDim(),
-      /*use_multicore=*/false, /*memoryConfig=*/nullptr);
+      /*use_multicore=*/false);
 
   // Create ttnn.reshape op after performing ttnn.argmax op.
   ReshapeOp postReshapeOp = ttir_to_ttnn::utils::generateReshape(

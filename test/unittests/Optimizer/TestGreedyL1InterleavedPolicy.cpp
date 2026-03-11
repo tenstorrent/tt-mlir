@@ -63,7 +63,7 @@ public:
     ShapeAttr shapeAttr = ShapeAttr::get(&context, getTensorShape());
     return builder.create<OnesOp>(builder.getUnknownLoc(),
                                   getTensorRankedType(), nullptr, shapeAttr,
-                                  nullptr, nullptr, nullptr);
+                                  nullptr, nullptr);
   }
 
   mlir::func::FuncOp createFuncOp() {
@@ -148,8 +148,8 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   // Create operand A
   mlir::Value lhs = func.getBody().getBlocks().front().getArgument(0);
   mlir::Value rhs = func.getBody().getBlocks().front().getArgument(1);
-  mlir::Operation *opA =
-      builder.create<AddOp>(builder.getUnknownLoc(), lhs.getType(), lhs, rhs);
+  mlir::Operation *opA = builder.create<AddOp>(
+      builder.getUnknownLoc(), lhs.getType(), lhs, rhs, nullptr);
   uint64_t outputL1Usage = 2;
   uint64_t requiredL1Usage = 8;
   prepareOpForGreedyConfigPicker(opA, outputL1Usage, requiredL1Usage,
@@ -158,8 +158,8 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   // Create operand B
   lhs = func.getBody().getBlocks().front().getArgument(0);
   rhs = func.getBody().getBlocks().front().getArgument(1);
-  mlir::Operation *opB =
-      builder.create<AddOp>(builder.getUnknownLoc(), lhs.getType(), lhs, rhs);
+  mlir::Operation *opB = builder.create<AddOp>(
+      builder.getUnknownLoc(), lhs.getType(), lhs, rhs, nullptr);
   outputL1Usage = 3;
   requiredL1Usage = 7;
   prepareOpForGreedyConfigPicker(opB, outputL1Usage, requiredL1Usage,
@@ -168,8 +168,8 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   // Create operand C
   lhs = func.getBody().getBlocks().front().getArgument(0);
   rhs = func.getBody().getBlocks().front().getArgument(1);
-  mlir::Operation *opC =
-      builder.create<AddOp>(builder.getUnknownLoc(), lhs.getType(), lhs, rhs);
+  mlir::Operation *opC = builder.create<AddOp>(
+      builder.getUnknownLoc(), lhs.getType(), lhs, rhs, nullptr);
   outputL1Usage = 1;
   requiredL1Usage = 9;
   prepareOpForGreedyConfigPicker(opC, outputL1Usage, requiredL1Usage,
@@ -178,8 +178,8 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   // Create base op D
   lhs = func.getBody().getBlocks().front().getArgument(0);
   rhs = func.getBody().getBlocks().front().getArgument(1);
-  mlir::Operation *opD =
-      builder.create<AddOp>(builder.getUnknownLoc(), lhs.getType(), lhs, rhs);
+  mlir::Operation *opD = builder.create<AddOp>(
+      builder.getUnknownLoc(), lhs.getType(), lhs, rhs, nullptr);
   outputL1Usage = 4;
   requiredL1Usage = 0;
   prepareOpForGreedyConfigPicker(opD, outputL1Usage, requiredL1Usage,

@@ -35,9 +35,9 @@ public:
     }
     RankedTensorType rankedTensorType =
         createRankedTensorType(tensorShape, elementType, layout);
-    return builder.create<OnesOp>(
-        builder.getUnknownLoc(), rankedTensorType, nullptr,
-        ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+    return builder.create<OnesOp>(builder.getUnknownLoc(), rankedTensorType,
+                                  nullptr,
+                                  ShapeAttr::get(&context, tensorShape));
   }
 };
 
@@ -64,8 +64,7 @@ TEST_F(OpModelTest, MatmulBlockShardedInputWithPadding) {
   auto inputB = createEmptyTensor(inputShapeB, nullptr, inputLayoutB);
 
   llvm::SmallVector<int64_t> outputShape = {4096, 128};
-  auto outputType =
-      createRankedTensorType(outputShape, builder.getBF16Type(), nullptr);
+  auto outputType = createRankedTensorType(outputShape, builder.getBF16Type());
 
   auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
                                          mlir::ValueRange{inputA, inputB});
@@ -106,8 +105,7 @@ TEST_F(OpModelTest, MatmulActivationWithIgnorePhysicalLayout) {
   auto inputB = createEmptyTensor(inputShapeB, nullptr, inputLayoutB);
 
   llvm::SmallVector<int64_t> outputShape = {64, 64};
-  auto outputType =
-      createRankedTensorType(outputShape, builder.getBF16Type(), nullptr);
+  auto outputType = createRankedTensorType(outputShape, builder.getBF16Type());
 
   // Create matmul with activation attribute
   auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,

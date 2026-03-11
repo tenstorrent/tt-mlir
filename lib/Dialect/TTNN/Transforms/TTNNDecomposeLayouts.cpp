@@ -158,8 +158,15 @@ private:
     auto outputLayoutAttr =
         mlir::cast<TTNNLayoutAttr>(op.getResult().getType().getEncoding());
 
-    assert(op.getMemoryConfig().has_value());
-    MemoryConfigAttr outputMemoryConfig = op.getMemoryConfig().value();
+    assert(mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+               op.getOperation())
+               .getMemoryConfig()
+               .has_value());
+    MemoryConfigAttr outputMemoryConfig =
+        mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+            op.getOperation())
+            .getMemoryConfig()
+            .value();
 
     input.bufferType = inputLayoutAttr.getBufferType();
     output.bufferType = outputMemoryConfig.getBufferType().getValue();
@@ -290,8 +297,6 @@ private:
     if (!info.opsToCreate.createToDeviceOp && !forceCreate) {
       return currentInput;
     }
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        info.output.createMemoryConfigAttr(op.getContext());
     RankedTensorType currentInputType =
         mlir::cast<RankedTensorType>(currentInput.getType());
     RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
@@ -306,8 +311,8 @@ private:
     mlir::Value device = utils::getOrInsertDevice(rewriter, op);
 
     // Create new ranked tensor type with host memory buffer type
-    return this->createOp<ttnn::ToDeviceOp>(
-        rewriter, op, newResultType, currentInput, device, memoryConfigAttr);
+    return this->createOp<ttnn::ToDeviceOp>(rewriter, op, newResultType,
+                                            currentInput, device);
   }
 
   // FromDeviceOp
@@ -342,8 +347,7 @@ private:
 
     return this->createOp<ttnn::ToLayoutOp>(rewriter, op, newResultType,
                                             currentInput, layoutAttr,
-                                            /*dtype*/ nullptr,
-                                            /*memory_config*/ nullptr);
+                                            /*dtype*/ nullptr);
   }
 
   mlir::Value createDataTypeCastingOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
@@ -385,8 +389,6 @@ private:
     if (!info.opsToCreate.createToMemoryConfigOp) {
       return currentInput;
     }
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        info.output.createMemoryConfigAttr(op.getContext());
     RankedTensorType currentInputType =
         mlir::cast<RankedTensorType>(currentInput.getType());
     TTNNLayoutAttr newLayout =
@@ -397,8 +399,8 @@ private:
             .withShardShape(info.output.shardShape);
     RankedTensorType newResultType =
         utils::RankedTensorTypeFactory::create(currentInputType, newLayout);
-    return this->createOp<ttnn::ToMemoryConfigOp>(
-        rewriter, op, newResultType, currentInput, memoryConfigAttr);
+    return this->createOp<ttnn::ToMemoryConfigOp>(rewriter, op, newResultType,
+                                                  currentInput);
   }
 
   /* Functions that create ops based on the layouts of the input output tensors

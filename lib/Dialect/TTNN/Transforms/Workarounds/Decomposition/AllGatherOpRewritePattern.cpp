@@ -51,8 +51,8 @@ TTNNAllGatherWorkarounds::matchAndRewrite(ttnn::AllGatherOp op,
       ttnn::utils::RankedTensorTypeFactory::create(inputType, paddedInputShape);
   auto reshapeInput = rewriter.create<ttnn::ReshapeOp>(
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshape_to_4d"),
-      reshapeInputType, op.getInput(), rewriter.getI32ArrayAttr(paddedShapeI32),
-      ttnn::MemoryConfigAttr());
+      reshapeInputType, op.getInput(),
+      rewriter.getI32ArrayAttr(paddedShapeI32));
 
   // Create 4D output tensor type
   RankedTensorType paddedOutputType =
@@ -65,14 +65,14 @@ TTNNAllGatherWorkarounds::matchAndRewrite(ttnn::AllGatherOp op,
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_all_gather_4d"),
       paddedOutputType, reshapeInput.getResult(), adjustedGatherDim,
       op.getClusterAxis(),
-      /*sub_device_id=*/nullptr, /*memory_config=*/nullptr,
+      /*sub_device_id=*/nullptr,
       /*num_links=*/nullptr, /*topology=*/nullptr);
 
   // Reshape back to original dimensionality
   SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());
   rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
       op, outputType, allGather4D.getResult(),
-      rewriter.getI32ArrayAttr(outputShapeI32), ttnn::MemoryConfigAttr());
+      rewriter.getI32ArrayAttr(outputShapeI32));
 
   return success();
 }

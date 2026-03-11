@@ -336,7 +336,8 @@ getNamedFullOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   const std::optional<mlir::tt::ttcore::DataType> dtype = op.getDtype();
   const std::optional<mlir::tt::ttnn::Layout> layout = op.getLayout();
   const std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      op.getMemoryConfig();
+      mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(op.getOperation())
+          .getMemoryConfig();
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, shape, dtype,
@@ -1731,7 +1732,7 @@ ToMemoryConfigOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ToMemoryConfigOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getMemoryConfig(), opConfig.outputLayout);
+      inputShape, inputs[0], getMemoryConfigAttr(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1743,7 +1744,7 @@ ToMemoryConfigOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ToMemoryConfigOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getMemoryConfig(), opConfig.outputLayout);
+      inputs[0], getMemoryConfigAttr(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4512,7 +4513,7 @@ RandOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::RandOp>::getOpConstraints, *this,
-      deviceGrid, getSize(), getDtype(), getMemoryConfig(), getLayout(),
+      deviceGrid, getSize(), getDtype(), getMemoryConfigAttr(), getLayout(),
       getLow(), getHigh(), getSeed(), opConfig.outputLayout);
 }
 
@@ -4758,7 +4759,7 @@ AssignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], getMemoryConfig(), getDtype());
+      deviceGrid, inputShape, inputs[0], getMemoryConfigAttr(), getDtype());
 }
 
 llvm::Expected<size_t>
@@ -4769,7 +4770,7 @@ AssignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime, *this,
-      inputShape, inputs[0], getMemoryConfig(), getDtype());
+      inputShape, inputs[0], getMemoryConfigAttr(), getDtype());
 }
 
 //===----------------------------------------------------------------------===//

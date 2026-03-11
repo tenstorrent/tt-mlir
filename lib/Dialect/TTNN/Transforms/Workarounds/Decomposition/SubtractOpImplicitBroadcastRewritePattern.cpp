@@ -21,7 +21,7 @@ LogicalResult SubtractOpImplicitBroadcastRewritePattern::matchAndRewrite(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_neg"), rhsType,
       srcOp.getRhs());
   rewriter.replaceOpWithNewOp<ttnn::AddOp>(srcOp, srcOp.getResult().getType(),
-                                           srcOp.getLhs(), negOp);
+                                           srcOp.getLhs(), negOp.getResult());
 
   return success();
 }

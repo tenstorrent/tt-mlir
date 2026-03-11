@@ -1277,7 +1277,7 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
       ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
 
   build(builder, state, resultType, device, shapeAttr, fillValue, dtypeAttr,
-        tensorLayoutAttr, /*memory_config=*/nullptr);
+        tensorLayoutAttr);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1314,11 +1314,11 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
     // MemoryConfig
     // Compare internal attrs with output tensor attrs.
     //
-    if (getMemoryConfig().getBufferType().getValue() !=
+    if (getMemoryConfigAttr().getBufferType().getValue() !=
         layoutAttr.getBufferType()) {
       return emitOpError("Buffer type mismatch between op and layoutAttr.");
     }
-    if (getMemoryConfig().getTensorMemoryLayout() !=
+    if (getMemoryConfigAttr().getTensorMemoryLayout() !=
         layoutAttr.getMemLayout()) {
       return emitOpError(
           "Tensor memory layout mismatch between op and layoutAttr.");
@@ -2051,8 +2051,14 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
   bool hasOpsBetween = (nextOp != op.getOperation());
 
   if (hasOpsBetween) {
-    MemoryConfigAttr producerMemConfig = producerOp.getMemoryConfigAttr();
-    MemoryConfigAttr consumerMemConfig = op.getMemoryConfigAttr();
+    MemoryConfigAttr producerMemConfig =
+        mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+            producerOp.getOperation())
+            .getMemoryConfigAttr();
+    MemoryConfigAttr consumerMemConfig =
+        mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+            op.getOperation())
+            .getMemoryConfigAttr();
 
     if (producerMemConfig && consumerMemConfig &&
         producerMemConfig.getBufferType().getValue() == BufferType::DRAM &&
@@ -2064,8 +2070,14 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
   if (!op.getDtype()) {
     op.setDtypeAttr(producerOp.getDtypeAttr());
   }
-  if (!op.getMemoryConfig()) {
-    op.setMemoryConfigAttr(producerOp.getMemoryConfigAttr());
+  if (!mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+           op.getOperation())
+           .getMemoryConfig()) {
+    mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(op.getOperation())
+        .setMemoryConfigAttr(
+            mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+                producerOp.getOperation())
+                .getMemoryConfigAttr());
   }
   op.getInputMutable().set(producerOp.getInput());
 
@@ -2117,7 +2129,10 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
     ttcore::DataTypeAttr targetDataTypeAttr = toLayoutOp.getDtypeAttr();
     LayoutAttr targetLayoutAttr = toLayoutOp.getLayoutAttr();
-    MemoryConfigAttr targetMemoryConfigAttr = toLayoutOp.getMemoryConfigAttr();
+    MemoryConfigAttr targetMemoryConfigAttr =
+        mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+            toLayoutOp.getOperation())
+            .getMemoryConfigAttr();
 
     // If the to layout op tends to move the tensor to host, we can't merge it
     // into creation op if creation op doesn't support execution on host. For
@@ -2135,11 +2150,18 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
     tensorSpecOp.setDtypeAttr(targetDataTypeAttr);
     tensorSpecOp.setLayoutAttr(targetLayoutAttr);
-    tensorSpecOp.setMemoryConfigAttr(targetMemoryConfigAttr);
+    mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+        tensorSpecOp.getOperation())
+        .setMemoryConfigAttr(targetMemoryConfigAttr);
 
     BufferTypeAttr newBufferType = nullptr;
-    if (tensorSpecOp.getMemoryConfigAttr()) {
-      newBufferType = tensorSpecOp.getMemoryConfigAttr().getBufferType();
+    if (mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+            tensorSpecOp.getOperation())
+            .getMemoryConfigAttr()) {
+      newBufferType = mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+                          tensorSpecOp.getOperation())
+                          .getMemoryConfigAttr()
+                          .getBufferType();
     }
 
     TTNNDeviceOperandInterface deviceOperandInterface =
@@ -2188,8 +2210,13 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
     // Verify that the target buffer type is a system memory.
     BufferTypeAttr bufferTypeAttr = nullptr;
-    if (toLayoutOp.getMemoryConfigAttr()) {
-      bufferTypeAttr = toLayoutOp.getMemoryConfigAttr().getBufferType();
+    if (mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+            toLayoutOp.getOperation())
+            .getMemoryConfigAttr()) {
+      bufferTypeAttr = mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+                           toLayoutOp.getOperation())
+                           .getMemoryConfigAttr()
+                           .getBufferType();
     }
 
     if (bufferTypeAttr && !isSystemBufferType(bufferTypeAttr.getValue())) {
@@ -2201,9 +2228,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
         toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
                                   : emptyOp.getDtypeAttr(),
         toLayoutOp.getLayoutAttr() ? toLayoutOp.getLayoutAttr()
-                                   : emptyOp.getLayoutAttr(),
-        toLayoutOp.getMemoryConfigAttr() ? toLayoutOp.getMemoryConfigAttr()
-                                         : emptyOp.getMemoryConfigAttr());
+                                   : emptyOp.getLayoutAttr());
 
     rewriter.replaceAllOpUsesWith(toLayoutOp, zerosOp);
     rewriter.eraseOp(toLayoutOp);

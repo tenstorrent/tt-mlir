@@ -4,7 +4,6 @@
 
 #include "ttmlir/Conversion/D2MToTTNN/D2MToTTNN.h"
 
-#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -15,7 +14,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineExpr.h"
@@ -505,8 +503,8 @@ public:
     ttnn::ProgramAttr program = ttnn::ProgramAttr::get(
         ctx, kernelDescriptors, cbDescriptors, semaphoreDescriptors);
 
-    rewriter.replaceOpWithNewOp<ttnn::GenericOp>(
-        op, ios, additionalArgs, program, ttnn::MemoryConfigAttr());
+    rewriter.replaceOpWithNewOp<ttnn::GenericOp>(op, op->getResultTypes(), ios,
+                                                 additionalArgs, program);
     return success();
   };
 
@@ -596,34 +594,24 @@ public:
 
     ttcore::DataTypeAttr dtype;
     ttnn::LayoutAttr layout;
-    ttnn::MemoryConfigAttr memcfg;
 
     // Reuses the existing ttnn.get_device op if present, else create one.
     auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto deviceAttr = ttcore::lookupDevice(op);
 
     // Handle both TTNNLayoutAttr and TTNNNDLayoutAttr
     if (auto layoutAttr = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(encoding)) {
       dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
       layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
-      memcfg =
-          ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
     } else if (auto ndLayoutAttr =
                    mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
       dtype = ttcore::DataTypeAttr::get(ctx, ndLayoutAttr.getDataType());
       layout = ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout());
-      auto bufferType =
-          ttnn::BufferTypeAttr::get(ctx, ndLayoutAttr.getBufferType());
-      auto ndShardSpec = ttnn::NDShardSpecAttr::get(ndLayoutAttr);
-      memcfg = ttnn::MemoryConfigAttr::get(
-          ctx, ndLayoutAttr.getMemLayout(), bufferType,
-          /*shardSpec=*/std::nullopt, ndShardSpec);
     } else {
       return rewriter.notifyMatchFailure(op, "unsupported encoding type");
     }
 
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(op, tensorType, device, shape,
-                                               dtype, layout, memcfg);
+                                               dtype, layout);
     return success();
   };
 };
@@ -648,35 +636,24 @@ public:
 
     ttcore::DataTypeAttr dtype;
     ttnn::LayoutAttr layout;
-    ttnn::MemoryConfigAttr memcfg;
 
     // Reuses the existing ttnn.get_device op if present, else create one.
     auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto deviceAttr = ttcore::lookupDevice(op);
 
     // Handle both TTNNLayoutAttr and TTNNNDLayoutAttr
     if (auto layoutAttr = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(encoding)) {
       dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
       layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
-      memcfg =
-          ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
     } else if (auto ndLayoutAttr =
                    mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
       dtype = ttcore::DataTypeAttr::get(ctx, ndLayoutAttr.getDataType());
       layout = ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout());
-      auto bufferType =
-          ttnn::BufferTypeAttr::get(ctx, ndLayoutAttr.getBufferType());
-      auto ndShardSpec = ttnn::NDShardSpecAttr::get(ndLayoutAttr);
-      memcfg = ttnn::MemoryConfigAttr::get(
-          ctx, ndLayoutAttr.getMemLayout(), bufferType,
-          /*shardSpec=*/std::nullopt, ndShardSpec);
     } else {
       return rewriter.notifyMatchFailure(op, "unsupported encoding type");
     }
 
-    rewriter.replaceOpWithNewOp<ttnn::FullOp>(op, tensorType, device, shape,
-                                              adaptor.getFillValue(), dtype,
-                                              layout, memcfg);
+    rewriter.replaceOpWithNewOp<ttnn::FullOp>(
+        op, tensorType, device, shape, adaptor.getFillValue(), dtype, layout);
     return success();
   };
 };
@@ -781,14 +758,11 @@ public:
           mlir::cast<ttnn::TTNNLayoutAttr>(emptyTensorType.getEncoding());
 
       auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-      auto memcfg = ttnn::MemoryConfigAttr::get(emptyLayoutAttr,
-                                                deviceAttr.getWorkerGrid());
-
       auto emptyOp = rewriter.create<ttnn::EmptyOp>(
           op.getLoc(), emptyTensorType, device,
           ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
           ttcore::DataTypeAttr::get(ctx, emptyLayoutAttr.getDataType()),
-          ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()), memcfg);
+          ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()));
 
       for (auto deallocOp : deallocsToErase) {
         rewriter.eraseOp(deallocOp);

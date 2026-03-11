@@ -1056,7 +1056,6 @@ private:
           /*is_causal=*/rewriter.getBoolAttr(false), attentionMask,
           /*cur_pos_tensor=*/Value(),
           /*attention_sink=*/Value(), scaleAttr,
-          /*memory_config=*/MemoryConfigAttr(),
           /*program_config=*/SDPAProgramConfigAttr());
 
       // Validate the operation using op constraint validation
@@ -1090,8 +1089,7 @@ private:
           c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key,
           c.value, attentionMask,
           /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-          /*sliding_window_size=*/IntegerAttr(),
-          /*memory_config=*/MemoryConfigAttr());
+          /*sliding_window_size=*/IntegerAttr());
 
       // Validate the operation using op constraint validation
       std::vector<TTNNLayoutAttr> inputLayouts =

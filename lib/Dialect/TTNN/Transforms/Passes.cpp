@@ -502,8 +502,7 @@ private:
     // Create a new tensor of ones.
     //
     ttnn::OnesOp onesOp = rewriter.create<ttnn::OnesOp>(
-        loc, tensorType, device, shapeAttr, dTypeAttr, tensorLayoutAttr,
-        /*memory_config=*/nullptr);
+        loc, tensorType, device, shapeAttr, dTypeAttr, tensorLayoutAttr);
 
     return onesOp;
   }
