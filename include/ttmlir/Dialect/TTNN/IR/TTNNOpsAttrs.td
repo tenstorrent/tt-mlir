@@ -996,6 +996,16 @@ def TTNN_KernelArgGlobalSemaphoreAttr : TTNN_Attr<"KernelArgGlobalSemaphore", "k
   let assemblyFormat = "`<` $global_semaphore_index `>`";
 }
 
+def TTNN_KernelArgScalarAttr : TTNN_Attr<"KernelArgScalar", "kernel_arg_scalar"> {
+  let summary = "Scalar argument";
+  let description = [{
+    TTNN generic kernel argument for scalar values.
+  }];
+
+  let parameters = (ins "size_t":$scalar_index);
+  let assemblyFormat = "`<` $scalar_index `>`";
+}
+
 def TTNN_CoreRuntimeArgsAttr : TTNN_Attr<"CoreRuntimeArgs", "core_runtime_args"> {
   let summary = "Per-core runtime arguments";
   let description = [{

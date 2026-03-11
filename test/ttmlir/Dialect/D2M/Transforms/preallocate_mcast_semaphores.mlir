@@ -15,9 +15,9 @@ module {
 
     // CHECK: d2m.generic
     // Semaphores should be added to both regions (2 per multicast load)
-    // CHECK: ^{{.*}}(%[[SEM0:.*]]: !d2m.semaphore, %[[SEM1:.*]]: !d2m.semaphore):
+    // CHECK: ^{{.*}}(%[[SEM0:.*]]: !d2m.local_semaphore, %[[SEM1:.*]]: !d2m.local_semaphore):
     // CHECK: d2m.remote_load {{.*}} {preallocated_semaphores = [0, 1]}
-    // CHECK: ^{{.*}}(%{{.*}}: !d2m.semaphore, %{{.*}}: !d2m.semaphore):
+    // CHECK: ^{{.*}}(%{{.*}}: !d2m.local_semaphore, %{{.*}}: !d2m.local_semaphore):
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<4x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
@@ -103,7 +103,7 @@ module {
 
     // CHECK: d2m.generic
     // 2 multicast loads = 4 semaphores (2 per load)
-    // CHECK: ^{{.*}}(%{{.*}}: !d2m.semaphore, %{{.*}}: !d2m.semaphore, %{{.*}}: !d2m.semaphore, %{{.*}}: !d2m.semaphore):
+    // CHECK: ^{{.*}}(%{{.*}}: !d2m.local_semaphore, %{{.*}}: !d2m.local_semaphore, %{{.*}}: !d2m.local_semaphore, %{{.*}}: !d2m.local_semaphore):
     // First load gets indices [0, 1]
     // CHECK: d2m.remote_load{{.*}}into %{{.*}} {preallocated_semaphores = [0, 1]}
     // Second load gets indices [2, 3]
@@ -156,7 +156,7 @@ module {
 
     // CHECK: d2m.generic
     // Only 1 multicast load = 2 semaphores
-    // CHECK: ^{{.*}}(%{{.*}}: !d2m.semaphore, %{{.*}}: !d2m.semaphore):
+    // CHECK: ^{{.*}}(%{{.*}}: !d2m.local_semaphore, %{{.*}}: !d2m.local_semaphore):
     // Only the multicast load gets the attribute
     // CHECK: d2m.remote_load{{.*}}into %{{.*}} {preallocated_semaphores = [0, 1]}
     // Non-multicast load does NOT get the attribute
@@ -209,7 +209,7 @@ module {
     // CHECK: d2m.generic
     // No remote loads = no semaphores added
     // No block args (no CBs, no semaphores)
-    // CHECK-NOT: !d2m.semaphore
+    // CHECK-NOT: !d2m.local_semaphore
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {

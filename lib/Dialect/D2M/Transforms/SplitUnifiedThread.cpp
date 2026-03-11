@@ -70,7 +70,7 @@ public:
     IRMapping computeMapping;
     for (unsigned i = 0; i < originalBlock->getNumArguments(); ++i) {
       BlockArgument origArg = originalBlock->getArgument(i);
-      assert(mlir::isa<d2m::SemaphoreType>(origArg.getType()) &&
+      assert(mlir::isa<d2m::LocalSemaphoreType>(origArg.getType()) &&
              "region block arguments must be of semaphore type");
       auto dmArg =
           datamovementBlock->addArgument(origArg.getType(), generic.getLoc());

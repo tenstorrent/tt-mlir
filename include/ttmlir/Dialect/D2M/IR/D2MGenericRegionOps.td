@@ -1661,7 +1661,7 @@ class D2M_SemaphoreUpdateOp<string mnemonic> : D2M_GenericRegionOp<mnemonic,
       ```
     }];
 
-    let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value,
+    let arguments = (ins AnyTypeOf<[D2M_LocalSemaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value,
                          Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
 
     let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` type($semaphore) }];
@@ -1696,7 +1696,7 @@ def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[
       ```
     }];
 
-    let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value, Optional<Index>:$resetValue);
+    let arguments = (ins AnyTypeOf<[D2M_LocalSemaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value, Optional<Index>:$resetValue);
 
     let assemblyFormat = [{ $semaphore `,` $value (`reset` $resetValue^)? attr-dict `:` type($semaphore) }];
 
@@ -2328,58 +2328,37 @@ def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
     }];
 
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$port,
-                         OptionalAttr<I64Attr>:$operand_index);
+                         OptionalAttr<I64Attr>:$operand_index,
+                         OptionalAttr<D2M_ResolutionStageAttr>:$resolution_stage);
     let results = (outs D2M_CB:$result);
 
-    let assemblyFormat = [{ `(` $port `)` (`operand_index` `=` $operand_index^)? attr-dict `:` type($result) }];
+    let assemblyFormat = [{ `(` $port `)` (`operand_index` `=` $operand_index^)? (`resolution_stage` `=` $resolution_stage^)? attr-dict `:` type($result) }];
 }
 
-def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
-    let summary = "Get global operand op.";
+def D2M_GetArgOp : D2M_GenericRegionOp<"get_arg", [Pure]> {
+    let summary = "Get a generic argument for the given operand index.";
     let description = [{
-      Access the global, aka parent generic op, operand at the specified index.
+      Obtain a handle for the specified operand index. The result type determines
+      how the argument is interpreted: a memref type indicates a buffer address,
+      a local/global semaphore type indicates a semaphore, and any scalar type
+      (integer or float) indicates a scalar value.
 
-      The following forms are all equivalent, but the latter forms are required
-      when moving generic regions to top level func ops in the module.
+      Used to reference additional arguments passed to the parent generic op
+      from within a thread region or a standalone kernel function.
+
       ```mlir
-      d2m.generic (%arg0, %arg1, %arg2) {
-        ^datamovement(%cb0, %cb1, %cb2)
-          %i = d2m.iter_index(0) : index
-          %j = d2m.iter_index(1) : index
-          d2m.remote_load %arg1[%i, %j] into %cb1 // Capture %arg1 from parent scope
-      }
-      ```
-
-      And:
-      ```mlir
-      d2m.generic (%arg0, %arg1, %arg2) {
-        ^datamovement(%cb0, %cb1, %cb2)
-          %operand_arg1 = d2m.get_global_operand 1
-          %i = d2m.iter_index(0) : index
-          %j = d2m.iter_index(1) : index
-          d2m.remote_load %operand_arg1[%i, %j] into %cb0
-      }
-      ```
-
-      And:
-      ```mlir
-      func.func @main(...) {
-        d2m.generic (%arg0, %arg1, %arg2) { kernel_symbols = [@dm0] }
-      }
-
-      func.func private @dm0(%cb0, %cb1, %cb2) {
-        %operand_arg1 = d2m.get_global_operand 1
-        %i = d2m.iter_index(0) : index
-        %j = d2m.iter_index(1) : index
-        d2m.remote_load %operand_arg1[%i, %j] into %cb0
-      }
+      %buf   = d2m.get_arg operand_index = 0 : memref<...>
+      %lsem  = d2m.get_arg operand_index = 3 : !d2m.local_semaphore
+      %gsem  = d2m.get_arg operand_index = 4 : !d2m.global_semaphore
+      %val   = d2m.get_arg operand_index = 5 : ui32
       ```
     }];
 
-    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$operand_index);
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$operand_index,
+                         OptionalAttr<D2M_ResolutionStageAttr>:$resolution_stage);
     let results = (outs AnyType:$result);
 
-    let assemblyFormat = [{ `(` $operand_index `)` attr-dict `:` type($result) }];
+    let assemblyFormat = [{ `operand_index` `=` $operand_index (`resolution_stage` `=` $resolution_stage^)? attr-dict `:` type($result) }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -2505,4 +2484,25 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 
   let hasVerifier = 1;
 }
+
+def D2M_PrintArg : D2M_GenericRegionOp<"print_arg", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Print a kernel argument";
+    let description = [{
+        This op prints a value with an optional label prefix. Supports
+        semaphores, CBs, and scalar types (i1, ui8, si8, ui16, si16, ui32,
+        si32, f16, bf16, f32, index).
+        Example:
+        ```
+        d2m.print_arg "my label" %arg0 : !d2m.local_semaphore
+        d2m.print_arg "My value is: " %arg0 : ui32
+        d2m.print_arg %arg0 : f32
+        ```
+    }];
+
+    let arguments = (ins OptionalAttr<StrAttr>:$fmt,
+                        AnyTypeOf<[D2M_LocalSemaphore, D2M_CB, D2M_GlobalSemaphore,
+                                   AnyInteger, AnyFloat, Index]>:$value);
+    let assemblyFormat = "($fmt^)? $value attr-dict `:` type($value)";
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

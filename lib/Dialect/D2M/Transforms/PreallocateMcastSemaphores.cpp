@@ -89,34 +89,32 @@ public:
     // - senderFinishedSemaphore
 
     Location loc = generic.getLoc();
-    SemaphoreType semType = rewriter.getType<SemaphoreType>();
+    LocalSemaphoreType semType = rewriter.getType<LocalSemaphoreType>();
 
-    // Track the starting index of semaphores for each RemoteLoadOp.
-    // We'll store these indices as attributes on the ops.
+    // Track the additionalArgs index of semaphores for each RemoteLoadOp.
     SmallVector<std::pair<RemoteLoadOp, SmallVector<unsigned>>>
         loadToSemIndices;
 
+    // Insert create_local_semaphore ops before the generic op.
+    rewriter.setInsertionPoint(generic);
+
     for (RemoteLoadOp load : allMcastLoads) {
-      SmallVector<unsigned> semIndices;
+      // Record the index in additionalArgs before appending.
+      unsigned baseAdditionalIdx = generic.getAdditionalArgs().size();
+      SmallVector<unsigned> semIndices = {baseAdditionalIdx,
+                                          baseAdditionalIdx + 1};
 
-      // Add 2 semaphore arguments to each region.
-      for (Region &region : generic->getRegions()) {
-        if (region.empty()) {
-          continue;
-        }
-        Block &block = region.front();
+      // Create the two local semaphores (receiversReady, senderFinished).
+      auto recvReady = rewriter.create<CreateLocalSemaphoreOp>(
+          loc, semType, rewriter.getUI32IntegerAttr(0));
+      auto senderFinished = rewriter.create<CreateLocalSemaphoreOp>(
+          loc, semType, rewriter.getUI32IntegerAttr(0));
 
-        // Record the index before adding (same index in all regions).
-        if (semIndices.empty()) {
-          unsigned baseIdx = block.getNumArguments();
-          semIndices.push_back(baseIdx);     // receiversReady index
-          semIndices.push_back(baseIdx + 1); // senderFinished index
-        }
-
-        // Add the semaphore arguments.
-        block.addArgument(semType, loc);
-        block.addArgument(semType, loc);
-      }
+      // Append them to the generic op's additionalArgs.
+      // NormalizeThreadArgs will later add block args for these
+      // and replace uses of the CreateLocalSemaphoreOp results in regions.
+      generic.getAdditionalArgsMutable().append(
+          ValueRange{recvReady.getResult(), senderFinished.getResult()});
 
       loadToSemIndices.push_back({load, semIndices});
     }

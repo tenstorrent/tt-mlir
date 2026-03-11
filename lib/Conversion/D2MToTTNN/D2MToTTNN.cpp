@@ -155,7 +155,7 @@ static mlir::Attribute convertKernelArg(Builder &builder,
     return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(
         arg.getOperandIndex());
   }
-  case ttkernel::ArgType::Semaphore: {
+  case ttkernel::ArgType::LocalSemaphore: {
     return builder.getAttr<ttnn::KernelArgSemaphoreAtAttr>(
         arg.getOperandIndex());
   }
@@ -166,6 +166,9 @@ static mlir::Attribute convertKernelArg(Builder &builder,
   case ttkernel::ArgType::GlobalSemaphore: {
     return builder.getAttr<ttnn::KernelArgGlobalSemaphoreAttr>(
         arg.getOperandIndex());
+  }
+  case ttkernel::ArgType::Scalar: {
+    return builder.getAttr<ttnn::KernelArgScalarAttr>(arg.getOperandIndex());
   }
   }
   llvm_unreachable("Invalid ArgType");
@@ -192,7 +195,7 @@ createSemaphoreDescriptors(Builder &builder, const ArrayAttr &threads,
     }
 
     for (auto ctArg : kernelSpec.getCtArgs()) {
-      if (ctArg.getArgType() == ttkernel::ArgType::Semaphore) {
+      if (ctArg.getArgType() == ttkernel::ArgType::LocalSemaphore) {
         seenSemaphoreIndices.insert(ctArg.getOperandIndex());
       }
     }
