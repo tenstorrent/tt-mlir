@@ -72,6 +72,56 @@ bool haveSameSliceParams(SliceStaticOp slice1, SliceStaticOp slice2) {
 }
 } // namespace
 
+// Helper to compute the TopK result type for an unused sort result.
+// Derives from the input type with the sorted dimension replaced by k,
+// preserving the TTNNLayoutAttr encoding (adjusted for the new shape).
+RankedTensorType computeTopKResultType(RankedTensorType inputType,
+                                       int64_t sortDim, int32_t k,
+                                       Type elementType) {
+  SmallVector<int64_t> shape(inputType.getShape());
+  shape[sortDim] = k;
+
+  // If the input has a TTNNLayoutAttr encoding, create a new layout with the
+  // updated shape so the validation function has properly typed results.
+  Attribute encoding = nullptr;
+  if (auto inputLayout =
+          mlir::dyn_cast_or_null<TTNNLayoutAttr>(inputType.getEncoding())) {
+    encoding = inputLayout.withElementType(elementType, shape);
+  }
+
+  return RankedTensorType::get(shape, elementType, encoding);
+}
+
+// Helper to validate slice parameters: verifies the slice only operates on the
+// sorted dimension (other dimensions are passed through unchanged) and extracts
+// the k value.
+std::optional<SliceKResult>
+validateAndExtractK(SliceStaticOp sliceOp, int64_t sortDim,
+                    llvm::ArrayRef<int64_t> inputShape, int64_t rank) {
+  auto sliceResult = extractKFromSlice(sliceOp, sortDim, inputShape[sortDim]);
+  if (!sliceResult.has_value()) {
+    return std::nullopt;
+  }
+
+  auto beginsAttr = llvm::cast<ArrayAttr>(sliceOp.getBeginsAttr());
+  auto endsAttr = llvm::cast<ArrayAttr>(sliceOp.getEndsAttr());
+  auto stepsAttr = llvm::cast<ArrayAttr>(sliceOp.getStepAttr());
+
+  for (int64_t i = 0; i < rank; ++i) {
+    if (i != sortDim) {
+      auto beginValue = llvm::cast<IntegerAttr>(beginsAttr[i]).getInt();
+      auto endValue = llvm::cast<IntegerAttr>(endsAttr[i]).getInt();
+      auto stepValue = llvm::cast<IntegerAttr>(stepsAttr[i]).getInt();
+
+      if (beginValue != 0 || endValue != inputShape[i] || stepValue != 1) {
+        return std::nullopt;
+      }
+    }
+  }
+
+  return sliceResult;
+}
+
 mlir::LogicalResult
 TopKFusing::matchAndRewrite(SortOp srcOp,
                             mlir::PatternRewriter &rewriter) const {
@@ -83,21 +133,41 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
   Value sortValues = srcOp.getValues();
   Value sortIndices = srcOp.getIndices();
 
-  // Each result must have exactly one user
-  if (!sortValues.hasOneUse() || !sortIndices.hasOneUse()) {
+  // Each result must either be unused or have exactly one user
+  if (!sortValues.hasOneUse() && !sortValues.use_empty()) {
+    return failure();
+  }
+  if (!sortIndices.hasOneUse() && !sortIndices.use_empty()) {
     return failure();
   }
 
-  // Both users must be SliceStaticOp
-  auto valuesSlice = dyn_cast<SliceStaticOp>(*sortValues.getUsers().begin());
-  auto indicesSlice = dyn_cast<SliceStaticOp>(*sortIndices.getUsers().begin());
+  // For used results, the single user must be a SliceStaticOp.
+  // At least one result must have a SliceStaticOp user for TopK fusion.
+  SliceStaticOp valuesSlice = nullptr;
+  SliceStaticOp indicesSlice = nullptr;
 
-  if (!valuesSlice || !indicesSlice) {
+  if (sortValues.hasOneUse()) {
+    valuesSlice = dyn_cast<SliceStaticOp>(*sortValues.getUsers().begin());
+    if (!valuesSlice) {
+      return failure();
+    }
+  }
+
+  if (sortIndices.hasOneUse()) {
+    indicesSlice = dyn_cast<SliceStaticOp>(*sortIndices.getUsers().begin());
+    if (!indicesSlice) {
+      return failure();
+    }
+  }
+
+  // At least one slice must exist for this to be a TopK pattern
+  if (!valuesSlice && !indicesSlice) {
     return failure();
   }
 
-  // Both slices must have identical parameters
-  if (!haveSameSliceParams(valuesSlice, indicesSlice)) {
+  // If both slices exist, they must have identical parameters
+  if (valuesSlice && indicesSlice &&
+      !haveSameSliceParams(valuesSlice, indicesSlice)) {
     return failure();
   }
 
@@ -113,43 +183,38 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
 
   auto inputShape = inputType.getShape();
 
-  // Extract k from the slice operation
-  int64_t sortDimSize = inputShape[sortDim];
-  auto sliceResult = extractKFromSlice(valuesSlice, sortDim, sortDimSize);
+  // Use whichever slice exists to extract k and validate
+  SliceStaticOp activeSlice = valuesSlice ? valuesSlice : indicesSlice;
+  auto sliceResult =
+      validateAndExtractK(activeSlice, sortDim, inputShape, rank);
   if (!sliceResult.has_value()) {
     return failure();
-  }
-
-  // Verify that the slice is actually on the sorted dimension
-  // by checking that other dimensions are not sliced
-  auto beginsAttr = llvm::cast<ArrayAttr>(valuesSlice.getBeginsAttr());
-  auto endsAttr = llvm::cast<ArrayAttr>(valuesSlice.getEndsAttr());
-  auto stepsAttr = llvm::cast<ArrayAttr>(valuesSlice.getStepAttr());
-
-  for (int64_t i = 0; i < rank; ++i) {
-    if (i != sortDim) {
-      // Other dimensions should not be sliced (begin=0, end=dim_size, step=1)
-      auto beginValue = llvm::cast<IntegerAttr>(beginsAttr[i]).getInt();
-      auto endValue = llvm::cast<IntegerAttr>(endsAttr[i]).getInt();
-      auto stepValue = llvm::cast<IntegerAttr>(stepsAttr[i]).getInt();
-
-      if (beginValue != 0 || endValue != inputShape[i] || stepValue != 1) {
-        return failure();
-      }
-    }
   }
 
   // Map sort's descending attribute to topk's largest attribute.
   // When slicing from the end, the relationship is inverted:
   //   descending + slice_from_start -> largest=true
   //   ascending  + slice_from_start -> largest=false
-  //   descending + slice_from_end   -> largest=false (tail of descending = smallest)
-  //   ascending  + slice_from_end   -> largest=true  (tail of ascending = largest)
-  bool largest = sliceResult->fromEnd ? !srcOp.getDescending()
-                                      : srcOp.getDescending();
+  //   descending + slice_from_end   -> largest=false (tail of descending =
+  //   smallest) ascending  + slice_from_end   -> largest=true  (tail of
+  //   ascending = largest)
+  bool largest =
+      sliceResult->fromEnd ? !srcOp.getDescending() : srcOp.getDescending();
 
   // TopK always produces sorted output when replacing a sort operation
   bool sorted = true;
+
+  // Determine result types for TopK.
+  // For used results, use the slice output type.
+  // For unused results, derive from input shape with sorted dim replaced by k.
+  RankedTensorType valuesResultType =
+      valuesSlice ? mlir::cast<RankedTensorType>(valuesSlice.getType())
+                  : computeTopKResultType(inputType, sortDim, sliceResult->k,
+                                          inputType.getElementType());
+  RankedTensorType indicesResultType =
+      indicesSlice ? mlir::cast<RankedTensorType>(indicesSlice.getType())
+                   : computeTopKResultType(inputType, sortDim, sliceResult->k,
+                                           rewriter.getI32Type());
 
   // Validate the fusion before creating it
   FusionValidator validator(rewriter.getContext(), validationConfig);
@@ -157,8 +222,8 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
   // Validate the TopK operation that would be created
   auto validationResult = validator.validateFusion<TopKOp>(
       srcOp.getOperation(), // Pass source op for context
-      srcOp.getLoc(), {valuesSlice.getType(), indicesSlice.getType()},
-      srcOp.getInput(), rewriter.getI32IntegerAttr(sliceResult->k),
+      srcOp.getLoc(), {valuesResultType, indicesResultType}, srcOp.getInput(),
+      rewriter.getI32IntegerAttr(sliceResult->k),
       rewriter.getI32IntegerAttr(sortDim), rewriter.getBoolAttr(largest),
       rewriter.getBoolAttr(sorted),
       nullptr // memory_config
@@ -174,21 +239,23 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
   }
 
   // Create the fused TopK operation (now that we know it's valid)
-  auto topkOp =
-      rewriter.create<TopKOp>(srcOp.getLoc(),
-                              valuesSlice.getType(),  // values result type
-                              indicesSlice.getType(), // indices result type
-                              srcOp.getInput(),       // input tensor
-                              rewriter.getI32IntegerAttr(sliceResult->k),      // k value
-                              rewriter.getI32IntegerAttr(sortDim), // dimension
-                              rewriter.getBoolAttr(largest),       // largest
-                              rewriter.getBoolAttr(sorted),        // sorted
-                              nullptr // memory_config (optional)
-      );
+  auto topkOp = rewriter.create<TopKOp>(
+      srcOp.getLoc(), valuesResultType, indicesResultType,
+      srcOp.getInput(),                           // input tensor
+      rewriter.getI32IntegerAttr(sliceResult->k), // k value
+      rewriter.getI32IntegerAttr(sortDim),        // dimension
+      rewriter.getBoolAttr(largest),              // largest
+      rewriter.getBoolAttr(sorted),               // sorted
+      nullptr                                     // memory_config (optional)
+  );
 
-  // Replace the slice operations with TopK results
-  rewriter.replaceOp(valuesSlice, topkOp.getValues());
-  rewriter.replaceOp(indicesSlice, topkOp.getIndices());
+  // Replace the slice operations with TopK results (only for used results)
+  if (valuesSlice) {
+    rewriter.replaceOp(valuesSlice, topkOp.getValues());
+  }
+  if (indicesSlice) {
+    rewriter.replaceOp(indicesSlice, topkOp.getIndices());
+  }
 
   // Erase the sort operation (it has no more users after slices are replaced)
   rewriter.eraseOp(srcOp);
