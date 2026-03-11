@@ -1550,7 +1550,13 @@ def test_topk(
         ),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ttnn",
+        "ttmetal" | Marks(pytest.mark.xfail(reason="Unimplemented ttir.embedding")),
+    ],
+)
 def test_unique_ops(
     inputs_shapes: List[Shape],
     inputs_dtypes: List[torch.dtype],
@@ -1805,7 +1811,7 @@ def test_gather(
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn", "ttmetal"],
+    ["ttnn", "ttmetal" | Marks(pytest.mark.xfail(reason="Unhoisted ttir.zeros"))],
 )
 def test_hoisted_gather(
     input_shape: Shape,
@@ -2071,7 +2077,7 @@ def test_all_gather(
         (64, 65),
         (65, 64),
         (32, 64),
-        (33, 65),  # This is a case where reduce_scatter + all_gather is not supported.
+        (33, 65),
         (1, 1, 1, 1, 1, 1, 32, 256, 256),
         (1, 1, 32, 256, 256),
     ],

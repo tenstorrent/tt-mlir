@@ -38,7 +38,7 @@ namespace {
 // Convert a tensor of floating-point values to a tensor of boolean values
 // using comparison semantics (positive values are true, non-positive are
 // false)--whereOp uses this pattern unfortunately.
-static Value
+static FailureOr<Value>
 convertToBooleanTensorComparison(Value input, Location loc,
                                  ConversionPatternRewriter &rewriter) {
   auto inputType = dyn_cast<RankedTensorType>(input.getType());
@@ -52,7 +52,9 @@ convertToBooleanTensorComparison(Value input, Location loc,
   }
 
   auto elementType = inputType.getElementType();
-  assert(elementType.isF32());
+  if (!elementType.isF32()) {
+    return failure();
+  }
 
   // Create zero constant.
   SmallVector<int64_t> zeroShape(inputType.getRank(), 1);
@@ -68,7 +70,7 @@ convertToBooleanTensorComparison(Value input, Location loc,
   auto greaterThanZero =
       rewriter.create<tosa::GreaterOp>(loc, boolType, input, zeroConst);
 
-  return greaterThanZero;
+  return greaterThanZero.getResult();
 }
 
 // Normalize negative dimension to positive. Negative dimensions are interpreted
@@ -244,7 +246,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     auto result = rewriter.create<TosaOpTy>(op.getLoc(), resultType,
                                             ValueRange{lhs, rhs});
@@ -269,10 +274,18 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
-    condition =
+    auto conditionOrFailure =
         convertToBooleanTensorComparison(condition, op.getLoc(), rewriter);
+    if (failed(conditionOrFailure)) {
+      return rewriter.notifyMatchFailure(
+          op, "Condition element type must be f32 or i1");
+    }
+    condition = *conditionOrFailure;
 
     auto result = rewriter.create<tosa::SelectOp>(
         op.getLoc(), resultType, condition, trueValue, falseValue);
@@ -293,7 +306,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     auto newShape = resultType.getShape();
     SmallVector<int64_t> newShapeValues(newShape.begin(), newShape.end());
@@ -326,7 +342,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     const size_t permSize = inputType.getShape().size();
@@ -365,7 +384,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // TOSA concat requires non-negative axis, so normalize negative dimensions.
     int64_t dim = normalizeDim(op.getDim(), resultType.getRank());
@@ -401,7 +423,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Create the TOSA comparison operation
     auto boolType = RankedTensorType::get(resultType.getShape(),
@@ -434,7 +459,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Create the TOSA comparison operation with swapped operands
     auto boolType = RankedTensorType::get(resultType.getShape(),
@@ -467,7 +495,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Create the TOSA comparison operation
     auto boolType = RankedTensorType::get(resultType.getShape(),
@@ -865,9 +896,13 @@ public:
     if (bias) {
       auto biasType = cast<RankedTensorType>(bias.getType());
       auto biasShape = biasType.getShape();
-      assert(biasShape.size() == 4 && "Bias must be 4D");
-      assert(biasShape[0] == 1 && biasShape[1] == 1 && biasShape[2] == 1 &&
-             "Bias must be 4D with shape (1,1,1,B)");
+      if (biasShape.size() != 4) {
+        return rewriter.notifyMatchFailure(op, "Bias must be 4D");
+      }
+      if (!(biasShape[0] == 1 && biasShape[1] == 1 && biasShape[2] == 1)) {
+        return rewriter.notifyMatchFailure(
+            op, "Bias must be 4D with shape (1,1,1,B)");
+      }
       SmallVector<int64_t> reshapedBiasShape = {biasShape[3]};
       auto reshapedBiasType =
           RankedTensorType::get(reshapedBiasShape, biasType.getElementType());
@@ -936,7 +971,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Handle flattened input: unflatten and compute correct NHWC result type.
     auto flatInfo = op.getFlattenedCompatInfoAttr();
@@ -1090,10 +1128,17 @@ public:
     }
     auto [dilationH, dilationW] = *dilationResult;
 
-    auto inputType = cast<RankedTensorType>(input.getType());
-    auto resultType = cast<RankedTensorType>(
+    auto inputType = dyn_cast<RankedTensorType>(input.getType());
+    if (!inputType) {
+      return rewriter.notifyMatchFailure(
+          op, "Input type must be a ranked tensor type.");
+    }
+    auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Handle flattened input.
     auto flatInfo = op.getFlattenedCompatInfoAttr();
@@ -1268,10 +1313,17 @@ public:
 
     bool countIncludePad = adaptor.getCountIncludePad();
 
-    auto inputType = cast<RankedTensorType>(input.getType());
-    auto resultType = cast<RankedTensorType>(
+    auto inputType = dyn_cast<RankedTensorType>(input.getType());
+    if (!inputType) {
+      return rewriter.notifyMatchFailure(
+          op, "Input type must be a ranked tensor type.");
+    }
+    auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Handle flattened input.
     auto flatInfo = op.getFlattenedCompatInfoAttr();
@@ -1484,10 +1536,17 @@ public:
     Location loc = op.getLoc();
     Value input = adaptor.getInput();
 
-    auto inputType = cast<RankedTensorType>(input.getType());
-    auto resultType = cast<RankedTensorType>(
+    auto inputType = dyn_cast<RankedTensorType>(input.getType());
+    if (!inputType) {
+      return rewriter.notifyMatchFailure(
+          op, "Input type must be a ranked tensor type.");
+    }
+    auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     int64_t inputHeight = inputType.getShape()[1];
     int64_t inputWidth = inputType.getShape()[2];
@@ -1829,7 +1888,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Convert both inputs to boolean tensors.
     Value boolLhs = convertToBooleanTensor(lhs, op.getLoc(), rewriter);
@@ -1867,7 +1929,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Get dimensions to reduce and keep_dim attribute
     SmallVector<int64_t> dims = getDimsFromAttribute(op, rank);
@@ -1897,7 +1962,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Get dimensions to reduce and keep_dim attribute
     SmallVector<int64_t> dims = getDimsFromAttribute(op, rank);
@@ -1927,7 +1995,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Get dimensions to reduce and keep_dim attribute
     SmallVector<int64_t> dims = getDimsFromAttribute(op, rank);
@@ -1957,7 +2028,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Get dimensions to reduce and keep_dim attribute
     SmallVector<int64_t> dims = getDimsFromAttribute(op, rank);
@@ -1995,13 +2069,18 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // After TTIRToTTIRDecomposition, dim_arg is either absent (reduce all
     // dims) or has exactly 1 entry.
     auto dimArg = op.getDimArg();
-    assert((!dimArg || dimArg->size() <= 1) &&
-           "Multi-dim argmax should have been decomposed.");
+    if (!(!dimArg || dimArg->size() <= 1)) {
+      return rewriter.notifyMatchFailure(
+          op, "Multi-dim argmax should have been decomposed.");
+    }
 
     SmallVector<int64_t> reduceDims = getDimsFromAttribute(op, rank);
     bool keepDim = getKeepDimFromAttribute(op);
@@ -2162,7 +2241,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Normalize dimension to be positive.
     int64_t dim = normalizeDim(op.getDim(), rank);
@@ -2260,7 +2342,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Input: [batch_size, num_heads, sequence_size, head_size]
     // Step 1: Transpose to [batch_size, sequence_size, num_heads, head_size]
@@ -2329,8 +2414,10 @@ public:
     SmallVector<Value, 2> broadcastedInputs;
     for (Value input : inputs) {
       auto inputRankedTensorType = dyn_cast<RankedTensorType>(input.getType());
-      assert(inputRankedTensorType &&
-             "Binary element-wise operations must be ranked tensor types!");
+      if (!inputRankedTensorType) {
+        return rewriter.notifyMatchFailure(
+            op, "Binary element-wise operations must be ranked tensor types!");
+      }
 
       // Insert and use a broadcast op if input does not perfectly match target
       // shape.
@@ -2406,7 +2493,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Normalize dimension to be positive.
     int64_t dim = normalizeDim(op.getDimension(), rank);
@@ -2504,7 +2594,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     Value input = adaptor.getInput();
     auto inputType = dyn_cast<RankedTensorType>(input.getType());
-    assert(inputType && "Input must be a ranked tensor type.");
+    if (!inputType) {
+      return rewriter.notifyMatchFailure(op,
+                                         "Input must be a ranked tensor type.");
+    }
 
     SmallVector<OpFoldResult> offsets, sizes, strides;
 
@@ -2512,8 +2605,9 @@ public:
     ArrayAttr ends = op.getEnds();
     ArrayAttr steps = op.getStep();
 
-    assert(begins.size() == ends.size() && begins.size() == steps.size() &&
-           "Invalid slice attributes.");
+    if (!(begins.size() == ends.size() && begins.size() == steps.size())) {
+      return rewriter.notifyMatchFailure(op, "Invalid slice attributes.");
+    }
 
     for (unsigned i = 0; i < begins.size(); ++i) {
       const int32_t beginVal = llvm::cast<IntegerAttr>(begins[i]).getInt();
@@ -2534,7 +2628,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Create the extract_slice operation
     Value extractedSlice = rewriter.create<tensor::ExtractSliceOp>(
@@ -2558,18 +2655,25 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     Value input = adaptor.getInput();
     auto inputType = dyn_cast<RankedTensorType>(input.getType());
-    assert(inputType && "Input must be a ranked tensor type.");
+    if (!inputType) {
+      return rewriter.notifyMatchFailure(op,
+                                         "Input must be a ranked tensor type.");
+    }
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Get padding attribute: format is [dim0_low, dim0_high, dim1_low,
     // dim1_high, ...]
     ArrayRef<int32_t> paddingArray = op.getPadding();
     int64_t rank = inputType.getRank();
-    assert(static_cast<int64_t>(paddingArray.size()) == 2 * rank &&
-           "Padding size must be 2 * rank.");
+    if (static_cast<int64_t>(paddingArray.size()) != 2 * rank) {
+      return rewriter.notifyMatchFailure(op, "Padding size must be 2 * rank.");
+    }
 
     // Extract low and high padding for each dimension.
     SmallVector<OpFoldResult> lowPad, highPad;
@@ -2613,10 +2717,16 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     auto valueType = dyn_cast<RankedTensorType>(value.getType());
-    assert(valueType && "Value type must be a ranked tensor type.");
+    if (!valueType) {
+      return rewriter.notifyMatchFailure(
+          op, "Value type must be a ranked tensor type.");
+    }
 
     ElementsAttr convertedValue;
 
@@ -2659,7 +2769,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     DenseElementsAttr fillAttr =
         createDenseElementsAttr(resultType, static_cast<double>(FillValue));
@@ -2688,7 +2801,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Extract numeric value as double.
     Attribute fillValue = adaptor.getFillValue();
@@ -2729,8 +2845,10 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
 
     // ArangeForceLastDimensionPattern ensures arange is always 1D.
-    assert(resultType.getRank() == 1 &&
-           "Arange must be 1D after decomposition");
+    if (resultType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "Arange must be 1D after decomposition");
+    }
 
     int64_t start = adaptor.getStart();
     int64_t step = adaptor.getStep();
@@ -2798,7 +2916,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     auto inputElementType = inputType.getElementType();
     auto resultElementType = resultType.getElementType();
@@ -2888,7 +3009,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     // Get normalized_shape to determine which dimensions to reduce over.
     // normalized_shape specifies the shape of the dimensions to normalize,
@@ -3014,7 +3138,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     int64_t dim = normalizeDim(op.getDim(), inputType.getRank());
 
@@ -3055,7 +3182,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     SmallVector<int64_t> newShape(resultType.getShape());
 
@@ -3109,7 +3239,10 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     auto elementType = resultType.getElementType();
     TypedAttr minAttr, maxAttr;
@@ -3417,7 +3550,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(
+          op, "Result type must be a ranked tensor type.");
+    }
 
     auto repeatDimensions = op.getRepeatDimensions();
     SmallVector<int64_t> multiples(repeatDimensions.begin(),

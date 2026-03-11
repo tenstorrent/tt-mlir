@@ -648,6 +648,7 @@ def pytest_runtest_call(item: pytest.Item):
     Extract runtime information from tests that actually execute.
 
     This includes failure classification and error reporting during the call phase.
+    Exceptions are re-raised so tests fail normally while still recording metadata.
 
     Runtime report data includes:
     - failure_stage: Categorizes where in the compilation pipeline the test failed
@@ -678,6 +679,7 @@ def pytest_runtest_call(item: pytest.Item):
                 f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {exc}:{type(exc)}"
             )
         failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
+        raise
     finally:
         _safe_add_property(item, "failure_stage", failure_stage)
 

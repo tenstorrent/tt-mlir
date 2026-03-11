@@ -1751,20 +1751,37 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
              << deviceVolume << ")";
     }
 
+    auto isDRAM = [](Value output) {
+      if (auto memrefType = mlir::dyn_cast<MemRefType>(output.getType())) {
+        return ttcore::getMemorySpace(memrefType) ==
+               ttcore::MemorySpace::DeviceDRAM;
+      }
+      if (auto tensorType =
+              mlir::dyn_cast<RankedTensorType>(output.getType())) {
+        if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+                tensorType.getEncoding())) {
+          return layout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
+        }
+      }
+      return false;
+    };
     // Verify per-output VGM consistency:
-    // 1. The output's inverse VGM must match the GridAttr's inverse map.
+    // 1. For non-DRAM outputs, the output's inverse VGM must match the
+    // GridAttr's inverse map.
     // 2. The inverse map applied to the physical grid shape must produce
     //    a virtual grid shape matching the output's grid shape.
     AffineMap gridInvMap = getGrid().getMapping();
     for (Value output : getOutputs()) {
-      auto outputInvMap = utils::getVirtualGridInverseMapping(output);
-      if (outputInvMap && *outputInvMap != gridInvMap) {
-        return emitOpError("grid inverse map does not match output operand's "
-                           "inverse VGM");
-      }
-      if (!outputInvMap && !gridInvMap.isEmpty()) {
-        return emitOpError("grid has an inverse map but output operand "
-                           "does not have a VGM");
+      if (!isDRAM(output)) {
+        auto outputInvMap = utils::getVirtualGridInverseMapping(output);
+        if (outputInvMap && *outputInvMap != gridInvMap) {
+          return emitOpError("grid inverse map does not match output operand's "
+                             "inverse VGM");
+        }
+        if (!outputInvMap && !gridInvMap.isEmpty()) {
+          return emitOpError("grid has an inverse map but output operand "
+                             "does not have a VGM");
+        }
       }
 
       SmallVector<int64_t> physicalGridShape =

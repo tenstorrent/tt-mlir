@@ -356,12 +356,11 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     rewriter.eraseOp(allocOp);
   }
 
-  // Transform RemoteStoreOp (implicit form -> explicit CB form)
+  // Transform RemoteStoreOp: convert implicit form to explicit CB form, and
+  // ensure explicit form stores (e.g., created by simplifyLoadStorePairs) get
+  // reserve/push inserted for CB synchronization.
   SmallVector<RemoteStoreOp> remoteStoresToConvert;
   moduleOp->walk([&](RemoteStoreOp remoteStore) {
-    if (!remoteStore.isImplicitForm()) {
-      return;
-    }
     remoteStoresToConvert.push_back(remoteStore);
   });
 

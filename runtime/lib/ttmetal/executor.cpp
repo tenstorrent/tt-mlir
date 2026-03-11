@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "executor.h"
+#include "arguments.h"
 #include "executor_utils.h"
+#include "kernels.h"
 #include "meshshard_utils.h"
 
 #include "tools/profiler/op_profiler.hpp"
@@ -442,10 +444,8 @@ void MCQExecutor::execute(
 
   auto input = hostBuffers.at(command->src()->global_id());
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
-  tt::runtime::ttmetal::checkHostTensorSizeMatchWithMeshBufferSize(input,
-                                                                   meshBuffer);
-  tt::runtime::ttmetal::writeHostTensorToMeshBuffer(mcq, input, meshBuffer,
-                                                    blockingCQ);
+  checkHostTensorSizeMatchWithMeshBufferSize(input, meshBuffer);
+  writeHostTensorToMeshBuffer(mcq, input, meshBuffer, blockingCQ);
 }
 
 void MCQExecutor::execute(
@@ -454,10 +454,8 @@ void MCQExecutor::execute(
 
   auto meshBuffer = meshBuffers.at(command->src()->global_id());
   auto output = hostBuffers.at(command->dst()->global_id());
-  tt::runtime::ttmetal::checkHostTensorSizeMatchWithMeshBufferSize(output,
-                                                                   meshBuffer);
-  tt::runtime::ttmetal::readHostTensorFromMeshBuffer(mcq, meshBuffer, output,
-                                                     blockingCQ);
+  checkHostTensorSizeMatchWithMeshBufferSize(output, meshBuffer);
+  readHostTensorFromMeshBuffer(mcq, meshBuffer, output, blockingCQ);
 }
 
 void MCQExecutor::execute(const target::metal::CreateBufferCommand *command) {
