@@ -79,8 +79,8 @@ Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
   // matches the CB descriptor array position in D2MToTTNN (indexed by
   // operand).  The sequential counter is for non-IO CBs (scratch,
   // intermediates) that don't map 1:1 to operands.
-  // TODO: When fusion with intermediates requires decoupled port assignment,
-  // introduce a port remapping in D2MToTTNN instead of relying on
+  // When fusion with intermediates requires decoupled port
+  // assignment, introduce a port remapping in D2MToTTNN instead of relying on
   // port == operand index for IO operands.
   unsigned ioSize = generic.getInputsAndOutputs().size();
   unsigned port;
