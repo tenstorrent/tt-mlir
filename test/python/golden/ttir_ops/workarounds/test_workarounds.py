@@ -74,6 +74,84 @@ def test_linear_without_workaround(
 @pytest.mark.parametrize(
     "shapes",
     [
+        # Multi-row bias: bias shape [17, 32] has 17 rows.
+        # The fused bias kernel (add_tiles_bcast_rows) only broadcasts row 0,
+        # silently ignoring rows 1-16 and producing incorrect results.
+        # Small K=32 so bias error is not masked by matmul output variance.
+        pytest.param(
+            ((17, 32), (32, 32), (17, 32)),
+            marks=pytest.mark.xfail(
+                reason="Fused bias kernel broadcasts only row 0 of bias tile, "
+                "silently producing incorrect results for multi-row bias. "
+                "https://github.com/tenstorrent/tt-metal/issues/39390"
+            ),
+        ),
+        # Batched bias [2, 1, 1] with non-batched weight.
+        # Bias batch dim > 1 triggers TT_FATAL(bias_batch_size == 1).
+        pytest.param(
+            ((2, 33, 1024), (1024, 1024), (2, 1, 1)),
+            marks=pytest.mark.xfail(
+                reason="Bias with non-unit batch dimensions not supported. "
+                "https://github.com/tenstorrent/tt-metal/issues/31634"
+            ),
+        ),
+        # Output shape mismatch on fused kernel path.
+        # When bias is effectively 1D (padded height == TILE_HEIGHT) and the
+        # broadcasted output shape differs from the matmul shape, the fused
+        # kernel produces output with matmul shape [256, 512] instead of the
+        # expected broadcasted shape [1, 256, 512].
+        pytest.param(
+            ((256, 1024), (1024, 512), (1, 1, 512)),
+            marks=pytest.mark.xfail(
+                reason="Fused linear kernel produces matmul-shaped output "
+                "instead of broadcasted shape when bias triggers fused path. "
+                "https://github.com/tenstorrent/tt-metal/issues/39392"
+            ),
+        ),
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_linear_bias_decomposition_without_workaround(
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test linear op bias decomposition scenarios with workarounds disabled.
+    Each param tests a different reason the bias cannot stay fused:
+    - Multi-row bias (silent correctness bug in fused kernel)
+    - Batched bias with non-batched weight
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype, dtype, dtype])
+        def linear_bias_decomp_wrapper(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.linear(
+                in0, weight, bias, False, False, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["disable-workarounds=true"],
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
         # Query seq_len not divisible by 32
         pytest.param(
             [
