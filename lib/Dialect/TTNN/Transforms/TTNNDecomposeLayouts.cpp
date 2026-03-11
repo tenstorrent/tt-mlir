@@ -694,10 +694,19 @@ private:
     // If the output data type is untilizable on device, untilize on device then
     // move to host
     if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(input.dataType)) {
-      currentInput =
-          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
-      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
-                                                          currentInput, info);
+      // If input is L1 sharded, unshard first since untilize doesn't support
+      // sharded input with sharded output.
+      if (input.isL1Sharded()) {
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+        currentInput =
+            this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      } else {
+        currentInput =
+            this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+      }
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
