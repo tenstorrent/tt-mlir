@@ -997,21 +997,26 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
                      ttnn::CoreCoordAttr::get(ctx, shardGrid.getShape()[1] - 1,
                                               shardGrid.getShape()[0] - 1)));
       } else {
+        // When the layout's grid has a non-empty mapping, it is a virtual grid
+        // and we must use that mapping for virtual-to-physical core range.
+        // Otherwise use the default mapping from mem layout and device grid.
+        mlir::AffineMap mapping =
+            shardGrid.getMapping().isEmpty()
+                ? ttnn::optimizer_utils::
+                      createSingleDeviceVirtualToPhysicalAffineMap(
+                          ctx, memLayoutAttr.getValue(), deviceGrid.getShape())
+                : shardGrid.getMapping();
         coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
-            ctx, llvm::map_to_vector(
-                     ttcore::utils::toCoreRangeSet(
-                         shardGrid.getShape(),
-                         ttnn::optimizer_utils::
-                             createSingleDeviceVirtualToPhysicalAffineMap(
-                                 ctx, memLayoutAttr.getValue(),
-                                 deviceGrid.getShape())),
-                     [ctx](const auto &range) {
-                       const auto [loc, size] = range;
-                       return ttnn::CoreRangeAttr::get(
-                           ctx, ttnn::CoreCoordAttr::get(ctx, loc[0], loc[1]),
-                           ttnn::CoreCoordAttr::get(ctx, loc[0] + size[0] - 1,
-                                                    loc[1] + size[1] - 1));
-                     }));
+            ctx,
+            llvm::map_to_vector(
+                ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping),
+                [ctx](const auto &range) {
+                  const auto [loc, size] = range;
+                  return ttnn::CoreRangeAttr::get(
+                      ctx, ttnn::CoreCoordAttr::get(ctx, loc[0], loc[1]),
+                      ttnn::CoreCoordAttr::get(ctx, loc[0] + size[0] - 1,
+                                               loc[1] + size[1] - 1));
+                }));
       }
       shardSpecAttr = ttnn::ShardSpecAttr::get(
           ctx, coreRangeSetAttr, ttnn::ShapeAttr::get(ctx, shape),
