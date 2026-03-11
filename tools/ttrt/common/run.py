@@ -853,12 +853,6 @@ class Run:
                                 e2e_duration_nanoseconds_output += (
                                     end_get_output - start_get_output
                                 )
-
-                                combined_output_tensor = ttrt.runtime.create_multi_device_host_tensor_from_shards(output_host, {}, fb_mesh_shape)
-                                ttrt.runtime.memcpy(
-                                    outputs[i],
-                                    combined_output_tensor,
-                                )
                                 ttrt.runtime.deallocate_tensor(
                                     runtime_output_tensor, force=True
                                 )

@@ -395,14 +395,6 @@ void registerRuntimeBindings(nb::module_ &m) {
             data, shape, stride, itemsize, dataType, strategy, meshShape);
       },
       "Create a multi-device host tensor with owned memory");
-  m.def("create_multi_device_host_tensor_from_shards",
-        [](std::vector<tt::runtime::Tensor> &tensorShards,
-           const std::unordered_map<std::string, std::string> &strategy,
-           const std::vector<uint32_t> &meshShape) {
-          return tt::runtime::createMultiDeviceHostTensor(
-              tensorShards, strategy, meshShape);
-        },
-        "Create a multi-device host tensor from tensor shards");
   m.def(
       "create_multi_device_host_tensor_from_shards",
       [](std::vector<tt::runtime::Tensor> &tensorShards,
