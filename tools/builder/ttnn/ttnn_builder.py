@@ -4822,10 +4822,10 @@ class TTNNBuilder(Builder):
                 placements.append("<replicate>")
         placements_str = ", ".join(placements)
 
-        mesh_y, mesh_x = self._mesh_shape[1], self._mesh_shape[0]
+        mesh_x, mesh_y = self._mesh_shape[0], self._mesh_shape[1]
         config_str = (
             f"#ttnn.mesh_mapper_config<placements = [{placements_str}], "
-            f"mesh_shape_override = [{mesh_y} : ui32, {mesh_x} : ui32]>"
+            f"mesh_shape_override = [{mesh_x} : ui32, {mesh_y} : ui32]>"
         )
         config_attr = Attribute.parse(config_str)
 
@@ -4849,6 +4849,9 @@ class TTNNBuilder(Builder):
         )
         tilized_result = to_layout_op.result
 
+        dram_result = self._create_dram_tiled_ttnn_tensor(
+            golden_output.shape, mlir_output_type
+        )
         dram_result = self.create_ttnn_tensor(
             golden_output.shape, mlir_output_type
         )
@@ -4962,8 +4965,8 @@ class TTNNBuilder(Builder):
 
         input_type = input.type
         input_rank = len(input_type.shape)
-        mesh_y, mesh_x = self._mesh_shape[1], self._mesh_shape[0]
-        full_mesh_shape = [mesh_y, mesh_x]
+        mesh_x, mesh_y = self._mesh_shape[0], self._mesh_shape[1]
+        full_mesh_shape = [mesh_x, mesh_y]
 
         composer_dims = []
         target_mesh_shape = []
@@ -5111,7 +5114,9 @@ class TTNNBuilder(Builder):
         golden_output = op_golden_function(
             input0, all_gather_dim_attr, cluster_axis_attr, mlir_output_type
         )
-        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+        result = self._create_dram_tiled_ttnn_tensor(
+            golden_output.shape, mlir_output_type
+        )
 
         if loc is None:
             loc = self._get_location()
