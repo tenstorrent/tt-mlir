@@ -14,6 +14,8 @@
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Fusing/TopKFusingPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #endif
@@ -1141,8 +1143,12 @@ public:
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {
+      FusionValidationConfig validationConfig;
+      validationConfig.maxFallbackAttempts = maxFallbackAttempts;
+
       patterns.add<fusing::RoPEFusing>(&getContext());
       patterns.add<fusing::RoPEDecodeFusing>(&getContext());
+      patterns.add<fusing::TopKFusing>(&getContext(), validationConfig);
       patterns.add<SDPAFusing>(&getContext());
     }
 #endif // TTMLIR_ENABLE_OPMODEL
