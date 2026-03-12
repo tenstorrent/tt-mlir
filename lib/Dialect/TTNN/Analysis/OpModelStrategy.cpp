@@ -212,4 +212,38 @@ scoreCandidate(Operation *op, const OpConfig &config,
   return score;
 }
 
+/// Extract act_block_h_override from a BeamCandidate's Conv2dAttrs.
+/// Returns UINT32_MAX if not a Conv2d config (sorts last).
+[[maybe_unused]] static uint32_t getActBlockHOverride(const BeamCandidate &c) {
+  if (auto *conv2d = std::get_if<Conv2dAttrs>(&c.configHint.opSpecificAttrs)) {
+    if (conv2d->conv2dConfig.has_value() && conv2d->conv2dConfig.value()) {
+      auto abh = conv2d->conv2dConfig.value().getActBlockHOverride();
+      return abh.has_value() ? abh.value() : 0;
+    }
+  }
+  return UINT32_MAX;
+}
+
+bool preferCandidate(Operation *op, const BeamCandidate &a,
+                     const BeamCandidate &b) {
+  return llvm::TypeSwitch<Operation *, bool>(op)
+      .Case<Conv2dOp, ConvTranspose2dOp>([&](auto) {
+        // Prefer act_block_h_override=0 (auto, best), then higher over lower.
+        // Ordering: 0 > 64 > 32 > ...
+        uint32_t abhA = getActBlockHOverride(a);
+        uint32_t abhB = getActBlockHOverride(b);
+        if (abhA != abhB) {
+          if (abhA == 0) {
+            return true;
+          }
+          if (abhB == 0) {
+            return false;
+          }
+          return abhA > abhB;
+        }
+        return false;
+      })
+      .Default([](Operation *) { return false; });
+}
+
 } // namespace mlir::tt::ttnn
