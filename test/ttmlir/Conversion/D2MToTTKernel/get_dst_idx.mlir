@@ -5,7 +5,10 @@
 
 module {
   // CHECK-LABEL: func.func @test_get_dst_idx_2x2
-  func.func @test_get_dst_idx_2x2(%arg0_: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %arg1_: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %arg2_: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>) attributes {d2m.thread = #d2m.thread<compute>} {
+  func.func @test_get_dst_idx_2x2() attributes {d2m.thread = #d2m.thread<compute>} {
+    %arg0_ = d2m.get_cb(0) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
+    %arg1_ = d2m.get_cb(1) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
+    %arg2_ = d2m.get_cb(2) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %c2 = arith.constant 2 : index
@@ -58,7 +61,10 @@ module {
   }
 
   // CHECK-LABEL: func.func @test_get_dst_idx_2x1
-  func.func @test_get_dst_idx_2x1(%arg0_: !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1_>>, %arg1_: !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1_>>, %arg2_: !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1_>>) attributes {d2m.thread = #d2m.thread<compute>} {
+  func.func @test_get_dst_idx_2x1() attributes {d2m.thread = #d2m.thread<compute>} {
+    %arg0_ = d2m.get_cb(0) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1_>>
+    %arg1_ = d2m.get_cb(1) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1_>>
+    %arg2_ = d2m.get_cb(2) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1_>>
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %c2 = arith.constant 2 : index
@@ -98,7 +104,10 @@ module {
   }
 
   // CHECK-LABEL: func.func @test_get_dst_idx_1x2
-  func.func @test_get_dst_idx_1x2(%arg0_: !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1_>>, %arg1_: !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1_>>, %arg2_: !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1_>>) attributes {d2m.thread = #d2m.thread<compute>} {
+  func.func @test_get_dst_idx_1x2() attributes {d2m.thread = #d2m.thread<compute>} {
+    %arg0_ = d2m.get_cb(0) : !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1_>>
+    %arg1_ = d2m.get_cb(1) : !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1_>>
+    %arg2_ = d2m.get_cb(2) : !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1_>>
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %c2 = arith.constant 2 : index

@@ -50,7 +50,7 @@ static llvm::SmallVector<mlir::Operation *> traceCreationOpChain(Value v) {
   return {};
 }
 
-// Analyze a const-eval function for ops to hoist as a whole.
+// Analyze a const-eval function for ops to perform CPU-hoisting on.
 //
 // Motivation for CPU-hoisting const-eval ops:
 // - CPU-hoisted ops operate on 32-bit integers/floats, which should result in
@@ -132,6 +132,16 @@ analyzeConstEval(func::FuncOp funcOp) {
 
   if (descriptor.operations.empty()) {
     return {};
+  }
+
+  // Verify all ops in the descriptor can be lowered to Linalg.
+  // If any op fails, skip CPU-hoisting altogether.
+  for (auto *op : descriptor.operations) {
+    if (!canLowerTTIRToLinalg(op)) {
+      op->emitWarning("Skipping CPU hoisting of const-eval "
+                      "subgraph: op cannot be lowered to Linalg");
+      return {};
+    }
   }
 
   return {descriptor};

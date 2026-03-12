@@ -3493,7 +3493,7 @@ def ttir_slice_golden(
 
     shard_map = {}
     for device_id, shard in input_tensor.shard_map.items():
-        shard_map[device_id] = shard[slices]
+        shard_map[device_id] = shard[tuple(slices)]
 
     return GoldenMapTensor(shard_map, input_tensor.mesh_shape).to(output_dtype)
 
@@ -4213,21 +4213,34 @@ def ttir_reverse_golden(
 
 
 def stablehlo_sort_golden(
-    input_tensor: GoldenMapTensor,
+    input_tensors,
     dimension_attr: IntegerAttr,
     is_stable_attr: BoolAttr,
     descending_attr: BoolAttr,
-    output_type_mlir: Type,
-) -> GoldenMapTensor:
+    output_types_mlir,
+):
+    # Normalize single-input case to tuple
+    if isinstance(input_tensors, GoldenMapTensor):
+        input_tensors = (input_tensors,)
+    if not isinstance(output_types_mlir, (list, tuple)):
+        output_types_mlir = [output_types_mlir]
+
     dimension = unpack_mlir_attr(dimension_attr)
     is_stable = unpack_mlir_attr(is_stable_attr)
     descending = unpack_mlir_attr(descending_attr)
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
-    values, _ = torch.sort(
-        input_tensor, dim=dimension, descending=descending, stable=is_stable
+    key_tensor = input_tensors[0]
+    sorted_key, indices = torch.sort(
+        key_tensor, dim=dimension, descending=descending, stable=is_stable
     )
-    return values.to(output_dtype)
+
+    results = [sorted_key.to(mlir_type_to_torch_dtype(output_types_mlir[0]))]
+
+    for i in range(1, len(input_tensors)):
+        sorted_value = torch.gather(input_tensors[i], dimension, indices)
+        results.append(sorted_value.to(mlir_type_to_torch_dtype(output_types_mlir[i])))
+
+    return tuple(results)
 
 
 def ttir_equal_golden(

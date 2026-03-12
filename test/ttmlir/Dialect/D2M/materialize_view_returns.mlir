@@ -78,8 +78,9 @@ func.func @view_already_consumed(%arg0: tensor<1x1x8x24x!ttcore.tile<32x32, f32>
                          threads = [#d2m.thread<datamovement>]}
       ins(%view : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>)
       outs(%empty : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>) {
-    ^bb0(%in_cb: !d2m.cb<tensor<1x3x!ttcore.tile<32x32, f32>>>,
-         %out_cb: !d2m.cb<tensor<1x3x!ttcore.tile<32x32, f32>>>):
+    ^bb0:
+      %in_cb = d2m.get_cb(0) : !d2m.cb<tensor<1x3x!ttcore.tile<32x32, f32>>>
+      %out_cb = d2m.get_cb(1) : !d2m.cb<tensor<1x3x!ttcore.tile<32x32, f32>>>
       %in = d2m.wait %in_cb : !d2m.cb<tensor<1x3x!ttcore.tile<32x32, f32>>> -> tensor<1x3x!ttcore.tile<32x32, f32>>
       %out = d2m.reserve %out_cb : !d2m.cb<tensor<1x3x!ttcore.tile<32x32, f32>>> -> tensor<1x3x!ttcore.tile<32x32, f32>>
       d2m.yield %out : (tensor<1x3x!ttcore.tile<32x32, f32>>)

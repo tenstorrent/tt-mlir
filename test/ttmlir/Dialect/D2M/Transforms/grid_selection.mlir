@@ -43,7 +43,8 @@ module {
       threads = [#d2m.thread<unified>]
     }
     ins() outs(%0 : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout>)  {
-    ^unified0(%cb_out: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, f32>>>):
+    ^unified0:
+      %cb_out = d2m.get_cb(0) : !d2m.cb<tensor<8x8x!ttcore.tile<32x32, f32>>>
       %out = tensor.empty() : tensor<8x8x!ttcore.tile<32x32, f32>>
       d2m.yield %out : (tensor<8x8x!ttcore.tile<32x32, f32>>)
     } : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout>
@@ -82,7 +83,9 @@ module {
        threads = [#d2m.thread<unified>]}
          ins(%stream : tensor<1x1x32x288xf32, #layout_tm_stream_map>)
          outs(%stream_output : tensor<1x1x32x288xf32, #layout_tm_stream_plain>)  {
-     ^unified(%cb0: !d2m.cb<tensor<32x288xf32>>, %cb1: !d2m.cb<tensor<32x288xf32>>):
+     ^unified:
+       %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<32x288xf32>>
+       %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<32x288xf32>>
        %i = d2m.block_index(0) : index
        %j = d2m.block_index(1) : index
        %buffer = tensor.empty() : tensor<32x288xf32>
@@ -120,7 +123,9 @@ module {
        threads = [#d2m.thread<unified>]}
          ins(%stream : tensor<1x1x64x64xbf16, #layout_op>)
          outs(%stream_output : tensor<1x1x64x64xbf16, #layout_out>)  {
-     ^unified(%cb0: !d2m.cb<tensor<64x64xbf16>>, %cb1: !d2m.cb<tensor<64x64xbf16>>):
+     ^unified:
+       %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<64x64xbf16>>
+       %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<64x64xbf16>>
        %i = d2m.block_index(0) : index
        %j = d2m.block_index(1) : index
        %buffer = tensor.empty() : tensor<64x64xbf16>
