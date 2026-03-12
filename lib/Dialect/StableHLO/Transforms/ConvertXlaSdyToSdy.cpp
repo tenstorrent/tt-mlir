@@ -45,7 +45,7 @@ public:
     }
 
     // Mesh may be squashed to 1D by the calling framework.
-    if (mlir::failed(shardy_utils::normalizeMeshTo2D(rootModule))) {
+    if (mlir::failed(shardy_utils::normalize1DMeshTo2D(rootModule))) {
       signalPassFailure();
       return;
     }

@@ -55,7 +55,7 @@ void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
                      int64_t firstAxisSize, int64_t secondAxisSize);
 
 // Normalize a 1D mesh to 2D by prepending an axis of size 1.
-mlir::LogicalResult normalizeMeshTo2D(mlir::ModuleOp &module);
+mlir::LogicalResult normalize1DMeshTo2D(mlir::ModuleOp &module);
 
 // Create a TTMeshAttr from a sdy::meshOp.
 mlir::tt::ttcore::MeshAttr

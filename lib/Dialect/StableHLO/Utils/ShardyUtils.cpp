@@ -97,7 +97,7 @@ void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
 }
 
 // Normalize a 1D mesh to 2D by prepending an axis of size 1.
-mlir::LogicalResult normalizeMeshTo2D(mlir::ModuleOp &module) {
+mlir::LogicalResult normalize1DMeshTo2D(mlir::ModuleOp &module) {
   auto meshOps = getMeshOps(module);
   if (meshOps.empty()) {
     return mlir::success();
@@ -115,7 +115,7 @@ mlir::LogicalResult normalizeMeshTo2D(mlir::ModuleOp &module) {
     return mlir::failure();
   }
 
-  if (meshRank == 2) {
+  if (meshRank != 1) {
     return mlir::success();
   }
 
