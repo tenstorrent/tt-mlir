@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn::fusing {
@@ -66,6 +65,18 @@ QKVHead *findByRole(SmallVector<QKVHead> &heads, QKVRole role) {
 bool validateQKVDimensions(QKVHead &q, QKVHead &k, QKVHead &v) {
   return q.headDim() == k.headDim() && k.headDim() == v.headDim() &&
          k.numHeads() == v.numHeads();
+}
+
+size_t roleToIndex(QKVRole role) {
+  switch (role) {
+  case QKVRole::Query:
+    return 0;
+  case QKVRole::Key:
+    return 1;
+  case QKVRole::Value:
+    return 2;
+  }
+  llvm_unreachable("invalid QKVRole");
 }
 
 // Find which dimension is being sliced and return its index along with
@@ -223,17 +234,7 @@ void reorderConcatInputs(mlir::PatternRewriter &rewriter, ConcatOp concatOp,
   auto inputs = concatOp.getInputs();
   SmallVector<Value> reorderedInputs(3);
   for (size_t i = 0; i < heads.size(); ++i) {
-    switch (heads[i].role) {
-    case QKVRole::Query:
-      reorderedInputs[0] = inputs[i];
-      break;
-    case QKVRole::Key:
-      reorderedInputs[1] = inputs[i];
-      break;
-    case QKVRole::Value:
-      reorderedInputs[2] = inputs[i];
-      break;
-    }
+    reorderedInputs[roleToIndex(heads[i].role)] = inputs[i];
   }
   for (size_t i = heads.size(); i < inputs.size(); ++i) {
     reorderedInputs.push_back(inputs[i]);
@@ -242,80 +243,95 @@ void reorderConcatInputs(mlir::PatternRewriter &rewriter, ConcatOp concatOp,
       concatOp, [&]() { concatOp.getInputsMutable().assign(reorderedInputs); });
 }
 
-// Reorder the matmul RHS weight by slicing Q/K/V portions from the weight
-// tensor and concatenating them in Q, K, V order. Used when the RHS is a
-// LoadCachedOp (const-eval has folded the original concat). The new slice +
-// concat ops are on constant weights, so the second const-eval pass folds
-// them away.
-template <typename MatMulOpType>
-void reorderWeightViaSliceConcat(mlir::PatternRewriter &rewriter,
-                                 MatMulOpType matmulOp,
+// Slice a tensor along `sliceDim` into Q/K/V portions (determined by head
+// roles and matmul output bounds), reorder to Q,K,V order, append any
+// remainder, and return the concatenated result.
+Value sliceAndReconcatInQKVOrder(mlir::PatternRewriter &rewriter, Location loc,
+                                 Value tensor, size_t sliceDim,
+                                 ArrayRef<int64_t> matmulShape,
                                  const SmallVector<QKVHead> &heads) {
-  Value weight = matmulOp.getB();
-  auto weightType = mlir::cast<RankedTensorType>(weight.getType());
-  auto weightShape = weightType.getShape();
+  auto tensorType = mlir::cast<RankedTensorType>(tensor.getType());
+  auto tensorShape = tensorType.getShape();
 
-  // The slice dimension on the weight corresponds to the output feature dim.
-  // For transpose_b=false: last dim. For transpose_b=true: first dim.
-  bool transB = matmulOp.getTransposeB();
-  size_t sliceDim = transB ? 0 : weightShape.size() - 1;
+  // Collect QKV bounds from the original matmul output slices.
+  struct Bounds {
+    int64_t start;
+    int64_t end;
+    QKVRole role;
+  };
+  SmallVector<Bounds> boundsList;
+  for (const auto &h : heads) {
+    auto [dim, start, end] =
+        *findSlicedDimensionWithBounds(h.match.sliceOp, matmulShape);
+    boundsList.push_back({start, end, h.role});
+  }
 
-  auto matmulShape = matmulOp.getType().getShape();
-
-  rewriter.setInsertionPoint(matmulOp);
-
-  // Slice each head's portion from the weight, placed in Q, K, V order.
-  SmallVector<Value> slices(3);
-  for (size_t i = 0; i < heads.size(); ++i) {
-    auto dimAndBounds =
-        findSlicedDimensionWithBounds(heads[i].match.sliceOp, matmulShape);
-    auto [dim, start, end] = *dimAndBounds;
-
-    SmallVector<int32_t> begins(weightShape.size(), 0);
-    SmallVector<int32_t> ends(weightShape.begin(), weightShape.end());
-    SmallVector<int32_t> step(weightShape.size(), 1);
+  auto createSlice = [&](int64_t start, int64_t end) -> Value {
+    SmallVector<int32_t> begins(tensorShape.size(), 0);
+    SmallVector<int32_t> ends(tensorShape.begin(), tensorShape.end());
+    SmallVector<int32_t> step(tensorShape.size(), 1);
     begins[sliceDim] = static_cast<int32_t>(start);
     ends[sliceDim] = static_cast<int32_t>(end);
 
-    SmallVector<int64_t> sliceShape(weightShape);
+    SmallVector<int64_t> sliceShape(tensorShape);
     sliceShape[sliceDim] = end - start;
     auto sliceTy =
-        utils::RankedTensorTypeFactory::create(weightType, sliceShape);
+        utils::RankedTensorTypeFactory::create(tensorType, sliceShape);
 
-    auto sliceOp = rewriter.create<SliceStaticOp>(
-        matmulOp.getLoc(), sliceTy, weight, rewriter.getI32ArrayAttr(begins),
-        rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(step));
+    return rewriter
+        .create<SliceStaticOp>(
+            loc, sliceTy, tensor, rewriter.getI32ArrayAttr(begins),
+            rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(step))
+        .getResult();
+  };
 
-    size_t targetIdx;
-    switch (heads[i].role) {
-    case QKVRole::Query:
-      targetIdx = 0;
-      break;
-    case QKVRole::Key:
-      targetIdx = 1;
-      break;
-    case QKVRole::Value:
-      targetIdx = 2;
-      break;
-    }
-    slices[targetIdx] = sliceOp.getResult();
+  // Build reordered slices: Q, K, V first, then any remaining columns.
+  SmallVector<Value> slices(3);
+  for (const auto &b : boundsList) {
+    slices[roleToIndex(b.role)] = createSlice(b.start, b.end);
   }
 
-  SmallVector<int64_t> concatShape(weightShape);
+  int64_t qkvEnd = 0;
+  for (const auto &b : boundsList) {
+    qkvEnd = std::max(qkvEnd, b.end);
+  }
+  if (qkvEnd < tensorShape[sliceDim]) {
+    slices.push_back(createSlice(qkvEnd, tensorShape[sliceDim]));
+  }
+
+  SmallVector<int64_t> concatShape(tensorShape);
   concatShape[sliceDim] = 0;
-  for (auto &s : slices) {
+  for (const auto &s : slices) {
     concatShape[sliceDim] +=
         mlir::cast<RankedTensorType>(s.getType()).getShape()[sliceDim];
   }
   auto concatTy =
-      utils::RankedTensorTypeFactory::create(weightType, concatShape);
+      utils::RankedTensorTypeFactory::create(tensorType, concatShape);
 
-  auto concatOp = rewriter.create<ConcatOp>(matmulOp.getLoc(), concatTy, slices,
-                                            static_cast<int32_t>(sliceDim),
-                                            MemoryConfigAttr());
+  return rewriter
+      .create<ConcatOp>(loc, concatTy, slices, static_cast<int32_t>(sliceDim),
+                        MemoryConfigAttr())
+      .getResult();
+}
 
-  rewriter.modifyOpInPlace(
-      matmulOp, [&]() { matmulOp.getBMutable().assign(concatOp.getResult()); });
+// Reorder a tensor (weight or bias) to match Q, K, V order. If the tensor is
+// a ConcatOp, reorders its inputs in-place. If it is a LoadCachedOp, slices
+// and reconcats in Q, K, V order (the second const-eval pass folds these
+// away). Returns std::nullopt for unrecognized sources.
+std::optional<Value>
+reorderTensorInQKVOrder(mlir::PatternRewriter &rewriter, Location loc,
+                        Value tensor, size_t sliceDim,
+                        ArrayRef<int64_t> matmulShape,
+                        const SmallVector<QKVHead> &heads) {
+  if (auto concatOp = tensor.getDefiningOp<ConcatOp>()) {
+    reorderConcatInputs(rewriter, concatOp, heads);
+    return tensor;
+  }
+  if (tensor.getDefiningOp<ttcore::LoadCachedOp>()) {
+    return sliceAndReconcatInQKVOrder(rewriter, loc, tensor, sliceDim,
+                                      matmulShape, heads);
+  }
+  return std::nullopt;
 }
 
 // ============================================================================
@@ -364,9 +380,11 @@ matchSliceReshapeChains(MatMulOpType matmulOp) {
 // Step 2: Slice coverage validation
 // ============================================================================
 
-// Validate that the slices are contiguous, cover the full sliced dimension,
-// and all slice along the same dimension. Sorts matches by slice position
-// so that match index corresponds to concat input index.
+// Validate that the slices are contiguous starting from 0 and all slice along
+// the same dimension. The slices don't need to cover the full dimension — the
+// matmul may have additional non-QKV slice users (e.g. fc1 fused via
+// shared-LHS). Sorts matches by slice position so that match index corresponds
+// to concat input index.
 template <typename MatMulOpType>
 bool validateSliceCoverage(MatMulOpType matmulOp,
                            SmallVector<SliceReshapeMatch> &matches) {
@@ -480,7 +498,7 @@ bool validateReshapeLayouts(SmallVector<SliceReshapeMatch> &matches) {
 }
 
 // ============================================================================
-// Step 7: Create fused op
+// Create fused op
 // ============================================================================
 
 template <typename MatMulOpType>
@@ -596,14 +614,6 @@ SplitQueryKeyValueAndSplitHeadsFusing<MatMulOpType>::matchAndRewrite(
     return mlir::failure();
   }
 
-  // Matmul RHS must be a ConcatOp or LoadCachedOp (const-eval'd weights).
-  Value rhs = matmulOp.getB();
-  bool isDirectConcat = rhs.getDefiningOp<ConcatOp>() != nullptr;
-  bool isLoadCached = rhs.getDefiningOp<ttcore::LoadCachedOp>() != nullptr;
-  if (!isDirectConcat && !isLoadCached) {
-    return mlir::failure();
-  }
-
   // Identify Q/K/V roles by tracing forward to SDPA ops.
   std::optional<SmallVector<QKVHead>> heads = identifyQKVRoles(*matches);
   if (!heads) {
@@ -620,13 +630,41 @@ SplitQueryKeyValueAndSplitHeadsFusing<MatMulOpType>::matchAndRewrite(
 
   // Ensure QKV portions are in Q, K, V order on the matmul RHS.
   if (!isQKVOrder(*heads)) {
-    if (isDirectConcat) {
-      // Fast path: reorder concat inputs in-place.
-      reorderConcatInputs(rewriter, rhs.getDefiningOp<ConcatOp>(), *heads);
-    } else {
-      // LoadCachedOp: slice + reconcat on the weight. The second const-eval
-      // pass folds these away.
-      reorderWeightViaSliceConcat(rewriter, matmulOp, *heads);
+    auto matmulShape = matmulOp.getType().getShape();
+    rewriter.setInsertionPoint(matmulOp);
+
+    // Reorder weight.
+    bool transB = matmulOp.getTransposeB();
+    auto weightShape =
+        mlir::cast<RankedTensorType>(matmulOp.getB().getType()).getShape();
+    size_t weightSliceDim = transB ? 0 : weightShape.size() - 1;
+    auto newWeight =
+        reorderTensorInQKVOrder(rewriter, matmulOp.getLoc(), matmulOp.getB(),
+                                weightSliceDim, matmulShape, *heads);
+    if (!newWeight) {
+      return mlir::failure();
+    }
+    if (*newWeight != matmulOp.getB()) {
+      rewriter.modifyOpInPlace(
+          matmulOp, [&]() { matmulOp.getBMutable().assign(*newWeight); });
+    }
+
+    // Reorder bias (LinearOp only).
+    if constexpr (std::is_same_v<MatMulOpType, LinearOp>) {
+      if (Value bias = matmulOp.getBias()) {
+        auto biasShape =
+            mlir::cast<RankedTensorType>(bias.getType()).getShape();
+        auto newBias =
+            reorderTensorInQKVOrder(rewriter, matmulOp.getLoc(), bias,
+                                    biasShape.size() - 1, matmulShape, *heads);
+        if (!newBias) {
+          return mlir::failure();
+        }
+        if (*newBias != bias) {
+          rewriter.modifyOpInPlace(
+              matmulOp, [&]() { matmulOp.getBiasMutable().assign(*newBias); });
+        }
+      }
     }
   }
 
