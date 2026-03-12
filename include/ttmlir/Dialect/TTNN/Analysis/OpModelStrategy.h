@@ -123,6 +123,12 @@ scoreCandidate(Operation *op, const OpConfig &config,
                const op_constraint_validation::ValidationResult &result,
                bool requiresReshard);
 
+/// Op-specific tiebreaker when two candidates have equal LayoutScores.
+/// Returns true if candidate a is preferred over b.
+/// For Conv2d: prefers lower act_block_h_override (0 = auto = optimal).
+bool preferCandidate(Operation *op, const BeamCandidate &a,
+                     const BeamCandidate &b);
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPMODELSTRATEGY_H
