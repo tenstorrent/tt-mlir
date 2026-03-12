@@ -13,6 +13,12 @@ from typing import Any, Dict, List, Tuple, Optional
 import math
 import sys
 from pathlib import Path
+import threading
+import time
+from contextlib import contextmanager
+import gc
+import ctypes
+import psutil
 
 # Add tt-alchemist utils.py to path for EmitPy tests
 TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
@@ -225,6 +231,76 @@ def device(request, pytestconfig):
     return _get_device_for_target(target, mesh_shape, pytestconfig, fabric_config)
 
 
+@pytest.fixture(autouse=True)
+def memory_usage_tracker(request):
+    """
+    A pytest fixture that tracks memory usage during the execution of a test.
+    Only runs if --log-memory is passed to pytest.
+    """
+    if request.config.getoption("--log-memory"):
+        process = psutil.Process()
+        # Initialize memory tracking variables
+        vm = psutil.virtual_memory()
+        start_mem = (vm.total - vm.available) / (1024 * 1024)  # MB
+        min_mem = start_mem
+        max_mem = start_mem
+        total_mem = start_mem
+        count = 1
+        tracking = True
+
+        def track_memory():
+            nonlocal min_mem, max_mem, total_mem, count
+            while tracking:
+                vm = psutil.virtual_memory()
+                used = (vm.total - vm.available) / (1024 * 1024)
+                min_mem = min(min_mem, used)
+                max_mem = max(max_mem, used)
+                total_mem += used
+                count += 1
+                time.sleep(0.1)
+
+        tracker_thread = threading.Thread(target=track_memory)
+        tracker_thread.start()
+        yield
+        tracking = False
+        tracker_thread.join()
+
+        vm = psutil.virtual_memory()
+        end_mem = (vm.total - vm.available) / (1024 * 1024)  # MB
+        min_mem = min(min_mem, end_mem)
+        max_mem = max(max_mem, end_mem)
+        total_mem += end_mem
+        count += 1
+        avg_mem = total_mem / count
+        by_test = max_mem - start_mem
+
+        proc_rss = process.memory_info().rss / (1024 * 1024)  # MB
+
+        print(f"Test memory usage:")
+        print(f"    By test: {by_test:.2f} MB")
+        print(f"    Minimum: {min_mem:.2f} MB")
+        print(f"    Maximum: {max_mem:.2f} MB")
+        print(f"    Average: {avg_mem:.2f} MB")
+        print(f"    RSS:     {proc_rss:.2f} MB")
+    else:
+        yield
+
+    """
+    # Clean up memory.
+    gc.collect()
+    libc = ctypes.CDLL("libc.so.6")
+    libc.malloc_trim(0)
+
+    if request.config.getoption("--log-memory"):
+        vm = psutil.virtual_memory()
+        after_gc = (vm.total - vm.available) / (1024 * 1024)  # MB
+        after_gc_rss = process.memory_info().rss / (1024 * 1024)  # MB
+        print(
+            f"Memory usage after gc: {after_gc:.2f} MB (RSS: {after_gc_rss:.2f} MB)"
+        )
+    """
+
+
 def get_request_kwargs(request):
     """
     Extracts and organizes request-related arguments into a dictionary.
@@ -358,6 +434,12 @@ def pytest_addoption(parser):
         "--dump-memory",
         action="store_true",
         help="Dump device memory to disk after execution.",
+    )
+    parser.addoption(
+        "--log-memory",
+        action="store_true",
+        default=False,
+        help="Enable memory usage tracking for tests",
     )
 
 
