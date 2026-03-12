@@ -133,6 +133,31 @@ computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
   return constrainedDims;
 }
 
+SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
+    mlir::ArrayRef<mlir::AffineMap> indexingMaps,
+    mlir::ArrayRef<mlir::SmallVector<int64_t>> operandGridShapes,
+    mlir::ArrayRef<int64_t> outputGridShape) {
+  SmallVector<mlir::AffineMap> maps(indexingMaps.begin(), indexingMaps.end());
+  auto flatInverseMap =
+      ttmlir::utils::concatInversePermutationMap(maps,
+                                                 /*reverse=*/true);
+
+  SmallVector<int64_t> flattenedOperandGridShapes;
+  for (ArrayRef<int64_t> operandGridShape : llvm::reverse(operandGridShapes)) {
+    flattenedOperandGridShapes.append(operandGridShape.begin(),
+                                      operandGridShape.end());
+  }
+
+  // Divide out output grid dims first;
+  // concatInversePermutationMap(reverse=true) guarantees output dimensions are
+  // leading in the flattened vector.
+  for (auto [i, dim] : llvm::enumerate(outputGridShape)) {
+    flattenedOperandGridShapes[i] /= dim;
+  }
+
+  return flatInverseMap.compose(flattenedOperandGridShapes);
+}
+
 SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
                                     AffineMap indexingMap) {
   // Create dimension values by creating BlockIndexOp for each dimension

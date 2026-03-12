@@ -49,6 +49,13 @@ std::optional<SmallVector<int64_t>>
 computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
                       mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes);
 
+// Derive generic block factors from operand grid shapes and indexing maps,
+// mirroring GenericOp::build's reverse-flattened affine composition.
+SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
+    mlir::ArrayRef<mlir::AffineMap> indexingMaps,
+    mlir::ArrayRef<mlir::SmallVector<int64_t>> operandGridShapes,
+    mlir::ArrayRef<int64_t> outputGridShape);
+
 // Build grid dimension indices from an indexing map. For each result in the
 // indexing map, translates arbitrary affine expressions into arith dialect
 // operations to compute the index values. This supports all valid affine
