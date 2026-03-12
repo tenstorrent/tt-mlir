@@ -23,6 +23,10 @@ def test_sparse_matmul_b_sparse(target: str, request, device):
     sparsity: [A, B, 1, E] = [2, 4, 1, 4]
     output: [A, B, 1, E, M, N] = [2, 4, 1, 4, 32, 5760]
     """
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
 
     def module(builder: TTIRBuilder):
         @builder.func(
@@ -65,6 +69,10 @@ def test_sparse_matmul_a_sparse(target: str, request, device):
     sparsity: [1, 1, A, E] = [1, 1, 8, 4]
     output: [A, E, M, N] = [8, 4, 32, 2880]
     """
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
 
     def module(builder: TTIRBuilder):
         @builder.func(
