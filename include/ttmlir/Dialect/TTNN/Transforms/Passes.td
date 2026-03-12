@@ -325,10 +325,6 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
     to find working configurations.
   }];
   let options = [
-    Option<"tensorL1UsageCap",
-           "tensor-l1-usage-cap",
-           "float", /*default=*/"1.0",
-           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">,
     Option<"maxFallbackAttempts",
            "max-fallback-attempts",
            "uint32_t", /*default=*/"10000",
@@ -349,13 +345,6 @@ def TTNNRowMajorLayoutPropagation : Pass<"ttnn-rm-layout-propagation", "::mlir::
 
     This pass should run before the optimizer to provide better initial layout hints.
   }];
-
-  let options = [
-    Option<"tensorL1UsageCap",
-           "tensor-l1-usage-cap",
-           "float", /*default=*/"1.0",
-           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">
-  ];
 }
 
 def TTNNEmitPyWorkarounds: Pass<"ttnn-emitpy-workarounds", "::mlir::ModuleOp"> {
