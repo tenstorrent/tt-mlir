@@ -1016,16 +1016,17 @@ public:
           // untilize → map in scalar space → tilize back.
 
           // Untilize to scalar space (preserve current layout properties).
-          // Reblock virtual grid shape here to align with earlier splitting
-          // phases that use reblocked intermediates to bounce virtual grid
-          // shapes from host to device.
+          // Do not reblock/collapse virtual-grid shape at this stage:
+          // format-conversion generic requires matching shard structure between
+          // input and output, and scalar-space mapping is handled in the next
+          // step.
           Type scalarType = getScalarType(currentInfo.type.getElementType());
           auto untilizedType = typeBuilder.modifyDeviceType(
               currentInfo.type, *currentInfo.layout, targetGridShape,
               currentRemapping.value_or(AffineMap()),
               ttcore::MemorySpace::DeviceL1,
               /*newTensorGrid=*/{}, scalarType,
-              /*newTileShape=*/{}, /* reblockVirtualGridShapes */ true);
+              /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/false);
           auto untilizedEmpty = createEmpty(untilizedType);
           currentValue = lowerFormatConversionGeneric(
               rewriter, currentValue, untilizedEmpty, op.getLoc());

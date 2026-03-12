@@ -2305,6 +2305,99 @@ concatenateHeadsLogicalInfo(ttir::ConcatenateHeadsOp op) {
   return {map, canBeTilized};
 }
 
+template <typename OpTy>
+class D2MTensorManipulationOpSpecialConstraintsRewriter
+    : public OpConversionPattern<OpTy> {
+public:
+  D2MTensorManipulationOpSpecialConstraintsRewriter(
+      const TypeConverter &typeConverter, mlir::MLIRContext *ctx)
+      : OpConversionPattern<OpTy>(typeConverter, ctx, /*benefit=*/10) {}
+
+  LogicalResult
+  matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // TODO(wenbinlyuTT): flatbuffer for this? DRAM & PCIe?
+    constexpr int32_t nocAlignmentL1 = 16;
+
+    if constexpr (std::is_same_v<OpTy, ttir::SliceStaticOp>) {
+      auto sliceOp = mlir::cast<ttir::SliceStaticOp>(op);
+      auto begins = extractFromIntegerArrayAttr<int32_t>(sliceOp.getBegins());
+      auto ends = extractFromIntegerArrayAttr<int32_t>(sliceOp.getEnds());
+      auto step = extractFromIntegerArrayAttr<int32_t>(sliceOp.getStep());
+
+      auto inType = mlir::cast<RankedTensorType>(sliceOp.getInput().getType());
+      auto outType =
+          mlir::cast<RankedTensorType>(sliceOp.getResult().getType());
+
+      const int32_t rank = static_cast<int32_t>(inType.getRank());
+      const int32_t elementBytes = std::max(
+          1, static_cast<int32_t>(inType.getElementTypeBitWidth()) / 8);
+
+      const int32_t alignToElements = nocAlignmentL1 / elementBytes;
+
+      const bool isAlignedWidth = begins[rank - 1] % alignToElements == 0;
+      const bool isAlignedHeight = begins[rank - 2] % alignToElements == 0;
+      const bool notStridedWidth = step[rank - 1] == 1;
+      const bool notStridedHeight = step[rank - 2] == 1;
+
+      const bool isNoCFriendlyWidth = isAlignedWidth && notStridedWidth;
+      const bool isNoCFriendlyHeight = isAlignedHeight && notStridedHeight;
+
+      if (isNoCFriendlyWidth) {
+        return failure();
+      }
+
+      SmallVector<int64_t> transposeIdx(rank);
+      std::iota(transposeIdx.begin(), transposeIdx.end(), 0);
+      std::swap(transposeIdx[rank - 1], transposeIdx[rank - 2]);
+
+      auto transposedInShape =
+          ttmlir::utils::applyPermutation(inType.getShape(), transposeIdx);
+      auto transposedInType = RankedTensorType::get(
+          transposedInShape, inType.getElementType(), inType.getEncoding());
+
+      auto loc = sliceOp.getLoc();
+
+      if (isNoCFriendlyHeight) {
+        // Transpose - Slice - Transpose.
+        fprintf(stderr, "-- Handled TST path, should XPASS\n");
+        auto transposeA = rewriter.create<ttir::PermuteOp>(
+            loc, transposedInType, sliceOp.getInput(), transposeIdx);
+
+        std::swap(begins[rank - 1], begins[rank - 2]);
+        std::swap(ends[rank - 1], ends[rank - 2]);
+        std::swap(step[rank - 1], step[rank - 2]);
+
+        auto transposedOutShape =
+            ttmlir::utils::applyPermutation(outType.getShape(), transposeIdx);
+        auto transposedOutType =
+            RankedTensorType::get(transposedOutShape, outType.getElementType(),
+                                  outType.getEncoding());
+
+        auto newSliceOp = rewriter.create<ttir::SliceStaticOp>(
+            loc, transposedOutType, transposeA.getResult(),
+            rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+            rewriter.getI32ArrayAttr(step));
+
+        auto transposeB = rewriter.create<ttir::PermuteOp>(
+            loc, outType, newSliceOp.getResult(), transposeIdx);
+
+        transposeA.dump();
+        newSliceOp.dump();
+        transposeB.dump();
+
+        rewriter.replaceOp(sliceOp, transposeB.getResult());
+        return success();
+      } else {
+        // Slice(skip width) - Transpose - Slice - Transpose.
+        fprintf(stderr, "-- Unhandled STST path, should XFAIL\n");
+        return failure();
+      }
+    }
+    return failure();
+  }
+};
+
 } // namespace mlir::tt
 
 namespace mlir::tt {
@@ -2378,6 +2471,8 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
 
+  // Rewrite TM ops that violate NoC constraints.
+  patterns.add<D2MTensorManipulationOpSpecialConstraintsRewriter<ttir::SliceStaticOp>>(typeConverter, ctx);
 
   // ToLayout 1:1 conversion.
   patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx, ttnnMode);
