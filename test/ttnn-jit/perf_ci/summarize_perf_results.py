@@ -231,22 +231,49 @@ def main():
             g["ttnn_csv_path"] = r["csv_path"]
             g["math_fidelity_ttnn"] = r["math_fidelity"]
 
-    # Compute perf_pct_ttnn: (ttnn_duration / jit_duration) * 100 → 100 = same, <100 = JIT slower, >100 = JIT faster
-    out_rows: list[dict[str, Any]] = []
+    # Compute perf_pct_ttnn: (ttnn_duration / jit_duration) * 100
+    # 100 = same, <100 = JIT slower, >100 = JIT faster
+    measurements: list[dict[str, Any]] = []
     for key in sorted(groups.keys()):
         g = groups[key]
         jit_ns = g["jit_duration_ns"]
         ttnn_ns = g["ttnn_duration_ns"]
         if jit_ns is not None and ttnn_ns is not None and jit_ns > 0:
             g["perf_pct_ttnn"] = round((ttnn_ns / jit_ns) * 100.0, 2)
-        out_rows.append(g)
+
+        prefix = f"{g['op']}_{g['dtype']}_{g['memory_config_id']}"
+        if jit_ns is not None:
+            measurements.append(
+                {"measurement_name": f"{prefix}_jit_duration_ns", "value": jit_ns}
+            )
+        if ttnn_ns is not None:
+            measurements.append(
+                {"measurement_name": f"{prefix}_ttnn_duration_ns", "value": ttnn_ns}
+            )
+        if g["perf_pct_ttnn"] is not None:
+            measurements.append(
+                {
+                    "measurement_name": f"{prefix}_perf_pct_ttnn",
+                    "value": g["perf_pct_ttnn"],
+                }
+            )
+
+    report = {
+        "project": "tt-mlir",
+        "model": "ttnn_jit_perf",
+        "model_type": "jit_vs_ttnn",
+        "run_type": "benchmark",
+        "measurements": measurements,
+    }
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(out_rows, f, indent=2)
+        json.dump(report, f, indent=2)
 
     if not args.quiet:
-        print(f"Wrote {len(out_rows)} case(s) to {out_path}")
+        print(
+            f"Wrote {len(measurements)} measurement(s) from {len(groups)} case(s) to {out_path}"
+        )
     return 0
 
 
