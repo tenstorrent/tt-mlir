@@ -200,8 +200,6 @@ SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
     mlir::ArrayRef<mlir::AffineMap> indexingMaps,
     mlir::ArrayRef<mlir::SmallVector<int64_t>> operandGridShapes,
     mlir::ArrayRef<int64_t> outputGridShape) {
-  TT_assert(!indexingMaps.empty());
-  TT_assert(indexingMaps.size() == operandGridShapes.size());
   SmallVector<mlir::AffineMap> maps(indexingMaps.begin(), indexingMaps.end());
   auto flatInverseMap =
       ttmlir::utils::concatInversePermutationMap(maps,
@@ -212,13 +210,11 @@ SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
     flattenedOperandGridShapes.append(operandGridShape.begin(),
                                       operandGridShape.end());
   }
-  TT_assert(flattenedOperandGridShapes.size() >= outputGridShape.size());
 
   // Divide out output grid dims first;
   // concatInversePermutationMap(reverse=true) guarantees output dimensions are
   // leading in the flattened vector.
   for (auto [i, dim] : llvm::enumerate(outputGridShape)) {
-    TT_assert(flattenedOperandGridShapes[i] % dim == 0);
     flattenedOperandGridShapes[i] /= dim;
   }
 

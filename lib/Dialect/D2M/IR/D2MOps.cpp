@@ -166,8 +166,7 @@ computeReblockedOperandGridShape(d2m::GenericOp genericOp, int64_t operandIndex,
 
 static Type getShardTypeFromOperand(Value operand, Type oldType) {
   auto operandShapedType = mlir::dyn_cast<ShapedType>(operand.getType());
-  auto oldShapedType = mlir::dyn_cast<ShapedType>(oldType);
-  auto layout = mlir::ttcore::getDeviceLayout(operandShapedType);
+  auto layout = ttcore::getDeviceLayout(operandShapedType);
   if (!layout) {
     return oldType;
   }
@@ -1557,32 +1556,22 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
         llvm::to_vector(llvm::map_range(indexingMaps, [](Attribute attr) {
           return cast<AffineMapAttr>(attr).getValue();
         }));
-    auto flatInverseMap =
-        ttmlir::utils::concatInversePermutationMap(maps, /*reverse=*/true);
-
-    SmallVector<int64_t> flattenedOperandGridShapes;
+    SmallVector<SmallVector<int64_t>> operandGridShapes;
     const auto values = llvm::to_vector(llvm::concat<Value>(inputs, outputs));
-    for (Value v : llvm::reverse(values)) {
+    operandGridShapes.reserve(values.size());
+    for (Value v : values) {
       auto shapedType = mlir::cast<ShapedType>(v.getType());
       ttcore::DeviceLayoutInterface layout =
           ttcore::getDeviceLayout(shapedType);
       TT_assertv(
           layout,
           "This generic constructor expects operands to be in device layout");
-      auto gridShape = layout.getGridShape(shapedType);
-      flattenedOperandGridShapes.append(gridShape.begin(), gridShape.end());
+      operandGridShapes.emplace_back(layout.getGridShape(shapedType).begin(),
+                                     layout.getGridShape(shapedType).end());
     }
-
-    // Divide out the grid shape, this is safe to do because we reversed the
-    // affine map above, so output dims are guaranteed to appear first in the
-    // affine map.
-
-    for (std::size_t i = 0; i < grid.getShape().size(); ++i) {
-      flattenedOperandGridShapes[i] /= grid.getShape()[i];
-    }
-
-    blockFactorsAttr = builder.getI64ArrayAttr(
-        flatInverseMap.compose(flattenedOperandGridShapes));
+    blockFactorsAttr =
+        builder.getI64ArrayAttr(d2m::utils::deriveBlockFactorsFromOperandGrids(
+            maps, operandGridShapes, grid.getShape()));
   } else {
     blockFactorsAttr = builder.getI64ArrayAttr(blockFactors);
   }
@@ -2563,6 +2552,10 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
       FailureOr<SmallVector<int64_t>> reblockedGridShape =
           computeReblockedOperandGridShape(*this, operandIndex, opGridShape,
                                            normalizedBlockFactors);
+      // print the reblocked grid shape using interleaveComma
+      llvm::errs() << "reblocked grid shape: ";
+      llvm::interleaveComma(reblockedGridShape.value(), llvm::errs());
+      llvm::errs() << "\n";
       if (failed(reblockedGridShape)) {
         this->emitOpError()
             << "withParallelization failed to compute reblocked grid shape "
@@ -2571,6 +2564,10 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
       }
       FailureOr<Type> reblockedType =
           reblockShapedType(operand.get().getType(), *reblockedGridShape);
+      // print the reblocked type using interleaveComma
+      llvm::errs() << "reblocked type: ";
+      llvm::errs() << reblockedType.value() << "\n";
+      llvm::errs() << "\n";
       if (failed(reblockedType)) {
         this->emitOpError()
             << "withParallelization failed to reblock operand " << operandIndex
@@ -2596,6 +2593,7 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
   const std::size_t numInputs = getInputs().size();
   const std::size_t numOutputs = getOutputs().size();
   if (numOutputs > 0) {
+    // derive grid from first output index
     auto [derivedGridShape, _] = getGridAndShardFromShapedType(
         mlir::cast<ShapedType>((*reblockedTypes)[numInputs]));
     if (derivedGridShape.size() == normalizedGrid.getShape().size() &&
