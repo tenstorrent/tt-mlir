@@ -96,9 +96,9 @@ module attributes {ttcore.system_desc = #system_desc} {
   // CHECK-LABEL: func.func @test_remote_store_to_explicit_cb
   // CHECK: d2m.reserve %cb1
   // CHECK: affine.for
+  // CHECK: d2m.push %cb1
   // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %cb1
   // CHECK-NOT: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] %{{.*}} :
-  // CHECK: d2m.push %cb1
   func.func @test_remote_store_to_explicit_cb(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>,
                                                %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
     %cb_alloc = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
@@ -250,9 +250,9 @@ module attributes {ttcore.system_desc = #system_desc} {
   // CHECK: %[[IN:.*]] = d2m.wait %cb0
   // CHECK: %[[OUT:.*]] = d2m.reserve %cb1
   // CHECK: linalg.generic
-  // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %cb1
-  // CHECK-DAG: d2m.pop %cb0
-  // CHECK-DAG: d2m.push %cb1
+  // CHECK: d2m.push %cb1
+  // CHECK-NEXT: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %cb1
+  // CHECK: d2m.pop %cb0
   func.func @test_full_transformation(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
                                        %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
     %cb0_alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
@@ -302,10 +302,10 @@ module attributes {ttcore.system_desc = #system_desc} {
   // CHECK-LABEL: func.func @dram_write
   // Verify memref.alloc with operand_index converted to reserve
   // CHECK: d2m.reserve %cb{{[01]}}
+  // Verify push precedes remote_store consumption of the CB
+  // CHECK: d2m.push %cb{{[01]}}
   // Verify remote_store in explicit CB form
   // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %cb{{[01]}}
-  // Verify push inserted
-  // CHECK: d2m.push %cb{{[01]}}
   // Verify remote_load in explicit CB form (appears twice)
   // CHECK: d2m.remote_load %{{.*}}[%{{.*}}, %{{.*}}] into %cb{{[01]}}
   // Verify wait and pop inserted
@@ -360,9 +360,15 @@ module attributes {ttcore.system_desc = #system_desc} {
 
   // Test RemoteLoadOp with multicast parameters preservation during conversion
   // CHECK-LABEL: func.func @test_remote_load_multicast_params
+  // CHECK: scf.for
+  // CHECK: scf.for
   // CHECK: d2m.remote_load %{{.*}}[%{{.*}}, %{{.*}}] into %cb0 mcore[%{{.*}}, %{{.*}}] mshape[%{{.*}}, %{{.*}}]
   // CHECK: %[[IN:.*]] = d2m.wait %cb0
+  // CHECK: linalg.generic
   // CHECK: d2m.pop %cb0
+  // CHECK: } {d2m.blocking_loop = 1
+  // CHECK-NOT: d2m.pop %cb0
+  // CHECK: } {d2m.blocking_loop = 0
   func.func @test_remote_load_multicast_params(%arg0: memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
     %alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
     %cb_alloc = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
@@ -437,8 +443,6 @@ module attributes {ttcore.system_desc = #system_desc} {
             linalg.yield %add : !ttcore.tile<32x32, f32>
           }
 
-          d2m.pop %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-          d2m.pop %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }

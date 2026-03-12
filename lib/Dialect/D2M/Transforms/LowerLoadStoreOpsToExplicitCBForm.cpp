@@ -4,11 +4,9 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
-#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
-#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/PatternMatch.h"
@@ -68,9 +66,33 @@ static ReserveOp findReserveOp(Value value) {
   return nullptr;
 }
 
+// Find the first remote_store in reserveOp's block that consumes the same CB
+// and appears after reserveOp.
+static RemoteStoreOp getFirstFollowingRemoteStoreForCb(ReserveOp reserveOp,
+                                                       Value cb) {
+  if (!reserveOp || !cb) {
+    return nullptr;
+  }
+
+  for (Operation *op = reserveOp->getNextNode(); op; op = op->getNextNode()) {
+    auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(op);
+    if (remoteStore && remoteStore.getCb() == cb) {
+      return remoteStore;
+    }
+  }
+
+  return nullptr;
+}
+
 // Structure to hold information needed for push/pop insertion
+struct PendingPopInfo {
+  Value cb;
+  Location loc;
+  Block *insertionBlock;
+};
+
 struct PushPopInfo {
-  SmallVector<std::pair<Value, Location>> cbsNeedingPop;
+  SmallVector<PendingPopInfo> popsNeedingInsertion;
   SmallVector<std::pair<ReserveOp, Value>> reserveOpsNeedingPush;
 };
 
@@ -185,10 +207,6 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
 
     rewriter.setInsertionPoint(remoteLoad);
 
-    if (forwardableStore) {
-      rewriter.create<ReserveOp>(loc, loadTargetCb);
-    }
-
     // Create the explicit CB form of remote_load (no localBuffer, no result,
     // has CB operand) d2m.remote_load %memref[indices] into %cb
     rewriter.create<RemoteLoadOp>(loc, memref, remoteLoad.getIndices(),
@@ -198,12 +216,14 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
     // Forward-able pair:
     //   remote_load %buf %in[...]
     //   remote_store %out[...] %buf
-    // Lower both to the same load-associated CB.
+    // Lower both to the same load-associated CB while preserving the load-side
+    // wait/pop semantics. Do not introduce reserve/push for this path.
     if (forwardableStore) {
-      auto pushOp = rewriter.create<PushOp>(loc, loadTargetCb);
-
-      rewriter.setInsertionPointAfter(pushOp);
       auto waitOp = rewriter.create<WaitOp>(loc, loadTargetCb);
+
+      if (remoteLoad.getResult()) {
+        rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
+      }
 
       rewriter.setInsertionPointAfter(waitOp);
       if (!eraseForwardableStoreWithoutReplacement) {
@@ -212,11 +232,8 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
             forwardableStore.getIndices(), loadTargetCb);
       }
 
-      if (remoteLoad.getResult()) {
-        rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
-      }
-
-      info.cbsNeedingPop.push_back({loadTargetCb, loc});
+      info.popsNeedingInsertion.push_back(
+          {loadTargetCb, loc, remoteLoad->getBlock()});
       rewriter.eraseOp(forwardableStore);
       rewriter.eraseOp(remoteLoad);
       if (allocToErase) {
@@ -269,7 +286,7 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
     }
 
     // Track CB that needs pop insertion (deferred to Pass B)
-    info.cbsNeedingPop.push_back({assocCb, loc});
+    info.popsNeedingInsertion.push_back({assocCb, loc, remoteLoad->getBlock()});
 
     // Erase the original remote_load operation
     rewriter.eraseOp(remoteLoad);
@@ -418,53 +435,44 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
 }
 
 // Pass B: Insert push and pop operations
-static void insertPushAndPopOps(ModuleOp moduleOp, IRRewriter &rewriter,
-                                PushPopInfo &info) {
+static void insertPushAndPopOps(IRRewriter &rewriter, PushPopInfo &info) {
   // Insert pop ops for remote_load conversions
-  for (auto &[assocCb, loc] : info.cbsNeedingPop) {
-    Operation *parentOp = assocCb.getParentRegion()->getParentOp();
-    GenericOp generic = mlir::dyn_cast<GenericOp>(parentOp);
-    if (!generic) {
+  for (const PendingPopInfo &pendingPop : info.popsNeedingInsertion) {
+    Block *insertionBlock = pendingPop.insertionBlock;
+    if (!insertionBlock) {
       continue;
     }
 
-    TT_assert(generic.getNumRegions() == 1u);
-    Region *genericRegion = &generic.getRegion(0);
-
-    if (genericRegion && !genericRegion->empty()) {
-      Block *topLevelBlock = &genericRegion->front();
-      rewriter.setInsertionPointToEnd(topLevelBlock);
-      rewriter.create<PopOp>(loc, assocCb);
+    if (!insertionBlock->empty() &&
+        insertionBlock->back().hasTrait<OpTrait::IsTerminator>()) {
+      rewriter.setInsertionPoint(&insertionBlock->back());
+    } else {
+      rewriter.setInsertionPointToEnd(insertionBlock);
     }
+    rewriter.create<PopOp>(pendingPop.loc, pendingPop.cb);
   }
 
   // Insert push ops for each reserve op
   for (auto &[reserveOp, assocCb] : info.reserveOpsNeedingPush) {
     Location loc = reserveOp.getLoc();
-
-    GenericOp generic = reserveOp->getParentOfType<GenericOp>();
-    Region *genericRegion = nullptr;
-    if (generic.getNumRegions() == 1) {
-      genericRegion = &generic.getRegion(0);
-    } else {
-      genericRegion = ttmlir::utils::getRegionWithParentOfType<GenericOp>(
-          reserveOp.getOperation());
+    Block *insertionBlock = reserveOp->getBlock();
+    if (!insertionBlock) {
+      reserveOp.emitWarning("could not find block for push insertion");
+      continue;
     }
 
-    if (genericRegion && !genericRegion->empty()) {
-      Block *topLevelBlock = &genericRegion->front();
-      // Insert before the terminator (YieldOp)
-      if (!topLevelBlock->empty() &&
-          topLevelBlock->back().hasTrait<OpTrait::IsTerminator>()) {
-        rewriter.setInsertionPoint(&topLevelBlock->back());
-      } else {
-        rewriter.setInsertionPointToEnd(topLevelBlock);
-      }
-      rewriter.create<PushOp>(loc, assocCb);
+    // Push must be in the same region as reserve/compute and before the store
+    // that consumes this CB.
+    if (RemoteStoreOp store =
+            getFirstFollowingRemoteStoreForCb(reserveOp, assocCb)) {
+      rewriter.setInsertionPoint(store);
+    } else if (!insertionBlock->empty() &&
+               insertionBlock->back().hasTrait<OpTrait::IsTerminator>()) {
+      rewriter.setInsertionPoint(&insertionBlock->back());
     } else {
-      reserveOp.emitWarning(
-          "could not find top-level region block for push insertion");
+      rewriter.setInsertionPointToEnd(insertionBlock);
     }
+    rewriter.create<PushOp>(loc, assocCb);
   }
 }
 
@@ -488,7 +496,7 @@ public:
     }
 
     // Pass B: Insert push and pop operations
-    insertPushAndPopOps(moduleOp, rewriter, info);
+    insertPushAndPopOps(rewriter, info);
   }
 };
 } // namespace
