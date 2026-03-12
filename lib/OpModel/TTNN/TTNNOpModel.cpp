@@ -6437,7 +6437,7 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
         /*core_grid=*/coreGridCoord,
         /*inplace=*/std::nullopt,
         /*output_layout=*/std::nullopt,
-        /*num_out_blocks=*/std::nullopt,
+        /*num_out_blocks=*/-1,
         /*compute_kernel_config=*/std::nullopt,
         /*negative_mask=*/std::nullopt,
         /*use_welford=*/false);
@@ -6497,7 +6497,7 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
         /*core_grid=*/coreGridCoord,
         /*inplace=*/std::nullopt,
         /*output_layout=*/std::nullopt,
-        /*num_out_blocks=*/std::nullopt,
+        /*num_out_blocks=*/-1,
         /*compute_kernel_config=*/std::nullopt,
         /*negative_mask=*/std::nullopt,
         /*use_welford=*/false);
