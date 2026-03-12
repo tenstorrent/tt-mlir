@@ -14,6 +14,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNCollaspeD2M.cpp
         TTNNCollectPerfMetrics.cpp
         TTNND2MFusing.cpp
+        TTNNFileSplit.cpp
+        TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp

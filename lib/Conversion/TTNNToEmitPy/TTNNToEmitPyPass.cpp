@@ -5,6 +5,8 @@
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -36,6 +38,9 @@ public:
     addConversion([ctx](mlir::TupleType type) -> emitpy::OpaqueType {
       return emitpy::OpaqueType::get(
           ctx, ttnn_to_emitpy::TypeNameV<std::vector<::ttnn::Tensor>>);
+    });
+    addConversion([ctx](tt::ttcore::DictType type) -> emitpy::DictType {
+      return emitpy::DictType::get(ctx, Type(), Type());
     });
   }
 };
@@ -124,12 +129,6 @@ struct ConvertTTNNToEmitPyPass
     builder.create<emitpy::ImportOp>(module->getLoc(), "utils", nullptr,
                                      nullptr, nullptr, nullptr);
 
-    // Create a global cache dictionary
-    //
-    auto opaqueAttr = emitpy::OpaqueAttr::get(&getContext(), "{}");
-    builder.create<emitpy::GlobalOp>(module->getLoc(), "_CONST_EVAL_CACHE",
-                                     opaqueAttr);
-
     // If we are in the module-export path (i.e., `target-module=true`),
     // const-eval functions must also take `device` as an explicit argument so
     // they can avoid materializing `ttnn.get_device` in the function body.
@@ -211,7 +210,7 @@ private:
       Block &entryBlock = funcOp.getBody().front();
       BlockArgument deviceArg =
           entryBlock.addArgument(deviceType, funcOp.getLoc());
-      funcOp.setArgAttr(newInputTypes.size() - 1, "emitpy.name",
+      funcOp.setArgAttr(newInputTypes.size() - 1, ttnn_to_emitpy::kNameAttr,
                         rewriter.getStringAttr("device"));
 
       // Replace all GetDeviceOp operations with the new device argument.
