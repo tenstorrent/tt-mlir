@@ -98,6 +98,9 @@ namespace mlir {
 namespace tt {
 namespace ttnn_to_emitpy {
 
+constexpr const char *kNameAttr = "emitpy.name";
+constexpr const char *kConstEvaledAttr = "emitpy.const_evaled";
+
 template <typename T, typename Enable = void>
 struct TypeName;
 

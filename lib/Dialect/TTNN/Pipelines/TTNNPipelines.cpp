@@ -489,9 +489,19 @@ void createTTNNToEmitPyDevicePipeline(
     }
   }
 
+  devicePm.addPass(createTTNNPrepareConstEvalCaching());
+  // Optionally run TTNNFileSplit pass.
+  if (options.splitFiles) {
+    TTNNFileSplitOptions fileSplitOptions;
+    fileSplitOptions.target = FileSplitTarget::EmitPy;
+    devicePm.addPass(createTTNNFileSplit(fileSplitOptions));
+  }
+
   ConvertTTNNToEmitPyOptions emitpyOptions;
   emitpyOptions.targetModule = options.targetModule;
   devicePm.addPass(createConvertTTNNToEmitPyPass(emitpyOptions));
+
+  devicePm.addPass(createEmitPyConstEvalCachingPass());
 
   devicePm.addPass(createEmitPyNameVarsPass());
 }

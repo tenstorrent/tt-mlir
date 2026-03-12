@@ -14,7 +14,7 @@ Use this guide to set up your hardware - [Hardware Setup](https://docs.tenstorre
 
 You can use tt-mlir with Ubuntu or Mac OS, however the runtime does not work on Mac OS. tt-mlir project has the following system dependencies:
 
-- Ubuntu 22.04 OS or Mac OS
+- Ubuntu 24.04 OS or Mac OS
 - Clang >= 14 & <= 18
 - Ninja
 - CMake 3.24 or higher
@@ -122,7 +122,7 @@ You can add different flags to your build. Here are some options to consider:
 
 | OS           | Offline Compiler Only | Runtime Enabled Build | Runtime + Perf Enabled Build |
 | ------------ | --------------------- | --------------------- | ---------------------------- |
-| Ubuntu 22.04 | ✅                    | ✅                    | ✅                           |
+| Ubuntu 24.04 | ✅                    | ✅                    | ✅                           |
 | Ubuntu 20.04 | ✅                    | ❌                    | ❌                           |
 | MacOS        | ✅                    | ❌                    | ❌                           |
 
