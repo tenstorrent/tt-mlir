@@ -155,8 +155,10 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GH_TOKEN || github.token}}
         TTRT_LOGGER_LEVEL: "WARNING"
-        LOGURU_LEVEL: "ERROR"
+        LOGURU_LEVEL: "TRACE"
         TT_METAL_LOGGER_LEVEL: "FATAL"
+        LOGGER_TYPES: "ALL"
+        LOGGER_LEVEL: "TRACE"
       run: |
         # Run Tests
         source env/activate
