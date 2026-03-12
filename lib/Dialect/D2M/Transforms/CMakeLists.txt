@@ -6,6 +6,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenericApplyInterchange.cpp
         GenericLinearizeMemref.cpp
         GenericRegionsToFuncs.cpp
+        HoistCBAllocs.cpp
         GenericReplaceGlobals.cpp
         GenericTileComputeLoops.cpp
         GridSelection.cpp

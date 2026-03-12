@@ -293,7 +293,7 @@ struct TTIRToTTNNDevicePipelineOptions
       *this, "enable-permute-matmul-fusion",
       llvm::cl::desc(
           "Fuse permute ops into matmul/linear transpose attributes."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
@@ -526,6 +526,10 @@ struct TTNNToEmitPyDevicePipelineOptions
           "original IR/code. Highly experimental; please file issues at "
           "https://github.com/tenstorrent/tt-mlir/issues"),
       llvm::cl::init(false)};
+
+  Option<bool> splitFiles{*this, "split-files",
+                          llvm::cl::desc("Enables TTNNFileSplit pass"),
+                          llvm::cl::init(true)};
 };
 
 // TTIR to TTNN backend pipeline options.

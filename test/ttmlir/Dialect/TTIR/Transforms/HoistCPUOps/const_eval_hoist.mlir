@@ -62,9 +62,9 @@ func.func private @multiple_creation_ops_interleaved(
 // --- Test 4: Creation op at the end ---
 
 // CHECK-LABEL: func.func private @creation_op_at_end
+// CHECK: ttir.zeros
 // CHECK: ttir.to_layout
 // CHECK: call @cpu_hoisted_const_eval_{{.*}}
-// CHECK: ttir.zeros
 // CHECK: return
 func.func private @creation_op_at_end(
     %arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>
@@ -88,9 +88,9 @@ func.func private @all_creation_ops() -> tensor<32x32xbf16> attributes {tt.funct
 // --- Test 6: Creation op with transparent chain (reshape) ---
 
 // CHECK-LABEL: func.func private @creation_with_transparent_chain
+// CHECK: ttir.zeros
 // CHECK: ttir.to_layout
 // CHECK: call @cpu_hoisted_const_eval_{{.*}}
-// CHECK: ttir.zeros
 // CHECK: ttir.reshape
 // CHECK: return
 func.func private @creation_with_transparent_chain(
@@ -139,6 +139,21 @@ func.func private @const_eval_multiple_outputs(
   %add = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
   %sub = "ttir.subtract"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
   return %add, %sub : tensor<32x32xbf16>, tensor<32x32xbf16>
+}
+
+// --- Test 10: Non-lowerable op skips hoisting ---
+// RMS norm has no Linalg lowering, so the entire const-eval subgraph
+// should NOT be hoisted.
+
+// CHECK-LABEL: func.func private @const_eval_non_lowerable
+// CHECK-NOT: call @cpu_hoisted
+// CHECK: ttir.rms_norm
+// CHECK: return
+func.func private @const_eval_non_lowerable(
+    %arg0: tensor<2x4x8xf32>, %arg1: tensor<8xf32>
+) -> tensor<2x4x8xf32> attributes {tt.function_type = "const_eval"} {
+  %0 = "ttir.rms_norm"(%arg0, %arg1) <{normalized_shape = array<i64: 8>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<2x4x8xf32>, tensor<8xf32>) -> tensor<2x4x8xf32>
+  return %0 : tensor<2x4x8xf32>
 }
 
 // Verify hoisted function declarations and definitions.

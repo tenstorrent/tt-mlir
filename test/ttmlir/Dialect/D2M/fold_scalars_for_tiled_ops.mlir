@@ -15,7 +15,9 @@ func.func @fold_tile_add_zero(%arg0: tensor<1x1x4x4x!ttype_f32, #layout>) -> ten
       threads = [#d2m.thread<unified>]}
       ins(%arg0 : tensor<1x1x4x4x!ttype_f32, #layout>)
       outs(%0 : tensor<1x1x4x4x!ttype_f32, #layout>) {
-  ^unified0(%cb0: !d2m.cb<tensor<4x4x!ttype_f32>>, %cb1: !d2m.cb<tensor<4x4x!ttype_f32>>):
+  ^unified0:
+    %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<4x4x!ttype_f32>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<4x4x!ttype_f32>>
     %buffer = tensor.empty() : tensor<4x4x!ttype_f32>
     %iter0 = d2m.block_index(0) : index
     %iter1 = d2m.block_index(1) : index

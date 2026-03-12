@@ -54,6 +54,10 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRQuantDequantConversion());
   }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(mlir::createCanonicalizerPass());
+  if (options.implicitBroadcastFoldingEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
+  }
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -104,7 +108,6 @@ void createTTNNPipelineAnalysisPasses(
     wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
-    validationOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
     pm.addPass(createDevicePassesWrapper(
@@ -237,7 +240,6 @@ void createTTIRToTTNNDevicePipeline(
   pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
 
   pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::createCSEPass());
 
   // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
@@ -262,6 +264,8 @@ void createTTIRToTTNNDevicePipeline(
     ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
     quantOptions.targetBitWidth = options.quantBitWidth;
     devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
+
+    devicePm.addPass(mlir::createCSEPass());
 
     // Const-eval hoisting pass.
     if (options.enableConstEval) {
@@ -485,9 +489,19 @@ void createTTNNToEmitPyDevicePipeline(
     }
   }
 
+  devicePm.addPass(createTTNNPrepareConstEvalCaching());
+  // Optionally run TTNNFileSplit pass.
+  if (options.splitFiles) {
+    TTNNFileSplitOptions fileSplitOptions;
+    fileSplitOptions.target = FileSplitTarget::EmitPy;
+    devicePm.addPass(createTTNNFileSplit(fileSplitOptions));
+  }
+
   ConvertTTNNToEmitPyOptions emitpyOptions;
   emitpyOptions.targetModule = options.targetModule;
   devicePm.addPass(createConvertTTNNToEmitPyPass(emitpyOptions));
+
+  devicePm.addPass(createEmitPyConstEvalCachingPass());
 
   devicePm.addPass(createEmitPyNameVarsPass());
 }

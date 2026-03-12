@@ -14,6 +14,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNCollaspeD2M.cpp
         TTNNCollectPerfMetrics.cpp
         TTNND2MFusing.cpp
+        TTNNFileSplit.cpp
+        TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
@@ -38,8 +40,10 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
+        Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.cpp
         Workarounds/Decomposition/LinearOpRewritePattern.cpp
         Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.cpp
+        Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
         Workarounds/Decomposition/ScatterOpRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.cpp
