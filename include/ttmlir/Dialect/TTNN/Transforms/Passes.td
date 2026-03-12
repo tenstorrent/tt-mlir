@@ -236,7 +236,15 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
     Option<"enableOpConstraints",
             "enable-op-constraints",
             "bool", /*default=*/"false",
-            "When enabled fusing pass includes patterns which check for op constraints.">
+            "Enable op model constraint validation for fusion patterns. "
+            "Requires TTMLIR_ENABLE_OPMODEL. When enabled, fused ops are "
+            "validated in an isolated module before being applied.">,
+    Option<"maxFallbackAttempts",
+            "max-fallback-attempts",
+            "uint32_t", /*default=*/"10000",
+            "Maximum number of fallback configurations to try before "
+            "giving up (0 = unlimited). Only used when "
+            "enable-op-constraints is true.">
   ];
 }
 
