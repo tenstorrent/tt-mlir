@@ -75,7 +75,7 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx,
                                                          int64_t y, int64_t x);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx,
-                                                          int64_t y, int64_t x);
+                                                          int64_t x, int64_t y);
 
 #ifdef __cplusplus
 }

@@ -84,8 +84,8 @@ def TTCore_CoreCoordAttr : TTCore_Attr<"CoreCoord", "core_coord"> {
     TT core_coord attribute containing a single physical core coordinate.
   }];
 
-  let parameters = (ins "int64_t":$y, "int64_t":$x);
-  let assemblyFormat = "custom<VargDimensionList>($y, $x)";
+  let parameters = (ins "int64_t":$x, "int64_t":$y);
+  let assemblyFormat = "custom<VargDimensionList>($x, $y)";
 }
 
 def TTCore_TileSizeAttr : TTCore_Attr<"TileSize", "tile_size"> {

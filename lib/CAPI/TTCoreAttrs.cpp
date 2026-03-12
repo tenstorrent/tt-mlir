@@ -171,6 +171,6 @@ MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx, int64_t y, int64_t x) {
   return wrap(TileSizeAttr::get(unwrap(ctx), y, x));
 }
 
-MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx, int64_t y, int64_t x) {
-  return wrap(CoreCoordAttr::get(unwrap(ctx), y, x));
+MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx, int64_t x, int64_t y) {
+  return wrap(CoreCoordAttr::get(unwrap(ctx), x, y));
 }

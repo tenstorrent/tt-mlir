@@ -265,12 +265,12 @@ void populateTTModule(nb::module_ &m) {
 
   tt_attribute_class<tt::ttcore::CoreCoordAttr>(m, "CoreCoordAttr")
       .def_static("get",
-                  [](MlirContext ctx, int64_t y, int64_t x) {
+                  [](MlirContext ctx, int64_t x, int64_t y) {
                     return wrap(
-                        tt::ttcore::CoreCoordAttr::get(unwrap(ctx), y, x));
+                        tt::ttcore::CoreCoordAttr::get(unwrap(ctx), x, y));
                   })
-      .def_prop_ro("y", &tt::ttcore::CoreCoordAttr::getY)
-      .def_prop_ro("x", &tt::ttcore::CoreCoordAttr::getX);
+      .def_prop_ro("x", &tt::ttcore::CoreCoordAttr::getX)
+      .def_prop_ro("y", &tt::ttcore::CoreCoordAttr::getY);
 
   tt_attribute_class<tt::ttcore::ChipCoordAttr>(m, "ChipCoordAttr")
       .def_static("get",
