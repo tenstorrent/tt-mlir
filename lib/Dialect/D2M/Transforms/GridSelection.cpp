@@ -1092,8 +1092,9 @@ deriveGridAndBlockFactors(
 // After updating all ToLayout and StreamLayout ops, the generic's operands
 // now have new types with optimized grids. We must recreate the generic to
 // reflect these type changes. We derive the grid and block factors from the
-// output operand, then use withParallelization to create ViewLayoutOps that
-// make each operand compatible with the generic's grid.
+// optimal grid selected for the output operand, then use withParallelization to
+// create ViewLayoutOps that make each operand compatible with the generic's
+// grid.
 static void
 recreateGenericOp(d2m::GenericOp genericOp,
                   ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
