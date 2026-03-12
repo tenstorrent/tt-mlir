@@ -38,6 +38,7 @@
 
 namespace mlir::tt::d2m {
 
+// Extract grid/shard extents from a shaped type without requiring an SSA value.
 static std::pair<SmallVector<int64_t>, SmallVector<int64_t>>
 getGridAndShardFromShapedType(ShapedType shapedType) {
   if (auto memrefType = mlir::dyn_cast<MemRefType>(shapedType)) {
@@ -61,63 +62,51 @@ getGridAndShardFromShapedType(ShapedType shapedType) {
           llvm::to_vector(layout.getShardShape(tensorType))};
 }
 
+// Convenience wrapper for call sites that start from a Value instead of a Type.
 static std::pair<SmallVector<int64_t>, SmallVector<int64_t>>
 getGridAndShardFromValue(Value v) {
   return getGridAndShardFromShapedType(mlir::cast<ShapedType>(v.getType()));
 }
 
+// Reblock a shaped type to a new grid shape, handling tensor/memref
+// conversions.
 static FailureOr<Type> reblockShapedType(Type oldType,
                                          ArrayRef<int64_t> newGridShape) {
-  auto oldShapedType = dyn_cast<ShapedType>(oldType);
-  if (!oldShapedType) {
-    return failure();
-  }
-  if (!oldShapedType.hasStaticShape()) {
-    return failure();
-  }
+  auto oldShapedType = mlir::cast<ShapedType>(oldType);
   ArrayRef<int64_t> oldShape = oldShapedType.getShape();
-  if (oldShape.size() % 2 != 0 || newGridShape.size() != oldShape.size() / 2) {
-    return failure();
-  }
   for (auto [idx, gridDim] : llvm::enumerate(newGridShape)) {
-    if (gridDim <= 0) {
-      return failure();
-    }
     std::size_t shardIdx = idx + newGridShape.size();
     int64_t gridExtent = oldShape[idx];
     int64_t shardExtent = oldShape[shardIdx];
-    if (gridExtent < 0 || shardExtent < 0) {
-      return failure();
-    }
+    // If the new grid shape is not a valid reblock of the old shape, return
+    // failure.
     if ((gridExtent * shardExtent) % gridDim != 0) {
       return failure();
     }
   }
-
+  // Core math to calculate the new shape, then return the new type.
   auto newShape = ttmlir::utils::calculateReblockShapeForGrid(
       oldShapedType.getShape(), newGridShape);
-  if (auto oldTensorType = dyn_cast<RankedTensorType>(oldType)) {
+  if (auto oldTensorType = mlir::dyn_cast<RankedTensorType>(oldType)) {
     return RankedTensorType::get(newShape, oldTensorType.getElementType(),
                                  oldTensorType.getEncoding());
   }
-  if (auto oldMemRefType = dyn_cast<MemRefType>(oldType)) {
+  if (auto oldMemRefType = mlir::dyn_cast<MemRefType>(oldType)) {
     return MemRefType::get(newShape, oldMemRefType.getElementType(),
                            oldMemRefType.getLayout(),
                            oldMemRefType.getMemorySpace());
   }
-
   return failure();
 }
 
 static FailureOr<d2m::ViewLayoutOp> createReblockView(OpBuilder &builder,
                                                       Location loc, Value input,
                                                       Type outputType) {
-  auto inputType = dyn_cast<ShapedType>(input.getType());
-  auto viewType = dyn_cast<ShapedType>(outputType);
-  if (!inputType || !viewType) {
-    return failure();
-  }
+  auto inputType = mlir::dyn_cast<ShapedType>(input.getType());
+  auto viewType = mlir::dyn_cast<ShapedType>(outputType);
 
+  // If the input and view shapes have different volumes (e.g. padding), return
+  // failure.
   if (ttmlir::utils::volume<int64_t>(inputType.getShape()) !=
       ttmlir::utils::volume<int64_t>(viewType.getShape())) {
     return failure();
@@ -129,51 +118,66 @@ static FailureOr<d2m::ViewLayoutOp> createReblockView(OpBuilder &builder,
                                            /*reinterpretLayout=*/false);
 }
 
+// Derive this operand's target grid shape from the new generic execution
+// grid and block factors using the generic's indexing maps.
 static FailureOr<SmallVector<int64_t>>
 computeReblockedOperandGridShape(d2m::GenericOp genericOp, int64_t operandIndex,
                                  ArrayRef<int64_t> newGridShape,
                                  ArrayRef<int64_t> newBlockFactors) {
-  AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
-  AffineMap inverseMap = inverseAndBroadcastProjectedPermutation(indexingMap);
-
-  SmallVector<int64_t> resultFactors = inverseMap.compose(newGridShape);
-  if (resultFactors.size() != newBlockFactors.size()) {
+  unsigned numLoopDims = genericOp.getNumDims();
+  if (newBlockFactors.size() != numLoopDims) {
     return failure();
   }
 
-  for (auto [index, factor] : llvm::enumerate(resultFactors)) {
-    if (factor == 0) {
-      factor = 1;
+  // Map the output grid to loop space via the output indexing map.
+  AffineMap outputMap = genericOp.getOutputIndexingMap();
+  SmallVector<int64_t> loopTotals(numLoopDims, 0);
+  for (auto [outputDim, expr] : llvm::enumerate(outputMap.getResults())) {
+    if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr)) {
+      if (outputDim < newGridShape.size()) {
+        loopTotals[dimExpr.getPosition()] = newGridShape[outputDim];
+      }
     }
-    factor *= newBlockFactors[index];
   }
-  SmallVector<int64_t> composed = indexingMap.compose(resultFactors);
-  for (int64_t &dim : composed) {
-    // Broadcast / projected dims may materialize as 0; treat as extent 1.
+
+  // Reduction dims (not in output map): total = block_factor.
+  // Parallel dims: total = grid_dim * block_factor.
+  for (unsigned i = 0; i < numLoopDims; ++i) {
+    if (loopTotals[i] == 0) {
+      loopTotals[i] = newBlockFactors[i];
+    } else {
+      loopTotals[i] *= newBlockFactors[i];
+    }
+  }
+
+  // Map loop totals to the operand's grid shape via its indexing map.
+  // This function is only used for operand grids which are positionally
+  // aligned with indexing_maps by the op verifier. So operandIndex ->
+  // getIndexingMap(operandIndex) is valid.
+  AffineMap operandMap = genericOp.getIndexingMap(operandIndex);
+  SmallVector<int64_t> operandGrid = operandMap.compose(loopTotals);
+  for (int64_t &dim : operandGrid) {
     if (dim == 0) {
       dim = 1;
     }
   }
-  return composed;
+  return operandGrid;
 }
 
 static Type getShardTypeFromOperand(Value operand, Type oldType) {
-  auto operandShapedType = dyn_cast<ShapedType>(operand.getType());
-  auto oldShapedType = dyn_cast<ShapedType>(oldType);
-  if (!operandShapedType || !oldShapedType) {
-    return oldType;
-  }
-  auto layout = ttcore::getDeviceLayout(operandShapedType);
+  auto operandShapedType = mlir::dyn_cast<ShapedType>(operand.getType());
+  auto oldShapedType = mlir::dyn_cast<ShapedType>(oldType);
+  auto layout = mlir::ttcore::getDeviceLayout(operandShapedType);
   if (!layout) {
     return oldType;
   }
 
   SmallVector<int64_t> shardShape(layout.getShardShape(operandShapedType));
-  if (auto oldTensorType = dyn_cast<RankedTensorType>(oldType)) {
+  if (auto oldTensorType = mlir::dyn_cast<RankedTensorType>(oldType)) {
     return RankedTensorType::get(shardShape, oldTensorType.getElementType(),
                                  oldTensorType.getEncoding());
   }
-  if (auto oldMemRefType = dyn_cast<MemRefType>(oldType)) {
+  if (auto oldMemRefType = mlir::dyn_cast<MemRefType>(oldType)) {
     return MemRefType::get(shardShape, oldMemRefType.getElementType(),
                            oldMemRefType.getLayout(),
                            oldMemRefType.getMemorySpace());
@@ -2304,10 +2308,16 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getBlockFactorsValue() {
   });
 }
 
+// Rewrite the IR:
+// - inserting operand views
+// - creating the new generic
+// - cloning/retyping the region ops
+// - optionally creating the return view.
 static FailureOr<d2m::ParallelizedGeneric>
 withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
                         ArrayRef<Type> reblockedTypes, ttcore::GridAttr newGrid,
-                        ArrayRef<int64_t> newBlockFactors) {
+                        ArrayRef<int64_t> newBlockFactors,
+                        bool generateReturnView) {
   const std::size_t numInputs = thisOp.getInputs().size();
   const std::size_t numOutputs = thisOp.getOutputs().size();
 
@@ -2319,12 +2329,15 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
 
   for (auto [operand, reblockedType] :
        llvm::zip(thisOp.getInputsAndOutputsMutable(), reblockedTypes)) {
+    // No work to do.
     if (reblockedType == operand.get().getType()) {
       operandViews.push_back(nullptr);
       reblockedOperands.push_back(operand.get());
       continue;
     }
 
+    // Special case for output operands. Unwrap the view and use the input as
+    // the new output buffer.
     if (thisOp.isDpsInit(&operand)) {
       if (auto definingView =
               operand.get().getDefiningOp<d2m::ViewLayoutOp>()) {
@@ -2346,6 +2359,9 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
     FailureOr<d2m::ViewLayoutOp> view = createReblockView(
         builder, thisOp.getLoc(), operand.get(), reblockedType);
     if (failed(view)) {
+      thisOp.emitOpError()
+          << "withParallelization failed to reblock operand type from '"
+          << operand.get().getType() << "' to '" << reblockedType << "'";
       return failure();
     }
     operandViews.push_back(*view);
@@ -2385,6 +2401,7 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
     }
 
     Block &oldBlock = oldRegion.front();
+    // Rebuild block argument types so CB args track reblocked operand shards.
     SmallVector<Type> newArgTypes;
     SmallVector<Location> newArgLocs;
     newArgTypes.reserve(oldBlock.getNumArguments());
@@ -2409,6 +2426,7 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
     Block *newBlock = builder.createBlock(&newRegion, newRegion.end(),
                                           newArgTypes, newArgLocs);
 
+    // Seed remapping for external operands, additional args, and block args.
     IRMapping mapping;
     for (auto [oldVal, newVal] :
          llvm::zip(thisOp.getInputsAndOutputs(), reblockedOperands)) {
@@ -2425,25 +2443,28 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
 
     OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointToStart(newBlock);
+    // Clone old block ops into the new block using the value remapping.
     for (Operation &op : oldBlock) {
       builder.clone(op, mapping);
     }
 
+    // Fix cloned ops whose result types depend on reblocked operand types.
     for (Operation &clonedOp : *newBlock) {
-      if (auto allocOp = dyn_cast<memref::AllocOp>(&clonedOp)) {
+      if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&clonedOp)) {
         Value associatedOperand = d2m::GenericOp::findAssocOperand(allocOp);
         if (associatedOperand) {
           Type newAllocType =
               getShardTypeFromOperand(associatedOperand, allocOp.getType());
           if (newAllocType != allocOp.getType()) {
-            auto newMemRefType = dyn_cast<MemRefType>(newAllocType);
+            auto newMemRefType = mlir::dyn_cast<MemRefType>(newAllocType);
             if (!newMemRefType) {
               return failure();
             }
             allocOp.getResult().setType(newMemRefType);
           }
         }
-      } else if (auto tensorEmptyOp = dyn_cast<tensor::EmptyOp>(&clonedOp)) {
+      } else if (auto tensorEmptyOp =
+                     mlir::dyn_cast<tensor::EmptyOp>(&clonedOp)) {
         Value associatedOperand =
             d2m::GenericOp::findAssocOperand(tensorEmptyOp);
         if (associatedOperand) {
@@ -2454,17 +2475,19 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
                 cast<RankedTensorType>(newEmptyType));
           }
         }
-      } else if (auto remoteLoadOp = dyn_cast<d2m::RemoteLoadOp>(&clonedOp)) {
+      } else if (auto remoteLoadOp =
+                     mlir::dyn_cast<d2m::RemoteLoadOp>(&clonedOp)) {
         if (Value localBuffer = remoteLoadOp.getLocalBuffer()) {
           remoteLoadOp.getResult().setType(localBuffer.getType());
         }
-      } else if (auto remoteStoreOp = dyn_cast<d2m::RemoteStoreOp>(&clonedOp)) {
+      } else if (auto remoteStoreOp =
+                     mlir::dyn_cast<d2m::RemoteStoreOp>(&clonedOp)) {
         if (remoteStoreOp.hasResultForm()) {
           remoteStoreOp.getResult().setType(
               remoteStoreOp.getMemref().getType());
         }
       } else if (auto dstOp =
-                     dyn_cast<DestinationStyleOpInterface>(&clonedOp)) {
+                     mlir::dyn_cast<DestinationStyleOpInterface>(&clonedOp)) {
         unsigned numIns = dstOp.getNumDpsInputs();
         unsigned numOuts = clonedOp.getNumResults();
         for (unsigned i = 0; i < numOuts; ++i) {
@@ -2476,7 +2499,8 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
   }
 
   d2m::ViewLayoutOp returnView = nullptr;
-  {
+  // Only return a view into the old generic op result if requested.
+  if (generateReturnView) {
     OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointAfter(newGenericOp);
     if (thisOp.getNumResults() > 0) {
@@ -2500,9 +2524,11 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
                                   returnView};
 }
 
+// Re-parallelize a GenericOp by updating grid and/or block factors,
+// then rebuild operands/region types to keep the op well-typed.
 FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
     OpBuilder &builder, std::optional<ttcore::GridAttr> newGrid,
-    std::optional<ArrayRef<int64_t>> newBlockFactors) {
+    std::optional<ArrayRef<int64_t>> newBlockFactors, bool generateReturnView) {
   TT_assert((newGrid.has_value() || newBlockFactors.has_value()));
   OpBuilder::InsertionGuard insertionGuard(builder);
   builder.setInsertionPoint(*this);
@@ -2521,15 +2547,26 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
     reblockedTypes.reserve(getInputsAndOutputs().size());
     for (auto [operandIndex, operand] :
          llvm::enumerate(getInputsAndOutputsMutable())) {
+      // Get the new grid shape for the operand.
       FailureOr<SmallVector<int64_t>> reblockedGridShape =
           computeReblockedOperandGridShape(*this, operandIndex, opGridShape,
                                            normalizedBlockFactors);
       if (failed(reblockedGridShape)) {
+        this->emitOpError()
+            << "withParallelization failed to compute reblocked grid shape "
+            << "for operand " << operandIndex;
         return failure();
       }
+      llvm::errs() << "DEBUG: reblocked grid shape for operand " << operandIndex
+                   << ": [";
+      llvm::interleaveComma(reblockedGridShape.value(), llvm::errs());
+      llvm::errs() << "]\n";
       FailureOr<Type> reblockedType =
           reblockShapedType(operand.get().getType(), *reblockedGridShape);
       if (failed(reblockedType)) {
+        this->emitOpError()
+            << "withParallelization failed to reblock operand " << operandIndex
+            << " type '" << operand.get().getType() << "'";
         return failure();
       }
       reblockedTypes.push_back(*reblockedType);
@@ -2537,11 +2574,17 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
     return reblockedTypes;
   };
 
+  // Compute the operand reblocked types from the requested newGrid.
   FailureOr<SmallVector<Type>> reblockedTypes =
       computeReblockedTypes(normalizedGrid.getShape());
   if (failed(reblockedTypes)) {
+    this->emitOpError()
+        << "withParallelization failed to derive reblocked types";
     return failure();
   }
+
+  // If the derived grid shape is different from the requested newGrid,
+  // compute the reblocked types again with the adjusted grid.
   const std::size_t numInputs = getInputs().size();
   const std::size_t numOutputs = getOutputs().size();
   if (numOutputs > 0) {
@@ -2553,64 +2596,18 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
           builder.getContext(), derivedGridShape, normalizedGrid.getMapping());
       reblockedTypes = computeReblockedTypes(normalizedGrid.getShape());
       if (failed(reblockedTypes)) {
+        TT_assertv(false,
+                   "withParallelization failed to derive reblocked types after "
+                   "grid adjustment");
         return failure();
       }
     }
   }
 
+  // Actually perform the IR rewrite.
   return withParallelizationImpl(*this, builder, *reblockedTypes,
-                                 normalizedGrid, normalizedBlockFactors);
-}
-
-FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
-    OpBuilder &builder, ArrayRef<SmallVector<int64_t>> newOperandGridShapes) {
-  TT_assert(newOperandGridShapes.size() == getInputsAndOutputs().size());
-  OpBuilder::InsertionGuard insertionGuard(builder);
-  builder.setInsertionPoint(*this);
-
-  SmallVector<Type> reblockedTypes;
-  reblockedTypes.reserve(getInputsAndOutputs().size());
-  for (auto [operand, gridShape] :
-       llvm::zip(getInputsAndOutputsMutable(), newOperandGridShapes)) {
-    if (auto tensorType = dyn_cast<RankedTensorType>(operand.get().getType())) {
-      reblockedTypes.push_back(
-          d2m::utils::reblockTensor(tensorType, gridShape));
-    } else {
-      FailureOr<Type> reblockedType =
-          reblockShapedType(operand.get().getType(), gridShape);
-      if (failed(reblockedType)) {
-        return failure();
-      }
-      reblockedTypes.push_back(*reblockedType);
-    }
-  }
-
-  const std::size_t numInputs = getInputs().size();
-  const std::size_t outputIdx = numInputs;
-  auto [outputGridShape, _] = getGridAndShardFromShapedType(
-      mlir::cast<ShapedType>(reblockedTypes[outputIdx]));
-
-  ttcore::GridAttr newGrid = builder.getAttr<ttcore::GridAttr>(outputGridShape);
-
-  auto indexingMaps = getIndexingMapsValue();
-  auto flatInverseMap =
-      ttmlir::utils::concatInversePermutationMap(indexingMaps,
-                                                 /*reverse=*/true);
-
-  SmallVector<int64_t> flattenedOperandGridShapes;
-  for (auto gridShape : llvm::reverse(newOperandGridShapes)) {
-    flattenedOperandGridShapes.append(gridShape.begin(), gridShape.end());
-  }
-
-  for (std::size_t i = 0; i < newGrid.getShape().size(); ++i) {
-    flattenedOperandGridShapes[i] /= newGrid.getShape()[i];
-  }
-
-  SmallVector<int64_t> newBlockFactors =
-      flatInverseMap.compose(flattenedOperandGridShapes);
-
-  return withParallelizationImpl(*this, builder, reblockedTypes, newGrid,
-                                 newBlockFactors);
+                                 normalizedGrid, normalizedBlockFactors,
+                                 generateReturnView);
 }
 
 /// Returns true if the generic op has non-empty block_factors, indexing_maps,

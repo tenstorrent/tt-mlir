@@ -371,10 +371,8 @@ def D2M_GenericOp
       bool isNontriviallyEltwiseFused();
       FailureOr<ParallelizedGeneric> withParallelization(
           OpBuilder &builder, std::optional<ttcore::GridAttr> newGrid,
-          std::optional<ArrayRef<int64_t>> newBlockFactors);
-      FailureOr<ParallelizedGeneric> withParallelization(
-          OpBuilder &builder,
-          ArrayRef<SmallVector<int64_t>> newOperandGridShapes);
+          std::optional<ArrayRef<int64_t>> newBlockFactors,
+          bool generateReturnView = true);
       static Value findAssocOperand(memref::AllocOp allocOp);
       static Value findAssocOperand(::mlir::tensor::EmptyOp emptyOp);
       static Value findAssocCBByOperandIndex(Operation *op, unsigned operandIndex);
