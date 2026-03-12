@@ -2493,7 +2493,8 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
     OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointAfter(newGenericOp);
     if (thisOp.getNumResults() > 0) {
-      // TODO: insert multiple return views instead of just one.
+      // TODO: insert multiple return views instead of just one. Required for
+      // Allocator.
       FailureOr<d2m::ViewLayoutOp> resultView =
           createReblockView(builder, thisOp.getLoc(), newGenericOp.getResult(0),
                             thisOp.getResult(0).getType());
@@ -2541,10 +2542,6 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
       FailureOr<SmallVector<int64_t>> reblockedGridShape =
           computeReblockedOperandGridShape(*this, operandIndex, opGridShape,
                                            normalizedBlockFactors);
-      // print the reblocked grid shape using interleaveComma
-      llvm::errs() << "reblocked grid shape: ";
-      llvm::interleaveComma(reblockedGridShape.value(), llvm::errs());
-      llvm::errs() << "\n";
       if (failed(reblockedGridShape)) {
         this->emitOpError()
             << "withParallelization failed to compute reblocked grid shape "
@@ -2553,10 +2550,6 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
       }
       FailureOr<Type> reblockedType =
           reblockShapedType(operand.get().getType(), *reblockedGridShape);
-      // print the reblocked type using interleaveComma
-      llvm::errs() << "reblocked type: ";
-      llvm::errs() << reblockedType.value() << "\n";
-      llvm::errs() << "\n";
       if (failed(reblockedType)) {
         this->emitOpError()
             << "withParallelization failed to reblock operand " << operandIndex
