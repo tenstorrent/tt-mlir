@@ -8,7 +8,7 @@
 // 3. Main file: forward() calls consteval_forward(), uses _cached_forward global
 // 4. Consteval file: cpu_hoisted_const_eval, forward_const_eval_0() and
 //    consteval_forward() with caching
-// 5. consteval_forward's dict argument is named "caching_dict"
+// 5. consteval_forward() contains the caching if-guard and its dict argument is named "ce_cache"
 
 // CHECK-LABEL: # File: "main"
 // CHECK: import ttnn

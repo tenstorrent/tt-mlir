@@ -95,19 +95,18 @@ func.func @forward_all_const(%arg0: tensor<32x16xf32> {ttcore.argument_type = #t
 
 // CHECK-LABEL: def forward_const_eval_0(
 // CHECK: cpu_hoisted_const_eval_{{.*}}
+// CHECK-LABEL: def consteval_forward(
 // CHECK-LABEL: def forward_split_const_eval_0(
 // CHECK: cpu_hoisted_const_eval_{{.*}}
 // CHECK-LABEL: def forward_split_const_eval_1(
 // CHECK: cpu_hoisted_const_eval_{{.*}}
+// CHECK-LABEL: def consteval_forward_split(
 // CHECK-LABEL: def forward_merge_const_eval_0(
 // CHECK: cpu_hoisted_const_eval_{{.*}}
+// CHECK-LABEL: def consteval_forward_merge(
 // CHECK-LABEL: def forward_zeros_const_eval_0(
 // CHECK: cpu_hoisted_const_eval_{{.*}}
+// CHECK-LABEL: def consteval_forward_zeros(
 // CHECK-LABEL: def forward_all_const_const_eval_0(
 // CHECK: cpu_hoisted_const_eval_{{.*}}
-
-// CHECK-LABEL: def consteval_forward
-// CHECK-LABEL: def consteval_forward_split
-// CHECK-LABEL: def consteval_forward_merge
-// CHECK-LABEL: def consteval_forward_zeros
-// CHECK-LABEL: def consteval_forward_all_const
+// CHECK-LABEL: def consteval_forward_all_const(

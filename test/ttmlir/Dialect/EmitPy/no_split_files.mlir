@@ -29,8 +29,10 @@ module {
 // CHECK:   emitpy.global @_cached_forward = #emitpy.opaque<"{}">
 // CHECK:   func.func @forward(
 // CHECK:     emitpy.global_statement @_cached_forward
+// CHECK:     call @consteval_forward
+// CHECK:     emitpy.call_opaque "ttnn.add"
+// CHECK:     emitpy.call_opaque "ttnn.add"
+// CHECK:   func.func @consteval_forward(
 // CHECK:     emitpy.if "not {}"
 // CHECK:       emitpy.call_opaque "forward_const_eval_0"
-// CHECK:     emitpy.call_opaque "ttnn.add"
-// CHECK:     emitpy.call_opaque "ttnn.add"
 // CHECK: }
