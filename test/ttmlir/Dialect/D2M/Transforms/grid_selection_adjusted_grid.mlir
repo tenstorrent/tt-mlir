@@ -25,7 +25,7 @@ module attributes {ttcore.device = #any_device} {
     }
     ins(%1, %3 : tensor<1x1x32x256xf32, #layout2d>, tensor<1x1x32x256xf32, #layout2d>)
     outs(%4 : tensor<1x1x32x256xf32, #layout2d>) {
-    ^unified0:
+    ^unified0(%cb0: !d2m.cb<tensor<32x256xf32>>, %cb1: !d2m.cb<tensor<32x256xf32>>, %cb2: !d2m.cb<tensor<32x256xf32>>):
       %6 = tensor.empty() : tensor<32x256xf32>
       d2m.yield %6 : (tensor<32x256xf32>)
     } : tensor<1x1x32x256xf32, #layout2d>
@@ -37,17 +37,17 @@ module attributes {ttcore.device = #any_device} {
 }
 
 // CHECK-LABEL: func.func @test_adjusted_grid
-// GridSelection materializes 1x8 storage, collapses tensors to 1x1 for the
-// output-driven generic grid, then re-expands inputs and block factors to the
-// execution plan needed by the generic.
+// Inputs are first expanded to 1x8 by updateToLayoutOps, then viewed to 1x1.
 // CHECK: %[[IN0_TO:.*]] = d2m.to_layout
-// CHECK: %[[IN0_1X1:.*]] = d2m.view_layout %[[IN0_TO]] {{.*}} : tensor<1x8x32x32xf32, {{.*}}> -> tensor<1x1x32x256xf32, {{.*}}>
+// CHECK: %[[IN0_1X1:.*]] = d2m.view_layout %[[IN0_TO]]
 // CHECK: %[[IN1_TO:.*]] = d2m.to_layout
-// CHECK: %[[IN1_1X1:.*]] = d2m.view_layout %[[IN1_TO]] {{.*}} : tensor<1x8x32x32xf32, {{.*}}> -> tensor<1x1x32x256xf32, {{.*}}>
-// CHECK: %[[OUT_BASE:.*]] = d2m.empty() : tensor<1x8x32x32xf32, {{.*}}>
+// CHECK: %[[IN1_1X1:.*]] = d2m.view_layout %[[IN1_TO]]
+// CHECK-DAG: %[[OUT_BASE:.*]] = d2m.empty() : tensor<1x8x32x32xf32, {{.*}}>
+// withParallelization reblocks inputs back to 1x8 for compute and output to 1x1.
 // CHECK: %[[IN0_1X8:.*]] = d2m.view_layout %[[IN0_1X1]] {{.*}} : tensor<1x1x32x256xf32, {{.*}}> -> tensor<1x8x32x32xf32, {{.*}}>
 // CHECK: %[[IN1_1X8:.*]] = d2m.view_layout %[[IN1_1X1]] {{.*}} : tensor<1x1x32x256xf32, {{.*}}> -> tensor<1x8x32x32xf32, {{.*}}>
 // CHECK: %[[OUT_1X1:.*]] = d2m.view_layout %[[OUT_BASE]] {{.*}} : tensor<1x8x32x32xf32, {{.*}}> -> tensor<1x1x32x256xf32, {{.*}}>
-// CHECK: %[[GEN:.*]] = d2m.generic {block_factors = [1, 8], grid = #ttcore.grid<1x1>
+// The requested grid is adjusted to match output-derived shape (1x1), with reduction carried by block factor 8.
+// CHECK: %[[GEN:.*]] = d2m.generic {block_factors = [1, 8], grid = #ttcore.grid<1x1>, indexing_maps = [{{.*}}], iterator_types = [#parallel, #parallel]
 // CHECK: ins(%[[IN0_1X8]], %[[IN1_1X8]] : tensor<1x8x32x32xf32, {{.*}}>, tensor<1x8x32x32xf32, {{.*}}>)
 // CHECK: outs(%[[OUT_1X1]] : tensor<1x1x32x256xf32, {{.*}}>)
