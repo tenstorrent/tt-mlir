@@ -83,6 +83,48 @@ module @sparse_moe_ops attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
     } : (tensor<1x1x128x2880xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x32x8xi64>, tensor<1x2x128x32xbf16>, tensor<1x4x2880x5760xbf16>, tensor<1x4x2880x2880xbf16>) -> tensor<4x1x128x2880xbf16>
     return %0 : tensor<4x1x128x2880xbf16>
   }
+
+  // Flexible frontend inputs:
+  // [B, S, H] + [B*S, K] are preserved in TTIR and normalized in TTIR->TTNN.
+  func.func public @dispatch_flexible_inputs(
+    %activations_3d: tensor<1x128x2880xbf16>,
+    %indices_2d: tensor<128x4xi64>,
+    %expert_mapping: tensor<1x1x32x8xi64>
+  ) -> tensor<1x2x128x2880xbf16> {
+    %dispatch:2 = stablehlo.custom_call @tt.all_to_all_dispatch(%activations_3d, %indices_2d, %expert_mapping) {
+      api_version = 0 : i32,
+      mhlo.frontend_attributes = {cluster_axis = "0", num_devices = "2"}
+    } : (tensor<1x128x2880xbf16>, tensor<128x4xi64>, tensor<1x1x32x8xi64>) -> (tensor<1x2x128x2880xbf16>, tensor<1x2x128x4xi64>)
+    return %dispatch#0 : tensor<1x2x128x2880xbf16>
+  }
+
+  // Flexible frontend combine input:
+  // [BD, S, E, H] is preserved in TTIR and normalized in TTIR->TTNN.
+  func.func public @combine_flexible_input_layout(
+    %combine_input_bdseh: tensor<2x128x4x2880xbf16>,
+    %metadata: tensor<1x2x128x4xi64>,
+    %expert_mapping: tensor<1x1x32x8xi64>
+  ) -> tensor<4x1x128x2880xbf16> {
+    %combine = stablehlo.custom_call @tt.all_to_all_combine(%combine_input_bdseh, %metadata, %expert_mapping) {
+      api_version = 0 : i32,
+      mhlo.frontend_attributes = {cluster_axis = "0", num_devices = "2", num_experts_per_tok = "4"}
+    } : (tensor<2x128x4x2880xbf16>, tensor<1x2x128x4xi64>, tensor<1x1x32x8xi64>) -> tensor<4x1x128x2880xbf16>
+    return %combine : tensor<4x1x128x2880xbf16>
+  }
+
+  // Flexible frontend topk input:
+  // [B*S, E] is preserved in TTIR and normalized in TTIR->TTNN.
+  func.func public @remap_flexible_topk(
+    %topk_2d: tensor<128x32xbf16>,
+    %expert_mapping: tensor<1x1x32x8xi64>,
+    %metadata: tensor<1x2x128x4xi64>
+  ) -> tensor<1x2x128x32xbf16> {
+    %remap:2 = stablehlo.custom_call @tt.moe_expert_token_remap(%topk_2d, %expert_mapping, %metadata) {
+      api_version = 0 : i32,
+      mhlo.frontend_attributes = {num_devices = "2", reduction_size = "32"}
+    } : (tensor<128x32xbf16>, tensor<1x1x32x8xi64>, tensor<1x2x128x4xi64>) -> (tensor<1x2x128x32xbf16>, tensor<1x1x8x32xbf16>)
+    return %remap#0 : tensor<1x2x128x32xbf16>
+  }
 }
 
 // CHECK: "ttir.all_to_all_dispatch"
@@ -104,3 +146,13 @@ module @sparse_moe_ops attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
 // CHECK-SAME: cluster_axis = 0
 // CHECK-SAME: num_devices = 2
 // CHECK-SAME: num_experts_per_tok = 4
+// CHECK-SAME: output_shard_dim = 1
+
+// CHECK-LABEL: func.func public @dispatch_flexible_inputs
+// CHECK: "ttir.all_to_all_dispatch"
+
+// CHECK-LABEL: func.func public @combine_flexible_input_layout
+// CHECK: "ttir.all_to_all_combine"
+
+// CHECK-LABEL: func.func public @remap_flexible_topk
+// CHECK: "ttir.moe_expert_token_remap"
