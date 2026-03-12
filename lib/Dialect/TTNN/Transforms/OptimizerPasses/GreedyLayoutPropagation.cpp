@@ -73,6 +73,9 @@ public:
     ModuleOp moduleOp = getOperation();
     op_model::ScopedSingletonDeviceGuard deviceGuard(moduleOp);
 
+    // Set default L1Full slice config on Conv2d ops before validation.
+    applyConv2dSliceConfigWorkaround(moduleOp);
+
     // Get the max grid size from the system description.
     ttcore::GridAttr deviceGrid =
         ttcore::lookupDevice(moduleOp).getWorkerGrid();
@@ -178,6 +181,13 @@ public:
       }
     });
 #endif
+  }
+
+  void applyConv2dSliceConfigWorkaround(ModuleOp moduleOp) {
+    moduleOp->walk([](ttnn::Conv2dOp conv2dOp) {
+      conv2dOp.setConv2dSliceConfigAttr(Conv2dSliceConfigAttr::get(
+          conv2dOp.getContext(), Conv2dSliceType::L1Full, 0));
+    });
   }
 
 protected:
