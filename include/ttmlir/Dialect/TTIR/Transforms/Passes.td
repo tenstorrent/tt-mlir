@@ -114,21 +114,37 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
   ];
 }
 
-def Normalize64BitAndBooleanElementTypes
-    : Pass<"ttir-normalize-64-bit-and-boolean-element-types", "::mlir::ModuleOp"> {
+def ElementTypeNormalizationForTTMetal
+    : Pass<"ttir-element-type-normalization-for-ttmetal", "::mlir::ModuleOp"> {
   let summary =
-      "Normalize 64-bit types (i64/f64->i32/f32), boolean result types, and i1->i32.";
+      "Element type normalization for the TTMetal path. Reduces 64-bit to "
+      "32-bit, aligns predicate-like results with data types, and eliminates i1.";
   let description = [{
-    This pass walks through the graph and:
+    Prepares TTIR for lowering to TTMetal by normalizing element types in three
+    steps. TTMetal does not support 64-bit or native i1 tensors; comparisons
+    and logical ops are expected to produce the same element type as their
+    operands (e.g. i32) rather than i1.
 
-    1. Phase 1: Converts i64->i32 and f64->f32. Constants are converted.
+    Step 1 — Downsize 64-bit to 32-bit:
+      Converts all tensor element types from i64 to i32 and f64 to f32 (including
+      constants). Tensor-of-tile and quantized types are left unchanged.
 
-    2. Phase 2: Rewrites comparison ops (eq, ne, gt, ge, lt, le), logical_not, and
-       reduce_or so their result type matches the input type. Rewrites where ops
-       so the condition type matches the true/false value types.
+    Step 2 — Align predicate-like results with data types:
+      So that no op is left producing i1 while others expect a data type:
+      - Unary tensor-manipulation ops (reshape, broadcast, etc.): result element
+        type is set to the input element type (propagation stops at typecast).
+      - Gather: result element type is set to the data input element type.
+      - Elementwise binary (e.g. logical_and): if one operand is i1 and the
+        other is e.g. i32, operands and result are harmonized to the non-i1 type
+        by inserting typecasts.
+      - Comparisons (eq, ne, gt, ge, lt, le), logical_not, and reduce_or: result
+        element type is changed from i1 to the input/lhs element type.
+      - where: the condition tensor is typecast so its element type matches the
+        true/false value type.
 
-    3. Phase 3: Converts remaining i1 tensors to i32. Constants are converted
-       (true -> 1, false -> 0).
+    Step 3 — Remove remaining i1:
+      Any tensor still with i1 element type is converted to i32. Constants are
+      rewritten (true -> 1, false -> 0).
   }];
 }
 

@@ -9,7 +9,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         FlattenSlidingWindow.cpp
         FoldConstantReshapeBroadcast.cpp
         ElementTypeNormalization.cpp
-        Normalize64BitAndBooleanElementTypes.cpp
+        ElementTypeNormalizationForTTMetal.cpp
         InferKVCacheArgumentTypes.cpp
         MoveReshapeToConstant.cpp
         Quantization.cpp

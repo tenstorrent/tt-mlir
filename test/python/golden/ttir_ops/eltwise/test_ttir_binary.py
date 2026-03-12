@@ -225,6 +225,16 @@ def test_binary_ops(
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
         def binary_op_fn(in0: Operand, in1: Operand, builder: TTIRBuilder) -> Operand:
+            # int64 on ttmetal is normalized to int32; use int32-range values so
+            # truncation is a no-op and golden matches device output.
+            if dtype == torch.int64 and target == "ttmetal":
+                in0_golden = torch.randint(
+                    -(2**31), 2**31, shape, dtype=torch.int64
+                )
+                in1_golden = torch.randint(
+                    -(2**31), 2**31, shape, dtype=torch.int64
+                )
+                builder.set_goldens({in0: in0_golden, in1: in1_golden})
             return test_fn(in0, in1, builder)
 
     pipeline_options = []

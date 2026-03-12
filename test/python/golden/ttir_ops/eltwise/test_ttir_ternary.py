@@ -43,7 +43,9 @@ def module_where(dtype: torch.dtype):
 
 def module_clamp_tensor(dtype: torch.dtype):
     def _module_clamp_tensor(builder: TTIRBuilder):
-        @builder.func([(128, 128), (128, 128), (128, 128)], [dtype] * 3)
+        shape = (128, 128)
+
+        @builder.func([shape, shape, shape], [dtype] * 3)
         def clamp_tensor(
             in0: Operand,
             in1: Operand,
@@ -51,6 +53,19 @@ def module_clamp_tensor(dtype: torch.dtype):
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
+            # int64 on ttmetal is normalized to int32; use int32-range values so
+            # truncation is a no-op and golden matches device output.
+            if dtype == torch.int64:
+                in0_golden = torch.randint(
+                    -(2**31), 2**31, shape, dtype=torch.int64
+                )
+                in1_golden = torch.randint(
+                    -(2**31), 2**31, shape, dtype=torch.int64
+                )
+                in2_golden = torch.randint(
+                    -(2**31), 2**31, shape, dtype=torch.int64
+                )
+                builder.set_goldens({in0: in0_golden, in1: in1_golden, in2: in2_golden})
             return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
 
     return _module_clamp_tensor
@@ -78,6 +93,8 @@ ternary_ops = [
 def test_ternary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    if target != "ttmetal" and dtype == torch.int64:
+        pytest.xfail("int64 not guaranteed to work on non-ttmetal backends")
     pipeline_options = []
     compile_and_execute_ttir(
         test_fn(dtype),
@@ -177,12 +194,15 @@ def test_ternary_eltwise_ops_implicit_broadcast(
 def test_clamp_scalar(
     shape: Shape, max_arg, min_arg, dtype: torch.dtype, target: str, request, device
 ):
+    if target != "ttmetal" and dtype == torch.int64:
+        pytest.xfail("int64 not guaranteed to work on non-ttmetal backends")
+
     def module_clamp_scalar(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def clamp_scalar(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            if dtype == torch.int32:
+            if dtype == torch.int32 or dtype == torch.int64:
                 input_tensor = torch.randint(-5, 10, shape, dtype=torch.int32)
             else:
                 input_tensor = torch.rand(shape, dtype=dtype) * 2 - 1

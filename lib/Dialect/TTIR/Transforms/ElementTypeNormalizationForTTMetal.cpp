@@ -11,7 +11,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_NORMALIZE64BITANDBOOLEANELEMENTTYPES
+#define GEN_PASS_DEF_ELEMENTTYPENORMALIZATIONFORTTMETAL
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
@@ -35,9 +35,7 @@ public:
 
           if (auto intType = mlir::dyn_cast<mlir::IntegerType>(elementType)) {
             if (intType.getWidth() == 64) {
-              Type newElementType =
-                  IntegerType::get(type.getContext(), 32,
-                                   IntegerType::SignednessSemantics::Signed);
+              Type newElementType = IntegerType::get(type.getContext(), 32);
               return mlir::RankedTensorType::get(
                   type.getShape(), newElementType, type.getEncoding());
             }
@@ -114,7 +112,7 @@ private:
   mlir::TypeConverter converter;
 };
 
-// Phase 3: Convert remaining i1 to i32.
+// Step 3: Convert remaining i1 to i32.
 class I1ToI32TypeConverter : public TypeConverter {
 public:
   I1ToI32TypeConverter() {
@@ -122,9 +120,7 @@ public:
         [](mlir::RankedTensorType type) -> std::optional<RankedTensorType> {
           Type elementType = type.getElementType();
           if (elementType.isInteger(1)) {
-            Type newElementType =
-                IntegerType::get(type.getContext(), 32,
-                                 IntegerType::SignednessSemantics::Signed);
+            Type newElementType = IntegerType::get(type.getContext(), 32);
             return mlir::RankedTensorType::get(type.getShape(), newElementType,
                                                type.getEncoding());
           }
@@ -316,6 +312,18 @@ struct HarmonizeElementwiseBinaryTypesPattern : public mlir::RewritePattern {
   }
 };
 
+// Normalize 32-bit integer element type to signless i32 so step 2 result types
+// match step 3's type converter (avoids function result type vs return value
+// mismatch).
+static Type normalizeI32ForTTMetal(Type elementType, MLIRContext *ctx) {
+  if (auto intTy = mlir::dyn_cast<mlir::IntegerType>(elementType)) {
+    if (intTy.getWidth() == 32) {
+      return IntegerType::get(ctx, 32);
+    }
+  }
+  return elementType;
+}
+
 // Rewrite comparison ops so the result type matches the input (lhs) type
 // instead of i1.
 template <typename ComparisonOp>
@@ -337,9 +345,10 @@ struct ComparisonResultTypePattern
       return rewriter.notifyMatchFailure(op, "result already matches lhs type");
     }
 
-    auto newResultType = mlir::RankedTensorType::get(resultType.getShape(),
-                                                     lhsType.getElementType(),
-                                                     resultType.getEncoding());
+    Type elemType =
+        normalizeI32ForTTMetal(lhsType.getElementType(), op.getContext());
+    auto newResultType = mlir::RankedTensorType::get(
+        resultType.getShape(), elemType, resultType.getEncoding());
 
     rewriter.replaceOpWithNewOp<ComparisonOp>(op, newResultType, op.getLhs(),
                                               op.getRhs());
@@ -368,9 +377,10 @@ struct LogicalNotResultTypePattern
                                          "result already matches input type");
     }
 
-    auto newResultType = mlir::RankedTensorType::get(resultType.getShape(),
-                                                     inputType.getElementType(),
-                                                     resultType.getEncoding());
+    Type elemType =
+        normalizeI32ForTTMetal(inputType.getElementType(), op.getContext());
+    auto newResultType = mlir::RankedTensorType::get(
+        resultType.getShape(), elemType, resultType.getEncoding());
 
     rewriter.replaceOpWithNewOp<LogicalNotOp>(op, newResultType, op.getInput());
     return mlir::success();
@@ -397,9 +407,10 @@ struct ReduceOrResultTypePattern : public mlir::OpRewritePattern<ReduceOrOp> {
                                          "result already matches input type");
     }
 
-    auto newResultType = mlir::RankedTensorType::get(resultType.getShape(),
-                                                     inputType.getElementType(),
-                                                     resultType.getEncoding());
+    Type elemType =
+        normalizeI32ForTTMetal(inputType.getElementType(), op.getContext());
+    auto newResultType = mlir::RankedTensorType::get(
+        resultType.getShape(), elemType, resultType.getEncoding());
 
     rewriter.replaceOpWithNewOp<ReduceOrOp>(op, newResultType, op.getInput(),
                                             op.getKeepDimAttr(),
@@ -440,19 +451,19 @@ struct WhereConditionTypePattern : public mlir::OpRewritePattern<WhereOp> {
   }
 };
 
-struct Normalize64BitAndBooleanElementTypes
-    : public impl::Normalize64BitAndBooleanElementTypesBase<
-          Normalize64BitAndBooleanElementTypes> {
-  using impl::Normalize64BitAndBooleanElementTypesBase<
-      Normalize64BitAndBooleanElementTypes>::
-      Normalize64BitAndBooleanElementTypesBase;
+struct ElementTypeNormalizationForTTMetal
+    : public impl::ElementTypeNormalizationForTTMetalBase<
+          ElementTypeNormalizationForTTMetal> {
+  using impl::ElementTypeNormalizationForTTMetalBase<
+      ElementTypeNormalizationForTTMetal>::
+      ElementTypeNormalizationForTTMetalBase;
 
   void runOnOperation() final {
     I64ToI32AndF64ToF32TypeConverter converter;
     mlir::GreedyRewriteConfig config;
     config.enableFolding(false);
 
-    // Phase 1: Convert i64->i32, f64->f32.
+    // Step 1: Convert i64->i32, f64->f32.
     {
       mlir::RewritePatternSet patterns(&getContext());
       patterns.add<UniformTypeRewriter>(converter, &getContext());
@@ -464,7 +475,7 @@ struct Normalize64BitAndBooleanElementTypes
       }
     }
 
-    // Phase 2: Match comparison/where/logical_not/reduce_or output to input
+    // Step 2: Match comparison/where/logical_not/reduce_or output to input
     // types.
     {
       mlir::RewritePatternSet patterns(&getContext());
@@ -489,7 +500,7 @@ struct Normalize64BitAndBooleanElementTypes
       }
     }
 
-    // Phase 3: Convert remaining i1->i32.
+    // Step 3: Convert remaining i1->i32.
     {
       I1ToI32TypeConverter i1Converter;
       mlir::RewritePatternSet patterns(&getContext());

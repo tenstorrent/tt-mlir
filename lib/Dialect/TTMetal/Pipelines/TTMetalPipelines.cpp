@@ -88,7 +88,7 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttir::createTTIREraseInverseOps());
   pm.addPass(ttir::createTTIRMoveReshapeToConstant());
   pm.addPass(ttir::createTTIRFoldConstantReshapeBroadcast());
-  pm.addPass(ttir::createNormalize64BitAndBooleanElementTypes());
+  pm.addPass(ttir::createElementTypeNormalizationForTTMetal());
   pm.addPass(ttir::createTTIRReductionForceKeepDim());
   pm.addPass(ttir::createTTIRRankNormalization());
   pm.addPass(ttir::createTTIRDecomposeComplexReshape());
