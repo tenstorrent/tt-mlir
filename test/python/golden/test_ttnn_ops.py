@@ -312,5 +312,4 @@ def test_all_gather(
         target="ttnn",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        disable_golden=True,
     )
