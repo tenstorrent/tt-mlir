@@ -25,7 +25,6 @@
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
@@ -2305,6 +2304,164 @@ concatenateHeadsLogicalInfo(ttir::ConcatenateHeadsOp op) {
   return {map, canBeTilized};
 }
 
+class D2MSliceStaticOpNoCConstraintsRewriter
+    : public OpConversionPattern<ttir::SliceStaticOp> {
+public:
+  D2MSliceStaticOpNoCConstraintsRewriter(const TypeConverter &typeConverter,
+                                         mlir::MLIRContext *ctx)
+      : OpConversionPattern<ttir::SliceStaticOp>(typeConverter, ctx,
+                                                 /*benefit=*/10) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::SliceStaticOp op, ttir::SliceStaticOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // This is also the minimum NoC transfer size in bytes.
+    const int32_t nocAlignmentL1 =
+        ttcore::getOpChipDescAttr(op).getNocL1AddressAlignBytes();
+
+    auto begins = extractFromIntegerArrayAttr<int32_t>(op.getBegins());
+    auto ends = extractFromIntegerArrayAttr<int32_t>(op.getEnds());
+    auto step = extractFromIntegerArrayAttr<int32_t>(op.getStep());
+
+    auto inType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto inShape = inType.getShape();
+    auto outType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    auto outShape = outType.getShape();
+
+    const int32_t rank = static_cast<int32_t>(inType.getRank());
+    assert(rank >= 2);
+
+    const int32_t elementBytes =
+        std::max(1, static_cast<int32_t>(inType.getElementTypeBitWidth()) / 8);
+
+    assert((nocAlignmentL1 != 0) && (nocAlignmentL1 % elementBytes == 0));
+    const int32_t alignToElements = nocAlignmentL1 / elementBytes;
+
+    // Assume all shards in L1 already start at aligned addresses.
+    const bool isAlignedWidth = begins[rank - 1] % alignToElements == 0;
+    const bool isAlignedHeight = begins[rank - 2] % alignToElements == 0;
+    const bool notStridedWidth = step[rank - 1] == 1;
+    const bool notStridedHeight = step[rank - 2] == 1;
+
+    const bool isNoCFriendlyWidth = isAlignedWidth && notStridedWidth;
+    const bool isNoCFriendlyHeight = isAlignedHeight && notStridedHeight;
+
+    if (isNoCFriendlyWidth) {
+      return failure();
+    }
+
+    // Height <-> Width transpose indices.
+    SmallVector<int64_t> hwTransposeIdx(rank);
+    std::iota(hwTransposeIdx.begin(), hwTransposeIdx.end(), 0);
+    std::swap(hwTransposeIdx[rank - 1], hwTransposeIdx[rank - 2]);
+
+    auto loc = op.getLoc();
+
+    if (isNoCFriendlyHeight) {
+      // Transpose - Slice - Transpose.
+
+      auto transposedInShape =
+          ttmlir::utils::applyPermutation(inShape, hwTransposeIdx);
+      auto transposedInType = RankedTensorType::get(
+          transposedInShape, inType.getElementType(), inType.getEncoding());
+
+      auto preTranspose = rewriter.create<ttir::PermuteOp>(
+          loc, transposedInType, op.getInput(), hwTransposeIdx);
+
+      // Transpose the slice spec.
+      std::swap(begins[rank - 1], begins[rank - 2]);
+      std::swap(ends[rank - 1], ends[rank - 2]);
+      std::swap(step[rank - 1], step[rank - 2]);
+
+      auto transposedOutShape =
+          ttmlir::utils::applyPermutation(outShape, hwTransposeIdx);
+      auto transposedOutType = RankedTensorType::get(
+          transposedOutShape, outType.getElementType(), outType.getEncoding());
+
+      auto transposedSliceOp = rewriter.create<ttir::SliceStaticOp>(
+          loc, transposedOutType, preTranspose.getResult(),
+          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+          rewriter.getI32ArrayAttr(step));
+
+      auto postTranspose = rewriter.create<ttir::PermuteOp>(
+          loc, outType, transposedSliceOp.getResult(), hwTransposeIdx);
+
+      rewriter.replaceOp(op, postTranspose.getResult());
+    } else {
+      // Slice(crop width) - Transpose - Slice(height only) - Transpose.
+
+      // Slice all other dims as instructed, and do a NoC-friendly width crop.
+      SmallVector<int32_t> cropWidthBegins(begins);
+      SmallVector<int32_t> cropWidthEnds(ends);
+      SmallVector<int32_t> cropWidthStep(step);
+      cropWidthBegins[rank - 1] =
+          ttmlir::utils::alignDown(cropWidthBegins[rank - 1], alignToElements);
+      cropWidthEnds[rank - 1] = std::min(
+          static_cast<int32_t>(inShape[rank - 1]),
+          ttmlir::utils::alignUp(cropWidthEnds[rank - 1], alignToElements));
+      cropWidthStep[rank - 1] = 1;
+
+      SmallVector<int64_t> cropWidthOutShape(outShape);
+      cropWidthOutShape[rank - 1] =
+          cropWidthEnds[rank - 1] - cropWidthBegins[rank - 1];
+      auto cropWidthOutType = RankedTensorType::get(
+          cropWidthOutShape, outType.getElementType(), outType.getEncoding());
+
+      auto cropWidthSliceOp = rewriter.create<ttir::SliceStaticOp>(
+          loc, cropWidthOutType, op.getInput(),
+          rewriter.getI32ArrayAttr(cropWidthBegins),
+          rewriter.getI32ArrayAttr(cropWidthEnds),
+          rewriter.getI32ArrayAttr(cropWidthStep));
+
+      auto transposedCropWidthShape = ttmlir::utils::applyPermutation(
+          cropWidthOutType.getShape(), hwTransposeIdx);
+      auto transposedCropWidthType = RankedTensorType::get(
+          transposedCropWidthShape, outType.getElementType(),
+          outType.getEncoding());
+
+      auto preTranspose = rewriter.create<ttir::PermuteOp>(
+          loc, transposedCropWidthType, cropWidthSliceOp.getResult(),
+          hwTransposeIdx);
+
+      // Construct the height only slice spec.
+      SmallVector<int32_t> heightSliceBegins(rank, 0);
+      SmallVector<int32_t> heightSliceEnds(outShape);
+      SmallVector<int32_t> heightSliceStep(rank, 1);
+      // This is the amount we aligned down, trim it.
+      heightSliceBegins[rank - 1] =
+          begins[rank - 1] - cropWidthBegins[rank - 1];
+      // The end is still that far away, just from a new begin.
+      heightSliceEnds[rank - 1] =
+          heightSliceBegins[rank - 1] + (ends[rank - 1] - begins[rank - 1]);
+      // Restore the original step.
+      heightSliceStep[rank - 1] = step[rank - 1];
+
+      // Transpose to finish the height slice spec.
+      std::swap(heightSliceBegins[rank - 1], heightSliceBegins[rank - 2]);
+      std::swap(heightSliceEnds[rank - 1], heightSliceEnds[rank - 2]);
+      std::swap(heightSliceStep[rank - 1], heightSliceStep[rank - 2]);
+
+      auto transposedOutShape =
+          ttmlir::utils::applyPermutation(outShape, hwTransposeIdx);
+      auto transposedOutType = RankedTensorType::get(
+          transposedOutShape, outType.getElementType(), outType.getEncoding());
+
+      auto heightSliceOp = rewriter.create<ttir::SliceStaticOp>(
+          loc, transposedOutType, preTranspose.getResult(),
+          rewriter.getI32ArrayAttr(heightSliceBegins),
+          rewriter.getI32ArrayAttr(heightSliceEnds),
+          rewriter.getI32ArrayAttr(heightSliceStep));
+
+      auto postTranspose = rewriter.create<ttir::PermuteOp>(
+          loc, outType, heightSliceOp.getResult(), hwTransposeIdx);
+
+      rewriter.replaceOp(op, postTranspose.getResult());
+    }
+
+    return success();
+  }
+};
+
 } // namespace mlir::tt
 
 namespace mlir::tt {
@@ -2378,6 +2535,8 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
 
+  // High-priority rewriter for SliceStatic ops that violate NoC constraints.
+  patterns.add<D2MSliceStaticOpNoCConstraintsRewriter>(typeConverter, ctx);
 
   // ToLayout 1:1 conversion.
   patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx, ttnnMode);

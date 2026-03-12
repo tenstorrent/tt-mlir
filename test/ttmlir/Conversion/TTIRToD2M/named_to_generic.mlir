@@ -294,6 +294,33 @@ module {
     // CHECK: %[[DEVICE_TENSOR:.*]] = d2m.to_layout %arg0
     // CHECK: "d2m.stream_layout"(%[[DEVICE_TENSOR]], %{{.*}})
     // CHECK: d2m.generic
+    %0 = "ttir.slice_static"(%arg0) <{begins = [16 : i32, 0 : i32], ends = [48 : i32, 32 : i32], step = [1 : i32, 1 : i32]}> : (tensor<96x96xf32>) -> tensor<32x32xf32>
+    return %0 : tensor<32x32xf32>
+  }
+
+  // CHECK-LABEL: func @named_slice_static_w_unaligned
+  func.func @named_slice_static_w_unaligned(%arg0: tensor<96x96xf32>) -> tensor<32x32xf32> {
+    // Use the transpose-slice-transpose strategy.
+    // CHECK-NOT: slice
+    // CHECK: d2m.stream_layout
+    // CHECK: d2m.generic
+    // CHECK: d2m.stream_layout
+    // CHECK: d2m.stream_layout
+    // CHECK: d2m.generic
+    %0 = "ttir.slice_static"(%arg0) <{begins = [32 : i32, 1 : i32], ends = [64 : i32, 64 : i32], step = [1 : i32, 2 : i32]}> : (tensor<96x96xf32>) -> tensor<32x32xf32>
+    return %0 : tensor<32x32xf32>
+  }
+
+  // CHECK-LABEL: func @named_slice_static_hw_unaligned
+  func.func @named_slice_static_hw_unaligned(%arg0: tensor<96x96xf32>) -> tensor<32x32xf32> {
+    // Use the slice-transpose-slice-transpose strategy.
+    // CHECK-NOT: slice
+    // CHECK: d2m.stream_layout
+    // CHECK: d2m.stream_layout
+    // CHECK: d2m.generic
+    // CHECK: d2m.stream_layout
+    // CHECK: d2m.stream_layout
+    // CHECK: d2m.generic
     %0 = "ttir.slice_static"(%arg0) <{begins = [1 : i32, 0 : i32], ends = [96 : i32, 64 : i32], step = [3 : i32, 2 : i32]}> : (tensor<96x96xf32>) -> tensor<32x32xf32>
     return %0 : tensor<32x32xf32>
   }
