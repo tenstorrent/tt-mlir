@@ -69,7 +69,9 @@ void run(const ::tt::target::ttnn::GroupNormOp *op, ProgramContext &context) {
       /*reciprocals=*/std::nullopt, memoryConfig,
       /*dtype=*/std::nullopt, core_grid,
       /*inplace=*/std::nullopt, /*output_layout=*/std::nullopt,
-      /*num_out_blocks=*/-1);
+      /*num_out_blocks=*/-1, /*compute_kernel_config=*/std::nullopt,
+      /*negative_mask=*/std::nullopt,
+      /*use_welford=*/false);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
