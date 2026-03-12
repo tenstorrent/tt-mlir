@@ -494,7 +494,7 @@ public:
                         "d2m.cb_for_operand")
                   : IntegerAttr()) {
         unsigned idx = static_cast<unsigned>(cbForOp.getInt());
-        assert(idx < cbs.size() && "d2m.cb_for_operand out of range");
+        TT_assertv(idx < cbs.size(), "d2m.cb_for_operand out of range");
         cbs[idx] = origOperand;
         continue;
       }
