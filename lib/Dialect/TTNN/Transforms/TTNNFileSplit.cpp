@@ -35,11 +35,8 @@ namespace mlir::tt::ttnn {
 // This pass effectively does the following:
 //   - Moves the consteval functions to the consteval file.
 //   - Moves the cpu-hoisted declarations to the consteval file.
-//   - For each forward function with LoadCachedOps, creates a wrapper function
-//   in the consteval file that will perform the consteval logic for that
-//   function. Inserts a call to the wrapper function at the beginning of the
-//   forward function in the main file.
-//
+//   - For each forward function that has a consteval wrapper, creates a
+//   declaration in the main file so that func.call ops can resolve the symbols.
 //
 //===----------------------------------------------------------------------===//
 
@@ -47,7 +44,6 @@ namespace {
 
 constexpr const char *kMainFileName = "main";
 constexpr const char *kConstevalFileName = "consteval";
-constexpr const char *kWrapperAttr = "consteval_wrapper";
 
 class TTNNFileSplit : public impl::TTNNFileSplitBase<TTNNFileSplit> {
 public:
@@ -115,8 +111,8 @@ private:
       cpuDecl->erase();
     }
 
-    // Create a declaration of the wrapper function in the main file so that
-    // func.call op can resolve the symbol.
+    // Create a declaration in the main file for each consteval wrapper function
+    // so that func.call ops can resolve the symbols.
     builder.setInsertionPointToEnd(&mainFile.getBodyRegion().front());
     for (auto wrapperFunc : wrapperFuncs) {
       auto privateDecl = builder.create<func::FuncOp>(

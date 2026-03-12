@@ -19,45 +19,50 @@ namespace mlir::tt::ttnn {
 //
 // TTNNPrepareConstEvalCaching Pass
 //
-// This pass prepares the const-eval results for caching by packing the results
-// of all LoadCachedOps into a single global caching dictionary per forward
-// function. For each forward function containing LoadCachedOps, it creates a
-// global dictionary (e.g., `_cached_forward`), retrieves it at the top of the
-// function body, and stores each LoadCachedOp's results under its callee name.
+// This pass prepares const-eval results for caching by consolidating all
+// LoadCachedOps within each forward function into a single global caching
+// dictionary. For each forward function containing LoadCachedOps, it:
+//
+//   1. Creates a global caching dictionary (e.g., `_cached_forward`).
+//   2. Inserts a retrieval of the dictionary at the top of the forward function
+//   body.
+//   3. Creates a separate consteval wrapper function and moves the complete
+//   const-eval logic of that forward function into it.
+//   4. Inserts a call to the consteval wrapper function after the dictionary
+//   retrieval in the forward function body. The consteval wrapper function
+//   receives the global caching dictionary and the forward function inputs as
+//   arguments.
 //
 //===----------------------------------------------------------------------===//
 
 namespace {
 
-constexpr const char *kCachingDictAttr = "ttcore.caching_dict";
-constexpr const char *kWrapperAttr = "consteval_wrapper";
+constexpr const char *kCachePrefix = "_cached_";
+constexpr const char *kConstEvalWrapperNamePrefix = "consteval_";
 
-// Collect all ops in the def-use chain of the given LoadCachedOps.
-static llvm::SetVector<Operation *>
-collectDefUseChain(ArrayRef<ttcore::LoadCachedOp> loadCachedOps, Block *block) {
+// Collect the sorteddef-use chain of the given ops.
+static llvm::SmallVector<Operation *>
+collectSortedDefUseChain(llvm::SmallVector<Operation *> &ops, Block *block) {
   llvm::SetVector<Operation *> result;
-  llvm::SmallVector<Operation *> workload;
-  for (auto loadCachedOp : loadCachedOps) {
-    for (auto input : loadCachedOp.getInputs()) {
-      if (auto *defOp = input.getDefiningOp();
-          defOp && defOp->getBlock() == block) {
-        workload.push_back(defOp);
-      }
-    }
-  }
+  llvm::SmallVector<Operation *> worklist(ops.begin(), ops.end());
 
-  while (!workload.empty()) {
-    auto *op = workload.pop_back_val();
+  while (!worklist.empty()) {
+    auto *op = worklist.pop_back_val();
     if (op->getBlock() != block || !result.insert(op)) {
       continue;
     }
     for (auto operand : op->getOperands()) {
       if (auto *defOp = operand.getDefiningOp()) {
-        workload.push_back(defOp);
+        worklist.push_back(defOp);
       }
     }
   }
-  return result;
+
+  llvm::SmallVector<Operation *> sortedResult(result.begin(), result.end());
+  llvm::sort(sortedResult,
+             [](Operation *a, Operation *b) { return a->isBeforeInBlock(b); });
+
+  return sortedResult;
 }
 
 class TTNNPrepareConstEvalCaching
@@ -96,15 +101,15 @@ public:
                                                       cacheName);
       dict->setDiscardableAttr(kCachingDictAttr, builder.getUnitAttr());
 
-      // Create the wrapper function that will contain the complete const-eval
-      // logic for the forward function.
-      if (failed(createWrapper(builder, funcOp, loadCachedOps,
-                               dict.getResult()))) {
+      // Create the wrapper function that will encapsulate the complete
+      // const-eval logic from the forward function.
+      if (failed(createConstEvalWrapper(builder, funcOp, loadCachedOps,
+                                        dict.getResult()))) {
         return signalPassFailure();
       }
 
-      // Insert a call to the wrapper function after the cache dictionary
-      // retrieval in the forward function.
+      // Insert a call to the consteval wrapper function after the cache
+      // dictionary retrieval in the forward function.
       builder.setInsertionPointAfter(dict);
       Block &forwardBody = funcOp.getBody().front();
       llvm::SmallVector<Value> callArgs;
@@ -112,7 +117,7 @@ public:
       callArgs.append(forwardBody.getArguments().begin(),
                       forwardBody.getArguments().end());
       auto cacheDict = builder.create<func::CallOp>(
-          funcOp.getLoc(), "consteval_" + funcOp.getName().str(),
+          funcOp.getLoc(), kConstEvalWrapperNamePrefix + funcOp.getName().str(),
           TypeRange{dictType}, callArgs);
 
       // Replace each LoadCachedOp with a dictionary lookup. The results of
@@ -128,13 +133,12 @@ public:
         }
       }
 
-      // Erase the original LoadCachedOps and their now-unused def-chain ops
+      // Erase the LoadCachedOps and the unused ops in their def-use chain
       // from the forward function body.
-      llvm::SetVector<Operation *> defChainOps =
-          collectDefUseChain(loadCachedOps, &forwardBody);
-      for (auto loadCachedOp : loadCachedOps) {
-        loadCachedOp->erase();
-      }
+      llvm::SmallVector<Operation *> loadCachedPtrs(loadCachedOps.begin(),
+                                                    loadCachedOps.end());
+      llvm::SmallVector<Operation *> defChainOps =
+          collectSortedDefUseChain(loadCachedPtrs, &forwardBody);
       for (auto *op : llvm::reverse(defChainOps)) {
         if (op->use_empty()) {
           op->erase();
@@ -144,12 +148,12 @@ public:
   }
 
   LogicalResult
-  createWrapper(OpBuilder &builder, func::FuncOp forwardFunc,
-                llvm::SmallVector<ttcore::LoadCachedOp> &loadCachedOps,
-                Value cacheDict) {
-
-    // Create the wrapper function.
-    std::string wrapperName = "consteval_" + forwardFunc.getName().str();
+  createConstEvalWrapper(OpBuilder &builder, func::FuncOp forwardFunc,
+                         llvm::SmallVector<ttcore::LoadCachedOp> &loadCachedOps,
+                         Value cacheDict) {
+    // Create the consteval wrapper function.
+    std::string wrapperName =
+        kConstEvalWrapperNamePrefix + forwardFunc.getName().str();
     auto dictType = ttcore::DictType::get(&getContext());
     llvm::SmallVector<Type> wrapperArgTypes;
     wrapperArgTypes.push_back(dictType);
@@ -177,9 +181,10 @@ public:
     }
 
     // Collect all ops from the forward function to clone into the wrapper.
-    llvm::SetVector<Operation *> opsToClone =
-        collectDefUseChain(loadCachedOps, &forwardBody);
-    opsToClone.set_union(loadCachedOps);
+    llvm::SmallVector<Operation *> loadCachedPtrs(loadCachedOps.begin(),
+                                                  loadCachedOps.end());
+    llvm::SmallVector<Operation *> opsToClone =
+        collectSortedDefUseChain(loadCachedPtrs, &forwardBody);
 
     for (auto *op : opsToClone) {
       Operation *clonedOp = builder.clone(*op, mapping);
@@ -200,6 +205,7 @@ public:
     }
 
     // Create the return operation in the wrapper function.
+    builder.setInsertionPointToEnd(&wrapperBody);
     builder.create<func::ReturnOp>(forwardFunc.getLoc(),
                                    ValueRange{mapping.lookup(cacheDict)});
 

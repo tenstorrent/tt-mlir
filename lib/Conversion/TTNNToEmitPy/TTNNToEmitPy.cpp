@@ -2768,9 +2768,11 @@ public:
     auto dictType =
         emitpy::DictType::get(rewriter.getContext(), /*keyType=*/nullptr,
                               /*valueType=*/nullptr);
-    rewriter.replaceOpWithNewOp<emitpy::GlobalStatementOp>(
+    auto discardableAttrs = getGlobalOp->getDiscardableAttrDictionary();
+    auto newOp = rewriter.replaceOpWithNewOp<emitpy::GlobalStatementOp>(
         getGlobalOp, dictType,
         rewriter.getStringAttr(getGlobalOp.getSymName()));
+    newOp->setDiscardableAttrs(discardableAttrs);
     return success();
   }
 };
