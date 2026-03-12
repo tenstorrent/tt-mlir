@@ -135,6 +135,19 @@ def make_case_key(
     return (op, h, w, dtype, memory_config_id or "")
 
 
+def _measurement(name: str, value: float, step_name: str) -> dict[str, Any]:
+    return {
+        "measurement_name": name,
+        "value": value,
+        "iteration": 1,
+        "step_name": step_name,
+        "step_warm_up_num_iterations": 0,
+        "target": -1,
+        "device_power": -1.0,
+        "device_temperature": -1.0,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Summarize JIT perf run CSVs into one entry per (op, shape, dtype, memory_config) with JIT vs TTNN comparison."
@@ -242,20 +255,16 @@ def main():
             g["perf_pct_ttnn"] = round((ttnn_ns / jit_ns) * 100.0, 2)
 
         prefix = f"{g['op']}_{g['dtype']}_{g['memory_config_id']}"
+        step = f"{g['op']}_{g['shape']}_{g['dtype']}"
         if jit_ns is not None:
-            measurements.append(
-                {"measurement_name": f"{prefix}_jit_duration_ns", "value": jit_ns}
-            )
+            measurements.append(_measurement(f"{prefix}_jit_duration_ns", jit_ns, step))
         if ttnn_ns is not None:
             measurements.append(
-                {"measurement_name": f"{prefix}_ttnn_duration_ns", "value": ttnn_ns}
+                _measurement(f"{prefix}_ttnn_duration_ns", ttnn_ns, step)
             )
         if g["perf_pct_ttnn"] is not None:
             measurements.append(
-                {
-                    "measurement_name": f"{prefix}_perf_pct_ttnn",
-                    "value": g["perf_pct_ttnn"],
-                }
+                _measurement(f"{prefix}_perf_pct_ttnn", g["perf_pct_ttnn"], step)
             )
 
     report = {
