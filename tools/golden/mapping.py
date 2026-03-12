@@ -3386,13 +3386,6 @@ def ttir_dropout_golden(
     return torch.dropout(input_tensor, prob_val, True).to(output_dtype)
 
 
-def ttir_gelu_backward_golden(grad, input, approximate="none"):
-    # torch.ops.aten.gelu_backward with approximate="none" does not support
-    # implicit broadcasting (ONEDNN limitation). Broadcast inputs explicitly.
-    grad, input = torch.broadcast_tensors(grad, input)
-    return torch.ops.aten.gelu_backward(grad, input, approximate=approximate)
-
-
 def ttir_cos_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -6362,7 +6355,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ErfcOp: torch.erfc,
     ttir.FloorOp: ttir_floor_golden,
     ttir.GeluOp: torch.nn.functional.gelu,
-    ttir.GeluBackwardOp: ttir_gelu_backward_golden,
+    ttir.GeluBackwardOp: torch.ops.aten.gelu_backward,
     ttir.IsFiniteOp: ttir_isfinite_golden,
     ttir.MishOp: torch.nn.functional.mish,
     ttir.NegOp: ttir_neg_golden,
@@ -6647,7 +6640,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
     # CCL (Collective Communication Library) operations
-    ttnn.MeshShardOp: ttnn_mesh_shard_golden,
     ttnn.DistributeTensorOp: ttnn_distribute_tensor_golden,
     ttnn.AggregateTensorOp: ttnn_aggregate_tensor_golden,
     ttnn.AllGatherOp: ttnn_all_gather_golden,

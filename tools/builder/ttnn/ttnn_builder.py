@@ -4762,6 +4762,17 @@ class TTNNBuilder(Builder):
             )
             return RankedTensorType.get(shape, element_type, host_encoding)
 
+    def _create_dram_tiled_ttnn_tensor(
+        self, shape: Shape, element_type: Type
+    ) -> RankedTensorType:
+        """Create a DRAM/Interleaved/Tiled tensor type, bypassing any
+        host_inputs encoding override that may be active on self."""
+        with self._ctx, self._loc:
+            ttnn_layout_attr = TTNNBuilder.create_tensor_encoding(
+                self, shape, element_type
+            )
+            return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
+
     def _create_dram_memory_config(self):
         tensor_memory_layout_attr = ttnn.ir.TensorMemoryLayoutAttr.get(
             self._ctx, ttnn.TensorMemoryLayout.Interleaved
@@ -4826,10 +4837,10 @@ class TTNNBuilder(Builder):
                 placements.append("<replicate>")
         placements_str = ", ".join(placements)
 
-        mesh_y, mesh_x = self._mesh_shape[1], self._mesh_shape[0]
+        mesh_x, mesh_y = self._mesh_shape[0], self._mesh_shape[1]
         config_str = (
             f"#ttnn.mesh_mapper_config<placements = [{placements_str}], "
-            f"mesh_shape_override = [{mesh_y} : ui32, {mesh_x} : ui32]>"
+            f"mesh_shape_override = [{mesh_x} : ui32, {mesh_y} : ui32]>"
         )
         config_attr = Attribute.parse(config_str)
 
@@ -4857,7 +4868,9 @@ class TTNNBuilder(Builder):
         )
         tilized_result = to_layout_op.result
 
-        dram_result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+        dram_result = self._create_dram_tiled_ttnn_tensor(
+            golden_output.shape, mlir_output_type
+        )
         to_device_op = ttnn.ToDeviceOp(
             dram_result,
             tilized_result,
@@ -4972,8 +4985,8 @@ class TTNNBuilder(Builder):
 
         input_type = input.type
         input_rank = len(input_type.shape)
-        mesh_y, mesh_x = self._mesh_shape[1], self._mesh_shape[0]
-        full_mesh_shape = [mesh_y, mesh_x]
+        mesh_x, mesh_y = self._mesh_shape[0], self._mesh_shape[1]
+        full_mesh_shape = [mesh_x, mesh_y]
 
         composer_dims = []
         target_mesh_shape = []
@@ -5051,50 +5064,6 @@ class TTNNBuilder(Builder):
                 return d
         return -1
 
-    @parse(ttnn.MeshShardOp)
-    def mesh_shard_parser(
-        self,
-        old_op: ttnn.MeshShardOp,
-        global_dict: Dict[Operand, Operand],
-    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        ttnn_op = self.get_opview_from_parser(TTNNBuilder.mesh_shard_parser)
-
-        in0 = global_dict[old_op.input]
-        result = old_op.result.type
-        device = global_dict[old_op.device]
-        shard_type_attr = old_op.shard_type
-        shard_direction_attr = old_op.shard_direction
-        shard_shape_attr = old_op.shard_shape
-        shard_dims_attr = old_op.shard_dims
-
-        new_op = ttnn_op(
-            result,
-            in0,
-            device,
-            shard_direction_attr,
-            shard_type_attr,
-            shard_shape_attr,
-            shard_dims_attr,
-            loc=old_op.location,
-        )
-        new_op_result = new_op.result
-
-        input0 = self._get_golden_tensor(in0)
-        op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(
-            input0,
-            shard_type_attr,
-            shard_direction_attr,
-            shard_shape_attr,
-            shard_dims_attr,
-            result.element_type,
-        )
-        self._set_golden_tensor(new_op_result, golden_output)
-
-        op_map_dictionary = {}
-        op_map_dictionary[old_op.result] = new_op_result
-        return new_op, op_map_dictionary
-
     ############### ttnn.AllGatherOp ###############
 
     @tag(ttnn.AllGatherOp)
@@ -5124,7 +5093,9 @@ class TTNNBuilder(Builder):
         golden_output = op_golden_function(
             input0, all_gather_dim_attr, cluster_axis_attr, mlir_output_type
         )
-        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+        result = self._create_dram_tiled_ttnn_tensor(
+            golden_output.shape, mlir_output_type
+        )
 
         if loc is None:
             loc = self._get_location()
