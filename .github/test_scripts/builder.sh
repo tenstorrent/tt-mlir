@@ -13,6 +13,8 @@ runttrt=""
 PYTEST_ARGS=""
 FLATBUFFER=""
 
+pip install psutil
+
 [[ "$RUNS_ON" != "n150" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-exact-mesh"
 PYTEST_ARGS="$PYTEST_ARGS -s --log-memory"
 
