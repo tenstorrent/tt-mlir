@@ -207,9 +207,9 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
       // Fused generics may have multiple linalg ops writing to the same output
       // buffer (e.g., intermediate reuse after elementwise fusion). Skip
       // duplicates since the packing info is identical for the same Value.
-      results.perResult.try_emplace(outputValue,
-                                    DSTPackingPerResultInfo{/*numDstFlips=*/1,
-                                                            /*numTilesPerFlip=*/1});
+      results.perResult.try_emplace(
+          outputValue, DSTPackingPerResultInfo{/*numDstFlips=*/1,
+                                               /*numTilesPerFlip=*/1});
     }
     return results;
   }
