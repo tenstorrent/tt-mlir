@@ -754,7 +754,7 @@ def execute_fb(
                         i_dict["desc"]["layout"]["memory_desc"]["data_type"]
                     ),
                 )
-                golden_inputs_torch.append({0: torch_tensor})
+                golden_inputs_torch.append(torch_tensor)
 
         golden_outputs_torch = []
         outputs_torch = []
