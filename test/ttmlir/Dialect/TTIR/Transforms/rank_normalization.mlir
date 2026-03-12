@@ -292,3 +292,16 @@ func.func @implicit_broadcast_1d_3d(%arg0: tensor<64xf32>, %arg1: tensor<2x32x64
   %0 = "ttir.add"(%arg0, %arg1) : (tensor<64xf32>, tensor<2x32x64xf32>) -> tensor<2x32x64xf32>
   return %0 : tensor<2x32x64xf32>
 }
+
+// =============================================================================
+// Test 16: Slice - 1D input
+// =============================================================================
+
+// CHECK-LABEL: func.func @slice_static_1d
+// CHECK-SAME: (%arg0: tensor<1x128xf32>) -> tensor<1x64xf32>
+// CHECK: %[[SLICE:.*]] = "ttir.slice_static"(%arg0) <{begins = [0 : i32, 1 : i32], ends = [1 : i32, 128 : i32], step = [1 : i32, 2 : i32]}> : (tensor<1x128xf32>) -> tensor<1x64xf32>
+// CHECK: return %[[SLICE]] : tensor<1x64xf32>
+func.func @slice_static_1d(%arg0: tensor<128xf32>) -> tensor<64xf32> {
+  %0 = "ttir.slice_static"(%arg0) <{begins = [1 : i32], ends = [128 : i32], step = [2 : i32]}> : (tensor<128xf32>) -> tensor<64xf32>
+  return %0 : tensor<64xf32>
+}
