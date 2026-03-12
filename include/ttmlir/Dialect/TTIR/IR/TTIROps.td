@@ -5120,7 +5120,7 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
   }];
 }
 
-def TTIR_EmptyOp : TTIR_CreationOp<"empty", [TTCore_NonCacheableTrait]> {
+def TTIR_EmptyOp : TTIR_Op<"empty", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTCore_CreationOpTrait, TTCore_NonCacheableTrait]> {
     let summary = "Empty tensor allocation operation.";
     let description = [{
       The `empty` operation creates an uninitialized tensor with the specified shape and element type.

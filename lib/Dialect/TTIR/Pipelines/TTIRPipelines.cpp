@@ -279,6 +279,9 @@ void createTTIRToLLVMCPUPipeline(OpPassManager &pm,
   decompOptions.decompConfig = mlir::tt::DecompMode::CPUFallback;
   cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
 
+  cpuPm.addPass(mlir::createCanonicalizerPass());
+  cpuPm.addPass(mlir::createCSEPass());
+
   // Lower TTIR to mix of linalg direct, TOSA (which we can subsequently lower
   // to linalg), and Tensor dialect ops.
   cpuPm.addPass(createConvertTTIRToLinalgPass());
