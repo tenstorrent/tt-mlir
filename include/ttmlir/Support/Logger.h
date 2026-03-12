@@ -39,7 +39,8 @@ enum class LogComponent {
   Allocator,
   Test,
   General,
-  D2MFusion
+  D2MFusion,
+  FusionValidator
 };
 
 // Log levels in order of verbosity
@@ -70,6 +71,8 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
     return "general";
   case LogComponent::D2MFusion:
     return "d2m-fusion";
+  case LogComponent::FusionValidator:
+    return "fusion-validator";
   }
   return "unknown";
 }
