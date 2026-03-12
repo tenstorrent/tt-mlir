@@ -32,6 +32,24 @@ class TTNNBuilder(Builder):
     ):
         super().__init__(ctx, location, mesh_name, mesh_dict)
 
+    def func(
+        self,
+        input_shapes,
+        input_types,
+        host_inputs: bool = False,
+    ):
+        if not host_inputs:
+            return super().func(input_shapes, input_types)
+
+        def wrapper(fn):
+            original = self.create_tensor_encoding
+            self.create_tensor_encoding = self.create_host_row_major_tensor_encoding
+            result = super(TTNNBuilder, self).func(input_shapes, input_types)(fn)
+            self.create_tensor_encoding = original
+            return result
+
+        return wrapper
+
     # ----- Private Methods ----
 
     def _organize_eltwise_ttnn(
