@@ -5,6 +5,8 @@
 #ifndef RUNTIME_LIB_TTMETAL_EXECUTOR_H
 #define RUNTIME_LIB_TTMETAL_EXECUTOR_H
 
+#include "executor_utils.h"
+
 #define FMT_HEADER_ONLY
 #include "tt-metalium/distributed.hpp"
 #include "tt-metalium/mesh_device.hpp"
@@ -14,6 +16,10 @@
 #include "ttmlir/Target/TTMetal/Target.h"
 
 namespace tt::runtime::ttmetal {
+
+namespace target = ::tt::target;
+namespace tt_metal = ::tt::tt_metal;
+namespace distributed = ::tt::tt_metal::distributed;
 
 std::vector<Tensor>
 executeMeshDeviceProgram(::tt::tt_metal::distributed::MeshDevice *meshDevice,

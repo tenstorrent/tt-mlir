@@ -198,10 +198,6 @@ def test_hoisted_softmax(
     device,
     dtype: torch.dtype = torch.float32,
 ):
-    pytest.skip(
-        reason="Softmax does not lower to loops properly https://github.com/tenstorrent/tt-mlir/issues/3232"
-    )
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def softmax(

@@ -573,6 +573,38 @@ mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
                                                           getContext());
 }
 
+CBLayoutAttr CBLayoutAttr::get(mlir::MLIRContext *context,
+                               ArrayRef<int64_t> shape, uint64_t elementSize,
+                               uint32_t buffers) {
+  auto strides =
+      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize));
+  SmallVector<int64_t> emptyGrid;
+  return get(context, strides, buffers, emptyGrid);
+}
+
+CBLayoutAttr CBLayoutAttr::get(ArrayRef<int64_t> shape, Type elementType,
+                               uint32_t buffers) {
+  return get(elementType.getContext(), shape, getElementSizeBytes(elementType),
+             buffers);
+}
+
+CBLayoutAttr CBLayoutAttr::get(mlir::MLIRContext *context,
+                               ArrayRef<int64_t> shape, uint64_t elementSize,
+                               uint32_t buffers, ArrayRef<int64_t> gridShape) {
+  auto strides =
+      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize));
+  return get(context, strides, buffers, gridShape);
+}
+
+mlir::AffineMap CBLayoutAttr::getAffineMap() const {
+  // Return an identity map so that memrefs with this layout are
+  // cast-compatible with bare memrefs used by downstream ops (e.g.
+  // memref.cast in D2MToTTKernel).  The stride/buffers fields carry the
+  // CB configuration but don't affect the memref's logical indexing.
+  return mlir::AffineMap::getMultiDimIdentityMap(getStride().size(),
+                                                 getContext());
+}
+
 InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MLIRContext *context,
                                                  ArrayRef<int64_t> shape,
                                                  uint64_t elementSize) {
@@ -1357,7 +1389,7 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
   assert(virtualGrid.size() == meshShape.size());
 
   // Special case the inner 2 dimensions of the device indexing to support
-  // horizonally/vertically stacked virtual grids.  For these cases we need an
+  // horizontally/vertically stacked virtual grids.  For these cases we need an
   // affine expression that rolls over the device index when we reach the end of
   // single-chip boundaries.
   int meshStride = 1;
@@ -1539,6 +1571,12 @@ size_t DeviceAttr::getShardSizeInBytes(MemRefType memrefType, size_t alignSize,
     if (auto shardLayout = mlir::dyn_cast<ShardLayoutAttr>(devLayout)) {
       numBuffers = (includeBuffers) ? shardLayout.getBuffers() : 1;
     }
+  } else if (auto cbLayout =
+                 mlir::dyn_cast<CBLayoutAttr>(memrefType.getLayout())) {
+    // Core-local CB buffers: full shape is the shard, numBuffers is
+    // programmable.
+    shardShape = memrefType.getShape();
+    numBuffers = (includeBuffers) ? cbLayout.getBuffers() : 1;
   } else {
     // local memrefs have no layout attribute
     numBuffers = 1;

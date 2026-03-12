@@ -59,7 +59,7 @@ struct ValidationResult {
 
   // Accessors for the first actual output layout (convenience for single-output
   // ops).
-  // TODO(bmalesevic, #7023): after resolving, consider removing these if they
+  // TODO(bmalesevic, #7108): after resolving, consider removing these if they
   // encourage misuse for multi-output ops.
   TTNNLayoutAttr getFirstActualOutputLayout() const {
     return actualOutputLayouts.empty() ? nullptr : actualOutputLayouts[0];

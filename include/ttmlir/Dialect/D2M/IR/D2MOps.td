@@ -373,6 +373,12 @@ def D2M_GenericOp
       static Value findAssocOperand(::mlir::tensor::EmptyOp emptyOp);
       static Value findAssocCBByOperandIndex(Operation *op, unsigned operandIndex);
       static Value findAssocCBByOperand(Operation *op, Value operand);
+
+      /// Get the allocation (tensor.empty or memref.alloc) op result at
+      /// position `operandIndex` from the region's first block using
+      /// positional counting.  Returns null if not found.
+      static Value getOperandAlloc(Region &region, unsigned operandIndex);
+
       bool isScratchInput(int64_t inputIndex) {
         auto scratchAttr = getScratchInputsAttr();
         if (!scratchAttr) return false;
@@ -389,7 +395,8 @@ def D2M_GenericOp
 
 def D2M_EmptyOp
     : D2M_Op<
-          "empty", [Pure, DeclareOpInterfaceMethods<
+          "empty", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                    DeclareOpInterfaceMethods<
                         BufferizableOpInterface,
                         ["bufferizesToMemoryRead", "bufferizesToMemoryWrite",
                          "bufferize", "getAliasingValues", "getBufferType"]>]> {
@@ -406,16 +413,23 @@ def D2M_EmptyOp
                        OptionalAttr<AffineMapAttr>:$virtualGridForwardMapping);
   let results = (outs AnyRankedTensor:$result);
 
-  let builders = [OpBuilder<(ins "ArrayRef<int64_t>":$shape,
-                                "Type":$elementType, "Attribute":$encoding),
-                            [{
-      build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding),
-            /*virtualGridInverseMapping=*/nullptr, /*virtualGridForwardMapping=*/nullptr);
+  let builders = [
+    OpBuilder<(ins "ArrayRef<int64_t>":$shape, "Type":$elementType,
+                   "Attribute":$encoding), [{
+      build($_builder, $_state,
+            RankedTensorType::get(shape, elementType, encoding),
+            /*virtualGridInverseMapping=*/nullptr,
+            /*virtualGridForwardMapping=*/nullptr);
     }]>,
-                  OpBuilder<
-                      (ins "ArrayRef<int64_t>":$shape, "Type":$elementType), [{
+    OpBuilder<(ins "ArrayRef<int64_t>":$shape, "Type":$elementType), [{
       build($_builder, $_state, shape, elementType, nullptr);
-    }]>];
+    }]>,
+    // Builder that computes and sets virtual grid mapping attrs when the
+    // tensor's grid requires virtualization for the given target device grid.
+    OpBuilder<(ins "ArrayRef<int64_t>":$shape, "Type":$elementType,
+                   "Attribute":$encoding,
+                   "ArrayRef<int64_t>":$targetGridShape)>,
+  ];
 
   let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
 }

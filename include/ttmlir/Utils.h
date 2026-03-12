@@ -761,6 +761,26 @@ denseElementsAttrTo2D(mlir::DenseElementsAttr attr) {
   return result;
 }
 
+// Traces backward from a value through specified ops to find the source value.
+template <typename... Ops>
+mlir::Value lookThrough(mlir::Value value) {
+  while (auto *op = value.getDefiningOp()) {
+    if (llvm::isa<Ops...>(op)) {
+      value = op->getOperand(0);
+    } else {
+      break;
+    }
+  }
+  return value;
+}
+
+// Traces backward from a value through specified ops to find an operation of
+// type OpTy.
+template <typename OpTy, typename... Ops>
+OpTy findOpThrough(mlir::Value value) {
+  return lookThrough<Ops...>(value).template getDefiningOp<OpTy>();
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H

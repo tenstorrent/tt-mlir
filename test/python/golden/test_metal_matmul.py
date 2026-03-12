@@ -20,7 +20,7 @@ pytestmark = pytest.mark.frontend("ttir")
 # 1. F32 inputs are truncated into TF32, losing 13 mantissa bits. When positive
 #    and negative values with very close abs values are added together, some
 #    arithmetic operations will have over 5 orders of magnitude of differences
-#    in their operands. TF32 dosn't have this much "dynamic range".
+#    in their operands. TF32 doesn't have this much "dynamic range".
 # 2. When the CPU doesn't have native F16/BF16 support, torch will use
 #    software-emulated arithmetic operations to generate the matmul golden
 #    output, which is too slow.
@@ -244,7 +244,6 @@ def test_matmul_ttnn_shapes_double_buffered(
     )
 
 
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -264,6 +263,9 @@ def test_matmul_1d_shapes(
     request,
     device,
 ):
+    if dtype == torch.float32 and shape in ((32768, 32, 32), (32, 32, 32768)):
+        pytest.xfail(reason="Too large for f32.")
+
     lhs = (
         shape[0],
         shape[1],

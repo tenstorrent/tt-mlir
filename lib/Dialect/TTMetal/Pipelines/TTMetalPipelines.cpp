@@ -69,6 +69,7 @@ void createOptimizationPasses(OpPassManager &pm,
   pm.addPass(mlir::createSCCPPass());
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::arith::createIntRangeOptimizationsPass());
+  pm.addPass(mlir::createLoopInvariantCodeMotionPass());
 }
 
 void createTTIRToTTMetalFrontendPipeline(
@@ -218,6 +219,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   // remote loads and stores to explicit CB form split the
   // unified thread into separate compute and datamovement
   // threads.
+  pm.addPass(d2m::createD2MHoistCBAllocs());
   pm.addPass(d2m::createD2MConvertLocalLoadStoreOpsToAliasedCBs());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToExplicitCBForm());
   pm.addPass(d2m::createD2MSplitUnifiedThread());
@@ -230,8 +232,8 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MPreallocateMcastSemaphores());
   pm.addPass(d2m::createD2MScheduleDMA());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
+  pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
 
-  pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());

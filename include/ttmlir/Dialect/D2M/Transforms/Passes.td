@@ -887,9 +887,22 @@ def D2MScheduleDMA : Pass<"d2m-schedule-dma", "::mlir::ModuleOp"> {
 }
 
 def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir::ModuleOp"> {
-  let summary = "Lower D2M load/store operations to DMA operations.";
+  let summary = "Lower D2M load/store operations to shard-level DMA operations.";
   let description = [{
-    This pass performs lowering of D2M load/store operations to DMA operations.
+    This pass lowers d2m.remote_load and d2m.remote_store operations to
+    shard-level d2m.dma_read and d2m.dma_write operations with CB protocol
+    (reserve/push/wait/pop). The resulting DMA ops use grid-level indices
+    only. Full address indexing and coalescing is deferred
+    to D2MLowerDMAToFullyIndexedForm.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MLowerDMAToFullyIndexedForm : Pass<"d2m-lower-dma-to-fully-indexed-form", "::mlir::ModuleOp"> {
+  let summary = "Lower shard-level DMA ops to fully indexed form.";
+  let description = [{
+    This pass expands shard-level d2m.dma_read and d2m.dma_write operations into fully-indexed form with resolved
+    byte-offset indices, coalescing loops, and concrete numElems.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
   let options = [
@@ -897,6 +910,23 @@ def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir:
            /*default=*/"false",
            "Enable debug mode for coalescing inference. Runs both analytical and "
            "sampling-based coalescing checks and prints debug output comparing them.">,
+  ];
+}
+
+def D2MHoistCBAllocs : Pass<"d2m-hoist-cb-allocs", "::mlir::ModuleOp"> {
+  let summary = "Hoist in-generic CB allocs to external additionalArgs.";
+  let description = [{
+    This pass scans in-generic memref.alloc ops that carry a CBLayoutAttr
+    (set by the Allocate pass to mark circular buffer storage).  For each such
+    alloc it creates an external memref.alloc (with ShardLayoutAttr) as an
+    additionalArg on the enclosing d2m.generic op.  The in-generic alloc is
+    annotated with a `d2m.hoisted_operand_idx` attr pointing to the
+    additionalArg's operand index so that downstream passes (getOrCreateCB)
+    can wire the CB to the correct external buffer.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect"
   ];
 }
 

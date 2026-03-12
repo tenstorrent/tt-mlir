@@ -15,6 +15,7 @@
 #include "tt-metalium/program_cache.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/events.hpp"
+#include "ttnn/global_semaphore.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/core/core.hpp"
@@ -265,7 +266,7 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
                        tt::runtime::TensorRef tensorRef, bool untilize);
 
 // Update tensor to which tensorRef refers
-// Prefered to be owned tensor to avoid unexpected behavior in case of
+// Preferred to be owned tensor to avoid unexpected behavior in case of
 // deallocation
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);

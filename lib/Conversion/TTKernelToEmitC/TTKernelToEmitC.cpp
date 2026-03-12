@@ -313,6 +313,14 @@ public:
 
       template_args.push_back(packTileOp.getOutOfOrderAttr());
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::AddIntTileOp> ||
+                         std::is_same_v<SourceOp, ttkernel::SubIntTileOp> ||
+                         std::is_same_v<SourceOp, ttkernel::MulIntTileInitOp> ||
+                         std::is_same_v<SourceOp, ttkernel::MulIntTileOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(
+          datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDtype()));
+      return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::TypecastTileOp> ||
                          std::is_same_v<SourceOp,
                                         ttkernel::TypecastTileInitOp>) {
@@ -427,6 +435,23 @@ public:
         op, getTypeConverter()->convertType(op.getResult().getType()),
         (Twine("get_compile_time_arg_val(") + Twine(op.getArgIndex()) + ")")
             .str());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TTKernelToEmitCCBPortRewriter
+    : public OpConversionPattern<ttkernel::CBPortOp> {
+public:
+  using OpConversionPattern<ttkernel::CBPortOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::CBPortOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()),
+        (Twine("static_cast<::tt::CB>(") + Twine(op.getPort()) + ")").str());
     return success();
   }
 };
@@ -1058,7 +1083,8 @@ public:
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
     patterns.add<
-        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
+        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCCBPortRewriter,
+        TTKernelToEmitCDPrintRewriter,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
@@ -1147,6 +1173,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::CosTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AddIntTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AddIntTileOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::AddUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesOp>,
@@ -1188,16 +1216,25 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MulIntTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MulIntTileOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::MulUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SubIntTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SubIntTileOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::SubUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxInt32TileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxInt32TileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMinTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMinTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMinInt32TileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMinInt32TileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NegativeTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NegativeTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NegativeTileInt32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PowBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PowBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PowerTileInitOp>,
@@ -1237,6 +1274,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileInt32Op>,
 
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,

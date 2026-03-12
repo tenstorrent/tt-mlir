@@ -8,6 +8,7 @@
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
+#include "mlir/Conversion/MathToLibm/MathToLibm.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Conversion/TensorToLinalg/TensorToLinalgPass.h"
@@ -236,11 +237,18 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // These two passes convert scf to LLVM control flow.
   manager.addPass(mlir::createSCFToControlFlowPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
+
   // These passes convert corresponding primitives to their LLVM equivalents.
   manager.addPass(mlir::createArithToLLVMConversionPass());
   manager.addPass(mlir::createConvertMathToLLVMPass());
+
+  // Lower any remaining math operations to libm calls.
+  manager.addPass(mlir::createConvertMathToLibmPass());
+
+  // Finally, convert the func ops and finalize the memref to LLVM conversion.
   manager.addPass(mlir::createConvertFuncToLLVMPass());
   manager.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
+
   // This pass is a cleanup for any unrealized conversion casts between
   // types--we should be completely in LLVM Dialect now, so all unrealized
   // conversions should be removable.
@@ -270,6 +278,9 @@ void createTTIRToLLVMCPUPipeline(OpPassManager &pm,
   mlir::tt::TTIRToTTIRDecompositionOptions decompOptions;
   decompOptions.decompConfig = mlir::tt::DecompMode::CPUFallback;
   cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
+
+  cpuPm.addPass(mlir::createCanonicalizerPass());
+  cpuPm.addPass(mlir::createCSEPass());
 
   // Lower TTIR to mix of linalg direct, TOSA (which we can subsequently lower
   // to linalg), and Tensor dialect ops.

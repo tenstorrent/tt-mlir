@@ -54,6 +54,10 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRQuantDequantConversion());
   }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(mlir::createCanonicalizerPass());
+  if (options.implicitBroadcastFoldingEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
+  }
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -237,7 +241,6 @@ void createTTIRToTTNNDevicePipeline(
   pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
 
   pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::createCSEPass());
 
   // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
@@ -263,6 +266,8 @@ void createTTIRToTTNNDevicePipeline(
     quantOptions.targetBitWidth = options.quantBitWidth;
     devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
 
+    devicePm.addPass(mlir::createCSEPass());
+
     // Const-eval hoisting pass.
     if (options.enableConstEval) {
       // Hoist const-eval subgraphs into separate functions in Device module.
@@ -284,10 +289,26 @@ void createTTIRToTTNNDevicePipeline(
     createTTNNFusingPass(devicePm, options);
 
     createTTNNPipelineWorkaroundPass(devicePm, options);
-    // Add BFP8 weight conversion pass before analysis passes.
+    // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
-    if (options.experimentalBfp8Weights) {
-      devicePm.addPass(createTTNNWeightBFP8Conversion());
+    {
+      WeightDtype resolvedWeightDtype = options.experimentalWeightDtype;
+
+      // Handle deprecated experimental-bfp8-weights flag.
+      if (options.experimentalBfp8Weights) {
+        if (resolvedWeightDtype != WeightDtype::None) {
+          llvm::report_fatal_error(
+              "Cannot set both experimental-bfp8-weights and "
+              "experimental-weight-dtype. Use experimental-weight-dtype only.");
+        }
+        resolvedWeightDtype = WeightDtype::BFP_BFloat8;
+      }
+
+      if (resolvedWeightDtype != WeightDtype::None) {
+        TTNNWeightDtypeConversionOptions convOpts;
+        convOpts.targetDtype = resolvedWeightDtype;
+        devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
+      }
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.
@@ -469,9 +490,19 @@ void createTTNNToEmitPyDevicePipeline(
     }
   }
 
+  devicePm.addPass(createTTNNPrepareConstEvalCaching());
+  // Optionally run TTNNFileSplit pass.
+  if (options.splitFiles) {
+    TTNNFileSplitOptions fileSplitOptions;
+    fileSplitOptions.target = FileSplitTarget::EmitPy;
+    devicePm.addPass(createTTNNFileSplit(fileSplitOptions));
+  }
+
   ConvertTTNNToEmitPyOptions emitpyOptions;
   emitpyOptions.targetModule = options.targetModule;
   devicePm.addPass(createConvertTTNNToEmitPyPass(emitpyOptions));
+
+  devicePm.addPass(createEmitPyConstEvalCachingPass());
 
   devicePm.addPass(createEmitPyNameVarsPass());
 }

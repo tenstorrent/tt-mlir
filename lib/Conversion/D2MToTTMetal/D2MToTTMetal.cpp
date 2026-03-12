@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/D2MToTTMetal/D2MToTTMetal.h"
 
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -124,6 +125,8 @@ public:
   LogicalResult
   matchAndRewrite(d2m::GenericOp op, d2m::GenericOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
+
     llvm::SmallVector<Value> remappedBuffers;
     llvm::SmallVector<Value> cbs;
     llvm::SmallVector<int64_t> cbPorts;
@@ -137,7 +140,7 @@ public:
           stream) {
         args.push_back(stream.getInput());
         remappedBuffers.push_back(rewriter.getRemappedValue(stream.getInput()));
-        cbs.push_back(stream.getStorage());
+        cbs.push_back(rewriter.getRemappedValue(stream.getInput()));
       } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
                      operand.getDefiningOp());
                  view) {
@@ -149,16 +152,35 @@ public:
         remappedBuffers.push_back(rewriter.getRemappedValue(operand));
         cbs.push_back(operand);
       }
+
       cbPorts.push_back(cbPort++);
     }
 
-    // Add additional args that are not ins or outs in the generic op.
+    // Add additional args.
+    unsigned ioSize = op.getInputsAndOutputs().size();
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
-      auto operand = adaptor.getOperands()[op.getInputsAndOutputs().size() + i];
+      auto operand = adaptor.getOperands()[ioSize + i];
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
         args.push_back(operand);
+      } else if (mlir::isa<MemRefType>(operand.getType())) {
+        // Hoisted CB buffer (already converted to CreateBufferOp by
+        // MemrefAllocRewriter).  If it backs a regular operand, override
+        // that operand's CB; otherwise add as a new CB entry.
+        if (auto cbForOp =
+                operand.getDefiningOp()
+                    ? operand.getDefiningOp()->getAttrOfType<IntegerAttr>(
+                          "d2m.cb_for_operand")
+                    : IntegerAttr()) {
+          unsigned idx = static_cast<unsigned>(cbForOp.getInt());
+          assert(idx < cbs.size() && "d2m.cb_for_operand out of range");
+          cbs[idx] = operand;
+        } else {
+          cbs.push_back(operand);
+          cbPorts.push_back(cbPort++);
+        }
       } else {
-        op.emitOpError("unexpected capture operand type: ")
+        op.emitOpError(
+            "unexpected operand type in d2m.generic's additionalArgs: ")
             << operand.getType();
         return failure();
       }
@@ -166,7 +188,6 @@ public:
 
     ArrayAttr threads = op.getThreads();
     auto physicalGridShape = op.getPhysicalGridShape();
-    SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
     auto kernelConfigs = convertThreadsToKernelConfigs(
         rewriter, op.getInputsAndOutputs(), threads, physicalGridShape,
         symbolTable, mathFidelity_);
@@ -189,18 +210,43 @@ public:
   matchAndRewrite(memref::AllocOp op, memref::AllocOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto address = op->getAttrOfType<IntegerAttr>("address");
+
+    // Stream buffer allocs have no address and are used only as storage
+    // operands for d2m.stream_layout ops. They remain as memref.alloc in the
+    // target dialect and do not need a ttmetal.create_buffer.
+    if (!address) {
+      return failure();
+    }
+
     assert(op.getMemref().getType().getMemorySpace() &&
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
-
-    assert((mlir::isa<ttcore::ShardLayoutAttr, ttcore::InterleavedLayoutAttr>(
-               memrefType.getLayout())) &&
-           "expected physical device layout (shard or interleaved)");
 
     auto vgm = op->getAttrOfType<AffineMapAttr>(
         d2m::utils::kVirtualGridInverseMappingAttr);
     auto fwd = op->getAttrOfType<AffineMapAttr>(
         d2m::utils::kVirtualGridForwardMappingAttr);
+
+    // Hoisted CB allocs carry CBLayoutAttr (shard-only).  The attr's
+    // gridShape field has the resolved physical grid.  Keep the original
+    // type on CreateBufferOp so the dialect conversion framework doesn't
+    // see a type mismatch.  The serializer reads gridShape from the attr.
+    if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+      auto cbForOperandAttr =
+          op->getAttrOfType<IntegerAttr>("d2m.cb_for_operand");
+      auto cbOp = rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
+          op, memrefType, address, /*virtualGridInverseMapping=*/vgm,
+          /*virtualGridForwardMapping=*/fwd);
+      if (cbForOperandAttr) {
+        cbOp->setAttr("d2m.cb_for_operand", cbForOperandAttr);
+      }
+      return success();
+    }
+
+    assert((mlir::isa<ttcore::ShardLayoutAttr, ttcore::InterleavedLayoutAttr>(
+               memrefType.getLayout())) &&
+           "expected physical device layout (shard or interleaved)");
+
     rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
         op, memrefType, address, /*virtualGridInverseMapping=*/vgm,
         /*virtualGridForwardMapping=*/fwd);

@@ -284,6 +284,37 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
   }];
 }
 
+def TTCore_CBLayoutAttr : TTCore_Attr<"CBLayout", "cb_layout", [MemRefLayoutAttrInterface]> {
+  let summary = "Circular buffer layout attribute for core-local buffers.";
+  let description = [{
+    Describes the layout of a core-local circular buffer in L1 memory.
+    Unlike ShardLayoutAttr, this layout does not imply a grid+shard shape
+    split — the entire memref shape is the local buffer shape.
+
+    - Stride: Stride of each dimension in bytes.
+    - Buffers: Number of backing buffers (1 = single, 2 = double-buffered, etc.)
+    - GridShape: Physical grid shape for the buffer (resolved from the
+      external operand's device layout at stream insertion time).  Used at
+      conversion/serialization to construct the full [grid..shard..] +
+      ShardLayoutAttr type for CreateBufferOp.
+  }];
+  let parameters = (ins ArrayRefParameter<"int64_t">:$stride,
+                        "uint32_t":$buffers,
+                        ArrayRefParameter<"int64_t">:$gridShape);
+
+  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers `,` `grid` `=` `[` custom<DimensionList>($gridShape) `]` `>`";
+
+  let extraClassDeclaration = [{
+    static CBLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
+    static CBLayoutAttr get(ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
+    static CBLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers, ArrayRef<int64_t> gridShape);
+
+    AffineMap getAffineMap() const;
+
+    unsigned getRank() const { return getStride().size(); }
+  }];
+}
+
 def TTCore_InterleavedLayoutAttr : TTCore_Attr<"InterleavedLayout", "interleaved", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
   let summary = "Interleaved layout attribute in TT dialect";
   let description = [{
@@ -316,7 +347,7 @@ def TTCore_HostLayoutAttr : TTCore_Attr<"HostLayout", "host_layout", [MemRefLayo
     This allows host memrefs to reflect the padded footprint required by the
     device while preserving the original logical shape, enabling I/O for
     unaligned densly-packed shapes (e.g., non-multiples of 32×32 tiles). The
-    correct element placement in data copys between padded and unpadded host
+    correct element placement in data copies between padded and unpadded host
     memrefs is ensured by the strided-memcpy of the runtime's `memref.copy`
     implementation.
 
@@ -364,7 +395,7 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
         during conversion from logical_shape to physical tensor shape.
       - **Padding**: store the desired alignments s.t. padding can be simply encoded;
       dim_alignments field represents alignment along each logical dim during collapse.
-      - **Memref translation**: ensure we have all necessary info s.t. we can trivally
+      - **Memref translation**: ensure we have all necessary info s.t. we can trivially
         lower a tensor into a memref without any intermediate passes.
 
     For a logical tensor of shape [H, W] distributed across a grid [GY, GX], the tensor shape would be:
@@ -392,7 +423,7 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     ArrayRefParameter<"int64_t">:$dim_alignments,
 
     // Dim collapse info; must be encoded as 2D array of pairs, where each pair represent a half-open range. Negative indexing is supported.
-    AttrParameter<"DenseIntElementsAttr", "Intervals of dims to collpase">:$collapsed_intervals,
+    AttrParameter<"DenseIntElementsAttr", "Intervals of dims to collapse">:$collapsed_intervals,
 
     // Out of bounds value.
     AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
@@ -518,7 +549,7 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
       //
       size_t getShardSizeInBytes(MemRefType memrefType, size_t alignSize, bool includeBuffers) const;
 
-      // Returns the circular buffer page size in bytes of the given memref type. The general heursitic is:
+      // Returns the circular buffer page size in bytes of the given memref type. The general heuristic is:
       //   - If element type is tile type, return the size of the tile type.
       //   - If element type is scalar type, return the size of a tile type with underlying scalar type.
       size_t getMemrefCBPageSizeBytes(MemRefType memrefType) const;
@@ -638,7 +669,7 @@ def TTCore_LocalShapeAttr : TTCore_Attr<"LocalShape", "local_shape"> {
   let summary = "Local shape of an argument/result in multi-device context";
   let description = [{
     This attribute can be applied to arguments + results to signify their local shape in multi-device context.
-    Any tool built ontop of mlir runtime needs to know how to generate the inputs (unsharded or presharded) and this attribute encapsulate that information.
+    Any tool built on top of mlir runtime needs to know how to generate the inputs (unsharded or presharded), and this attribute encapsulates that information.
     There is a strict contract between local shape and shard status. The shard status influences the compiler and the runtime needs to be given the correct tensors (single device or multi-device).
   }];
 
@@ -698,6 +729,18 @@ def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, Float
     }];
 
     let genVerifyDecl = 1;
+}
+
+def TTCore_DictType : TTCore_Type<"Dict", "dict"> {
+  let summary = "TTCore dictionary type";
+  let description = [{
+    A type representing a dictionary.
+
+    Example:
+    ```mlir
+    !ttcore.dict
+    ```
+  }];
 }
 
 //===----------------------------------------------------------------------===//

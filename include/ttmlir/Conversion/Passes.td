@@ -207,6 +207,20 @@ def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   ];
 }
 
+def EmitPyConstEvalCaching : Pass<"emitpy-const-eval-caching", "::mlir::ModuleOp"> {
+  let summary = "Wrap complete consteval caching logic into the one if-guard.";
+  let description = [{
+    Post-conversion pass that walks functions containing a cache dictionary
+    and wraps const-eval calls (tagged with `emitpy.const_evaled`) and their
+    dict-set expressions in an `emitpy.if` guard:
+
+      if not dict:
+          dict["key"] = callee(inputs...)
+  }];
+  let constructor = "createEmitPyConstEvalCachingPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
+}
+
 def EmitPyNameVars : Pass<"emitpy-name-vars", "::mlir::ModuleOp"> {
   let summary = "Pass to add suggested names for variables in EmitPy pipeline.";
   let description = [{

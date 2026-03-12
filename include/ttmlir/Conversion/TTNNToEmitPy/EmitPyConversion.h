@@ -97,6 +97,9 @@ namespace mlir {
 namespace tt {
 namespace ttnn_to_emitpy {
 
+constexpr const char *kNameAttr = "emitpy.name";
+constexpr const char *kConstEvaledAttr = "emitpy.const_evaled";
+
 template <typename T, typename Enable = void>
 struct TypeName;
 
@@ -601,6 +604,14 @@ struct EmitPyTypeConverter<::ttnn::DataType> {
       return convert(dataTypeAttr);
     }
     return {};
+  }
+
+  static std::string convert(ttcore::DataTypeAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    return convert(attr.getValue());
   }
 
   static std::string convert(ttcore::DataType attr) {
@@ -2201,6 +2212,14 @@ public:
             layoutAttr, deviceOp.getDeviceAttr().getWorkerGrid()));
 
     return memoryConfigAttr;
+  }
+
+  ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
+    auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    return ttcore::DataTypeAttr::get(resultLayoutAttr.getContext(),
+                                     resultLayoutAttr.getDataType());
   }
 
   template <typename OpConversionPatternTy>

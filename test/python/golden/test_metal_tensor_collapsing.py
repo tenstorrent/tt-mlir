@@ -86,11 +86,7 @@ def module_transpose_inner_dims(builder: TTIRBuilder):
         (module_elementwise_multiply_3d_multiply, "3d_multiply"),
         (module_unary_exp_2d_exp, "3d_exp"),
         # 4D element-wise operations (working with non-collapsed tensors)
-        pytest.param(
-            module_elementwise_add_4d_add,
-            "4d_add",
-            marks=pytest.mark.xfail(reason="Golden failure"),
-        ),
+        pytest.param(module_elementwise_add_4d_add, "4d_add"),
         (module_unary_exp_4d_exp, "4d_exp"),
         # Batched matmul (fixed in #6648)
         (module_batch_matmul, "matmul"),

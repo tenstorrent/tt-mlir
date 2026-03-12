@@ -17,7 +17,7 @@ module {
     %arg_in: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram_>,
     %arg_out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>
   ) {
-    // CHECK: %[[ALLOC:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64}{{.+}} #l1>
+    // CHECK: %[[ALLOC:.*]] = memref.alloc(){{.*}}#l1>
     %in_buf = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>
     // CHECK: %[[STREAM:.*]] = "d2m.stream_layout"(%{{.*}}, %[[ALLOC]]) <{remapping = #map}> : {{.*}}#dram>
     %in_stream = "d2m.stream_layout"(%arg_in, %in_buf) {remapping = #map} : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram_>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram_>
@@ -35,7 +35,9 @@ module {
     }
     ins(%in_stream : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram_>)
     outs(%arg_out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
-    ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #dram_>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>):
+    ^compute0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #dram_>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
       %val = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #dram_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #dram_>
       %out = d2m.reserve %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
     }

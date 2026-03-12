@@ -11,10 +11,12 @@
 #include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
+#include "Constants.h"
+
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Error.h"
 
-#include "llvm/ADT/APFloat.h"
 #include <cstdint>
 #include <optional>
 #include <tuple>
@@ -3383,9 +3385,13 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
               inputVirtualGrid] = std::get<0>(params);
   const auto [outputShape, outputTensorLayout, outputBufferType,
               outputVirtualGrid] = std::get<1>(params);
-  const auto minVal = llvm::APFloat(std::get<2>(params));
-  const auto maxVal = llvm::APFloat(std::get<3>(params));
+  const float minFloat = std::get<2>(params);
+  const float maxFloat = std::get<3>(params);
   const auto expectedLegal = std::get<4>(params);
+
+  mlir::Builder builder(&context);
+  mlir::Attribute minAttr = builder.getF32FloatAttr(minFloat);
+  mlir::Attribute maxAttr = builder.getF32FloatAttr(maxFloat);
 
   const TTNNLayoutAttr inputLayout = CreateTiledLayout(
       inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
@@ -3393,7 +3399,7 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
   auto constraintsExp = OpModel<ClampScalarOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, minVal, maxVal,
+      CreateWorkerGrid(), inputShape, inputLayout, minAttr, maxAttr,
       outputLayout);
   if (!constraintsExp) {
     std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
@@ -3413,7 +3419,7 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
   }
 
   auto runtimeExp = OpModel<ClampScalarOp>::getOpRuntime(
-      inputShape, inputLayout, minVal, maxVal, outputLayout);
+      inputShape, inputLayout, minAttr, maxAttr, outputLayout);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -3431,6 +3437,29 @@ INSTANTIATE_TEST_SUITE_P(ClampScalarTests, OpModelClampScalarParam,
                                                 TensorMemoryLayout::Interleaved,
                                                 BufferType::L1},
                              1.0, 5.0, true)));
+
+// Verify that clamp with si32 input and I32Attr min/max preserves si32 dtype.
+TEST_F(OpModelTest, ClampScalarInt32DtypePreserved) {
+  llvm::SmallVector<int64_t> shape{1, 1, 128, 32};
+  const TTNNLayoutAttr inputLayout = CreateTiledLayoutInt32(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr outputLayout = CreateTiledLayoutInt32(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  mlir::Builder builder(&context);
+  mlir::Attribute minAttr = builder.getI32IntegerAttr(0);
+  mlir::Attribute maxAttr = builder.getI32IntegerAttr(2);
+
+  auto constraintsExp = OpModel<ClampScalarOp>::getOpConstraints(
+      CreateWorkerGrid(), shape, inputLayout, minAttr, maxAttr, outputLayout);
+  ASSERT_TRUE(static_cast<bool>(constraintsExp))
+      << "Constraints failed: " << llvm::toString(constraintsExp.takeError());
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBacks] = constraintsExp.get();
+  ASSERT_FALSE(outputLayoutReadBacks.empty());
+  ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
+}
 
 class OpModelClampTensorParam : public OpModelTest,
                                 public testing::WithParamInterface<
@@ -4095,6 +4124,33 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int32_t>{7, 7},
                         llvm::SmallVector<int32_t>{2, 2},
                         llvm::SmallVector<int32_t>{3, 3},
+                        llvm::SmallVector<int32_t>{1, 1}, 1,
+                        detail::ExpectedResult{true}),
+        // Test case 2: 1x1 conv bias preparation with interleaved input
+        // (mm_conv=true path in tt-metal)
+        std::make_tuple(detail::TestTensor{{1, 1, 1, 128},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::SystemMemory},
+                        detail::TestTensor{{1, 1, 1, 128},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        ::mlir::tt::ttnn::Layout::Tile, 64, 128, 1, 56, 56,
+                        llvm::SmallVector<int32_t>{1, 1},
+                        llvm::SmallVector<int32_t>{1, 1},
+                        llvm::SmallVector<int32_t>{0, 0},
+                        llvm::SmallVector<int32_t>{1, 1}, 1,
+                        detail::ExpectedResult{true}),
+        // Test case 3: 3x3 conv bias preparation with interleaved input
+        std::make_tuple(detail::TestTensor{{1, 1, 1, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::SystemMemory},
+                        detail::TestTensor{{1, 1, 1, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        ::mlir::tt::ttnn::Layout::Tile, 64, 64, 1, 56, 56,
+                        llvm::SmallVector<int32_t>{3, 3},
+                        llvm::SmallVector<int32_t>{1, 1},
+                        llvm::SmallVector<int32_t>{1, 1},
                         llvm::SmallVector<int32_t>{1, 1}, 1,
                         detail::ExpectedResult{true})));
 
@@ -6248,4 +6304,77 @@ TEST_F(OpModelTest, AssignOp) {
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
+
+struct MeshPartitionRuntimeParam {
+  size_t meshRows;
+  size_t meshCols;
+  int32_t dim;
+  uint32_t clusterAxis;
+};
+
+class OpModelMeshPartitionRuntimeTest
+    : public OpModelFixture,
+      public ::testing::WithParamInterface<MeshPartitionRuntimeParam> {};
+
+TEST_P(OpModelMeshPartitionRuntimeTest, MeshPartitionOpRuntime) {
+  const auto &p = GetParam();
+  const size_t numChips = p.meshRows * p.meshCols;
+
+  // Runtime queries require a real multi-chip device.
+  // Try to reopen with the requested mesh; if the system doesn't have enough
+  // devices the open will throw, so catch and skip gracefully.
+  SingletonDeviceContext::closeInstance();
+  try {
+    SingletonDeviceContext::getInstance().openDevice(
+        ::tt::constants::opModelDefaultTraceRegionSize,
+        /*isMock=*/false,
+        /*meshShape=*/std::make_pair(p.meshRows, p.meshCols));
+  } catch (...) {
+    // Reopen the default device for TearDown before skipping.
+    SingletonDeviceContext::getInstance().openDevice();
+    GTEST_SKIP() << "Unable to open {" << p.meshRows << "," << p.meshCols
+                 << "} mesh device; not enough hardware";
+  }
+
+  const llvm::SmallVector<int64_t> inputShape = {static_cast<int64_t>(numChips),
+                                                 248};
+  const TTNNLayoutAttr layoutDRAMRowMajor = CreateRowMajorLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  const int32_t dim = p.dim;
+  const std::optional<uint32_t> clusterAxis = p.clusterAxis;
+
+  auto runtimeExp = OpModel<MeshPartitionOp>::getOpRuntime(
+      inputShape, layoutDRAMRowMajor, dim, clusterAxis, layoutDRAMRowMajor);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Missing runtime; Error="
+           << llvm::toString(runtimeExp.takeError()) << std::endl;
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(MeshPartitionRuntime, OpModelMeshPartitionRuntimeTest,
+                         ::testing::Values(
+                             // {1,2} mesh: only axis 1 splits.
+                             MeshPartitionRuntimeParam{1, 2, 0, 1},
+                             MeshPartitionRuntimeParam{1, 2, 1, 1},
+                             // {1,4} mesh: only axis 1 splits.
+                             MeshPartitionRuntimeParam{1, 4, 0, 1},
+                             MeshPartitionRuntimeParam{1, 4, 1, 1},
+                             // {1,8} mesh: only axis 1 splits.
+                             MeshPartitionRuntimeParam{1, 8, 0, 1},
+                             MeshPartitionRuntimeParam{1, 8, 1, 1},
+                             // {2,2} mesh: both axes split.
+                             MeshPartitionRuntimeParam{2, 2, 0, 0},
+                             MeshPartitionRuntimeParam{2, 2, 0, 1},
+                             MeshPartitionRuntimeParam{2, 2, 1, 0},
+                             MeshPartitionRuntimeParam{2, 2, 1, 1},
+                             // {2,4} mesh: both axes split.
+                             MeshPartitionRuntimeParam{2, 4, 0, 0},
+                             MeshPartitionRuntimeParam{2, 4, 0, 1},
+                             MeshPartitionRuntimeParam{2, 4, 1, 0},
+                             MeshPartitionRuntimeParam{2, 4, 1, 1}));
+
 } // namespace mlir::tt::ttnn::op_model

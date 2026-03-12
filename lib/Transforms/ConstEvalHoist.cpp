@@ -319,6 +319,7 @@ static void inlineConstEvalFunction(mlir::func::FuncOp funcOp,
   }
 
   // Clone operations from const-eval function
+  llvm::SmallVector<mlir::Operation *, 16> inlinedOps;
   auto &funcBody = funcOp.getBody().front();
   for (auto &op : funcBody) {
     // Skip the terminator operations
@@ -327,7 +328,7 @@ static void inlineConstEvalFunction(mlir::func::FuncOp funcOp,
     }
 
     // Clone the operation and update operands using the mapper
-    builder.clone(op, valueMapper);
+    inlinedOps.push_back(builder.clone(op, valueMapper));
   }
 
   // Get the return operation and map its values to the cloned values
@@ -339,6 +340,31 @@ static void inlineConstEvalFunction(mlir::func::FuncOp funcOp,
 
   // Erase the call operation
   callOp.erase();
+
+  // Sink ops to just before their earliest user to minimize intermediate
+  // tensor liveness on device. Process bottom-to-top so that consumers
+  // are already in their final position when their producers are sunk.
+  // Use the last moved op as an upper bound to preserve relative order.
+  mlir::Operation *lastMovedOp = nullptr;
+  for (int i = inlinedOps.size() - 1; i >= 0; --i) {
+    mlir::Operation *op = inlinedOps[i];
+    mlir::Operation *earliestUser = nullptr;
+    for (auto result : op->getResults()) {
+      for (auto *user : result.getUsers()) {
+        if (!earliestUser || user->isBeforeInBlock(earliestUser)) {
+          earliestUser = user;
+        }
+      }
+    }
+    if (earliestUser) {
+      mlir::Operation *insertPt = earliestUser;
+      if (lastMovedOp && lastMovedOp->isBeforeInBlock(insertPt)) {
+        insertPt = lastMovedOp;
+      }
+      op->moveBefore(insertPt);
+      lastMovedOp = op;
+    }
+  }
 }
 
 static void undoConstEvalImpl(mlir::ModuleOp module,

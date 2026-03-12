@@ -26,7 +26,7 @@ namespace mlir::tt::testing {
 #endif
 
 // Return a 64-bit random seed that can be used by randomized tests. This value
-// is a sigleton in the current process and it generated according to the
+// is a singleton in the current process and it generated according to the
 // following rules:
 //
 // (a) by default, this is a constant that is hardcoded/doesn't vary with time;

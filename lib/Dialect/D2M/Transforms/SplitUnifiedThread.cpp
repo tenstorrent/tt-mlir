@@ -65,23 +65,19 @@ public:
     Block *datamovementBlock = &newGeneric.getRegion(0).emplaceBlock();
     Block *computeBlock = &newGeneric.getRegion(1).emplaceBlock();
 
-    // Add arguments to both blocks matching the original region
-    SmallVector<Type> argTypes(originalBlock->getArgumentTypes().begin(),
-                               originalBlock->getArgumentTypes().end());
-    SmallVector<Location> argLocs(argTypes.size(), generic.getLoc());
-    datamovementBlock->addArguments(argTypes, argLocs);
-    computeBlock->addArguments(argTypes, argLocs);
-
-    // Create IR mappings for both regions
+    // Copy semaphore block arguments to both new blocks.
     IRMapping datamovementMapping;
     IRMapping computeMapping;
-
-    // Map block arguments
     for (unsigned i = 0; i < originalBlock->getNumArguments(); ++i) {
-      datamovementMapping.map(originalBlock->getArgument(i),
-                              datamovementBlock->getArgument(i));
-      computeMapping.map(originalBlock->getArgument(i),
-                         computeBlock->getArgument(i));
+      BlockArgument origArg = originalBlock->getArgument(i);
+      assert(mlir::isa<d2m::SemaphoreType>(origArg.getType()) &&
+             "region block arguments must be of semaphore type");
+      auto dmArg =
+          datamovementBlock->addArgument(origArg.getType(), generic.getLoc());
+      auto cmpArg =
+          computeBlock->addArgument(origArg.getType(), generic.getLoc());
+      datamovementMapping.map(origArg, dmArg);
+      computeMapping.map(origArg, cmpArg);
     }
 
     // Clone all operations to both regions (excluding terminators for now)

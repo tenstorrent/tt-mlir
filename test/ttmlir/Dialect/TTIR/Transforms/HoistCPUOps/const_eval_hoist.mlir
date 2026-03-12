@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttcore-wrap-device-module --cpu-hoist-const-eval --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --cpu-hoist-const-eval --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // CHECK: ttcore.device_module {
-// CHECK: builtin.module {
+// CHECK: builtin.module
 
 // --- Test 1: Basic const-eval hoisting ---
 
@@ -139,6 +139,21 @@ func.func private @const_eval_multiple_outputs(
   %add = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
   %sub = "ttir.subtract"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
   return %add, %sub : tensor<32x32xbf16>, tensor<32x32xbf16>
+}
+
+// --- Test 10: Non-lowerable op skips hoisting ---
+// RMS norm has no Linalg lowering, so the entire const-eval subgraph
+// should NOT be hoisted.
+
+// CHECK-LABEL: func.func private @const_eval_non_lowerable
+// CHECK-NOT: call @cpu_hoisted
+// CHECK: ttir.rms_norm
+// CHECK: return
+func.func private @const_eval_non_lowerable(
+    %arg0: tensor<2x4x8xf32>, %arg1: tensor<8xf32>
+) -> tensor<2x4x8xf32> attributes {tt.function_type = "const_eval"} {
+  %0 = "ttir.rms_norm"(%arg0, %arg1) <{normalized_shape = array<i64: 8>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<2x4x8xf32>, tensor<8xf32>) -> tensor<2x4x8xf32>
+  return %0 : tensor<2x4x8xf32>
 }
 
 // Verify hoisted function declarations and definitions.

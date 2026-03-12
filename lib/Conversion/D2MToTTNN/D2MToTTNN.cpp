@@ -419,9 +419,14 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     // The ttnn.generic op requires ttnn tensor operands. Defer rewriting until
     // memref.alloc operands are converted so we have the memref->ttnn
-    // tensor translations.
-    for (auto [orig, converted] :
-         llvm::zip(op->getOperands(), adaptor.getOperands())) {
+    // tensor translations.  Skip hoisted CB allocs (additionalArgs with
+    // CBLayoutAttr) — they stay as memref.alloc intentionally.
+    unsigned ioSize = op.getInputsAndOutputs().size();
+    for (auto [idx, orig, converted] :
+         llvm::enumerate(op->getOperands(), adaptor.getOperands())) {
+      if (idx >= ioSize) {
+        break; // additionalArgs — don't wait for these
+      }
       if (mlir::isa_and_present<memref::AllocOp>(orig.getDefiningOp()) &&
           orig == converted) {
         return rewriter.notifyMatchFailure(
@@ -430,7 +435,6 @@ public:
     }
 
     MLIRContext *ctx = rewriter.getContext();
-    const size_t size = op.getOperands().size();
     auto device = ttcore::lookupDevice(op->getParentOp());
     TT_assert(device);
 
@@ -440,12 +444,6 @@ public:
       // The genericOp has a virtual grid. We need to recover the original
       // physical grid.
       auto output = op.getOutputs()[0];
-      mlir::ShapedType outputType =
-          mlir::cast<mlir::ShapedType>(output.getType());
-      auto shardLayout = mlir::dyn_cast<ttcore::ShardLayoutAttr>(
-          ttcore::getDeviceLayout(outputType));
-      TT_assertv(shardLayout, "Expected shardLayoutAttr for the output of a "
-                              "generic op with a virtual grid.");
 
       auto physicalGridShape = d2m::utils::getPhysicalGridShape(output);
       // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
@@ -461,13 +459,48 @@ public:
             ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
             ttnn::CoreCoordAttr::get(ctx, endCoreRange[0], endCoreRange[1])));
 
-    llvm::SmallVector<Value> ios(size);
-    llvm::SmallVector<Value> cbs(size);
+    llvm::SmallVector<Value> ios(ioSize);
+    llvm::SmallVector<Value> cbs(ioSize);
+    llvm::SmallVector<Value> adaptorInputsAndOutputs(
+        adaptor.getOperands().begin(), adaptor.getOperands().begin() +
+                                           adaptor.getInputs().size() +
+                                           adaptor.getOutputs().size());
     for (auto [i, orig, converted] :
-         llvm::enumerate(op->getOperands(), adaptor.getOperands())) {
+         llvm::enumerate(op.getInputsAndOutputs(), adaptorInputsAndOutputs)) {
       auto [io, cb] = extractIOAndCBFromGenericOperand(orig, converted);
       ios[i] = io;
       cbs[i] = cb;
+    }
+
+    // Process additionalArgs: semaphores/tensors go to the GenericOp,
+    // hoisted CB allocs (MemRefType) override the corresponding CB.
+    llvm::SmallVector<Value> additionalArgs;
+    for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
+      auto operand = adaptor.getOperands()[ioSize + i];
+      auto origOperand = op.getAdditionalArgs()[i];
+      if (mlir::isa<MemRefType>(operand.getType())) {
+        // Hoisted CB buffer — override the regular operand's CB if mapped.
+        if (auto cbForOp =
+                origOperand.getDefiningOp()
+                    ? origOperand.getDefiningOp()->getAttrOfType<IntegerAttr>(
+                          "d2m.cb_for_operand")
+                    : IntegerAttr()) {
+          unsigned idx = static_cast<unsigned>(cbForOp.getInt());
+          assert(idx < cbs.size() && "d2m.cb_for_operand out of range");
+          cbs[idx] = operand;
+        } else {
+          cbs.push_back(operand);
+        }
+      } else if (mlir::isa<ttnn::GlobalSemaphoreType>(operand.getType())) {
+        additionalArgs.push_back(operand);
+      } else if (mlir::isa<RankedTensorType>(operand.getType())) {
+        additionalArgs.push_back(operand);
+      } else {
+        op.emitOpError(
+            "unexpected operand type in d2m.generic's additionalArgs: ")
+            << operand.getType();
+        return failure();
+      }
     }
 
     // Create CB descriptors.
@@ -488,8 +521,8 @@ public:
     ttnn::ProgramAttr program = ttnn::ProgramAttr::get(
         ctx, kernelDescriptors, cbDescriptors, semaphoreDescriptors);
 
-    rewriter.replaceOpWithNewOp<ttnn::GenericOp>(op, ios, program,
-                                                 ttnn::MemoryConfigAttr());
+    rewriter.replaceOpWithNewOp<ttnn::GenericOp>(
+        op, ios, additionalArgs, program, ttnn::MemoryConfigAttr());
     return success();
   };
 
@@ -676,99 +709,217 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     MLIRContext *ctx = rewriter.getContext();
     MemRefType memrefType = op.getMemref().getType();
+    bool isBackingGlobalSemaphore =
+        llvm::any_of(op.getResult().getUsers(), [](Operation *user) {
+          return mlir::isa<d2m::CreateGlobalSemaphoreOp>(user);
+        });
 
-    if (!mlir::isa_and_present<ttcore::DeviceLayoutInterface>(
-            memrefType.getLayout())) {
-      return rewriter.notifyMatchFailure(op, "memref must have device layout");
-    }
-
-    auto deviceAttr = ttcore::lookupDevice(op);
-    if (!deviceAttr) {
-      return rewriter.notifyMatchFailure(op, "could not find device attribute");
-    }
-
-    auto convertedTensorType = detail::convertMemrefToTTNNTensor(
-        rewriter.getContext(), op.getMemref());
-    auto convertedLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(convertedTensorType.getEncoding());
-
-    // Find and handle users of the alloc result. We need to:
-    // 1. Erase any dealloc ops
-    // 2. Replace ttnn_metal_layout_cast ops with the empty result directly
-    llvm::SmallVector<memref::DeallocOp> deallocsToErase;
-    llvm::SmallVector<ttir::TTNNMetalLayoutCastOp> castsToReplace;
-
-    for (Operation *user : op.getMemref().getUsers()) {
-      if (auto deallocOp = mlir::dyn_cast<memref::DeallocOp>(user)) {
-        deallocsToErase.push_back(deallocOp);
-      } else if (auto castOp =
-                     mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(user)) {
-        castsToReplace.push_back(castOp);
+    if (isBackingGlobalSemaphore) {
+      // Check if this is a global semaphore backing buffer (used by
+      // d2m.create_global_semaphore). If so, erase the alloc/dealloc since TTNN
+      // creates the global semaphore buffer itself.
+      for (Operation *user :
+           llvm::make_early_inc_range(op.getResult().getUsers())) {
+        if (mlir::isa<memref::DeallocOp>(user)) {
+          rewriter.eraseOp(user);
+        }
       }
+      rewriter.eraseOp(op);
+    } else if (auto cbLayout = mlir::dyn_cast_if_present<ttcore::CBLayoutAttr>(
+                   memrefType.getLayout())) {
+      // Hoisted CB alloc.  Build a ShardLayoutAttr memref (needed by
+      // convertMemrefToTTNNTensor) from the CB info, then create ttnn.empty.
+      auto gridShape = cbLayout.getGridShape();
+      auto shardShape = memrefType.getShape();
+      SmallVector<int64_t> fullShape(gridShape.begin(), gridShape.end());
+      fullShape.append(shardShape.begin(), shardShape.end());
+      auto shardLayoutAttr = ttcore::ShardLayoutAttr::get(
+          shardShape, memrefType.getElementType(), cbLayout.getBuffers());
+      auto shardMemrefType =
+          MemRefType::get(fullShape, memrefType.getElementType(),
+                          shardLayoutAttr, memrefType.getMemorySpace());
+
+      auto deviceAttr = ttcore::lookupDevice(op);
+      if (!deviceAttr) {
+        return rewriter.notifyMatchFailure(op,
+                                           "could not find device attribute");
+      }
+
+      // Build a temporary typed Value to feed convertMemrefToTTNNTensor.
+      // We use an unrealized_conversion_cast as a placeholder.
+      auto placeholder = rewriter.create<mlir::UnrealizedConversionCastOp>(
+          op.getLoc(), shardMemrefType, ValueRange{});
+      auto convertedTensorType =
+          detail::convertMemrefToTTNNTensor(ctx, placeholder.getResult(0));
+      rewriter.eraseOp(placeholder);
+
+      auto convertedLayoutAttr =
+          mlir::cast<ttnn::TTNNLayoutAttr>(convertedTensorType.getEncoding());
+      auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
+      auto memcfg = ttnn::MemoryConfigAttr::get(convertedLayoutAttr,
+                                                deviceAttr.getWorkerGrid());
+      for (Operation *user :
+           llvm::make_early_inc_range(op.getResult().getUsers())) {
+        if (mlir::isa<memref::DeallocOp>(user)) {
+          rewriter.eraseOp(user);
+        }
+      }
+      rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
+          op, convertedTensorType, device,
+          ttnn::ShapeAttr::get(ctx, convertedTensorType.getShape()),
+          ttcore::DataTypeAttr::get(ctx, convertedLayoutAttr.getDataType()),
+          ttnn::LayoutAttr::get(ctx, convertedLayoutAttr.getLayout()), memcfg);
+      return success();
+    } else if (mlir::isa_and_present<ttcore::DeviceLayoutInterface>(
+                   memrefType.getLayout())) {
+      auto deviceAttr = ttcore::lookupDevice(op);
+      if (!deviceAttr) {
+        return rewriter.notifyMatchFailure(op,
+                                           "could not find device attribute");
+      }
+
+      auto convertedTensorType = detail::convertMemrefToTTNNTensor(
+          rewriter.getContext(), op.getMemref());
+      auto convertedLayoutAttr =
+          mlir::cast<ttnn::TTNNLayoutAttr>(convertedTensorType.getEncoding());
+
+      // Find and handle users of the alloc result. We need to:
+      // 1. Erase any dealloc ops
+      // 2. Replace ttnn_metal_layout_cast ops with the empty result directly
+      llvm::SmallVector<memref::DeallocOp> deallocsToErase;
+      llvm::SmallVector<ttir::TTNNMetalLayoutCastOp> castsToReplace;
+
+      for (Operation *user : op.getMemref().getUsers()) {
+        if (auto deallocOp = mlir::dyn_cast<memref::DeallocOp>(user)) {
+          deallocsToErase.push_back(deallocOp);
+        } else if (auto castOp =
+                       mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(user)) {
+          castsToReplace.push_back(castOp);
+        }
+      }
+
+      // Determine the tensor type for the ttnn.empty op. If there's a
+      // ttnn_metal_layout_cast user, use its result type to preserve the
+      // uncollapsed shape. Otherwise, use the converted type.
+      RankedTensorType emptyTensorType = convertedTensorType;
+      if (!castsToReplace.empty()) {
+        auto castResultType = mlir::cast<RankedTensorType>(
+            castsToReplace[0].getResult().getType());
+        auto castLayoutAttr =
+            mlir::cast<ttnn::TTNNLayoutAttr>(castResultType.getEncoding());
+
+        // Assert that the converted type is compatible with the cast result
+        // type. Cannot assert on shape because we cannot recover the
+        // uncollapsed shape, but we can assert on volume.
+        TT_assertv(
+            castResultType.getNumElements() ==
+                convertedTensorType.getNumElements(),
+            "ttnn_metal_layout_cast and converted type must have the same "
+            "volume");
+
+        TT_assertv(
+            castLayoutAttr.getBufferType() ==
+                convertedLayoutAttr.getBufferType(),
+            "ttnn_metal_layout_cast and converted type must have the same "
+            "buffer type");
+
+        TT_assertv(
+            castLayoutAttr.getShardShape() ==
+                convertedLayoutAttr.getShardShape(),
+            "ttnn_metal_layout_cast and converted type must have the same "
+            "shard shape");
+
+        TT_assertv(
+            castLayoutAttr.getGrid().getShape() ==
+                convertedLayoutAttr.getGrid().getShape(),
+            "ttnn_metal_layout_cast and converted type must have the same "
+            "grid shape");
+
+        emptyTensorType = castResultType;
+      }
+
+      auto emptyLayoutAttr =
+          mlir::cast<ttnn::TTNNLayoutAttr>(emptyTensorType.getEncoding());
+
+      auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
+      auto memcfg = ttnn::MemoryConfigAttr::get(emptyLayoutAttr,
+                                                deviceAttr.getWorkerGrid());
+
+      auto emptyOp = rewriter.create<ttnn::EmptyOp>(
+          op.getLoc(), emptyTensorType, device,
+          ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
+          ttcore::DataTypeAttr::get(ctx, emptyLayoutAttr.getDataType()),
+          ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()), memcfg);
+
+      for (auto deallocOp : deallocsToErase) {
+        rewriter.eraseOp(deallocOp);
+      }
+
+      for (auto castOp : castsToReplace) {
+        rewriter.replaceOp(castOp, emptyOp.getResult());
+      }
+
+      // Replace the alloc with the empty result. This registers the value
+      // mapping so that other patterns (like D2MGenericRewriter) can get the
+      // converted value through the adaptor.
+      rewriter.replaceOp(op, emptyOp.getResult());
+    } else {
+      return rewriter.notifyMatchFailure(op,
+                                         "memref alloc does not correspond to "
+                                         "a ttnn tensor or global semaphore");
     }
+    return success();
+  }
+};
+} // namespace
 
-    // Determine the tensor type for the ttnn.empty op. If there's a
-    // ttnn_metal_layout_cast user, use its result type to preserve the
-    // uncollapsed shape. Otherwise, use the converted type.
-    RankedTensorType emptyTensorType = convertedTensorType;
-    if (!castsToReplace.empty()) {
-      auto castResultType =
-          mlir::cast<RankedTensorType>(castsToReplace[0].getResult().getType());
-      auto castLayoutAttr =
-          mlir::cast<ttnn::TTNNLayoutAttr>(castResultType.getEncoding());
+namespace {
+class D2MCreateGlobalSemaphoreRewriter
+    : public OpConversionPattern<d2m::CreateGlobalSemaphoreOp> {
+public:
+  using OpConversionPattern<d2m::CreateGlobalSemaphoreOp>::OpConversionPattern;
 
-      // Assert that the converted type is compatible with the cast result type.
-      // Cannot assert on shape because we cannot recover the uncollapsed shape,
-      // but we can assert on volume.
-      TT_assertv(castResultType.getNumElements() ==
-                     convertedTensorType.getNumElements(),
-                 "ttnn_metal_layout_cast and converted type must have the same "
-                 "volume");
+  LogicalResult
+  matchAndRewrite(d2m::CreateGlobalSemaphoreOp op,
+                  d2m::CreateGlobalSemaphoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto allocOp = op.getInput().getDefiningOp<memref::AllocOp>();
+    assert(
+        allocOp &&
+        "No memref alloc found for CreateGlobalSemaphoreOp's input, failing.");
 
-      TT_assertv(castLayoutAttr.getBufferType() ==
-                     convertedLayoutAttr.getBufferType(),
-                 "ttnn_metal_layout_cast and converted type must have the same "
-                 "buffer type");
+    // Get core range from memref shape.
+    auto gridShape = ttcore::getGridShape(op.getInput());
+    auto coreRange = ttnn::CoreRangeAttr::get(
+        rewriter.getContext(),
+        ttnn::CoreCoordAttr::get(rewriter.getContext(), 0, 0),
+        ttnn::CoreCoordAttr::get(rewriter.getContext(), gridShape[0] - 1,
+                                 gridShape[1] - 1));
+    rewriter.replaceOpWithNewOp<ttnn::CreateGlobalSemaphoreOp>(
+        op, adaptor.getValueAttr(), coreRange);
+    return success();
+  }
+};
+} // namespace
 
-      TT_assertv(castLayoutAttr.getShardShape() ==
-                     convertedLayoutAttr.getShardShape(),
-                 "ttnn_metal_layout_cast and converted type must have the same "
-                 "shard shape");
+namespace {
+class D2MResetGlobalSemaphoreRewriter
+    : public OpConversionPattern<d2m::ResetGlobalSemaphoreOp> {
+public:
+  using OpConversionPattern<d2m::ResetGlobalSemaphoreOp>::OpConversionPattern;
 
-      TT_assertv(castLayoutAttr.getGrid().getShape() ==
-                     convertedLayoutAttr.getGrid().getShape(),
-                 "ttnn_metal_layout_cast and converted type must have the same "
-                 "grid shape");
+  LogicalResult
+  matchAndRewrite(d2m::ResetGlobalSemaphoreOp op,
+                  d2m::ResetGlobalSemaphoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto createGlobalSemaphoreOp =
+        op.getSemaphore().getDefiningOp<d2m::CreateGlobalSemaphoreOp>();
+    assert(createGlobalSemaphoreOp &&
+           "No create global semaphore op found for ResetGlobalSemaphoreOp's "
+           "input, failing.");
 
-      emptyTensorType = castResultType;
-    }
-
-    auto emptyLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(emptyTensorType.getEncoding());
-
-    auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto memcfg = ttnn::MemoryConfigAttr::get(emptyLayoutAttr,
-                                              deviceAttr.getWorkerGrid());
-
-    auto emptyOp = rewriter.create<ttnn::EmptyOp>(
-        op.getLoc(), emptyTensorType, device,
-        ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
-        ttcore::DataTypeAttr::get(ctx, emptyLayoutAttr.getDataType()),
-        ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()), memcfg);
-
-    for (auto deallocOp : deallocsToErase) {
-      rewriter.eraseOp(deallocOp);
-    }
-
-    for (auto castOp : castsToReplace) {
-      rewriter.replaceOp(castOp, emptyOp.getResult());
-    }
-
-    // Replace the alloc with the empty result. This registers the value mapping
-    // so that other patterns (like D2MGenericRewriter) can get the converted
-    // value through the adaptor.
-    rewriter.replaceOp(op, emptyOp.getResult());
-
+    rewriter.replaceOpWithNewOp<ttnn::ResetGlobalSemaphoreOp>(
+        op, adaptor.getSemaphore(), adaptor.getValueAttr());
     return success();
   }
 };
@@ -779,7 +930,10 @@ void populateD2MToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                ttmetal::MathFidelity mathFidelity) {
   patterns.add<MemrefAllocRewriter>(ctx);
   patterns.add<D2MGenericRewriter>(ctx, mathFidelity);
-  patterns.add<TTNNMetalLayoutCastRewriter, D2MEmptyRewriter, D2MFullRewriter,
-               StreamLayoutRewriter, ViewLayoutRewriter>(ctx);
+  patterns
+      .add<TTNNMetalLayoutCastRewriter, D2MEmptyRewriter, D2MFullRewriter,
+           StreamLayoutRewriter, ViewLayoutRewriter,
+           D2MCreateGlobalSemaphoreRewriter, D2MResetGlobalSemaphoreRewriter>(
+          ctx);
 }
 } // namespace mlir::tt

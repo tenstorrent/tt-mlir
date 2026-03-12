@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+#include "ttmlir/Dialect/TTNN/Utils/WeightDtypeParser.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
@@ -292,7 +293,7 @@ struct TTIRToTTNNDevicePipelineOptions
       *this, "enable-permute-matmul-fusion",
       llvm::cl::desc(
           "Fuse permute ops into matmul/linear transpose attributes."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
@@ -329,7 +330,7 @@ struct TTIRToTTNNDevicePipelineOptions
   Option<bool> enableCPUHoistedConstEval{
       *this, "enable-cpu-hoisted-const-eval",
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // Force const-eval function inputs to system memory.
   Option<bool> enableConstEvalInputsToSystemMemory{
@@ -355,12 +356,24 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
       llvm::cl::init(false)};
 
+  // Deprecated: use experimental-weight-dtype instead.
+  // Kept for backward compatibility with tt-xla auto-uplift.
   Option<bool> experimentalBfp8Weights{
       *this, "experimental-bfp8-weights",
-      llvm::cl::desc(
-          "Experimental: Enables conversion of weight tensors in "
-          "matrix multiplication and convolution operations to bfp8_b."),
+      llvm::cl::desc("Deprecated: use experimental-weight-dtype=bfp_bf8 "
+                     "instead. Converts weights to bfp8_b format."),
       llvm::cl::init(false)};
+
+  Option<WeightDtype> experimentalWeightDtype{
+      *this, "experimental-weight-dtype",
+      llvm::cl::desc("Experimental: Target dtype for weight conversion in "
+                     "matrix multiplication and linear operations."),
+      llvm::cl::values(
+          clEnumValN(WeightDtype::None, "none", "Disabled"),
+          clEnumValN(WeightDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
+          clEnumValN(WeightDtype::BFP_BFloat4, "bfp_bf4",
+                     "BFP BFloat4 format")),
+      llvm::cl::init(WeightDtype::None)};
 
   // ComputeKernelConfig options
   // Note: computeCfgMathFidelity default value is HiFi4
@@ -513,6 +526,10 @@ struct TTNNToEmitPyDevicePipelineOptions
           "original IR/code. Highly experimental; please file issues at "
           "https://github.com/tenstorrent/tt-mlir/issues"),
       llvm::cl::init(false)};
+
+  Option<bool> splitFiles{*this, "split-files",
+                          llvm::cl::desc("Enables TTNNFileSplit pass"),
+                          llvm::cl::init(true)};
 };
 
 // TTIR to TTNN backend pipeline options.
