@@ -209,31 +209,35 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
 
     // Create the explicit CB form of remote_load (no localBuffer, no result,
     // has CB operand) d2m.remote_load %memref[indices] into %cb
-    rewriter.create<RemoteLoadOp>(loc, memref, remoteLoad.getIndices(),
-                                  loadTargetCb, remoteLoad.getMcastStartIndex(),
-                                  remoteLoad.getMcastShape());
+    auto explicitRemoteLoad = rewriter.create<RemoteLoadOp>(
+        loc, memref, remoteLoad.getIndices(), loadTargetCb,
+        remoteLoad.getMcastStartIndex(), remoteLoad.getMcastShape());
 
     // Forward-able pair:
     //   remote_load %buf %in[...]
     //   remote_store %out[...] %buf
-    // Lower both to the same load-associated CB while preserving the load-side
-    // wait/pop semantics. Do not introduce reserve/push for this path.
+    // Lower both to the same CB without introducing reserve/push.
+    //
+    // When the store remains as an explicit remote_store that consumes the same
+    // CB as the load, wait/pop stay implicit in that store path and must not be
+    // materialized here. If the store folds away entirely (e.g. the forwarded
+    // destination is a local generic operand), the remote_load becomes the lone
+    // consumer and we must still materialize wait/pop.
     if (forwardableStore) {
-      auto waitOp = rewriter.create<WaitOp>(loc, loadTargetCb);
-
-      if (remoteLoad.getResult()) {
-        rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
-      }
-
-      rewriter.setInsertionPointAfter(waitOp);
-      if (!eraseForwardableStoreWithoutReplacement) {
+      rewriter.setInsertionPointAfter(explicitRemoteLoad);
+      if (eraseForwardableStoreWithoutReplacement) {
+        auto waitOp = rewriter.create<WaitOp>(loc, loadTargetCb);
+        if (remoteLoad.getResult()) {
+          rewriter.replaceAllUsesWith(remoteLoad.getResult(),
+                                      waitOp.getResult());
+        }
+        info.popsNeedingInsertion.push_back(
+            {loadTargetCb, loc, remoteLoad->getBlock()});
+      } else {
         rewriter.create<RemoteStoreOp>(
             forwardableStore.getLoc(), forwardableStore.getMemref(),
             forwardableStore.getIndices(), loadTargetCb);
       }
-
-      info.popsNeedingInsertion.push_back(
-          {loadTargetCb, loc, remoteLoad->getBlock()});
       rewriter.eraseOp(forwardableStore);
       rewriter.eraseOp(remoteLoad);
       if (allocToErase) {
