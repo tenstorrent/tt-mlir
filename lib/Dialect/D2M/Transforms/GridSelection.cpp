@@ -621,10 +621,9 @@ struct GridAnalysisResult {
 };
 
 // This function normalizes the operand grids for a generic operation by
-// ensuring that the grids are consistent across all operands that share the
-// same loop dimension. We also need to make sure that the grids respect any
-// constraints implied by the outputs' grids. If multiple operands participate
-// in the same loop dimension, the corresponding grid extents must agree.
+// preserving independently selected per-operand grids. GridSelection now relies
+// on withParallelization legalization to insert reblocking views when operand
+// grids differ from generic execution requirements.
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
 normalizeOperandGridsForGeneric(
     d2m::GenericOp genericOp,
@@ -632,108 +631,9 @@ normalizeOperandGridsForGeneric(
   if (optimalOperandGrids.empty()) {
     return {};
   }
-
   TT_assert(optimalOperandGrids.size() ==
             genericOp.getInputsAndOutputs().size());
-
-  // First, normalize input operand grids for operands that share loop
-  // dimensions. For example, in a matmul, the two inputs share the reduction
-  // dimension. If their independently chosen optimal grids differ along that
-  // dimension, promote the grid factor for that *dimension only* to the
-  // maximum across all inputs that share it.
-  llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids(
-      optimalOperandGrids.begin(), optimalOperandGrids.end());
-
-  uint64_t numInputs = genericOp.getInputs().size();
-  // Map: loopDim -> list of (operandIndex, operandDimIdx) pairs that reference
-  // this loop dimension in their indexing maps.
-  llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<uint64_t, uint64_t>>>
-      dimToInputOperandDims;
-
-  auto indexingMaps = genericOp.getIndexingMapsValue();
-  for (uint64_t operandIndex = 0; operandIndex < numInputs; ++operandIndex) {
-    AffineMap operandIndexingMap = indexingMaps[operandIndex];
-    auto results = operandIndexingMap.getResults();
-    for (auto [operandDimIdx, expr] : llvm::enumerate(results)) {
-      auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
-      if (!dimExpr) {
-        continue;
-      }
-      int64_t loopDim = dimExpr.getPosition();
-      dimToInputOperandDims[loopDim].push_back(
-          std::make_pair(operandIndex, static_cast<uint64_t>(operandDimIdx)));
-    }
-  }
-
-  // For each loop dimension that is used by multiple inputs, promote the grid
-  // size associated with that loop dimension to the maximum across those
-  // inputs.
-  for (auto &it : dimToInputOperandDims) {
-    auto &entries = it.second;
-    if (entries.size() < 2) {
-      continue;
-    }
-
-    int64_t maxFactor = 0;
-    TT_assertv(
-        entries.size() <= normalizedOperandGrids.size(),
-        "adjusted operand grids size does not match dim-operand mapping size");
-    for (auto [operandIndex, operandDimIdx] : entries) {
-      TT_assertv(operandDimIdx < normalizedOperandGrids[operandIndex].size(),
-                 "operand dim index out of bounds on adjusted operand grids");
-      maxFactor = std::max(maxFactor,
-                           normalizedOperandGrids[operandIndex][operandDimIdx]);
-    }
-    for (auto [operandIndex, operandDimIdx] : entries) {
-      TT_assertv(operandDimIdx < normalizedOperandGrids[operandIndex].size(),
-                 "operand dim index out of bounds on adjusted operand grids");
-      normalizedOperandGrids[operandIndex][operandDimIdx] = maxFactor;
-    }
-  }
-
-  // Compute grid dim constraints implied by the generic's outputs. These
-  // constraints describe which loop dimensions must agree across operands.
-  auto outputIndexingMap =
-      genericOp.getIndexingMapsValue()[genericOp.getOutputs()
-                                           .getBeginOperandIndex()];
-  auto outputShape =
-      optimalOperandGrids[genericOp.getOutputs().getBeginOperandIndex()];
-  std::optional<SmallVector<int64_t>> outputConstraints =
-      utils::computeDimConstraints(
-          llvm::ArrayRef<AffineMap>(outputIndexingMap),
-          llvm::ArrayRef<SmallVector<int64_t>>(outputShape));
-
-  // Ensure that input operand grid shapes respect any constraints implied by
-  // the outputs' grids. If multiple operands participate in the same loop
-  // dimension, the corresponding grid extents must agree.
-  if (outputConstraints) {
-    for (auto [operandIndex, operand] :
-         llvm::enumerate(genericOp.getInputsAndOutputsMutable())) {
-      if (genericOp.isDpsInit(&operand)) {
-        continue;
-      }
-
-      AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
-      auto results = indexingMap.getResults();
-      TT_assertv(results.size() == normalizedOperandGrids[operandIndex].size(),
-                 "indexing map results size does not match normalized operand "
-                 "grids size");
-
-      for (auto [resultIdx, expr] : llvm::enumerate(results)) {
-        auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
-        if (!dimExpr) {
-          continue;
-        }
-        int64_t dimPos = dimExpr.getPosition();
-        int64_t constraint = (*outputConstraints)[dimPos];
-        if (constraint != 0) {
-          normalizedOperandGrids[operandIndex][resultIdx] = constraint;
-        }
-      }
-    }
-  }
-
-  return normalizedOperandGrids;
+  return llvm::to_vector(optimalOperandGrids);
 }
 
 // Phase 1: Analyze each operand of a GenericOp and compute optimal grids.
@@ -1033,7 +933,7 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
   }
 }
 
-// Derive grid (including virtual grid mapping) from the
+// Derive grid (including virtual grid mapping) and block factors from the
 // optimized operand grids selected by GridSelection, mirroring
 // GenericOp::build.
 static ttcore::GridAttr deriveGridAttrForOutput(Value output,
@@ -1070,22 +970,45 @@ static ttcore::GridAttr deriveGridAttrForOutput(Value output,
   return builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
 }
 
-static ttcore::GridAttr
-deriveGenericGridAttr(d2m::GenericOp genericOp,
-                      ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
-                      OpBuilder &builder) {
+static std::pair<ttcore::GridAttr, SmallVector<int64_t>>
+deriveGridAndBlockFactors(
+    d2m::GenericOp genericOp,
+    ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
+    OpBuilder &builder) {
+  auto inputOutputOperands = llvm::to_vector(genericOp.getInputsAndOutputs());
   Value output = genericOp.getOutputs().front();
   unsigned outputOperandIndex = genericOp.getOutputs().getBeginOperandIndex();
   ArrayRef<int64_t> gridShape = optimalOperandGrids[outputOperandIndex];
-  return deriveGridAttrForOutput(output, gridShape, builder);
+  ttcore::GridAttr grid = deriveGridAttrForOutput(output, gridShape, builder);
+
+  // Derive block factors using concatInversePermutationMap, mirroring
+  // GenericOp::build.
+  auto maps = genericOp.getIndexingMapsValue();
+  auto flatInverseMap =
+      ttmlir::utils::concatInversePermutationMap(maps, /*reverse=*/true);
+
+  SmallVector<int64_t> flattenedOperandGridShapes;
+  for (ArrayRef<int64_t> operandGridShape :
+       llvm::reverse(optimalOperandGrids)) {
+    flattenedOperandGridShapes.append(operandGridShape.begin(),
+                                      operandGridShape.end());
+  }
+
+  for (std::size_t i = 0; i < grid.getShape().size(); ++i) {
+    flattenedOperandGridShapes[i] /= grid.getShape()[i];
+  }
+
+  SmallVector<int64_t> blockFactors =
+      flatInverseMap.compose(flattenedOperandGridShapes);
+  return {grid, blockFactors};
 }
 
 // Phase 5: Recreate the d2m.generic with updated operands.
-// After updating ToLayout and StreamLayout ops, the generic's operands have
-// new types with the selected grids. The generic grid is still anchored by the
-// output operand's chosen grid, but we must re-materialize the generic attrs
-// from the selected operand grids after those rewrites so the rebuilt op stays
-// consistent with the new operand types and the derived block factors.
+// After updating all ToLayout and StreamLayout ops, the generic's operands
+// now have new types with optimized grids. We must recreate the generic to
+// reflect these type changes. We derive the grid and block factors from the
+// output operand, then use withParallelization to create ViewLayoutOps that
+// make each operand compatible with the generic's grid.
 static void
 recreateGenericOp(d2m::GenericOp genericOp,
                   ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
@@ -1094,12 +1017,8 @@ recreateGenericOp(d2m::GenericOp genericOp,
   }
 
   OpBuilder builder(genericOp);
-  unsigned outputOperandIndex = genericOp.getOutputs().getBeginOperandIndex();
-  ArrayRef<int64_t> outputGridShape = optimalOperandGrids[outputOperandIndex];
-  ttcore::GridAttr grid =
-      deriveGenericGridAttr(genericOp, optimalOperandGrids, builder);
-  SmallVector<int64_t> blockFactors = utils::deriveBlockFactorsFromOperandGrids(
-      genericOp.getIndexingMapsValue(), optimalOperandGrids, outputGridShape);
+  auto [grid, blockFactors] =
+      deriveGridAndBlockFactors(genericOp, optimalOperandGrids, builder);
   auto ret = genericOp.withParallelization(builder, grid, blockFactors,
                                            /*generateReturnView=*/false);
   if (failed(ret)) {
