@@ -1,0 +1,31 @@
+{
+  "skill_name": "add-op",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Add support for ttnn.gather in the compiler. The gather op selects values from an input tensor along a given dimension using an index tensor. It maps directly to the tt-metal ttnn.gather device op. API signature: ttnn.gather(input_tensor, dim, input_index_tensor, sparse_grad, memory_config=None, optional_output_tensor=None, sub_core_grids=None). This is for issue #7389. Add it across TTIR, TTNN, conversions, flatbuffer, runtime, builder, golden, and tests. Don't worry about StableHLO composite or OpModel for now.",
+      "expected_output": "New gather op defined in TTIROps.td and TTNNOps.td, with verifiers. TTIR-to-TTNN conversion. EmitC and EmitPy conversions. Flatbuffer schema and serialization. Runtime implementation. Builder method and golden function. Tests.",
+      "files": [],
+      "assertions": [
+        {"name": "ttir_tablegen_defined", "type": "file_contains", "file_pattern": "TTIROps.td", "search": "GatherOp|gather"},
+        {"name": "ttir_verifier_written", "type": "file_contains", "file_pattern": "TTIROps.cpp", "search": "GatherOp::verify"},
+        {"name": "ttnn_tablegen_defined", "type": "file_contains", "file_pattern": "TTNNOps.td", "search": "GatherOp|gather"},
+        {"name": "ttnn_verifier_written", "type": "file_contains", "file_pattern": "TTNNOps.cpp", "search": "GatherOp::verify"},
+        {"name": "ttir_to_ttnn_conversion", "type": "file_contains", "file_pattern": "TTIRToTTNN.cpp", "search": "Gather"},
+        {"name": "emitc_conversion", "type": "file_contains", "file_pattern": "TTNNToEmitC.cpp", "search": "Gather"},
+        {"name": "emitpy_conversion", "type": "file_contains", "file_pattern": "TTNNToEmitPy.cpp", "search": "Gather"},
+        {"name": "flatbuffer_schema", "type": "file_exists", "file_pattern": "**/*.fbs", "search": "GatherOp"},
+        {"name": "flatbuffer_union", "type": "file_contains", "file_pattern": "program.fbs", "search": "GatherOp"},
+        {"name": "flatbuffer_serialization", "type": "file_contains", "file_pattern": "TTNNToFlatbuffer.cpp", "search": "GatherOp"},
+        {"name": "runtime_impl_exists", "type": "file_exists", "file_pattern": "runtime/**/gather.cpp"},
+        {"name": "runtime_dispatch", "type": "file_contains", "file_pattern": "program_executor.cpp", "search": "GatherOp"},
+        {"name": "builder_method", "type": "file_contains", "file_pattern": "ttir_builder.py", "search": "def gather"},
+        {"name": "golden_function", "type": "file_contains", "file_pattern": "mapping.py", "search": "gather"},
+        {"name": "mlir_lit_test", "type": "file_exists", "file_pattern": "test/**/gather/**/*.mlir"},
+        {"name": "dim_argument_present", "type": "file_contains", "file_pattern": "TTIROps.td", "search": "dim"},
+        {"name": "index_tensor_operand", "type": "file_contains", "file_pattern": "TTIROps.td", "search": "index"},
+        {"name": "ttnn_memory_config", "type": "file_contains", "file_pattern": "TTNNOps.td", "search": "memory_config"}
+      ]
+    }
+  ]
+}
