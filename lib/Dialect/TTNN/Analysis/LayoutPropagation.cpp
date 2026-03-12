@@ -204,17 +204,17 @@ std::optional<BeamCandidate> LayoutPropagation::evaluateHint(
     candidate.reshardLayouts = reshardLayouts;
     candidate.outputLayouts = result.actualOutputLayouts;
 
-    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                 "    VALID candidate for {0}: hint[{1}] outBuf={2} "
-                 "outMem={3} score(L1={4},sharded={5},dramIn={6},"
-                 "reshard={7},cores={8},l1use={9})",
-                 op->getName(), hintIdx,
-                 candidate.configHint.outputLayout.getBufferType(),
-                 candidate.configHint.outputLayout.getMemLayout(),
-                 candidate.score.isL1, candidate.score.isSharded,
-                 candidate.score.inputDramBytes,
-                 candidate.score.requiresReshard, candidate.score.coreCount,
-                 candidate.score.outputL1Usage);
+    TTMLIR_TRACE(
+        ttmlir::LogComponent::GreedyOptimizer,
+        "    VALID candidate for {0}: hint[{1}] outBuf={2} "
+        "outMem={3} score(L1={4},sharded={5},dramIn={6},"
+        "reshard={7},cores={8},l1use={9}) outputLayout={10}",
+        op->getName(), hintIdx,
+        candidate.configHint.outputLayout.getBufferType(),
+        candidate.configHint.outputLayout.getMemLayout(), candidate.score.isL1,
+        candidate.score.isSharded, candidate.score.inputDramBytes,
+        candidate.score.requiresReshard, candidate.score.coreCount,
+        candidate.score.outputL1Usage, result.getFirstActualOutputLayout());
 
     observer_->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/true,
                             &candidate, /*failureReason=*/"");
@@ -557,8 +557,11 @@ LayoutPropagation::processOp(Operation *op) {
 
   // Step 4: Sort by score descending, keep top-K.
   std::sort(candidates.begin(), candidates.end(),
-            [](const BeamCandidate &a, const BeamCandidate &b) {
-              return a.score > b.score;
+            [op](const BeamCandidate &a, const BeamCandidate &b) {
+              if (a.score != b.score) {
+                return a.score > b.score;
+              }
+              return preferCandidate(op, a, b);
             });
 
   if (candidates.size() > beamWidth) {
