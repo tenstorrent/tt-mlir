@@ -19,6 +19,7 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <optional>
 #include <regex>
 #include <stack>
 #include <string>
@@ -102,7 +103,8 @@ private:
 
 /// Emitter that uses dialect specific emitters to emit Python code.
 struct PythonEmitter {
-  explicit PythonEmitter(raw_ostream &os) : os(os) {
+  explicit PythonEmitter(raw_ostream &os, std::optional<std::string> fileId)
+      : os(os), fileId(std::move(fileId)) {
     valueInScopeCount.push(0);
     usedNames.push(std::set<std::string>());
   }
@@ -142,11 +144,21 @@ struct PythonEmitter {
   /// Return the existing or a new name for a Value.
   StringRef getOrCreateName(Value value, std::string name);
 
-  // Return the textual representation of a subscript operation.
+  /// Return the textual representation of a subscript operation.
   std::string getSubscriptName(SubscriptOp op);
 
   /// Register a value with a name so it can be referenced later.
   void registerDeferredValue(Value value, StringRef str);
+
+  /// Decides whether the file should be emitted. If fileId is set, only
+  /// the ops of the file with the matching id are emitted.
+  bool shouldEmitFile(FileOp fileOp);
+
+  /// Returns true if we're emitting multiple files (fileId is not set).
+  bool isEmittingMultipleFiles() const { return !fileId.has_value(); }
+
+  /// Emits a comment label for the file to separate outputs.
+  void emitFileLabel(FileOp fileOp);
 
   /// RAII helper function to manage entering/exiting Python scopes.
   struct Scope {
@@ -208,6 +220,10 @@ private:
   std::stack<std::set<std::string>> usedNames;
 
   int classDepth = 0;
+
+  /// The id of the current file. Only files with this id are emitted. If
+  /// not set, all files are emitted as one.
+  std::optional<std::string> fileId;
 };
 } // namespace
 
@@ -350,6 +366,14 @@ void PythonEmitter::registerDeferredValue(Value value, StringRef str) {
   }
 }
 
+bool PythonEmitter::shouldEmitFile(FileOp fileOp) {
+  return isEmittingMultipleFiles() || *fileId == fileOp.getId();
+}
+
+void PythonEmitter::emitFileLabel(FileOp fileOp) {
+  os << "# File: " << fileOp.getId() << "\n";
+}
+
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     CallOpaqueOp callOpaqueOp) {
   raw_indented_ostream &os = emitter.ostream();
@@ -460,6 +484,33 @@ static LogicalResult printOperation(PythonEmitter &emitter,
 static LogicalResult printOperation(PythonEmitter &emitter, ModuleOp moduleOp) {
   PythonEmitter::Scope scope(emitter);
 
+  // When file ops exist, defer module-level imports so they appear inside
+  // each file section rather than before the first file label.
+  bool hasFileOps =
+      llvm::any_of(moduleOp.getOps<FileOp>(), [](FileOp) { return true; });
+
+  if (hasFileOps) {
+    llvm::SmallVector<ImportOp> moduleImports(moduleOp.getOps<ImportOp>());
+
+    for (auto fileOp : moduleOp.getOps<FileOp>()) {
+      if (!emitter.shouldEmitFile(fileOp)) {
+        continue;
+      }
+      if (emitter.isEmittingMultipleFiles()) {
+        emitter.emitFileLabel(fileOp);
+      }
+      for (auto importOp : moduleImports) {
+        if (failed(emitter.emitOperation(*importOp))) {
+          return failure();
+        }
+      }
+      if (failed(emitter.emitOperation(*fileOp))) {
+        return failure();
+      }
+    }
+    return success();
+  }
+
   for (Operation &op : moduleOp) {
     if (failed(emitter.emitOperation(op))) {
       return failure();
@@ -507,6 +558,9 @@ static LogicalResult printFunctionBody(PythonEmitter &emitter, Operation &op,
 
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     func::FuncOp functionOp) {
+  if (functionOp.isDeclaration()) {
+    return success();
+  }
   PythonEmitter::Scope scope(emitter);
   Operation &op = *functionOp.getOperation();
   raw_indented_ostream &os = emitter.ostream();
@@ -952,6 +1006,20 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter, FileOp fileOp) {
+  if (!emitter.shouldEmitFile(fileOp)) {
+    return success();
+  }
+
+  for (Operation &op : fileOp.getRegion().getOps()) {
+    if (failed(emitter.emitOperation(op))) {
+      return failure();
+    }
+  }
+
+  return success();
+}
+
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
   LogicalResult status =
       llvm::TypeSwitch<Operation *, LogicalResult>(&op)
@@ -960,8 +1028,8 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
-                GlobalStatementOp, CreateDictOp, ExpressionOp, YieldOp, IfOp>(
-              [&](auto op) { return printOperation(*this, op); })
+                GlobalStatementOp, CreateDictOp, ExpressionOp, YieldOp, IfOp,
+                FileOp>([&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
             return success();
@@ -1122,8 +1190,9 @@ LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
   return success();
 }
 
-LogicalResult mlir::tt::emitpy::translateToPython(Operation *op,
-                                                  raw_ostream &os) {
-  PythonEmitter emitter(os);
+LogicalResult
+mlir::tt::emitpy::translateToPython(Operation *op, raw_ostream &os,
+                                    std::optional<std::string> fileId) {
+  PythonEmitter emitter(os, std::move(fileId));
   return emitter.emitOperation(*op);
 }

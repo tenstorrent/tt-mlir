@@ -1761,5 +1761,22 @@ struct OpModel<TopKOp> {
                                              TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// MeshPartitionOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<MeshPartitionOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, int32_t dim,
+      std::optional<uint32_t> clusterAxis, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               int32_t dim, std::optional<uint32_t> clusterAxis,
+               TTNNLayoutAttr outputLayout);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
