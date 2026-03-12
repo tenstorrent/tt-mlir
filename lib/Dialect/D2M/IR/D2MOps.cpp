@@ -2557,10 +2557,6 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
             << "for operand " << operandIndex;
         return failure();
       }
-      llvm::errs() << "DEBUG: reblocked grid shape for operand " << operandIndex
-                   << ": [";
-      llvm::interleaveComma(reblockedGridShape.value(), llvm::errs());
-      llvm::errs() << "]\n";
       FailureOr<Type> reblockedType =
           reblockShapedType(operand.get().getType(), *reblockedGridShape);
       if (failed(reblockedType)) {
