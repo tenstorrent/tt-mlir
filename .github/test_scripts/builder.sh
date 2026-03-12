@@ -14,7 +14,7 @@ PYTEST_ARGS=""
 FLATBUFFER=""
 
 [[ "$RUNS_ON" != "n150" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-exact-mesh"
-PYTEST_ARGS="$PYTEST_ARGS -s"
+PYTEST_ARGS="$PYTEST_ARGS -s --log-memory"
 
 for flag in $3; do
     [[ "$flag" == "run-ttrt" ]] && runttrt=1
