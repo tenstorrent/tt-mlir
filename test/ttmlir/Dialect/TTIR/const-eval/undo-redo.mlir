@@ -14,8 +14,8 @@ module {
   // UNDONE-LABEL: func.func @test_undo_redo
   // UNDONE-NOT: func.func @test_undo_redo_const_eval_0
   // UNDONE-NOT: ttcore.load_cached
-  // UNDONE: "ttir.add"(%arg2, %arg3)
   // UNDONE: "ttir.add"(%arg0, %arg1)
+  // UNDONE: "ttir.add"(%arg2, %arg3)
   // UNDONE: "ttir.add"(%{{.*}}, %{{.*}})
 
   // CHECK: func.func @test_undo_redo(
@@ -43,10 +43,10 @@ module {
   // UNDONE-NOT: func.func @test_multi_undo_redo_const_eval_0
   // UNDONE-NOT: func.func @test_multi_undo_redo_const_eval_1
   // UNDONE-NOT: ttcore.load_cached
-  // UNDONE: "ttir.add"(%arg2, %arg3)
-  // UNDONE: "ttir.multiply"(%arg3, %arg4)
   // UNDONE: "ttir.add"(%arg0, %arg1)
+  // UNDONE: "ttir.add"(%arg2, %arg3)
   // UNDONE: "ttir.add"(%{{.*}}, %{{.*}})
+  // UNDONE: "ttir.multiply"(%arg3, %arg4)
   // UNDONE: "ttir.multiply"(%{{.*}}, %{{.*}})
 
   // CHECK: func.func @test_multi_undo_redo(
