@@ -109,6 +109,10 @@ static LogicalResult getLegalForwardableStore(RemoteLoadOp remoteLoad,
 
   forwardableStore = utils::findForwardableStore(remoteLoad);
   if (forwardableStore) {
+    if (remoteLoad.isMcast()) {
+      return remoteLoad.emitOpError(
+          "multicast d2m.remote_load cannot be forwarded to d2m.remote_store");
+    }
     return success();
   }
 
@@ -119,11 +123,6 @@ static LogicalResult getLegalForwardableStore(RemoteLoadOp remoteLoad,
     if (!storeUser || !storeUser.isImplicitForm() ||
         storeUser.getLocalBuffer() != localBuffer) {
       continue;
-    }
-    if (storeUser.getLocalBuffer().getType() != localBuffer.getType()) {
-      return remoteLoad.emitOpError(
-          "shared local buffer between d2m.remote_load and d2m.remote_store "
-          "must preserve shard/layout type");
     }
     return remoteLoad.emitOpError("local buffer shared between "
                                   "d2m.remote_load and d2m.remote_store must "
@@ -193,14 +192,11 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
           mlir::isa_and_nonnull<StreamLayoutOp>(storeMemref.getDefiningOp());
       if (!storeMemrefIsStreamBacked) {
         // If the forwardable store targets a local generic operand (no stream),
-        // load directly into that output operand's CB and drop the store.
+        // load directly into that output operand's CB and drop the store. The
+        // generic verifier guarantees a CB block argument for each top-level
+        // operand, so the associated CB lookup must succeed here.
         loadTargetCb = GenericOp::findAssocCBByOperand(
             forwardableStore.getOperation(), storeMemref);
-        if (!loadTargetCb) {
-          forwardableStore.emitError(
-              "could not find associated CB block argument for memref operand");
-          return failure();
-        }
         eraseForwardableStoreWithoutReplacement = true;
       }
     }
