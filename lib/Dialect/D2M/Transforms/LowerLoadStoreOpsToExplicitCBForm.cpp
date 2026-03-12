@@ -4,12 +4,12 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
-#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
-#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
-
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/PatternMatch.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -19,8 +19,7 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-static LogicalResult verifyStreamBackedGenericOperand(Operation *op,
-                                                      Value memrefOperand) {
+static LogicalResult verifyGenericOperand(Operation *op, Value memrefOperand) {
   GenericOp generic = op->getParentOfType<GenericOp>();
   if (!generic) {
     return op->emitError("must be nested in d2m.generic");
@@ -29,11 +28,6 @@ static LogicalResult verifyStreamBackedGenericOperand(Operation *op,
   if (!llvm::is_contained(generic.getInputsAndOutputs(), memrefOperand)) {
     return op->emitError(
         "must access a d2m.generic input/output operand as its memref operand");
-  }
-
-  if (!mlir::isa_and_nonnull<StreamLayoutOp>(memrefOperand.getDefiningOp())) {
-    return op->emitError(
-        "must access a d2m.generic operand backed by d2m.stream_layout");
   }
 
   return success();
@@ -64,6 +58,23 @@ static ReserveOp findReserveOp(Value value) {
   }
 
   return nullptr;
+}
+
+// Replace only uses owned by operations in the given block. This avoids
+// rewriting enclosing d2m.generic operands to values defined inside the region.
+static void replaceUsesInBlock(Value from, Value to, Block *block,
+                               Operation *excludedUser = nullptr) {
+  SmallVector<OpOperand *> usesToReplace;
+  for (OpOperand &use : from.getUses()) {
+    Operation *owner = use.getOwner();
+    if (owner == excludedUser || owner->getBlock() != block) {
+      continue;
+    }
+    usesToReplace.push_back(&use);
+  }
+  for (OpOperand *use : usesToReplace) {
+    use->set(to);
+  }
 }
 
 // Find the first remote_store in reserveOp's block that consumes the same CB
@@ -136,7 +147,8 @@ static LogicalResult getLegalForwardableStore(RemoteLoadOp remoteLoad,
 // Returns information needed for push/pop insertion.
 static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
                                              IRRewriter &rewriter,
-                                             PushPopInfo &info) {
+                                             PushPopInfo &info, CBCache &cache,
+                                             PortCounter &portCounters) {
 
   // Transform RemoteLoadOp (implicit form -> explicit CB form)
   SmallVector<RemoteLoadOp> remoteLoadsToConvert;
@@ -152,15 +164,14 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
     Location loc = remoteLoad.getLoc();
     Value memref = remoteLoad.getMemref();
 
-    if (failed(verifyStreamBackedGenericOperand(remoteLoad.getOperation(),
-                                                memref))) {
+    if (failed(verifyGenericOperand(remoteLoad.getOperation(), memref))) {
       return failure();
     }
 
-    Value assocCb =
-        remoteLoad.isImplicitForm()
-            ? GenericOp::findAssocCBByOperand(remoteLoad.getOperation(), memref)
-            : remoteLoad.getCb();
+    Value assocCb = remoteLoad.isImplicitForm()
+                        ? findAssociatedCB(remoteLoad.getOperation(), memref,
+                                           rewriter, cache, portCounters)
+                        : remoteLoad.getCb();
 
     if (!assocCb) {
       remoteLoad.emitError(
@@ -192,11 +203,15 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
           mlir::isa_and_nonnull<StreamLayoutOp>(storeMemref.getDefiningOp());
       if (!storeMemrefIsStreamBacked) {
         // If the forwardable store targets a local generic operand (no stream),
-        // load directly into that output operand's CB and drop the store. The
-        // generic verifier guarantees a CB block argument for each top-level
-        // operand, so the associated CB lookup must succeed here.
-        loadTargetCb = GenericOp::findAssocCBByOperand(
-            forwardableStore.getOperation(), storeMemref);
+        // load directly into that output operand's CB and drop the store.
+        loadTargetCb =
+            findAssociatedCB(forwardableStore.getOperation(), storeMemref,
+                             rewriter, cache, portCounters);
+        if (!loadTargetCb) {
+          forwardableStore.emitError(
+              "could not find associated CB for forwarded memref operand");
+          return failure();
+        }
         eraseForwardableStoreWithoutReplacement = true;
       }
     }
@@ -224,8 +239,8 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
       if (eraseForwardableStoreWithoutReplacement) {
         auto waitOp = rewriter.create<WaitOp>(loc, loadTargetCb);
         if (remoteLoad.getResult()) {
-          rewriter.replaceAllUsesWith(remoteLoad.getResult(),
-                                      waitOp.getResult());
+          replaceUsesInBlock(remoteLoad.getResult(), waitOp.getResult(),
+                             remoteLoad->getBlock(), remoteLoad.getOperation());
         }
         info.popsNeedingInsertion.push_back(
             {loadTargetCb, loc, remoteLoad->getBlock()});
@@ -277,12 +292,14 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
     // This is important because downstream operations may reference the
     // localBuffer directly (e.g., remote_store using the alloc result)
     if (localBuffer) {
-      rewriter.replaceAllUsesWith(localBuffer, waitOp.getResult());
+      replaceUsesInBlock(localBuffer, waitOp.getResult(),
+                         remoteLoad->getBlock(), remoteLoad.getOperation());
     }
 
     // Replace all uses of remote_load result with wait result
     if (remoteLoad.getResult()) {
-      rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
+      replaceUsesInBlock(remoteLoad.getResult(), waitOp.getResult(),
+                         remoteLoad->getBlock(), remoteLoad.getOperation());
     }
 
     // Track CB that needs pop insertion (deferred to Pass B)
@@ -292,7 +309,7 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
     rewriter.eraseOp(remoteLoad);
 
     // Erase the memref.alloc if it was the local buffer source
-    if (allocToErase) {
+    if (allocToErase && allocToErase->use_empty()) {
       rewriter.eraseOp(allocToErase);
     }
   }
@@ -328,11 +345,10 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
     }
 
     // Find the CB for the associated operand
-    Value assocCb =
-        GenericOp::findAssocCBByOperand(allocOp.getOperation(), assocOperand);
+    Value assocCb = findAssociatedCB(allocOp.getOperation(), assocOperand,
+                                     rewriter, cache, portCounters);
     if (!assocCb) {
-      allocOp.emitWarning(
-          "could not find associated CB block argument, skipping conversion");
+      allocOp.emitWarning("could not find associated CB, skipping conversion");
       continue;
     }
 
@@ -374,8 +390,7 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
     Value localBuffer = remoteStore.getLocalBuffer();
     Value assocCb;
 
-    if (failed(verifyStreamBackedGenericOperand(remoteStore.getOperation(),
-                                                memref))) {
+    if (failed(verifyGenericOperand(remoteStore.getOperation(), memref))) {
       return failure();
     }
 
@@ -391,9 +406,13 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
         // WaitOp result. Extract the CB from the WaitOp.
         assocCb = waitOp.getCb();
       } else {
-        remoteStore.emitWarning(
-            "could not find CB for local buffer, skipping conversion");
-        continue;
+        assocCb = findAssociatedCB(remoteStore.getOperation(), memref, rewriter,
+                                   cache, portCounters);
+        if (!assocCb) {
+          remoteStore.emitWarning(
+              "could not find CB for local buffer, skipping conversion");
+          continue;
+        }
       }
 
       rewriter.setInsertionPoint(remoteStore);
@@ -409,6 +428,16 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
       // We only need a pop after consuming the data.
       if (reserveOp && cbsWithReserveOps.insert(assocCb).second) {
         info.reserveOpsNeedingPush.push_back({reserveOp, assocCb});
+      } else if (!reserveOp && cbsWithReserveOps.insert(assocCb).second) {
+        OpBuilder::InsertionGuard reserveGuard(rewriter);
+        rewriter.setInsertionPointAfterValue(assocCb);
+        auto newReserve = rewriter.create<ReserveOp>(loc, assocCb);
+        info.reserveOpsNeedingPush.push_back({newReserve, assocCb});
+        if (localBuffer) {
+          replaceUsesInBlock(localBuffer, newReserve.getResult(),
+                             remoteStore->getBlock(),
+                             remoteStore.getOperation());
+        }
       }
 
       // Erase the original remote_store operation
@@ -488,9 +517,12 @@ public:
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
     PushPopInfo info;
+    CBCache cbCache;
+    PortCounter portCounters;
 
     // Pass A: Convert all remote_load and remote_store into explicit CB form
-    if (failed(convertToExplicitCBForm(moduleOp, rewriter, info))) {
+    if (failed(convertToExplicitCBForm(moduleOp, rewriter, info, cbCache,
+                                       portCounters))) {
       signalPassFailure();
       return;
     }

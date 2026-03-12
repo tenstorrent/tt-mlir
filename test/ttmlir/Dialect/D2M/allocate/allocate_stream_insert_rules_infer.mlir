@@ -132,7 +132,9 @@ module {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<datamovement>]}
         ins(%view_arg0 : memref<1x1x32x32xf32, #ttcore.view<4>, #ttcore.memory_space<l1>>)
         outs(%out : memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #ttcore.memory_space<l1>>)  {
-    ^datamovement0(%cb0: !d2m.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>, %cb1: !d2m.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>):
+    ^datamovement0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>
       %buf = d2m.reserve %cb1 : !d2m.cb<memref<32x32xf32, #ttcore.memory_space<l1>>> -> memref<32x32xf32, #ttcore.memory_space<l1>>
     }
     return

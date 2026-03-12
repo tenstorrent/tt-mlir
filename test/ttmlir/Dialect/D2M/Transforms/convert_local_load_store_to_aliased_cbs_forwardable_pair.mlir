@@ -27,7 +27,9 @@ module attributes {ttcore.system_desc = #system_desc} {
     d2m.generic {block_factors = [], grid = #ttcore.grid<4x3>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%stream_in : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.view<4>, #dram>)
         outs(%alloc_0 : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)  {
-    ^unified0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %buffer = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>>
       %0 = d2m.remote_load %buffer %stream_in[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.view<4>, #dram> -> memref<1x1x!ttcore.tile<32x32, f32>>

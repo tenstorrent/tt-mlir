@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -212,8 +213,8 @@ public:
     for (RemoteLoadOp remoteLoad : remoteLoadsToConvert) {
       Location loc = remoteLoad.getLoc();
       Value memref = remoteLoad.getMemref();
-      Value assocCb =
-          GenericOp::findAssocCBByOperand(remoteLoad.getOperation(), memref);
+      Value assocCb = findAssociatedCB(remoteLoad.getOperation(), memref,
+                                       rewriter, cbCache, portCounters);
 
       if (!assocCb) {
         remoteLoad.emitWarning(
@@ -308,8 +309,8 @@ public:
     for (RemoteStoreOp remoteStore : remoteStoresToConvert) {
       Location loc = remoteStore.getLoc();
       Value memref = remoteStore.getMemref();
-      Value assocCb =
-          GenericOp::findAssocCBByOperand(remoteStore.getOperation(), memref);
+      Value assocCb = findAssociatedCB(remoteStore.getOperation(), memref,
+                                       rewriter, cbCache, portCounters);
 
       if (!assocCb) {
         remoteStore.emitWarning(

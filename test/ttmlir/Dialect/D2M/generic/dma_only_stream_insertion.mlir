@@ -22,7 +22,9 @@ module {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%arg0 : memref<1x1x32x32xf32, #ttcore.interleaved<128x4>, #dram>)
         outs(%arg1 : memref<1x1x32x32xf32, #ttcore.interleaved<128x4>, #dram>) {
-    ^unified0(%cb0: !d2m.cb<memref<32x32xf32, #l1>>, %cb1: !d2m.cb<memref<32x32xf32, #l1>>):
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<32x32xf32, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<32x32xf32, #l1>>
       %block_factor0 = d2m.get_block_factor(0) : index
       %block_factor1 = d2m.get_block_factor(1) : index
       affine.for %arg2 = 0 to %block_factor0 {

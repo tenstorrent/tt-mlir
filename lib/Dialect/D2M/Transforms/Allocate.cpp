@@ -628,8 +628,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // passes like LowerToLayout).  In both cases the internal alloc needs
       // a planner-assigned L1 address and will be stamped with
       // CBLayoutAttr.
-      if (genericIt != analysis.generics.end() &&
-          !genericIt->second.isDMAOnly &&
+      if (genericIt != analysis.generics.end() && !genericOp.isDMAOnlyForm() &&
           !genericIt->second.isExplicitDatamovement) {
         for (Region &region : genericOp->getRegions()) {
           for (const OperandContext &operandCtx : genericIt->second.operands) {
@@ -1389,14 +1388,23 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_debug(memrefIt2 != analysis.memrefs.end());
         const MemorySpace operandMemSpace = *memrefIt2->second.remappedMemSpace;
 
-        // Get the CB argument type for this operand
+        // Get the CB argument type for this operand. Some generics do not have
+        // an in-region get_cb/alloc yet at this point, so fall back to the
+        // analyzed stream buffer type when needed.
         TT_assert(!genericOp->getRegions().empty());
         Region &region = genericOp->getRegions().front();
         TT_assert(region.hasOneBlock());
         Value operandAlloc =
             d2m::GenericOp::getOperandAlloc(region, operandIndex);
-        TT_assert(operandAlloc);
-        Type cbUnderlyingType = operandAlloc.getType();
+        Type cbUnderlyingType;
+        if (operandAlloc) {
+          cbUnderlyingType = operandAlloc.getType();
+        } else {
+          cbUnderlyingType = operandCtx.bufferType;
+        }
+        if (!cbUnderlyingType) {
+          continue;
+        }
         // Unwrap CBType to get the underlying memref/tensor type.
         if (auto cbType = mlir::dyn_cast<d2m::CBType>(cbUnderlyingType)) {
           cbUnderlyingType = cbType.getUnderlying();
