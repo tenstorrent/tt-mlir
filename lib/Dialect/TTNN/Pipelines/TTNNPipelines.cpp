@@ -241,7 +241,6 @@ void createTTIRToTTNNDevicePipeline(
   pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
 
   pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::createCSEPass());
 
   // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
@@ -266,6 +265,8 @@ void createTTIRToTTNNDevicePipeline(
     ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
     quantOptions.targetBitWidth = options.quantBitWidth;
     devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
+
+    devicePm.addPass(mlir::createCSEPass());
 
     // Const-eval hoisting pass.
     if (options.enableConstEval) {
