@@ -2597,15 +2597,18 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
           "Output shape must be [A, B, 1, E, M, N] for dense-sparse mode");
     }
   } else if (isInputASparse && !isInputBSparse) {
-    // [A, E, M, K] @ [1, E, K, N] -> [A, E, M, N]
+    // Sparse-dense mode supports multiple input_a layouts:
+    //   [A, E, M, K] @ [1, E, K, N] -> [A, E, M, N]  (standard)
+    //   [BD, S, E, K] @ [1, E, K, N] -> [BD, S, E, N] (MoE A2aSparseMLP)
     if (outputShape.size() != 4) {
       return emitOpError("Output must be 4D for sparse-dense mode");
     }
-    int64_t A = aShape[0];
-    if (outputShape[0] != A || outputShape[1] != E || outputShape[2] != M ||
-        outputShape[3] != N) {
+    // Verify output matches input_a with last dim replaced by N
+    if (outputShape[0] != aShape[0] || outputShape[1] != aShape[1] ||
+        outputShape[2] != aShape[2] || outputShape[3] != N) {
       return emitOpError(
-          "Output shape must be [A, E, M, N] for sparse-dense mode");
+          "Output shape must match input A dims [0:3] with last dimension N "
+          "for sparse-dense mode");
     }
   }
 
@@ -2623,12 +2626,16 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
   ::mlir::RankedTensorType metadataType = getMetadata().getType();
 
-  // All tensors must be 4D
-  if (inputType.getRank() != 4) {
-    return emitOpError("input_tensor must be a 4D tensor [B, S, 1, H]");
+  // input_tensor supports frontend-friendly ranks:
+  //   [B, S, H] or [B, 1, S, H]
+  if (inputType.getRank() != 3 && inputType.getRank() != 4) {
+    return emitOpError(
+        "input_tensor must be rank 3 or 4 ([B, S, H] or [B, 1, S, H])");
   }
-  if (indicesType.getRank() != 4) {
-    return emitOpError("expert_indices must be a 4D tensor [B, S, 1, K]");
+  if (indicesType.getRank() != 2 && indicesType.getRank() != 3 &&
+      indicesType.getRank() != 4) {
+    return emitOpError("expert_indices must be rank 2, 3, or 4 "
+                       "([B*S, K], [B, S, K], or [B, 1, S, K])");
   }
   if (mappingType.getRank() != 4) {
     return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
@@ -2694,6 +2701,13 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     return emitOpError("num_experts_per_tok must be positive");
   }
 
+  // Verify output_shard_dim is 1 or 2.
+  int64_t outputShardDim = getOutputShardDim();
+  if (outputShardDim != 1 && outputShardDim != 2) {
+    return emitOpError("output_shard_dim must be 1 or 2, got ")
+           << outputShardDim;
+  }
+
   return success();
 }
 
@@ -2708,8 +2722,9 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType mappingOutputType = getMapping().getType();
   ::mlir::RankedTensorType reducedType = getReduced().getType();
 
-  if (topkType.getRank() != 4) {
-    return emitOpError("topk_tensor must be a 4D tensor [D, B, S, E]");
+  if (topkType.getRank() != 2 && topkType.getRank() != 3 &&
+      topkType.getRank() != 4) {
+    return emitOpError("topk_tensor must be rank 2, 3, or 4");
   }
   if (mappingInputType.getRank() != 4) {
     return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");

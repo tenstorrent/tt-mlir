@@ -1414,18 +1414,20 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SparseMatmulOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Convert nnz to IntegerAttr
+    // Simple 1:1 TTIR -> TTNN conversion.
+    // Tiling for untiled inputs (M < 32) is handled by
+    // SparseMatmulTileDimsRewritePattern in the TTNN workarounds pass.
+    auto a = mlir::cast<TypedValue<RankedTensorType>>(adaptor.getA());
+    auto b = mlir::cast<TypedValue<RankedTensorType>>(adaptor.getB());
+
     mlir::IntegerAttr nnzAttr = nullptr;
     if (auto nnz = op.getNnz()) {
       nnzAttr = rewriter.getI64IntegerAttr(*nnz);
     }
 
-    // Generate program config from tensor shapes and device grid
-    auto aType = mlir::cast<RankedTensorType>(adaptor.getA().getType());
-    auto bType = mlir::cast<RankedTensorType>(adaptor.getB().getType());
     auto deviceAttr = ttcore::lookupDevice(op);
     auto programConfigAttr = createSparseMatmulProgramConfigAttr(
-        rewriter.getContext(), aType, bType, deviceAttr);
+        rewriter.getContext(), a.getType(), b.getType(), deviceAttr);
 
     rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
@@ -1473,11 +1475,16 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AllToAllCombineOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto outputType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    // Preserve frontend/TTIR output_shard_dim and let TTNN MoE workarounds
+    // canonicalize/adjust it based on final tensor layout and decode quirks.
+
     rewriter.replaceOpWithNewOp<ttnn::AllToAllCombineOp>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInputTensor(), adaptor.getExpertMetadata(),
+        op, outputType, adaptor.getInputTensor(), adaptor.getExpertMetadata(),
         adaptor.getExpertMapping(), op.getNumDevicesAttr(),
         op.getClusterAxisAttr(), op.getNumExpertsPerTokAttr(),
+        op.getOutputShardDimAttr(),
         /*memory_config=*/nullptr);
     return success();
   }

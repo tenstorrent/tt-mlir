@@ -86,3 +86,51 @@ module @Remap_BlocksD attributes {mhlo.cross_program_prefetches = [], mhlo.front
     return %0#0, %0#1 : tensor<1x1x32x8xbf16>, tensor<1x1x1x8xbf16>
   }
 }
+
+// -----
+
+// =====================================================================
+// all_to_all_dispatch: flexible rank path [B,S,H] + [B*S,K]
+// =====================================================================
+// Input is rank-3 [B,S,H] and sharded on H (dim 2). Dispatch rule should still
+// block H sharding and force all_gather before the custom call.
+module @Dispatch_FlexibleRank3 attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%arg0: tensor<1x32x128xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {\22_axis_0\22}]>"}, mhlo.sharding = "{devices=[1,1,2]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "input"}, %arg1: tensor<32x4xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}]>"}, ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "indices"}, %arg2: tensor<1x1x8x2xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {}, {}]>"}, ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "mapping"}) -> (tensor<1x2x32x128xbf16>, tensor<1x2x32x4xbf16>) {
+    // CHECK: stablehlo.all_gather
+    // CHECK: stablehlo.custom_call @tt.all_to_all_dispatch
+    %0:2 = stablehlo.custom_call @tt.all_to_all_dispatch(%arg0, %arg1, %arg2) {api_version = 0 : i32, mhlo.frontend_attributes = {cluster_axis = "1", num_devices = "2"}} : (tensor<1x32x128xbf16>, tensor<32x4xbf16>, tensor<1x1x8x2xbf16>) -> (tensor<1x2x32x128xbf16>, tensor<1x2x32x4xbf16>)
+    return %0#0, %0#1 : tensor<1x2x32x128xbf16>, tensor<1x2x32x4xbf16>
+  }
+}
+
+// -----
+
+// =====================================================================
+// all_to_all_combine: flexible input layout [BD,S,E,H]
+// =====================================================================
+// Frontend now forwards [BD,S,E,H] directly. Combine rule should still block H
+// sharding and insert all_gather before custom call.
+module @Combine_FlexibleBdseh attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%arg0: tensor<2x32x4x128xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {}, {\22_axis_0\22}]>"}, mhlo.sharding = "{devices=[1,1,1,2]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "expert_output"}, %arg1: tensor<1x2x32x4xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {}, {}]>"}, ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "metadata"}, %arg2: tensor<1x1x8x2xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {}, {}]>"}, ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "mapping"}) -> tensor<4x1x32x128xbf16> {
+    // CHECK: stablehlo.all_gather
+    // CHECK: stablehlo.custom_call @tt.all_to_all_combine
+    %0 = stablehlo.custom_call @tt.all_to_all_combine(%arg0, %arg1, %arg2) {api_version = 0 : i32, mhlo.frontend_attributes = {cluster_axis = "1", num_devices = "2", num_experts_per_tok = "4"}} : (tensor<2x32x4x128xbf16>, tensor<1x2x32x4xbf16>, tensor<1x1x8x2xbf16>) -> tensor<4x1x32x128xbf16>
+    return %0 : tensor<4x1x32x128xbf16>
+  }
+}
+
+// -----
+
+// =====================================================================
+// moe_expert_token_remap: flexible topk rank-2 [B*S, E]
+// =====================================================================
+// topk input is rank-2 and sharded on E (dim 1). Input E factor is blocked,
+// so all_gather must still be inserted before the custom call.
+module @Remap_FlexibleTopk2D attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%arg0: tensor<32x8xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}]>"}, mhlo.sharding = "{devices=[1,2]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "topk"}, %arg1: tensor<1x1x8x2xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {}, {}]>"}, ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "mapping"}, %arg2: tensor<1x2x32x4xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {}, {}]>"}, ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "metadata"}) -> (tensor<1x2x32x8xbf16>, tensor<1x1x2x8xbf16>) {
+    // CHECK: stablehlo.all_gather
+    // CHECK: stablehlo.custom_call @tt.moe_expert_token_remap
+    %0:2 = stablehlo.custom_call @tt.moe_expert_token_remap(%arg0, %arg1, %arg2) {api_version = 0 : i32, mhlo.frontend_attributes = {num_devices = "2", reduction_size = "32"}} : (tensor<32x8xbf16>, tensor<1x1x8x2xbf16>, tensor<1x2x32x4xbf16>) -> (tensor<1x2x32x8xbf16>, tensor<1x1x2x8xbf16>)
+    return %0#0, %0#1 : tensor<1x2x32x8xbf16>, tensor<1x1x2x8xbf16>
+  }
+}

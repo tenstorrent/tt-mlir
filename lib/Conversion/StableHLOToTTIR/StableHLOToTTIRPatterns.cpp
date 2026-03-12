@@ -7084,6 +7084,49 @@ public:
     Value expertIndices = adaptor.getOperands()[1];
     Value expertMapping = adaptor.getOperands()[2];
 
+    // Canonicalize frontend-friendly shapes to TTIR canonical 4D:
+    //   input_tensor: [B, S, H]      -> [B, 1, S, H]
+    //   expert_indices: [B*S, K]     -> [B, 1, S, K]
+    //   expert_indices: [B, S, K]    -> [B, 1, S, K]
+    auto reshapeTo = [&](Value value,
+                         llvm::ArrayRef<int64_t> outShape) -> Value {
+      auto valueType = cast<RankedTensorType>(value.getType());
+      auto outType = RankedTensorType::get(outShape, valueType.getElementType(),
+                                           valueType.getEncoding());
+      return rewriter.create<ttir::ReshapeOp>(
+          srcOp.getLoc(), outType, value,
+          rewriter.getI32ArrayAttr(
+              SmallVector<int32_t>(outShape.begin(), outShape.end())));
+    };
+
+    auto inputType = cast<RankedTensorType>(inputTensor.getType());
+    if (inputType.getRank() == 3) {
+      auto shape = inputType.getShape();
+      inputTensor = reshapeTo(inputTensor, {shape[0], 1, shape[1], shape[2]});
+      inputType = cast<RankedTensorType>(inputTensor.getType());
+    } else if (inputType.getRank() != 4) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "all_to_all_dispatch input_tensor "
+                                         "must be rank 3 or 4 before lowering");
+    }
+
+    int64_t B = inputType.getShape()[0];
+    int64_t S = inputType.getShape()[2];
+
+    auto indicesType = cast<RankedTensorType>(expertIndices.getType());
+    if (indicesType.getRank() == 2) {
+      int64_t K = indicesType.getShape()[1];
+      expertIndices = reshapeTo(expertIndices, {B, 1, S, K});
+    } else if (indicesType.getRank() == 3) {
+      auto shape = indicesType.getShape();
+      expertIndices =
+          reshapeTo(expertIndices, {shape[0], 1, shape[1], shape[2]});
+    } else if (indicesType.getRank() != 4) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "all_to_all_dispatch expert_indices must be rank 2, 3, or 4 "
+                 "before lowering");
+    }
+
     IntegerAttr numDevicesAttr = rewriter.getI64IntegerAttr(numDevices);
     IntegerAttr clusterAxisAttr = rewriter.getI64IntegerAttr(clusterAxis);
 
@@ -7206,6 +7249,22 @@ public:
       }
     }
 
+    // Parse output_shard_dim attribute.
+    auto outputShardDimStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("output_shard_dim");
+    int64_t outputShardDim = 1;
+    if (outputShardDimStringAttr) {
+      if (outputShardDimStringAttr.getValue().getAsInteger(10,
+                                                           outputShardDim)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "output_shard_dim must be a valid integer.");
+      }
+    }
+    if (outputShardDim != 1 && outputShardDim != 2) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "output_shard_dim must be 1 or 2.");
+    }
+
     // Get operands: input_tensor, expert_metadata, expert_mapping
     if (adaptor.getOperands().size() != 3) {
       return rewriter.notifyMatchFailure(
@@ -7216,6 +7275,37 @@ public:
     Value expertMetadata = adaptor.getOperands()[1];
     Value expertMapping = adaptor.getOperands()[2];
 
+    // Canonicalize frontend-friendly combine input:
+    //   [BD, S, E, H] -> [E, BD, S, H]
+    // Keep canonical [E, BD, S, H] unchanged.
+    auto inputType = cast<RankedTensorType>(inputTensor.getType());
+    auto mappingInputType = cast<RankedTensorType>(expertMapping.getType());
+    if (inputType.getRank() != 4 || mappingInputType.getRank() != 4) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "all_to_all_combine expects rank-4 input and expert_mapping");
+    }
+
+    auto inputShape = inputType.getShape();
+    auto mappingShape = mappingInputType.getShape();
+    int64_t maybeE = inputShape[2];
+    int64_t eGlobal = mappingShape[2];
+    int64_t totalDevices = mappingShape[3];
+
+    bool looksLikeBdseh = (maybeE == eGlobal);
+    if (!looksLikeBdseh && totalDevices > 1 && eGlobal > 0 &&
+        eGlobal % totalDevices == 0) {
+      looksLikeBdseh = (maybeE == (eGlobal / totalDevices));
+    }
+
+    if (looksLikeBdseh) {
+      auto permutedType = RankedTensorType::get(
+          {inputShape[2], inputShape[0], inputShape[1], inputShape[3]},
+          inputType.getElementType(), inputType.getEncoding());
+      inputTensor = rewriter.create<ttir::PermuteOp>(
+          srcOp.getLoc(), permutedType, inputTensor,
+          llvm::SmallVector<int64_t>({2, 0, 1, 3}));
+    }
+
     RankedTensorType outputType = cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
 
@@ -7223,7 +7313,8 @@ public:
         srcOp.getLoc(), outputType, inputTensor, expertMetadata, expertMapping,
         rewriter.getI64IntegerAttr(numDevices),
         rewriter.getI64IntegerAttr(clusterAxis),
-        rewriter.getI64IntegerAttr(numExpertsPerTok));
+        rewriter.getI64IntegerAttr(numExpertsPerTok),
+        rewriter.getI64IntegerAttr(outputShardDim));
 
     Value result = combineOp.getResult();
 
@@ -7234,8 +7325,6 @@ public:
     // subsets.
     // mapping shape: [1, 1, E_total, D_total] where D_total = total devices.
     // nonClusterSize = D_total / dispatch_devices = devices on the other axis.
-    auto mappingType = cast<RankedTensorType>(expertMapping.getType());
-    int64_t totalDevices = mappingType.getShape()[3];
     int64_t nonClusterSize =
         totalDevices / std::max(numDevices, static_cast<int64_t>(1));
     if (nonClusterSize > 1 && numDevices > 1) {
@@ -7289,6 +7378,17 @@ public:
       }
     }
 
+    // Parse num_devices attribute (optional; used for shape normalization).
+    auto numDevicesStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("num_devices");
+    int64_t numDevices = 1;
+    if (numDevicesStringAttr) {
+      if (numDevicesStringAttr.getValue().getAsInteger(10, numDevices)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "num_devices must be a valid integer.");
+      }
+    }
+
     if (adaptor.getOperands().size() != 3) {
       return rewriter.notifyMatchFailure(
           srcOp, "moe_expert_token_remap expects exactly 3 operands.");
@@ -7297,6 +7397,75 @@ public:
     Value topkTensor = adaptor.getOperands()[0];
     Value expertMapping = adaptor.getOperands()[1];
     Value expertMetadata = adaptor.getOperands()[2];
+
+    // Canonicalize frontend-friendly topk ranks to TTIR canonical 4D:
+    //   [B*S, E] -> [1, BD, S, E]
+    //   [B, S, E] -> [1, BD, S, E]
+    // where BD = B * num_devices.
+    auto reshapeTo = [&](Value value,
+                         llvm::ArrayRef<int64_t> outShape) -> Value {
+      auto valueType = cast<RankedTensorType>(value.getType());
+      auto outType = RankedTensorType::get(outShape, valueType.getElementType(),
+                                           valueType.getEncoding());
+      return rewriter.create<ttir::ReshapeOp>(
+          srcOp.getLoc(), outType, value,
+          rewriter.getI32ArrayAttr(
+              SmallVector<int32_t>(outShape.begin(), outShape.end())));
+    };
+
+    auto repeatAlongDim0 = [&](Value value, int64_t repeats) -> Value {
+      if (repeats <= 1) {
+        return value;
+      }
+      auto valueType = cast<RankedTensorType>(value.getType());
+      auto outShape = llvm::SmallVector<int64_t>(valueType.getShape().begin(),
+                                                 valueType.getShape().end());
+      outShape[0] = (outShape[0] < 0) ? outShape[0] : outShape[0] * repeats;
+      auto outType = RankedTensorType::get(outShape, valueType.getElementType(),
+                                           valueType.getEncoding());
+      SmallVector<Value> repeatedInputs(repeats, value);
+      return rewriter.create<ttir::ConcatOp>(srcOp.getLoc(), outType,
+                                             repeatedInputs, /*dim=*/0);
+    };
+
+    auto metadataType = cast<RankedTensorType>(expertMetadata.getType());
+    if (metadataType.getRank() != 4) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "moe_expert_token_remap expert_metadata must be rank 4");
+    }
+    int64_t BD = metadataType.getShape()[1];
+    int64_t S = metadataType.getShape()[2];
+
+    auto topkType = cast<RankedTensorType>(topkTensor.getType());
+    if (topkType.getRank() == 2) {
+      int64_t E = topkType.getShape()[1];
+      int64_t B = BD;
+      if (numDevices > 1 && BD > 0) {
+        if (BD % numDevices != 0) {
+          return rewriter.notifyMatchFailure(
+              srcOp,
+              "metadata BD must be divisible by num_devices for rank-2 topk");
+        }
+        B = BD / numDevices;
+      }
+
+      topkTensor = reshapeTo(topkTensor, {B, S, E});
+      topkTensor = repeatAlongDim0(topkTensor, numDevices);
+
+      auto repeatedType = cast<RankedTensorType>(topkTensor.getType());
+      topkTensor = reshapeTo(topkTensor, {1, repeatedType.getShape()[0], S, E});
+    } else if (topkType.getRank() == 3) {
+      int64_t STopk = topkType.getShape()[1];
+      int64_t E = topkType.getShape()[2];
+      topkTensor = repeatAlongDim0(topkTensor, numDevices);
+      auto repeatedType = cast<RankedTensorType>(topkTensor.getType());
+      topkTensor =
+          reshapeTo(topkTensor, {1, repeatedType.getShape()[0], STopk, E});
+    } else if (topkType.getRank() != 4) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "moe_expert_token_remap topk_tensor must be rank 2, 3, or 4 "
+                 "before lowering");
+    }
 
     IntegerAttr reductionSizeAttr = rewriter.getI64IntegerAttr(reductionSize);
 
