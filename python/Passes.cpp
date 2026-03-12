@@ -8,6 +8,7 @@
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -551,14 +552,25 @@ void populatePassesModule(nb::module_ &m) {
       "translate_to_python",
       [](MlirModule module) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        // Translate to Python
-        std::string output;
-        llvm::raw_string_ostream output_stream(output);
-        if (mlir::failed(mlir::tt::emitpy::translateToPython(
-                mlir::cast<ModuleOp>(moduleOp), output_stream))) {
-          throw std::runtime_error("Failed to generate py");
+
+        bool hasFileOps = false;
+        moduleOp->walk(
+            [&hasFileOps](mlir::tt::emitpy::FileOp) { hasFileOps = true; });
+        if (hasFileOps) {
+          throw std::runtime_error(
+              "File splitting is not supported in the builder; "
+              "IR should not contain emitpy.file ops");
         }
-        output_stream.flush();
+
+        std::string output;
+        llvm::raw_string_ostream outputStream(output);
+
+        if (mlir::failed(mlir::tt::emitpy::translateToPython(
+                mlir::cast<ModuleOp>(moduleOp), outputStream))) {
+          throw std::runtime_error("Failed to translate to Python");
+        }
+        outputStream.flush();
+
         return output;
       },
       nb::arg("module"));
