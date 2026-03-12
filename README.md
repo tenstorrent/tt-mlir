@@ -14,10 +14,10 @@
 
 <br>
 
-tt-mlir is a compiler project aimed at defining MLIR dialects to abstract compute on Tenstorrent AI accelerators.
-It is built on top of the [MLIR](https://mlir.llvm.org/) compiler infrastructure and targets [TTNN](https://github.com/tenstorrent/tt-metal).
+tt-mlir is a compiler framework that defines MLIR dialects for compiling and optimizing AI workloads on Tenstorrent accelerators.
+Built on [LLVM's MLIR](https://mlir.llvm.org/), it transforms models from frontends like [TT-XLA](https://github.com/tenstorrent/tt-xla) and [TT-Forge-ONNX](https://github.com/tenstorrent/tt-forge-onnx) into optimized binaries targeting [TT-Metalium](https://github.com/tenstorrent/tt-metal).
 
-For more information on the project, see https://tenstorrent.github.io/tt-mlir/.
+> **Part of the [TT-Forge](https://github.com/tenstorrent/tt-forge) AI compiler ecosystem.**
 
 </div>
 <br>
@@ -25,8 +25,8 @@ For more information on the project, see https://tenstorrent.github.io/tt-mlir/.
 -----
 # Quick Links
 - [Getting Started](https://docs.tenstorrent.com/tt-mlir/getting-started.html)
-- [Tools](https://tenstorrent.github.io/tt-mlir/tools.html)
-- [Additional Reading](https://tenstorrent.github.io/tt-mlir/additional-reading.html)
+- [Tools](https://docs.tenstorrent.com/tt-mlir/tools.html)
+- [Additional Reading](https://docs.tenstorrent.com/tt-mlir/additional-reading.html)
 
 -----
 # What is this Repo?
@@ -49,12 +49,11 @@ tt-mlir is an open-source compiler framework that is used to compile and optimiz
 
 -----
 # Related Tenstorrent Projects
-- [tt-forge-fe](https://github.com/tenstorrent/tt-forge-fe)
-- [tt-xla](https://github.com/tenstorrent/tt-xla)
-- [tt-forge](https://github.com/tenstorrent/tt-forge)
-- [tt-metalium](https://github.com/tenstorrent/tt-metal)
-- [tt-tvm](https://github.com/tenstorrent/tt-tvm)
-- [tt-torch](https://github.com/tenstorrent/tt-torch) - (deprecated)
+- [TT-Forge](https://github.com/tenstorrent/tt-forge) — Central hub for the TT-Forge compiler project (demos, benchmarks, releases)
+- [TT-XLA](https://github.com/tenstorrent/tt-xla) — Primary frontend for PyTorch and JAX (single and multi-chip)
+- [TT-Forge-ONNX](https://github.com/tenstorrent/tt-forge-onnx) — Frontend for ONNX, TensorFlow, and PaddlePaddle (single-chip)
+- [TT-Metalium](https://github.com/tenstorrent/tt-metal) — Low-level programming model and kernel development
+- [TT-Blacksmith](https://github.com/tenstorrent/tt-blacksmith) — Optimized training recipes and experiments
 
 -----
 # Tenstorrent Bounty Program Terms and Conditions
