@@ -595,6 +595,15 @@ private:
       return false;
     }
 
+    // If all users of this arg are CPU hoisted calls, keep it on host to
+    // avoid an unnecessary device round-trip.
+    if (!arg.use_empty() && llvm::all_of(arg.getUsers(), [](Operation *user) {
+          auto callOp = mlir::dyn_cast<func::CallOp>(user);
+          return callOp && callOp->hasAttr(ttir::CPUHoistedCallAttr::name);
+        })) {
+      return true;
+    }
+
     for (Operation *user : arg.getUsers()) {
       if (shouldMeshShardOpForceSystemMemory(user)) {
         return true;
