@@ -34,6 +34,11 @@ Before starting, identify:
   tablegen definitions before choosing a name.
 - **Data type requirements** — some TTNN metal ops require specific types (e.g., `ttnn::gather`
   requires UINT32/UINT16 index tensors, not INT32). Check the metal API docs or headers.
+- **Tensor shape conventions** — some metal kernels expect specific tensor layouts (e.g., SDPA
+  decode expects Q in `(S, B, H, D)` format, not `(B, H, S, D)`). Search
+  `third_party/tt-metal/src/tt-metal/tests/` for existing unit tests of the TTNN op to find the
+  exact tensor shapes, dtypes, and any required permutations. These tests are the ground truth for
+  what shapes the metal kernel actually supports.
 
 ## Step 1: Define the Op in TTIR
 
@@ -145,6 +150,56 @@ def TTNN_YourOp : TTNN_Op<"your_op",
 The TTNN verifier enforces device-specific constraints (e.g., TTNN LayerNorm only supports
 normalization over the last dimension, so weight/bias must be 1D).
 
+### 2c. Operand layout workarounds (if needed)
+
+Some TTNN metal ops require specific operands to be in `ROW_MAJOR` layout (e.g., page tables and
+position tensors for attention ops require ROW_MAJOR, not TILE). If the compiler's layout pass tiles
+an operand that the metal kernel expects as ROW_MAJOR, the runtime will fail with errors like
+`Expect cur_pos to be ROW_MAJOR, got Layout::TILE`.
+
+To fix this, implement a workaround that inserts `to_layout` ops before/after the op:
+
+**Files:**
+- `include/ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h` — add factory method declaration
+- `lib/Dialect/TTNN/IR/TTNNWorkaroundsPass.cpp` — add factory method implementation
+- `include/ttmlir/Dialect/TTNN/IR/TTNNOps.td` — add `extraClassDeclaration` to the op
+
+1. Declare a factory method in `TTNNOperandsWorkaroundsFactory`:
+```cpp
+static TTNNOperandsWorkarounds createYourOpOperandsWorkarounds(Operation *op);
+```
+
+2. Implement it — add an input workaround for each operand (empty for operands that don't need
+   fixing, `Layout::RowMajor` for operands that need ROW_MAJOR). For ops with optional operands,
+   conditionally add workarounds only when the operand is present:
+```cpp
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createYourOpOperandsWorkarounds(Operation *op) {
+  auto yourOp = cast<YourOp>(op);
+  TTNNOperandWorkarounds empty;
+  TTNNOperandWorkarounds rowMajor;
+  rowMajor.tensorLayoutWorkaround = Layout::RowMajor;
+
+  auto wa = TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+  wa = wa.addInputOperandWorkaround(empty);        // input: no workaround
+  wa = wa.addInputOperandWorkaround(rowMajor);      // index: force ROW_MAJOR
+  wa = wa.addOutputOperandWorkaround(empty);         // output: no workaround
+  return wa;
+}
+```
+
+3. Add `extraClassDeclaration` to the TTNN op in `TTNNOps.td`:
+```tablegen
+let extraClassDeclaration = [{
+  wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+    return wa::TTNNOperandsWorkaroundsFactory::createYourOpOperandsWorkarounds(getOperation());
+  }
+}];
+```
+
+Look at existing examples like `PagedScaledDotProductAttentionDecodeOp` or `ScatterOp` for
+reference patterns. Also add a forward declaration for your op in `TTNNWorkaroundsPass.h` if needed.
+
 ## Step 3: TTIR to TTNN Conversion
 
 **File:** `lib/Conversion/TTIRToTTNN/TTIRToTTNN.cpp`
@@ -221,6 +276,16 @@ function signature exactly.
 
 Similar to EmitC but uses `EmitPyTTNNEmitter` and keyword argument names (second parameter to
 `emit`).
+
+**IMPORTANT — Positional vs keyword argument ordering:** EmitPy generates Python function calls.
+In Python, keyword arguments must come AFTER all positional arguments. If you emit an argument with
+a keyword name (e.g., `emitter.emit(srcOp.getDim(), "dim")`) but a later argument is positional
+(no keyword name), the generated Python will be invalid: `ttnn.op(input, dim=0, index, ...)` is a
+syntax error. To fix this, either:
+- Emit the argument **without** a keyword name (positional): `emitter.emit(srcOp.getDim())`
+- Or ensure all subsequent arguments also use keyword names
+
+Check the target Python function's signature to determine which args are positional vs keyword.
 
 ```cpp
 class YourOpConversionPattern
@@ -620,7 +685,24 @@ type list dynamically based on which optional operands are present.
 
 **File:** `tools/golden/mapping.py`
 
-Add golden (reference) implementations for both TTIR and TTNN versions:
+Add golden (reference) implementations for both TTIR and TTNN versions.
+
+**IMPORTANT — GoldenMapTensor limitations:** `GoldenMapTensor` wraps per-shard torch tensors and
+supports `torch.*` functions via the `__torch_function__` protocol. However, it does NOT support
+Python arithmetic operators like `*`, `+`, `-` directly. For example, `tensor * scale` will fail
+with `unsupported operand type(s)`. Instead, use the torch function equivalents:
+- `torch.mul(tensor, scale)` instead of `tensor * scale`
+- `torch.add(tensor, bias)` instead of `tensor + bias`
+- `torch.sub(a, b)` instead of `a - b`
+
+**IMPORTANT — Parameter ordering:** The golden function's parameter order must match the order the
+builder passes arguments. The builder calls the golden function with positional args in this order:
+1. All tensor inputs (required and optional, in the order they appear in the tablegen definition)
+2. All attribute args (head_dim_v, is_causal, scale, etc.)
+3. `output_type_mlir` as the last positional arg
+
+If the golden function's parameter order doesn't match, you'll get errors like `Unexpected attribute
+type: GoldenMapTensor` (a tensor landing in an attribute parameter slot) or vice versa.
 
 ```python
 def ttir_your_op_golden(
@@ -707,7 +789,7 @@ Test the full pipeline: TTIR → TTNN → Flatbuffer, and TTNN → EmitC → C++
 Add a parametrized test that exercises the TTIRBuilder method. Parametrize over:
 - Different input shapes
 - Optional operand combinations (has_weight, has_bias, etc.)
-- Targets: "ttnn" and "emitpy"
+- Targets: `["ttnn", "emitpy", "emitc"]` — all three backends should be tested
 
 **Index tensor types:** If your op takes index tensors (like gather/scatter), the TTNN metal op
 may require unsigned integer types (`torch.uint32` → MLIR `ui32`), not signed (`torch.int32` →
