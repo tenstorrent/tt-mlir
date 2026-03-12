@@ -2,7 +2,7 @@ ARG FROM_TAG=latest
 
 # Multi-stage build to optimize for both base and ci images
 # This stage handles the expensive GDB build that can be shared
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS gdb-builder
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-24-04:${FROM_TAG} AS gdb-builder
 SHELL ["/bin/bash", "-c"]
 
 # Set environment variables for build stage
@@ -36,7 +36,7 @@ RUN echo " \
     && rm -rf /var/lib/apt/lists/*" > _install.sh && chmod +x _install.sh
 
 # Base image stage
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS base-ird
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-24-04:${FROM_TAG} AS base-ird
 
 SHELL ["/bin/bash", "-c"]
 
@@ -58,7 +58,7 @@ RUN gdb --version
 
 # CI image stage
 ARG FROM_TAG=latest
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:${FROM_TAG} AS ird
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-24-04:${FROM_TAG} AS ird
 SHELL ["/bin/bash", "-c"]
 
 # Set environment variables
