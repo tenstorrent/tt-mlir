@@ -2504,6 +2504,7 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
     OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointAfter(newGenericOp);
     if (thisOp.getNumResults() > 0) {
+      // TODO: insert multiple return views instead of just one.
       FailureOr<d2m::ViewLayoutOp> resultView =
           createReblockView(builder, thisOp.getLoc(), newGenericOp.getResult(0),
                             thisOp.getResult(0).getType());
