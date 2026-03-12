@@ -9,8 +9,6 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 
-#define DEBUG_TYPE "ttnn-fusion-validator"
-
 namespace mlir::tt::ttnn {
 
 FusionValidationResult FusionValidator::runValidationPipeline(ModuleOp module) {
@@ -35,7 +33,6 @@ FusionValidationResult FusionValidator::runValidationPipeline(ModuleOp module) {
   {
     PassManager pm(context);
     TTNNOperationValidationAndFallbackOptions validationOptions;
-    validationOptions.tensorL1UsageCap = config.tensorL1UsageCap;
     validationOptions.maxFallbackAttempts = config.maxFallbackAttempts;
     pm.addPass(mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
         validationOptions));

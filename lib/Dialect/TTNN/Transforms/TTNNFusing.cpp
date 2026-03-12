@@ -1252,7 +1252,6 @@ public:
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {
       FusionValidationConfig validationConfig;
-      validationConfig.tensorL1UsageCap = tensorL1UsageCap;
       validationConfig.maxFallbackAttempts = maxFallbackAttempts;
 
       patterns.add<fusing::RoPEFusing>(&getContext());

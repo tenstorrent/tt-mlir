@@ -212,9 +212,11 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
                   : computeTopKResultType(inputType, sortDim, sliceResult->k,
                                           inputType.getElementType());
   RankedTensorType indicesResultType =
-      indicesSlice ? mlir::cast<RankedTensorType>(indicesSlice.getType())
-                   : computeTopKResultType(inputType, sortDim, sliceResult->k,
-                                           rewriter.getI32Type());
+      indicesSlice
+          ? mlir::cast<RankedTensorType>(indicesSlice.getType())
+          : computeTopKResultType(inputType, sortDim, sliceResult->k,
+                                  IntegerType::get(rewriter.getContext(), 32,
+                                                   IntegerType::Signed));
 
   // Validate the fusion before creating it
   FusionValidator validator(rewriter.getContext(), validationConfig);

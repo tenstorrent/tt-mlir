@@ -34,9 +34,6 @@ struct FusionValidationConfig {
   /// Whether to apply layout workarounds.
   bool applyLayoutWorkarounds = true;
 
-  /// Maximum L1 memory usage cap (fraction, 1.0 = use all available).
-  float tensorL1UsageCap = 1.0f;
-
   /// Maximum number of fallback configurations to try (0 = unlimited).
   uint32_t maxFallbackAttempts = 10000;
 };

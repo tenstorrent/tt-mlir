@@ -239,11 +239,6 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "Enable op model constraint validation for fusion patterns. "
             "Requires TTMLIR_ENABLE_OPMODEL. When enabled, fused ops are "
             "validated in an isolated module before being applied.">,
-    Option<"tensorL1UsageCap",
-            "tensor-l1-usage-cap",
-            "float", /*default=*/"1.0",
-            "Limit L1 memory usage to this fraction of available space "
-            "(0.0-1.0). Only used when enable-op-constraints is true.">,
     Option<"maxFallbackAttempts",
             "max-fallback-attempts",
             "uint32_t", /*default=*/"10000",

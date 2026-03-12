@@ -160,13 +160,11 @@ void createTTNNFusingPass(OpPassManager &pm,
       wrapperOptions.devicePtr = options.devicePtr;
       wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
-      float l1Cap = options.tensorL1UsageCap;
       uint32_t fallbackAttempts = options.maxFallbackAttempts;
       pm.addPass(createDevicePassesWrapper(
-          [l1Cap, fallbackAttempts](OpPassManager &innerPm) {
+          [fallbackAttempts](OpPassManager &innerPm) {
             TTNNFusingOptions fusingOptions;
             fusingOptions.enableOpConstraints = true;
-            fusingOptions.tensorL1UsageCap = l1Cap;
             fusingOptions.maxFallbackAttempts = fallbackAttempts;
             innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
           },
