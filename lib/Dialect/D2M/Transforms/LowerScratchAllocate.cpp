@@ -5,12 +5,14 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/PatternMatch.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERSCRATCHALLOCATE
@@ -74,6 +76,21 @@ private:
       return success();
     }
 
+    // Create a CB for the scratch operand using the CB rework utilities.
+    // This gives the scratch buffer a proper CB port number so that
+    // downstream compute APIs (unpack/pack) can address it.
+    // The CB must be created even if there are no scratch_allocate ops,
+    // because the scratch memref.alloc in the region needs a CB association
+    // for D2MToTTKernel conversion.
+    int64_t scratchInputIdx = scratchInputsAttr[0];
+    Block &block = region.front();
+
+    IRRewriter rewriter(genericOp->getContext());
+    CBCache cbCache;
+    PortCounter portCounters;
+    Value scratchCB = getOrCreateCB(genericOp, region, scratchInputIdx,
+                                    rewriter, cbCache, portCounters);
+
     // Collect all scratch_allocate ops in this region.
     SmallVector<ScratchAllocationInfo> allocations;
     region.walk([&](ScratchAllocateOp allocOp) {
@@ -100,23 +117,11 @@ private:
       currentOffset += info.numElements;
     }
 
-    // Get the scratch operand value (CB block arg or memref.alloc).
-    int64_t scratchInputIdx = scratchInputsAttr[0];
-    Block &block = region.front();
-    Value scratchValue =
-        d2m::GenericOp::getOperandAlloc(region, scratchInputIdx);
-
     OpBuilder builder(&block, block.begin());
-    Value scratchMemRef;
-    if (mlir::isa<d2m::CBType>(scratchValue.getType())) {
-      // CB form: unwrap via get_scratch_from_cb.
-      auto scratchFromCBOp =
-          builder.create<GetScratchFromCBOp>(genericOp.getLoc(), scratchValue);
-      scratchMemRef = scratchFromCBOp.getResult();
-    } else {
-      // New form: memref.alloc is already the scratch buffer.
-      scratchMemRef = scratchValue;
-    }
+    builder.setInsertionPointAfterValue(scratchCB);
+    auto scratchFromCBOp =
+        builder.create<GetScratchFromCBOp>(genericOp.getLoc(), scratchCB);
+    Value scratchMemRef = scratchFromCBOp.getResult();
     auto scratchMemRefType = mlir::cast<MemRefType>(scratchMemRef.getType());
 
     // Verify allocations fit in the scratch buffer.
