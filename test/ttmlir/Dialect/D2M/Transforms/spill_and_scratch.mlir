@@ -51,12 +51,13 @@ func.func @three_step_chain(
                threads = [#d2m.thread<unified>]}
       ins(%in0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>)
       outs(%out0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
-  ^unified0(%cb0_arg: !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>,
-            %cb1_arg: !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>):
-    %cb0 = d2m.wait %cb0_arg
+  ^unified0:
+    %cb0_raw = d2m.get_cb(0) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb1_raw = d2m.get_cb(1) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb0 = d2m.wait %cb0_raw
         : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
         -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
-    %cb1 = d2m.reserve %cb1_arg
+    %cb1 = d2m.reserve %cb1_raw
         : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
         -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
     %tmp_a = memref.alloc() {alignment = 64 : i64}
@@ -133,16 +134,17 @@ func.func @two_intermediates_one_consumer(
           memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>,
           memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>)
       outs(%out0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
-  ^unified0(%cb0_arg: !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>,
-            %cb1_arg: !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>,
-            %cb2_arg: !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>):
-    %cb0 = d2m.wait %cb0_arg
+  ^unified0:
+    %cb0_raw = d2m.get_cb(0) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb1_raw = d2m.get_cb(1) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb2_raw = d2m.get_cb(2) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb0 = d2m.wait %cb0_raw
         : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
         -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
-    %cb1 = d2m.wait %cb1_arg
+    %cb1 = d2m.wait %cb1_raw
         : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
         -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
-    %cb2 = d2m.reserve %cb2_arg
+    %cb2 = d2m.reserve %cb2_raw
         : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
         -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
     %tmp_a = memref.alloc() {alignment = 64 : i64}
@@ -194,12 +196,13 @@ func.func @single_nest_no_scratch(
                threads = [#d2m.thread<unified>]}
       ins(%in0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>)
       outs(%out0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
-  ^unified0(%cb0_arg: !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>,
-            %cb1_arg: !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>):
-    %cb0 = d2m.wait %cb0_arg
+  ^unified0:
+    %cb0_raw = d2m.get_cb(0) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb1_raw = d2m.get_cb(1) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb0 = d2m.wait %cb0_raw
         : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
         -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
-    %cb1 = d2m.reserve %cb1_arg
+    %cb1 = d2m.reserve %cb1_raw
         : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
         -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
     affine.for %i = 0 to 2 {
@@ -228,12 +231,13 @@ func.func @already_marked_is_skipped(
                threads = [#d2m.thread<unified>]}
       ins(%in0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>)
       outs(%out0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
-  ^unified0(%cb0_arg: !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>,
-            %cb1_arg: !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>):
-    %cb0 = d2m.wait %cb0_arg
+  ^unified0:
+    %cb0_raw = d2m.get_cb(0) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb1_raw = d2m.get_cb(1) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb0 = d2m.wait %cb0_raw
         : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
         -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
-    %cb1 = d2m.reserve %cb1_arg
+    %cb1 = d2m.reserve %cb1_raw
         : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
         -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
     %tmp = memref.alloc() {alignment = 64 : i64}
@@ -273,12 +277,13 @@ func.func @outer_scf_loops_get_fused(
                threads = [#d2m.thread<unified>]}
       ins(%in0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>)
       outs(%out0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
-  ^unified0(%cb0_arg: !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>,
-            %cb1_arg: !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>):
-    %cb0 = d2m.wait %cb0_arg
+  ^unified0:
+    %cb0_raw = d2m.get_cb(0) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb1_raw = d2m.get_cb(1) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb0 = d2m.wait %cb0_raw
         : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
         -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
-    %cb1 = d2m.reserve %cb1_arg
+    %cb1 = d2m.reserve %cb1_raw
         : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
         -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
     %tmp = memref.alloc() {alignment = 64 : i64}
