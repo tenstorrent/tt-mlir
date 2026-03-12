@@ -2330,9 +2330,9 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
     if (thisOp.isDpsInit(&operand)) {
       if (auto definingView =
               operand.get().getDefiningOp<d2m::ViewLayoutOp>()) {
-        if (auto inputTensorType =
-                dyn_cast<RankedTensorType>(definingView.getInput().getType())) {
-          if (auto metalLayout = dyn_cast<ttcore::MetalLayoutAttr>(
+        if (auto inputTensorType = mlir::dyn_cast<RankedTensorType>(
+                definingView.getInput().getType())) {
+          if (auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(
                   inputTensorType.getEncoding())) {
             if (metalLayout.getMemorySpace() !=
                 ttcore::MemorySpace::DeviceDRAM) {
@@ -2398,10 +2398,11 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
     for (auto [argIndex, oldArg] : llvm::enumerate(oldBlock.getArguments())) {
       Type newArgType = oldArg.getType();
       if (argIndex < reblockedOperands.size()) {
-        if (auto oldCBType = dyn_cast<d2m::CBType>(oldArg.getType())) {
+        if (auto oldCBType = mlir::dyn_cast<d2m::CBType>(oldArg.getType())) {
           Type newUnderlyingType = getShardTypeFromOperand(
               reblockedOperands[argIndex], oldCBType.getUnderlying());
-          auto newUnderlyingShaped = dyn_cast<ShapedType>(newUnderlyingType);
+          auto newUnderlyingShaped =
+              mlir::dyn_cast<ShapedType>(newUnderlyingType);
           if (!newUnderlyingShaped) {
             return failure();
           }
