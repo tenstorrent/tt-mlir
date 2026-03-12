@@ -18,6 +18,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "stablehlo/dialect/StablehloOps.h"
 
+#include <llvm/ADT/SmallSet.h>
+#include <llvm/ADT/StringRef.h>
 #include <shardy/dialect/sdy/ir/dialect.h>
 
 using namespace mlir;
@@ -75,6 +77,59 @@ public:
 
 private:
   std::string opName;
+};
+
+// Special handling for all tenstorrent.topk* composite ops.
+// Three different composite ops are supported:
+// - tenstorrent.topk: generated when both the values and indices are needed in the graph.
+// - tenstorrent.topk_indices: generated when only the indices are needed in the graph.
+// - tenstorrent.topk_values: generated when only the values are needed in the graph.
+class TenstorrentTopKConversionPattern : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+public:
+  TenstorrentTopKConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!supportedOpNames.contains(srcOp.getName())) {
+      return failure();
+    }
+
+    bool isTopKWithValues = srcOp.getName() == "tenstorrent.topk_values";
+    bool isTopKWithIndices = srcOp.getName() == "tenstorrent.topk_indices";
+    bool isTopKWithBoth = srcOp.getName() == "tenstorrent.topk";
+
+    if (isTopKWithBoth && srcOp->getNumResults() != 2) {
+      return rewriter.notifyMatchFailure(srcOp, "tenstorrent.topk composite op must have exactly two results.");
+    }
+    if (isTopKWithValues && srcOp->getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(srcOp, "tenstorrent.topk_values composite op must have exactly one result.");
+    }
+    if (isTopKWithIndices && srcOp->getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(srcOp, "tenstorrent.topk_indices composite op must have exactly one result.");
+    }
+
+    SmallVector<RankedTensorType> resultTypes;
+    if (isTopKWithBoth) {
+      resultTypes = {mlir::cast<RankedTensorType>(srcOp.getResult(0).getType()),
+                     mlir::cast<RankedTensorType>(srcOp.getResult(1).getType())};
+    } else {
+      resultTypes = {mlir::cast<RankedTensorType>(srcOp.getResult(0).getType())};
+    }
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+    IntegerAttr kAttr = IntegerAttr::get(rewriter.getIntegerType(32), 1);
+
+    return success();
+  }
+private:
+  llvm::SmallSet<llvm::StringRef, 3> supportedOpNames = {
+    "tenstorrent.topk",
+    "tenstorrent.topk_indices",
+    "tenstorrent.topk_values",
+  };
 };
 
 // Special handling for tenstorrent.uniform -> ttir.rand, as
