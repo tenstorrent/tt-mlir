@@ -264,6 +264,10 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Enable implicit broadcast folding pass."),
       llvm::cl::init(true)};
 
+  Option<bool> memoryManagementEnabled{
+      *this, "enable-memory-management-pass",
+      llvm::cl::desc("Enable memory management pass."), llvm::cl::init(true)};
+
   Option<bool> eraseInverseOpsEnabled{
       *this, "enable-erase-inverse-ops-pass",
       llvm::cl::desc("Enable erase inverse ops pass."), llvm::cl::init(true)};
