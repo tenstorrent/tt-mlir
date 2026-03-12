@@ -2623,12 +2623,16 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
   ::mlir::RankedTensorType metadataType = getMetadata().getType();
 
-  // All tensors must be 4D
-  if (inputType.getRank() != 4) {
-    return emitOpError("input_tensor must be a 4D tensor [B, S, 1, H]");
+  // input_tensor accepts rank 3 or 4; the workaround canonicalizes to rank 4.
+  //   [B, S, H] or [B, 1, S, H]
+  if (inputType.getRank() != 3 && inputType.getRank() != 4) {
+    return emitOpError(
+        "input_tensor must be rank 3 or 4 ([B, S, H] or [B, 1, S, H])");
   }
-  if (indicesType.getRank() != 4) {
-    return emitOpError("expert_indices must be a 4D tensor [B, S, 1, K]");
+  if (indicesType.getRank() != 2 && indicesType.getRank() != 3 &&
+      indicesType.getRank() != 4) {
+    return emitOpError("expert_indices must be rank 2, 3, or 4 "
+                       "([B*S, K], [B, S, K], or [B, 1, S, K])");
   }
   if (mappingType.getRank() != 4) {
     return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
@@ -2694,6 +2698,13 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     return emitOpError("num_experts_per_tok must be positive");
   }
 
+  // Verify output_shard_dim is 1 or 2.
+  int64_t outputShardDim = getOutputShardDim();
+  if (outputShardDim != 1 && outputShardDim != 2) {
+    return emitOpError("output_shard_dim must be 1 or 2, got ")
+           << outputShardDim;
+  }
+
   return success();
 }
 
@@ -2708,8 +2719,9 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType mappingOutputType = getMapping().getType();
   ::mlir::RankedTensorType reducedType = getReduced().getType();
 
-  if (topkType.getRank() != 4) {
-    return emitOpError("topk_tensor must be a 4D tensor [D, B, S, E]");
+  if (topkType.getRank() != 2 && topkType.getRank() != 3 &&
+      topkType.getRank() != 4) {
+    return emitOpError("topk_tensor must be rank 2, 3, or 4");
   }
   if (mappingInputType.getRank() != 4) {
     return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
