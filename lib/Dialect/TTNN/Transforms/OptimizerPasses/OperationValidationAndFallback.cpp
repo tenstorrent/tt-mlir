@@ -116,12 +116,13 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
 // Try fallback configurations for a failed operation
 bool tryFallbacks(Operation *operation,
                   const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                  const OpConfig &config, uint32_t maxAttempts = 0);
+                  const llvm::SmallVector<OpConfig> &configs,
+                  uint32_t maxAttempts = 0);
 
 // Try config fallbacks for Conv2d-like operations
 bool tryConfigFallbacks(Operation *operation,
                         const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                        const OpConfig &originalConfig,
+                        const llvm::SmallVector<OpConfig> &configs,
                         uint32_t maxAttempts = 0);
 
 void applyConfigChange(Operation *operation, Conv2dConfigAttr newConfig);
@@ -248,10 +249,6 @@ public:
           }
         } else {
           // Try fallback configurations
-          // TODO(bmalesevic, #7023): Fallback paths only pass configs[0] to
-          // tryFallbacks/tryConfigFallbacks, so multi-output ops will only
-          // have the first output's layout revert handled. Extend to pass
-          // all configs when multi-output fallback support is needed.
           bool fixed = false;
           // For OOM errors, try config fallbacks first as they're cheaper (no
           // ToLayout ops)
@@ -261,14 +258,14 @@ public:
                          "OOM error detected, trying config fallbacks first "
                          "for operation {} at {}",
                          operation->getName(), operation->getLoc());
-            fixed = fallbacks::tryConfigFallbacks(
-                operation, inputLayouts, configs[0], maxFallbackAttempts);
+            fixed = fallbacks::tryConfigFallbacks(operation, inputLayouts,
+                                                  configs, maxFallbackAttempts);
           }
 
           // If config fallbacks didn't work or it wasn't an OOM error, try
           // layout fallbacks
           if (!fixed) {
-            fixed = fallbacks::tryFallbacks(operation, inputLayouts, configs[0],
+            fixed = fallbacks::tryFallbacks(operation, inputLayouts, configs,
                                             maxFallbackAttempts);
           }
 
@@ -284,8 +281,8 @@ public:
                          op_constraint_validation::validationStatusToString(
                              originalResult.status),
                          operation->getName(), operation->getLoc());
-            fixed = fallbacks::tryConfigFallbacks(
-                operation, inputLayouts, configs[0], maxFallbackAttempts);
+            fixed = fallbacks::tryConfigFallbacks(operation, inputLayouts,
+                                                  configs, maxFallbackAttempts);
           }
 
           if (fixed) {
@@ -371,7 +368,8 @@ namespace fallbacks {
 
 bool tryFallbacks(Operation *operation,
                   const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                  const OpConfig &config, uint32_t maxAttempts) {
+                  const llvm::SmallVector<OpConfig> &configs,
+                  uint32_t maxAttempts) {
 
   // Extract tensor shapes for all input operands
   std::vector<llvm::ArrayRef<int64_t>> tensorShapes;
@@ -452,7 +450,8 @@ bool tryFallbacks(Operation *operation,
 
   // Test combinations in order of increasing distance
   for (const auto &candidate : allCombinations) {
-    auto result = testFallbackCombination(operation, config, candidate.layouts);
+    auto result =
+        testFallbackCombination(operation, configs[0], candidate.layouts);
 
     if (!result.isSuccess()) {
       failedAttempts++;
@@ -471,12 +470,9 @@ bool tryFallbacks(Operation *operation,
       }
       continue;
     }
-    // TODO(bmalesevic, #7023): Multi-output fallback only handles the first
-    // output's layout revert. Remaining outputs are left unchanged.
-    llvm::SmallVector<OpConfig> outputConfigs({config});
     // Found working solution, apply transformations
     applyFallbackTransformations(operation, originalInputLayouts,
-                                 candidate.layouts, result, outputConfigs);
+                                 candidate.layouts, result, configs);
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                  "Found working fallback combination with {} operands after {} "
                  "failed attempts",
@@ -923,14 +919,14 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
 // Try config fallbacks for Conv2d-like operations
 bool tryConfigFallbacks(Operation *operation,
                         const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                        const OpConfig &originalConfig, uint32_t maxAttempts) {
+                        const llvm::SmallVector<OpConfig> &configs,
+                        uint32_t maxAttempts) {
   // Only applicable to operations with Conv2dAttrs
-  if (!std::holds_alternative<Conv2dAttrs>(originalConfig.opSpecificAttrs)) {
+  if (!std::holds_alternative<Conv2dAttrs>(configs[0].opSpecificAttrs)) {
     return false;
   }
 
-  const auto &conv2dAttrs =
-      std::get<Conv2dAttrs>(originalConfig.opSpecificAttrs);
+  const auto &conv2dAttrs = std::get<Conv2dAttrs>(configs[0].opSpecificAttrs);
 
   // Use existing config or default if none exists
   Conv2dConfigAttr originalConfigAttr =
@@ -1000,7 +996,7 @@ bool tryConfigFallbacks(Operation *operation,
               while (Conv2dConfigAttr configAttr =
                          configGenerator.getNextConfig()) {
                 // Test this config
-                OpConfig testConfig = originalConfig;
+                OpConfig testConfig = configs[0];
                 auto &testConv2dAttrs =
                     std::get<Conv2dAttrs>(testConfig.opSpecificAttrs);
                 testConv2dAttrs.conv2dConfig = configAttr;
@@ -1053,14 +1049,8 @@ bool tryConfigFallbacks(Operation *operation,
     // Found a working config, apply it
     applyConfigChange(operation, workingConfig);
 
-    // TODO(bmalesevic, #7023): Multi-output fallback only handles the first
-    // output's layout revert. Remaining outputs are left unchanged.
-    if (originalConfig.outputLayout &&
-        workingResult.checkAndGetFirstActualOutputLayout() !=
-            originalConfig.outputLayout) {
-      applyOutputLayoutRevert(
-          operation, 0, workingResult.checkAndGetFirstActualOutputLayout(),
-          originalConfig.outputLayout);
+    for (size_t i = 0; i < configs.size(); ++i) {
+      applyOutputLayoutChange(operation, i, workingResult, configs[i]);
     }
 
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
