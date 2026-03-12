@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Add-Op Review</title>
+  <style>/*__VENDOR_CSS__*/</style>
+  <script>/*__VENDOR_JS__*/</script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-raised: #1c2129;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #7d8590;
+      --accent: #58a6ff;
+      --accent-hover: #79c0ff;
+      --green: #3fb950;
+      --green-bg: rgba(63, 185, 80, 0.1);
+      --red: #f85149;
+      --red-bg: rgba(248, 81, 73, 0.1);
+      --yellow: #d29922;
+      --yellow-bg: rgba(210, 153, 34, 0.1);
+      --radius: 8px;
+      --font-mono: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+      --font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ---- Header ---- */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .header h1 {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    .header h1 .op-name {
+      color: var(--accent);
+    }
+    .header .summary {
+      display: flex;
+      gap: 1rem;
+      font-size: 0.8rem;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      font-weight: 500;
+      font-size: 0.75rem;
+    }
+    .badge.pass { background: var(--green-bg); color: var(--green); }
+    .badge.fail { background: var(--red-bg); color: var(--red); }
+    .badge.warn { background: var(--yellow-bg); color: var(--yellow); }
+    .badge.info { background: rgba(88, 166, 255, 0.1); color: var(--accent); }
+
+    /* ---- Tabs ---- */
+    .tabs {
+      display: flex;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem;
+      flex-shrink: 0;
+      gap: 0;
+    }
+    .tab {
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: var(--text-muted);
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      font-weight: 500;
+      padding: 0.6rem 1rem;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .tab .tab-badge {
+      margin-left: 0.4rem;
+      font-size: 0.65rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 999px;
+    }
+
+    /* ---- Panel ---- */
+    .panel {
+      display: none;
+      flex: 1;
+      overflow: auto;
+    }
+    .panel.active { display: flex; flex-direction: column; }
+
+    /* ---- Tests Panel ---- */
+    .test-suite {
+      border-bottom: 1px solid var(--border);
+    }
+    .test-suite-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      background: var(--surface);
+      cursor: pointer;
+      user-select: none;
+    }
+    .test-suite-header:hover { background: var(--surface-raised); }
+    .test-suite-header .name {
+      font-weight: 500;
+      font-size: 0.85rem;
+    }
+    .test-suite-header .chevron {
+      transition: transform 0.2s;
+      color: var(--text-muted);
+    }
+    .test-suite.open .chevron { transform: rotate(90deg); }
+    .test-suite-body {
+      display: none;
+      padding: 0;
+    }
+    .test-suite.open .test-suite-body { display: block; }
+    .test-cmd {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      padding: 0.4rem 1.5rem;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .test-cmd code {
+      flex: 1;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    .test-cmd .copy-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.6rem;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: var(--font-sans);
+      flex-shrink: 0;
+    }
+    .test-cmd .copy-btn:hover { color: var(--text); border-color: var(--text-muted); }
+    .test-output {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      line-height: 1.6;
+      padding: 1rem 1.5rem;
+      background: var(--bg);
+      white-space: pre-wrap;
+      word-break: break-all;
+      overflow-x: auto;
+    }
+    .test-line-pass { color: var(--green); }
+    .test-line-fail { color: var(--red); }
+    .test-line-skip { color: var(--yellow); }
+    .test-line-info { color: var(--text-muted); }
+
+    /* ---- Diff Panel ---- */
+    .diff-container {
+      flex: 1;
+      overflow: auto;
+      padding: 0;
+    }
+    .diff-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.5rem 1.5rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .diff-toolbar .diff-stat {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    .diff-toolbar button {
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 0.7rem;
+      padding: 0.25rem 0.6rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .diff-toolbar button:hover { background: var(--border); }
+    .diff-toolbar button.active {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+
+    /* diff2html overrides for dark theme */
+    .d2h-wrapper { background: var(--bg); }
+    .d2h-file-header {
+      background: var(--surface) !important;
+      border-color: var(--border) !important;
+      color: var(--text) !important;
+      font-family: var(--font-mono) !important;
+      font-size: 0.8rem !important;
+    }
+    .d2h-file-name { color: var(--accent) !important; }
+    .d2h-diff-table {
+      font-family: var(--font-mono) !important;
+      font-size: 0.75rem !important;
+    }
+    .d2h-code-line-ctn { color: var(--text) !important; }
+    .d2h-code-linenumber {
+      color: var(--text-muted) !important;
+      background: var(--surface) !important;
+      border-color: var(--border) !important;
+    }
+    .d2h-ins { background: var(--green-bg) !important; }
+    .d2h-del { background: var(--red-bg) !important; }
+    .d2h-info {
+      background: var(--surface-raised) !important;
+      color: var(--text-muted) !important;
+      border-color: var(--border) !important;
+    }
+    .d2h-file-diff { border-color: var(--border) !important; }
+    .d2h-tag {
+      background: var(--surface-raised) !important;
+      border-color: var(--border) !important;
+      color: var(--text-muted) !important;
+    }
+    .d2h-file-list-wrapper {
+      background: var(--surface) !important;
+      border-color: var(--border) !important;
+    }
+    .d2h-file-list-line a { color: var(--accent) !important; }
+    .d2h-code-side-line { background: var(--bg) !important; }
+    .d2h-emptyplaceholder { background: var(--surface) !important; }
+    .d2h-file-side-diff { border-color: var(--border) !important; }
+    .d2h-ins .d2h-code-side-line,
+    .d2h-ins .d2h-code-line-ctn { background: var(--green-bg) !important; }
+    .d2h-del .d2h-code-side-line,
+    .d2h-del .d2h-code-line-ctn { background: var(--red-bg) !important; }
+    ins.d2h-change { background: rgba(63, 185, 80, 0.3) !important; }
+    del.d2h-change { background: rgba(248, 81, 73, 0.3) !important; }
+
+    /* ---- Code Panel (EmitPy / EmitC) ---- */
+    .code-panel {
+      flex: 1;
+      overflow: auto;
+      padding: 1rem 1.5rem;
+    }
+    .code-panel pre {
+      margin: 0;
+      padding: 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow-x: auto;
+    }
+    .code-panel pre code {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      line-height: 1.6;
+    }
+    .code-panel .code-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* hljs overrides */
+    .hljs { background: var(--surface) !important; }
+
+    /* ---- Placeholder ---- */
+    .placeholder {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 0.5rem;
+      color: var(--text-muted);
+    }
+    .placeholder .icon { font-size: 2rem; opacity: 0.5; }
+    .placeholder .label { font-size: 0.85rem; }
+
+    /* ---- Empty state ---- */
+    .empty-state {
+      padding: 3rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    /* ---- Spinner ---- */
+    .spinner-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 1rem;
+      padding: 3rem;
+    }
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    .spinner-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Add-Op Review: <span class="op-name" id="op-name">—</span></h1>
+    <div class="summary" id="summary"></div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-tab="tests">
+      Tests <span class="tab-badge badge" id="tests-badge"></span>
+    </button>
+    <button class="tab" data-tab="emitpy">Emitted Python</button>
+    <button class="tab" data-tab="emitc">Emitted C++</button>
+    <button class="tab" data-tab="alchemist">tt-alchemist</button>
+    <button class="tab" data-tab="diff">Code Changes</button>
+  </div>
+
+  <div class="panel active" id="panel-tests"></div>
+
+  <div class="panel" id="panel-diff">
+    <div class="diff-toolbar">
+      <span class="diff-stat" id="diff-stat"></span>
+      <div style="flex:1"></div>
+      <button id="btn-unified" class="active" onclick="setDiffView('line-by-line')">Unified</button>
+      <button id="btn-side" onclick="setDiffView('side-by-side')">Side by Side</button>
+    </div>
+    <div class="diff-container" id="diff-output"></div>
+  </div>
+
+  <div class="panel" id="panel-emitpy">
+    <div class="code-panel" id="emitpy-code"></div>
+  </div>
+
+  <div class="panel" id="panel-emitc">
+    <div class="code-panel" id="emitc-code"></div>
+  </div>
+
+  <div class="panel" id="panel-alchemist">
+    <div class="placeholder">
+      <div class="icon">&#9881;</div>
+      <div class="label">tt-alchemist — coming soon</div>
+    </div>
+  </div>
+
+  <script>
+    /*__EMBEDDED_DATA__*/
+
+    // ---- Tab switching ----
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // ---- Spinner helper ----
+    function showSpinner(el, label) {
+      el.innerHTML = `<div class="spinner-container"><div class="spinner"></div><div class="spinner-label">${label}</div></div>`;
+    }
+
+    // ---- Render ----
+    function render(data) {
+      document.getElementById('op-name').textContent = data.op_name || '\u2014';
+      const loading = data._loading || {};
+
+      // Tests — rendered per-suite with individual spinners
+      renderTests(data.tests || {}, loading);
+
+      // Diff
+      if (loading.diff) {
+        showSpinner(document.getElementById('diff-output'), 'Collecting diff\u2026');
+      } else {
+        renderDiff(data.diff || '', data.diff_stat || '');
+      }
+
+      // Emitted Python
+      if (loading.emitted_python) {
+        showSpinner(document.getElementById('emitpy-code'), 'Generating Python\u2026');
+      } else {
+        renderCode('emitpy-code', data.emitted_python || '', 'python', 'Emitted Python (EmitPy pipeline)');
+      }
+
+      // Emitted C++
+      if (loading.emitted_cpp) {
+        showSpinner(document.getElementById('emitc-code'), 'Generating C++\u2026');
+      } else {
+        renderCode('emitc-code', data.emitted_cpp || '', 'cpp', 'Emitted C++ (EmitC pipeline)');
+      }
+
+      renderSummary(data);
+    }
+
+    function renderSummary(data) {
+      const el = document.getElementById('summary');
+      const loading = data._loading || {};
+      const tests = data.tests || {};
+      let totalPassed = 0, totalFailed = 0;
+      Object.values(tests).forEach(t => {
+        totalPassed += t.passed || 0;
+        totalFailed += t.failed || 0;
+      });
+
+      const anyTestLoading = loading.test_lit_ttnn || loading.test_lit_emitc || loading.test_pytest;
+      let html = '';
+      if (anyTestLoading) {
+        html += '<span class="badge info">running\u2026</span>';
+      }
+      if (totalPassed > 0) html += `<span class="badge pass">${totalPassed} passed</span>`;
+      if (totalFailed > 0) html += `<span class="badge fail">${totalFailed} failed</span>`;
+      const files = (data.diff_stat || '').match(/(\d+) files? changed/);
+      if (files) html += `<span class="badge info">${files[1]} files changed</span>`;
+      el.innerHTML = html;
+
+      const badge = document.getElementById('tests-badge');
+      if (anyTestLoading) {
+        badge.className = 'tab-badge badge info';
+        badge.textContent = '\u2026';
+      } else if (totalFailed > 0) {
+        badge.className = 'tab-badge badge fail';
+        badge.textContent = `${totalFailed} fail`;
+      } else if (totalPassed > 0) {
+        badge.className = 'tab-badge badge pass';
+        badge.textContent = `${totalPassed} pass`;
+      }
+    }
+
+    // ---- Tests ----
+    const TEST_SUITES = [
+      { key: 'lit_ttnn', loadingKey: 'test_lit_ttnn', label: 'TTIR-to-TTNN Conversion (llvm-lit)' },
+      { key: 'lit_emitc', loadingKey: 'test_lit_emitc', label: 'EmitC Pipeline (llvm-lit)' },
+      { key: 'pytest',   loadingKey: 'test_pytest',    label: 'Builder / Golden Tests (pytest)' },
+    ];
+
+    function renderTests(tests, loading) {
+      const container = document.getElementById('panel-tests');
+      let html = '';
+      let hasAny = false;
+
+      TEST_SUITES.forEach(({ key, loadingKey, label }) => {
+        const isLoading = loading[loadingKey];
+        const t = tests[key];
+        if (!isLoading && !t) return;
+        hasAny = true;
+
+        if (isLoading) {
+          // Show suite header with inline spinner
+          html += `
+            <div class="test-suite">
+              <div class="test-suite-header">
+                <span class="name">${label} <span class="badge info"><span class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;"></span></span></span>
+              </div>
+            </div>`;
+        } else {
+          const statusBadge = t.status === 'pass'
+            ? `<span class="badge pass">${t.passed || t.count || 'pass'}</span>`
+            : `<span class="badge fail">${t.failed ? t.failed + ' failed' : 'fail'}</span>`;
+          const cmdHtml = t.cmd
+            ? `<div class="test-cmd"><code>${escapeHtml(t.cmd)}</code><button class="copy-btn" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>{this.textContent='copied!';setTimeout(()=>this.textContent='copy',1000)})">copy</button></div>`
+            : '';
+          html += `
+            <div class="test-suite open">
+              <div class="test-suite-header" onclick="this.parentElement.classList.toggle('open')">
+                <span class="name">${label} ${statusBadge}</span>
+                <span class="chevron">&#9654;</span>
+              </div>
+              <div class="test-suite-body">
+                ${cmdHtml}
+                <div class="test-output">${colorizeTestOutput(t.output || '')}</div>
+              </div>
+            </div>`;
+        }
+      });
+
+      if (!hasAny) {
+        container.innerHTML = '<div class="empty-state">No test results available</div>';
+      } else {
+        container.innerHTML = html;
+      }
+    }
+
+    function colorizeTestOutput(text) {
+      return text.split('\n').map(line => {
+        const escaped = escapeHtml(line);
+        if (/PASSED|PASS\b|passed/.test(line)) return `<span class="test-line-pass">${escaped}</span>`;
+        if (/FAILED|FAIL\b|failed|ERROR/.test(line)) return `<span class="test-line-fail">${escaped}</span>`;
+        if (/SKIPPED|skip/.test(line)) return `<span class="test-line-skip">${escaped}</span>`;
+        if (/^[-=]{5,}|^={5,}|^Passed|^Total/.test(line)) return `<span class="test-line-info">${escaped}</span>`;
+        return escaped;
+      }).join('\n');
+    }
+
+    function escapeHtml(text) {
+      const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'};
+      return text.replace(/[&<>"]/g, c => map[c]);
+    }
+
+    // ---- Diff ----
+    let currentDiffView = 'line-by-line';
+    let rawDiff = '';
+
+    function renderDiff(diff, stat) {
+      rawDiff = diff;
+      document.getElementById('diff-stat').textContent = stat;
+      if (!diff) {
+        document.getElementById('diff-output').innerHTML = '<div class="empty-state">No code changes detected</div>';
+        return;
+      }
+      updateDiff();
+    }
+
+    function updateDiff() {
+      if (typeof Diff2Html !== 'undefined') {
+        const html = Diff2Html.html(rawDiff, {
+          drawFileList: true,
+          matching: 'lines',
+          outputFormat: currentDiffView,
+          renderNothingWhenEmpty: false,
+        });
+        document.getElementById('diff-output').innerHTML = html;
+      } else {
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'padding:1rem 1.5rem;font-family:var(--font-mono);font-size:0.75rem;line-height:1.6;white-space:pre-wrap;';
+        pre.textContent = rawDiff;
+        const el = document.getElementById('diff-output');
+        el.innerHTML = '';
+        el.appendChild(pre);
+      }
+    }
+
+    function setDiffView(view) {
+      currentDiffView = view;
+      document.getElementById('btn-unified').classList.toggle('active', view === 'line-by-line');
+      document.getElementById('btn-side').classList.toggle('active', view === 'side-by-side');
+      if (rawDiff) updateDiff();
+    }
+
+    // ---- Code ----
+    function renderCode(containerId, code, language, label) {
+      const container = document.getElementById(containerId);
+      if (!code) {
+        container.innerHTML = '<div class="empty-state">No emitted code available</div>';
+        return;
+      }
+      const labelDiv = document.createElement('div');
+      labelDiv.className = 'code-label';
+      labelDiv.textContent = label;
+      const pre = document.createElement('pre');
+      const codeEl = document.createElement('code');
+      codeEl.className = 'language-' + language;
+      codeEl.textContent = code;
+      pre.appendChild(codeEl);
+      container.innerHTML = '';
+      container.appendChild(labelDiv);
+      container.appendChild(pre);
+      if (typeof hljs !== 'undefined') {
+        try { hljs.highlightElement(codeEl); } catch (e) {}
+      }
+    }
+
+    // ---- Async polling ----
+    let pollTimer = null;
+
+    function isFullyLoaded(data) {
+      const l = data._loading;
+      if (!l || l === false) return true;
+      if (typeof l === 'object') return !Object.values(l).some(v => v);
+      return !l;
+    }
+
+    async function pollData() {
+      try {
+        const resp = await fetch('/api/data');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        render(data);
+        if (isFullyLoaded(data)) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      } catch (e) {}
+    }
+
+    // ---- Init ----
+    if (typeof EMBEDDED_DATA !== 'undefined') {
+      render(EMBEDDED_DATA);
+      // If page was loaded with _loading flag, start polling
+      if (!isFullyLoaded(EMBEDDED_DATA)) {
+        pollTimer = setInterval(pollData, 800);
+      }
+    }
+  </script>
+</body>
+</html>
