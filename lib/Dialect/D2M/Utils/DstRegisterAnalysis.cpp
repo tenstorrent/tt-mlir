@@ -203,14 +203,12 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     results.numTilesPerResult = 1;
     results.numOuterLoopIters = 1;
     for (Value outputValue : singleTileOutputValues) {
-      if (!results.perResult
-               .try_emplace(outputValue,
-                            DSTPackingPerResultInfo{/*numDstFlips=*/1,
-                                                    /*numTilesPerFlip=*/1})
-               .second) {
-        generic.emitOpError("expected unique linalg.generic output values");
-        return std::nullopt;
-      }
+      // Fused generics may have multiple linalg ops writing to the same output
+      // buffer (e.g., intermediate reuse after elementwise fusion). Skip
+      // duplicates since the packing info is identical for the same Value.
+      results.perResult.try_emplace(outputValue,
+                                    DSTPackingPerResultInfo{/*numDstFlips=*/1,
+                                                            /*numTilesPerFlip=*/1});
     }
     return results;
   }
@@ -253,14 +251,12 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
       return std::nullopt;
     }
 
-    if (!results.perResult
-             .try_emplace(
-                 pending.outputValue,
-                 DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip})
-             .second) {
-      generic.emitOpError("expected unique linalg.generic output values");
-      return std::nullopt;
-    }
+    // Fused generics may have multiple linalg ops writing to the same output
+    // buffer. Skip duplicates — the packing info is identical for the same
+    // Value since it has the same shard shape.
+    results.perResult.try_emplace(
+        pending.outputValue,
+        DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip});
   }
 
   TT_assertv(commonNumTilesPerResult.has_value(),
