@@ -41,6 +41,8 @@ def D2M_ViewLayoutOp
   let assemblyFormat = [{
     $input `remapping` `=` $remapping attr-dict `:` type($input) `->` type($result)  }];
 
+  let builders = [OpBuilder<(ins "Type":$outputType, "Value":$input)>];
+
   let extraClassDeclaration = [{
     bool isReblockOnly();
   }];

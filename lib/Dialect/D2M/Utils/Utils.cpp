@@ -142,31 +142,6 @@ ShapedType reblockShapedType(ShapedType oldType,
                          oldMemRefType.getMemorySpace());
 }
 
-Type cloneWithShardShape(Value referenceOperand, Type typeToRetype) {
-  auto operandShapedType =
-      mlir::dyn_cast<ShapedType>(referenceOperand.getType());
-  if (!operandShapedType) {
-    return typeToRetype;
-  }
-
-  auto layout = ttcore::getDeviceLayout(operandShapedType);
-  if (!layout) {
-    return typeToRetype;
-  }
-
-  ArrayRef<int64_t> shardShape = layout.getShardShape(operandShapedType);
-  if (auto oldTensorType = mlir::dyn_cast<RankedTensorType>(typeToRetype)) {
-    return RankedTensorType::get(shardShape, oldTensorType.getElementType());
-  }
-  if (auto oldMemRefType = mlir::dyn_cast<MemRefType>(typeToRetype)) {
-    return MemRefType::get(shardShape, oldMemRefType.getElementType(),
-                           MemRefLayoutAttrInterface{},
-                           oldMemRefType.getMemorySpace());
-  }
-
-  return typeToRetype;
-}
-
 std::optional<SmallVector<int64_t>>
 computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
                       mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes) {
@@ -200,6 +175,8 @@ SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
     mlir::ArrayRef<mlir::AffineMap> indexingMaps,
     mlir::ArrayRef<mlir::SmallVector<int64_t>> operandGridShapes,
     mlir::ArrayRef<int64_t> outputGridShape) {
+  TT_assert(!indexingMaps.empty());
+  TT_assert(indexingMaps.size() == operandGridShapes.size());
   SmallVector<mlir::AffineMap> maps(indexingMaps.begin(), indexingMaps.end());
   auto flatInverseMap =
       ttmlir::utils::concatInversePermutationMap(maps,
@@ -210,11 +187,13 @@ SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
     flattenedOperandGridShapes.append(operandGridShape.begin(),
                                       operandGridShape.end());
   }
+  TT_assert(flattenedOperandGridShapes.size() >= outputGridShape.size());
 
   // Divide out output grid dims first;
   // concatInversePermutationMap(reverse=true) guarantees output dimensions are
   // leading in the flattened vector.
   for (auto [i, dim] : llvm::enumerate(outputGridShape)) {
+    TT_assert(flattenedOperandGridShapes[i] % dim == 0);
     flattenedOperandGridShapes[i] /= dim;
   }
 
