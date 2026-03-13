@@ -493,8 +493,8 @@ protected:
       }
 
       // Create a buffer for the load result
-      auto bufferOp = builder.create<tensor::EmptyOp>(
-          loc, shardType.getShape(), shardType.getElementType());
+      auto bufferOp = tensor::EmptyOp::create(
+          builder, loc, shardType.getShape(), shardType.getElementType());
       Value buffer = bufferOp.getResult();
 
       Value loadResult;
@@ -526,8 +526,8 @@ protected:
     for (size_t i = 0; i < outputs.size(); ++i) {
       RankedTensorType shardType = getShardType(outputs[i]);
 
-      auto emptyOp = builder.create<tensor::EmptyOp>(
-          loc, shardType.getShape(), shardType.getElementType());
+      auto emptyOp = tensor::EmptyOp::create(builder, loc, shardType.getShape(),
+                                             shardType.getElementType());
 
       operands.push_back(emptyOp.getResult());
     }
@@ -1620,11 +1620,10 @@ public:
           SmallVector<Value> inputIndices =
               d2m::utils::buildGridIndices(builder, bodyLoc, inputIndexingMap);
           Value inputBuffer = blockArgs[0];
-          Value input = builder
-                            .create<d2m::RemoteLoadOp>(
-                                bodyLoc, inputShardType, inputBuffer,
-                                inputOperand, inputIndices)
-                            .getResult();
+          Value input =
+              d2m::RemoteLoadOp::create(builder, bodyLoc, inputShardType,
+                                        inputBuffer, inputOperand, inputIndices)
+                  .getResult();
 
           // Use the output tensor.empty directly.
           Value output = blockArgs[1];

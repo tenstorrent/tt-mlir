@@ -603,16 +603,21 @@ public:
 
     auto result =
         GenericOp::create(
-            rewriter,
+            rewriter, loc, viewInput, viewOutput,
+            /*additionalArgs=*/ValueRange(),
+            [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+              Type inputShardType = getShardTypeFromCB(blockArgs[0]);
+              SmallVector<Value> indices =
+                  d2m::utils::buildGridIndices(builder, innerLoc, indexingMap);
 
-                  // Use load+store idiom for proper CB association
-                  Value loadedData = createRemoteLoad(
-                      builder, innerLoc, inputShardType, viewInput, indices);
-                  Value storeResult = createRemoteStore(
-                      builder, innerLoc, viewOutput, indices, loadedData);
-                  builder.create<YieldOp>(innerLoc, storeResult);
-                },
-                ThreadType::Unified, grid)
+              // Use load+store idiom for proper CB association
+              Value loadedData = createRemoteLoad(
+                  builder, innerLoc, inputShardType, viewInput, indices);
+              Value storeResult = createRemoteStore(
+                  builder, innerLoc, viewOutput, indices, loadedData);
+              YieldOp::create(builder, innerLoc, storeResult);
+            },
+            ThreadType::Unified, grid)
             .getResult(0);
     return result;
   }

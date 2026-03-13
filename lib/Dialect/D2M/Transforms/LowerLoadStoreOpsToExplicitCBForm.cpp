@@ -425,7 +425,7 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
         // Create right after the get_cb so it dominates all uses.
         OpBuilder::InsertionGuard reserveGuard(rewriter);
         rewriter.setInsertionPointAfterValue(assocCb);
-        auto newReserve = rewriter.create<ReserveOp>(loc, assocCb);
+        auto newReserve = ReserveOp::create(rewriter, loc, assocCb);
         info.reserveOpsNeedingPush.push_back({newReserve, assocCb});
         // Replace uses of the old localBuffer with the reserve result
         // inside the generic only.
@@ -490,7 +490,7 @@ static void insertPushAndPopOps(ModuleOp moduleOp, IRRewriter &rewriter,
     } else {
       rewriter.setInsertionPointToEnd(waitBlock);
     }
-    rewriter.create<PopOp>(loc, assocCb);
+    PopOp::create(rewriter, loc, assocCb);
   }
 
   // Insert push ops for each reserve op

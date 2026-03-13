@@ -90,9 +90,9 @@ public:
 
       // Create the global cache dictionary before the function.
       builder.setInsertionPoint(funcOp);
-      builder.create<ttcore::GlobalOp>(funcOp.getLoc(),
-                                       llvm::StringRef(cacheName), dictType,
-                                       /*index=*/IntegerAttr());
+      ttcore::GlobalOp::create(builder, funcOp.getLoc(),
+                               llvm::StringRef(cacheName), dictType,
+                               /*index=*/IntegerAttr());
 
       // Retrieve the cache dictionary at the top of the function body.
       Block &entryBlock = funcOp.getBody().front();

@@ -5433,20 +5433,20 @@ public:
         ttmlir::utils::applyPermutation(origShape, perm);
     auto permType = RankedTensorType::get(permShape, indexElemType);
     indices2D =
-        rewriter.create<ttir::PermuteOp>(loc, permType, indices2D, perm);
+        ttir::PermuteOp::create(rewriter, loc, permType, indices2D, perm);
     auto indices2DType = RankedTensorType::get({prePost, dSort}, indexElemType);
-    indices2D = rewriter.create<ttir::ReshapeOp>(
-        loc, indices2DType, indices2D,
+    indices2D = ttir::ReshapeOp::create(
+        rewriter, loc, indices2DType, indices2D,
         rewriter.getI32ArrayAttr(
             {static_cast<int32_t>(prePost), static_cast<int32_t>(dSort)}));
 
     // Flat indices: row i gets offset i*dSort, so flat[i,j] = i*dSort +
     // idx[i,j].
-    auto rowOffsets = rewriter.create<ttir::ArangeOp>(
-        loc, indices2DType, /*start=*/0, /*end=*/total,
+    auto rowOffsets = ttir::ArangeOp::create(
+        rewriter, loc, indices2DType, /*start=*/0, /*end=*/total,
         /*step=*/dSort, /*arange_dimension=*/0);
-    Value flatIndices =
-        rewriter.create<ttir::AddOp>(loc, indices2DType, rowOffsets, indices2D);
+    Value flatIndices = ttir::AddOp::create(rewriter, loc, indices2DType,
+                                            rowOffsets, indices2D);
 
     // Per value tensor: permute sortDim to last -> flatten -> EmbeddingOp ->
     // reshape -> permute back.
@@ -5463,21 +5463,21 @@ public:
       // Permute value tensor so sortDim is last.
       auto permValType =
           RankedTensorType::get(permValShape, valType.getElementType());
-      val = rewriter.create<ttir::PermuteOp>(loc, permValType, val, perm);
+      val = ttir::PermuteOp::create(rewriter, loc, permValType, val, perm);
 
       // Flatten to [total, 1] - EmbeddingOp requires 2D weights.
       auto weightType =
           RankedTensorType::get({total, 1}, valType.getElementType());
-      val = rewriter.create<ttir::ReshapeOp>(
-          loc, weightType, val,
+      val = ttir::ReshapeOp::create(
+          rewriter, loc, weightType, val,
           rewriter.getI32ArrayAttr({static_cast<int32_t>(total), 1}));
 
       // EmbeddingOp: indices [prePost, dSort] * weights [total, 1]
       //   -> output [prePost, dSort, 1].
       auto embOutType =
           RankedTensorType::get({prePost, dSort, 1}, valType.getElementType());
-      val =
-          rewriter.create<ttir::EmbeddingOp>(loc, embOutType, flatIndices, val);
+      val = ttir::EmbeddingOp::create(rewriter, loc, embOutType, flatIndices,
+                                      val);
 
       // Reshape [prePost, dSort, 1] -> permuted shape [...non-sort dims...,
       // dSort].
@@ -5485,12 +5485,11 @@ public:
                                            permValShape.end());
       auto permValResultType =
           RankedTensorType::get(permValShape, valType.getElementType());
-      val = rewriter.create<ttir::ReshapeOp>(
-          loc, permValResultType, val,
-          rewriter.getI32ArrayAttr(permValShapeI32));
+      val = ttir::ReshapeOp::create(rewriter, loc, permValResultType, val,
+                                    rewriter.getI32ArrayAttr(permValShapeI32));
 
       // Permute back to original dimension order.
-      val = rewriter.create<ttir::PermuteOp>(loc, valType, val, invPerm);
+      val = ttir::PermuteOp::create(rewriter, loc, valType, val, invPerm);
 
       results.push_back(val);
     }
@@ -7120,8 +7119,8 @@ public:
       RankedTensorType metadataType = cast<RankedTensorType>(
           getTypeConverter()->convertType(tupleType.getType(1)));
 
-      auto newOp = rewriter.create<ttir::AllToAllDispatchOp>(
-          srcOp.getLoc(), dispatchedType, metadataType, inputTensor,
+      auto newOp = ttir::AllToAllDispatchOp::create(
+          rewriter, srcOp.getLoc(), dispatchedType, metadataType, inputTensor,
           expertIndices, expertMapping, numDevicesAttr, clusterAxisAttr);
 
       // Replace get_tuple_element users with the new op's results
@@ -7151,8 +7150,8 @@ public:
       RankedTensorType metadataType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResult(1).getType()));
 
-      auto newOp = rewriter.create<ttir::AllToAllDispatchOp>(
-          srcOp.getLoc(), dispatchedType, metadataType, inputTensor,
+      auto newOp = ttir::AllToAllDispatchOp::create(
+          rewriter, srcOp.getLoc(), dispatchedType, metadataType, inputTensor,
           expertIndices, expertMapping, numDevicesAttr, clusterAxisAttr);
 
       rewriter.replaceOp(srcOp, {newOp.getDispatched(), newOp.getMetadata()});
@@ -7235,9 +7234,9 @@ public:
     RankedTensorType outputType = cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
 
-    auto combineOp = rewriter.create<ttir::AllToAllCombineOp>(
-        srcOp.getLoc(), outputType, inputTensor, expertMetadata, expertMapping,
-        rewriter.getI64IntegerAttr(numDevices),
+    auto combineOp = ttir::AllToAllCombineOp::create(
+        rewriter, srcOp.getLoc(), outputType, inputTensor, expertMetadata,
+        expertMapping, rewriter.getI64IntegerAttr(numDevices),
         rewriter.getI64IntegerAttr(clusterAxis),
         rewriter.getI64IntegerAttr(numExpertsPerTok));
 
@@ -7256,8 +7255,8 @@ public:
         totalDevices / std::max(numDevices, static_cast<int64_t>(1));
     if (nonClusterSize > 1 && numDevices > 1) {
       uint32_t reduceAxis = (clusterAxis == 0) ? 1 : 0;
-      auto allReduceOp = rewriter.create<ttir::AllReduceOp>(
-          srcOp.getLoc(), outputType, result, ttcore::ReduceType::Sum,
+      auto allReduceOp = ttir::AllReduceOp::create(
+          rewriter, srcOp.getLoc(), outputType, result, ttcore::ReduceType::Sum,
           reduceAxis);
       result = allReduceOp.getResult();
     }
@@ -7329,9 +7328,9 @@ public:
       RankedTensorType reducedType = cast<RankedTensorType>(
           getTypeConverter()->convertType(tupleType.getType(1)));
 
-      auto newOp = rewriter.create<ttir::MoeExpertTokenRemapOp>(
-          srcOp.getLoc(), mappingType, reducedType, topkTensor, expertMapping,
-          expertMetadata, reductionSizeAttr);
+      auto newOp = ttir::MoeExpertTokenRemapOp::create(
+          rewriter, srcOp.getLoc(), mappingType, reducedType, topkTensor,
+          expertMapping, expertMetadata, reductionSizeAttr);
 
       for (auto &use :
            llvm::make_early_inc_range(srcOp.getResult(0).getUses())) {
@@ -7359,9 +7358,9 @@ public:
       RankedTensorType reducedType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResult(1).getType()));
 
-      auto newOp = rewriter.create<ttir::MoeExpertTokenRemapOp>(
-          srcOp.getLoc(), mappingType, reducedType, topkTensor, expertMapping,
-          expertMetadata, reductionSizeAttr);
+      auto newOp = ttir::MoeExpertTokenRemapOp::create(
+          rewriter, srcOp.getLoc(), mappingType, reducedType, topkTensor,
+          expertMapping, expertMetadata, reductionSizeAttr);
 
       rewriter.replaceOp(srcOp, {newOp.getMapping(), newOp.getReduced()});
       return success();

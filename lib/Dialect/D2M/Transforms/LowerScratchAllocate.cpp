@@ -111,7 +111,7 @@ private:
     if (mlir::isa<d2m::CBType>(scratchValue.getType())) {
       // CB form: unwrap via get_scratch_from_cb.
       auto scratchFromCBOp =
-          builder.create<GetScratchFromCBOp>(genericOp.getLoc(), scratchValue);
+          GetScratchFromCBOp::create(builder, genericOp.getLoc(), scratchValue);
       scratchMemRef = scratchFromCBOp.getResult();
     } else {
       // New form: memref.alloc is already the scratch buffer.
