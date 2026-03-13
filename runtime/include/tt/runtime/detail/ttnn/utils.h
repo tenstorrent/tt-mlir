@@ -88,6 +88,9 @@ fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange);
 tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet);
 
+tt::tt_metal::CoreRangeSet
+toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSetT &coreRangeSet);
+
 ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
 fromTTNNCoreRangeSet(::flatbuffers::FlatBufferBuilder &fbb,
                      const tt::tt_metal::CoreRangeSet &coreRangeSet);
