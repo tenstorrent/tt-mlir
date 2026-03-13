@@ -5,12 +5,13 @@
 import pytest
 import torch
 from conftest import get_request_kwargs
-from typing import Callable, List, Optional
+from typing import List, Optional, Tuple
+from collections import OrderedDict
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import compile_and_execute_ttnn
-from test_utils import shape_str, shapes_list_str
+from test_utils import shape_str, shapes_list_str, make_shard_shape
 
 pytestmark = pytest.mark.frontend("ttnn")
 
@@ -216,4 +217,99 @@ def test_linear(
         **get_request_kwargs(request),
         target=target,
         device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        (1, 32, 32, 32),
+        (1, 32, 32, 1),
+        (32, 32, 1, 1),
+        (1, 32, 32),
+        (32, 32),
+        (32, 40),
+        (40, 32),
+        (1, 1, 32, 32, 32),
+        (1, 1, 1, 1, 1, 1, 32, 32, 32),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize(
+    "mesh_shape", [(2, 4), (1, 8), (1, 2), (1, 32), (8, 4)], ids=shape_str
+)
+@pytest.mark.parametrize("all_gather_dim", range(4))
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+def test_all_gather(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    all_gather_dim: int,
+    cluster_axis: int,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    if all_gather_dim >= len(test_shape):
+        pytest.skip("all_gather_dim is out of range")
+    if mesh_shape[cluster_axis] == 1:
+        pytest.skip("all_gather across 1 device is meaningless")
+
+    rank_in = len(test_shape)
+    rank_mesh = len(mesh_shape)
+
+    if rank_mesh > rank_in:
+        pytest.skip(
+            f"Mesh shape {mesh_shape} has {rank_mesh} dimensions, but test shape "
+            f"{test_shape} only has {rank_in} dimensions."
+        )
+
+    shard_dims_candidate = list(range(rank_in - rank_mesh, rank_in))
+    for d, factor in zip(shard_dims_candidate, mesh_shape):
+        if test_shape[d] < factor:
+            pytest.skip(
+                f"Tensor dim {d} (size {test_shape[d]}) too small to shard "
+                f"by factor {factor}"
+            )
+
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
+
+    full_input_shape = list(test_shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
+    def module(builder: TTNNBuilder):
+        @builder.func([full_input_shape], [dtype], host_inputs=True)
+        def all_gather(in0: Operand, builder: TTNNBuilder):
+            in_shard = builder.distribute_tensor(
+                in0,
+                shard_dims=shard_dims,
+                shard_shape=shard_shape,
+            )
+
+            all_gather0 = builder.all_gather(
+                in_shard,
+                all_gather_dim=all_gather_dim,
+                cluster_axis=cluster_axis,
+            )
+
+            return builder.aggregate_tensor(
+                all_gather0,
+                shard_dims=shard_dims,
+                shard_shape=shard_shape,
+            )
+
+    compile_and_execute_ttnn(
+        module,
+        custom_pipeline=(
+            "ttcore-mark-functions-as-forward,"
+            "ttcore-wrap-device-module,"
+            "ttcore.device_module(builtin.module("
+            "ttnn-configure-ccl-ops,ttnn-deallocate))"
+        ),
+        **get_request_kwargs(request),
+        target="ttnn",
+        device=device,
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
     )

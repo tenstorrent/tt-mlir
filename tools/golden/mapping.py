@@ -6241,6 +6241,92 @@ def ttnn_mish_golden(
     return torch.nn.functional.mish(input_tensor).to(output_dtype)
 
 
+def ttnn_mesh_shard_golden(
+    input: GoldenMapTensor,
+    shard_type_attr: ttcore.ir.MeshShardTypeAttr,
+    shard_direction_attr: ttcore.ir.MeshShardDirectionAttr,
+    shard_shape_attr: DenseI64ArrayAttr,
+    shard_dims_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    mesh_shape = input.mesh_shape
+    shard_type = ttcore.ir.MeshShardTypeAttr.maybe_downcast(shard_type_attr).value
+    shard_direction = ttcore.ir.MeshShardDirectionAttr.maybe_downcast(
+        shard_direction_attr
+    ).value
+    shard_shape = unpack_mlir_attr(shard_shape_attr)
+    shard_dims = unpack_mlir_attr(shard_dims_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    if shard_direction == ttcore.ir.MeshShardDirection.FullToShard:
+        if shard_type == ttcore.ir.MeshShardType.Replicate:
+            shard_dims = [None] * len(mesh_shape)
+        elif shard_type == ttcore.ir.MeshShardType.Identity:
+            return input.clone().to(output_dtype)
+        return apply_sharding(input, mesh_shape, shard_dims)
+    elif shard_direction == ttcore.ir.MeshShardDirection.ShardToFull:
+        if shard_type == ttcore.ir.MeshShardType.Replicate:
+            return apply_unsharding(input, [1], [1])
+        return apply_unsharding(input, mesh_shape, shard_dims)
+
+
+def ttnn_distribute_tensor_golden(
+    input: GoldenMapTensor,
+    shard_type_attr: ttcore.ir.MeshShardTypeAttr,
+    shard_direction_attr: ttcore.ir.MeshShardDirectionAttr,
+    shard_shape_attr: DenseI64ArrayAttr,
+    shard_dims_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    return ttnn_mesh_shard_golden(
+        input,
+        shard_type_attr,
+        shard_direction_attr,
+        shard_shape_attr,
+        shard_dims_attr,
+        output_type_mlir,
+    )
+
+
+def ttnn_aggregate_tensor_golden(
+    input: GoldenMapTensor,
+    shard_type_attr: ttcore.ir.MeshShardTypeAttr,
+    shard_direction_attr: ttcore.ir.MeshShardDirectionAttr,
+    shard_shape_attr: DenseI64ArrayAttr,
+    shard_dims_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    return ttnn_mesh_shard_golden(
+        input,
+        shard_type_attr,
+        shard_direction_attr,
+        shard_shape_attr,
+        shard_dims_attr,
+        output_type_mlir,
+    )
+
+
+def ttnn_all_gather_golden(
+    input: GoldenMapTensor,
+    all_gather_dim_attr: IntegerAttr,
+    cluster_axis_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    all_gather_dim = unpack_mlir_attr(all_gather_dim_attr)
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    output_shards = [None] * len(input.shard_map)
+    grouped_shards = input.group_by_axis(cluster_axis)
+    for group in grouped_shards:
+        gathered_tensor = torch.cat(list(group.values()), dim=all_gather_dim)
+        for device_id in group.keys():
+            output_shards[device_id] = gathered_tensor.clone().to(output_dtype)
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
 ################ Debug Op Golden Functions ###############
 
 
@@ -6560,6 +6646,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.RepeatInterleaveOp: ttnn_repeat_interleave_golden,
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
+    # CCL (Collective Communication Library) operations
+    ttnn.DistributeTensorOp: ttnn_distribute_tensor_golden,
+    ttnn.AggregateTensorOp: ttnn_aggregate_tensor_golden,
+    ttnn.AllGatherOp: ttnn_all_gather_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,
