@@ -12,12 +12,15 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
+#include "ttmlir/Target/TTNN/operations/eltwise_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
 
 #include "flatbuffers/buffer.h"
 #include "llvm/ADT/STLForwardCompat.h"
 
+#include <algorithm>
+#include <memory>
 #include <optional>
 #include <type_traits>
 
@@ -573,6 +576,20 @@ toFlatbuffer(FlatbufferObjectCache &cache,
       *cache.fbb, toFlatbuffer(cache, coreRangeSetAttr.getCoreRanges()));
 }
 
+inline ::tt::target::ttnn::CoreRangeSetT
+toNative(ttnn::CoreRangeSetAttr coreRangeSetAttr) {
+  ::tt::target::ttnn::CoreRangeSetT coreRangeSetT;
+
+  FlatbufferObjectCache dummyCache(nullptr);
+  toFlatbuffer(dummyCache, coreRangeSetAttr.getCoreRanges());
+  auto core_ranges = coreRangeSetAttr.getCoreRanges().vec();
+  for(auto& core_range : core_ranges) {
+    coreRangeSetT.core_ranges.push_back(toFlatbuffer(dummyCache, core_range)); // push_back ?, is the order correct?  
+  }
+  
+  return coreRangeSetT;
+}
+
 inline ::tt::target::ttnn::UnaryOpType
 toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
   using MlirUnaryOpType = ::mlir::tt::ttnn::UnaryOpType;
@@ -686,6 +703,15 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::ttnn::CreateUnaryWithParam(
       *cache.fbb, toFlatbuffer(cache, unaryWithParam.getOpType()),
       toFlatbuffer(cache, unaryWithParam.getParams()));
+}
+
+inline ::tt::target::ttnn::UnaryWithParamT
+toNative(ttnn::UnaryWithParamAttr unaryWithParam) {
+  ::tt::target::ttnn::UnaryWithParamT unaryWithParamT;
+  FlatbufferObjectCache dummyCache(nullptr);
+
+  unaryWithParamT.op_type = toFlatbuffer(dummyCache, unaryWithParam.getOpType());
+  return unaryWithParamT;
 }
 
 inline ::flatbuffers::Offset<
@@ -820,6 +846,69 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getConfigTensorsInDram()));
 }
 
+inline ::tt::target::ttnn::Conv2dConfigT
+toNative(ttnn::Conv2dConfigAttr config) {
+  ::tt::target::ttnn::Conv2dConfigT conv2dConfigT;
+
+  FlatbufferObjectCache dummyCache(nullptr);
+
+  conv2dConfigT.weights_dtype = toFlatbuffer(dummyCache, config.getWeightsDtype());
+  if(config.getActivation()) {
+    conv2dConfigT.activation = std::make_unique<::tt::target::ttnn::UnaryWithParamT>(toNative(config.getActivation()));
+  } else {
+    conv2dConfigT.activation = nullptr;
+  }
+  conv2dConfigT.deallocate_activation = toFlatbuffer(dummyCache, config.getDeallocateActivation());
+  conv2dConfigT.reallocate_halo_output = toFlatbuffer(dummyCache, config.getReallocateHaloOutput());
+  conv2dConfigT.act_block_h_override = toFlatbuffer(dummyCache, config.getActBlockHOverride());
+  conv2dConfigT.act_block_w_div = toFlatbuffer(dummyCache, config.getActBlockWDiv());
+  conv2dConfigT.reshard_if_not_optimal = toFlatbuffer(dummyCache, config.getReshardIfNotOptimal());
+  conv2dConfigT.override_sharding_config = toFlatbuffer(dummyCache, config.getOverrideShardingConfig());
+  conv2dConfigT.shard_layout = toFlatbuffer(dummyCache, config.getShardLayout());
+  if(config.getCoreGrid()) {
+    conv2dConfigT.core_grid = std::make_unique<::tt::target::ttnn::CoreRangeSetT>(toNative(config.getCoreGrid()));
+  } else {
+    conv2dConfigT.core_grid = nullptr;
+  }
+  conv2dConfigT.transpose_shards = toFlatbuffer(dummyCache, config.getTransposeShards());
+  conv2dConfigT.output_layout = toFlatbuffer(dummyCache, config.getOutputLayout());
+  conv2dConfigT.enable_act_double_buffer = toFlatbuffer(dummyCache, config.getEnableActDoubleBuffer());
+  conv2dConfigT.enable_weights_double_buffer = toFlatbuffer(dummyCache, config.getEnableWeightsDoubleBuffer());
+  conv2dConfigT.enable_kernel_stride_folding = toFlatbuffer(dummyCache, config.getEnableKernelStrideFolding());
+  conv2dConfigT.config_tensors_in_dram = toFlatbuffer(dummyCache, config.getConfigTensorsInDram());
+
+  return conv2dConfigT;
+}
+
+
+
+// inline ::tt::target::ttnn::DeviceComputeKernelConfigT
+// toNative(ttnn::DeviceComputeKernelConfigAttr computeConfigAttr) {
+//   ::tt::target::ttnn::DeviceComputeKernelConfigT deviceComputeKernelConfigT;
+//   // std::optional<MathFidelity> getMathFidelity() const; // uint32
+//   // ::flatbuffers::Optional<tt::target::MathFidelity> math_fidelity = ::flatbuffers::nullopt; // uint8
+//   // elem.math_fidelity = dev.getMathFidelity(); 
+
+//   FlatbufferObjectCache dummyCache(nullptr);
+//   deviceComputeKernelConfigT.math_fidelity = toFlatbuffer(dummyCache, computeConfigAttr.getMathFidelity());
+//   deviceComputeKernelConfigT.math_approx_mode = toFlatbuffer(dummyCache, computeConfigAttr.getMathApproxMode());
+//   deviceComputeKernelConfigT.fp32_dest_acc_en = toFlatbuffer(dummyCache, computeConfigAttr.getFp32DestAccEn());
+//   deviceComputeKernelConfigT.packer_l1_acc = toFlatbuffer(dummyCache, computeConfigAttr.getPackerL1Acc());
+//   deviceComputeKernelConfigT.dst_full_sync_en = toFlatbuffer(dummyCache, computeConfigAttr.getDstFullSyncEn());
+  
+//   //if(computeConfigAttr.getMathFidelity().has_value()) {
+//   //  deviceComputeKernelConfigT.math_fidelity = static_cast<::tt::target::MathFidelity>(*computeConfigAttr.getMathFidelity());
+//   //} else {
+//   //  deviceComputeKernelConfigT.math_fidelity = std::nullopt;
+//   //}
+//   //deviceComputeKernelConfigT.math_approx_mode = computeConfigAttr.getMathApproxMode().getValue();
+//   //deviceComputeKernelConfigT.fp32_dest_acc_en = computeConfigAttr.getFp32DestAccEn().getValue();
+//   //deviceComputeKernelConfigT.packer_l1_acc = computeConfigAttr.getPackerL1Acc().getValue();
+//   //deviceComputeKernelConfigT.dst_full_sync_en = computeConfigAttr.getDstFullSyncEn().getValue();
+
+//   return deviceComputeKernelConfigT;
+// }
+
 inline ::tt::target::ttnn::Conv2dSliceType
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dSliceType sliceType) {
   switch (sliceType) {
@@ -861,6 +950,38 @@ toFlatbuffer(FlatbufferObjectCache &cache,
       toFlatbuffer(cache, computeConfigAttr.getFp32DestAccEn()),
       toFlatbuffer(cache, computeConfigAttr.getPackerL1Acc()),
       toFlatbuffer(cache, computeConfigAttr.getDstFullSyncEn()));
+}
+
+inline ::tt::target::ttnn::DeviceComputeKernelConfigT
+toNative(ttnn::DeviceComputeKernelConfigAttr computeConfigAttr) {
+  ::tt::target::ttnn::DeviceComputeKernelConfigT deviceComputeKernelConfigT;
+  // std::optional<MathFidelity> getMathFidelity() const; // uint32
+  // ::flatbuffers::Optional<tt::target::MathFidelity> math_fidelity = ::flatbuffers::nullopt; // uint8
+  // elem.math_fidelity = dev.getMathFidelity(); 
+
+  FlatbufferObjectCache dummyCache(nullptr);
+  // deviceComputeKernelConfigT.math_fidelity = toFlatbuffer(dummyCache, computeConfigAttr.getMathFidelity());
+  if(computeConfigAttr.getMathFidelity().has_value()) {
+    deviceComputeKernelConfigT.math_fidelity = toFlatbuffer(dummyCache, *computeConfigAttr.getMathFidelity());
+  } else {
+    deviceComputeKernelConfigT.math_fidelity = std::nullopt;
+  }
+  deviceComputeKernelConfigT.math_approx_mode = toFlatbuffer(dummyCache, computeConfigAttr.getMathApproxMode());
+  deviceComputeKernelConfigT.fp32_dest_acc_en = toFlatbuffer(dummyCache, computeConfigAttr.getFp32DestAccEn());
+  deviceComputeKernelConfigT.packer_l1_acc = toFlatbuffer(dummyCache, computeConfigAttr.getPackerL1Acc());
+  deviceComputeKernelConfigT.dst_full_sync_en = toFlatbuffer(dummyCache, computeConfigAttr.getDstFullSyncEn());
+  
+  //if(computeConfigAttr.getMathFidelity().has_value()) {
+  //  deviceComputeKernelConfigT.math_fidelity = static_cast<::tt::target::MathFidelity>(*computeConfigAttr.getMathFidelity());
+  //} else {
+  //  deviceComputeKernelConfigT.math_fidelity = std::nullopt;
+  //}
+  //deviceComputeKernelConfigT.math_approx_mode = computeConfigAttr.getMathApproxMode().getValue();
+  //deviceComputeKernelConfigT.fp32_dest_acc_en = computeConfigAttr.getFp32DestAccEn().getValue();
+  //deviceComputeKernelConfigT.packer_l1_acc = computeConfigAttr.getPackerL1Acc().getValue();
+  //deviceComputeKernelConfigT.dst_full_sync_en = computeConfigAttr.getDstFullSyncEn().getValue();
+
+  return deviceComputeKernelConfigT;
 }
 
 template <typename T>

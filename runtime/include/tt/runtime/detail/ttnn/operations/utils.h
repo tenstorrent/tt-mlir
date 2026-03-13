@@ -46,6 +46,9 @@ createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config);
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfig *config);
 
+::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
+    const ::tt::target::ttnn::DeviceComputeKernelConfigT &config);
+
 ::ttnn::prim::LayerNormProgramConfig
 createLayerNormShardedMultiCoreProgramConfig(
     const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig *config);
