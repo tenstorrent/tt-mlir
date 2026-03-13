@@ -40,7 +40,9 @@
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <numeric>
 #include <string>
 
@@ -277,6 +279,16 @@ getShapeAsI32(mlir::RankedTensorType tensorType) {
   return llvm::to_vector_of<int32_t>(tensorType.getShape());
 }
 
+// Reshape attribute if it is splat and present, otherwise return nullptr.
+static DenseElementsAttr reshapeIfSplatAndPresent(RankedTensorType type,
+                                                  Attribute attr) {
+  if (auto splat = llvm::dyn_cast_if_present<SplatElementsAttr>(attr)) {
+    auto value = splat.getSplatValue<Attribute>();
+    return SplatElementsAttr::get(type, value);
+  }
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // LogicalAndOp
 //===----------------------------------------------------------------------===//
@@ -410,6 +422,14 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
                    [](const int32_t dim) { return dim == 1; })) {
     return getInput();
   }
+
+  // If the input is constant and splat, perform constant folding.
+  Attribute constInput = adaptor.getInput();
+  RankedTensorType resultType = getResult().getType();
+  if (auto foldResult = reshapeIfSplatAndPresent(resultType, constInput)) {
+    return foldResult;
+  }
+
   return {};
 }
 
@@ -2017,6 +2037,16 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return nullptr;
 }
 
+// Fold reshape if input is constant
+static mlir::OpFoldResult constFoldRehsape(mlir::tt::ttir::ReshapeOp op,
+                                           Attribute constInput) {
+  if (auto denseAttr = dyn_cast_if_present<DenseElementsAttr>(constInput)) {
+    auto shapedType = cast<ShapedType>(op.getResult().getType());
+    return denseAttr.reshape(shapedType);
+  }
+  return nullptr;
+}
+
 // ReshapeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
   if (auto foldResult = foldIdentityReshape(*this)) {
@@ -2024,6 +2054,10 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   }
 
   if (auto foldResult = foldConsecutiveReshape(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = constFoldRehsape(*this, adaptor.getInput())) {
     return foldResult;
   }
 
@@ -4234,6 +4268,10 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
   if (auto foldResult = foldConsecutiveRepeat(*this)) {
     return foldResult;
   }
+  if (auto foldResult =
+          reshapeIfSplatAndPresent(getResult().getType(), fold.getInput())) {
+    return foldResult;
+  }
 
   return nullptr;
 }
@@ -4285,6 +4323,28 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
 
   return success();
 }
+
+static mlir::OpFoldResult
+foldIdentityRepeatInterleave(mlir::tt::ttir::RepeatInterleaveOp op) {
+  if (op.getRepeats() == 1) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+// RepeatInterleaveOp Folder
+mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
+  if (auto foldResult = foldIdentityRepeatInterleave(*this)) {
+    return foldResult;
+  }
+  if (auto foldResult =
+          reshapeIfSplatAndPresent(getResult().getType(), fold.getInput())) {
+    return foldResult;
+  }
+
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
@@ -5011,6 +5071,83 @@ static mlir::OpFoldResult foldConsecutivePermute(mlir::tt::ttir::PermuteOp op) {
   return nullptr;
 }
 
+template <typename ElemType>
+static mlir::DenseElementsAttr
+constantFoldNonSplatPermute(mlir::tt::ttir::PermuteOp op,
+                            mlir::DenseElementsAttr inputElements) {
+  RankedTensorType resultType = op.getResult().getType();
+  llvm::ArrayRef<int64_t> outputShape = resultType.getShape();
+
+  // Calculate step size for iterating over any dimension.
+  llvm::SmallVector<int64_t> stepSize(outputShape.size());
+  std::partial_sum(outputShape.rbegin(), std::prev(outputShape.rend()),
+                   std::next(stepSize.rbegin()), std::multiplies<int64_t>());
+  stepSize.back() = 1;
+
+  // Invert the permutation so that the elements represent dimensions in
+  // output tensor.
+  llvm::SmallVector<int64_t> invertedPermutation =
+      ttmlir::utils::inversePermutation(op.getPermutation());
+
+  auto valueRange = inputElements.getValues<ElemType>();
+  llvm::SmallVector<ElemType> result;
+  if (!valueRange.empty()) {
+    result.resize(valueRange.size(), *valueRange.begin());
+  }
+  llvm::SmallVector<int64_t> index(outputShape.size());
+  int64_t rawPos = 0;
+  for (auto value : valueRange) {
+    result[rawPos] = value;
+
+    // Calculate next position.
+    auto dim = invertedPermutation.rbegin();
+    while (dim != invertedPermutation.rend() &&
+           index[*dim] == outputShape[*dim] - 1) {
+      rawPos -= index[*dim] * stepSize[*dim];
+      index[*dim] = 0;
+      ++dim;
+    }
+    if (dim != invertedPermutation.rend()) {
+      rawPos += stepSize[*dim];
+      ++index[*dim];
+    }
+  }
+
+  return DenseElementsAttr::get(resultType, result);
+}
+
+static mlir::OpFoldResult constantFoldPermute(mlir::tt::ttir::PermuteOp op,
+                                              Attribute input) {
+  auto result = op.getResult();
+  if (auto foldResult = reshapeIfSplatAndPresent(result.getType(), input)) {
+    return foldResult;
+  }
+
+  if (result.hasOneUse() &&
+      llvm::isa<ttir::PermuteOp>(result.use_begin()->getOwner()) &&
+      !op->hasAttr("decomposed")) {
+    // Don't constant fold yet if folding of consecutive permutes is possible
+    return nullptr;
+  }
+
+  if (auto denseElements = dyn_cast_if_present<DenseElementsAttr>(input)) {
+    constexpr int64_t foldLimit = 1'000'000;
+    // Limit constant folding to small tensors to avoid long compile times and
+    // large memory usage.
+    if (denseElements.getNumElements() > foldLimit) {
+      return nullptr;
+    }
+    if (denseElements.getElementType().isInteger()) {
+      return constantFoldNonSplatPermute<llvm::APInt>(op, denseElements);
+    }
+    if (denseElements.getElementType().isFloat()) {
+      return constantFoldNonSplatPermute<llvm::APFloat>(op, denseElements);
+    }
+  }
+
+  return nullptr;
+}
+
 // PermuteOp folder
 mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
 
@@ -5019,6 +5156,10 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
   }
 
   if (auto foldResult = foldConsecutivePermute(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = constantFoldPermute(*this, adaptor.getInput())) {
     return foldResult;
   }
 
