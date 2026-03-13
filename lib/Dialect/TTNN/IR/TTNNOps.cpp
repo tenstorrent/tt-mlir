@@ -3088,7 +3088,11 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 ::mlir::OpFoldResult mlir::tt::ttnn::AllGatherOp::fold(FoldAdaptor adaptor) {
-  ttcore::DeviceAttr device = ttcore::lookupDevice(*this);
+  auto deviceOp = ttcore::lookupDeviceOp(*this);
+  if (!deviceOp) {
+    return {};
+  }
+  ttcore::DeviceAttr device = deviceOp.getDeviceAttr();
   llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // AllGather Op is semantically meaningless when gathering across a single
   // mesh device.
