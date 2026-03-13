@@ -261,6 +261,16 @@ getShapeAsI32(mlir::RankedTensorType tensorType) {
   return llvm::to_vector_of<int32_t>(tensorType.getShape());
 }
 
+// Reshape attribute if it is splat and present, otherwise return nullptr.
+static DenseElementsAttr reshapeIfSplatAndPresent(RankedTensorType type,
+                                                  Attribute attr) {
+  if (auto splat = llvm::dyn_cast_if_present<SplatElementsAttr>(attr)) {
+    auto value = splat.getSplatValue<Attribute>();
+    return SplatElementsAttr::get(type, value);
+  }
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // LogicalAndOp
 //===----------------------------------------------------------------------===//
@@ -369,12 +379,9 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
 
   // If the input is constant and splat, perform constant folding.
   Attribute constInput = adaptor.getInput();
-  if (auto elementsAttr = llvm::dyn_cast_if_present<ElementsAttr>(constInput)) {
-    if (elementsAttr.isSplat()) {
-      RankedTensorType type = getResult().getType();
-      auto value = elementsAttr.getSplatValue<Attribute>();
-      return SplatElementsAttr::get(type, value);
-    }
+  RankedTensorType resultType = getResult().getType();
+  if (auto foldResult = reshapeIfSplatAndPresent(resultType, constInput)) {
+    return foldResult;
   }
 
   return {};
@@ -4058,6 +4065,10 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
   if (auto foldResult = foldConsecutiveRepeat(*this)) {
     return foldResult;
   }
+  if (auto foldResult =
+          reshapeIfSplatAndPresent(getResult().getType(), fold.getInput())) {
+    return foldResult;
+  }
 
   return nullptr;
 }
@@ -4109,6 +4120,28 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
 
   return success();
 }
+
+static mlir::OpFoldResult
+foldIdentityRepeatInterleave(mlir::tt::ttir::RepeatInterleaveOp op) {
+  if (op.getRepeats() == 1) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+// RepeatInterleaveOp Folder
+mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
+  if (auto foldResult = foldIdentityRepeatInterleave(*this)) {
+    return foldResult;
+  }
+  if (auto foldResult =
+          reshapeIfSplatAndPresent(getResult().getType(), fold.getInput())) {
+    return foldResult;
+  }
+
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
