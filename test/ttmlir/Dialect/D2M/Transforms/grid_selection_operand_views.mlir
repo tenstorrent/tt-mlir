@@ -25,7 +25,7 @@ module attributes {ttcore.device = #any_device} {
     }
     ins(%1, %3 : tensor<1x1x32x256xf32, #layout2d>, tensor<1x1x32x256xf32, #layout2d>)
     outs(%4 : tensor<1x1x32x256xf32, #layout2d>) {
-    ^unified0(%cb0: !d2m.cb<tensor<32x256xf32>>, %cb1: !d2m.cb<tensor<32x256xf32>>, %cb2: !d2m.cb<tensor<32x256xf32>>):
+    ^unified0:
       %6 = tensor.empty() : tensor<32x256xf32>
       d2m.yield %6 : (tensor<32x256xf32>)
     } : tensor<1x1x32x256xf32, #layout2d>
