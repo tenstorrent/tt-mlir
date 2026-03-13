@@ -24,10 +24,10 @@ constexpr llvm::StringLiteral kVirtualGridInverseMappingAttr =
 constexpr llvm::StringLiteral kVirtualGridForwardMappingAttr =
     "d2m.virtualGridForwardMapping";
 
-// Return a new RankedTensorType by reblocking its device shape to match a new
-// grid shape.
-RankedTensorType reblockTensor(RankedTensorType oldTensor,
-                               ArrayRef<int64_t> newGridShape);
+// Return a new shaped type by reblocking its device shape to match a new grid
+// shape.
+ShapedType reblockShapedType(ShapedType oldType,
+                             ArrayRef<int64_t> newGridShape);
 
 // Get square target grid shape.
 llvm::SmallVector<int64_t>

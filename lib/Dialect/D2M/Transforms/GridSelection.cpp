@@ -421,8 +421,8 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   // The view chain that applyViews composes through depends on this
   // ViewLayoutOp existing between the optimal-grid ToLayout and downstream
   // StreamLayoutOps / GenericOps.
-  auto viewOutputType =
-      utils::reblockTensor(newTensorType, oldLayout.getGridShape(outputType));
+  auto viewOutputType = mlir::cast<RankedTensorType>(utils::reblockShapedType(
+      newTensorType, oldLayout.getGridShape(outputType)));
   auto reblockMap = ttmlir::utils::calculateReblockMap(
       newTensorType.getShape(), viewOutputType.getShape(),
       builder.getContext());
@@ -561,7 +561,8 @@ static void optimizeTTNNMetalLayoutCastOpGrid(
     return;
   }
 
-  auto newTensorType = utils::reblockTensor(outputType, optimalGrid);
+  auto newTensorType = mlir::cast<RankedTensorType>(
+      utils::reblockShapedType(outputType, optimalGrid));
 
   mlir::AffineMapAttr gridRemapping =
       AffineMapAttr::get(ttmlir::utils::calculateReblockMap(
@@ -574,8 +575,8 @@ static void optimizeTTNNMetalLayoutCastOpGrid(
       castOp.getLoc(), newTensorType, castOp.getResult(), gridRemapping);
 
   // Reblock it back to original shape to preserve IR correctness.
-  auto viewOutputType = utils::reblockTensor(
-      newTensorType, outputLayout.getGridShape(outputType));
+  auto viewOutputType = mlir::cast<RankedTensorType>(utils::reblockShapedType(
+      newTensorType, outputLayout.getGridShape(outputType)));
   auto reblockMap = ttmlir::utils::calculateReblockMap(
       newTensorType.getShape(), viewOutputType.getShape(),
       builder.getContext());
@@ -1108,6 +1109,8 @@ recreateGenericOp(d2m::GenericOp genericOp,
   auto ret = genericOp.withParallelization(builder, grid, blockFactors,
                                            /*generateReturnView=*/false);
   if (failed(ret)) {
+    genericOp.emitOpError()
+        << "failed to recreate generic op with withParallelization";
     return;
   }
 
