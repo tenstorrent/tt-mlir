@@ -12,10 +12,6 @@
 
 // CHECK: "ttnn.get_device"
 // CHECK: %[[MUL_OUT:.*]] = "ttnn.empty"{{.*}}<width_sharded>{{.*}}core_range<(0,0), (7,7)>{{.*}}shape = #ttnn.shape<32x2048>
-// CHECK: "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (63,0)>{{.*}}shape = #ttnn.shape<32x2048>
-// CHECK: "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (63,0)>{{.*}}shape = #ttnn.shape<32x2048>
-// CHECK: "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (63,0)>{{.*}}shape = #ttnn.shape<32x2048>
-// CHECK: "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (63,0)>{{.*}}shape = #ttnn.shape<32x2048>
 // CHECK: "ttnn.generic"(%arg1, %arg2, %[[MUL_OUT]])
 // CHECK-SAME: operandSegmentSizes = array<i32: 3, 0>
 // CHECK-SAME: symbol_ref = @datamovement_kernel0, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [#ttnn.kernel_arg_address_of_tensor<0>], rt_args = []
@@ -26,8 +22,6 @@
 // CHECK-SAME: <total_size = 2048, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 2, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<2>>
 // CHECK-SAME: semaphores = []>
 // CHECK: %[[ADD_OUT:.*]] = "ttnn.empty"{{.*}}<width_sharded>{{.*}}core_range<(0,0), (7,7)>{{.*}}shape = #ttnn.shape<32x2048>
-// CHECK: "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (63,0)>{{.*}}shape = #ttnn.shape<32x2048>
-// CHECK: "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (63,0)>{{.*}}shape = #ttnn.shape<32x2048>
 // CHECK: "ttnn.generic"(%[[MUL_OUT]], %arg0, %[[ADD_OUT]])
 // CHECK-SAME: operandSegmentSizes = array<i32: 3, 0>
 // CHECK-SAME: symbol_ref = @datamovement_kernel3, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [#ttnn.kernel_arg_cb_buffer_index<1>], common_rt_args = [#ttnn.kernel_arg_address_of_tensor<1>], rt_args = []

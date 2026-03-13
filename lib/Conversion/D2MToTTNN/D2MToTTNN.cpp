@@ -372,46 +372,15 @@ static LogicalResult handleMemrefAlloc(memref::AllocOp op, IRRewriter &rewriter,
     return success();
   }
 
+  // Case 2: Hoisted CB alloc (CBLayoutAttr) -- skip.
+  if (auto cbLayout = mlir::dyn_cast_if_present<ttcore::CBLayoutAttr>(
+      memrefType.getLayout())) {
+    return success();
+  }
+
   auto deviceAttr = ttcore::lookupDevice(op);
   if (!deviceAttr) {
     return op.emitOpError("could not find device attribute");
-  }
-
-  // Case 2: Hoisted CB alloc (CBLayoutAttr).
-  if (auto cbLayout = mlir::dyn_cast_if_present<ttcore::CBLayoutAttr>(
-          memrefType.getLayout())) {
-    auto gridShape = cbLayout.getGridShape();
-    auto shardShape = memrefType.getShape();
-    SmallVector<int64_t> fullShape(gridShape.begin(), gridShape.end());
-    fullShape.append(shardShape.begin(), shardShape.end());
-    auto shardLayoutAttr = ttcore::ShardLayoutAttr::get(
-        shardShape, memrefType.getElementType(), cbLayout.getBuffers());
-    auto shardMemrefType =
-        MemRefType::get(fullShape, memrefType.getElementType(), shardLayoutAttr,
-                        memrefType.getMemorySpace());
-
-    // Build a temporary typed Value to feed convertMemrefToTTNNTensor.
-    auto placeholder = rewriter.create<mlir::UnrealizedConversionCastOp>(
-        loc, shardMemrefType, ValueRange{});
-    auto convertedTensorType =
-        convertMemrefToTTNNTensor(ctx, placeholder.getResult(0));
-    rewriter.eraseOp(placeholder);
-
-    auto convertedLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(convertedTensorType.getEncoding());
-    auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto memcfg = ttnn::MemoryConfigAttr::get(convertedLayoutAttr,
-                                              deviceAttr.getWorkerGrid());
-
-    OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointAfter(op);
-    auto emptyOp = rewriter.create<ttnn::EmptyOp>(
-        loc, convertedTensorType, device,
-        ttnn::ShapeAttr::get(ctx, convertedTensorType.getShape()),
-        ttcore::DataTypeAttr::get(ctx, convertedLayoutAttr.getDataType()),
-        ttnn::LayoutAttr::get(ctx, convertedLayoutAttr.getLayout()), memcfg);
-    valueMapping[op.getResult()] = emptyOp.getResult();
-    return success();
   }
 
   // Case 3: Device layout (ShardLayoutAttr or InterleavedLayoutAttr).
