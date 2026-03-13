@@ -5,15 +5,18 @@
 #
 # Read all ops_perf_results_*.csv under a run directory (from run_perf_collect.sh),
 # group JIT vs non-JIT by case (op, shape, dtype, memory_config_id) and write one
-# entry per case with jit_duration_ns, ttnn_duration_ns, and perf_pct_ttnn.
-# math_fidelity is not part of the key so JIT (e.g. HiFi4) and TTNN (e.g. HiFi2) pair.
-# (100 = same, <100 = JIT slower, >100 = JIT faster). Suitable for Superset.
+# JSON report per case with structured fields for Superset ingestion.
+#
+# Each report becomes its own benchmark_run row in Superset with clean filterable
+# columns (model=op, precision=dtype, config=memory/shape/fidelity) and simple
+# measurement names (jit_kernel_duration_ns, ttnn_kernel_duration_ns, perf_ratio).
 #
 # Usage:
-#   python test/ttnn-jit/perf_ci/summarize_perf_results.py RUN_DIR [-o OUTPUT.json]
+#   python test/ttnn-jit/perf_ci/summarize_perf_results.py RUN_DIR [--output-dir DIR] [--job-id ID]
 #
 # Example:
-#   python test/ttnn-jit/perf_ci/summarize_perf_results.py generated/jit_perf_reports/run_20250309_123456 -o jit_perf_summary.json
+#   python test/ttnn-jit/perf_ci/summarize_perf_results.py generated/jit_perf_reports/run_20250309_123456
+#   python test/ttnn-jit/perf_ci/summarize_perf_results.py generated/jit_perf_reports/run_20250309_123456 --job-id 66822899875
 
 import argparse
 import csv
@@ -26,6 +29,10 @@ DEVICE_KERNEL_DURATION_COL = "DEVICE KERNEL DURATION [ns]"
 MATH_FIDELITY_COL = "MATH FIDELITY"
 OUTPUT_0_DATATYPE_COL = "OUTPUT_0_DATATYPE"
 INPUT_0_DATATYPE_COL = "INPUT_0_DATATYPE"
+
+UNARY_OPS = frozenset({"abs", "exp"})
+
+MEMORY_CONFIG_IDS = ("dram_interleaved", "l1_interleaved")
 
 
 def find_result_csvs(run_dir: Path):
@@ -45,10 +52,6 @@ def find_result_csvs(run_dir: Path):
                 continue
             for csv_path in ts_dir.glob("ops_perf_results_*.csv"):
                 yield test_id, csv_path
-
-
-# Known memory_config suffixes in test_id (e.g. ...-dram_interleaved).
-MEMORY_CONFIG_IDS = ("dram_interleaved", "l1_interleaved")
 
 
 def parse_test_id(test_id: str) -> Optional[dict]:
@@ -131,7 +134,7 @@ def read_csv_duration_and_meta(csv_path: Path) -> Optional[tuple[int, str, str]]
 def make_case_key(
     op: str, h: int, w: int, dtype: str, memory_config_id: Optional[str]
 ) -> tuple:
-    """Immutable key to group JIT and non-JIT runs of the same case. Excludes math_fidelity so JIT and TTNN runs (which may report different fidelities) pair into one entry."""
+    """Immutable key to group JIT and non-JIT runs of the same case."""
     return (op, h, w, dtype, memory_config_id or "")
 
 
@@ -150,7 +153,7 @@ def _measurement(name: str, value: float, step_name: str) -> dict[str, Any]:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Summarize JIT perf run CSVs into one entry per (op, shape, dtype, memory_config) with JIT vs TTNN comparison."
+        description="Summarize JIT perf run CSVs into one JSON report per (op, dtype, memory_config) test case for Superset."
     )
     parser.add_argument(
         "run_dir",
@@ -158,11 +161,16 @@ def main():
         help="Directory produced by run_perf_collect.sh (contains test_id/reports/...)",
     )
     parser.add_argument(
-        "-o",
-        "--output",
+        "--output-dir",
         type=Path,
         default=None,
-        help="Output JSON path (default: RUN_DIR/jit_perf_summary.json)",
+        help="Directory to write individual JSON reports (default: run_dir)",
+    )
+    parser.add_argument(
+        "--job-id",
+        type=str,
+        default=None,
+        help="GitHub job ID to append to filenames (required for CI collect_data)",
     )
     parser.add_argument(
         "-q",
@@ -177,9 +185,10 @@ def main():
         print(f"Error: not a directory: {run_dir}", file=sys.stderr)
         sys.exit(1)
 
-    out_path = args.output or (run_dir / "jit_perf_summary.json")
+    out_dir = (args.output_dir or run_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    job_suffix = f"_{args.job_id}" if args.job_id else ""
 
-    # Raw rows: one per CSV (test_id, jit, op, h, w, duration_ns, dtype, math_fidelity)
     raw: list[dict[str, Any]] = []
     for test_id, csv_path in find_result_csvs(run_dir):
         parsed = parse_test_id(test_id)
@@ -204,7 +213,6 @@ def main():
                 "duration_ns": duration_ns,
                 "dtype": dtype,
                 "math_fidelity": math_fidelity,
-                "csv_path": str(csv_path),
             }
         )
         if not args.quiet:
@@ -212,7 +220,6 @@ def main():
                 f"  {test_id}: {duration_ns} ns (dtype={dtype!r}, math_fidelity={math_fidelity!r})"
             )
 
-    # Group by case key (op, h, w, dtype, memory_config_id) so JIT and TTNN pair even when math_fidelity differs (e.g. matmul HiFi4 vs HiFi2)
     groups: dict[tuple, dict[str, Any]] = {}
     for r in raw:
         key = make_case_key(
@@ -225,64 +232,69 @@ def main():
                 "w": r["w"],
                 "shape": f"{r['h']}x{r['w']}",
                 "dtype": r["dtype"],
-                "math_fidelity": r["math_fidelity"],
-                "math_fidelity_ttnn": None,
+                "math_fidelity_jit": "",
+                "math_fidelity_ttnn": "",
                 "memory_config_id": r.get("memory_config_id") or "",
                 "jit_duration_ns": None,
                 "ttnn_duration_ns": None,
-                "perf_pct_ttnn": None,
-                "jit_csv_path": None,
-                "ttnn_csv_path": None,
             }
         g = groups[key]
         if r["jit"]:
             g["jit_duration_ns"] = r["duration_ns"]
-            g["jit_csv_path"] = r["csv_path"]
-            g["math_fidelity"] = r["math_fidelity"]
+            g["math_fidelity_jit"] = r["math_fidelity"]
         else:
             g["ttnn_duration_ns"] = r["duration_ns"]
-            g["ttnn_csv_path"] = r["csv_path"]
             g["math_fidelity_ttnn"] = r["math_fidelity"]
 
-    # Compute perf_pct_ttnn: (ttnn_duration / jit_duration) * 100
-    # 100 = same, <100 = JIT slower, >100 = JIT faster
-    measurements: list[dict[str, Any]] = []
+    file_count = 0
     for key in sorted(groups.keys()):
         g = groups[key]
+        op = g["op"]
+        dtype = g["dtype"]
+        mem_cfg = g["memory_config_id"]
+        shape = g["shape"]
         jit_ns = g["jit_duration_ns"]
         ttnn_ns = g["ttnn_duration_ns"]
-        if jit_ns is not None and ttnn_ns is not None and jit_ns > 0:
-            g["perf_pct_ttnn"] = round((ttnn_ns / jit_ns) * 100.0, 2)
+        is_unary = op in UNARY_OPS
 
-        prefix = f"{g['op']}_{g['dtype']}_{g['memory_config_id']}"
-        step = f"{g['op']}_{g['shape']}_{g['dtype']}"
+        measurements = []
         if jit_ns is not None:
-            measurements.append(_measurement(f"{prefix}_jit_duration_ns", jit_ns, step))
+            measurements.append(_measurement("jit_kernel_duration_ns", jit_ns, op))
         if ttnn_ns is not None:
-            measurements.append(
-                _measurement(f"{prefix}_ttnn_duration_ns", ttnn_ns, step)
-            )
-        if g["perf_pct_ttnn"] is not None:
-            measurements.append(
-                _measurement(f"{prefix}_perf_pct_ttnn", g["perf_pct_ttnn"], step)
-            )
+            measurements.append(_measurement("ttnn_kernel_duration_ns", ttnn_ns, op))
+        if jit_ns is not None and ttnn_ns is not None and jit_ns > 0:
+            ratio = round(ttnn_ns / jit_ns, 4)
+            measurements.append(_measurement("perf_ratio", ratio, op))
 
-    report = {
-        "project": "tt-mlir",
-        "model": "ttnn_jit_perf",
-        "model_type": "jit_vs_ttnn",
-        "run_type": "benchmark",
-        "measurements": measurements,
-    }
+        config = {
+            "input_a_shape": shape,
+            "input_b_shape": None if is_unary else shape,
+            "input_a_memory_config": mem_cfg,
+            "input_b_memory_config": None if is_unary else mem_cfg,
+            "math_fidelity_jit": g["math_fidelity_jit"],
+            "math_fidelity_ttnn": g["math_fidelity_ttnn"],
+        }
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2)
+        report = {
+            "project": "tt-mlir",
+            "model": op,
+            "model_type": "jit_vs_ttnn",
+            "run_type": "op_benchmark",
+            "precision": dtype,
+            "config": config,
+            "measurements": measurements,
+        }
+
+        filename = f"perf_{op}_{dtype}_{mem_cfg}{job_suffix}.json"
+        filepath = out_dir / filename
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+        file_count += 1
+        if not args.quiet:
+            print(f"  Wrote {filepath.name} ({len(measurements)} measurements)")
 
     if not args.quiet:
-        print(
-            f"Wrote {len(measurements)} measurement(s) from {len(groups)} case(s) to {out_path}"
-        )
+        print(f"Wrote {file_count} report(s) from {len(groups)} case(s) to {out_dir}")
     return 0
 
 

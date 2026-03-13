@@ -151,14 +151,6 @@ jobs:
 
         test/ttnn-jit/perf_ci/run_perf_collect.sh ${{ steps.strings.outputs.perf-output-dir }}
 
-    - name: Upload JIT perf summary
-      uses: actions/upload-artifact@v4
-      if: success() || failure()
-      with:
-        name: jit-perf-summary-${{ steps.fetch-job-id.outputs.job_id }}
-        path: ${{ steps.strings.outputs.perf-output-dir }}/perf_jit_summary_${{ steps.fetch-job-id.outputs.job_id }}.json
-        if-no-files-found: warn
-
     - name: Upload JIT perf reports
       uses: actions/upload-artifact@v4
       if: success() || failure()
