@@ -47,6 +47,11 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   pm.addPass(createDecoupleConstFanoutPass());
 
+  // Convert tuple-returning custom_call ops to multi-result ops so that
+  // Shardy can propagate shardings through them (Shardy does not support
+  // tuple types).
+  pm.addPass(createDecomposeCustomCallTuplesPass());
+
   // Flatten all composite ops to make sharding propagation easier.
   pm.addPass(createFlattenCompositePass());
 
