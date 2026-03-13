@@ -526,8 +526,9 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
   auto config = extractOpConfigFromIR(op);
 
   // Stage 1: Demote current op to L1 interleaved.
-  // Matmul: skip L1-interleaved demotion (see getOutputHints).
-  if (!isa<MatmulOp, LinearOp>(op)) {
+  // Skip for matmul/linear (see getOutputHints) and for DRAM-output ops
+  // (opL1Usage == 0) where promoting output to L1 is not intended.
+  if (opL1Usage > 0 && !isa<MatmulOp, LinearOp>(op)) {
     OpConfig l1InterleavedConfig = makeL1InterleavedConfig(op);
     auto demoteResult =
         memoryTracker.validate(op, inputLayouts, l1InterleavedConfig);
@@ -573,13 +574,16 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
   if (result.isSuccess()) {
     uint64_t l1Size =
         result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
-    addResultsToLiveSet(l1Size);
-    observer_->onLiveAdded(op, pos, l1Size, pos, memoryTracker.getOccupiedL1());
+    if (l1Size > 0) {
+      addResultsToLiveSet(l1Size);
+      observer_->onLiveAdded(op, pos, l1Size, pos,
+                             memoryTracker.getOccupiedL1());
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    ADDED (after eviction): L1 now {0}/{1} ({2} tensors)",
-                 memoryTracker.getOccupiedL1(), l1BudgetPerCore,
-                 liveValues.size());
+      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                   "    ADDED (after eviction): L1 now {0}/{1} ({2} tensors)",
+                   memoryTracker.getOccupiedL1(), l1BudgetPerCore,
+                   liveValues.size());
+    }
   } else {
     // Stage 3: Op exceeds budget alone -- spill all results to DRAM.
     observer_->onSelfSpill(op, pos);
@@ -738,13 +742,18 @@ void L1SpillManagement<MemoryTracker>::run() {
 
     processDeadTensors(pos, data);
 
-    // Skip ops without L1 output annotation.
+    // Ops with L1 output annotation get full processing.
+    // DRAM-output ops (no annotation) still need CB overlap checking against
+    // live L1 tensors -- skip only if the op can't be validated or there are
+    // no live L1 tensors that could clash.
     auto l1Attr = op->getAttrOfType<IntegerAttr>("ttnn.output_l1_usage");
-    if (!l1Attr) {
-      continue;
-    }
+    uint64_t opL1Usage = l1Attr ? l1Attr.getValue().getZExtValue() : 0;
 
-    uint64_t opL1Usage = l1Attr.getValue().getZExtValue();
+    if (!l1Attr) {
+      if (!mlir::dyn_cast<OpModel>(op) || liveValues.empty()) {
+        continue;
+      }
+    }
 
     // Count tensor results and compute per-result L1 budget.
     llvm::SmallVector<OpResult> tensorResults;
@@ -1024,6 +1033,13 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Value result) {
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(result.getType());
   TTNNLayoutAttr layoutAttr =
       mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+  if (!layoutAttr.hasL1BufferType()) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    WARNING: spillToDram called on already-DRAM tensor: {0}",
+                 ttmlir::opToString(defOp));
+    return;
+  }
 
   // Create DRAM interleaved layout.
   TTNNLayoutAttr dramLayout =
