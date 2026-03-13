@@ -30,7 +30,3 @@ targets tt-metal.
   set the environment variable `SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys`.
 - `ttrt run ...`: Runs a compiler generated flatbuffer on silicon.  Can either
   point to a flatbuffer file or a directory containing flatbuffers.
-
-# Claude skills
-- project level skills live in `.claude/skills` dir
-- personal skills should live in `.claude/skills-local` dir
