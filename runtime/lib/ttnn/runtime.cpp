@@ -1140,6 +1140,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ScatterOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::GatherOp: {
+    tensorRef = opContext.type_as_GatherOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::PermuteOp: {
     tensorRef = opContext.type_as_PermuteOp()->out();
     break;
@@ -1228,6 +1232,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_AllReduceOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::AllReduceAsyncOp: {
+    tensorRef = opContext.type_as_AllReduceAsyncOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRef = opContext.type_as_ReduceScatterOp()->out();
     break;
@@ -1307,6 +1315,11 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
     tensorRef =
         opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedFlashMultiLatentAttentionDecodeOp: {
+    tensorRef =
+        opContext.type_as_PagedFlashMultiLatentAttentionDecodeOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
@@ -1550,6 +1563,11 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_ScatterOp()->source()};
     break;
   }
+  case ::tt::target::ttnn::OpType::GatherOp: {
+    tensorRefs = {opContext.type_as_GatherOp()->input(),
+                  opContext.type_as_GatherOp()->index()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PermuteOp: {
     tensorRefs = {opContext.type_as_PermuteOp()->in()};
     break;
@@ -1690,6 +1708,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::AllReduceOp: {
     tensorRefs = {opContext.type_as_AllReduceOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllReduceAsyncOp: {
+    tensorRefs = {opContext.type_as_AllReduceAsyncOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
@@ -1862,6 +1884,24 @@ getOpInputRefs(OpContext opContextHandle,
             ->cur_pos_tensor(),
         opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
             ->attention_sink()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedFlashMultiLatentAttentionDecodeOp: {
+    auto *mlaOp = opContext.type_as_PagedFlashMultiLatentAttentionDecodeOp();
+    tensorRefs = {mlaOp->query(), mlaOp->key()};
+    if (mlaOp->value()) {
+      tensorRefs.push_back(mlaOp->value());
+    }
+    tensorRefs.push_back(mlaOp->page_table());
+    if (mlaOp->attention_mask()) {
+      tensorRefs.push_back(mlaOp->attention_mask());
+    }
+    if (mlaOp->cur_pos_tensor()) {
+      tensorRefs.push_back(mlaOp->cur_pos_tensor());
+    }
+    if (mlaOp->attention_sink()) {
+      tensorRefs.push_back(mlaOp->attention_sink());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
