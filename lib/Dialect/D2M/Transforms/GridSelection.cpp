@@ -1033,7 +1033,7 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
   }
 }
 
-// Derive grid (including virtual grid mapping) and block factors from the
+// Derive grid (including virtual grid mapping) from the
 // optimized operand grids selected by GridSelection, mirroring
 // GenericOp::build.
 static ttcore::GridAttr deriveGridAttrForOutput(Value output,
@@ -1084,8 +1084,8 @@ deriveGenericGridAttr(d2m::GenericOp genericOp,
 // After updating all ToLayout and StreamLayout ops, the generic's operands
 // now have new types with optimized grids. We must recreate the generic to
 // reflect these type changes. We derive the generic grid from the output
-// operand's chosen grid, then use withParallelization to reblock operands to
-// match that generic grid while preserving existing block factors.
+// operand's chosen grid and re-derive block factors from the chosen operand
+// grids so the rebuilt generic reflects the full execution plan.
 static void
 recreateGenericOp(d2m::GenericOp genericOp,
                   ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
@@ -1094,9 +1094,13 @@ recreateGenericOp(d2m::GenericOp genericOp,
   }
 
   OpBuilder builder(genericOp);
+  unsigned outputOperandIndex = genericOp.getOutputs().getBeginOperandIndex();
+  ArrayRef<int64_t> outputGridShape = optimalOperandGrids[outputOperandIndex];
   ttcore::GridAttr grid =
       deriveGenericGridAttr(genericOp, optimalOperandGrids, builder);
-  auto ret = genericOp.withParallelization(builder, grid, std::nullopt,
+  SmallVector<int64_t> blockFactors = utils::deriveBlockFactorsFromOperandGrids(
+      genericOp.getIndexingMapsValue(), optimalOperandGrids, outputGridShape);
+  auto ret = genericOp.withParallelization(builder, grid, blockFactors,
                                            /*generateReturnView=*/false);
   if (failed(ret)) {
     genericOp.emitOpError()
