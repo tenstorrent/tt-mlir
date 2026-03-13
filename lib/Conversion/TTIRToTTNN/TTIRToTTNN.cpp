@@ -505,9 +505,11 @@ public:
   LogicalResult
   matchAndRewrite(ttir::CumSumOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::MorehCumSumOp>(
+    rewriter.replaceOpWithNewOp<ttnn::CumSumOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getDim(), nullptr);
+        adaptor.getInput(),
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(adaptor.getDim())),
+        nullptr);
     return success();
   }
 };

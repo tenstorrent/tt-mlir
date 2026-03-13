@@ -1882,12 +1882,12 @@ TransposeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// MorehCumSumOp - TTNN Op Model Interface
+// CumSumOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::OpConstraints>
-MorehCumSumOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                const OpConfig &opConfig) {
+CumSumOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
   const auto inputShape = getInput().getType().getShape();
@@ -1900,20 +1900,20 @@ MorehCumSumOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<MorehCumSumOp>::getOpConstraints, *this, deviceGrid,
+      op_model::OpModel<CumSumOp>::getOpConstraints, *this, deviceGrid,
       inputShape, inputs[0], getDim(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
-MorehCumSumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                            const OpConfig &opConfig) {
+CumSumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
   const auto inputShape = getInput().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
-      op_model::OpModel<MorehCumSumOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getDim(), opConfig.outputLayout);
+      op_model::OpModel<CumSumOp>::getOpRuntime, *this, inputShape, inputs[0],
+      getDim(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

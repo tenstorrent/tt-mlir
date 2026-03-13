@@ -2428,11 +2428,11 @@ llvm::Expected<size_t> OpModel<TransposeOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
-// MorehCumSumOp
+// CumSumOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<MorehCumSumOp>::getOpConstraints(
+llvm::Expected<OpConstraints> OpModel<CumSumOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, const int64_t dim,
+    TTNNLayoutAttr inputLayout, const int32_t dim,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2446,22 +2446,23 @@ llvm::Expected<OpConstraints> OpModel<MorehCumSumOp>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
-  auto morehCumSumOpQuery = [=]() {
+  auto cumSumOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::moreh_cumsum, device, inputSpec, dim, std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout));
+        ::ttnn::cumsum, device, inputSpec, dim, std::nullopt, false,
+        std::nullopt, detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                     morehCumSumOpQuery);
+                                     cumSumOpQuery);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> OpModel<MorehCumSumOp>::getOpRuntime(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    const int64_t dim, TTNNLayoutAttr outputLayout) {
+llvm::Expected<size_t>
+OpModel<CumSumOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                TTNNLayoutAttr inputLayout, const int32_t dim,
+                                TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2474,13 +2475,13 @@ llvm::Expected<size_t> OpModel<MorehCumSumOp>::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
-  auto morehCumSumOpQuery = [=]() {
+  auto cumSumOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::moreh_cumsum, device, inputSpec, dim, std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout));
+        ::ttnn::cumsum, device, inputSpec, dim, std::nullopt, false,
+        std::nullopt, detail::getNullableMemoryConfig(outputLayout));
   };
 
-  return operation::getOpRuntime(morehCumSumOpQuery);
+  return operation::getOpRuntime(cumSumOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

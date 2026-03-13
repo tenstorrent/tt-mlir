@@ -1212,28 +1212,30 @@ public:
 };
 } // namespace
 
-// Moreh CumSum op conversion pattern
+// CumSum op conversion pattern
 //
 namespace {
-class MorehCumSumOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::MorehCumSumOp> {
+class CumSumOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::CumSumOp> {
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::MorehCumSumOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::CumSumOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::MorehCumSumOp srcOp,
-                  mlir::tt::ttnn::MorehCumSumOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::CumSumOp srcOp,
+                  mlir::tt::ttnn::CumSumOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MorehCumSumOp> emitter(
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::CumSumOp> emitter(
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim()),
-        /*output=*/emitter.emit(std::nullopt),
+        /*dtype=*/emitter.emit(std::nullopt),
+        /*reverse_order=*/emitter.emit(false),
+        /*optional_out=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -4933,8 +4935,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-               MorehCumSumOpConversionPattern,
-               BatchNormInferenceOpConversionPattern,
+               CumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
                BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
                LayerNormOpConversionPattern, GroupNormOpConversionPattern>(
       typeConverter, ctx);

@@ -1012,7 +1012,7 @@ TEST_F(OpModelTest, Transpose) {
   llvm::consumeError(runtimeExp.takeError());
 }
 
-TEST_F(OpModelTest, MorehCumSum) {
+TEST_F(OpModelTest, CumSum) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
   const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
@@ -1025,7 +1025,7 @@ TEST_F(OpModelTest, MorehCumSum) {
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
-  auto constraintsExp = op_model::OpModel<MorehCumSumOp>::getOpConstraints(
+  auto constraintsExp = op_model::OpModel<CumSumOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
@@ -1033,12 +1033,12 @@ TEST_F(OpModelTest, MorehCumSum) {
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
-  auto runtimeExp = op_model::OpModel<MorehCumSumOp>::getOpRuntime(
+  auto runtimeExp = op_model::OpModel<CumSumOp>::getOpRuntime(
       tensorShape, layoutDRAM, 0, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
-  constraintsExp = op_model::OpModel<MorehCumSumOp>::getOpConstraints(
+  constraintsExp = op_model::OpModel<CumSumOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
@@ -1046,18 +1046,18 @@ TEST_F(OpModelTest, MorehCumSum) {
   EXPECT_GT(opCstr.tensorL1PeakSize, 0);
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
-  runtimeExp = op_model::OpModel<MorehCumSumOp>::getOpRuntime(
+  runtimeExp = op_model::OpModel<CumSumOp>::getOpRuntime(
       tensorShape, layoutDRAM, 0, layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
-  constraintsExp = op_model::OpModel<MorehCumSumOp>::getOpConstraints(
+  constraintsExp = op_model::OpModel<CumSumOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 0,
       layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
-  runtimeExp = op_model::OpModel<MorehCumSumOp>::getOpRuntime(
+  runtimeExp = op_model::OpModel<CumSumOp>::getOpRuntime(
       tensorShape, layoutL1Interleaved, 0, layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());

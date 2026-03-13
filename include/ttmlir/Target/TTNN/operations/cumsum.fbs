@@ -3,9 +3,9 @@ include "ttmlir/Target/TTNN/types.fbs";
 
 namespace tt.target.ttnn;
 
-table MorehCumSumOp {
+table CumSumOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
-  dim: int64;
+  dim: int32;
   memcfg: tt.target.ttnn.MemoryConfig;
 }
