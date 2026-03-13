@@ -1928,6 +1928,56 @@ def test_convolution(
 @pytest.mark.parametrize(
     "shapes,stride,padding,dilation,groups",
     [
+        ([(1, 32, 16, 16), (64, 32, 3, 3)], [1, 1], [1, 1], [1, 1], 1),
+        ([(1, 32, 16, 16), (32, 1, 3, 3)], [2, 2], [1, 1], [1, 1], 32),
+    ],
+    ids=["conv2d_basic", "conv2d_depthwise"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_conv2d(
+    shapes: List[Shape],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
+    groups: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test StableHLOBuilder.conv2d convenience API (NCHW/OIHW)."""
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def conv2d(
+            in0: Operand,
+            weight: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.conv2d(
+                in0,
+                weight,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,stride,padding,dilation,groups",
+    [
         # Depthwise convolution (groups = input_channels)
         (
             [(1, 32, 28, 28), (32, 1, 3, 3)],
