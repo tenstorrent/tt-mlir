@@ -31,7 +31,6 @@ set(METAL_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY TT_STL_LIBRARY TRACY_
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(python)
-add_subdirectory(runtime)
 add_subdirectory(tools)
 
 # Ensure coverage_config is applied to runtime tests if enabled

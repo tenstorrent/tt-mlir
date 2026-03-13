@@ -1945,7 +1945,6 @@ std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
 
-  // Double check this is necessary: *********
   if (!Py_IsInitialized()) {
     std::cout << "Initializing New Python interpreter" << std::endl;
     Py_Initialize();
@@ -1981,13 +1980,12 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
 }
 
 std::optional<Tensor>
-retrieveTensorFromPool(::tt::runtime::CallbackContext programContextHandle,
-                       ::tt::runtime::TensorRef tensorRef, bool untilize) {
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       tt::runtime::TensorRef tensorRef, bool untilize) {
   const auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
-  const tt::runtime::ttnn::ProgramTensorPool &tensorPool =
-      programContext.getTensorPool();
+  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
 
   const auto *tensorRefPtr =
       &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
@@ -2020,14 +2018,12 @@ retrieveTensorFromPool(::tt::runtime::CallbackContext programContextHandle,
   return hostTensors[0];
 }
 
-void updateTensorInPool(::tt::runtime::CallbackContext programContextHandle,
-                        ::tt::runtime::TensorRef tensorRef,
-                        ::tt::runtime::Tensor tensor) {
+void updateTensorInPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, Tensor tensor) {
   auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
-  tt::runtime::ttnn::ProgramTensorPool &tensorPool =
-      programContext.getTensorPool();
+  ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
   const auto *tensorRefPtr =
       &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
@@ -2056,7 +2052,8 @@ void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
 }
 
 ::tt::runtime::Tensor loadTensor(const std::string &filePath,
-                                 std::optional<::tt::runtime::Device> device) {
+                                 std::optional<Device> device) {
+
   ::ttnn::MeshDevice *devicePtr = nullptr;
   if (device.has_value()) {
     devicePtr = &device->as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
