@@ -282,6 +282,14 @@ void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath);
 ::tt::runtime::Tensor loadTensor(const std::string &filePath,
                                  std::optional<Device> device = std::nullopt);
 
+// Begins TTNN graph capture. When normalMode is true, real device execution
+// occurs (RunMode::NORMAL); when false, no dispatch happens
+// (RunMode::NO_DISPATCH).
+void beginGraphCapture(bool normalMode = true);
+
+// Ends TTNN graph capture and writes the captured graph JSON to filePath.
+void endGraphCaptureToFile(const std::string &filePath);
+
 } // namespace tt::runtime::ttnn
 
 #endif

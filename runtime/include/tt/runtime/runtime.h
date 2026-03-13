@@ -276,6 +276,16 @@ void dumpTensor(Tensor tensor, const std::string &filePath);
 Tensor loadTensor(const std::string &filePath,
                   std::optional<Device> device = std::nullopt);
 
+// Begins TTNN graph capture for the ttnn-visualizer. When normalMode is true,
+// real device execution occurs; when false, simulated execution without
+// dispatch.
+void beginGraphCapture(bool normalMode = true);
+
+// Ends TTNN graph capture and writes the captured graph JSON report to
+// filePath. The report can be imported into a visualizer database with:
+//   python -m ttnn.graph_report <report.json> <output_dir>/
+void endGraphCaptureToFile(const std::string &filePath);
+
 } // namespace tt::runtime
 
 #endif

@@ -1210,6 +1210,34 @@ Tensor loadTensor(const std::string &filePath, std::optional<Device> device) {
       });
 }
 
+void beginGraphCapture(bool normalMode) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::beginGraphCapture(normalMode); },
+      [&]() {
+        detail::fatalNotImplemented("beginGraphCapture",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() {
+        detail::fatalNotImplemented("beginGraphCapture",
+                                    HostRuntime::Distributed);
+      });
+}
+
+void endGraphCaptureToFile(const std::string &filePath) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::endGraphCaptureToFile(filePath); },
+      [&]() {
+        detail::fatalNotImplemented("endGraphCaptureToFile",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() {
+        detail::fatalNotImplemented("endGraphCaptureToFile",
+                                    HostRuntime::Distributed);
+      });
+}
+
 #undef IF_TTNN_ENABLED
 #undef IF_TTMETAL_ENABLED
 #undef IF_DISTRIBUTED_ENABLED

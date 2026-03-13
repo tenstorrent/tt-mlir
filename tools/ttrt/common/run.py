@@ -337,6 +337,13 @@ class Run:
             choices=[True, False],
             help="disable ttrt callbacks",
         )
+        Run.register_arg(
+            name="--graph-capture",
+            type=str,
+            default="",
+            choices=None,
+            help="capture TTNN graph trace and write JSON report to the given file path (for ttnn-visualizer)",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Run.registered_args.items():
@@ -764,6 +771,13 @@ class Run:
                         # Reset flag for all following ops that aren't input `to_layout`s
                         perf_env.tracy_log_input_layout_conversion(False)
 
+                        graph_capture_path = self["--graph-capture"]
+                        if graph_capture_path:
+                            self.logging.info(
+                                f"beginning TTNN graph capture (output: {graph_capture_path})"
+                            )
+                            ttrt.runtime.begin_graph_capture(normal_mode=True)
+
                         for loop in range(self["--loops"]):
                             self.logging.debug(
                                 f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -1022,6 +1036,12 @@ class Run:
                                 e2e_duration_nanoseconds_submit,
                                 e2e_duration_nanoseconds_output,
                             )
+
+                        if graph_capture_path:
+                            self.logging.info(
+                                f"ending TTNN graph capture, writing report to {graph_capture_path}"
+                            )
+                            ttrt.runtime.end_graph_capture_to_file(graph_capture_path)
 
                         if event is not None:
                             ttrt.runtime.wait(event)

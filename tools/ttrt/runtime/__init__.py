@@ -66,6 +66,8 @@ try:
         get_op_loc_info,
         unregister_hooks,
         FabricConfig,
+        begin_graph_capture,
+        end_graph_capture_to_file,
     )
 except ModuleNotFoundError:
     raise ImportError(

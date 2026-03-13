@@ -24,6 +24,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttmlir/Version.h"
+#include "ttnn/graph/graph_processor.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
@@ -2025,4 +2026,16 @@ void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
 
   return tensor;
 }
+
+void beginGraphCapture(bool normalMode) {
+  auto mode = normalMode
+                  ? ::tt::tt_metal::IGraphProcessor::RunMode::NORMAL
+                  : ::tt::tt_metal::IGraphProcessor::RunMode::NO_DISPATCH;
+  ::ttnn::graph::GraphProcessor::begin_graph_capture(mode);
+}
+
+void endGraphCaptureToFile(const std::string &filePath) {
+  ::ttnn::graph::GraphProcessor::end_graph_capture_to_file(filePath);
+}
+
 } // namespace tt::runtime::ttnn
