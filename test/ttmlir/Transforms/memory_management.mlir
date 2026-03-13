@@ -10,10 +10,10 @@
 #layout_1x1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1xf32, #dram>, <interleaved>>
 #layout_32x64 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #layout_64x32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
-#layout_r_1x1x2x1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<2xf32, #dram>, <interleaved>>
-#layout_r_4x1x2x1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<8xf32, #dram>, <interleaved>>
+#layout_r_1x1x1x2 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<2xf32, #dram>, <interleaved>>
+#layout_r_8x1x1x2 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<16xf32, #dram>, <interleaved>>
 #layout_r_1x1x1x8 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<8xf32, #dram>, <interleaved>>
-#layout_r_8x1x2x1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<16xf32, #dram>, <interleaved>>
+#layout_r_1x1x8x2 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<16xf32, #dram>, <interleaved>>
 #layout_r_1x1x1x16 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<16xf32, #dram>, <interleaved>>
 #layout_r_1x1x1x1024 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<1024xf32, #dram>, <interleaved>>
 #layout_r_1x1x32x32 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<1024xf32, #dram>, <interleaved>>
@@ -29,7 +29,7 @@ module {
     return %1 : tensor<32x128xf32, #layout_32x128>
   }
 
-  // slicePermutre
+  // slicePermute
   // CHECK: %[[SLICE:.*]] = "ttnn.slice_static"(%arg0) <{begins = [32 : i32, 0 : i32], ends = [64 : i32, 128 : i32], step = [1 : i32, 1 : i32]}>
   // CHECK: %[[PERM:.*]] = "ttnn.permute"(%[[SLICE]])
   // CHECK-SAME: permutation = array<i64: 1, 0>
@@ -72,16 +72,16 @@ module {
   }
 
   // repeatReshape
-  // CHECK: %[[REPEAT:.*]] = "ttnn.repeat"(%arg0) <{repeat_dims = #ttnn.shape<1x1x1x8>}>
+  // CHECK: %[[REPEAT:.*]] = "ttnn.repeat"(%arg0) <{repeat_dims = #ttnn.shape<1x1x8x1>}>
   // CHECK-NOT: repeat_dims = #ttnn.shape<8x1x1x1>
   // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[REPEAT]]) <{shape = [1 : i32, 1 : i32, 1 : i32, 16 : i32]}>
-  func.func @repeat_reshape(%arg0: tensor<1x1x2x1xf32, #layout_r_1x1x2x1>) -> tensor<1x1x1x16xf32, #layout_r_1x1x1x16> {
-    %0 = "ttnn.repeat"(%arg0) <{repeat_dims = #ttnn.shape<8x1x1x1>}> : (tensor<1x1x2x1xf32, #layout_r_1x1x2x1>) -> tensor<8x1x2x1xf32, #layout_r_8x1x2x1>
-    %1 = "ttnn.reshape"(%0) <{shape = [1 : i32, 1 : i32, 1 : i32, 16 : i32]}> : (tensor<8x1x2x1xf32, #layout_r_8x1x2x1>) -> tensor<1x1x1x16xf32, #layout_r_1x1x1x16>
+  func.func @repeat_reshape(%arg0: tensor<1x1x1x2xf32, #layout_r_1x1x1x2>) -> tensor<1x1x1x16xf32, #layout_r_1x1x1x16> {
+    %0 = "ttnn.repeat"(%arg0) <{repeat_dims = #ttnn.shape<8x1x1x1>}> : (tensor<1x1x1x2xf32, #layout_r_1x1x1x2>) -> tensor<8x1x1x2xf32, #layout_r_8x1x1x2>
+    %1 = "ttnn.reshape"(%0) <{shape = [1 : i32, 1 : i32, 1 : i32, 16 : i32]}> : (tensor<8x1x1x2xf32, #layout_r_8x1x1x2>) -> tensor<1x1x1x16xf32, #layout_r_1x1x1x16>
     return %1 : tensor<1x1x1x16xf32, #layout_r_1x1x1x16>
   }
 
-  // repeatEltwise (reshape-eltwise adjust)
+  // reshape-eltwise adjust
   // CHECK: %[[R0:.*]] = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 1 : i32, 32 : i32, 32 : i32]}>
   // CHECK: %[[R1:.*]] = "ttnn.reshape"(%arg1) <{shape = [1 : i32, 1 : i32, 32 : i32, 32 : i32]}>
   // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[R0]], %[[R1]]) <{dtype = #ttcore.supportedDataTypes<f32>}>

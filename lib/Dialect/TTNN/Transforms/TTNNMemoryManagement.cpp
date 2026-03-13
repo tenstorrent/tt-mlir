@@ -81,16 +81,33 @@ static bool computeDimGroupMapping(ArrayRef<int64_t> inputShape,
 
 static bool hasNonTileAlignedInnerDims(ArrayRef<int64_t> shape) {
   int64_t rank = shape.size();
+  constexpr int64_t tileH = ttcore::TileType::getDefaultShape()[0];
+  constexpr int64_t tileW = ttcore::TileType::getDefaultShape()[1];
   if (rank < 2) {
     return false;
   }
-  return (shape[rank - 1] % 32 != 0) || (shape[rank - 2] % 32 != 0);
+  return (shape[rank - 1] % tileW != 0) || (shape[rank - 2] % tileH != 0);
+}
+
+static bool hasOnlySingletonDimsBetween(ArrayRef<int64_t> shape, int64_t src,
+                                        int64_t tgt) {
+  assert(src < tgt && "expected source dim to be before target dim");
+  return !llvm::any_of(llvm::seq<int64_t>(src + 1, tgt),
+                       [&](int64_t dim) { return shape[dim] != 1; });
 }
 
 class PropagateSliceThroughPermute
     : public OpRewritePattern<ttnn::SliceStaticOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
+
+  // This pattern propagates a slice through a permute.
+  // For example:
+  // permute(permutation=[3, 2, 0, 1]) [32, 1, 2, 4] -> [4, 2, 32, 1]
+  // slice(dim=2, begin=0, end=16, step=1) [4, 2, 32, 1] -> [4, 2, 16, 1]
+  // The result is equivalent to:
+  // slice(dim=0, begin=0, end=16, step=1) [32, 1, 2, 4] -> [16, 1, 2, 4]
+  // permute(permutation=[3, 2, 0, 1]) [16, 1, 2, 4] -> [4, 2, 16, 1]
 
   LogicalResult matchAndRewrite(ttnn::SliceStaticOp op,
                                 PatternRewriter &rewriter) const override {
@@ -133,7 +150,7 @@ public:
 
     auto newPermuteOp = rewriter.create<ttnn::PermuteOp>(
         op.getLoc(), op.getType(), newSliceOp.getResult(), permutation,
-        /*memory_config=*/nullptr, /*pad_value=*/llvm::APFloat(0.0f));
+        /*memory_config=*/nullptr, /*pad_value=*/permuteOp.getPadValue());
 
     rewriter.replaceOp(op, newPermuteOp.getResult());
     return success();
@@ -144,6 +161,15 @@ class PropagateSliceThroughReshape
     : public OpRewritePattern<ttnn::SliceStaticOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
+
+  // This pattern propagates a slice through a reshape when the sliced
+  // dimensions map 1:1 across the reshape groups.
+  // For example:
+  // reshape [1, 8, 16, 1] -> [1, 8, 16]
+  // slice(dim=1, begin=2, end=6, step=1) [1, 8, 16] -> [1, 4, 16]
+  // The result is equivalent to:
+  // slice(dim=1, begin=2, end=6, step=1) [1, 8, 16, 1] -> [1, 4, 16, 1]
+  // reshape [1, 4, 16, 1] -> [1, 4, 16]
 
   LogicalResult matchAndRewrite(ttnn::SliceStaticOp op,
                                 PatternRewriter &rewriter) const override {
@@ -235,6 +261,15 @@ class PropagateSliceThroughRepeat
 public:
   using OpRewritePattern::OpRewritePattern;
 
+  // This pattern propagates a slice through a repeat if the slice does not
+  // cut through any repeated dimension.
+  // For example:
+  // repeat(repeat_dims=[1, 2, 1]) [1, 16, 32] -> [1, 32, 32]
+  // slice(dim=2, begin=0, end=16, step=1) [1, 32, 32] -> [1, 32, 16]
+  // The result is equivalent to:
+  // slice(dim=2, begin=0, end=16, step=1) [1, 16, 32] -> [1, 16, 16]
+  // repeat(repeat_dims=[1, 2, 1]) [1, 16, 16] -> [1, 32, 16]
+
   LogicalResult matchAndRewrite(ttnn::SliceStaticOp op,
                                 PatternRewriter &rewriter) const override {
     auto repeatOp = op.getInput().getDefiningOp<ttnn::RepeatOp>();
@@ -319,6 +354,16 @@ class PropagateSliceThroughEltwise
     : public OpRewritePattern<ttnn::SliceStaticOp> {
 public:
   using OpRewritePattern<ttnn::SliceStaticOp>::OpRewritePattern;
+
+  // This pattern propagates a slice through an elementwise op by slicing each
+  // operand in a broadcast-aware way.
+  // For example:
+  // add([64, 64], [1, 64]) -> [64, 64]
+  // slice(dim=0, begin=16, end=32, step=1) [64, 64] -> [16, 64]
+  // The result is equivalent to:
+  // slice(dim=0, begin=16, end=32, step=1) [64, 64] -> [16, 64]
+  // keep [1, 64] unchanged (broadcast dim)
+  // add([16, 64], [1, 64]) -> [16, 64]
 
   LogicalResult matchAndRewrite(ttnn::SliceStaticOp op,
                                 PatternRewriter &rewriter) const override {
@@ -412,9 +457,18 @@ class RepeatReshapeAdjusting : public OpRewritePattern<ttnn::RepeatOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
 
+  // This pattern relocates repeat factors from outer dims to inner dims
+  // (under strict safety checks) to improve tile alignment before reshape.
+  // For example:
+  // repeat(repeat_dims=[8, 1, 1, 1]) [1, 1, 1, 64] -> [8, 1, 1, 64]
+  // reshape [8, 1, 1, 64] -> [1, 1, 1, 512]
+  // The result may be rewritten to:
+  // repeat(repeat_dims=[1, 1, 1, 8]) [1, 1, 1, 64] -> [1, 1, 1, 512]
+  // reshape [1, 1, 1, 512] -> [1, 1, 1, 512]
+
   LogicalResult matchAndRewrite(ttnn::RepeatOp op,
                                 PatternRewriter &rewriter) const override {
-    // This pattern realignes repeat to make inner dims tile-aligned.
+    // This pattern realigns repeat to make inner dims tile-aligned.
     // Only fire if the repeat feeds only into reshapes.
     if (!llvm::all_of(op->getUsers(), [](Operation *user) {
           return isa<ttnn::ReshapeOp>(user);
@@ -438,6 +492,8 @@ public:
     }
 
     // Try to relocate outer-dim repeats to inner dims.
+    // This is only safe when all dimensions between source and target are
+    // singleton, which preserves linearized element ordering.
     SmallVector<int64_t> adjustedDims(dims);
     for (int64_t src = 0; src < rank - 2; ++src) {
       if (adjustedDims[src] <= 1 || inputShape[src] != 1) {
@@ -445,6 +501,9 @@ public:
       }
       for (int64_t tgt = rank - 2; tgt < rank; ++tgt) {
         if (inputShape[tgt] != 1 || adjustedDims[tgt] != 1) {
+          continue;
+        }
+        if (!hasOnlySingletonDimsBetween(inputShape, src, tgt)) {
           continue;
         }
         adjustedDims[tgt] = adjustedDims[src];
@@ -484,6 +543,17 @@ template <typename EltwiseOpTy>
 class ReshapeElementwiseAdjusting : public OpRewritePattern<ttnn::ReshapeOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
+
+  // This pattern pulls a reshape before an elementwise op by reshaping each
+  // operand to the final target space, then rebuilding the eltwise op.
+  // This is only done when the elementwise tiled volume is greater than the
+  // reshape tiled volume.
+  // For example: add([1024, 1, 1, 1], [1024, 1, 1, 1]) -> [1024, 1, 1, 1]
+  // reshape [1024, 1, 1, 1] -> [1, 1, 32, 32]
+  // The result is equivalent to:
+  // reshape [1024, 1, 1, 1] -> [1, 1, 32, 32]
+  // reshape [1024, 1, 1, 1] -> [1, 1, 32, 32]
+  // add([1, 1, 32, 32], [1, 1, 32, 32]) -> [1, 1, 32, 32]
 
   LogicalResult matchAndRewrite(ttnn::ReshapeOp op,
                                 PatternRewriter &rewriter) const override {
