@@ -18,9 +18,9 @@ from conftest import get_request_kwargs
 pytestmark = pytest.mark.frontend("d2m")
 
 
-def greatest_physical_grid(device, phys_dim_index, factor):
+def greatest_physical_grid(system_desc, phys_dim_index, factor):
     assert phys_dim_index < 2
-    device_grid = [8, 8]
+    device_grid = system_desc.get_grid_shape()
     for d in range(device_grid[phys_dim_index], 0, -1):
         if factor % d == 0:
             return d
@@ -78,8 +78,8 @@ def test_generic(
     rhs_shape = [k, n]
     out_shape = [m, n]
 
-    lhs_k_physical_grid = greatest_physical_grid(device, 1, block_factors[2])
-    rhs_k_physical_grid = greatest_physical_grid(device, 0, block_factors[2])
+    lhs_k_physical_grid = greatest_physical_grid(system_desc, 1, block_factors[2])
+    rhs_k_physical_grid = greatest_physical_grid(system_desc, 0, block_factors[2])
     lhs_grid = [grid[0], lhs_k_physical_grid]
     rhs_grid = [rhs_k_physical_grid, grid[1]]
     out_grid = [grid[0], grid[1]]

@@ -339,7 +339,7 @@ def affine_map_from_lambda(fn):
             exprs.append(AffineConstantExpr.get(result))
         else:
             raise TypeError(
-                "Unsupported indexing_map result type `{type(result)}` for result `{result}`"
+                f"Unsupported indexing_map result type `{type(result)}` for result `{result}`"
             )
     num_syms = 0
     return AffineMap.get(num_dims, num_syms, exprs)

@@ -45,11 +45,9 @@ class D2MBuilder(Builder):
         inputs: List[Operand],
         unit_attrs: Optional[List[str]] = None,
         organize_d2m_args: Optional[Callable] = None,
-        organize_golden_args: Optional[Callable] = None,
         output_shape: Optional[Shape] = None,
         output_type: Optional[Type] = None,
         output_create_fn: Optional[Callable] = None,
-        golden_kwargs: dict = {},
         d2m_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
     ) -> Any:
@@ -57,14 +55,9 @@ class D2MBuilder(Builder):
         Proxy method for creating D2M operations with golden tensor support.
         Similar to TTIRBuilder._op_proxy but for D2M operations.
         """
-        if not golden_kwargs:
-            golden_kwargs = d2m_kwargs
 
         if organize_d2m_args is None:
             organize_d2m_args = self._organize_eltwise_d2m
-
-        if organize_golden_args is None:
-            organize_golden_args = self._organize_eltwise_golden
 
         if output_create_fn is None:
             output_create_fn = self._create_empty_from_tensor_type
@@ -222,7 +215,6 @@ class D2MBuilder(Builder):
                 o,
             ),
             unit_attrs=unit_attrs,
-            golden_kwargs={"tilize": True},
         )
 
     def untilize(
@@ -248,7 +240,6 @@ class D2MBuilder(Builder):
                 o,
             ),
             unit_attrs=unit_attrs,
-            golden_kwargs={"tilize": False},
         )
 
     def reblock(
@@ -397,7 +388,6 @@ class D2MBuilder(Builder):
                 loc = generic.location
                 if skip_grid_selection:
                     generic.attributes["d2m.skip_grid_selection"] = UnitAttr.get(ctx)
-                grid_rank = len(grid)
                 with InsertionPoint(block):
                     f(*args, **kwargs)
 

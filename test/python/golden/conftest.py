@@ -412,7 +412,7 @@ def configure_perf_env(pytestconfig):
                 {
                     "disable_eth_dispatch": False,
                     "enable_program_cache": True,
-                    "dump_device_rate": perf_env_kwargs.get("dump_device_rate", 1000),
+                    "dump_device_rate": 1000,
                 }
             ),
         )

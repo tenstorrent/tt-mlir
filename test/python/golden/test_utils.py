@@ -271,7 +271,6 @@ def shard_wrap_factory(
 class SystemDesc:
     def __init__(self, system_desc):
         self._system_desc = system_desc
-        print(self._system_desc)
 
     def __getitem__(self, key):
         return self._system_desc[key]
@@ -326,7 +325,7 @@ class SystemDesc:
             "ns": 9,
             "us": 6,
             "ms": 3,
-            "s": 1,
+            "s": 0,
         }[units]
 
         arch_tops = arch_tensix_tops * self.get_num_cores()
