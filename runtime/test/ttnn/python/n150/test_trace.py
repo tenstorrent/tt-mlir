@@ -24,7 +24,10 @@ FLATBUFFER_BASE_PATH = (
 
 
 @pytest.mark.parametrize("num_loops", [5])
-def test_trace_matmul_multiply_no_consteval(helper: Helper, request, num_loops):
+@pytest.mark.parametrize("trace_region_size", [0, 80000])
+def test_trace_matmul_multiply_no_consteval(
+    helper: Helper, request, num_loops, trace_region_size
+):
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "matmul_multiply_no_consteval.mlir.tmp.ttnn"
     )
@@ -44,7 +47,9 @@ def test_trace_matmul_multiply_no_consteval(helper: Helper, request, num_loops):
     debug_stats = ttrt.runtime.DebugStats.get()
 
     with DeviceContext(
-        mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=80000
+        mesh_shape=[1, 1],
+        enable_program_cache=True,
+        trace_region_size=trace_region_size,
     ) as device:
 
         for i in range(num_loops):
@@ -65,7 +70,10 @@ def test_trace_matmul_multiply_no_consteval(helper: Helper, request, num_loops):
 
 
 @pytest.mark.parametrize("num_loops", [5])
-def test_trace_matmul_multiply_with_consteval(helper: Helper, request, num_loops):
+@pytest.mark.parametrize("trace_region_size", [0, 80000])
+def test_trace_matmul_multiply_with_consteval(
+    helper: Helper, request, num_loops, trace_region_size
+):
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "matmul_multiply_consteval.mlir.tmp.ttnn"
     )
@@ -83,7 +91,9 @@ def test_trace_matmul_multiply_with_consteval(helper: Helper, request, num_loops
     debug_stats = ttrt.runtime.DebugStats.get()
 
     with DeviceContext(
-        mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=80000
+        mesh_shape=[1, 1],
+        enable_program_cache=True,
+        trace_region_size=trace_region_size,
     ) as device:
 
         inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
@@ -148,7 +158,8 @@ def mnist_linear_logits_golden(inputs):
 
 
 @pytest.mark.parametrize("num_loops", [16])
-def test_mnist_linear_logits(helper: Helper, request, num_loops):
+@pytest.mark.parametrize("trace_region_size", [0, 80000])
+def test_mnist_linear_logits(helper: Helper, request, num_loops, trace_region_size):
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "mnist_linear_logits.mlir.tmp.ttnn"
     )
@@ -169,7 +180,9 @@ def test_mnist_linear_logits(helper: Helper, request, num_loops):
     output_torch = get_torch_output_container(test_runner.program)
 
     with DeviceContext(
-        mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=80000
+        mesh_shape=[1, 1],
+        enable_program_cache=True,
+        trace_region_size=trace_region_size,
     ) as device:
 
         inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
