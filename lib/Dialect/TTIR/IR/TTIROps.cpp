@@ -366,6 +366,17 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
                    [](const int32_t dim) { return dim == 1; })) {
     return getInput();
   }
+
+  // If the input is constant and splat, perform constant folding.
+  Attribute constInput = adaptor.getInput();
+  if (auto elementsAttr = llvm::dyn_cast_if_present<ElementsAttr>(constInput)) {
+    if (elementsAttr.isSplat()) {
+      RankedTensorType type = getResult().getType();
+      auto value = elementsAttr.getSplatValue<Attribute>();
+      return SplatElementsAttr::get(type, value);
+    }
+  }
+
   return {};
 }
 

@@ -25,9 +25,8 @@ module {
 module {
   func.func @test_broadcast_constant(%arg0: tensor<32x2560xf32>) -> tensor<32x1x2560xf32> {
     // CHECK-LABEL: func.func @test_broadcast_constant
-    // CHECK: %[[CONST:.*]] = "ttir.constant"
-    // CHECK: %[[BCAST:.*]] = "ttir.broadcast"(%[[CONST]])
-    // CHECK: %[[CONST_RESHAPE:.*]] = "ttir.reshape"(%[[BCAST]])
+    // CHECK: %[[CONST:.*]] = "ttir.full"
+    // CHECK: %[[CONST_RESHAPE:.*]] = "ttir.reshape"(%[[CONST]])
     // CHECK-SAME: shape = [32 : i32, 2560 : i32]
     // CHECK: %[[MUL:.*]] = "ttir.multiply"(%arg0, %[[CONST_RESHAPE]])
     // CHECK: %[[OUT_RESHAPE:.*]] = "ttir.reshape"(%[[MUL]])
