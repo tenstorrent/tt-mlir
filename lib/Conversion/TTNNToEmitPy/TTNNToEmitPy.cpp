@@ -918,23 +918,22 @@ public:
 };
 } // namespace
 
-// Moreh CumSum op conversion pattern
+// CumSum op conversion pattern
 //
 namespace {
-class MorehCumSumOpConversionPattern
-    : public TTNNToEmitPyBaseOpConversionPattern<
-          mlir::tt::ttnn::MorehCumSumOp> {
+class CumSumOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::CumSumOp> {
 
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
-      mlir::tt::ttnn::MorehCumSumOp>::TTNNToEmitPyBaseOpConversionPattern;
+      mlir::tt::ttnn::CumSumOp>::TTNNToEmitPyBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::MorehCumSumOp srcOp,
-                  mlir::tt::ttnn::MorehCumSumOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::CumSumOp srcOp,
+                  mlir::tt::ttnn::CumSumOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MorehCumSumOp> emitter(
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::CumSumOp> emitter(
         srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
 
     llvm::SmallVector<mlir::Attribute> args{
@@ -4382,7 +4381,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format off
   patterns.add<EmbeddingOpConversionPattern,
                EmbeddingBackwardOpConversionPattern,
-               MorehCumSumOpConversionPattern,
+               CumSumOpConversionPattern,
                SoftmaxOpConversionPattern
               >(typeConverter, ctx, enableGoldenMode);
   // clang-format on

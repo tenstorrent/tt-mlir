@@ -685,8 +685,8 @@ createOp(FlatbufferObjectCache &cache, func::CallOp op,
                                                     &inputs, &outputs);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::MorehCumSumOp>
-createOp(FlatbufferObjectCache &cache, MorehCumSumOp op) {
+::flatbuffers::Offset<::tt::target::ttnn::CumSumOp>
+createOp(FlatbufferObjectCache &cache, CumSumOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   auto outputType = op.getResult();
@@ -697,8 +697,8 @@ createOp(FlatbufferObjectCache &cache, MorehCumSumOp op) {
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
-  return ::tt::target::ttnn::CreateMorehCumSumOp(*cache.fbb, in, output,
-                                                 op.getDim(), memoryConfig);
+  return ::tt::target::ttnn::CreateCumSumOp(*cache.fbb, in, output, op.getDim(),
+                                            memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PrepareConv2dWeightsOp>
@@ -3972,8 +3972,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, sparseMatmulOp), debugString,
                            locInfo);
   }
-  if (auto morehCumSumOp = dyn_cast<MorehCumSumOp>(op); morehCumSumOp) {
-    return createOperation(cache, createOp(cache, morehCumSumOp), debugString,
+  if (auto cumSumOp = dyn_cast<CumSumOp>(op); cumSumOp) {
+    return createOperation(cache, createOp(cache, cumSumOp), debugString,
                            locInfo);
   }
   if (auto sumOp = dyn_cast<SumOp>(op); sumOp) {
