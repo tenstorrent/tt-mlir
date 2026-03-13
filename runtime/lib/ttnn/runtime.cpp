@@ -28,15 +28,28 @@
 #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types_generated.h"
-#include <numeric>
-
+#include <cstdint>
+#include <fstream>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <vector>
 
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
+
+static size_t getProcessRSSBytes() {
+  std::ifstream statm("/proc/self/statm");
+  if (!statm.is_open()) {
+    return 0;
+  }
+  size_t totalPages = 0;
+  size_t residentPages = 0;
+  statm >> totalPages >> residentPages;
+  static const size_t pageSize = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+  return residentPages * pageSize;
+}
 
 static ::ttnn::Tensor
 createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
@@ -220,19 +233,39 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<::tt::runtime::Tensor> &tensorShards,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
+  size_t rssBefore = getProcessRSSBytes();
+
   std::vector<::ttnn::Tensor> ttnnTensorShards;
   ttnnTensorShards.reserve(tensorShards.size());
-  std::transform(tensorShards.begin(), tensorShards.end(),
-                 std::back_inserter(ttnnTensorShards),
-                 [&](::tt::runtime::Tensor tensorShard) -> ::ttnn::Tensor {
-                   return utils::getTTNNTensorFromRuntimeTensor(tensorShard);
-                 });
+  size_t totalShardBytes = 0;
+  for (size_t i = 0; i < tensorShards.size(); ++i) {
+    ::ttnn::Tensor t = utils::getTTNNTensorFromRuntimeTensor(tensorShards[i]);
+    size_t bytes = static_cast<size_t>(t.physical_volume()) *
+                   static_cast<size_t>(t.element_size());
+    totalShardBytes += bytes;
+    LOG_INFO("[MultiDeviceMem] from_shards shard[", i,
+             "] storage=", static_cast<int>(t.storage_type()),
+             " volume=", t.physical_volume(), " elem_size=", t.element_size(),
+             " bytes=", bytes);
+    ttnnTensorShards.push_back(std::move(t));
+  }
+
+  LOG_INFO("[MultiDeviceMem] from_shards num_shards=", tensorShards.size(),
+           " mesh=", meshShape[0], "x", meshShape[1],
+           " total_shard_bytes=", totalShardBytes,
+           " rss_before=", rssBefore / 1024, "KB");
 
   LOG_ASSERT(meshShape.size() == 2, "Only 2D mesh shape supported for now.");
   ::ttnn::MeshShape ttnnMeshShape(meshShape[0], meshShape[1]);
 
   ::ttnn::Tensor multiDeviceHostTensor =
       ::ttnn::distributed::from_host_shards(ttnnTensorShards, ttnnMeshShape);
+
+  size_t rssAfter = getProcessRSSBytes();
+  LOG_INFO("[MultiDeviceMem] from_shards complete",
+           " rss_after=", rssAfter / 1024, "KB",
+           " rss_delta=", static_cast<int64_t>(rssAfter - rssBefore) / 1024,
+           "KB");
 
   return utils::createRuntimeTensorFromTTNN(multiDeviceHostTensor);
 }
@@ -244,6 +277,21 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
+  size_t rssBefore = getProcessRSSBytes();
+  uint64_t shapeVolume = 1;
+  for (auto dim : shape) {
+    shapeVolume *= dim;
+  }
+  size_t perShardBytes = shapeVolume * itemsize;
+
+  LOG_INFO("[MultiDeviceMem] from_ptrs num_shards=", data.size(),
+           " shape_volume=", shapeVolume, " itemsize=", itemsize,
+           " per_shard_bytes=", perShardBytes,
+           " total_expected_bytes=", perShardBytes * data.size(),
+           " dtype=", ::tt::target::EnumNameDataType(dataType),
+           " mesh=", meshShape[0], "x", meshShape[1],
+           " rss_before=", rssBefore / 1024, "KB");
+
   std::vector<::tt::runtime::Tensor> tensorShards;
   tensorShards.reserve(data.size());
   std::transform(data.begin(), data.end(), std::back_inserter(tensorShards),
@@ -251,6 +299,13 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                    return createOwnedHostTensor(dataShard, shape, stride,
                                                 itemsize, dataType);
                  });
+
+  size_t rssAfterShards = getProcessRSSBytes();
+  LOG_INFO("[MultiDeviceMem] from_ptrs shards_created",
+           " rss_after_shards=", rssAfterShards / 1024, "KB",
+           " rss_delta_shards=",
+           static_cast<int64_t>(rssAfterShards - rssBefore) / 1024, "KB");
+
   return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
 }
 
@@ -260,6 +315,20 @@ Tensor createMultiDeviceBorrowedHostTensor(
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
+  size_t rssBefore = getProcessRSSBytes();
+  uint64_t shapeVolume = 1;
+  for (auto dim : shape) {
+    shapeVolume *= dim;
+  }
+
+  LOG_INFO("[MultiDeviceMem] borrowed num_shards=", data.size(),
+           " shape_volume=", shapeVolume, " itemsize=", itemsize,
+           " per_shard_bytes=", shapeVolume * itemsize,
+           " dtype=", ::tt::target::EnumNameDataType(dataType),
+           " mesh=", meshShape[0], "x", meshShape[1],
+           " rss_before=", rssBefore / 1024, "KB",
+           " (no copy expected - borrowed storage)");
+
   std::vector<::tt::runtime::Tensor> tensorShards;
   tensorShards.reserve(data.size());
   std::transform(data.begin(), data.end(), std::back_inserter(tensorShards),
@@ -267,7 +336,16 @@ Tensor createMultiDeviceBorrowedHostTensor(
                    return createBorrowedHostTensor(dataShard, shape, stride,
                                                    itemsize, dataType);
                  });
-  return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
+
+  auto result = createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
+
+  size_t rssAfter = getProcessRSSBytes();
+  LOG_INFO("[MultiDeviceMem] borrowed complete", " rss_after=", rssAfter / 1024,
+           "KB",
+           " rss_delta=", static_cast<int64_t>(rssAfter - rssBefore) / 1024,
+           "KB");
+
+  return result;
 }
 
 ::tt::runtime::Tensor createEmptyTensor(
