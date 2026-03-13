@@ -1204,6 +1204,42 @@ def ttir_layer_norm_golden(
     ).to(output_dtype)
 
 
+def ttir_group_norm_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor],
+    bias: Optional[GoldenMapTensor],
+    num_groups,
+    epsilon: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    num_groups = unpack_mlir_attr(num_groups)
+    epsilon = unpack_mlir_attr(epsilon)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_float = input.float()
+
+    # torch.group_norm expects [N, C, ...] (channels at dim=1), but the TTIR
+    # GroupNorm op uses channels-last: [N, 1, H*W, C]. Permute to NCHW,
+    # compute, then permute back.
+    if input_float.dim() == 4 and input_float.shape[1] == 1:
+        input_nchw = input_float.permute(0, 3, 1, 2)
+        result = torch.nn.functional.group_norm(
+            input_nchw,
+            num_groups=num_groups,
+            weight=weight,
+            bias=bias,
+            eps=epsilon,
+        )
+        return result.permute(0, 2, 3, 1).to(output_dtype)
+
+    return torch.nn.functional.group_norm(
+        input_float,
+        num_groups=num_groups,
+        weight=weight,
+        bias=bias,
+        eps=epsilon,
+    ).to(output_dtype)
+
+
 def typecast_golden(input_tensor: GoldenMapTensor, dtype) -> GoldenMapTensor:
     """
     Custom golden function for typecasting.
@@ -6156,6 +6192,28 @@ def ttnn_layer_norm_golden(
     ).to(output_dtype)
 
 
+def ttnn_group_norm_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor],
+    bias: Optional[GoldenMapTensor],
+    num_groups,
+    epsilon: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    num_groups = unpack_mlir_attr(num_groups)
+    epsilon = unpack_mlir_attr(epsilon)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_float = input.float()
+
+    return torch.nn.functional.group_norm(
+        input_float,
+        num_groups=num_groups,
+        weight=weight,
+        bias=bias,
+        eps=epsilon,
+    ).to(output_dtype)
+
+
 def ttnn_concat_golden(
     input_tensors: List[GoldenMapTensor], dim_attr: IntegerAttr, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -6368,6 +6426,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
+    ttir.GroupNormOp: ttir_group_norm_golden,
     ttir.RMSNormOp: ttir_rms_norm_golden,
     ttir.DistributedRMSNormOp: ttir_distributed_rms_norm_golden,
     # Type operations
@@ -6553,6 +6612,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.MatmulOp: ttnn_matmul_golden,
     ttnn.LinearOp: ttnn_linear_golden,
     ttnn.LayerNormOp: ttnn_layer_norm_golden,
+    ttnn.GroupNormOp: ttnn_group_norm_golden,
     ttnn.RMSNormOp: rms_norm_golden,
     # Tensor manipulation
     ttnn.ConcatOp: ttnn_concat_golden,

@@ -449,3 +449,68 @@ def test_distributed_rms_norm(
         device=device,
         target=target,
     )
+
+
+# Group norm tests
+
+
+@pytest.mark.parametrize("num_groups", [8, 32])
+@pytest.mark.parametrize("shape", [(1, 8, 8, 480)])
+@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_group_norm(
+    shape: Shape,
+    num_groups: int,
+    has_weight: bool,
+    has_bias: bool,
+    target: str,
+    request,
+    device,
+):
+    # Assume channels-last input layout (NHWC).
+    n, h, w, c = shape
+    channel_dim = c
+    group_norm_shape = (n, 1, h * w, c)
+
+    # Determine input shapes
+    shapes = [shape]
+    if has_weight:
+        shapes.append((channel_dim,))
+    if has_bias:
+        shapes.append((channel_dim,))
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def group_norm(*inputs, unit_attrs: Optional[List[str]] = None):
+
+            builder = inputs[-1]
+            # Extract inputs based on test configuration
+            in0 = inputs[0]
+            weight = None
+            bias = None
+
+            if has_weight and len(inputs) > 1:
+                weight = inputs[1]
+            if has_bias:
+                if has_weight and len(inputs) > 2:
+                    bias = inputs[2]
+                elif not has_weight and len(inputs) > 1:
+                    bias = inputs[1]
+
+            in0_group_norm = builder.reshape(in0, group_norm_shape)
+            output_group_norm = builder.group_norm(
+                in0_group_norm,
+                num_groups=num_groups,
+                weight=weight,
+                bias=bias,
+                unit_attrs=unit_attrs,
+            )
+            return builder.reshape(output_group_norm, shape)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+    )
