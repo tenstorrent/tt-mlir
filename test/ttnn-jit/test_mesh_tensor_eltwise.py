@@ -97,6 +97,11 @@ def test_mesh_tensor_eltwise(
         interop_result = ttnn.exp(interop_result)
         golden_result = ttnn.exp(golden_result)
 
+    expected_memory_config = ttnn.DRAM_MEMORY_CONFIG
+    print("expected_memory_config", expected_memory_config)
+    print("interop_result.memory_config()", interop_result.memory_config())
+    assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
+
     # compare each device shard
     interop_result_shards = ttnn.get_device_tensors(interop_result.cpu())
     golden_result_shards = ttnn.get_device_tensors(golden_result.cpu())
