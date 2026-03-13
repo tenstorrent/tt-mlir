@@ -1989,6 +1989,16 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return nullptr;
 }
 
+// Fold reshape if input is constant
+static mlir::OpFoldResult constFoldRehsape(mlir::tt::ttir::ReshapeOp op,
+                                           Attribute constInput) {
+  if (auto denseAttr = dyn_cast_if_present<DenseElementsAttr>(constInput)) {
+    auto shapedType = cast<ShapedType>(op.getResult().getType());
+    return denseAttr.reshape(shapedType);
+  }
+  return nullptr;
+}
+
 // ReshapeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
   if (auto foldResult = foldIdentityReshape(*this)) {
@@ -1996,6 +2006,10 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   }
 
   if (auto foldResult = foldConsecutiveReshape(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = constFoldRehsape(*this, adaptor.getInput())) {
     return foldResult;
   }
 
