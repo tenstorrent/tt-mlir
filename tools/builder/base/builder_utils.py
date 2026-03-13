@@ -315,3 +315,31 @@ def get_metal_tensor_layout(
             device_shape[-1] = tiles_per_shard_w
 
     return RankedTensorType.get(device_shape, elemType, layout, Location.unknown(ctx))
+
+
+def affine_map_from_lambda(fn):
+    class Dim:
+        def __init__(self, position, name):
+            self.position = position
+            self.name = name
+
+    dims = tuple(
+        Dim(name, i) for name, i in enumerate(inspect.signature(fn).parameters)
+    )
+    num_dims = len(dims)
+    results = fn(*dims)
+    exprs = []
+    for result in results:
+        if isinstance(result, Dim):
+            exprs.append(AffineDimExpr.get(result.position))
+        elif isinstance(result, int):
+            assert (
+                result == 0
+            ), "The only integer constant allowed in an indexing_map is 0"
+            exprs.append(AffineConstantExpr.get(result))
+        else:
+            raise TypeError(
+                f"Unsupported indexing_map result type `{type(result)}` for result `{result}`"
+            )
+    num_syms = 0
+    return AffineMap.get(num_dims, num_syms, exprs)
