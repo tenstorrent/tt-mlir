@@ -94,10 +94,10 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
              "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out = ::ttnn::experimental::conv3d(
-      input, weight, bias, conv3dConfig, outputDtype, op->out_channels(),
-      kernelSize, stride, padding, std::array<uint32_t, 3>{1, 1, 1},
-      op->padding_mode()->str(), op->groups(), outputMemoryConfig,
-      deviceComputeConfig);
+      input, weight, &targetDevice, bias, conv3dConfig, outputDtype,
+      op->out_channels(), kernelSize, stride, padding,
+      std::array<uint32_t, 3>{1, 1, 1}, op->padding_mode()->str(), op->groups(),
+      outputMemoryConfig, deviceComputeConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
