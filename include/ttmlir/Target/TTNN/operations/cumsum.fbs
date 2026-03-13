@@ -7,5 +7,6 @@ table CumSumOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
   dim: int32;
+  dtype: tt.target.DataType = null;
   memcfg: tt.target.ttnn.MemoryConfig;
 }

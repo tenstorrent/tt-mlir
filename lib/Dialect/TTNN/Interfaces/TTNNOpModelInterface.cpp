@@ -1901,7 +1901,7 @@ CumSumOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<CumSumOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDim(), opConfig.outputLayout);
+      inputShape, inputs[0], getDim(), getDtype(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1913,7 +1913,7 @@ CumSumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<CumSumOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDim(), opConfig.outputLayout);
+      getDim(), getDtype(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

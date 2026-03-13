@@ -696,9 +696,11 @@ createOp(FlatbufferObjectCache &cache, CumSumOp op) {
 
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
 
   return ::tt::target::ttnn::CreateCumSumOp(*cache.fbb, in, output, op.getDim(),
-                                            memoryConfig);
+                                            dtype, memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PrepareConv2dWeightsOp>

@@ -1623,7 +1623,7 @@ TEST_F(OpModelBase, cumSumOp) {
 
   auto cumSum =
       builder.create<CumSumOp>(builder.getUnknownLoc(), output.getType(), input,
-                               builder.getI32IntegerAttr(0), nullptr);
+                               builder.getI32IntegerAttr(0), nullptr, nullptr);
 
   // test cumSum Op interface
   auto constraintsExp = getOpConstraints(cumSum.getOperation());
