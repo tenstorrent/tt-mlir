@@ -62,8 +62,8 @@ public:
         ttnn::utils::RankedTensorTypeFactory::create(weightType, targetDtype);
 
     // Insert typecast operation to convert weight to target dtype.
-    auto typecastOp = rewriter.create<TypecastOp>(
-        op.getLoc(), newWeightType, weight,
+    auto typecastOp = TypecastOp::create(
+        rewriter, op.getLoc(), newWeightType, weight,
         ttcore::DataTypeAttr::get(rewriter.getContext(), targetDtype));
 
     // Update op to use the typecast result.
