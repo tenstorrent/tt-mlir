@@ -1026,7 +1026,7 @@ TEST_F(OpModelTest, CumSum) {
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = op_model::OpModel<CumSumOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, layoutDRAM);
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, std::nullopt, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -1034,12 +1034,13 @@ TEST_F(OpModelTest, CumSum) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = op_model::OpModel<CumSumOp>::getOpRuntime(
-      tensorShape, layoutDRAM, 0, layoutDRAM);
+      tensorShape, layoutDRAM, 0, std::nullopt, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   constraintsExp = op_model::OpModel<CumSumOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, layoutL1Interleaved);
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, std::nullopt,
+      layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -1047,18 +1048,18 @@ TEST_F(OpModelTest, CumSum) {
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = op_model::OpModel<CumSumOp>::getOpRuntime(
-      tensorShape, layoutDRAM, 0, layoutL1Interleaved);
+      tensorShape, layoutDRAM, 0, std::nullopt, layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   constraintsExp = op_model::OpModel<CumSumOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 0,
+      CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 0, std::nullopt,
       layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
   runtimeExp = op_model::OpModel<CumSumOp>::getOpRuntime(
-      tensorShape, layoutL1Interleaved, 0, layoutL1WSharded);
+      tensorShape, layoutL1Interleaved, 0, std::nullopt, layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
 }

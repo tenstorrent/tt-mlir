@@ -1233,7 +1233,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim()),
-        /*dtype=*/emitter.emit(std::nullopt),
+        /*dtype=*/emitter.emit(srcOp.getDtype()),
         /*reverse_order=*/emitter.emit(false),
         /*optional_out=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getMemoryConfig()) |

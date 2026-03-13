@@ -22,8 +22,14 @@ void run(const ::tt::target::ttnn::CumSumOp *op, ProgramContext &context) {
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
-  ::ttnn::Tensor out = ::ttnn::cumsum(in, op->dim(), std::nullopt, false,
-                                      std::nullopt, outputMemoryConfig);
+  std::optional<::ttnn::DataType> dtype = std::nullopt;
+  if (op->dtype()) {
+    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*op->dtype());
+  }
+
+  ::ttnn::Tensor out =
+      ::ttnn::cumsum(in, op->dim(), dtype, /*reverseOrder=*/false,
+                     /*optionalOut=*/std::nullopt, outputMemoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

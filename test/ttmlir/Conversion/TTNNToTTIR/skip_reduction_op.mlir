@@ -45,8 +45,8 @@ module {
 
         // CHECK-NOT: %{{[0-9]+}} = ttir.empty() : tensor<32x32xf32, #ttnn_layout1>
         // CHECK-NOT: %{{[0-9]+}} = "ttir.cumsum"(%{{[0-9]+}}, %{{[0-9]+}}) <{dim = 1 : i64}> : (tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
-        // CHECK: %{{[0-9]+}} = "ttnn.cumsum"(%{{[0-9]+}}) <{dim = 1 : i32}> : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
-        %2 = "ttnn.cumsum"(%1) {dim = 1 : i32} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
+        // CHECK: %{{[0-9]+}} = "ttnn.cumsum"(%{{[0-9]+}}) <{dim = 1 : i32, dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
+        %2 = "ttnn.cumsum"(%1) <{dim = 1 : i32, dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
 
         %3 = "ttnn.to_memory_config"(%2) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
 

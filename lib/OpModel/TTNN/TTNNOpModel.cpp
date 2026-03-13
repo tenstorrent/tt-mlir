@@ -2433,7 +2433,7 @@ llvm::Expected<size_t> OpModel<TransposeOp>::getOpRuntime(
 llvm::Expected<OpConstraints> OpModel<CumSumOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, const int32_t dim,
-    TTNNLayoutAttr outputLayout) {
+    std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2445,11 +2445,16 @@ llvm::Expected<OpConstraints> OpModel<CumSumOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
+  if (dtype) {
+    ttnnDtype = conversion::getDataType(*dtype);
+  }
+
   // Create query closure
   auto cumSumOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::cumsum, device, inputSpec, dim, std::nullopt, false,
-        std::nullopt, detail::getNullableMemoryConfig(outputLayout));
+        ::ttnn::cumsum, device, inputSpec, dim, ttnnDtype, false, std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -2462,6 +2467,7 @@ llvm::Expected<OpConstraints> OpModel<CumSumOp>::getOpConstraints(
 llvm::Expected<size_t>
 OpModel<CumSumOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                 TTNNLayoutAttr inputLayout, const int32_t dim,
+                                std::optional<ttcore::DataType> dtype,
                                 TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2474,11 +2480,16 @@ OpModel<CumSumOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
+  if (dtype) {
+    ttnnDtype = conversion::getDataType(*dtype);
+  }
+
   // Create query closure
   auto cumSumOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::cumsum, device, inputSpec, dim, std::nullopt, false,
-        std::nullopt, detail::getNullableMemoryConfig(outputLayout));
+        ::ttnn::cumsum, device, inputSpec, dim, ttnnDtype, false, std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpRuntime(cumSumOpQuery);

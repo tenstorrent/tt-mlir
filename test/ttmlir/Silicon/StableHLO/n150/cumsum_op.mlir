@@ -70,7 +70,7 @@ module @cumsum attributes {} {
     // CHECK-LABEL: func.func @test_cumsum_low_rank(
     %c = stablehlo.constant dense<0> : tensor<i64>
     // CHECK: %[[CUMSUM:[0-9]+]] = "ttnn.cumsum"
-    // CHECK-SAME: <{dim = 1 : i32}>
+    // CHECK-SAME: dim = 1 : i32
     // CHECK-SAME: tensor<1x10xsi32
     // CHECK-SAME: -> tensor<1x10xsi32
     %0 = "stablehlo.reduce_window"(%arg0, %c) <{padding = dense<[[0, 0], [9, 0]]> : tensor<2x2xi64>, window_dilations = array<i64: 1, 1>, window_dimensions = array<i64: 1, 10>, window_strides = array<i64: 1, 1>}> ({
