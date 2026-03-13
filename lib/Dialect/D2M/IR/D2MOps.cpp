@@ -1527,8 +1527,8 @@ void d2m::GenericOp::build(
 
     assert(layout && "Expected MetalLayoutAttr on operand or its view source");
     auto shardShape = layout.getShardShape(tensorType);
-    auto emptyOp = builder.create<mlir::tensor::EmptyOp>(
-        state.location, shardShape, tensorType.getElementType());
+    auto emptyOp = mlir::tensor::EmptyOp::create(
+        builder, state.location, shardShape, tensorType.getElementType());
     operandAllocs.push_back(emptyOp.getResult());
   }
 
