@@ -63,46 +63,46 @@ public:
       emitDebugPrint(threadType);
     }
     if (threadType == ThreadType::Compute) {
-      builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/binary_max_min.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/common.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/matmul.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/bcast.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/tilize.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/untilize.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/transpose_wh.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_binary.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "api/compute/eltwise_binary_sfpu.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/add_int_sfpu.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/sub_int_sfpu.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/mul_int_sfpu.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "api/compute/compute_kernel_api.h", // max ops
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/copy_dest_values.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "api/compute/tile_move_copy.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "api/compute/eltwise_unary/activations.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "api/compute/eltwise_unary/eltwise_unary.h",
-          /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "llk_defs.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/binary_max_min.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/common.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/matmul.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/bcast.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/tilize.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/untilize.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/transpose_wh.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/eltwise_binary.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_binary_sfpu.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/add_int_sfpu.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/sub_int_sfpu.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/mul_int_sfpu.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/compute_kernel_api.h", // max ops
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/copy_dest_values.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc, "api/compute/tile_move_copy.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/activations.h",
+                               /*isStandard=*/false);
+      emitc::IncludeOp::create(*builder, loc,
+                               "api/compute/eltwise_unary/eltwise_unary.h",
+                               /*isStandard=*/false);
       // TODO (kmitrovic) exp.h is an ExpOp-specific include. Every op has one,
       // should be handled in general, not like this.
       // Issue: https://github.com/tenstorrent/tt-mlir/issues/772

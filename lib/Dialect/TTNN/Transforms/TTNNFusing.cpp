@@ -250,8 +250,8 @@ public:
 
     op_model::ScopedSingletonDeviceGuard deviceGuard(reshapeOp);
 
-    auto nlpConcatHeadsDecodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
-        reshapeOp.getLoc(), concatHeadsResultType, input,
+    auto nlpConcatHeadsDecodeOp = NLPConcatHeadsDecodeOp::create(
+        rewriter, reshapeOp.getLoc(), concatHeadsResultType, input,
         rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
         /*memory_config=*/MemoryConfigAttr());
 
@@ -266,8 +266,9 @@ public:
       auto shardedResultType = utils::RankedTensorTypeFactory::create(
           shardedInputType, concatHeadsOutputShape);
 
-      auto validationOp = rewriter.create<NLPConcatHeadsDecodeOp>(
-          reshapeOp.getLoc(), shardedResultType, workaround->getResult(),
+      auto validationOp = NLPConcatHeadsDecodeOp::create(
+          rewriter, reshapeOp.getLoc(), shardedResultType,
+          workaround->getResult(),
           rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
           /*memory_config=*/MemoryConfigAttr());
 
@@ -289,8 +290,8 @@ public:
 
     rewriter.setInsertionPointAfter(nlpConcatHeadsDecodeOp);
 
-    auto newReshapeOp = rewriter.create<ReshapeOp>(
-        reshapeOp.getLoc(), reshapeOp.getType(),
+    auto newReshapeOp = ReshapeOp::create(
+        rewriter, reshapeOp.getLoc(), reshapeOp.getType(),
         nlpConcatHeadsDecodeOp.getResult(), reshapeOp.getShapeAttr(),
         /*memory_config=*/MemoryConfigAttr());
 

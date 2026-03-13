@@ -59,9 +59,8 @@ static Value transposeTrailingToLeading(Location loc, Value input,
   }
 
   auto newType = RankedTensorType::get(newShape, type.getElementType());
-  return builder
-      .create<mlir::stablehlo::TransposeOp>(loc, newType, input,
-                                            builder.getDenseI64ArrayAttr(perm))
+  return mlir::stablehlo::TransposeOp::create(
+             builder, loc, newType, input, builder.getDenseI64ArrayAttr(perm))
       .getResult();
 }
 
@@ -85,9 +84,8 @@ static Value transposeLeadingToTrailing(Location loc, Value input,
   newShape.push_back(type.getShape()[0]);
 
   auto newType = RankedTensorType::get(newShape, type.getElementType());
-  return builder
-      .create<mlir::stablehlo::TransposeOp>(loc, newType, input,
-                                            builder.getDenseI64ArrayAttr(perm))
+  return mlir::stablehlo::TransposeOp::create(
+             builder, loc, newType, input, builder.getDenseI64ArrayAttr(perm))
       .getResult();
 }
 
@@ -130,10 +128,10 @@ public:
     }
     auto unsqueezedType =
         RankedTensorType::get(unsqueezedShape, lhsType.getElementType());
-    auto reshapedLhs = rewriter.create<mlir::stablehlo::ReshapeOp>(
-        loc, unsqueezedType, adaptor.getLhs());
-    auto reshapedRhs = rewriter.create<mlir::stablehlo::ReshapeOp>(
-        loc, unsqueezedType, adaptor.getRhs());
+    auto reshapedLhs = mlir::stablehlo::ReshapeOp::create(
+        rewriter, loc, unsqueezedType, adaptor.getLhs());
+    auto reshapedRhs = mlir::stablehlo::ReshapeOp::create(
+        rewriter, loc, unsqueezedType, adaptor.getRhs());
 
     SmallVector<int64_t> concatShape;
     concatShape.push_back(2);
@@ -142,8 +140,8 @@ public:
     }
     auto concatType =
         RankedTensorType::get(concatShape, lhsType.getElementType());
-    auto concatOp = rewriter.create<mlir::stablehlo::ConcatenateOp>(
-        loc, concatType,
+    auto concatOp = mlir::stablehlo::ConcatenateOp::create(
+        rewriter, loc, concatType,
         ValueRange{reshapedLhs.getResult(), reshapedRhs.getResult()},
         /*dimension=*/0);
 
@@ -198,8 +196,9 @@ public:
     SmallVector<int64_t> sliceShape(transposedShape.begin(),
                                     transposedShape.end());
     sliceShape[0] = 1;
-    auto sliceOp = rewriter.create<mlir::stablehlo::SliceOp>(
-        loc, RankedTensorType::get(sliceShape, transposedType.getElementType()),
+    auto sliceOp = mlir::stablehlo::SliceOp::create(
+        rewriter, loc,
+        RankedTensorType::get(sliceShape, transposedType.getElementType()),
         transposed, rewriter.getDenseI64ArrayAttr(begins),
         rewriter.getDenseI64ArrayAttr(ends),
         rewriter.getDenseI64ArrayAttr(steps));
