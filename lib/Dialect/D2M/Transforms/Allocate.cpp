@@ -1555,8 +1555,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           numStreamBuffers, operandGrid);
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPoint(oldAllocOp);
-      auto newAllocOp = rewriter.create<memref::AllocOp>(
-          oldTensor.getLoc(),
+      auto newAllocOp = memref::AllocOp::create(
+          rewriter, oldTensor.getLoc(),
           MemRefType::get(shardShape, operandType.getElementType(), cbLayout,
                           oldMemRefType.getMemorySpace()));
       // Transfer address and alignment from the planner.
@@ -1658,8 +1658,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   streamType.getContext(), shardShape,
                   ttcore::getElementSizeBytes(streamType.getElementType()),
                   numStreamBuffers, operandGrid);
-              auto newAllocOp = rewriter.create<memref::AllocOp>(
-                  oldTensor.getLoc(),
+              auto newAllocOp = memref::AllocOp::create(
+                  rewriter, oldTensor.getLoc(),
                   MemRefType::get(shardShape, streamType.getElementType(),
                                   cbLayout, oldMemRefType.getMemorySpace()));
               // Transfer address and alignment from the old alloc (assigned
@@ -1672,8 +1672,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               }
               newValue = newAllocOp.getResult();
             } else {
-              auto newEmptyOp = rewriter.create<mlir::tensor::EmptyOp>(
-                  oldTensor.getLoc(), shardShape, streamType.getElementType());
+              auto newEmptyOp = mlir::tensor::EmptyOp::create(
+                  rewriter, oldTensor.getLoc(), shardShape,
+                  streamType.getElementType());
               newValue = newEmptyOp.getResult();
             }
             rewriter.replaceAllUsesWith(oldTensor, newValue);

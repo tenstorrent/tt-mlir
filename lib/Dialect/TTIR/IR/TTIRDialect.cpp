@@ -154,16 +154,16 @@ static bool isOneAttr(mlir::Attribute attr) {
           llvm::to_vector_of<int32_t>(elementsAttr.getShapedType().getShape());
       auto splatValue = elementsAttr.getSplatValue<mlir::Attribute>();
       if (isZeroAttr(splatValue)) {
-        return builder.create<ttir::ZerosOp>(loc, type, shape);
+        return ttir::ZerosOp::create(builder, loc, type, shape);
       }
       if (isOneAttr(splatValue)) {
-        return builder.create<ttir::OnesOp>(loc, type, shape);
+        return ttir::OnesOp::create(builder, loc, type, shape);
       }
       if (isValidFullValueType(elementsAttr.getElementType())) {
-        return builder.create<ttir::FullOp>(loc, type, shape, splatValue);
+        return ttir::FullOp::create(builder, loc, type, shape, splatValue);
       }
     }
-    return builder.create<ttir::ConstantOp>(loc, type, elementsAttr);
+    return ttir::ConstantOp::create(builder, loc, type, elementsAttr);
   }
   return {};
 }

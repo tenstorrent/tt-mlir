@@ -2677,9 +2677,9 @@ public:
     // Pack inputs into a list if present.
     llvm::SmallVector<Value> callOperands;
     if (!adaptor.getInputs().empty()) {
-      auto inputList = rewriter.create<emitpy::CallOpaqueOp>(
-          loc, tensorListType, ttnn_to_emitpy::kCreateListFunctionName,
-          adaptor.getInputs());
+      auto inputList = emitpy::CallOpaqueOp::create(
+          rewriter, loc, tensorListType,
+          ttnn_to_emitpy::kCreateListFunctionName, adaptor.getInputs());
       callOperands.push_back(inputList.getResult(0));
     }
 
@@ -2697,18 +2697,18 @@ public:
 
     // Call the const-eval function. Add discardable attribute to easily
     // identify that the result is a const-eval in the caching pass afterwards.
-    auto callOp = rewriter.create<emitpy::CallOpaqueOp>(
-        loc, tensorListType, calleeName.str(), callOperands);
+    auto callOp = emitpy::CallOpaqueOp::create(rewriter, loc, tensorListType,
+                                               calleeName.str(), callOperands);
     callOp->setDiscardableAttr(ttnn_to_emitpy::kConstEvaledAttr,
                                rewriter.getUnitAttr());
 
     // Subscript individual results from the returned tensor list.
     llvm::SmallVector<Value> results;
     for (unsigned i = 0; i < loadCachedOp.getNumResults(); ++i) {
-      auto index = rewriter.create<emitpy::LiteralOp>(
-          loc, rewriter.getIndexType(), std::to_string(i));
-      auto sub = rewriter.create<emitpy::SubscriptOp>(
-          loc, tensorType, callOp.getResult(0), index.getResult());
+      auto index = emitpy::LiteralOp::create(
+          rewriter, loc, rewriter.getIndexType(), std::to_string(i));
+      auto sub = emitpy::SubscriptOp::create(
+          rewriter, loc, tensorType, callOp.getResult(0), index.getResult());
       results.push_back(sub.getResult());
     }
     rewriter.replaceOp(loadCachedOp, results);
@@ -2783,16 +2783,14 @@ static Value emitDictKey(ConversionPatternRewriter &rewriter, Location loc,
                          Attribute keyAttr) {
   auto *ctx = rewriter.getContext();
   if (auto strAttr = dyn_cast<StringAttr>(keyAttr)) {
-    return rewriter
-        .create<emitpy::ConstantOp>(
-            loc, emitpy::StringType::get(ctx),
-            emitpy::OpaqueAttr::get(ctx, "\"" + strAttr.str() + "\""))
+    return emitpy::ConstantOp::create(
+               rewriter, loc, emitpy::StringType::get(ctx),
+               emitpy::OpaqueAttr::get(ctx, "\"" + strAttr.str() + "\""))
         .getResult();
   }
   auto intAttr = cast<IntegerAttr>(keyAttr);
-  return rewriter
-      .create<emitpy::LiteralOp>(loc, rewriter.getIndexType(),
-                                 std::to_string(intAttr.getInt()))
+  return emitpy::LiteralOp::create(rewriter, loc, rewriter.getIndexType(),
+                                   std::to_string(intAttr.getInt()))
       .getResult();
 }
 
@@ -2829,16 +2827,16 @@ public:
 
     // Pack values to set into a list.
     auto tensorListType = emitpy::OpaqueType::get(ctx, "[ttnn.Tensor]");
-    auto tensorListOp = rewriter.create<emitpy::CallOpaqueOp>(
-        loc, tensorListType, ttnn_to_emitpy::kCreateListFunctionName,
+    auto tensorListOp = emitpy::CallOpaqueOp::create(
+        rewriter, loc, tensorListType, ttnn_to_emitpy::kCreateListFunctionName,
         adaptor.getValues());
     auto value = tensorListOp.getResult(0);
 
     SmallVector<Value> exprOperands = {adaptor.getDict(), key, value};
     SmallVector<Type> exprOperandTypes = {adaptor.getDict().getType(),
                                           key.getType(), value.getType()};
-    auto exprOp = rewriter.create<emitpy::ExpressionOp>(
-        loc, dummyExpressionResultType, exprOperands);
+    auto exprOp = emitpy::ExpressionOp::create(
+        rewriter, loc, dummyExpressionResultType, exprOperands);
     Block *expressionBodyBlock = rewriter.createBlock(&exprOp.getBody());
     for (Type type : exprOperandTypes) {
       expressionBodyBlock->addArgument(type, loc);
@@ -2849,14 +2847,15 @@ public:
     auto keyArg = expressionBodyBlock->getArgument(1);
     auto valArg = expressionBodyBlock->getArgument(2);
 
-    auto subOp = rewriter.create<emitpy::SubscriptOp>(loc, valArg.getType(),
-                                                      dictArg, keyArg);
-    rewriter.create<emitpy::AssignOp>(loc, subOp.getResult(), valArg);
+    auto subOp = emitpy::SubscriptOp::create(rewriter, loc, valArg.getType(),
+                                             dictArg, keyArg);
+    emitpy::AssignOp::create(rewriter, loc, subOp.getResult(), valArg);
 
-    auto dummyExpressionResultValue = rewriter.create<emitpy::ConstantOp>(
-        loc, dummyExpressionResultType, emitpy::OpaqueAttr::get(ctx, "None"));
-    rewriter.create<emitpy::YieldOp>(loc,
-                                     dummyExpressionResultValue.getResult());
+    auto dummyExpressionResultValue =
+        emitpy::ConstantOp::create(rewriter, loc, dummyExpressionResultType,
+                                   emitpy::OpaqueAttr::get(ctx, "None"));
+    emitpy::YieldOp::create(rewriter, loc,
+                            dummyExpressionResultValue.getResult());
 
     rewriter.eraseOp(setKVOp);
     return success();
@@ -2889,15 +2888,14 @@ public:
     }
 
     llvm::SmallVector<Value> results;
-    auto value = rewriter
-                     .create<emitpy::SubscriptOp>(loc, tensorListType,
-                                                  adaptor.getDict(), key)
+    auto value = emitpy::SubscriptOp::create(rewriter, loc, tensorListType,
+                                             adaptor.getDict(), key)
                      .getResult();
     for (unsigned i = 0; i < getKVOp.getNumResults(); ++i) {
-      auto index = rewriter.create<emitpy::LiteralOp>(
-          loc, rewriter.getIndexType(), std::to_string(i));
-      auto sub = rewriter.create<emitpy::SubscriptOp>(loc, convertedTypes[i],
-                                                      value, index.getResult());
+      auto index = emitpy::LiteralOp::create(
+          rewriter, loc, rewriter.getIndexType(), std::to_string(i));
+      auto sub = emitpy::SubscriptOp::create(rewriter, loc, convertedTypes[i],
+                                             value, index.getResult());
       results.push_back(sub.getResult());
     }
     rewriter.replaceOp(getKVOp, results);

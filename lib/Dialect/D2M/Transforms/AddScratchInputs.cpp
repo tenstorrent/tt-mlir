@@ -232,9 +232,9 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
     }
 
     // Insert the scratch tensor.empty with the shard shape.
-    builder.create<mlir::tensor::EmptyOp>(
-        genericOp.getLoc(), scratchShardMemRefType.getShape(),
-        scratchShardMemRefType.getElementType());
+    mlir::tensor::EmptyOp::create(builder, genericOp.getLoc(),
+                                  scratchShardMemRefType.getShape(),
+                                  scratchShardMemRefType.getElementType());
 
     // Clone remaining ops (output tensor.empties and all other ops).
     for (unsigned i = clonedUpTo; i < oldOps.size(); ++i) {

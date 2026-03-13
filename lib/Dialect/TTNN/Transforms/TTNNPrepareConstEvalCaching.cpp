@@ -52,15 +52,15 @@ public:
 
       // Create the global caching dictionary before the function.
       builder.setInsertionPoint(funcOp);
-      builder.create<ttcore::GlobalOp>(funcOp.getLoc(),
-                                       llvm::StringRef(cacheName), dictType,
-                                       /*index=*/IntegerAttr());
+      ttcore::GlobalOp::create(builder, funcOp.getLoc(),
+                               llvm::StringRef(cacheName), dictType,
+                               /*index=*/IntegerAttr());
 
       // Retrieve the caching dictionary at the top of the function body.
       Block &entryBlock = funcOp.getBody().front();
       builder.setInsertionPointToStart(&entryBlock);
-      auto dictVal = builder.create<ttcore::GetGlobalOp>(funcOp.getLoc(),
-                                                         dictType, cacheName);
+      auto dictVal = ttcore::GetGlobalOp::create(builder, funcOp.getLoc(),
+                                                 dictType, cacheName);
       dictVal->setDiscardableAttr(kCachingDictAttr, builder.getUnitAttr());
 
       // For each LoadCachedOp, store its results under one key in the caching
@@ -68,12 +68,12 @@ public:
       // Replace LoadCachedOp results with dictionary lookups.
       for (auto loadCachedOp : loadCachedOps) {
         builder.setInsertionPointAfter(loadCachedOp);
-        auto setKVOp = builder.create<ttcore::SetKeyValueOp>(
-            loadCachedOp.getLoc(), dictVal.getResult(),
+        auto setKVOp = ttcore::SetKeyValueOp::create(
+            builder, loadCachedOp.getLoc(), dictVal.getResult(),
             builder.getStringAttr(loadCachedOp.getCallee()),
             loadCachedOp.getResults());
-        auto getKVOp = builder.create<ttcore::GetKeyValueOp>(
-            loadCachedOp.getLoc(), loadCachedOp.getResultTypes(),
+        auto getKVOp = ttcore::GetKeyValueOp::create(
+            builder, loadCachedOp.getLoc(), loadCachedOp.getResultTypes(),
             dictVal.getResult(),
             builder.getStringAttr(loadCachedOp.getCallee()));
         for (unsigned i = 0; i < loadCachedOp->getNumResults(); ++i) {

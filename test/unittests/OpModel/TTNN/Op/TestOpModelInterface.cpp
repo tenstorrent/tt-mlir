@@ -5618,8 +5618,8 @@ TEST_P(OpModelMeshPartitionInterfaceRuntimeTest,
       createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
   auto outputType = createRankedTensorType(outputShape);
 
-  auto meshPartitionOp = builder.create<MeshPartitionOp>(
-      builder.getUnknownLoc(), outputType, input,
+  auto meshPartitionOp = MeshPartitionOp::create(
+      builder, builder.getUnknownLoc(), outputType, input,
       /*dim=*/builder.getSI32IntegerAttr(p.dim),
       /*cluster_axis=*/builder.getUI32IntegerAttr(p.clusterAxis),
       /*memory_config=*/nullptr);

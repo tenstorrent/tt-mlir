@@ -114,8 +114,8 @@ struct ReverseOpConversionPattern
 
     // Step 1: Permute reversing dims to front.
     auto permutedShape = ttmlir::utils::applyPermutation(shape, permutation);
-    current = rewriter.create<ttir::PermuteOp>(
-        loc,
+    current = ttir::PermuteOp::create(
+        rewriter, loc,
         RankedTensorType::get(permutedShape, inputType.getElementType(),
                               inputType.getEncoding()),
         current, permutation);
@@ -134,7 +134,7 @@ struct ReverseOpConversionPattern
     auto flatType = RankedTensorType::get(flatShape, inputType.getElementType(),
                                           inputType.getEncoding());
     current =
-        rewriter.create<ttir::ReshapeOp>(loc, flatType, current, shapeAttr);
+        ttir::ReshapeOp::create(rewriter, loc, flatType, current, shapeAttr);
 
     // Step 3: Create reversed linear indices [N-1, N-2, ..., 0].
     SmallVector<int32_t> indices(nReversing);
@@ -144,25 +144,25 @@ struct ReverseOpConversionPattern
     auto idxType = RankedTensorType::get(
         {nReversing}, rewriter.getIntegerType(32, /*isSigned=*/true));
     auto idxAttr = DenseIntElementsAttr::get(idxType, indices);
-    Value idxConst = rewriter.create<ttir::ConstantOp>(loc, idxType, idxAttr);
+    Value idxConst = ttir::ConstantOp::create(rewriter, loc, idxType, idxAttr);
 
     // Step 4: EmbeddingOp to reorder rows.
     current =
-        rewriter.create<ttir::EmbeddingOp>(loc, flatType, idxConst, current);
+        ttir::EmbeddingOp::create(rewriter, loc, flatType, idxConst, current);
 
     // Step 5: Reshape back to permuted shape.
     auto permShapeAttr = rewriter.getI32ArrayAttr(
         SmallVector<int32_t>(permutedShape.begin(), permutedShape.end()));
     auto permType = RankedTensorType::get(
         permutedShape, inputType.getElementType(), inputType.getEncoding());
-    current =
-        rewriter.create<ttir::ReshapeOp>(loc, permType, current, permShapeAttr);
+    current = ttir::ReshapeOp::create(rewriter, loc, permType, current,
+                                      permShapeAttr);
 
     // Step 6: Inverse permute back to original shape.
     SmallVector<int64_t> invPerm =
         ttmlir::utils::inversePermutation(permutation);
-    current = rewriter.create<ttir::PermuteOp>(
-        loc,
+    current = ttir::PermuteOp::create(
+        rewriter, loc,
         RankedTensorType::get(shape, inputType.getElementType(),
                               inputType.getEncoding()),
         current, invPerm);

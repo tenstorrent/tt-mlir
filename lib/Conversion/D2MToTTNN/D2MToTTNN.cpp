@@ -756,8 +756,8 @@ public:
 
       // Build a temporary typed Value to feed convertMemrefToTTNNTensor.
       // We use an unrealized_conversion_cast as a placeholder.
-      auto placeholder = rewriter.create<mlir::UnrealizedConversionCastOp>(
-          op.getLoc(), shardMemrefType, ValueRange{});
+      auto placeholder = mlir::UnrealizedConversionCastOp::create(
+          rewriter, op.getLoc(), shardMemrefType, ValueRange{});
       auto convertedTensorType =
           detail::convertMemrefToTTNNTensor(ctx, placeholder.getResult(0));
       rewriter.eraseOp(placeholder);
