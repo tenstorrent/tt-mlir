@@ -199,6 +199,11 @@ private:
                  const ScheduleData &data, uint64_t opL1Usage,
                  std::function<void(uint64_t)> addResultsToLiveSet);
 
+  /// Evict all live L1 tensors. Used when encountering ops without OpModel
+  /// support — since we cannot know their L1 requirements, the only safe
+  /// choice is a full flush.
+  void evictAllFromL1(int64_t pos, const ScheduleData &data);
+
   /// Evict all live tensors whose simulated address falls below |threshold|.
   /// Spills each victim to DRAM, removes it from the memory tracker and live
   /// set, and revalidates downstream consumers.

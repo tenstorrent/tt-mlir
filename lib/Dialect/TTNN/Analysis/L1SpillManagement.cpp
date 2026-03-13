@@ -799,10 +799,14 @@ void L1SpillManagement<MemoryTracker>::run() {
     auto result = memoryTracker.validate(op, inputLayouts, config);
 
     if (result.isNotImplemented()) {
-      // Op not validated by backend — skip.
+      // Op not validated by backend — evict all live L1 tensors. Without
+      // OpModel constraints we cannot know how much L1 the op needs, so the
+      // only safe choice is a full flush.
       TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                   "    NOT_IMPLEMENTED: skipping validation for {0}",
+                   "    NOT_IMPLEMENTED: evicting all live L1 tensors for {0}",
                    ttmlir::opToString(op));
+      evictAllFromL1(pos, data);
+      ++spillCount;
       continue;
     }
 
@@ -960,6 +964,34 @@ void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
 }
 
 //===----------------------------------------------------------------------===//
+// evictAllFromL1
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::evictAllFromL1(
+    int64_t pos, const ScheduleData &data) {
+  llvm::SmallVector<Operation *> evictedOps;
+  for (Value victim : liveValues) {
+    uint64_t freedBytes = memoryTracker.getTensorSize(victim);
+    Operation *victimOp = victim.getDefiningOp();
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    EVICT_ALL: {0} (L1: {1} bytes)",
+                 ttmlir::opToString(victimOp), freedBytes);
+    observer_->onEviction(victimOp, pos, freedBytes);
+    spillToDram(victim);
+    memoryTracker.removeTensor(victim);
+    evictedOps.push_back(victimOp);
+  }
+  liveValues.clear();
+
+  // Revalidate consumers after all evictions to avoid revalidating against
+  // transient intermediate IR states.
+  for (Operation *victimOp : evictedOps) {
+    revalidateConsumers(victimOp, pos, data.positionMap);
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // evictTensorsBelow
 //===----------------------------------------------------------------------===//
 
@@ -1071,7 +1103,7 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Value result) {
   }
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "Inserted spill-to-DRAM op: {0}", spillOp);
+               "Inserted spill-to-DRAM op: {0}", ttmlir::opToString(spillOp));
 }
 
 //===----------------------------------------------------------------------===//
