@@ -1340,8 +1340,8 @@ public:
       auto scalarType = bias.getType();
       auto reshapedType = RankedTensorType::get(
           {1}, scalarType.getElementType(), scalarType.getEncoding());
-      bias = rewriter.create<ttir::ReshapeOp>(bias.getLoc(), reshapedType, bias,
-                                              rewriter.getI32ArrayAttr({1}));
+      bias = ttir::ReshapeOp::create(rewriter, bias.getLoc(), reshapedType,
+                                     bias, rewriter.getI32ArrayAttr({1}));
     }
 
     ArrayRef<int64_t> biasShape = bias.getType().getShape();
@@ -1370,9 +1370,10 @@ public:
         broadcastShape, matmulOp.getType().getElementType(),
         matmulOp.getType().getEncoding());
 
-    LinearOp linearOp = rewriter.create<ttir::LinearOp>(
-        addOp.getLoc(), linearOutputType, matmulOp.getA(), matmulOp.getB(),
-        bias, matmulOp.getTransposeA(), matmulOp.getTransposeB());
+    LinearOp linearOp = ttir::LinearOp::create(
+        rewriter, addOp.getLoc(), linearOutputType, matmulOp.getA(),
+        matmulOp.getB(), bias, matmulOp.getTransposeA(),
+        matmulOp.getTransposeB());
 
     // Carry over the per-tensor weight dtype override (lifted from
     // tt.weight_dtype_override) so it survives the matmul->linear rewrite.
@@ -1388,9 +1389,9 @@ public:
     if (!llvm::equal(broadcastShape, addOutputShape)) {
       llvm::SmallVector<int32_t> addShapeI32(addOutputShape.begin(),
                                              addOutputShape.end());
-      result = rewriter.create<ttir::ReshapeOp>(
-          addOp.getLoc(), addOp.getType(), result,
-          rewriter.getI32ArrayAttr(addShapeI32));
+      result = ttir::ReshapeOp::create(rewriter, addOp.getLoc(),
+                                       addOp.getType(), result,
+                                       rewriter.getI32ArrayAttr(addShapeI32));
     }
 
     rewriter.replaceOp(addOp, result);
