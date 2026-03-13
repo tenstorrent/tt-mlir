@@ -4209,6 +4209,20 @@ def ttir_scatter_golden(
     return out_tensor.to(output_dtype)
 
 
+def ttir_gather_dim_golden(
+    input_tensor: GoldenMapTensor,
+    index: GoldenMapTensor,
+    dim: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim_value = unpack_mlir_attr(dim)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    index_copy = index.clone()
+    index_copy = index_copy.to(torch.int64)
+    out_tensor = torch.gather(input_tensor, dim_value, index_copy)
+    return out_tensor.to(output_dtype)
+
+
 def ttir_reverse_golden(
     input_tensor: GoldenMapTensor,
     dimensions_attr: DenseI64ArrayAttr,
@@ -6244,6 +6258,100 @@ def ttnn_mish_golden(
 ################ Debug Op Golden Functions ###############
 
 
+def ttir_paged_flash_multi_latent_attention_decode_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: Optional[GoldenMapTensor] = None,
+    page_table: Optional[GoldenMapTensor] = None,
+    attention_mask: Optional[GoldenMapTensor] = None,
+    cur_pos_tensor: Optional[GoldenMapTensor] = None,
+    attention_sink: Optional[GoldenMapTensor] = None,
+    head_dim_v: Optional[IntegerAttr] = None,
+    is_causal: Optional[BoolAttr] = None,
+    scale: Optional[FloatAttr] = None,
+    output_type_mlir: Optional[Type] = None,
+    **kwargs,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    head_dim_v_val = (
+        unpack_mlir_attr(head_dim_v) if head_dim_v is not None else query.shape[-1]
+    )
+    scale_val = unpack_mlir_attr(scale) if scale is not None else 1.0
+    is_causal_val = unpack_mlir_attr(is_causal) if is_causal is not None else True
+
+    def _golden_per_shard(q, k, pt, v=None, cur_pos=None):
+        # Q is (S, B, H, D) from device layout, permute to (B, H, S, D).
+        q = q.permute(1, 2, 0, 3).float()
+        b, nh, _, d = q.shape
+
+        # Unpage K cache: K is (num_blocks, nkv, block_size, D).
+        num_blocks, nkv, block_size, _ = k.shape
+        # page_table is (B, blocks_per_user), maps virtual->physical block indices.
+        pt = pt.long()
+        blocks_per_user = pt.shape[-1]
+        seq_len = blocks_per_user * block_size
+
+        # Gather physical blocks using page table and reshape to (B, nkv, seq_len, D).
+        k_unpaged = k[pt.view(-1)]  # (B * blocks_per_user, nkv, block_size, D)
+        k_unpaged = k_unpaged.reshape(b, blocks_per_user, nkv, block_size, d)
+        k_unpaged = k_unpaged.transpose(
+            1, 2
+        )  # (B, nkv, blocks_per_user, block_size, D)
+        k_unpaged = k_unpaged.reshape(b, nkv, seq_len, d).float()
+
+        # V is derived from K's first head_dim_v dimensions if not provided.
+        if v is not None:
+            v_unpaged = v  # TODO: unpage V similarly if provided
+        else:
+            v_unpaged = k_unpaged[..., :head_dim_v_val]  # (B, nkv, seq_len, head_dim_v)
+
+        # Expand KV heads to match Q heads (GQA expansion).
+        head_rep = nh // nkv
+        k_exp = k_unpaged.repeat_interleave(head_rep, dim=1)  # (B, nh, seq_len, D)
+        v_exp = v_unpaged.repeat_interleave(
+            head_rep, dim=1
+        )  # (B, nh, seq_len, head_dim_v)
+
+        # Build causal mask if needed.
+        attn_mask = None
+        if is_causal_val and cur_pos is not None:
+            attn_mask = torch.zeros((b, nh, 1, seq_len), dtype=torch.float32)
+            for i in range(b):
+                start_idx = int(cur_pos[i].item())
+                attn_mask[i, :, :, start_idx + 1 :] = torch.finfo(torch.float32).min
+
+        out = torch.nn.functional.scaled_dot_product_attention(
+            q, k_exp, v_exp, attn_mask=attn_mask, scale=scale_val, is_causal=False
+        )  # (B, nh, 1, head_dim_v)
+
+        # Permute back to device layout (S, B, H, head_dim_v).
+        out = out.permute(2, 0, 1, 3)
+        return out.to(output_dtype)
+
+    # Extract per-shard tensors and compute golden.
+    q_shards = query._shard_map
+    k_shards = key._shard_map
+    pt_shards = page_table._shard_map if page_table is not None else {0: None}
+    v_shards = value._shard_map if value is not None else {i: None for i in q_shards}
+    cp_shards = (
+        cur_pos_tensor._shard_map
+        if cur_pos_tensor is not None
+        else {i: None for i in q_shards}
+    )
+
+    output_shards = {}
+    for shard_id in q_shards:
+        output_shards[shard_id] = _golden_per_shard(
+            q_shards[shard_id],
+            k_shards[shard_id],
+            pt_shards[shard_id],
+            v=v_shards[shard_id],
+            cur_pos=cp_shards[shard_id],
+        )
+
+    return GoldenMapTensor(output_shards, query.mesh_shape)
+
+
 def debug_annotate_golden(
     input_tensor: GoldenMapTensor,
     annotation_attr: StringAttr,
@@ -6398,6 +6506,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LinearOp: linear_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
+    ttir.GatherDimOp: ttir_gather_dim_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: ttir_to_layout_golden,
     # Cache operations
@@ -6407,6 +6516,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.MeshShardOp: ttir_mesh_shard_golden,
     ttir.AllGatherOp: ttir_all_gather_golden,
     ttir.AllReduceOp: ttir_all_reduce_golden,
+    ttir.AllReduceAsyncOp: ttir_all_reduce_golden,
     ttir.ReduceScatterOp: ttir_reduce_scatter_golden,
     ttir.CollectivePermuteOp: ttir_collective_permute_golden,
     ttir.AllToAllOp: ttir_all_to_all_golden,
@@ -6418,6 +6528,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.MoeExpertTokenRemapOp: moe_expert_token_remap_golden,
     # Operations with parameter transformations
     ttir.LeakyReluOp: leaky_relu_golden,
+    # Attention operations
+    ttir.PagedFlashMultiLatentAttentionDecodeOp: ttir_paged_flash_multi_latent_attention_decode_golden,
     # ----- D2M OPS -----
     # D2M Layout operations (identity functions)
     d2m.ToLayoutOp: (lambda x, **kwargs: x),
@@ -6560,6 +6672,12 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.RepeatInterleaveOp: ttnn_repeat_interleave_golden,
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
+    # Gather operations
+    ttnn.GatherOp: ttir_gather_dim_golden,
+    # CCL (Collective Communication Library) operations
+    ttnn.AllReduceAsyncOp: ttir_all_reduce_golden,
+    # Attention operations
+    ttnn.PagedFlashMultiLatentAttentionDecodeOp: ttir_paged_flash_multi_latent_attention_decode_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,
