@@ -378,6 +378,7 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
 // 1) func.func entry-block arg attrs
 // 2) sdy.manual_computation region arg per-value attrs
 // 3) OpResult per-value attrs
+// 4) OpResult inherent "out_sharding" property (e.g. all_gather)
 // Falls back to full replicate if none found.
 mlir::sdy::TensorShardingAttr
 getOperandShardingAttr(const mlir::OpOperand &operand,
@@ -416,6 +417,10 @@ getOperandShardingAttr(const mlir::OpOperand &operand,
         unsigned i = (resNo < shardings.size()) ? resNo : 0u; // broadcast-safe
         result = shardings[i];
       }
+    } else if (auto outSharding =
+                   mlir::dyn_cast_or_null<mlir::sdy::TensorShardingAttr>(
+                       owner->getAttr("out_sharding"))) {
+      result = outSharding;
     }
   }
 
