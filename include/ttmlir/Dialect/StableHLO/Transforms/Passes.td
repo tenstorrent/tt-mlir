@@ -269,6 +269,34 @@ def DecoupleConstFanoutPass : Pass<
   ];
 }
 
+def DecomposeCustomCallTuplesPass : Pass<"decompose-custom-call-tuples", "::mlir::ModuleOp"> {
+  let summary = "Eliminate stablehlo.tuple ops by forwarding operands to get_tuple_element users.";
+  let description = [{
+    This pass finds `stablehlo.tuple` operations and replaces all corresponding
+    `stablehlo.get_tuple_element` users with direct references to the tuple's
+    operands. The tuple op is erased if all uses are replaced.
+
+    This is required because Shardy's sharding propagation does not support
+    tuple types and they must be eliminated before sharding propagation can run.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    %0 = stablehlo.tuple %arg0, %arg1 : tuple<tensor<3x3xf32>, tensor<3xf32>>
+    %1 = stablehlo.get_tuple_element %0[0] : (tuple<tensor<3x3xf32>, tensor<3xf32>>) -> tensor<3x3xf32>
+    %2 = stablehlo.get_tuple_element %0[1] : (tuple<tensor<3x3xf32>, tensor<3xf32>>) -> tensor<3xf32>
+    ```
+
+    Into:
+    ```mlir
+    // %1 is replaced by %arg0, %2 is replaced by %arg1
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
 def FlattenCompositePass : Pass<"flatten-composite", "::mlir::ModuleOp"> {
   let summary = "Inline (flatten) stablehlo.composite ops and tag cloned ops for optional re-outlining.";
   let description = [{
