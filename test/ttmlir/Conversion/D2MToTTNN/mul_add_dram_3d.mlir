@@ -54,7 +54,7 @@ module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, targe
         ins(%stream, %stream_3 : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<dram>>, memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<dram>>)
         outs(%alloc : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>)
         additionalArgs(%alloc_4, %alloc_5 : memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2, grid = [8x8]>, #ttcore.memory_space<l1>>, memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2, grid = [8x8]>, #ttcore.memory_space<l1>>)
-     
+
     %cast_6 = ttir.ttnn_metal_layout_cast %arg0 : tensor<2x512x2048xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 512 + d1, d2), <1x1>, memref<32x64x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>, exactGrid = true>> -> memref<1x1x32x64x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<131072x2048>, #ttcore.memory_space<dram>>
     %alloc_7 = memref.alloc() {address = 234784 : i64, alignment = 16 : i64} : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>
     %alloc_8 = memref.alloc() : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 2>, #ttcore.memory_space<l1>>
@@ -64,7 +64,7 @@ module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, targe
         ins(%alloc, %stream_9 : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>, memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<dram>>)
         outs(%alloc_7 : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>)
         additionalArgs(%alloc_10 : memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2, grid = [8x8]>, #ttcore.memory_space<l1>>)
-     
+
     memref.dealloc %alloc : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>
     %cast_11 = ttir.ttnn_metal_layout_cast %alloc_7 : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>> -> tensor<2x512x2048xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 512 + d1, d2), <8x8>, memref<4x8x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>
     memref.dealloc %alloc_7 : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>
@@ -86,4 +86,3 @@ module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, targe
     return
   }
 }
-
