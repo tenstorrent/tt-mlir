@@ -2356,19 +2356,8 @@ static Block *cloneParallelizedRegion(d2m::GenericOp thisOp,
   SmallVector<Location> newArgLocs;
   newArgTypes.reserve(oldBlock.getNumArguments());
   newArgLocs.reserve(oldBlock.getNumArguments());
-  for (auto [argIndex, oldArg] : llvm::enumerate(oldBlock.getArguments())) {
-    Type newArgType = oldArg.getType();
-    if (argIndex < reblockedOperands.size()) {
-      if (auto oldCBType = mlir::dyn_cast<d2m::CBType>(oldArg.getType())) {
-        Type newUnderlyingType = getShardTypeFromOperand(
-            reblockedOperands[argIndex], oldCBType.getUnderlying());
-        auto newUnderlyingShaped =
-            mlir::dyn_cast<ShapedType>(newUnderlyingType);
-        TT_assert(newUnderlyingShaped);
-        newArgType = d2m::CBType::get(newUnderlyingShaped);
-      }
-    }
-    newArgTypes.push_back(newArgType);
+  for (BlockArgument oldArg : oldBlock.getArguments()) {
+    newArgTypes.push_back(oldArg.getType());
     newArgLocs.push_back(oldArg.getLoc());
   }
 
