@@ -5123,6 +5123,7 @@ llvm::Expected<OpConstraints> OpModel<Conv3dOp>::getOpConstraints(
   auto conv3dOpQuery = [=, &specs]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::experimental::conv3d, device, specs.inputSpec, specs.weightSpec,
+        std::optional<::tt::tt_metal::distributed::MeshDevice *>(device),
         specs.biasSpec, specs.config, specs.dtype, specs.outputChannels,
         specs.kernelSize, specs.stride, specs.padding,
         std::array<uint32_t, 3>{1, 1, 1}, specs.paddingMode, specs.groups,
@@ -5168,6 +5169,7 @@ llvm::Expected<size_t> OpModel<Conv3dOp>::getOpRuntime(
   auto conv3dOpRuntime = [=, &specs]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::experimental::conv3d, device, specs.inputSpec, specs.weightSpec,
+        std::optional<::tt::tt_metal::distributed::MeshDevice *>(device),
         specs.biasSpec, specs.config, specs.dtype, specs.outputChannels,
         specs.kernelSize, specs.stride, specs.padding,
         std::array<uint32_t, 3>{1, 1, 1}, specs.paddingMode, specs.groups,
