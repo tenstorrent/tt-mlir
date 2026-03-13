@@ -3995,6 +3995,27 @@ void CaptureOrExecuteTraceOp::getEffects(
                          << "' does not reference a function";
   }
 
+  // Verify that the input arguments to this op match the capture_callee
+  // function's arguments
+  auto captureInputTypes = captureFuncOp.getFunctionType().getInputs();
+  auto opInputs = this->getInputs();
+
+  if (captureInputTypes.size() != opInputs.size()) {
+    return emitOpError() << "Number of input arguments (" << opInputs.size()
+                         << ") does not match capture function '"
+                         << captureCalleeAttr.getValue() << "' input count ("
+                         << captureInputTypes.size() << ")";
+  }
+
+  for (size_t i = 0; i < opInputs.size(); ++i) {
+    if (opInputs[i].getType() != captureInputTypes[i]) {
+      return emitOpError() << "Input argument " << i << " type mismatch: "
+                           << "expected " << captureInputTypes[i]
+                           << " from capture function, but got "
+                           << opInputs[i].getType();
+    }
+  }
+
   FlatSymbolRefAttr traceFuncCalleeAttr;
   captureFuncOp.walk([&](func::CallOp callOp) {
     traceFuncCalleeAttr = callOp.getCalleeAttr();
@@ -4010,6 +4031,26 @@ void CaptureOrExecuteTraceOp::getEffects(
   if (!traceFuncOp) {
     return emitOpError() << "'" << traceFuncCalleeAttr.getValue()
                          << "' does not reference a function";
+  }
+
+  // Verify that the outputs of this op match the trace function's outputs
+  auto traceOutputTypes = traceFuncOp.getFunctionType().getResults();
+  auto opOutputs = this->getResults();
+
+  if (traceOutputTypes.size() != opOutputs.size()) {
+    return emitOpError() << "Number of output results (" << opOutputs.size()
+                         << ") does not match trace function '"
+                         << traceFuncCalleeAttr.getValue() << "' output count ("
+                         << traceOutputTypes.size() << ")";
+  }
+
+  for (size_t i = 0; i < opOutputs.size(); ++i) {
+    if (opOutputs[i].getType() != traceOutputTypes[i]) {
+      return emitOpError() << "Output result " << i << " type mismatch: "
+                           << "expected " << traceOutputTypes[i]
+                           << " from trace function, but got "
+                           << opOutputs[i].getType();
+    }
   }
 
   for (BlockArgument arg : traceFuncOp.getArguments()) {
@@ -4103,6 +4144,15 @@ void CaptureOrExecuteTraceOp::getEffects(
   if (!executeFuncOp) {
     return emitOpError() << "'" << executeCalleeAttr.getValue()
                          << "' does not reference a function";
+  }
+
+  // Verify that execute function takes exactly one trace_id argument
+  auto executeInputTypes = executeFuncOp.getFunctionType().getInputs();
+  if (executeInputTypes.size() != 1) {
+    return emitOpError()
+           << "Execute function '" << executeCalleeAttr.getValue()
+           << "' must take exactly one trace_id argument, but has "
+           << executeInputTypes.size() << " arguments";
   }
 
   return ::mlir::success();
