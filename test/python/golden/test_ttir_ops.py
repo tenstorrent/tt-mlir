@@ -964,8 +964,24 @@ def test_arange(
     )
 
 
-@pytest.mark.parametrize("shapes", [[(4, 4, 128, 128)]], ids=shapes_list_str)
-@pytest.mark.parametrize("dim", [1])
+@pytest.mark.parametrize(
+    "shapes, dim",
+    [
+        # No workaround needed (rank-4, dim <= 1)
+        pytest.param([(4, 4, 128, 128)], 1, id="rank4_dim1"),
+        # CumSumOpDimRewritePattern: rank-4, dim >= 2
+        pytest.param([(4, 4, 128, 128)], 2, id="rank4_dim2"),
+        pytest.param([(4, 4, 128, 128)], 3, id="rank4_dim3"),
+        # CumSumOpRankRewritePattern: rank < 4, dim <= 1
+        pytest.param([(128,)], 0, id="rank1_dim0"),
+        pytest.param([(4, 128)], 0, id="rank2_dim0"),
+        pytest.param([(4, 128)], 1, id="rank2_dim1"),
+        pytest.param([(4, 4, 128)], 0, id="rank3_dim0"),
+        pytest.param([(4, 4, 128)], 1, id="rank3_dim1"),
+        # CumSumOpRankRewritePattern + CumSumOpDimRewritePattern: rank < 4 and dim >= 2
+        pytest.param([(4, 4, 128)], 2, id="rank3_dim2"),
+    ],
+)
 def test_cumsum(shapes: List[Shape], dim: int, request, device):
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [torch.float32] * len(shapes))
