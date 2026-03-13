@@ -26,7 +26,7 @@
 
 namespace mlir::tt {
 
-namespace detail {
+namespace {
 
 static SmallVector<int64_t> getTensorShape(MemRefType memrefType) {
   auto deviceLayout = ttcore::getDeviceLayout(memrefType);
@@ -126,9 +126,6 @@ static RankedTensorType convertMemrefToTTNNTensor(MLIRContext *ctx,
                                getScalarElementType(memrefType),
                                ttnnLayoutAttr);
 }
-} // namespace detail
-
-namespace {
 
 struct GenericOperandInfo {
   Value ioTensor;
@@ -397,7 +394,7 @@ static LogicalResult handleMemrefAlloc(memref::AllocOp op, IRRewriter &rewriter,
     auto placeholder = rewriter.create<mlir::UnrealizedConversionCastOp>(
         loc, shardMemrefType, ValueRange{});
     auto convertedTensorType =
-        detail::convertMemrefToTTNNTensor(ctx, placeholder.getResult(0));
+        convertMemrefToTTNNTensor(ctx, placeholder.getResult(0));
     rewriter.eraseOp(placeholder);
 
     auto convertedLayoutAttr =
@@ -420,8 +417,7 @@ static LogicalResult handleMemrefAlloc(memref::AllocOp op, IRRewriter &rewriter,
   // Case 3: Device layout (ShardLayoutAttr or InterleavedLayoutAttr).
   if (mlir::isa_and_present<ttcore::DeviceLayoutInterface>(
           memrefType.getLayout())) {
-    auto convertedTensorType =
-        detail::convertMemrefToTTNNTensor(ctx, op.getMemref());
+    auto convertedTensorType = convertMemrefToTTNNTensor(ctx, op.getMemref());
     auto convertedLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(convertedTensorType.getEncoding());
 
@@ -488,88 +484,76 @@ static LogicalResult handleMemrefAlloc(memref::AllocOp op, IRRewriter &rewriter,
       "memref alloc does not correspond to a ttnn tensor or global semaphore");
 }
 
-static LogicalResult handleD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
-                                    DenseMap<Value, Value> &valueMapping) {
-  MLIRContext *ctx = rewriter.getContext();
-  auto tensorType = cast<RankedTensorType>(op.getResult().getType());
-  auto encoding = tensorType.getEncoding();
-  auto shape = ttnn::ShapeAttr::get(ctx, tensorType.getShape());
-
+struct TensorAllocAttrs {
   ttcore::DataTypeAttr dtype;
   ttnn::LayoutAttr layout;
   ttnn::MemoryConfigAttr memcfg;
+};
 
-  auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
+static FailureOr<TensorAllocAttrs>
+getTensorAllocAttrs(Operation *op, RankedTensorType tensorType) {
+  MLIRContext *ctx = op->getContext();
+  auto encoding = tensorType.getEncoding();
   auto deviceAttr = ttcore::lookupDevice(op);
 
   if (auto layoutAttr = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(encoding)) {
-    dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
-    layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
-    memcfg =
-        ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
-  } else if (auto ndLayoutAttr =
-                 mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
-    dtype = ttcore::DataTypeAttr::get(ctx, ndLayoutAttr.getDataType());
-    layout = ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout());
+    return TensorAllocAttrs{
+        ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType()),
+        ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout()),
+        ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid())};
+  }
+  if (auto ndLayoutAttr = mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
     auto bufferType =
         ttnn::BufferTypeAttr::get(ctx, ndLayoutAttr.getBufferType());
     auto ndShardSpec = ttnn::NDShardSpecAttr::get(ndLayoutAttr);
-    memcfg = ttnn::MemoryConfigAttr::get(
-        ctx, ndLayoutAttr.getMemLayout(), bufferType,
-        /*shardSpec=*/std::nullopt, ndShardSpec);
-  } else {
-    return op.emitOpError("unsupported encoding type");
+    return TensorAllocAttrs{
+        ttcore::DataTypeAttr::get(ctx, ndLayoutAttr.getDataType()),
+        ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout()),
+        ttnn::MemoryConfigAttr::get(ctx, ndLayoutAttr.getMemLayout(),
+                                    bufferType, /*shardSpec=*/std::nullopt,
+                                    ndShardSpec)};
   }
+  return op->emitOpError("unsupported encoding type"), failure();
+}
+
+static LogicalResult handleD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
+                                    DenseMap<Value, Value> &valueMapping) {
+  auto tensorType = cast<RankedTensorType>(op.getResult().getType());
+  auto attrs = getTensorAllocAttrs(op, tensorType);
+  if (failed(attrs)) {
+    return failure();
+  }
+
+  auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
+  auto shape = ttnn::ShapeAttr::get(op.getContext(), tensorType.getShape());
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
   auto emptyOp = rewriter.create<ttnn::EmptyOp>(op.getLoc(), tensorType, device,
-                                                shape, dtype, layout, memcfg);
+                                                shape, attrs->dtype,
+                                                attrs->layout, attrs->memcfg);
   valueMapping[op.getResult()] = emptyOp.getResult();
   return success();
 }
 
 static LogicalResult handleD2MFull(d2m::FullOp op, IRRewriter &rewriter,
                                    DenseMap<Value, Value> &valueMapping) {
-  MLIRContext *ctx = rewriter.getContext();
   auto tensorType = cast<RankedTensorType>(op.getResult().getType());
-  auto encoding = tensorType.getEncoding();
-
-  auto shapeI32 = op.getShape();
-  SmallVector<int64_t> shapeI64(shapeI32.begin(), shapeI32.end());
-  auto shape = ttnn::ShapeAttr::get(ctx, shapeI64);
-
-  ttcore::DataTypeAttr dtype;
-  ttnn::LayoutAttr layout;
-  ttnn::MemoryConfigAttr memcfg;
+  auto attrs = getTensorAllocAttrs(op, tensorType);
+  if (failed(attrs)) {
+    return failure();
+  }
 
   auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-  auto deviceAttr = ttcore::lookupDevice(op);
-
-  if (auto layoutAttr = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(encoding)) {
-    dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
-    layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
-    memcfg =
-        ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
-  } else if (auto ndLayoutAttr =
-                 mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
-    dtype = ttcore::DataTypeAttr::get(ctx, ndLayoutAttr.getDataType());
-    layout = ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout());
-    auto bufferType =
-        ttnn::BufferTypeAttr::get(ctx, ndLayoutAttr.getBufferType());
-    auto ndShardSpec = ttnn::NDShardSpecAttr::get(ndLayoutAttr);
-    memcfg = ttnn::MemoryConfigAttr::get(
-        ctx, ndLayoutAttr.getMemLayout(), bufferType,
-        /*shardSpec=*/std::nullopt, ndShardSpec);
-  } else {
-    return op.emitOpError("unsupported encoding type");
-  }
+  auto shapeI32 = op.getShape();
+  SmallVector<int64_t> shapeI64(shapeI32.begin(), shapeI32.end());
+  auto shape = ttnn::ShapeAttr::get(op.getContext(), shapeI64);
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
-  auto fullOp = rewriter.create<ttnn::FullOp>(op.getLoc(), tensorType, device,
-                                              shape, op.getFillValueAttr(),
-                                              dtype, layout, memcfg);
+  auto fullOp = rewriter.create<ttnn::FullOp>(
+      op.getLoc(), tensorType, device, shape, op.getFillValueAttr(),
+      attrs->dtype, attrs->layout, attrs->memcfg);
   valueMapping[op.getResult()] = fullOp.getResult();
   return success();
 }
@@ -829,10 +813,9 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
     ios.push_back(info.ioTensor);
   }
 
-  OpBuilder::InsertionGuard guard(rewriter);
-  rewriter.setInsertionPointAfter(op);
-  rewriter.create<ttnn::GenericOp>(op.getLoc(), ios, additionalArgs, program,
-                                   ttnn::MemoryConfigAttr());
+  rewriter.setInsertionPoint(op);
+  rewriter.replaceOpWithNewOp<ttnn::GenericOp>(op, ios, additionalArgs, program,
+                                               ttnn::MemoryConfigAttr());
   return success();
 }
 
@@ -880,61 +863,22 @@ static LogicalResult cleanupAndVerify(ModuleOp module,
     op.getResult().replaceAllUsesWith(resolved);
   });
 
-  // Step 2: Collect all ops to erase, grouped by type.
-  SmallVector<Operation *> castsToErase;
-  SmallVector<Operation *> genericsToErase;
-  SmallVector<Operation *> streamsToErase;
-  SmallVector<Operation *> viewsToErase;
-  SmallVector<Operation *> emptysToErase;
-  SmallVector<Operation *> fullsToErase;
-  SmallVector<Operation *> resetSemsToErase;
-  SmallVector<Operation *> createSemsToErase;
-  SmallVector<Operation *> deallocsToErase;
-  SmallVector<Operation *> allocsToErase;
-
+  // Step 2: Collect and erase all remaining D2M/memref/cast ops. Generics are
+  // already erased by replaceOpWithNewOp in Phase 2. External uses were
+  // resolved in Step 1; remaining uses are internal among ops being erased, so
+  // dropAllUses is safe.
+  SmallVector<Operation *> opsToErase;
   module.walk([&](Operation *op) {
-    if (isa<ttir::TTNNMetalLayoutCastOp>(op)) {
-      castsToErase.push_back(op);
-    } else if (isa<d2m::GenericOp>(op)) {
-      genericsToErase.push_back(op);
-    } else if (isa<d2m::StreamLayoutOp>(op)) {
-      streamsToErase.push_back(op);
-    } else if (isa<d2m::ViewLayoutOp>(op)) {
-      viewsToErase.push_back(op);
-    } else if (isa<d2m::EmptyOp>(op)) {
-      emptysToErase.push_back(op);
-    } else if (isa<d2m::FullOp>(op)) {
-      fullsToErase.push_back(op);
-    } else if (isa<d2m::ResetGlobalSemaphoreOp>(op)) {
-      resetSemsToErase.push_back(op);
-    } else if (isa<d2m::CreateGlobalSemaphoreOp>(op)) {
-      createSemsToErase.push_back(op);
-    } else if (isa<memref::DeallocOp>(op)) {
-      deallocsToErase.push_back(op);
-    } else if (isa<memref::AllocOp>(op)) {
-      allocsToErase.push_back(op);
+    if (isa<ttir::TTNNMetalLayoutCastOp, d2m::StreamLayoutOp, d2m::ViewLayoutOp,
+            d2m::EmptyOp, d2m::FullOp, d2m::ResetGlobalSemaphoreOp,
+            d2m::CreateGlobalSemaphoreOp, memref::DeallocOp, memref::AllocOp>(
+            op)) {
+      opsToErase.push_back(op);
     }
   });
-
-  // Step 3: Erase in dependency-safe order. All external uses should have been
-  // resolved in Step 1. Remaining uses are internal among ops being erased.
-  auto dropAndErase = [](SmallVector<Operation *> &ops) {
-    for (auto *op : llvm::reverse(ops)) {
-      op->dropAllUses();
-      op->erase();
-    }
-  };
-
-  dropAndErase(castsToErase);
-  dropAndErase(genericsToErase);
-  dropAndErase(streamsToErase);
-  dropAndErase(viewsToErase);
-  dropAndErase(emptysToErase);
-  dropAndErase(fullsToErase);
-  dropAndErase(resetSemsToErase);
-  dropAndErase(createSemsToErase);
-  dropAndErase(deallocsToErase);
-  dropAndErase(allocsToErase);
+  for (auto *op : llvm::reverse(opsToErase)) {
+    op->erase();
+  }
 
   // Step 4: Verification walk.
   WalkResult result = module.walk([](Operation *op) -> WalkResult {
