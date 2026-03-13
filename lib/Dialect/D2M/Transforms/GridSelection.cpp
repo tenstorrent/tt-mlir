@@ -421,8 +421,8 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   // The view chain that applyViews composes through depends on this
   // ViewLayoutOp existing between the optimal-grid ToLayout and downstream
   // StreamLayoutOps / GenericOps.
-  auto viewOutputType =
-      utils::reblockTensor(newTensorType, oldLayout.getGridShape(outputType));
+  auto viewOutputType = mlir::cast<RankedTensorType>(utils::reblockShapedType(
+      newTensorType, oldLayout.getGridShape(outputType)));
   auto reblockMap = ttmlir::utils::calculateReblockMap(
       newTensorType.getShape(), viewOutputType.getShape(),
       builder.getContext());
@@ -561,7 +561,8 @@ static void optimizeTTNNMetalLayoutCastOpGrid(
     return;
   }
 
-  auto newTensorType = utils::reblockTensor(outputType, optimalGrid);
+  auto newTensorType = mlir::cast<RankedTensorType>(
+      utils::reblockShapedType(outputType, optimalGrid));
 
   mlir::AffineMapAttr gridRemapping =
       AffineMapAttr::get(ttmlir::utils::calculateReblockMap(
@@ -574,8 +575,8 @@ static void optimizeTTNNMetalLayoutCastOpGrid(
       castOp.getLoc(), newTensorType, castOp.getResult(), gridRemapping);
 
   // Reblock it back to original shape to preserve IR correctness.
-  auto viewOutputType = utils::reblockTensor(
-      newTensorType, outputLayout.getGridShape(outputType));
+  auto viewOutputType = mlir::cast<RankedTensorType>(utils::reblockShapedType(
+      newTensorType, outputLayout.getGridShape(outputType)));
   auto reblockMap = ttmlir::utils::calculateReblockMap(
       newTensorType.getShape(), viewOutputType.getShape(),
       builder.getContext());
@@ -745,13 +746,13 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
   GridAnalysisResult result;
 
   for (auto [operandIndex, operand] :
-       llvm::enumerate(genericOp.getOperands())) {
+       llvm::enumerate(genericOp.getInputsAndOutputs())) {
     auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
     auto operandLayout =
         mlir::dyn_cast<ttcore::MetalLayoutAttr>(operandType.getEncoding());
-    if (!operandLayout) {
-      continue;
-    }
+    TT_assertv(operandLayout,
+               "GridSelection expects GenericOp inputs/outputs to have "
+               "MetalLayoutAttr");
 
     unsigned idx = static_cast<unsigned>(operandIndex);
     llvm::SmallVector<int64_t> physShape =
@@ -1032,11 +1033,59 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
   }
 }
 
+// Derive grid (including virtual grid mapping) from the
+// optimized operand grids selected by GridSelection, mirroring
+// GenericOp::build.
+static ttcore::GridAttr deriveGridAttrForOutput(Value output,
+                                                ArrayRef<int64_t> gridShape,
+                                                OpBuilder &builder) {
+  auto layout = ttcore::getDeviceLayout(cast<ShapedType>(output.getType()));
+  auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(layout);
+  if (!metalLayout) {
+    return builder.getAttr<ttcore::GridAttr>(gridShape);
+  }
+
+  if (auto invMap = utils::getVirtualGridInverseMapping(output)) {
+    return builder.getAttr<ttcore::GridAttr>(gridShape, *invMap);
+  }
+
+  auto existingRemapping = utils::getAssociatedRemapping(output);
+  if (!existingRemapping.has_value() || existingRemapping->isEmpty() ||
+      existingRemapping->isIdentity()) {
+    return builder.getAttr<ttcore::GridAttr>(gridShape);
+  }
+
+  auto indexMap = *existingRemapping;
+  constexpr size_t kExpectedDimsFor2DDeviceShape = 2 * 2;
+  bool is2DPermutation =
+      indexMap.isPermutation() &&
+      indexMap.getNumResults() == kExpectedDimsFor2DDeviceShape &&
+      indexMap.getNumInputs() == kExpectedDimsFor2DDeviceShape;
+  if (!is2DPermutation) {
+    return builder.getAttr<ttcore::GridAttr>(gridShape);
+  }
+
+  auto invMap = ttmlir::utils::createGridInverseMapFor2DPermutation(
+      indexMap, gridShape.size(), builder.getContext());
+  return builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+}
+
+static ttcore::GridAttr
+deriveGenericGridAttr(d2m::GenericOp genericOp,
+                      ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
+                      OpBuilder &builder) {
+  Value output = genericOp.getOutputs().front();
+  unsigned outputOperandIndex = genericOp.getOutputs().getBeginOperandIndex();
+  ArrayRef<int64_t> gridShape = optimalOperandGrids[outputOperandIndex];
+  return deriveGridAttrForOutput(output, gridShape, builder);
+}
+
 // Phase 5: Recreate the d2m.generic with updated operands.
 // After updating all ToLayout and StreamLayout ops, the generic's operands
 // now have new types with optimized grids. We must recreate the generic to
-// reflect these type changes, including updating the region body and any
-// nested linalg.generic result types.
+// reflect these type changes. We derive the generic grid from the output
+// operand's chosen grid and re-derive block factors from the chosen operand
+// grids so the rebuilt generic reflects the full execution plan.
 static void
 recreateGenericOp(d2m::GenericOp genericOp,
                   ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
@@ -1044,175 +1093,23 @@ recreateGenericOp(d2m::GenericOp genericOp,
     return;
   }
 
-  TT_assert(optimalOperandGrids.size() ==
-            genericOp.getInputsAndOutputs().size());
-
   OpBuilder builder(genericOp);
-  llvm::SmallVector<Value> newOperands;
-
-  for (const auto &[optimalGrid, operand] :
-       llvm::zip(optimalOperandGrids, genericOp.getInputsAndOutputsMutable())) {
-
-    auto definingView = operand.get().getDefiningOp<d2m::ViewLayoutOp>();
-    if (!definingView) {
-      newOperands.push_back(operand.get());
-      continue;
-    }
-
-    if (genericOp.isDpsInit(&operand) && definingView) {
-      auto inputType =
-          mlir::cast<RankedTensorType>(definingView.getInput().getType());
-      auto metalLayout =
-          mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
-      if (metalLayout.getMemorySpace() != ttcore::MemorySpace::DeviceDRAM) {
-        // This is a workaround to avoid type checking errors during/after
-        // canonicalization.  There is an offline proposal being discussed to
-        // address this more holistically.  The short of it is that we need to
-        // just reach through the view to get to the original to_layout operand
-        // so that view_layout folding doesn't need to be applied in the first
-        // place. View layout folding can cause the index_map inside of the
-        // metal_layout to differ from the generic op's result type, leading to
-        // type-checking errors.
-        newOperands.push_back(definingView.getInput());
-        continue;
-      }
-    }
-
-    auto tensorType =
-        mlir::cast<mlir::RankedTensorType>(operand.get().getType());
-    auto viewTensorType = utils::reblockTensor(tensorType, optimalGrid);
-    auto reblockMap = ttmlir::utils::calculateReblockMap(
-        tensorType.getShape(), viewTensorType.getShape(), builder.getContext());
-    auto view = builder.create<d2m::ViewLayoutOp>(
-        genericOp.getLoc(), viewTensorType, operand.get(), reblockMap,
-        /*reinterpretLayout=*/false);
-    newOperands.push_back(view.getResult());
+  unsigned outputOperandIndex = genericOp.getOutputs().getBeginOperandIndex();
+  ArrayRef<int64_t> outputGridShape = optimalOperandGrids[outputOperandIndex];
+  ttcore::GridAttr grid =
+      deriveGenericGridAttr(genericOp, optimalOperandGrids, builder);
+  SmallVector<int64_t> blockFactors = utils::deriveBlockFactorsFromOperandGrids(
+      genericOp.getIndexingMapsValue(), optimalOperandGrids, outputGridShape);
+  auto ret = genericOp.withParallelization(builder, grid, blockFactors,
+                                           /*generateReturnView=*/false);
+  if (failed(ret)) {
+    genericOp.emitOpError()
+        << "failed to recreate generic op with withParallelization";
+    return;
   }
 
-  {
-    auto numInputs = genericOp.getInputs().size();
-
-    llvm::SmallVector<Value> newInputs(newOperands.begin(),
-                                       newOperands.begin() + numInputs);
-    llvm::SmallVector<Value> newOutputs(newOperands.begin() + numInputs,
-                                        newOperands.end());
-
-    Region &oldRegion = genericOp.getRegion(0);
-    auto newAdditionalArgs = genericOp.getAdditionalArgs();
-
-    auto newGenericOp = builder.create<d2m::GenericOp>(
-        genericOp.getLoc(), newInputs, newOutputs, newAdditionalArgs,
-        genericOp.getIndexingMaps(), genericOp.getIteratorTypes(),
-        [&](OpBuilder &b, Location loc, ValueRange blockArgs) {
-          IRMapping mapping;
-
-          // Map old operands to new operands for ops that capture external
-          // values (e.g., DMAs that reference views outside the region).
-          for (auto [oldOp, newOp] :
-               llvm::zip(genericOp.getInputsAndOutputs(), newOperands)) {
-            mapping.map(oldOp, newOp);
-          }
-
-          // Map block arguments.
-          Block &oldBlock = oldRegion.front();
-          for (auto [oldArg, newArg] :
-               llvm::zip(oldBlock.getArguments(), blockArgs)) {
-            mapping.map(oldArg, newArg);
-          }
-          for (Operation &op : oldBlock) {
-            Operation *clonedOp = b.clone(op, mapping);
-
-            // For nested linalg.generic ops, update result types to match the
-            // new output operand types (which have changed due to grid
-            // updates).
-            if (auto remoteLoadOp =
-                    llvm::dyn_cast<d2m::RemoteLoadOp>(clonedOp)) {
-              // RemoteLoadOp must be in implicit form at this point in the
-              // pipeline. GridSelection runs before conversion to explicit CB
-              // form.
-              TT_assertv(
-                  remoteLoadOp.isImplicitForm(),
-                  "RemoteLoadOp must be in implicit form during GridSelection");
-
-              // Result exists - get shard shape from the remote tensor.
-              // GridSelection operates in tensor space (before bufferization).
-              auto tensorType = mlir::cast<RankedTensorType>(
-                  remoteLoadOp.getMemref().getType());
-              auto deviceLayout =
-                  ttcore::getDeviceLayout(remoteLoadOp.getMemref());
-              if (deviceLayout) {
-                auto shardShape = deviceLayout.getShardShape(tensorType);
-                auto elementType = tensorType.getElementType();
-                auto shardType = RankedTensorType::get(shardShape, elementType);
-                remoteLoadOp.getResult().setType(shardType);
-
-                // Also update the localBuffer's defining operation's result
-                // type to match the shard shape.
-                Value localBuffer = remoteLoadOp.getLocalBuffer();
-                if (localBuffer) {
-                  if (auto *defOp = localBuffer.getDefiningOp()) {
-                    if (defOp->getNumResults() == 1) {
-                      defOp->getResult(0).setType(shardType);
-                    }
-                  }
-                }
-              }
-            } else if (auto remoteStoreOp =
-                           llvm::dyn_cast<d2m::RemoteStoreOp>(clonedOp)) {
-              // RemoteStoreOp must have result form at this point in the
-              // pipeline. GridSelection runs before conversion to explicit CB
-              // form.
-              TT_assertv(
-                  remoteStoreOp.hasResultForm(),
-                  "RemoteStoreOp must have result form during GridSelection");
-
-              auto tensorType = mlir::cast<RankedTensorType>(
-                  remoteStoreOp.getMemref().getType());
-              remoteStoreOp.getResult().setType(tensorType);
-            } else if (auto dstOp = llvm::dyn_cast<DestinationStyleOpInterface>(
-                           clonedOp)) {
-              int numIns = dstOp.getNumDpsInputs();
-              int numOuts = clonedOp->getNumResults();
-              for (int i = 0; i < numOuts; ++i) {
-                auto outputOperandType =
-                    clonedOp->getOperand(numIns + i).getType();
-                clonedOp->getResult(i).setType(outputOperandType);
-              }
-            } else if (auto tensorEmptyOp =
-                           llvm::dyn_cast<mlir::tensor::EmptyOp>(clonedOp)) {
-              // Update tensor.empty result type to match the new operand shard
-              // shape. Find the associated operand from the original op.
-              if (auto originalEmptyOp =
-                      mlir::dyn_cast<mlir::tensor::EmptyOp>(&op)) {
-                Value associatedOperand =
-                    d2m::GenericOp::findAssocOperand(originalEmptyOp);
-                if (associatedOperand) {
-                  // Find operand index in the old generic.
-                  int64_t operandIndex =
-                      genericOp.getOperandIndex(associatedOperand);
-                  // Use the index to get the new tensor.empty from blockArgs.
-                  if (static_cast<unsigned>(operandIndex) < blockArgs.size()) {
-                    Value newTensor = blockArgs[operandIndex];
-                    if (auto tensorType = mlir::dyn_cast<RankedTensorType>(
-                            newTensor.getType())) {
-                      tensorEmptyOp.getResult().setType(tensorType);
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        /*singleThreadType=*/genericOp.getRegionThreadType(0));
-
-    // Preserve scratch_inputs attribute if present.
-    if (auto scratchInputs = genericOp.getScratchInputsAttr()) {
-      newGenericOp.setScratchInputsAttr(scratchInputs);
-    }
-
-    genericOp.replaceAllUsesWith(newGenericOp);
-    genericOp.erase();
-  }
+  genericOp->replaceAllUsesWith(ret->genericOp);
+  genericOp.erase();
 }
 
 // Assign optimized grids to all ToLayoutOps feeding into a GenericOp by

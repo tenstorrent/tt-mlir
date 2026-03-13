@@ -91,17 +91,55 @@ Type getRegionLargestDstElemTypeOrNull(Region &region) {
   return findLargestDstElemType(region);
 }
 
-RankedTensorType reblockTensor(RankedTensorType oldTensor,
-                               ArrayRef<int64_t> newGridShape) {
-  auto oldLayout = mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
-  if (oldLayout.getGridShape(oldTensor) == newGridShape) {
-    return oldTensor;
+ShapedType reblockShapedType(ShapedType oldType,
+                             ArrayRef<int64_t> newGridShape) {
+  TT_assert(oldType.hasStaticShape());
+  auto layout = ttcore::getDeviceLayout(oldType);
+  TT_assert(layout);
+  ArrayRef<int64_t> oldGridShape = layout.getGridShape(oldType);
+  ArrayRef<int64_t> oldShardShape = layout.getShardShape(oldType);
+  TT_assert(newGridShape.size() == oldGridShape.size());
+  TT_assert(oldGridShape.size() == oldShardShape.size());
+  for (auto [idx, gridDim] : llvm::enumerate(newGridShape)) {
+    TT_assert((oldGridShape[idx] * oldShardShape[idx]) % gridDim == 0);
+  }
+
+  if (oldGridShape == newGridShape) {
+    return oldType;
+  }
+
+  SmallVector<int64_t> newShardShape;
+  newShardShape.reserve(newGridShape.size());
+  for (auto [idx, gridDim] : llvm::enumerate(newGridShape)) {
+    newShardShape.push_back(oldGridShape[idx] * oldShardShape[idx] / gridDim);
   }
 
   auto newShape = ttmlir::utils::calculateReblockShapeForGrid(
-      oldTensor.getShape(), newGridShape);
+      oldType.getShape(), newGridShape);
+  if (auto oldTensorType = mlir::dyn_cast<RankedTensorType>(oldType)) {
+    return RankedTensorType::get(newShape, oldTensorType.getElementType(),
+                                 oldTensorType.getEncoding());
+  }
 
-  return RankedTensorType::get(newShape, oldTensor.getElementType(), oldLayout);
+  auto oldMemRefType = mlir::cast<MemRefType>(oldType);
+  MemRefLayoutAttrInterface newLayout = oldMemRefType.getLayout();
+  if (auto viewLayout =
+          mlir::dyn_cast<ttcore::ViewLayoutAttr>(oldMemRefType.getLayout())) {
+    newLayout =
+        ttcore::ViewLayoutAttr::get(oldType.getContext(), viewLayout.getRank());
+  } else if (auto shardLayout = mlir::dyn_cast<ttcore::ShardLayoutAttr>(
+                 oldMemRefType.getLayout())) {
+    newLayout = ttcore::ShardLayoutAttr::get(newShardShape,
+                                             oldMemRefType.getElementType(),
+                                             shardLayout.getBuffers());
+  } else if (mlir::isa<ttcore::InterleavedLayoutAttr>(
+                 oldMemRefType.getLayout())) {
+    newLayout = ttcore::InterleavedLayoutAttr::get(
+        newShardShape, oldMemRefType.getElementType());
+  }
+
+  return MemRefType::get(newShape, oldMemRefType.getElementType(), newLayout,
+                         oldMemRefType.getMemorySpace());
 }
 
 std::optional<SmallVector<int64_t>>
@@ -131,6 +169,35 @@ computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
     }
   }
   return constrainedDims;
+}
+
+SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
+    mlir::ArrayRef<mlir::AffineMap> indexingMaps,
+    mlir::ArrayRef<mlir::SmallVector<int64_t>> operandGridShapes,
+    mlir::ArrayRef<int64_t> outputGridShape) {
+  TT_assert(!indexingMaps.empty());
+  TT_assert(indexingMaps.size() == operandGridShapes.size());
+  SmallVector<mlir::AffineMap> maps(indexingMaps.begin(), indexingMaps.end());
+  auto flatInverseMap =
+      ttmlir::utils::concatInversePermutationMap(maps,
+                                                 /*reverse=*/true);
+
+  SmallVector<int64_t> flattenedOperandGridShapes;
+  for (ArrayRef<int64_t> operandGridShape : llvm::reverse(operandGridShapes)) {
+    flattenedOperandGridShapes.append(operandGridShape.begin(),
+                                      operandGridShape.end());
+  }
+  TT_assert(flattenedOperandGridShapes.size() >= outputGridShape.size());
+
+  // Divide out output grid dims first;
+  // concatInversePermutationMap(reverse=true) guarantees output dimensions are
+  // leading in the flattened vector.
+  for (auto [i, dim] : llvm::enumerate(outputGridShape)) {
+    TT_assert(flattenedOperandGridShapes[i] % dim == 0);
+    flattenedOperandGridShapes[i] /= dim;
+  }
+
+  return flatInverseMap.compose(flattenedOperandGridShapes);
 }
 
 SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
