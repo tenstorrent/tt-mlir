@@ -389,6 +389,16 @@ toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
   return tt::tt_metal::CoreRangeSet(coreRanges);
 }
 
+tt::tt_metal::CoreRangeSet
+toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSetT &coreRangeSet) {
+  std::set<tt::tt_metal::CoreRange> coreRanges;
+  for (const tt::target::ttnn::CoreRange coreRange :
+       coreRangeSet.core_ranges) {
+    coreRanges.emplace(toTTNNCoreRange(coreRange));
+  }
+  return tt::tt_metal::CoreRangeSet(coreRanges);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
 fromTTNNCoreRangeSet(flatbuffers::FlatBufferBuilder &fbb,
                      const tt::tt_metal::CoreRangeSet &coreRangeSet) {
