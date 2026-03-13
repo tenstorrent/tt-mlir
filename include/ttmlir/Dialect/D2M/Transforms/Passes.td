@@ -115,16 +115,95 @@ def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleO
 }
 
 def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir::ModuleOp"> {
-  let summary = "";
+  let summary = "Tile linalg.generic compute loops to fit DST register capacity.";
   let description = [{
-    This pass tiles affine compute loops according to the generic's subblock factors.
+    This pass tiles linalg.generic compute loops according to fusion and DST register constraints.
   }];
 
-  list<Option> options = [
-    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
+  let dependentDialects = [
+    "mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::scf::SCFDialect"
   ];
+}
 
-  let dependentDialects = ["mlir::tt::d2m::D2MDialect"];
+def D2MSpillAndScratch : Pass<"d2m-spill-and-scratch", "::mlir::ModuleOp"> {
+  let summary = "Replace intermediate allocations with scratch buffers for fusion.";
+  let description = [{
+    This pass transforms compute regions with multiple `d2m.scratch_space_loop` loop
+    nests to use scratch buffers for intermediate results.
+    This enables efficient pipelining by keeping only a few iterations
+    worth of intermediate data alive at a time.
+
+    The pass performs:
+
+    1. **Loop Nest Identification**: Finds all `affine.for` loops tagged with
+       `d2m.scratch_space_loop` attribute within each `d2m.generic` op.
+
+    2. **Intermediate Detection**: Identifies `memref.alloc` ops that are written
+       by one loop nest and read by another (producer/consumer relationship).
+
+    3. **Scratch Buffer Creation**: For each intermediate allocation:
+       - Computes scratch buffer shape from loop structure:
+         [scratch_space_iterations, inner_dim0, inner_dim1, ...]
+       - Creates a `d2m.scratch_allocate` op with the computed shape
+
+    4. **Store/Load Rewriting**: Updates stores and loads to use scratch buffer
+       with full indices including the scratch_space_loop iterator:
+       - Producer stores: `affine.store %val, %scratch[%i, %j, %k]`
+       - Consumer loads: `affine.load %scratch[%i, %j, %k]`
+
+    5. **Cleanup**: Removes old subviews and full-sized allocations that are
+       no longer used.
+
+    Example transformation:
+    ```mlir
+    // Before (separate loop nests with full-sized intermediate):
+    %alloc_14 = memref.alloc() : memref<8x8x!ttcore.tile<...>, #l1>  // 64 tiles
+    affine.for %i = 0 to 2 {d2m.scratch_space_loop} {  // Producer
+      affine.for %j = 0 to 1 {
+        affine.for %k = 0 to 8 {
+          %result = d2m.tile_add ...
+          affine.store %result, %subview_of_alloc_14[%j, %k]
+        }
+      }
+    }
+    affine.for %i = 0 to 2 {d2m.scratch_space_loop} {  // Consumer
+      affine.for %j = 0 to 1 {
+        affine.for %k = 0 to 8 {
+          %val = affine.load %subview_of_alloc_14[%j, %k]
+          ...
+        }
+      }
+    }
+
+    // After (scratch buffer sized for loop structure):
+    %scratch = d2m.scratch_allocate {slot = 0 : i64}
+               : memref<2x1x8x!ttcore.tile<...>, #l1>
+    affine.for %i = 0 to 2 {d2m.scratch_space_loop} {  // Producer
+      affine.for %j = 0 to 1 {
+        affine.for %k = 0 to 8 {
+          %result = d2m.tile_add ...
+          affine.store %result, %scratch[%i, %j, %k]  // Store with full indices
+        }
+      }
+    }
+    affine.for %i = 0 to 2 {d2m.scratch_space_loop} {  // Consumer
+      affine.for %j = 0 to 1 {
+        affine.for %k = 0 to 8 {
+          %val = affine.load %scratch[%i, %j, %k]  // Load with full indices
+          ...
+        }
+      }
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
 }
 
 def D2MLinalgToAffine : Pass<"d2m-linalg-to-affine", "::mlir::ModuleOp"> {

@@ -21,6 +21,9 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugLog.h"
+
+#include <type_traits>
+
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTDSTREGISTERACCESS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -441,6 +444,38 @@ public:
 
     unsigned getCurrSliceIndex() { return currSliceIndex; }
 
+    // Get the first input slot (for SFPU binary ops that overwrite first
+    // operand)
+    unsigned getFirstInputSliceIndex() {
+      assert(!inputStack.empty() && "No input slots allocated");
+      return inputStack.front();
+    }
+
+    // Deallocate all inputs except the first one (for SFPU binary output reuse)
+    void deallocateAllButFirstInput() {
+      assert(inputStack.size() >= 1 && "Need at least one input to keep");
+
+      // Keep the first input slot (will be used for output)
+      unsigned firstInput = inputStack.front();
+      inputStack.erase(inputStack.begin());
+
+      // Deallocate remaining inputs
+      while (!inputStack.empty()) {
+        unsigned id = inputStack.pop_back_val();
+        sliceStack.push_back(id);
+
+        LDBG() << "======== DEALLOCATE (keeping first) =========";
+        std::string sliceStackStr = "SliceStack = ";
+        for (auto it : sliceStack) {
+          sliceStackStr += std::to_string(it) + ",";
+        }
+        LDBG() << sliceStackStr;
+      }
+
+      // Put the first input back as current (it will be the output)
+      currSliceIndex = firstInput;
+    }
+
   private:
     unsigned dstSliceCapacity = 0;
 
@@ -529,8 +564,15 @@ public:
         }
 
         if (loopOp && loopRegion) {
-          // Remove the marker attribute after identifying the loop.
-          loopOp->removeAttr("d2m.linalg_root");
+          // Skip if already processed (prevents double processing in greedy
+          // rewriter).
+          if (loopOp->hasAttr("d2m.dst_access_inserted")) {
+            return WalkResult::advance();
+          }
+
+          // Mark as processed, but keep d2m.linalg_root for downstream passes
+          // like D2MSFPUTileLoopFission.
+          loopOp->setAttr("d2m.dst_access_inserted", rewriter.getUnitAttr());
 
           // Only enable packer L1 accumulation for matmul_tile loops
           bool packerL1Acc = enableL1Acc && hasTileMatmul(loopOp);
@@ -825,6 +867,31 @@ public:
           collectDstLoadOrStore<affine::AffineStoreOp>(
               gOp, potentialStore, copyInfos, dstSlice,
               outermostInnerComputeLoop);
+        } else if (auto scratchStore = mlir::dyn_cast<memref::StoreOp>(user)) {
+          // Collect DST->scratch stores (scratch spills from SpillAndScratch).
+          assert(!dstSliceAllocationState.didStoreToDst() &&
+                 "Multiple stores from last op to dst not supported");
+
+          const bool rhsIsScalar = computeOp.isScalarOperand(1);
+
+          int dstSlice = -1;
+          if (dstRegInPlace || rhsIsScalar) {
+            bool isUnaryOp = computeOp->getNumOperands() == 1;
+            bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
+            bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
+                               mlir::isa<d2m::TileReduceSumOp>(computeOp);
+            assert(
+                (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
+                "Only unary ops, tile matmul, reductions, and tile+scalar ops "
+                "supported for destination register in place.");
+            dstSlice = dstSliceAllocationState.getCurrSliceIndex();
+          } else {
+            dstSlice = dstSliceAllocationState.allocate();
+            dstSliceAllocationState.setStoreToDst();
+          }
+          collectDstLoadOrStore<memref::StoreOp>(gOp, scratchStore, copyInfos,
+                                                 dstSlice,
+                                                 outermostInnerComputeLoop);
         } else {
           // The consumer is another compute op, set or allocate an intermediate
           // DST slice for it.
@@ -1099,6 +1166,10 @@ public:
       createCopyLoop<affine::AffineStoreOp>(
           rewriter, loopNestOrOp, copyInfo.stores, storeAccessGenerator,
           storeAccessRewriter);
+
+      // Note: scratch stores are now affine::AffineStoreOp (after
+      // SpillAndScratch converts scf.for to affine.for), so they go through
+      // the regular stores path above with isScratchAccess detection.
     }
   }
 
@@ -1147,6 +1218,19 @@ public:
     }
 
     return rewriter.create<scf::IfOp>(loc, guard);
+  }
+
+  // Helper to get access map from load/store operations.
+  // Affine ops have getMap(), memref ops need an identity map.
+  template <typename LoadOrStoreTy>
+  static AffineMap getAccessMap(LoadOrStoreTy op, MLIRContext *ctx) {
+    if constexpr (std::is_same_v<LoadOrStoreTy, memref::StoreOp> ||
+                  std::is_same_v<LoadOrStoreTy, memref::LoadOp>) {
+      // memref ops don't have an affine map, use identity
+      return AffineMap::getMultiDimIdentityMap(op.getIndices().size(), ctx);
+    } else {
+      return op.getMap();
+    }
   }
 
   template <typename LoadOrStoreTy>
@@ -1239,7 +1323,8 @@ public:
         {
           auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
               buildIndices(rewriter, loadStoreLoc, irMapper, loadStoreIndices,
-                           record.dstSlice, loadStoreMap, loadStoreMemRefType);
+                           record.dstSlice, loadStoreMap, loadStoreMemRefType,
+                           loopNestOrOp);
           dstAccessGenerator(rewriter, record, l1AccessMap, l1AccessIndices,
                              dstAccessMap, dstAccessIndices);
         }
@@ -1253,25 +1338,32 @@ public:
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStoreLoc, dummyIRMapper,
                          loadStoreIndices, record.dstSlice, loadStoreMap,
-                         loadStoreMemRefType);
+                         loadStoreMemRefType, loopNestOrOp);
         dstAccessRewriter(rewriter, record, dstAccessMap, dstAccessIndices);
       }
     }
   }
 
   // Build linearized DST access map and indices from enclosing affine.for
-  // loops. This is used for intermediate results in fused compute chains.
-  // Returns {accessMap, accessIndices} where accessMap computes:
-  //   dstSlice + d0 * stride0 + d1 * stride1 + ...
+  // loops within the DST scope. This is used for intermediate results in fused
+  // compute chains. Returns {accessMap, accessIndices} where accessMap
+  // computes: dstSlice + d0 * stride0 + d1 * stride1 + ...
+  //
+  // When linalgRoot is provided, only loops at or inside linalgRoot are
+  // included. Outer loops (scratch_space_loop, gap loops) are excluded.
   static std::pair<AffineMap, SmallVector<Value>>
   buildLinearizedDstAccess(PatternRewriter &rewriter, Operation *op,
-                           int dstSlice) {
-    // Collect enclosing affine.for loops from innermost to outermost.
+                           int dstSlice, Operation *linalgRoot = nullptr) {
+    // Collect enclosing affine.for loops from innermost to outermost,
+    // stopping at the DST scope boundary (linalgRoot).
     SmallVector<affine::AffineForOp> enclosingLoops;
     Operation *current = op->getParentOp();
     while (current) {
       if (auto affineFor = dyn_cast<affine::AffineForOp>(current)) {
         enclosingLoops.push_back(affineFor);
+        if (linalgRoot && current == linalgRoot) {
+          break;
+        }
       }
       current = current->getParentOp();
     }
@@ -1301,9 +1393,10 @@ public:
       // This shouldn't happen in practice for tile loops.
     }
 
-    // Build affine expression: dstSlice + d0*stride0 + d1*stride1 + ...
-    AffineExpr linearExpr =
-        getAffineConstantExpr(dstSlice, rewriter.getContext());
+    // Build affine expression: dstSlice*numTiles + d0*stride0 + d1*stride1 +
+    // ... Scale dstSlice by total inner tiles for non-overlapping DST regions.
+    AffineExpr linearExpr = getAffineConstantExpr(
+        static_cast<int64_t>(dstSlice) * stride, rewriter.getContext());
     for (unsigned i = 0; i < numDims; ++i) {
       AffineExpr dimExpr = getAffineDimExpr(i, rewriter.getContext());
       linearExpr = linearExpr + dimExpr * strides[i];
@@ -1339,8 +1432,9 @@ public:
 
       // DST is a flat 1D array. For multi-tile operations, we need to compute
       // a linearized index from the enclosing loop induction variables.
-      auto [storeMap, storeIndices] =
-          buildLinearizedDstAccess(rewriter, op, dstSlice);
+      // Only loops within the DST scope (at or inside linalgRoot) are included.
+      auto [storeMap, storeIndices] = buildLinearizedDstAccess(
+          rewriter, op, dstSlice, dstInfo.outermostLoop);
 
       rewriter.setInsertionPointAfter(op);
 
@@ -1387,58 +1481,114 @@ public:
     }
   }
 
+  // Check if a value is an induction variable of a loop within the DST scope.
+  // The DST scope is defined by the d2m.linalg_root loop: only IVs from that
+  // loop or its descendants should contribute to DST linearization.
+  static bool isDstScopeIV(Value iv, Operation *linalgRoot) {
+    if (!linalgRoot) {
+      return true;
+    }
+    if (auto blockArg = dyn_cast<BlockArgument>(iv)) {
+      Operation *parentOp = blockArg.getOwner()->getParentOp();
+      return linalgRoot == parentOp || linalgRoot->isProperAncestor(parentOp);
+    }
+    if (auto *defOp = iv.getDefiningOp()) {
+      return linalgRoot == defOp || linalgRoot->isProperAncestor(defOp);
+    }
+    return false;
+  }
+
   // Returns the indices and the map for the load store from L1 and Dst.
   //   tuple(l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices).
   // DST is a flat 1D array. For multi-tile CBs, we linearize the loop indices
   // to compute the DST slot: dstSlice + linearize(indices, shape).
+  //
+  // The linalgRoot parameter (the d2m.linalg_root loop) determines the DST
+  // scope boundary. Only IVs from linalgRoot or its descendants contribute to
+  // DST linearization. Outer loop IVs (scratch_space_loop, gap loops, shared
+  // outer loops) are excluded because DST is re-acquired each iteration at
+  // the linalgRoot boundary.
   static std::tuple<AffineMap, SmallVector<Value>, AffineMap,
                     SmallVector<Value>>
   buildIndices(PatternRewriter &rewriter, Location loc,
                const mlir::IRMapping &irMapper, ValueRange currentIndices,
-               int dstSlice, AffineMap map, MemRefType cbType) {
+               int dstSlice, AffineMap map, MemRefType cbType,
+               Operation *linalgRoot = nullptr) {
     AffineMap l1AccessMap = map;
     SmallVector<Value> l1AccessIndices =
         llvm::to_vector(llvm::map_range(currentIndices, [&](Value index) {
           return irMapper.lookupOrDefault(index);
         }));
 
-    // DST is a flat 1D array. Compute linearized index from loop variables.
-    // For CB shape [M, N] and indices (i, j): dst_index = dstSlice + i*N + j
     ArrayRef<int64_t> cbShape = cbType.getShape();
-    unsigned numDims = l1AccessIndices.size();
 
-    if (numDims == 0 || cbShape.empty()) {
-      // No indices or empty shape - use constant dstSlice.
+    // Use the affine map result expressions to correctly associate each
+    // operand with its corresponding cbShape dimension. Maps may have constant
+    // results (e.g., "0" in "(d0 floordiv 2, 0, d1, d2)") that don't consume
+    // an operand, so positional mapping of operands to cbShape is incorrect.
+    SmallVector<Value> dstOperands;
+    SmallVector<int64_t> dstDims;
+
+    unsigned numResults = map.getNumResults();
+    for (unsigned resultDim = 0;
+         resultDim < numResults && resultDim < cbShape.size(); ++resultDim) {
+      AffineExpr expr = map.getResult(resultDim);
+
+      // Find the unique operand (dim variable) this result expression uses.
+      SmallVector<unsigned, 2> dimPositions;
+      expr.walk([&](AffineExpr e) {
+        if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(e)) {
+          if (!llvm::is_contained(dimPositions, dimExpr.getPosition())) {
+            dimPositions.push_back(dimExpr.getPosition());
+          }
+        }
+      });
+
+      if (dimPositions.size() != 1 ||
+          dimPositions[0] >= currentIndices.size()) {
+        continue;
+      }
+
+      unsigned operandIdx = dimPositions[0];
+      if (isDstScopeIV(currentIndices[operandIdx], linalgRoot)) {
+        dstOperands.push_back(
+            irMapper.lookupOrDefault(currentIndices[operandIdx]));
+        dstDims.push_back(cbShape[resultDim]);
+      }
+    }
+
+    unsigned numDstDims = dstOperands.size();
+    if (numDstDims == 0) {
       AffineMap dstAccessMap =
           AffineMap::getConstantMap(dstSlice, rewriter.getContext());
       return {l1AccessMap, l1AccessIndices, dstAccessMap, {}};
     }
 
-    // Build linearization expression: dstSlice + sum(index[i] * stride[i])
-    // where stride[i] = product of cbShape[i+1..n-1]
-    SmallVector<AffineExpr> linearExprs;
-    AffineExpr linearExpr =
-        getAffineConstantExpr(dstSlice, rewriter.getContext());
-
-    // Compute strides from right to left.
+    // Build linearization: dstSlice*numTiles + d0*stride0 + d1*stride1 + ...
+    // Strides are derived from the CB shape dimensions corresponding to the
+    // DST-scope operands. The dstSlice is scaled by the total number of inner
+    // tiles so that different operands occupy non-overlapping DST regions
+    // (required for SFPU ops where all operands must reside in DST).
     int64_t stride = 1;
-    SmallVector<int64_t> strides(numDims, 1);
-    for (int i = numDims - 1; i >= 0; --i) {
+    SmallVector<int64_t> strides(numDstDims, 1);
+    for (int i = numDstDims - 1; i >= 0; --i) {
       strides[i] = stride;
-      if (i < static_cast<int>(cbShape.size())) {
-        stride *= cbShape[i];
+      if (i < static_cast<int>(dstDims.size())) {
+        stride *= dstDims[i];
       }
     }
 
-    // Build affine expression: dstSlice + d0*stride0 + d1*stride1 + ...
-    for (unsigned i = 0; i < numDims; ++i) {
+    AffineExpr linearExpr = getAffineConstantExpr(
+        static_cast<int64_t>(dstSlice) * stride, rewriter.getContext());
+
+    for (unsigned i = 0; i < numDstDims; ++i) {
       AffineExpr dimExpr = getAffineDimExpr(i, rewriter.getContext());
       linearExpr = linearExpr + dimExpr * strides[i];
     }
 
     AffineMap dstAccessMap =
-        AffineMap::get(numDims, 0, linearExpr, rewriter.getContext());
-    return {l1AccessMap, l1AccessIndices, dstAccessMap, l1AccessIndices};
+        AffineMap::get(numDstDims, 0, linearExpr, rewriter.getContext());
+    return {l1AccessMap, l1AccessIndices, dstAccessMap, dstOperands};
   }
 
   template <typename LoadStoreOpTy>
@@ -1485,7 +1635,8 @@ public:
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), irMapper,
                          loadStore.getIndices(), dstSliceIndex,
-                         loadStore.getMap(), loadStore.getMemRefType());
+                         loadStore.getMap(), loadStore.getMemRefType(),
+                         loopNestOrOp);
         loadStoreDstAccessGenerator(
             rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
             l1AccessIndices, dstAccessMap, dstAccessIndices);
@@ -1493,13 +1644,14 @@ public:
 
       // Replace the original load store with one from dst.
       {
-        // Empty IR mapper because we want to preserve original loop vars.
+        // Empty IR mapper because we want to preserve original load vars.
         mlir::IRMapping dummyIRMapper;
         rewriter.setInsertionPoint(loadStore);
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), dummyIRMapper,
                          loadStore.getIndices(), dstSliceIndex,
-                         loadStore.getMap(), loadStore.getMemRefType());
+                         loadStore.getMap(), loadStore.getMemRefType(),
+                         loopNestOrOp);
         dstAccessReplacement(rewriter, loadStore, dstAccessMap,
                              dstAccessIndices);
       }
@@ -1534,7 +1686,8 @@ public:
       auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
           buildIndices(rewriter, loadStore.getLoc(), emptyIRMapper,
                        loadStore.getIndices(), dstSliceIndex,
-                       loadStore.getMap(), loadStore.getMemRefType());
+                       loadStore.getMap(), loadStore.getMemRefType(),
+                       loopNestOrOp);
 
       // Set insertion point AT the original load/store, so new operations
       // are inserted BEFORE it.
@@ -1620,18 +1773,13 @@ public:
           int64_t dstSliceIndex = -1;
           // If op has scalar rhs, treat it as in-place (unary-like behavior)
           if (dstRegInPlace || rhsIsScalar) {
-            bool isUnaryOp = computeOp->getNumOperands() == 1;
-            bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
-            bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
-                               mlir::isa<d2m::TileReduceSumOp>(computeOp);
-            assert(
-                (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
-                "Only unary ops, tile matmul, reductions, and tile+scalar ops "
-                "supported for destination register in place, multi-operand "
-                "ops "
-                "would reference wrong tile, but those ops should be setting "
-                "output tile.");
             dstSliceIndex = dstStackAllocator.getCurrSliceIndex();
+          } else if (numLoads >= 2) {
+            // SFPU binary/ternary ops: output overwrites first operand's slot
+            // to maximize DST utilization (e.g., a0,a1,b0,b1 -> c0,a1,c1,b1)
+            dstSliceIndex = dstStackAllocator.getFirstInputSliceIndex();
+            dstStackAllocator.deallocateAllButFirstInput();
+            dstStackAllocator.setStoreToDst();
           } else {
             dstSliceIndex = dstStackAllocator.allocate(true);
             dstStackAllocator.setStoreToDst();
@@ -1664,21 +1812,22 @@ public:
               hasTileInputs &&
               (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1));
 
-          // If op stores to dst in place or has scalar rhs, we don't need to
-          // allocate a new dst register, just use the current dst index.
-          int32_t allocatedIndex = (overwriteInput)
-                                       ? dstStackAllocator.getCurrSliceIndex()
-                                       : dstStackAllocator.allocate(true);
+          int32_t allocatedIndex;
+          if (overwriteInput) {
+            // Unary ops or scalar RHS: output overwrites the single input
+            allocatedIndex = dstStackAllocator.getCurrSliceIndex();
+          } else if (numLoads >= 2) {
+            // SFPU binary/ternary ops: output overwrites first operand's slot
+            // to maximize DST utilization (e.g., a0,a1,b0,b1 -> c0,a1,c1,b1)
+            allocatedIndex = dstStackAllocator.getFirstInputSliceIndex();
+            dstStackAllocator.deallocateAllButFirstInput();
+          } else {
+            // Fallback: allocate a new slot
+            allocatedIndex = dstStackAllocator.allocate(true);
+          }
 
           dstIntermediates[computeOp] = {allocatedIndex,
                                          outermostInnerComputeLoop};
-
-          if (!overwriteInput) {
-            // binary ops must deallocate all non-scalar inputs
-            for (int i = 0; i < numLoads; ++i) {
-              dstStackAllocator.deallocate();
-            }
-          }
         }
       }
     });

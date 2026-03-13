@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -31,7 +30,12 @@ static DstExecutionClass classifyComputeOp(Operation *op) {
   if (mlir::isa<TileAddOp, TileSubOp, TileMulOp>(op)) {
     TT_assertv(op->getNumOperands() == 2u,
                "expected binary op for tile add/sub/mul");
+    Type lhsType = op->getOperand(0).getType();
     Type rhsType = op->getOperand(1).getType();
+    if (ttcore::getDataType(lhsType) == ttcore::DataType::Float32 ||
+        ttcore::getDataType(rhsType) == ttcore::DataType::Float32) {
+      return DstExecutionClass::SFPU;
+    }
     if (mlir::isa<ttcore::TileType>(rhsType)) {
       return DstExecutionClass::FPU;
     }
@@ -199,14 +203,12 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     results.numTilesPerResult = 1;
     results.numOuterLoopIters = 1;
     for (Value outputValue : singleTileOutputValues) {
-      if (!results.perResult
-               .try_emplace(outputValue,
-                            DSTPackingPerResultInfo{/*numDstFlips=*/1,
-                                                    /*numTilesPerFlip=*/1})
-               .second) {
-        generic.emitOpError("expected unique linalg.generic output values");
-        return std::nullopt;
-      }
+      // Fused generics may have multiple linalg ops writing to the same output
+      // buffer (e.g., intermediate reuse after elementwise fusion). Skip
+      // duplicates since the packing info is identical for the same Value.
+      results.perResult.try_emplace(
+          outputValue, DSTPackingPerResultInfo{/*numDstFlips=*/1,
+                                               /*numTilesPerFlip=*/1});
     }
     return results;
   }
@@ -249,14 +251,12 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
       return std::nullopt;
     }
 
-    if (!results.perResult
-             .try_emplace(
-                 pending.outputValue,
-                 DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip})
-             .second) {
-      generic.emitOpError("expected unique linalg.generic output values");
-      return std::nullopt;
-    }
+    // Fused generics may have multiple linalg ops writing to the same output
+    // buffer. Skip duplicates — the packing info is identical for the same
+    // Value since it has the same shard shape.
+    results.perResult.try_emplace(
+        pending.outputValue,
+        DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip});
   }
 
   TT_assertv(commonNumTilesPerResult.has_value(),
