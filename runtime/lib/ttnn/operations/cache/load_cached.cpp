@@ -126,7 +126,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
     const ::ttnn::Tensor &t = w.getTensor();
     size_t bytes = getTensorHostBytes(t);
     totalOutputBytes += bytes;
-    LOG_INFO("[ConstEvalMem] ", constEvalFuncname, " output[", i,
+    LOG_INFO("[ConstEvalMem] ", constEvalFuncname, " output [", i,
              "] storage=", static_cast<int>(t.storage_type()),
              " volume=", t.physical_volume(), " elem_size=", t.element_size(),
              " host_bytes=", bytes);
