@@ -756,8 +756,8 @@ public:
 
       // Build a temporary typed Value to feed convertMemrefToTTNNTensor.
       // We use an unrealized_conversion_cast as a placeholder.
-      auto placeholder = rewriter.create<mlir::UnrealizedConversionCastOp>(
-          op.getLoc(), shardMemrefType, ValueRange{});
+      auto placeholder = mlir::UnrealizedConversionCastOp::create(
+          rewriter, op.getLoc(), shardMemrefType, ValueRange{});
       auto convertedTensorType =
           detail::convertMemrefToTTNNTensor(ctx, placeholder.getResult(0));
       rewriter.eraseOp(placeholder);
@@ -854,8 +854,8 @@ public:
       auto memcfg = ttnn::MemoryConfigAttr::get(emptyLayoutAttr,
                                                 deviceAttr.getWorkerGrid());
 
-      auto emptyOp = rewriter.create<ttnn::EmptyOp>(
-          op.getLoc(), emptyTensorType, device,
+      auto emptyOp = ttnn::EmptyOp::create(
+          rewriter, op.getLoc(), emptyTensorType, device,
           ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
           ttcore::DataTypeAttr::get(ctx, emptyLayoutAttr.getDataType()),
           ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()), memcfg);

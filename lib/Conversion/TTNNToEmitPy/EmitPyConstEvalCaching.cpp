@@ -145,9 +145,9 @@ public:
 
       // Create if-guard and move the caching ops into the if body.
       builder.setInsertionPoint(opsToGuardChain.front());
-      auto ifOp = builder.create<emitpy::IfOp>(funcOp.getLoc(),
-                                               builder.getStringAttr("not {}"),
-                                               ValueRange{cacheDict});
+      auto ifOp = emitpy::IfOp::create(builder, funcOp.getLoc(),
+                                       builder.getStringAttr("not {}"),
+                                       ValueRange{cacheDict});
 
       auto *ifBody = builder.createBlock(&ifOp.getThenRegion());
       for (Operation *op : opsToGuardChain) {

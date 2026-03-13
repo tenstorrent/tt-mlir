@@ -81,9 +81,10 @@ public:
 
     // All users validated - create reduce_scatter for each all_slice.
     for (mlir::sdy::AllSliceOp allSliceOp : allSliceUsers) {
-      auto reduceScatterOp = rewriter.create<mlir::sdy::ReduceScatterOp>(
-          allReduceOp.getLoc(), allSliceOp.getType(), allReduceOp.getOperand(),
-          allSliceOp.getSlicingAxes(), allSliceOp.getOutSharding());
+      auto reduceScatterOp = mlir::sdy::ReduceScatterOp::create(
+          rewriter, allReduceOp.getLoc(), allSliceOp.getType(),
+          allReduceOp.getOperand(), allSliceOp.getSlicingAxes(),
+          allSliceOp.getOutSharding());
       rewriter.replaceOp(allSliceOp, reduceScatterOp.getResult());
     }
 

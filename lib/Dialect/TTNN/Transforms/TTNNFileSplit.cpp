@@ -127,9 +127,9 @@ private:
 
     // Create the file containers.
     builder.setInsertionPointToStart(&moduleOp.getBodyRegion().front());
-    auto mainFile = builder.create<FileOpTy>(moduleOp.getLoc(), kMainFileName);
+    auto mainFile = FileOpTy::create(builder, moduleOp.getLoc(), kMainFileName);
     auto constevalFile =
-        builder.create<FileOpTy>(moduleOp.getLoc(), kConstevalFileName);
+        FileOpTy::create(builder, moduleOp.getLoc(), kConstevalFileName);
 
     // Move const-eval functions to the consteval file. Clone
     // CPU-hoisted declarations into both files so that func.call ops
@@ -199,8 +199,8 @@ private:
     auto wrapperFuncType = builder.getFunctionType(wrapperArgTypes, {dictType});
 
     builder.setInsertionPointToEnd(&constevalFile.getBodyRegion().front());
-    auto wrapperFunc = builder.create<func::FuncOp>(
-        forwardFunc.getLoc(), wrapperName, wrapperFuncType);
+    auto wrapperFunc = func::FuncOp::create(builder, forwardFunc.getLoc(),
+                                            wrapperName, wrapperFuncType);
     wrapperFunc.addEntryBlock();
 
     Block &forwardBody = forwardFunc.getBody().front();
@@ -240,9 +240,8 @@ private:
     }
 
     // Create the return operation in the wrapper function.
-    builder.create<func::ReturnOp>(
-        forwardFunc.getLoc(),
-        ValueRange{mapping.lookup(cacheDict.getResult())});
+    func::ReturnOp::create(builder, forwardFunc.getLoc(),
+                           ValueRange{mapping.lookup(cacheDict.getResult())});
 
     // Insert a call to the wrapper function after the cache dictionary
     // retrieval in the forward function.
@@ -251,8 +250,9 @@ private:
     callArgs.push_back(cacheDict.getResult());
     callArgs.append(forwardBody.getArguments().begin(),
                     forwardBody.getArguments().end());
-    auto callOp = builder.create<func::CallOp>(
-        forwardFunc.getLoc(), wrapperName, TypeRange{dictType}, callArgs);
+    auto callOp =
+        func::CallOp::create(builder, forwardFunc.getLoc(), wrapperName,
+                             TypeRange{dictType}, callArgs);
 
     // Update dictionary lookup operations to use the dictionary that wrapper
     // function returns.
@@ -271,8 +271,8 @@ private:
     // Create a declaration of the wrapper function in the main file so that
     // func.call op can resolve the symbol.
     builder.setInsertionPointToEnd(&mainFile.getBodyRegion().front());
-    auto privateDecl = builder.create<func::FuncOp>(
-        forwardFunc.getLoc(), wrapperName, wrapperFuncType);
+    auto privateDecl = func::FuncOp::create(builder, forwardFunc.getLoc(),
+                                            wrapperName, wrapperFuncType);
     privateDecl.setPrivate();
 
     return success();

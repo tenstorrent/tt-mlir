@@ -72,35 +72,35 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
                      Value coreIdx, int64_t shardSize) {
 
     Value shardSizeVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, shardSize);
+        arith::ConstantIndexOp::create(rewriter, loc, shardSize);
     Value globalCoreStart =
-        rewriter.create<arith::MulIOp>(loc, coreIdx, shardSizeVal);
+        arith::MulIOp::create(rewriter, loc, coreIdx, shardSizeVal);
 
     Value globalRegionStartVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, globalRegionStart);
+        arith::ConstantIndexOp::create(rewriter, loc, globalRegionStart);
     Value globalRegionEndVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, globalRegionEnd);
+        arith::ConstantIndexOp::create(rewriter, loc, globalRegionEnd);
 
     // We define localStart = max(globalRegionStart - globalCoreStart, 0); in
     // turn this can be rewritten as localStart = globalRegionStart -
     // min(globalRegionStart, globalCoreStart).
-    Value clampedStart = rewriter.create<arith::MinUIOp>(
-        loc, globalRegionStartVal, globalCoreStart);
-    Value localStart =
-        rewriter.create<arith::SubIOp>(loc, globalRegionStartVal, clampedStart);
+    Value clampedStart = arith::MinUIOp::create(
+        rewriter, loc, globalRegionStartVal, globalCoreStart);
+    Value localStart = arith::SubIOp::create(
+        rewriter, loc, globalRegionStartVal, clampedStart);
 
     // Similarly, we define localEnd = min(globalRegionEnd - globalCoreStart,
     // shardSize). However, to avoid underflow on unsigned, we re-express it as
     // clampedEnd = max(min(globalRegionEnd, globalCoreEnd), globalCoreStart),
     // and localEnd = clampedEnd - globalCoreStart, which is equivalent.
     Value globalCoreEnd =
-        rewriter.create<arith::AddIOp>(loc, globalCoreStart, shardSizeVal);
-    Value clampedEnd =
-        rewriter.create<arith::MinUIOp>(loc, globalRegionEndVal, globalCoreEnd);
+        arith::AddIOp::create(rewriter, loc, globalCoreStart, shardSizeVal);
+    Value clampedEnd = arith::MinUIOp::create(rewriter, loc, globalRegionEndVal,
+                                              globalCoreEnd);
     clampedEnd =
-        rewriter.create<arith::MaxUIOp>(loc, clampedEnd, globalCoreStart);
+        arith::MaxUIOp::create(rewriter, loc, clampedEnd, globalCoreStart);
     Value localEnd =
-        rewriter.create<arith::SubIOp>(loc, clampedEnd, globalCoreStart);
+        arith::SubIOp::create(rewriter, loc, clampedEnd, globalCoreStart);
 
     return {localStart, localEnd};
   }
@@ -186,91 +186,93 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     int64_t totalTileRows = shardTileRows * gridShape[gridShape.size() - 2];
     int64_t totalTileCols = shardTileCols * gridShape[gridShape.size() - 1];
 
-    Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+    Value zeroIdx = arith::ConstantIndexOp::create(rewriter, loc, 0);
+    Value oneIdx = arith::ConstantIndexOp::create(rewriter, loc, 1);
 
     double fillValueDouble = getFillValueAsDouble(fillOOBVal);
-    Value fillScalar = rewriter.create<arith::ConstantOp>(
-        loc, elemType, rewriter.getFloatAttr(elemType, fillValueDouble));
+    Value fillScalar = arith::ConstantOp::create(
+        rewriter, loc, elemType,
+        rewriter.getFloatAttr(elemType, fillValueDouble));
 
     // Get this core's coordinates.
-    Value coreY = rewriter.create<CoreIndexOp>(
-        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(0), nullptr);
-    Value coreX = rewriter.create<CoreIndexOp>(
-        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(1), nullptr);
+    Value coreY = CoreIndexOp::create(rewriter, loc, rewriter.getIndexType(),
+                                      rewriter.getI64IntegerAttr(0), nullptr);
+    Value coreX = CoreIndexOp::create(rewriter, loc, rewriter.getIndexType(),
+                                      rewriter.getI64IntegerAttr(1), nullptr);
 
     // Write the mask tiles.
     Value validRowsVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, validRowsInLastTile);
+        arith::ConstantIndexOp::create(rewriter, loc, validRowsInLastTile);
     Value validColsVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, validColsInLastTile);
+        arith::ConstantIndexOp::create(rewriter, loc, validColsInLastTile);
 
     TT_assert(rowMaskCB);
-    rewriter.create<WriteRowMaskTileOp>(loc, validRowsVal, rowMaskCB);
+    WriteRowMaskTileOp::create(rewriter, loc, validRowsVal, rowMaskCB);
     TT_assert(colMaskCB);
-    rewriter.create<WriteColMaskTileOp>(loc, validColsVal, colMaskCB);
+    WriteColMaskTileOp::create(rewriter, loc, validColsVal, colMaskCB);
 
     // === Tile operation helpers ===
     auto createFillTile = [&]() {
-      return rewriter.create<TileFillOp>(loc, tileType, fillScalar).getResult();
+      return TileFillOp::create(rewriter, loc, tileType, fillScalar)
+          .getResult();
     };
 
     auto emitPassthrough = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
-      rewriter.create<memref::StoreOp>(loc, inputTile.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+      auto inputTile = memref::LoadOp::create(
+          rewriter, loc, input, ValueRange{localRowIdx, localColIdx});
+      memref::StoreOp::create(rewriter, loc, inputTile.getResult(), output,
+                              ValueRange{localRowIdx, localColIdx});
     };
 
     auto emitRowMasked = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
+      auto inputTile = memref::LoadOp::create(
+          rewriter, loc, input, ValueRange{localRowIdx, localColIdx});
       auto fillTile = createFillTile();
-      auto rowMaskTile = rewriter.create<memref::LoadOp>(
-          loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto rowMaskTile = memref::LoadOp::create(rewriter, loc, rowMaskCB,
+                                                ValueRange{zeroIdx, zeroIdx});
       auto result =
-          rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
-                                       inputTile.getResult(), fillTile);
-      rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+          TileWhereOp::create(rewriter, loc, tileType, rowMaskTile.getResult(),
+                              inputTile.getResult(), fillTile);
+      memref::StoreOp::create(rewriter, loc, result.getResult(), output,
+                              ValueRange{localRowIdx, localColIdx});
     };
 
     auto emitColMasked = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
+      auto inputTile = memref::LoadOp::create(
+          rewriter, loc, input, ValueRange{localRowIdx, localColIdx});
       auto fillTile = createFillTile();
-      auto colMaskTile = rewriter.create<memref::LoadOp>(
-          loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto colMaskTile = memref::LoadOp::create(rewriter, loc, colMaskCB,
+                                                ValueRange{zeroIdx, zeroIdx});
       auto result =
-          rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
-                                       inputTile.getResult(), fillTile);
-      rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+          TileWhereOp::create(rewriter, loc, tileType, colMaskTile.getResult(),
+                              inputTile.getResult(), fillTile);
+      memref::StoreOp::create(rewriter, loc, result.getResult(), output,
+                              ValueRange{localRowIdx, localColIdx});
     };
 
     auto emitCornerMasked = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
+      auto inputTile = memref::LoadOp::create(
+          rewriter, loc, input, ValueRange{localRowIdx, localColIdx});
       auto fillTile1 = createFillTile();
-      auto rowMaskTile = rewriter.create<memref::LoadOp>(
-          loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto rowMaskTile = memref::LoadOp::create(rewriter, loc, rowMaskCB,
+                                                ValueRange{zeroIdx, zeroIdx});
       auto rowMaskedResult =
-          rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
-                                       inputTile.getResult(), fillTile1);
+          TileWhereOp::create(rewriter, loc, tileType, rowMaskTile.getResult(),
+                              inputTile.getResult(), fillTile1);
       auto fillTile2 = createFillTile();
-      auto colMaskTile = rewriter.create<memref::LoadOp>(
-          loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto colMaskTile = memref::LoadOp::create(rewriter, loc, colMaskCB,
+                                                ValueRange{zeroIdx, zeroIdx});
       auto finalResult =
-          rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
-                                       rowMaskedResult.getResult(), fillTile2);
-      rewriter.create<memref::StoreOp>(loc, finalResult.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+          TileWhereOp::create(rewriter, loc, tileType, colMaskTile.getResult(),
+                              rowMaskedResult.getResult(), fillTile2);
+      memref::StoreOp::create(rewriter, loc, finalResult.getResult(), output,
+                              ValueRange{localRowIdx, localColIdx});
     };
 
     auto emitFill = [&](Value localRowIdx, Value localColIdx) {
       auto fillTile = createFillTile();
-      rewriter.create<memref::StoreOp>(loc, fillTile, output,
-                                       ValueRange{localRowIdx, localColIdx});
+      memref::StoreOp::create(rewriter, loc, fillTile, output,
+                              ValueRange{localRowIdx, localColIdx});
     };
 
     // Helper to create a nested loop over local coordinates.
@@ -278,11 +280,11 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
                                Value colEnd,
                                std::function<void(Value, Value)> emitBody) {
       auto outerLoop =
-          rewriter.create<scf::ForOp>(loc, rowStart, rowEnd, oneIdx);
+          scf::ForOp::create(rewriter, loc, rowStart, rowEnd, oneIdx);
       rewriter.setInsertionPointToStart(outerLoop.getBody());
 
       auto innerLoop =
-          rewriter.create<scf::ForOp>(loc, colStart, colEnd, oneIdx);
+          scf::ForOp::create(rewriter, loc, colStart, colEnd, oneIdx);
       // Mark the INNER loop as the compute root, since that's where
       // the actual compute operations are emitted. This ensures DST
       // syncs are placed inside the inner loop body, not the outer.

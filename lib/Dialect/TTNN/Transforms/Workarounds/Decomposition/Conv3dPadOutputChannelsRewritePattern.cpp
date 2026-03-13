@@ -42,12 +42,13 @@ LogicalResult Conv3dPadOutputChannelsRewritePattern::matchAndRewrite(
       utils::RankedTensorTypeFactory::create(weightType, paddedWeightShape);
 
   auto paddedWeight =
-      rewriter.create<PadOp>(ttmlir::utils::appendLocationSuffix(
-                                 srcOp.getWeight().getLoc(), "_pad_out_ch"),
-                             paddedWeightType, srcOp.getWeight(), weightPadding,
-                             /*pad_value=*/mlir::APFloat(0.0f),
-                             /*use_multicore=*/false,
-                             /*memory_config=*/nullptr);
+      PadOp::create(rewriter,
+                    ttmlir::utils::appendLocationSuffix(
+                        srcOp.getWeight().getLoc(), "_pad_out_ch"),
+                    paddedWeightType, srcOp.getWeight(), weightPadding,
+                    /*pad_value=*/mlir::APFloat(0.0f),
+                    /*use_multicore=*/false,
+                    /*memory_config=*/nullptr);
 
   // Pad bias tensor if present: (1, O) -> (1, O_padded)
   Value paddedBias = srcOp.getBias();
@@ -63,8 +64,8 @@ LogicalResult Conv3dPadOutputChannelsRewritePattern::matchAndRewrite(
     auto paddedBiasType =
         utils::RankedTensorTypeFactory::create(biasType, paddedBiasShape);
 
-    paddedBias =
-        rewriter.create<PadOp>(ttmlir::utils::appendLocationSuffix(
+    paddedBias = PadOp::create(rewriter,
+                               ttmlir::utils::appendLocationSuffix(
                                    srcOp.getBias().getLoc(), "_pad_out_ch"),
                                paddedBiasType, srcOp.getBias(), biasPadding,
                                /*pad_value=*/mlir::APFloat(0.0f),
@@ -93,9 +94,9 @@ LogicalResult Conv3dPadOutputChannelsRewritePattern::matchAndRewrite(
   }
 
   // Create new conv3d with padded output channels.
-  auto paddedConvOp = rewriter.create<Conv3dOp>(
-      srcOp.getLoc(), paddedOutputType, srcOp.getInput(), paddedWeight,
-      paddedBias, srcOp.getDevice(),
+  auto paddedConvOp = Conv3dOp::create(
+      rewriter, srcOp.getLoc(), paddedOutputType, srcOp.getInput(),
+      paddedWeight, paddedBias, srcOp.getDevice(),
       rewriter.getI32IntegerAttr(srcOp.getInChannels()),
       rewriter.getI32IntegerAttr(paddedOutChannels),
       rewriter.getI32IntegerAttr(srcOp.getBatchSize()),
@@ -113,7 +114,8 @@ LogicalResult Conv3dPadOutputChannelsRewritePattern::matchAndRewrite(
   SmallVector<int32_t> ends(outputType.getShape());
   SmallVector<int32_t> steps(rank, 1);
 
-  auto sliceOp = rewriter.create<SliceStaticOp>(
+  auto sliceOp = SliceStaticOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_slice_out_ch"),
       outputType, paddedConvOp, rewriter.getI32ArrayAttr(begins),
       rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));

@@ -2,9 +2,9 @@ cmake_minimum_required(VERSION 3.20.0)
 project(ttmlir-toolchain LANGUAGES CXX C)
 
 set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
-set(LLVM_PROJECT_VERSION "4efe170d858eb54432f520abb4e7f0086236748b")
-set(STABLEHLO_VERSION "0a4440a5c8de45c4f9649bf3eb4913bf3f97da0d")
-set(SHARDY_VERSION "edfd6730ddfc39da5fbea8b6b202357fdf1cdb90")
+set(LLVM_PROJECT_VERSION "1053047a4be7d1fece3adaf5e7597f838058c947")
+set(STABLEHLO_VERSION "43550117525e77084ac1f83ba50febc0688f7958")
+set(SHARDY_VERSION "4069e470c94d7b08f129ef1607aa2be8f4c06b53")
 set(LLVM_BUILD_TYPE MinSizeRel CACHE STRING "Build type for LLVM")
 
 include(ExternalProject)
@@ -52,7 +52,7 @@ if(TTMLIR_BUILD_LLVM)
         llvm-project
         # Super hacky way to install the python dependencies before the build
         # Sync nanobind with tt-metal's pinned version to avoid ODR violations
-        PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r mlir/python/requirements.txt && pip install --force-reinstall 'nanobind==2.10.2' && git config user.email \"tt-mlir@tenstorrent.com\" && git config user.name \"tenstorrent\" && git apply --index \"${CMAKE_CURRENT_LIST_DIR}/patches/affine-allow-symbol-vars.patch\" && git commit -m \"tt-mlir related patch\""
+        PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r mlir/python/requirements.txt && pip install --force-reinstall 'nanobind==2.10.2' && git config user.email \"tt-mlir@tenstorrent.com\" && git config user.name \"tenstorrent\" "
         CMAKE_GENERATOR Ninja
         CMAKE_ARGS
         -DCMAKE_BUILD_TYPE=${LLVM_BUILD_TYPE}
@@ -97,7 +97,7 @@ ExternalProject_Add(shardy
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""
-   PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/shardy.patch" && git commit -m "tt-mlir related patch" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/shardy_mpmd_pybinds.patch" && git commit -m "tt-mlir related patch"
+   PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/shardy.patch" && git commit -m "tt-mlir shardy.patch"
 )
 
 if(TTMLIR_BUILD_LLVM)

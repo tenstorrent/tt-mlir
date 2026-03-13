@@ -79,10 +79,11 @@ Value createReshape(IRRewriter &rewriter, Location loc, Value input,
                     RankedTensorType refType) {
   auto resultType = RankedTensorType::get(newShape, refType.getElementType(),
                                           refType.getEncoding());
-  return rewriter
-      .create<ttir::ReshapeOp>(
-          loc, resultType, input,
-          rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(newShape)))
+  return ttir::ReshapeOp::create(
+             rewriter,
+
+             loc, resultType, input,
+             rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(newShape)))
       .getResult();
 }
 
@@ -97,7 +98,7 @@ Value createPermuteSwapLastTwoDims(IRRewriter &rewriter, Location loc,
   }
   auto resultType = RankedTensorType::get(resultShape, refType.getElementType(),
                                           refType.getEncoding());
-  return rewriter.create<ttir::PermuteOp>(loc, resultType, input, perm)
+  return ttir::PermuteOp::create(rewriter, loc, resultType, input, perm)
       .getResult();
 }
 
@@ -239,7 +240,7 @@ private:
         input = createReshape(rewriter, loc, input, outputSwapped, inputType);
       }
       auto perm = buildLastTwoSwapPerm(outputShape.size());
-      return rewriter.create<ttir::PermuteOp>(loc, outputType, input, perm)
+      return ttir::PermuteOp::create(rewriter, loc, outputType, input, perm)
           .getResult();
     }
 
@@ -279,7 +280,7 @@ private:
       input = createReshape(rewriter, loc, input, outputSwapped, inputType);
     }
     auto perm = buildLastTwoSwapPerm(outputShape.size());
-    return rewriter.create<ttir::PermuteOp>(loc, outputType, input, perm)
+    return ttir::PermuteOp::create(rewriter, loc, outputType, input, perm)
         .getResult();
   }
 

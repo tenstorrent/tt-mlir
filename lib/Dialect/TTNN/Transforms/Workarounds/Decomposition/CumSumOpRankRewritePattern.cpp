@@ -39,10 +39,10 @@ CumSumOpRankRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
   RankedTensorType outputType = srcOp.getResult().getType();
   RankedTensorType adaptedOutputType =
       utils::RankedTensorTypeFactory::create(outputType, adaptedShape);
-  MorehCumSumOp adaptedCumSumOp =
-      rewriter.create<mlir::tt::ttnn::MorehCumSumOp>(
-          srcOp->getLoc(), adaptedOutputType, adaptedInput, srcOp.getDim(),
-          /*memory_config=*/nullptr);
+  MorehCumSumOp adaptedCumSumOp = mlir::tt::ttnn::MorehCumSumOp::create(
+      rewriter, srcOp->getLoc(), adaptedOutputType, adaptedInput,
+      srcOp.getDim(),
+      /*memory_config=*/nullptr);
 
   ReshapeOp cumsumOutput = ttir_to_ttnn::utils::generateReshape(
       adaptedCumSumOp, srcOp.getResult().getType().getShape(), rewriter,

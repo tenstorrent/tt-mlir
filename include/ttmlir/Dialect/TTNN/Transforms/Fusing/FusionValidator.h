@@ -102,12 +102,12 @@ void FusionValidator::createValidationFunc(ModuleOp module, Location loc,
 
   // Create an empty function with a return terminator.
   auto funcType = builder.getFunctionType({}, {});
-  auto func = builder.create<mlir::func::FuncOp>(module->getLoc(),
-                                                 "validation_func", funcType);
+  auto func = mlir::func::FuncOp::create(builder, module->getLoc(),
+                                         "validation_func", funcType);
   func.addEntryBlock();
   auto *block = &func.getBody().front();
   builder.setInsertionPointToEnd(block);
-  builder.create<mlir::func::ReturnOp>(func->getLoc());
+  mlir::func::ReturnOp::create(builder, func->getLoc());
 
   // Capture Value args and create corresponding block arguments.
   builder.setInsertionPointToStart(block);
@@ -140,13 +140,13 @@ void FusionValidator::createValidationFunc(ModuleOp module, Location loc,
   };
 
   // Create the fused op.
-  auto op = builder.create<FusedOpType>(loc, resultTypes, sub(args)...);
+  auto op = FusedOpType::create(builder, loc, resultTypes, sub(args)...);
 
   // Pin results: update return and function type so passes don't DCE the op.
   auto returnOp = cast<mlir::func::ReturnOp>(block->getTerminator());
   llvm::SmallVector<Value> opResults(op->getResults());
   OpBuilder retBuilder(returnOp);
-  retBuilder.create<mlir::func::ReturnOp>(returnOp.getLoc(), opResults);
+  mlir::func::ReturnOp::create(retBuilder, returnOp.getLoc(), opResults);
   returnOp.erase();
 
   llvm::SmallVector<Type> outTypes;
