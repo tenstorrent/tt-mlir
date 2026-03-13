@@ -118,25 +118,7 @@ def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir:
   let summary = "Tile linalg.generic compute loops to fit DST register capacity.";
   let description = [{
     This pass tiles linalg.generic compute loops according to fusion and DST register constraints.
-
-    When `enableTwoPhaseDestTiling` is false (default):
-      - Tiles to fit within 1×DST capacity (single-phase tiling)
-
-    When `enableTwoPhaseDestTiling` is true:
-      - Phase 1: Tiles to fit within 2×DST capacity
-      - Phase 2: Tiles the inner linalg.generic to 1×DST
-
-    This two-phase approach is used for FPU fusion with L1 scratch spilling, where
-    the inner loop processes 1×DST chunks and intermediate results are spilled
-    to L1 scratch between fissioned loop nests.
   }];
-
-  list<Option> options = [
-    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0",
-           "Override the max dst physical size tiles or 0 if unset.">,
-    Option<"enableTwoPhaseDestTiling", "enable-two-phase-dest-tiling", "bool", "false",
-           "Enable two-phase tiling: first to 2×DST, then to 1×DST. Used for FPU fusion with L1 scratch spilling.">,
-  ];
 
   let dependentDialects = [
     "mlir::tt::d2m::D2MDialect",
