@@ -3695,6 +3695,7 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
                          DenseI64ArrayAttr:$slice_sizes,
                          BoolAttr:$indices_are_sorted);
     let results = (outs AnyRankedTensor:$result);
+    let hasVerifier = 1;
 }
 
 def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {

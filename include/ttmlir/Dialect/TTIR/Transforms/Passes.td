@@ -114,6 +114,40 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
   ];
 }
 
+def ElementTypeNormalizationForTTMetal
+    : Pass<"ttir-element-type-normalization-for-ttmetal", "::mlir::ModuleOp"> {
+  let summary =
+      "Element type normalization for the TTMetal path. Reduces 64-bit to "
+      "32-bit, aligns predicate-like results with data types, and eliminates i1.";
+  let description = [{
+    Prepares TTIR for lowering to TTMetal by normalizing element types in three
+    steps. TTMetal does not support 64-bit or native i1 tensors; comparisons
+    and logical ops are expected to produce the same element type as their
+    operands (e.g. i32) rather than i1.
+
+    Step 1 — Downsize 64-bit to 32-bit:
+      Converts all tensor element types from i64 to i32 and f64 to f32 (including
+      constants). Tensor-of-tile and quantized types are left unchanged.
+
+    Step 2 — Align predicate-like results with data types:
+      So that no op is left producing i1 while others expect a data type:
+      - Unary tensor-manipulation ops (reshape, broadcast, etc.): result element
+        type is set to the input element type (propagation stops at typecast).
+      - Gather: result element type is set to the data input element type.
+      - Elementwise binary (e.g. logical_and): if one operand is i1 and the
+        other is e.g. i32, operands and result are harmonized to the non-i1 type
+        by inserting typecasts.
+      - Comparisons (eq, ne, gt, ge, lt, le), logical_not, and reduce_or: result
+        element type is changed from i1 to the input/lhs element type.
+      - where: the condition tensor is typecast so its element type matches the
+        true/false value type.
+
+    Step 3 — Remove remaining i1:
+      Any tensor still with i1 element type is converted to i32. Constants are
+      rewritten (true -> 1, false -> 0).
+  }];
+}
+
 def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp">
 {
   let summary = "Flatten sliding window ops.";
