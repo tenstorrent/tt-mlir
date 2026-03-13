@@ -12,6 +12,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/aggregate_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce_async.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_combine.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_dispatch.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/moe_expert_token_remap.cpp
@@ -37,6 +38,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/global_semaphore/global_semaphore.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/assign.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/pad.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/permute.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat.cpp
@@ -100,6 +102,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/scaled_dot_product_attention.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/scaled_dot_product_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/split_query_key_value_and_split_heads.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_flash_multi_latent_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_scaled_dot_product_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )

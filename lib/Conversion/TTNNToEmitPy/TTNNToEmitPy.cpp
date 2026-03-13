@@ -2148,6 +2148,39 @@ public:
 };
 } // namespace
 
+// GatherOp
+//
+namespace {
+class GatherOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::GatherOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::GatherOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GatherOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GatherOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getIndex()),
+        emitter.emit(/*sparse_grad=*/false, "sparse_grad"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Sort op conversion pattern
 //
 namespace {
@@ -3527,6 +3560,50 @@ public:
 };
 } // namespace
 
+// AllReduceAsyncOp
+//
+namespace {
+class AllReduceAsyncOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::AllReduceAsyncOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.all_reduce_async";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.all_reduce_async";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AllReduceAsyncOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllReduceAsyncOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AllReduceAsyncOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(srcOp.getNumLinks(), "num_links"),
+        emitter.emit(srcOp.getTopology(), "topology"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // PointToPointOp
 //
 namespace {
@@ -4065,6 +4142,61 @@ public:
 };
 } // namespace
 
+// PagedFlashMultiLatentAttentionDecodeOp conversion pattern
+//
+namespace {
+class PagedFlashMultiLatentAttentionDecodeOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.paged_flash_multi_latent_attention_decode";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.transformer.paged_flash_multi_latent_attention_decode";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<
+        mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
+        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getHeadDimV(), "head_dim_v"),
+        emitter.emit(srcOp.getPageTable(), "page_table_tensor"),
+        emitter.emit(srcOp.getIsCausal(), "is_causal"),
+        emitter.emit(srcOp.getAttentionMask(), "attn_mask"),
+        emitter.emit(srcOp.getCurPosTensor(), "cur_pos_tensor"),
+        emitter.emit(srcOp.getAttentionSink(), "attention_sink"),
+        emitter.emit(srcOp.getScale(), "scale"),
+        emitter.emit(std::nullopt, "sliding_window_size"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Quantization ops conversion pattern
 //
 template <typename OpType>
@@ -4325,6 +4457,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                RepeatInterleaveOpConversionPattern,
                RepeatOpConversionPattern,
                ScatterOpConversionPattern,
+               GatherOpConversionPattern,
                SliceDynamicOpConversionPattern,
                SliceStaticOpConversionPattern,
                SortOpConversionPattern,
@@ -4413,6 +4546,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<AllGatherOpConversionPattern,
                ReduceScatterOpConversionPattern,
                AllReduceOpConversionPattern,
+               AllReduceAsyncOpConversionPattern,
                PointToPointOpConversionPattern,
                MeshPartitionOpConversionPattern,
                MeshShardOpConversionPattern,
@@ -4477,6 +4611,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter, ctx,
                                                              enableGoldenMode);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
+      typeConverter, ctx, enableGoldenMode);
+  patterns.add<PagedFlashMultiLatentAttentionDecodeOpConversionPattern>(
       typeConverter, ctx, enableGoldenMode);
 }
 
