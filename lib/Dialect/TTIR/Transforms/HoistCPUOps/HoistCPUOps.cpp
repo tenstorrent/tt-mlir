@@ -594,7 +594,7 @@ bool canLowerTTIRToLinalg(mlir::Operation *op) {
 
   // Build the return op from the cloned op's results.
   llvm::SmallVector<mlir::Value> returnValues(clonedOp->getResults());
-  builder.create<mlir::func::ReturnOp>(op->getLoc(), returnValues);
+  mlir::func::ReturnOp::create(builder, op->getLoc(), returnValues);
 
   // Run TTIRToTTIRDecomposition (CPUFallback mode) followed by
   // TTIRToLinalg conversion on the temporary module, mirroring the

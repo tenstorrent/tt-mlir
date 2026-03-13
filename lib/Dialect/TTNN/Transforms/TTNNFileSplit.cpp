@@ -78,9 +78,9 @@ private:
 
     // Create the file containers.
     builder.setInsertionPointToStart(&moduleOp.getBodyRegion().front());
-    auto mainFile = builder.create<FileOpTy>(moduleOp.getLoc(), kMainFileName);
+    auto mainFile = FileOpTy::create(builder, moduleOp.getLoc(), kMainFileName);
     auto constevalFile =
-        builder.create<FileOpTy>(moduleOp.getLoc(), kConstevalFileName);
+        FileOpTy::create(builder, moduleOp.getLoc(), kConstevalFileName);
 
     // Clone the device symbol into both files so that ops inside each
     // can resolve the device via lookupNearestSymbolFrom, then erase the

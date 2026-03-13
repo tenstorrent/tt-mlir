@@ -163,7 +163,8 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
   auto dataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
       rewriter.getContext(), outputEncoding.getDataType());
 
-  MatmulOp matmulOp = rewriter.create<ttnn::MatmulOp>(
+  MatmulOp matmulOp = ttnn::MatmulOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_matmul"),
       matmulOutputType, srcOp.getA(), srcOp.getB(), srcOp.getTransposeA(),
       srcOp.getTransposeB(), /*matmul_program_config=*/nullptr,

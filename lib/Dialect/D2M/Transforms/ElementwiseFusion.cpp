@@ -327,8 +327,9 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   SmallVector<Value> fusedTensorEmpties;
   for (Type emptyType : fusedEmptyTypes) {
     auto shapedType = mlir::cast<ShapedType>(emptyType);
-    auto emptyOp = rewriter.create<mlir::tensor::EmptyOp>(
-        fusedOp.getLoc(), shapedType.getShape(), shapedType.getElementType());
+    auto emptyOp = mlir::tensor::EmptyOp::create(rewriter, fusedOp.getLoc(),
+                                                 shapedType.getShape(),
+                                                 shapedType.getElementType());
     fusedTensorEmpties.push_back(emptyOp.getResult());
   }
 
