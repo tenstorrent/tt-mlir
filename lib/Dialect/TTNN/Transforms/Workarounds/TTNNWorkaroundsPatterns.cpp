@@ -36,6 +36,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SoftmaxPadWidthRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
@@ -609,6 +610,7 @@ public:
           workarounds::decomposition::PagedUpdateCacheOpRewritePattern,
           workarounds::decomposition::
               ScaledDotProductAttentionPadTileDimsRewritePattern,
+          workarounds::decomposition::SoftmaxPadWidthRewritePattern,
           workarounds::decomposition::PointToPointOpRewritePattern,
           workarounds::decomposition::RMSNormConfigRewritePattern,
           workarounds::decomposition::
