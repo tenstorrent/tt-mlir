@@ -6,6 +6,7 @@ third_party/ttnn-python
 .vscode/*
 .cache
 .claude/*
+!.claude/skills/
 *pycache*
 *.egg-info
 cluster_descriptor.yaml
