@@ -435,6 +435,23 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
   if (c.mask) {
     c.mask = prepareMask(c.mask);
 
+    // tt-metal requires the attention mask to be a 4D tensor. TTIR fusing can
+    // produce lower-rank masks when it folds matmul+add into linear and drops
+    // the reshape to 4D. Unsqueeze leading dimensions to reach rank 4.
+    auto maskType = mlir::cast<RankedTensorType>(c.mask.getType());
+    if (maskType.getRank() < 4) {
+      SmallVector<int64_t> newShape(4 - maskType.getRank(), 1);
+      newShape.append(maskType.getShape().begin(), maskType.getShape().end());
+      auto newType = utils::RankedTensorTypeFactory::create(maskType, newShape);
+      SmallVector<int32_t> shapeAttr(newShape.begin(), newShape.end());
+      c.mask =
+          rewriter
+              .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType, c.mask,
+                                 rewriter.getI32ArrayAttr(shapeAttr),
+                                 /*memory_config=*/MemoryConfigAttr())
+              .getResult();
+    }
+
     c.mask = restoreElementTypeIfNeeded(c.mask, preparedQElementType, rewriter);
   }
 }
