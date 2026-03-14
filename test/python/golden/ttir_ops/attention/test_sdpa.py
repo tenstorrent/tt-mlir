@@ -292,6 +292,11 @@ def test_sdpa_mask_broadcast(
         "decode_mask_broadcast_batch",
     ],
 )
+@pytest.mark.skip_exec(
+    ("p150",),
+    reason="SDPA decode kernel exceeds max runtime args on p150 (344 > 341). "
+    "https://github.com/tenstorrent/tt-metal/issues/TBD",
+)
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sdpa_decode_mask_broadcast(
     shapes: List[Shape],
@@ -451,6 +456,11 @@ def test_sdpa_decode_mask_broadcast(
         "gemma_1_1_2b_decode",
         "gemma_2_2b_decode",
     ],
+)
+@pytest.mark.skip_exec(
+    ("p150",),
+    reason="SDPA decode kernel exceeds max runtime args on p150 (344 > 341). "
+    "https://github.com/tenstorrent/tt-metal/issues/TBD",
 )
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sdpa_decode_in_models(
