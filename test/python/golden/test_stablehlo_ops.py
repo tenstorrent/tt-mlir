@@ -528,23 +528,13 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
     "test_fn",
     [
         module_add,
-        module_atan2
-        | Marks(
-            pytest.mark.skip_config(
-                ["ttmetal"], reason="atan2 is not supported on ttmetal target"
-            )
-        ),
+        module_atan2,
         module_div,
         module_max,
         module_min,
         module_mul,
         module_pow,
-        module_remainder
-        | Marks(
-            pytest.mark.skip_config(
-                ["ttmetal"], reason="remainder is not supported on ttmetal target"
-            )
-        ),
+        module_remainder,
         module_subtract,
     ],
 )
