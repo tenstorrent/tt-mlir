@@ -8,9 +8,14 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Utils.h"
+
+#ifndef TTMLIR_NO_FLATBUFFERS
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
-#include "ttmlir/Utils.h"
+#include "ttmlir/Target/Common/types_generated.h"
+#include <fstream>
+#endif
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -23,7 +28,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <fstream>
 #include <numeric>
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreAttrInterfaces.cpp.inc"
@@ -31,7 +35,6 @@
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.cpp.inc"
-#include "ttmlir/Target/Common/types_generated.h"
 
 namespace mlir::tt::ttcore {
 
@@ -278,6 +281,11 @@ SystemDescAttr::getDefault(MLIRContext *context, Arch arch,
 mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
     MLIRContext *context, StringRef path,
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
+#ifdef TTMLIR_NO_FLATBUFFERS
+  diagFn() << "loading system descriptor from file requires building with "
+              "flatbuffers support";
+  return failure();
+#else
   if (path.empty()) {
     diagFn() << "system desc path must not be empty";
     return failure();
@@ -294,11 +302,17 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
   fbb.read(static_cast<char *>(buffer.get()), size);
 
   return SystemDescAttr::getFromBuffer(context, buffer.get(), diagFn);
+#endif
 }
 
 mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
     MLIRContext *context, void *systemDesc,
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
+#ifdef TTMLIR_NO_FLATBUFFERS
+  diagFn() << "loading system descriptor from buffer requires building with "
+              "flatbuffers support";
+  return failure();
+#else
   // Read relevant information from binary
   const auto *binarySystemDescRoot =
       ::tt::target::GetSizePrefixedSystemDescRoot(systemDesc);
@@ -487,6 +501,7 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
       chipCoordinateList, chipChannelList);
 
   return systemDescAttr;
+#endif // TTMLIR_NO_FLATBUFFERS
 }
 
 ChipDescAttr SystemDescAttr::getChipDesc(unsigned chipIndex) const {
