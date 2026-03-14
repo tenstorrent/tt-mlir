@@ -12164,6 +12164,77 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    @tag(ttir.ScaledDotProductAttentionOp)
+    def scaled_dot_product_attention(
+        self,
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        attention_mask: Optional[Operand] = None,
+        is_causal: bool = True,
+        scale: Optional[float] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        mask_golden = (
+            self._get_golden_tensor(attention_mask)
+            if attention_mask is not None
+            else None
+        )
+
+        return self._op_proxy(
+            ttir.ScaledDotProductAttentionOp,
+            [query, key, value],
+            golden_kwargs={
+                "attention_mask": mask_golden,
+                "is_causal": is_causal,
+                "scale": scale,
+            },
+            ttir_kwargs={
+                "attention_mask": attention_mask,
+                "is_causal": is_causal,
+                "scale": scale,
+            },
+            unit_attrs=unit_attrs,
+        )
+
+    @tag(ttir.ScaledDotProductAttentionDecodeOp)
+    def scaled_dot_product_attention_decode(
+        self,
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        cur_pos_tensor: Optional[Operand] = None,
+        attention_mask: Optional[Operand] = None,
+        is_causal: bool = True,
+        scale: Optional[float] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        mask_golden = (
+            self._get_golden_tensor(attention_mask)
+            if attention_mask is not None
+            else None
+        )
+
+        inputs = [query, key, value]
+        if cur_pos_tensor is not None:
+            inputs.append(cur_pos_tensor)
+
+        return self._op_proxy(
+            ttir.ScaledDotProductAttentionDecodeOp,
+            inputs,
+            golden_kwargs={
+                "attention_mask": mask_golden,
+                "is_causal": is_causal,
+                "scale": scale,
+            },
+            ttir_kwargs={
+                "attention_mask": attention_mask,
+                "is_causal": is_causal,
+                "scale": scale,
+            },
+            unit_attrs=unit_attrs,
+        )
+
     @tag(ttir.MatmulOp)
     def matmul(
         self,
