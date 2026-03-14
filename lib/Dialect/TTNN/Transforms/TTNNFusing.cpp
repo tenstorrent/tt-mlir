@@ -12,11 +12,13 @@
 #include "llvm/ADT/SmallVector.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
+#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/TopKFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include "ttmlir/Support/Logger.h"
 #endif
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -202,7 +204,11 @@ private:
 // pattern robust to variations in the IR.
 //
 class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
-  using SDPAFusing::OpRewritePattern<MatmulOp>::OpRewritePattern;
+public:
+  SDPAFusing(mlir::MLIRContext *context,
+             const FusionValidationConfig &validationConfig = {})
+      : OpRewritePattern<MatmulOp>(context),
+        validationConfig(validationConfig) {}
 
   // SDPA Query, Key, Value tensors have shape [B, H, S, D]
   // (Batch, NumHeads, SeqLen, HeadDim).
@@ -219,7 +225,6 @@ class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
   static constexpr std::array<int64_t, 4> kUnTransposeKeyPermutation = {0, 1, 3,
                                                                         2};
 
-public:
   mlir::LogicalResult
   matchAndRewrite(MatmulOp srcOp,
                   mlir::PatternRewriter &rewriter) const override {
@@ -252,6 +257,8 @@ public:
   }
 
 private:
+  FusionValidationConfig validationConfig;
+
   struct SDPAComponents {
     Value query, key, value, mask;
     std::optional<float> scale;
@@ -680,9 +687,9 @@ private:
   // Trace mask back through broadcast materialization ops (e.g. RepeatOp).
   //
   // Many frontends materialize attention mask broadcasts early (often via
-  // `ttnn.repeat`) to match the score tensor shape. For SDPA we prefer to keep
-  // the original mask and let broadcastMaskForSDPA() re-broadcast to the exact
-  // shape required by the fused op.
+  // `ttnn.repeat`) to match the score tensor shape. For SDPA we prefer to
+  // recover the original pre-broadcast mask and pass it through directly,
+  // since tt-metal handles implicit broadcasting internally.
   Value prepareMask(Value v) const {
     while (Operation *defOp = v.getDefiningOp()) {
       if (isa<TypecastOp>(defOp)) {
@@ -700,43 +707,6 @@ private:
     return v;
   }
 
-  // Slice mask on head dimension if it was broadcasted.
-  //
-  // TTNN SDPA expects mask with shape [B, 1, S_q, S_kv], but some frontends
-  // may broadcast the mask to [B, H, S_q, S_kv] matching Q's num_heads.
-  // We slice to [B, 1, S_q, S_kv] which SDPA can then broadcast internally.
-  Value sliceMaskOnHeadDimIfNeeded(Value mask, PatternRewriter &rewriter,
-                                   Location loc) const {
-    auto maskType = mlir::cast<RankedTensorType>(mask.getType());
-    auto maskShape = maskType.getShape();
-
-    // Only handle 4D masks.
-    if (maskShape.size() != 4) {
-      return mask;
-    }
-
-    // If head dim (dim 1) is already 1, no slicing needed.
-    if (maskShape[1] == 1) {
-      return mask;
-    }
-
-    // Slice to get [B, 1, S_q, S_kv].
-    SmallVector<int32_t> begins = {0, 0, 0, 0};
-    SmallVector<int32_t> ends = {static_cast<int32_t>(maskShape[0]), 1,
-                                 static_cast<int32_t>(maskShape[2]),
-                                 static_cast<int32_t>(maskShape[3])};
-    SmallVector<int32_t> steps = {1, 1, 1, 1};
-
-    SmallVector<int64_t> resultShape = {maskShape[0], 1, maskShape[2],
-                                        maskShape[3]};
-    auto resultType =
-        utils::RankedTensorTypeFactory::create(maskType, resultShape);
-
-    return rewriter.create<SliceStaticOp>(
-        loc, resultType, mask, rewriter.getI32ArrayAttr(begins),
-        rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
-  }
-
   // Prepare matched inputs for SDPA operation.
   //
   // This normalizes inputs while keeping the pattern robust to frontend
@@ -745,7 +715,7 @@ private:
   // - Drop matmul-only transforms on K/V (K^T permute, typecast wrappers, GQA
   //   head expansion via repeat_interleave)
   // - Trace mask through broadcast materialization (RepeatOp) to recover the
-  //   original mask and let broadcastMaskForSDPA() re-broadcast precisely
+  //   original mask shape
   //
   // Each preparation step is only committed if shapes remain SDPA-legal.
   void prepareInputsForSDPA(SDPAComponents &c,
@@ -792,11 +762,6 @@ private:
     if (c.mask) {
       c.mask = prepareMask(c.mask);
 
-      // If mask is broadcasted on head dimension (dim 1), slice it to
-      // [B, 1, S_q, S_kv] since TTNN SDPA doesn't support this broadcast.
-      c.mask = sliceMaskOnHeadDimIfNeeded(c.mask, rewriter,
-                                          c.attentionMatmul.getLoc());
-
       // The mask should have the same element type as the qkv tensors.
       c.mask =
           restoreElementTypeIfNeeded(c.mask, preparedQElementType, rewriter);
@@ -825,33 +790,6 @@ private:
   // ============================================================================
   // Validation
   // ============================================================================
-
-  // Check if an SDPA validation error can be recovered by TTNNWorkarounds pass.
-  // These errors are handled by
-  // ScaledDotProductAttentionPadTileDimsRewritePattern which pads:
-  // - sequence dimensions to be divisible by chunk size (32) when mask is
-  //   present
-  // - head dimensions to be divisible by tile width (32) always
-  static bool isRecoverableSDPAError(const std::string &errorMessage) {
-    // Q sequence length not divisible by q_chunk_size (default 32)
-    if (errorMessage.find(
-            "Q sequence length must be divisible by q_chunk_size") !=
-        std::string::npos) {
-      return true;
-    }
-    // K sequence length not divisible by k_chunk_size (default 32)
-    if (errorMessage.find(
-            "K sequence length must be divisible by k_chunk_size") !=
-        std::string::npos) {
-      return true;
-    }
-    // Head dimension not tile-aligned (requires padding)
-    if (errorMessage.find("Padding is not supported on the head_dim") !=
-        std::string::npos) {
-      return true;
-    }
-    return false;
-  }
 
   bool validateShapes(Value query, Value key, Value value) const {
     if (!query || !key || !value) {
@@ -947,54 +885,6 @@ private:
     return true;
   }
 
-  // Broadcast attention mask to the required shape for SDPA operations.
-  //
-  // For regular SDPA:
-  //   Target mask shape: [batch, 1, query_seq, key_seq]
-  //   - Dimension 1 (heads) stays as 1
-  //
-  // For decode SDPA:
-  //   Target mask shape: [batch, 1, num_heads, key_seq]
-  //   - Dimension 1 is query seq (always 1 for decode)
-  //   - Dimension 2 must explicitly match num_heads
-  Value broadcastMaskForSDPA(Value mask, RankedTensorType qType,
-                             RankedTensorType kType, bool isDecode,
-                             mlir::PatternRewriter &rewriter,
-                             Location loc) const {
-    if (!mask) {
-      return mask;
-    }
-
-    auto maskType = mlir::cast<RankedTensorType>(mask.getType());
-    auto qShape = qType.getShape();
-    auto kShape = kType.getShape();
-
-    // Compute target mask shape based on SDPA variant.
-    // Q shape: [batch, num_heads, seq_len, head_dim]
-    // K shape: [batch, num_heads, key_seq, head_dim]
-    SmallVector<int64_t> targetShape;
-    if (isDecode) {
-      // Decode: [batch, 1, num_heads, key_seq]
-      targetShape = {qShape[0], 1, qShape[kNumHeadsDim], kShape[kSeqLenDim]};
-    } else {
-      // Regular: [batch, 1, query_seq, key_seq]
-      targetShape = {qShape[0], 1, qShape[kSeqLenDim], kShape[kSeqLenDim]};
-    }
-
-    // Check if broadcast is needed.
-    if (llvm::equal(maskType.getShape(), targetShape)) {
-      return mask;
-    }
-
-    auto broadcastType =
-        utils::RankedTensorTypeFactory::create(maskType, targetShape);
-    auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
-        maskType.getShape(), targetShape);
-    auto shapeAttr = ShapeAttr::get(rewriter.getContext(), broadcastDims);
-
-    return rewriter.create<RepeatOp>(loc, broadcastType, mask, shapeAttr);
-  }
-
   mlir::LogicalResult createSDPAOp(mlir::PatternRewriter &rewriter,
                                    SDPAComponents &c) const {
     op_model::ScopedSingletonDeviceGuard deviceGuard(
@@ -1023,14 +913,12 @@ private:
 
     auto qType = mlir::cast<RankedTensorType>(c.query.getType());
     auto qShape = qType.getShape();
-    auto kType = mlir::cast<RankedTensorType>(c.key.getType());
+
+    FusionValidator validator(rewriter.getContext(), validationConfig);
 
     // Check if this is decode mode (query seq_len == 1)
     // Query shape: [batch x num_heads x seq_len x head_size]
     bool isDecode = qShape.size() == 4 && qShape[kSeqLenDim] == 1;
-    // Broadcast mask to the required shape for the SDPA variant.
-    Value attentionMask = broadcastMaskForSDPA(
-        c.mask, qType, kType, isDecode, rewriter, c.attentionMatmul.getLoc());
     if (isDecode) {
       // Permute query: [B, H, 1, D] -> [1, B, H, D]
       Value permutedQuery = ttir_to_ttnn::utils::generatePermute(
@@ -1038,29 +926,33 @@ private:
           llvm::to_vector(kToDecodePermutation), rewriter,
           c.attentionMatmul.getLoc());
 
+      // Validate the fused decode SDPA op in an isolated module with
+      // workaround and validation passes before creating it.
+      auto validationResult =
+          validator.validateFusion<ScaledDotProductAttentionDecodeOp>(
+              c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
+              {permutedQuery.getType()}, permutedQuery, c.key, c.value,
+              /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
+              /*cur_pos_tensor=*/Value(),
+              /*attention_sink=*/Value(), scaleAttr,
+              /*memory_config=*/MemoryConfigAttr(),
+              /*program_config=*/SDPAProgramConfigAttr());
+
+      if (!validationResult.isSuccess()) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+                     "SDPA decode fusion validation failed: {0}",
+                     validationResult.errorMessage);
+        return failure();
+      }
+
       auto decodeOp = rewriter.create<ScaledDotProductAttentionDecodeOp>(
           c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
           c.key, c.value,
-          /*is_causal=*/rewriter.getBoolAttr(false), attentionMask,
+          /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
           /*cur_pos_tensor=*/Value(),
           /*attention_sink=*/Value(), scaleAttr,
           /*memory_config=*/MemoryConfigAttr(),
           /*program_config=*/SDPAProgramConfigAttr());
-
-      // Validate the operation using op constraint validation
-      std::vector<TTNNLayoutAttr> inputLayouts =
-          utils::extractInputLayouts(decodeOp.getOperation());
-
-      auto resultType =
-          mlir::cast<RankedTensorType>(decodeOp.getResult().getType());
-      OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
-      auto result = op_constraint_validation::validateOperation(
-          decodeOp.getOperation(), inputLayouts, config);
-
-      if (!result.isSuccess() && !isRecoverableSDPAError(result.errorMessage)) {
-        rewriter.eraseOp(decodeOp);
-        return failure();
-      }
 
       // Permute result back: [1, B, H, D] -> [B, H, 1, D].
       Value finalResult = ttir_to_ttnn::utils::generatePermute(
@@ -1074,27 +966,29 @@ private:
 
       rewriter.replaceOp(c.attentionMatmul, finalResult);
     } else {
+      // Validate the fused SDPA op in an isolated module with workaround
+      // and validation passes before creating it.
+      auto validationResult =
+          validator.validateFusion<ScaledDotProductAttentionOp>(
+              c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
+              {c.query.getType()}, c.query, c.key, c.value, c.mask,
+              /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
+              /*sliding_window_size=*/IntegerAttr(),
+              /*memory_config=*/MemoryConfigAttr());
+
+      if (!validationResult.isSuccess()) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+                     "SDPA fusion validation failed: {0}",
+                     validationResult.errorMessage);
+        return failure();
+      }
+
       auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
           c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key,
-          c.value, attentionMask,
+          c.value, c.mask,
           /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
           /*sliding_window_size=*/IntegerAttr(),
           /*memory_config=*/MemoryConfigAttr());
-
-      // Validate the operation using op constraint validation
-      std::vector<TTNNLayoutAttr> inputLayouts =
-          utils::extractInputLayouts(sdpaOp.getOperation());
-
-      auto resultType =
-          mlir::cast<RankedTensorType>(sdpaOp.getResult().getType());
-      OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
-      auto result = op_constraint_validation::validateOperation(
-          sdpaOp.getOperation(), inputLayouts, config);
-
-      if (!result.isSuccess() && !isRecoverableSDPAError(result.errorMessage)) {
-        rewriter.eraseOp(sdpaOp);
-        return failure();
-      }
 
       // Restore original element type if SDPA produced a different dtype.
       Value finalResult = restoreElementTypeIfNeeded(
@@ -1257,7 +1151,7 @@ public:
       patterns.add<fusing::RoPEFusing>(&getContext());
       patterns.add<fusing::RoPEDecodeFusing>(&getContext());
       patterns.add<fusing::TopKFusing>(&getContext(), validationConfig);
-      patterns.add<SDPAFusing>(&getContext());
+      patterns.add<SDPAFusing>(&getContext(), validationConfig);
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
     }
 #endif // TTMLIR_ENABLE_OPMODEL
