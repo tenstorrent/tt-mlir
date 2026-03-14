@@ -2435,8 +2435,8 @@ def upsample2d_golden(
     return torch.transpose(output, 1, 3)
 
 
-def fill_cache_golden(
-    cache_tensor: GoldenMapTensor, input_tensor: GoldenMapTensor, **kwargs
+def ttir_fill_cache_golden(
+    cache_tensor: GoldenMapTensor, input_tensor: GoldenMapTensor, batch_offset: int
 ) -> GoldenMapTensor:
     """
     Custom golden function for fill_cache operation.
@@ -2447,8 +2447,8 @@ def fill_cache_golden(
         Cache tensor to fill
     input_tensor : GoldenMapTensor
         Input tensor data
-    **kwargs : dict
-        Additional keyword arguments (batch_offset is ignored)
+    batch_offset : int
+        Offset in the batch dimension
 
     Returns
     -------
@@ -6401,7 +6401,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: ttir_to_layout_golden,
     # Cache operations
-    ttir.FillCacheOp: fill_cache_golden,
+    ttir.FillCacheOp: ttir_fill_cache_golden,
     ttir.UpdateCacheOp: update_cache_golden,
     # CCL (Collective Communication Library) operations
     ttir.MeshShardOp: ttir_mesh_shard_golden,
