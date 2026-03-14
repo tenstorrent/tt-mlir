@@ -117,8 +117,13 @@ jobs:
 
     - name: Set up tt-triage
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
-        TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+        TT_METAL_VERSION_REF=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+        TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-metal/commits/$TT_METAL_VERSION_REF --jq '.sha')
+        echo "tt-metal version ref: $TT_METAL_VERSION_REF"
+        echo "tt-metal version (resolved SHA): $TT_METAL_VERSION"
 
         mkdir -p tt-triage
         curl -L "https://github.com/tenstorrent/tt-metal/archive/${TT_METAL_VERSION}.tar.gz" \
