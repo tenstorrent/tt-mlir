@@ -696,6 +696,9 @@ struct EmitPyTypeConverter<::ttnn::TensorMemoryLayout> {
     case ttnn::TensorMemoryLayout::WidthSharded:
       rso << "WIDTH_SHARDED";
       break;
+    case ttnn::TensorMemoryLayout::NDSharded:
+      rso << "ND_SHARDED";
+      break;
     }
 
     return buf;
