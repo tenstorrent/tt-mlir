@@ -272,6 +272,9 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
 
     // Trace through view/stream ops via ViewOpInterface.
     if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
+      if (viewOp.isComposite()) {
+        return std::nullopt;
+      }
       return getVirtualGridInverseMapping(viewOp.getInput());
     }
 
@@ -320,6 +323,9 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
 
     // Trace through view/stream ops via ViewOpInterface.
     if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
+      if (viewOp.isComposite()) {
+        return std::nullopt;
+      }
       return getVirtualGridForwardMapping(viewOp.getInput());
     }
 
