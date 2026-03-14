@@ -39,7 +39,6 @@ apt-get install -y \
     graphviz \
     jq \
     lcov \
-    libboost-all-dev \
     libcapstone-dev \
     libgtest-dev \
     libhwloc-dev \
