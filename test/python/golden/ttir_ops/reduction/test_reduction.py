@@ -179,3 +179,68 @@ def test_reduction_cpu_hoisted_ops(
         device=device,
         target=target,
     )
+
+
+@pytest.mark.parametrize(
+    "shapes, dim",
+    [
+        pytest.param([(4, 4, 128, 128)], 1, id="rank4_dim1"),
+        pytest.param([(4, 4, 128, 128)], 2, id="rank4_dim2"),
+        pytest.param([(128,)], 0, id="rank1_dim0"),
+        pytest.param([(4, 128)], 0, id="rank2_dim0"),
+        pytest.param([(4, 4, 128)], 1, id="rank3_dim1"),
+        pytest.param([(4, 4, 128)], 2, id="rank3_dim2"),
+    ],
+)
+def test_cumsum(shapes: List[Shape], dim: int, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def cumsum(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.cumsum(in0, dim=dim, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        ([(4, 4, 32, 32)], 1),
+        ([(2, 8, 16, 16)], 0),
+        ([(4, 4, 32, 32)], -1),
+    ],
+    ids=["dim1", "dim0", "dim_negative"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_cumsum(
+    shapes: List[Shape],
+    dim: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def hoisted_cumsum(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.cumsum(in0, dim=dim, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        target=target,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )

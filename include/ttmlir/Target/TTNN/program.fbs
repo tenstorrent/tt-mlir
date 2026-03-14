@@ -19,7 +19,7 @@ include "ttmlir/Target/TTNN/operations/load_cached.fbs";
 include "ttmlir/Target/TTNN/operations/matmul.fbs";
 // ANCHOR_END: adding_an_op_matmul_fbs_include
 include "ttmlir/Target/TTNN/operations/mlir_native.fbs";
-include "ttmlir/Target/TTNN/operations/moreh_cumsum.fbs";
+include "ttmlir/Target/TTNN/operations/cumsum.fbs";
 include "ttmlir/Target/TTNN/operations/normalization.fbs";
 include "ttmlir/Target/TTNN/operations/pool.fbs";
 include "ttmlir/Target/TTNN/operations/rand.fbs";
@@ -89,7 +89,7 @@ union OpType {
   MeshShardOp,
   MeshPartitionOp,
   MoeExpertTokenRemapOp,
-  MorehCumSumOp,
+  CumSumOp,
   NamedFullOp,
   NLPConcatHeadsDecodeOp,
   PadOp,

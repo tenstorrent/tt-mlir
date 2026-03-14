@@ -1084,8 +1084,8 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_SparseMatmulOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
-    tensorRef = opContext.type_as_MorehCumSumOp()->out();
+  case ::tt::target::ttnn::OpType::CumSumOp: {
+    tensorRef = opContext.type_as_CumSumOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::RandOp: {
@@ -1486,8 +1486,8 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_SparseMatmulOp()->sparsity()};
     break;
   }
-  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
-    tensorRefs = {opContext.type_as_MorehCumSumOp()->in()};
+  case ::tt::target::ttnn::OpType::CumSumOp: {
+    tensorRefs = {opContext.type_as_CumSumOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
