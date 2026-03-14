@@ -14,6 +14,7 @@
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
 #include "ttmlir/Target/Common/types_generated.h"
+#include <fstream>
 #endif
 
 #include "mlir/IR/Builders.h"
@@ -27,7 +28,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <fstream>
 #include <numeric>
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreAttrInterfaces.cpp.inc"
@@ -300,6 +300,7 @@ SystemDescAttr::getDefault(MLIRContext *context, Arch arch,
   }
 }
 
+#ifndef TTMLIR_NO_FLATBUFFERS
 mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
     MLIRContext *context, StringRef path,
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
@@ -538,6 +539,23 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
   return systemDescAttr;
 #endif // TTMLIR_NO_FLATBUFFERS
 }
+#else // TTMLIR_NO_FLATBUFFERS
+mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
+    MLIRContext *context, StringRef path,
+    llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
+  diagFn() << "loading system descriptor from file requires building with "
+              "TTMLIR_ENABLE_FLATBUFFERS=ON";
+  return failure();
+}
+
+mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
+    MLIRContext *context, void *systemDesc,
+    llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
+  diagFn() << "loading system descriptor from buffer requires building with "
+              "TTMLIR_ENABLE_FLATBUFFERS=ON";
+  return failure();
+}
+#endif // TTMLIR_NO_FLATBUFFERS
 
 ChipDescAttr SystemDescAttr::getChipDesc(unsigned chipIndex) const {
   return getChipDescs()[getChipDescIndices()[chipIndex]];
