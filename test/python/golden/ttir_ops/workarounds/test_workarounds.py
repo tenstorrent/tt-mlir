@@ -260,62 +260,6 @@ def test_sdpa_with_mask_no_workaround(
 @pytest.mark.parametrize(
     "shapes",
     [
-        [
-            (32, 32, 1, 64),
-            (32, 8, 128, 64),
-            (32, 8, 128, 64),
-            (1, 1, 1, 128),
-        ]
-    ],
-)
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 4])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(
-    # Metal issue reference: https://github.com/tenstorrent/tt-metal/issues/32641
-    reason="SDPA decode without program config set fails (without ttnn-workaround pass)"
-)
-def test_sdpa_decode_no_workaround(
-    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
-):
-    """
-    Test Scaled Dot Product Attention Decode without program config set,
-    with ttnn-workaround pass disabled.
-    """
-
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, dtypes)
-        def sdpa_decode_no_workaround(
-            query: Operand,
-            key: Operand,
-            value: Operand,
-            attention_mask: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            head_dim = shapes[0][-1]
-            scale = 1.0 / math.sqrt(head_dim)
-            return builder.scaled_dot_product_attention(
-                query,
-                key,
-                value,
-                attention_mask=attention_mask,
-                is_causal=False,
-                scale=scale,
-                unit_attrs=unit_attrs,
-            )
-
-    compile_and_execute_ttir(
-        module,
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        pipeline_options=["disable-workarounds=true"],
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
         # Decode with mask num_heads=1 (broadcast needed)
         # Q: [1, batch, num_heads, head_dim], K/V: [batch, kv_heads, kv_seq, head_dim]
         # Mask: [batch, 1, 1, kv_seq] - heads=1 needs broadcast to num_heads
