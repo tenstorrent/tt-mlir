@@ -936,14 +936,11 @@ class StableHLOBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            input1 = self._get_golden_tensor(in1)
-            op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(
-                input0, input1, op.result.type.element_type
-            )
-            self._set_golden_tensor(op.result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, input1, op.result.type.element_type)
+        self._set_golden_tensor(op.result, golden_output)
 
         return op.result
 
@@ -963,14 +960,13 @@ class StableHLOBuilder(Builder):
             loc=old_op.location,
         )
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(
-                input0, input1, new_op.result.type.element_type
-            )
-            self._set_golden_tensor(new_op.result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input0, input1, new_op.result.type.element_type
+        )
+        self._set_golden_tensor(new_op.result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op.result
@@ -1002,18 +998,17 @@ class StableHLOBuilder(Builder):
 
                     new_op = stablehlo_op(lhs, rhs, loc=old_op.location)
 
-                    if not self._disable_golden_check:
-                        op_golden_function = get_golden_function(stablehlo_op)
-                        input0 = self._get_golden_tensor(old_op.lhs)
-                        input1 = self._get_golden_tensor(old_op.rhs)
-                        golden_output = op_golden_function(
-                            input0, input1, new_op.result.type.element_type
-                        )
-                        atan2_builder._set_golden_tensor(new_op.result, golden_output)
-                        atan2_builder._set_output_ordering([new_op.result])
-                        atan2_builder._set_golden_tensor(lhs, input0)
-                        atan2_builder._set_golden_tensor(rhs, input1)
-                        atan2_builder._set_input_ordering([lhs, rhs])
+                    op_golden_function = get_golden_function(stablehlo_op)
+                    input0 = self._get_golden_tensor(old_op.lhs)
+                    input1 = self._get_golden_tensor(old_op.rhs)
+                    golden_output = op_golden_function(
+                        input0, input1, new_op.result.type.element_type
+                    )
+                    atan2_builder._set_golden_tensor(new_op.result, golden_output)
+                    atan2_builder._set_output_ordering([new_op.result])
+                    atan2_builder._set_golden_tensor(lhs, input0)
+                    atan2_builder._set_golden_tensor(rhs, input1)
+                    atan2_builder._set_input_ordering([lhs, rhs])
 
                     return new_op
 
@@ -2533,7 +2528,6 @@ class StableHLOBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             input1 = self._get_golden_tensor(in1)
             op_golden_function = get_golden_function(stablehlo_op)
@@ -2560,14 +2554,13 @@ class StableHLOBuilder(Builder):
             loc=old_op.location,
         )
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(
-                input0, input1, new_op.result.type.element_type
-            )
-            self._set_golden_tensor(new_op.result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input0, input1, new_op.result.type.element_type
+        )
+        self._set_golden_tensor(new_op.result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op.result
@@ -2599,18 +2592,17 @@ class StableHLOBuilder(Builder):
 
                     new_op = stablehlo_op(lhs, rhs, loc=old_op.location)
 
-                    if not self._disable_golden_check:
-                        op_golden_function = get_golden_function(stablehlo_op)
-                        input0 = self._get_golden_tensor(old_op.lhs)
-                        input1 = self._get_golden_tensor(old_op.rhs)
-                        golden_output = op_golden_function(
-                            input0, input1, new_op.result.type.element_type
-                        )
-                        rem_builder._set_golden_tensor(new_op.result, golden_output)
-                        rem_builder._set_output_ordering([new_op.result])
-                        rem_builder._set_golden_tensor(lhs, input0)
-                        rem_builder._set_golden_tensor(rhs, input1)
-                        rem_builder._set_input_ordering([lhs, rhs])
+                    op_golden_function = get_golden_function(stablehlo_op)
+                    input0 = self._get_golden_tensor(old_op.lhs)
+                    input1 = self._get_golden_tensor(old_op.rhs)
+                    golden_output = op_golden_function(
+                        input0, input1, new_op.result.type.element_type
+                    )
+                    rem_builder._set_golden_tensor(new_op.result, golden_output)
+                    rem_builder._set_output_ordering([new_op.result])
+                    rem_builder._set_golden_tensor(lhs, input0)
+                    rem_builder._set_golden_tensor(rhs, input1)
+                    rem_builder._set_input_ordering([lhs, rhs])
 
                     return new_op
 
@@ -4945,7 +4937,6 @@ class StableHLOBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             input1 = self._get_golden_tensor(in1)
             op_golden_function = get_golden_function(stablehlo_op)
@@ -4971,15 +4962,13 @@ class StableHLOBuilder(Builder):
             rhs,
             loc=old_op.location,
         )
-
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(
-                input0, input1, new_op.result.type.element_type
-            )
-            self._set_golden_tensor(new_op.result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input0, input1, new_op.result.type.element_type
+        )
+        self._set_golden_tensor(new_op.result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op.result
@@ -5011,18 +5000,17 @@ class StableHLOBuilder(Builder):
 
                     new_op = stablehlo_op(lhs, rhs, loc=old_op.location)
 
-                    if not self._disable_golden_check:
-                        op_golden_function = get_golden_function(stablehlo_op)
-                        input0 = self._get_golden_tensor(old_op.lhs)
-                        input1 = self._get_golden_tensor(old_op.rhs)
-                        golden_output = op_golden_function(
-                            input0, input1, new_op.result.type.element_type
-                        )
-                        shift_builder._set_golden_tensor(new_op.result, golden_output)
-                        shift_builder._set_output_ordering([new_op.result])
-                        shift_builder._set_golden_tensor(lhs, input0)
-                        shift_builder._set_golden_tensor(rhs, input1)
-                        shift_builder._set_input_ordering([lhs, rhs])
+                    op_golden_function = get_golden_function(stablehlo_op)
+                    input0 = self._get_golden_tensor(old_op.lhs)
+                    input1 = self._get_golden_tensor(old_op.rhs)
+                    golden_output = op_golden_function(
+                        input0, input1, new_op.result.type.element_type
+                    )
+                    shift_builder._set_golden_tensor(new_op.result, golden_output)
+                    shift_builder._set_output_ordering([new_op.result])
+                    shift_builder._set_golden_tensor(lhs, input0)
+                    shift_builder._set_golden_tensor(rhs, input1)
+                    shift_builder._set_input_ordering([lhs, rhs])
 
                     return new_op
 
