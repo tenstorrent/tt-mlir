@@ -650,6 +650,20 @@ def TTCore_LocalShapeAttr : TTCore_Attr<"LocalShape", "local_shape"> {
   }];
 }
 
+def TTCore_FabricConnectionConfigAttr: TTCore_Attr<"FabricConnectionConfig", "fabric_connection_config"> {
+  let summary = "Fabric Connection Config attribute.";
+  let description = [{
+    Structure for configuring fabric connections for worker cores (in CCL ops).
+  }];
+
+  let parameters = (ins "NocIndex":$noc_index,
+                        "Topology":$topology,
+                        "uint32_t":$cluster_axis,
+                        "RoutingMode":$routing_mode,
+                        "uint32_t":$num_links);
+  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links `>`";
+}
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//

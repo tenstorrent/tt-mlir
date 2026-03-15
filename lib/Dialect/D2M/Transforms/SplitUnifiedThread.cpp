@@ -44,7 +44,7 @@ public:
         generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
         generic.getBlockFactors(), generic.getIndexingMaps(),
         generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
-        generic.getScratchInputsAttr(),
+        generic.getScratchInputsAttr(), generic.getFabricConnectionConfigAttr(),
         /*numRegions*/ 2);
 
     // Get the original region

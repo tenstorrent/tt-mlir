@@ -299,7 +299,7 @@ public:
         generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
         generic.getBlockFactors(), generic.getIndexingMaps(),
         generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
-        generic.getScratchInputsAttr(),
+        generic.getScratchInputsAttr(), generic.getFabricConnectionConfigAttr(),
         /*numRegions*/ numThreadsToUse + 1);
 
     // Get the original DM block's argument types.
