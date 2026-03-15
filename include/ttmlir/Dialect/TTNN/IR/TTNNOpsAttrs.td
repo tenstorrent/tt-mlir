@@ -1096,7 +1096,7 @@ def TTNN_DataMovementKernelAttr: TTNN_Attr<"DataMovementKernel", "data_movement_
   let parameters = (ins "SymbolRefAttr":$symbol_ref,
                         TTNN_CoreRangeSetAttr:$core_ranges,
                         "DataMovementProcessor":$processor,
-                        "NocIndex":$noc_index,
+                        "mlir::tt::ttcore::NocIndex":$noc_index,
                         "NocMode":$noc_mode,
                         OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
                         OptionalArrayRefParameter<"CoreRuntimeArgsAttr">:$rt_args,
@@ -1106,7 +1106,7 @@ def TTNN_DataMovementKernelAttr: TTNN_Attr<"DataMovementKernel", "data_movement_
     AttrBuilder<(ins "SymbolRefAttr":$symbol_ref,
                      "CoreRangeSetAttr":$core_ranges,
                      "DataMovementProcessor":$processor,
-                     "NocIndex":$noc_index,
+                     "mlir::tt::ttcore::NocIndex":$noc_index,
                      "NocMode":$noc_mode,
                      "::llvm::ArrayRef<mlir::Attribute>":$common_rt_args,
                      "::llvm::ArrayRef<mlir::Attribute>":$ct_args), [{
@@ -1147,20 +1147,6 @@ def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelI
   let genVerifyDecl = 1;
 }
 
-def TTNN_FabricConnectionConfigAttr: TTNN_Attr<"FabricConnectionConfig", "fabric_connection_config"> {
-  let summary = "TTNN Fabric Connection Config attribute.";
-  let description = [{
-    Structure for configuring fabric connections for worker cores.
-  }];
-
-  let parameters = (ins "NocIndex":$noc_index,
-                        "mlir::tt::ttcore::Topology":$topology,
-                        "uint32_t":$cluster_axis,
-                        "RoutingMode":$routing_mode,
-                        "uint32_t":$num_links);
-  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links `>`";
-}
-
 def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
   let summary = "Program";
   let description = [{
@@ -1193,7 +1179,7 @@ def TTNN_MeshProgramDescriptorAttr : TTNN_Attr<"MeshProgramDescriptor", "mesh_pr
     Mesh program descriptor for TTNN generic operation.
   }];
 
-  let parameters = (ins ArrayRefParameter<"MeshProgramAttr">:$mesh_programs, "FabricConnectionConfigAttr":$fabric_connection_config);
+  let parameters = (ins ArrayRefParameter<"MeshProgramAttr">:$mesh_programs, "mlir::tt::ttcore::FabricConnectionConfigAttr":$fabric_connection_config);
   let assemblyFormat = "`<` `[` qualified($mesh_programs) `]` `,` `fabric_connection_config` `=` qualified($fabric_connection_config) `>`";
 
   let genVerifyDecl = 1;
