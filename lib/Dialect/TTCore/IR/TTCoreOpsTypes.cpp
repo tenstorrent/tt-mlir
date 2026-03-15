@@ -282,8 +282,8 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
     MLIRContext *context, StringRef path,
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
 #ifdef TTMLIR_NO_FLATBUFFERS
-  diagFn() << "loading system descriptor from file requires building with "
-              "flatbuffers support";
+  diagFn() << "loading system descriptor from file requires flatbuffers "
+              "support (disabled by TTMLIR_NO_FLATBUFFERS)";
   return failure();
 #else
   if (path.empty()) {
@@ -309,8 +309,8 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
     MLIRContext *context, void *systemDesc,
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
 #ifdef TTMLIR_NO_FLATBUFFERS
-  diagFn() << "loading system descriptor from buffer requires building with "
-              "flatbuffers support";
+  diagFn() << "loading system descriptor from buffer requires flatbuffers "
+              "support (disabled by TTMLIR_NO_FLATBUFFERS)";
   return failure();
 #else
   // Read relevant information from binary
