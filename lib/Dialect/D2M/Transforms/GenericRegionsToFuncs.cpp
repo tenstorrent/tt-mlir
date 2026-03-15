@@ -133,6 +133,7 @@ public:
           generic.getBlockFactors(), generic.getIndexingMaps(),
           generic.getIteratorTypes(), builder.getArrayAttr(threads),
           generic.getScratchInputsAttr(),
+          generic.getFabricConnectionConfigAttr(),
           /*numRegions*/ 0);
 
       generic.replaceAllUsesWith(symbolicGeneric);

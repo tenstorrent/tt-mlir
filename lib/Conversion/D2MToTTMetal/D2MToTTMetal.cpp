@@ -17,6 +17,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 #include <cstdint>
+#include <mlir-c/IR.h>
 
 namespace mlir::tt::ttmetal {
 
@@ -106,7 +107,7 @@ public:
         }
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs,
-            *symbolizeNocIndex(nocIdx));
+            *ttcore::symbolizeNocIndex(nocIdx));
         break;
       }
       case d2m::ThreadType::Unified: {
@@ -186,7 +187,8 @@ public:
         rewriter, op.getInputsAndOutputs(), threads, physicalGridShape,
         symbolTable, mathFidelity_);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, args, cbs, cbPorts, kernelConfigs, nullptr);
+        op, args, cbs, cbPorts, kernelConfigs,
+        op.getFabricConnectionConfigAttr());
     return success();
   };
 
