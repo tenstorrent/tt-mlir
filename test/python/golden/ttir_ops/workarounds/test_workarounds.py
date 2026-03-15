@@ -37,11 +37,8 @@ def check_op(mlir_file: str, op_name: str) -> bool:
 @pytest.mark.parametrize("transpose_a", [False, True])
 @pytest.mark.parametrize("transpose_b", [False, True])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.skip(
-    reason="Batched input not supported when bias exists (linear operation). "
-    "The TT_FATAL on device corrupts device state, causing subsequent SDPA "
-    "decode tests to produce incorrect results. "
-    "https://github.com/tenstorrent/tt-metal/issues/31634"
+@pytest.mark.xfail(
+    reason="Batched input not supported when bias exists (linear operation). https://github.com/tenstorrent/tt-metal/issues/31634"
 )
 def test_linear_without_workaround(
     shapes: List[Shape],
@@ -91,13 +88,10 @@ def test_linear_without_workaround(
         ),
         # Batched bias [2, 1, 1] with non-batched weight.
         # Bias batch dim > 1 triggers TT_FATAL(bias_batch_size == 1).
-        # Skipped instead of xfail because TT_FATAL corrupts device state,
-        # causing subsequent tests (e.g. SDPA decode) to produce wrong results.
         pytest.param(
             ((2, 33, 1024), (1024, 1024), (2, 1, 1)),
-            marks=pytest.mark.skip(
-                reason="Bias with non-unit batch dimensions triggers TT_FATAL "
-                "which corrupts device state for subsequent tests. "
+            marks=pytest.mark.xfail(
+                reason="Bias with non-unit batch dimensions not supported. "
                 "https://github.com/tenstorrent/tt-metal/issues/31634"
             ),
         ),
@@ -106,13 +100,11 @@ def test_linear_without_workaround(
         # broadcasted output shape differs from the matmul shape, the fused
         # kernel produces output with matmul shape [256, 512] instead of the
         # expected broadcasted shape [1, 256, 512].
-        # Skipped instead of xfail because TT_FATAL corrupts device state,
-        # causing subsequent tests (e.g. SDPA decode) to produce wrong results.
         pytest.param(
             ((256, 1024), (1024, 512), (1, 1, 512)),
-            marks=pytest.mark.skip(
-                reason="Fused linear kernel triggers TT_FATAL which corrupts "
-                "device state for subsequent tests. "
+            marks=pytest.mark.xfail(
+                reason="Fused linear kernel produces matmul-shaped output "
+                "instead of broadcasted shape when bias triggers fused path. "
                 "https://github.com/tenstorrent/tt-metal/issues/39392"
             ),
         ),

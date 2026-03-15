@@ -280,10 +280,15 @@ def test_sdpa_mask_broadcast(
             0.124999993,
         ),
         # Decode mask with batch broadcast: mask[0]=1
-        (
+        pytest.param(
             [(1, 32, 32, 64), (32, 32, 128, 64), (32, 32, 128, 64), (32,)],
             (1, 1, 32, 128),
             0.0883883387,
+            marks=pytest.mark.xfail(
+                reason="SDPA decode does not support batch broadcasting on "
+                "attention mask. "
+                "https://github.com/tenstorrent/tt-metal/issues/39910"
+            ),
         ),
     ],
     ids=[
@@ -294,8 +299,7 @@ def test_sdpa_mask_broadcast(
 )
 @pytest.mark.skip_exec(
     ("p150",),
-    reason="SDPA decode kernel exceeds max runtime args on p150 (344 > 341). "
-    "https://github.com/tenstorrent/tt-metal/issues/TBD",
+    reason="SDPA decode kernel exceeds max runtime args on p150 (344 > 341). ",
 )
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sdpa_decode_mask_broadcast(
