@@ -206,6 +206,52 @@ identifyQKVRoles(SmallVector<SliceReshapeMatch> &matches) {
   return heads;
 }
 
+// Infer Q/K/V roles from slice sizes when forward tracing to SDPA fails.
+// The largest slice (by number of heads) is Q; the other two are K and V.
+// K and V must have the same head count and head dim. The order of K/V
+// doesn't matter — the split op and downstream ops handle it.
+std::optional<SmallVector<QKVHead>>
+inferQKVRolesFromSliceSizes(SmallVector<SliceReshapeMatch> &matches) {
+  if (matches.size() != 3) {
+    return std::nullopt;
+  }
+
+  // Extract num_heads from each match's final shape.
+  SmallVector<int64_t> numHeads;
+  for (auto &m : matches) {
+    numHeads.push_back(m.getFinalType().getShape()[O_NUM_HEADS]);
+  }
+
+  // Find the one with the most heads — that's Q.
+  size_t qIdx = 0;
+  for (size_t i = 1; i < 3; ++i) {
+    if (numHeads[i] > numHeads[qIdx]) {
+      qIdx = i;
+    }
+  }
+
+  // The other two are K and V. They must have equal num_heads and head_dim.
+  size_t kvIdx0 = (qIdx == 0) ? 1 : 0;
+  size_t kvIdx1 = (qIdx == 2) ? 1 : 2;
+
+  if (numHeads[kvIdx0] != numHeads[kvIdx1]) {
+    return std::nullopt;
+  }
+
+  int64_t kvHeadDim0 = matches[kvIdx0].getFinalType().getShape()[O_HEAD_DIM];
+  int64_t kvHeadDim1 = matches[kvIdx1].getFinalType().getShape()[O_HEAD_DIM];
+  if (kvHeadDim0 != kvHeadDim1) {
+    return std::nullopt;
+  }
+
+  SmallVector<QKVHead> heads(3);
+  heads[qIdx] = {matches[qIdx], QKVRole::Query};
+  heads[kvIdx0] = {matches[kvIdx0], QKVRole::Key};
+  heads[kvIdx1] = {matches[kvIdx1], QKVRole::Value};
+
+  return heads;
+}
+
 // Check if heads are already in Q, K, V order by slice position.
 // Heads are sorted by slice position from validateSliceCoverage.
 bool isQKVOrder(const SmallVector<QKVHead> &heads) {
@@ -607,7 +653,15 @@ SplitQueryKeyValueAndSplitHeadsFusing<MatMulOpType>::matchAndRewrite(
   // Identify Q/K/V roles by tracing forward to SDPA ops.
   std::optional<SmallVector<QKVHead>> heads = identifyQKVRoles(*matches);
   if (!heads) {
-    return mlir::failure();
+    // Fallback: infer roles from slice sizes. The largest slice (by hidden dim)
+    // is Q, the other two are K and V. K/V ordering doesn't matter — the op
+    // splits by num_heads/num_kv_heads regardless, and downstream ops handle
+    // the distinction. This handles models with decomposed attention (no fused
+    // SDPA ops to trace to).
+    heads = inferQKVRolesFromSliceSizes(*matches);
+    if (!heads) {
+      return mlir::failure();
+    }
   }
 
   // Validate Q/K/V dimension compatibility.
