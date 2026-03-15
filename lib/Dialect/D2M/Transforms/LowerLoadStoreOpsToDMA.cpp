@@ -278,11 +278,13 @@ public:
     Value cb = remoteStore.getCb();
     Value remoteMemref = remoteStore.getMemref();
     SmallVector<Value> gridIndices = remoteStore.getIndices();
+    ValueRange startDevice = remoteStore.getStartDevice();
+    ValueRange endDevice = remoteStore.getEndDevice();
 
     // Wait on CB, emit shard-level dma_write, wait, pop
     Value localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
-    Value dmaTx = rewriter.create<DMAWriteOp>(loc, localMemref, remoteMemref,
-                                              gridIndices);
+    Value dmaTx = rewriter.create<DMAWriteOp>(
+        loc, localMemref, remoteMemref, gridIndices, startDevice, endDevice);
 
     rewriter.eraseOp(remoteStore);
 
