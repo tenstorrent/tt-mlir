@@ -1540,12 +1540,12 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
 // GenericOp
 //===----------------------------------------------------------------------===//
 
-void d2m::GenericOp::build(mlir::OpBuilder &builder,
-                           mlir::OperationState &state, ValueRange inputs,
-                           ValueRange outputs, ValueRange additionalArgs,
-                           ArrayAttr indexingMaps, ArrayAttr iteratorTypes,
-                           ThreadType singleThreadType, ttcore::GridAttr grid,
-                           ArrayRef<int64_t> blockFactors) {
+void d2m::GenericOp::build(
+    mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
+    ValueRange outputs, ValueRange additionalArgs, ArrayAttr indexingMaps,
+    ArrayAttr iteratorTypes, ThreadType singleThreadType, ttcore::GridAttr grid,
+    ArrayRef<int64_t> blockFactors,
+    ttcore::FabricConnectionConfigAttr fabricConnectionConfig) {
   TT_assertv(!indexingMaps.empty(), "expected non-empty indexing maps");
   TT_assertv(outputs.size() == 1u, "expected single output");
 
@@ -1630,7 +1630,7 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
 
   build(builder, state, TypeRange(outputs), inputs, outputs, additionalArgs,
         grid, blockFactorsAttr, indexingMaps, iteratorTypes, threads,
-        /*scratch_inputs=*/nullptr, 1);
+        /*scratch_inputs=*/nullptr, fabricConnectionConfig, /*numRegions=*/1);
 }
 
 void d2m::GenericOp::build(
@@ -1640,9 +1640,11 @@ void d2m::GenericOp::build(
     llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
         singleThreadRegionBuilder,
     ThreadType singleThreadType, ttcore::GridAttr grid,
-    ArrayRef<int64_t> blockFactors) {
+    ArrayRef<int64_t> blockFactors,
+    ttcore::FabricConnectionConfigAttr fabricConnectionConfig) {
   build(builder, state, inputs, outputs, additionalArgs, indexingMaps,
-        iteratorTypes, singleThreadType, grid, blockFactors);
+        iteratorTypes, singleThreadType, grid, blockFactors,
+        fabricConnectionConfig);
 
   auto inputOutputOperands = llvm::SmallVector<Value>(
       state.operands.begin(),
@@ -1693,7 +1695,8 @@ void d2m::GenericOp::build(
     llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
         singleThreadRegionBuilder,
     ThreadType singleThreadType, ttcore::GridAttr grid,
-    ArrayRef<int64_t> blockFactors) {
+    ArrayRef<int64_t> blockFactors,
+    ttcore::FabricConnectionConfigAttr fabricConnectionConfig) {
   TT_assertv(outputs.size() == 1u, "expected single output");
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(outputs[0].getType());
@@ -1705,7 +1708,8 @@ void d2m::GenericOp::build(
   auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes(
       builder, inputs.size() + outputs.size(), rank);
   build(builder, state, inputs, outputs, additionalArgs, indexingMaps,
-        iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid);
+        iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid,
+        blockFactors, fabricConnectionConfig);
 }
 
 bool d2m::GenericOp::bufferizesToMemoryRead(
@@ -2905,7 +2909,8 @@ d2m::GenericOp::getInputOutputOperandShardShapes(bool convertTileToScalar) {
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getPhysicalGridShape() {
   TT_assert(getOutputs().size() == 1u);
-  return d2m::utils::getPhysicalGridShape(getOutputs().front());
+  return llvm::to_vector(getGrid().getShape());
+  // TODO: this is not correct for virtual grids (where grid can be 1x64)
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
@@ -3029,7 +3034,8 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
   auto bufferGeneric = rewriter.create<d2m::GenericOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getAdditionalArgs(),
       getGrid(), getBlockFactors(), getIndexingMaps(), getIteratorTypes(),
-      getThreads(), getScratchInputsAttr(), getNumRegions());
+      getThreads(), getScratchInputsAttr(), getFabricConnectionConfigAttr(),
+      /*numRegions=*/getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }

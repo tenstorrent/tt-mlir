@@ -181,6 +181,7 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
       genericOp.getGrid(), genericOp.getBlockFactors(),
       builder.getArrayAttr(newIndexingMaps), genericOp.getIteratorTypes(),
       genericOp.getThreads(), scratchInputsAttr,
+      genericOp.getFabricConnectionConfigAttr(),
       /*numRegions=*/genericOp.getNumRegions());
 
   // Clone regions from old op to new op.

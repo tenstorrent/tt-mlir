@@ -261,7 +261,8 @@ def D2M_GenericOp
       I64ArrayAttr:$block_factors, AffineMapArrayAttr:$indexing_maps,
       TTCore_IteratorTypeArrayAttr:$iterator_types,
       D2M_ThreadArrayAttr:$threads,
-      OptionalAttr<DenseI64ArrayAttr>:$scratch_inputs);
+      OptionalAttr<DenseI64ArrayAttr>:$scratch_inputs,
+      OptionalAttr<TTCore_FabricConnectionConfigAttr>:$fabricConnectionConfig);
   let results = (outs Variadic<AnyRankedTensor>:$results);
   let regions = (region VariadicRegion<AnyRegion>:$regions);
 
@@ -303,7 +304,8 @@ def D2M_GenericOp
                      "ArrayAttr": $iteratorTypes,
                      CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors,
+                     CArg<"ttcore::FabricConnectionConfigAttr", "nullptr">: $fabricConnectionConfig)>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "ValueRange": $additionalArgs,
@@ -312,14 +314,16 @@ def D2M_GenericOp
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors,
+                     CArg<"ttcore::FabricConnectionConfigAttr", "nullptr">: $fabricConnectionConfig)>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "ValueRange": $additionalArgs,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors,
+                     CArg<"ttcore::FabricConnectionConfigAttr", "nullptr">: $fabricConnectionConfig)>,
     ];
 
     let extraClassDeclaration = [{
