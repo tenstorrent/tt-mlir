@@ -1200,25 +1200,25 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
 }
 
 inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
-                                           ttmetal::NocIndex nocIndex) {
+                                           ttcore::NocIndex nocIndex) {
   switch (nocIndex) {
-  case ttmetal::NocIndex::Noc0:
+  case ttcore::NocIndex::Noc0:
     return ::tt::target::NocIndex::Noc0;
-  case ttmetal::NocIndex::Noc1:
+  case ttcore::NocIndex::Noc1:
     return ::tt::target::NocIndex::Noc1;
   }
   assert(false && "Unsupported NocIndex");
 }
 
-inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
-                                           ttnn::NocIndex nocIndex) {
-  switch (nocIndex) {
-  case ttnn::NocIndex::Noc0:
-    return ::tt::target::NocIndex::Noc0;
-  case ttnn::NocIndex::Noc1:
-    return ::tt::target::NocIndex::Noc1;
+inline ::tt::target::RoutingMode toFlatbuffer(FlatbufferObjectCache &cache,
+                                              ttcore::RoutingMode routingMode) {
+  switch (routingMode) {
+  case ttcore::RoutingMode::BidirLineMesh:
+    return ::tt::target::RoutingMode::BidirLineMesh;
+  case ttcore::RoutingMode::UnidirRingTorus:
+    return ::tt::target::RoutingMode::UnidirRingTorus;
   }
-  assert(false && "Unsupported NocIndex");
+  assert(false && "Unsupported RoutingMode");
 }
 
 } // namespace mlir::tt
