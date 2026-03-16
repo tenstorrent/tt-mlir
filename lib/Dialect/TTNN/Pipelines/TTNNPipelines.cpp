@@ -190,6 +190,8 @@ void createTTNNPipelineWorkaroundPass(
   TTNNWorkaroundsOptions workaroundOptions{
       options.layoutWorkaroundsEnabled,
       options.decompositionWorkaroundsEnabled};
+  workaroundOptions.nocDmaHangWorkaroundsEnabled =
+      options.nocDmaHangWorkaroundsEnabled;
 
   if (options.optimizerPassEnabled) {
     workaroundOptions.optimizerEnabled = true;
