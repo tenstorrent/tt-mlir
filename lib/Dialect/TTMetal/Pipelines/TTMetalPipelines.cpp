@@ -93,11 +93,9 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttir::createTTIRDecomposeComplexReshape());
   pm.addPass(ttir::createTTIRImplicitBroadcastFold());
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  if (!options.globalDataFormatTarget.empty()) {
-    ttir::TTIRGlobalDataFormatConversionOptions globalFormatOptions;
-    { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
-    pm.addPass(ttir::createTTIRGlobalDataFormatConversion(globalFormatOptions));
-  }
+  ttir::TTIRGlobalDataFormatConversionOptions globalFormatOptions;
+  { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
+  pm.addPass(ttir::createTTIRGlobalDataFormatConversion(globalFormatOptions));
   pm.addPass(ttir::createTTIRDecomposeComplexPermute());
   tt::TTIRToD2MOptions toD2MOptions;
   {

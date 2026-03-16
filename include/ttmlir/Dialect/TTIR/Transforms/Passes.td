@@ -183,15 +183,19 @@ def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
 }
 
 def TTIRGlobalDataFormatConversion: Pass<"ttir-global-data-format-conversion", "::mlir::ModuleOp"> {
-  let summary = "Convert all tensor data types to a target format.";
+  let summary = "Normalize unsupported types and optionally convert data formats.";
   let description = [{
-    This pass converts all tensor element types in the function body
-    to a specified target format. Function signatures are preserved, and typecast operations
-    are automatically inserted at boundaries where type conversions are needed.
+    This pass always normalizes unsupported 64-bit element types to their
+    32-bit equivalents (f64 -> f32, i64 -> i32) in function bodies. Function
+    signatures are preserved, and typecast operations are automatically inserted
+    at boundaries where type conversions are needed.
 
-    Supported target formats:
+    If a target format is specified, the pass additionally converts all tensor
+    element types in the function body to the given format.
+
+    Supported target formats (optional):
       - "f32" (Float32)
-      - "bf16" (BFloat16, default)
+      - "bf16" (BFloat16)
       - "bfp_bf8" (BFP_BFloat8)
 
     Example:
@@ -214,8 +218,9 @@ def TTIRGlobalDataFormatConversion: Pass<"ttir-global-data-format-conversion", "
         }
   }];
   let options = [
-    Option<"targetFormat", "target-format", "std::string", /*default=*/"\"bf16\"",
-           "Target data format for conversion: f32, bf16 (default), or bfp_bf8">
+    Option<"targetFormat", "target-format", "std::string", /*default=*/"\"\"",
+           "Target data format for conversion: f32, bf16, or bfp_bf8. "
+           "If empty, only unsupported type normalization (f64->f32, i64->i32) is performed.">
   ];
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }

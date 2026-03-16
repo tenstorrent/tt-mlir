@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
+#include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir::tt::ttir {
@@ -27,6 +28,44 @@ parseTargetFormat(llvm::StringRef format) {
   }
   return std::nullopt;
 }
+
+// Normalizes unsupported 64-bit element types to their 32-bit equivalents
+// (f64 -> f32, i64/si64/ui64 -> i32/si32/ui32). This ensures the IR only
+// contains types that the hardware can represent.
+struct UnsupportedTypeNormalizer : mlir::TypeConverter {
+  UnsupportedTypeNormalizer() {
+    addConversion([](mlir::RankedTensorType type)
+                      -> std::optional<mlir::RankedTensorType> {
+      Type elementType = type.getElementType();
+
+      if (auto floatType = dyn_cast<FloatType>(elementType);
+          floatType && floatType.getWidth() == 64) {
+        return mlir::RankedTensorType::get(type.getShape(),
+                                           Float32Type::get(type.getContext()),
+                                           type.getEncoding());
+      }
+
+      if (auto intType = dyn_cast<IntegerType>(elementType);
+          intType && intType.getWidth() == 64) {
+        return mlir::RankedTensorType::get(
+            type.getShape(),
+            IntegerType::get(type.getContext(), 32, intType.getSignedness()),
+            type.getEncoding());
+      }
+
+      return type;
+    });
+
+    auto materialize = [](mlir::OpBuilder &builder, mlir::Type type,
+                          mlir::ValueRange inputs,
+                          mlir::Location loc) -> mlir::Value {
+      return builder.create<ttir::TypecastOp>(
+          loc, mlir::cast<mlir::RankedTensorType>(type), inputs);
+    };
+    addSourceMaterialization(materialize);
+    addTargetMaterialization(materialize);
+  }
+};
 
 struct GlobalDataFormatBodyConverter : mlir::TypeConverter {
   GlobalDataFormatBodyConverter(ttcore::DataType targetDataType) {
@@ -68,6 +107,12 @@ public:
   LogicalResult
   matchAndRewrite(mlir::Operation *op, llvm::ArrayRef<mlir::Value> operands,
                   mlir::ConversionPatternRewriter &rewriter) const final {
+    // Skip func.func and func.return — these are handled by the dedicated
+    // MLIR function/return conversion patterns when doing signature conversion,
+    // and don't need explicit handling in the body-only case.
+    if (isa<func::FuncOp, func::ReturnOp>(op)) {
+      return failure();
+    }
 
     mlir::IRMapping mapping;
     mapping.map(op->getOperands(), operands);
@@ -92,6 +137,54 @@ public:
   }
 };
 
+// Run a type conversion using the given converter, skipping ops marked with
+// "preserveDataFormat". When convertFuncSignatures is true, function argument
+// and return types are also converted; otherwise function signatures are
+// preserved and typecasts are inserted at the boundaries.
+static LogicalResult runBodyTypeConversion(mlir::Operation *root,
+                                           mlir::TypeConverter &converter,
+                                           mlir::MLIRContext &ctx,
+                                           bool convertFuncSignatures) {
+  mlir::ConversionTarget target(ctx);
+  target.markUnknownOpDynamicallyLegal(
+      [&converter, convertFuncSignatures](mlir::Operation *op) {
+        if (isa<func::FuncOp>(op)) {
+          if (!convertFuncSignatures) {
+            return true;
+          }
+          auto funcOp = cast<func::FuncOp>(op);
+          return converter.isSignatureLegal(funcOp.getFunctionType()) &&
+                 converter.isLegal(&funcOp.getBody());
+        }
+        // func.return has no results, so check its operand types instead to
+        // ensure the return values are converted to match the function
+        // signature.
+        if (isa<func::ReturnOp>(op)) {
+          if (!convertFuncSignatures) {
+            return true;
+          }
+          return llvm::all_of(op->getOperandTypes(), [&converter](Type type) {
+            return converter.isLegal(type);
+          });
+        }
+        if (op->hasAttr("preserveDataFormat")) {
+          return true;
+        }
+        return llvm::all_of(op->getResultTypes(), [&converter](Type type) {
+          return converter.isLegal(type);
+        });
+      });
+
+  mlir::RewritePatternSet patterns(&ctx);
+  patterns.add<FuncBodyTypeCast>(converter, &ctx);
+  if (convertFuncSignatures) {
+    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
+                                                                   converter);
+    populateReturnOpTypeConversionPattern(patterns, converter);
+  }
+  return mlir::applyFullConversion(root, target, std::move(patterns));
+}
+
 struct TTIRGlobalDataFormatConversion
     : public impl::TTIRGlobalDataFormatConversionBase<
           TTIRGlobalDataFormatConversion> {
@@ -99,6 +192,22 @@ struct TTIRGlobalDataFormatConversion
       TTIRGlobalDataFormatConversion>::TTIRGlobalDataFormatConversionBase;
 
   void runOnOperation() final {
+    // Step 1: Always normalize unsupported 64-bit types (f64 -> f32,
+    // i64 -> i32). This converts both function signatures and body types.
+    UnsupportedTypeNormalizer normalizer;
+    if (failed(runBodyTypeConversion(getOperation(), normalizer, getContext(),
+                                     /*convertFuncSignatures=*/true))) {
+      signalPassFailure();
+      return;
+    }
+
+    // Step 2: Optionally convert all body types to a target format if
+    // one was specified. Function signatures are preserved and
+    // typecasts are inserted at boundaries.
+    if (targetFormat.empty()) {
+      return;
+    }
+
     auto targetDataType = parseTargetFormat(targetFormat);
     if (!targetDataType) {
       getOperation()->emitError("Invalid target format '")
@@ -108,30 +217,9 @@ struct TTIRGlobalDataFormatConversion
     }
 
     GlobalDataFormatBodyConverter bodyConverter(*targetDataType);
-
-    mlir::ConversionTarget target(getContext());
-    target.markUnknownOpDynamicallyLegal([&bodyConverter](mlir::Operation *op) {
-      // Preserve function signatures
-      if (isa<func::FuncOp>(op)) {
-        return true;
-      }
-
-      // Skip ops with the exclusion attribute
-      if (op->hasAttr("preserveDataFormat")) {
-        return true;
-      }
-
-      // Convert all other operations to use the target format
-      return llvm::all_of(op->getResultTypes(), [&bodyConverter](Type type) {
-        return bodyConverter.isLegal(type);
-      });
-    });
-
-    mlir::RewritePatternSet patterns(&getContext());
-    patterns.add<FuncBodyTypeCast>(bodyConverter, &getContext());
-
-    if (failed(mlir::applyFullConversion(getOperation(), target,
-                                         std::move(patterns)))) {
+    if (failed(runBodyTypeConversion(getOperation(), bodyConverter,
+                                     getContext(),
+                                     /*convertFuncSignatures=*/false))) {
       signalPassFailure();
       return;
     }
