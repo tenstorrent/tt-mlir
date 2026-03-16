@@ -10,14 +10,14 @@
 #map = affine_map<(d0, d1) -> (d0, d1)>
 
 // Two tile_add ops in a fused generic → scratch should be added at input index 2.
-// Verify: scratch memref.alloc (1x1x1x32 for f32 @ 128KB) and scratch_inputs attr.
+// Verify: scratch memref.alloc sized by DST packing analysis and scratch_inputs attr.
 
 // CHECK-LABEL: func.func @two_adds_gets_scratch
-// CHECK: memref.alloc() : memref<1x1x1x32x!ttcore.tile<32x32, f32>
+// CHECK: memref.alloc() : memref<1x1x1x16x!ttcore.tile<32x32, f32>
 // CHECK: d2m.generic
 // CHECK-SAME: scratch_inputs = array<i64: 2>
 // CHECK: ins(%{{.*}}, %{{.*}}, %{{.*}} :
-// CHECK-SAME: memref<1x1x1x32x!ttcore.tile<32x32, f32>
+// CHECK-SAME: memref<1x1x1x16x!ttcore.tile<32x32, f32>
 func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
   d2m.generic {
@@ -63,11 +63,11 @@ func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
 // Mixed binary FPU ops (tile_add + tile_mul) → scratch should be added.
 
 // CHECK-LABEL: func.func @add_and_mul_gets_scratch
-// CHECK: memref.alloc() : memref<1x1x1x32x!ttcore.tile<32x32, f32>
+// CHECK: memref.alloc() : memref<1x1x1x16x!ttcore.tile<32x32, f32>
 // CHECK: d2m.generic
 // CHECK-SAME: scratch_inputs = array<i64: 2>
 // CHECK: ins(%{{.*}}, %{{.*}}, %{{.*}} :
-// CHECK-SAME: memref<1x1x1x32x!ttcore.tile<32x32, f32>
+// CHECK-SAME: memref<1x1x1x16x!ttcore.tile<32x32, f32>
 func.func @add_and_mul_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
   d2m.generic {

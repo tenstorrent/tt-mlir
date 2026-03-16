@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/DstRegisterAnalysis.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
@@ -23,8 +24,9 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Fixed scratch buffer size in bytes.
-constexpr size_t kScratchSizeBytes = 128 * 1024; // 128KB
+// Fallback scratch buffer size in bytes, used when the DST packing analysis
+// does not produce results for a given generic.
+constexpr size_t kFallbackScratchSizeBytes = 128 * 1024; // 128KB
 
 // Get the tile type from a memref type, if it has one.
 static ttcore::TileType getTileType(MemRefType memrefType) {
@@ -51,18 +53,51 @@ static MemRefType findTiledInputType(GenericOp genericOp) {
 // produced a multi-op kernel whose intermediate results must be spilled to L1.
 static bool needsScratch(GenericOp genericOp) {
   if (genericOp.getNumRegions() == 0) {
-    return false;
+    return 0;
   }
 
   unsigned linalgCount = 0;
   genericOp.getRegion(0).walk([&](linalg::GenericOp) { ++linalgCount; });
-  return linalgCount > 1;
+  return linalgCount;
+}
+
+// Compute the number of scratch tiles needed for a d2m.generic using the
+// DST packing analysis. Returns binaryFPUCount * numTilesPerResult when the
+// analysis produces results, otherwise falls back to a fixed size.
+static size_t
+computeScratchNumTiles(GenericOp genericOp, unsigned binaryFPUCount,
+                       ttcore::TileType tileType,
+                       const utils::DstRegisterAnalysis &dstAnalysis) {
+  const utils::DSTPackingInfo *packingInfo = dstAnalysis.lookup(genericOp);
+  if (packingInfo) {
+    const utils::DSTPackingRegionInfo *regionInfo =
+        packingInfo->lookup(&genericOp.getRegion(0));
+    if (regionInfo) {
+      size_t numTiles = static_cast<size_t>(binaryFPUCount) *
+                        static_cast<size_t>(regionInfo->numTilesPerResult);
+      if (numTiles == 0) {
+        numTiles = 1;
+      }
+      return numTiles;
+    }
+  }
+
+  // Fallback: use fixed scratch size when the analysis does not produce
+  // results for this generic.
+  size_t tileSizeBytes = tileType.getSizeBytes();
+  size_t numTiles = kFallbackScratchSizeBytes / tileSizeBytes;
+  if (numTiles == 0) {
+    numTiles = 1;
+  }
+  return numTiles;
 }
 
 // Add scratch input to a single d2m.generic op (post-bufferization).
 // Creates a memref.alloc for the scratch buffer and rebuilds the generic with
 // the scratch as an additional input.
-static LogicalResult addScratchToGeneric(GenericOp genericOp) {
+static LogicalResult
+addScratchToGeneric(GenericOp genericOp,
+                    const utils::DstRegisterAnalysis &dstAnalysis) {
   // Skip if this generic already has scratch inputs.
   if (genericOp.getScratchInputsAttr()) {
     return failure();
@@ -97,12 +132,9 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
     return failure();
   }
 
-  // Calculate number of tiles that fit in the scratch buffer.
-  size_t tileSizeBytes = tileType.getSizeBytes();
-  size_t numTiles = kScratchSizeBytes / tileSizeBytes;
-  if (numTiles == 0) {
-    numTiles = 1; // At least one tile.
-  }
+  // Calculate number of scratch tiles using the DST packing analysis.
+  size_t numTiles =
+      computeScratchNumTiles(genericOp, binaryFPUCount, tileType, dstAnalysis);
 
   // Get grid shape from reference input.
   auto gridShape =
@@ -254,6 +286,10 @@ class D2MAddScratchInputs
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
 
+    // Run DST packing analysis on the module to compute per-generic
+    // scratch size estimates.
+    utils::DstRegisterAnalysis dstAnalysis(moduleOp);
+
     // Collect generics.
     SmallVector<GenericOp> genericsToProcess;
     moduleOp.walk(
@@ -262,7 +298,7 @@ class D2MAddScratchInputs
     for (GenericOp genericOp : genericsToProcess) {
       // addScratchToGeneric returns failure for generics that don't need
       // scratch (not an error). We intentionally ignore the result.
-      (void)addScratchToGeneric(genericOp);
+      (void)addScratchToGeneric(genericOp, dstAnalysis);
     }
   }
 };
