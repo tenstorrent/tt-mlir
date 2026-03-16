@@ -275,7 +275,7 @@ struct D2MSFPUTileLoopFission
             // The fission creates a new loop after currentLoop.
             // Both the modified currentLoop and the new loop may need
             // further fissioning.
-            if (auto nextOp = currentLoop->getNextNode()) {
+            if (auto *nextOp = currentLoop->getNextNode()) {
               if (auto newLoop = dyn_cast<affine::AffineForOp>(nextOp)) {
                 // Add the new loop to the worklist for processing
                 worklist.push_back(newLoop);
