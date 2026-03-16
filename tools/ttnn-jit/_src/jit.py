@@ -150,7 +150,7 @@ class JitFunction:
             )
             return run_binary(fb_binary, args)
 
-        ttnn_to_ttmetal_pipeline(ir, options)
+        ttnn_to_ttmetal_pipeline(ir, options, print_ir=True)
         if self.debug:
             print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
             print(ir)
