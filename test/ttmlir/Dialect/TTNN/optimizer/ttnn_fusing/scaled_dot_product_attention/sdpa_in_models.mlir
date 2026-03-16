@@ -1091,4 +1091,73 @@ module {
     return %result : tensor<1x1x16384x32xbf16>
   }
 
+  // Q was prepared with:
+  // - Precomputed as [batch, q_heads, q_seq, head_dim] with q_seq = 1 (decode).
+  //
+  // K was prepared with:
+  // - GQA KV head expansion via repeat_interleave.
+  // - Transpose for matmul: permute [0, 1, 3, 2] to form K^T.
+  //
+  // V was prepared with:
+  // - GQA KV head expansion via repeat_interleave.
+  //
+  // SDPA is:
+  // - QK^T (dot_general) -> multiply(scale) -> add(mask) -> concat(padding) ->
+  //   decomposed softmax (max, sub, exp, sum, div) -> slice(remove padding) ->
+  //   PV (dot_general).
+  //
+  // The concat/slice around softmax is a numeric stability pattern: an extra
+  // column is concatenated before softmax to prevent NaN when all scores are
+  // masked to -inf, then sliced off after.
+  //
+  // GPT OSS 20B decode pattern (GQA: 64 Q heads, 8 KV heads)
+  //
+  // CHECK-LABEL: func.func @sdpa_decode_gpt_oss_20b_softmax_padding
+  // CHECK: "ttnn.scaled_dot_product_attention_decode"
+  func.func @sdpa_decode_gpt_oss_20b_softmax_padding(
+    %arg0: tensor<32x64x1x64xbf16>,    // Q [batch, q_heads, 1, head_dim]
+    %arg1: tensor<32x64x128x64xbf16>,  // K [batch, q_heads, kv_seq, head_dim] (already GQA expanded)
+    %arg2: tensor<32x64x128x64xbf16>,  // V [batch, q_heads, kv_seq, head_dim] (already GQA expanded)
+    %arg3: tensor<32x1x1x128xbf16>,    // Mask [batch, 1, 1, kv_seq]
+    %arg4: tensor<32x64x1x1xbf16>      // Softmax padding column
+  ) -> tensor<32x64x1x64xbf16> {
+    // Scale constant
+    %cst_scale = "ttir.constant"() <{value = dense<0.125> : tensor<1x1x1x1xbf16>}> : () -> tensor<1x1x1x1xbf16>
+
+    // K^T: permute [0, 1, 3, 2]
+    %k_transposed = "ttir.permute"(%arg1) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<32x64x128x64xbf16>) -> tensor<32x64x64x128xbf16>
+
+    // Q @ K^T
+    %qk = "ttir.dot_general"(%arg0, %k_transposed) <{batch_dims_lhs = array<i64: 0, 1>, batch_dims_rhs = array<i64: 0, 1>, contract_dims_lhs = array<i64: 3>, contract_dims_rhs = array<i64: 2>}> : (tensor<32x64x1x64xbf16>, tensor<32x64x64x128xbf16>) -> tensor<32x64x1x128xbf16>
+
+    // Scale
+    %qk_scaled = "ttir.multiply"(%qk, %cst_scale) : (tensor<32x64x1x128xbf16>, tensor<1x1x1x1xbf16>) -> tensor<32x64x1x128xbf16>
+
+    // Add mask (broadcast from [32,1,1,128] to [32,64,1,128])
+    %mask_broadcast = "ttir.broadcast"(%arg3) <{broadcast_dimensions = array<i64: 1, 64, 1, 1>}> : (tensor<32x1x1x128xbf16>) -> tensor<32x64x1x128xbf16>
+    %qk_masked = "ttir.add"(%qk_scaled, %mask_broadcast) : (tensor<32x64x1x128xbf16>, tensor<32x64x1x128xbf16>) -> tensor<32x64x1x128xbf16>
+
+    // Concat padding column for safe softmax: [128] -> [129]
+    %padded = "ttir.concat"(%qk_masked, %arg4) <{dim = 3 : si32}> : (tensor<32x64x1x128xbf16>, tensor<32x64x1x1xbf16>) -> tensor<32x64x1x129xbf16>
+
+    // Decomposed softmax on padded tensor
+    %max_val = "ttir.max"(%padded) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<32x64x1x129xbf16>) -> tensor<32x64x1xbf16>
+    %max_reshaped = "ttir.reshape"(%max_val) <{shape = [32 : i32, 64 : i32, 1 : i32, 1 : i32]}> : (tensor<32x64x1xbf16>) -> tensor<32x64x1x1xbf16>
+    %max_broadcast = "ttir.broadcast"(%max_reshaped) <{broadcast_dimensions = array<i64: 1, 1, 1, 129>}> : (tensor<32x64x1x1xbf16>) -> tensor<32x64x1x129xbf16>
+    %shifted = "ttir.subtract"(%padded, %max_broadcast) : (tensor<32x64x1x129xbf16>, tensor<32x64x1x129xbf16>) -> tensor<32x64x1x129xbf16>
+    %exp_val = "ttir.exp"(%shifted) : (tensor<32x64x1x129xbf16>) -> tensor<32x64x1x129xbf16>
+    %sum_val = "ttir.sum"(%exp_val) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<32x64x1x129xbf16>) -> tensor<32x64x1xbf16>
+    %sum_reshaped = "ttir.reshape"(%sum_val) <{shape = [32 : i32, 64 : i32, 1 : i32, 1 : i32]}> : (tensor<32x64x1xbf16>) -> tensor<32x64x1x1xbf16>
+    %sum_broadcast = "ttir.broadcast"(%sum_reshaped) <{broadcast_dimensions = array<i64: 1, 1, 1, 129>}> : (tensor<32x64x1x1xbf16>) -> tensor<32x64x1x129xbf16>
+    %softmax = "ttir.div"(%exp_val, %sum_broadcast) : (tensor<32x64x1x129xbf16>, tensor<32x64x1x129xbf16>) -> tensor<32x64x1x129xbf16>
+
+    // Slice off padding column: [129] -> [128]
+    %softmax_trimmed = "ttir.slice_static"(%softmax) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [32 : i32, 64 : i32, 1 : i32, 128 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<32x64x1x129xbf16>) -> tensor<32x64x1x128xbf16>
+
+    // Attention @ V
+    %attn_out = "ttir.dot_general"(%softmax_trimmed, %arg2) <{batch_dims_lhs = array<i64: 0, 1>, batch_dims_rhs = array<i64: 0, 1>, contract_dims_lhs = array<i64: 3>, contract_dims_rhs = array<i64: 2>}> : (tensor<32x64x1x128xbf16>, tensor<32x64x128x64xbf16>) -> tensor<32x64x1x64xbf16>
+
+    return %attn_out : tensor<32x64x1x64xbf16>
+  }
+
 }
