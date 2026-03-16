@@ -115,7 +115,7 @@ class D2M_GenericRegionComputeFPUOrSFPUBinary<string mnemonic, list<Trait> trait
       auto lhsType = this->getOperand(0).getType();
       auto rhsType = this->getOperand(1).getType();
 
-      // If either operand is a float32, use SFPU to maintian accuracy.
+      // If either operand is a float32, use SFPU to maintain accuracy.
       if (ttcore::getDataType(lhsType) == ttcore::DataType::Float32 || ttcore::getDataType(rhsType) == ttcore::DataType::Float32) {
         return {0, 1};
       }
