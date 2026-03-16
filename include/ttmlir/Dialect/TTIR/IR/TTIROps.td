@@ -589,8 +589,6 @@ def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg", [TTIR_Involution]> {
 
       Mathematical definition: neg(x) = -x
     }];
-
-    let hasFolder = 1;
 }
 
 def TTIR_TanOp: TTIR_ElementwiseUnaryOp<"tan"> {
@@ -4925,7 +4923,7 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
   let hasVerifier = 1;
 }
 
-def TTIR_FullOp : TTIR_CreationOp<"full", [ConstantLike]> {
+def TTIR_FullOp : TTIR_CreationOp<"full"> {
   let summary = "Creates a tensor filled with the specified value";
   let description = [{
     Tensor operation to create a tensor filled with a specified value.
@@ -4952,8 +4950,6 @@ def TTIR_FullOp : TTIR_CreationOp<"full", [ConstantLike]> {
   ];
 
   let hasVerifier = 1;
-
-  let hasFolder = 1;
 }
 
 def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
@@ -5050,7 +5046,7 @@ class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros", [ConstantLike]> {
+def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
     The `zeros` operation creates a tensor filled with zeros of the specified shape.
@@ -5085,11 +5081,9 @@ def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros", [ConstantLike]> {
     This operation is useful for initializing tensors before filling them with computed values or as a
     starting point for accumulation operations.
   }];
-
-  let hasFolder = 1;
 }
 
-def TTIR_OnesOp : TTIR_NamedFullOp<"ones", [ConstantLike]> {
+def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
     The `ones` operation creates a tensor filled with ones of the specified shape.
@@ -5124,8 +5118,6 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones", [ConstantLike]> {
     This operation is useful for initializing tensors before scaling them or as a starting point for
     operations that require tensors filled with ones, such as creating masks or constant multipliers.
   }];
-
-  let hasFolder = 1;
 }
 
 def TTIR_EmptyOp : TTIR_Op<"empty", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTCore_CreationOpTrait, TTCore_NonCacheableTrait]> {
