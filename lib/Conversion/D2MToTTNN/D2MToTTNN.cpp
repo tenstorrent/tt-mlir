@@ -127,13 +127,6 @@ static RankedTensorType convertMemrefToTTNNTensor(MLIRContext *ctx,
                                ttnnLayoutAttr);
 }
 
-struct GenericOperandInfo {
-  Value ioTensor;
-  Value cbMemref;
-  bool isOutput;
-  unsigned operandIdx;
-};
-
 static ttnn::ComputeKernelMathFidelity
 convertMathFidelity(ttmetal::MathFidelity fidelity) {
   switch (fidelity) {
@@ -293,20 +286,27 @@ createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
   return kernelConfigs;
 }
 
+struct GenericOperandInfo {
+  Value ioTensor;
+  Value cbMemref;
+  bool isOutput;
+  unsigned operandIdx;
+};
+
 static SmallVector<ttnn::KernelCBAttr>
-createCBDescriptors(Builder &builder, const SmallVector<Value> &cbs,
+createCBDescriptors(Builder &builder,
                     const SmallVector<GenericOperandInfo> &infos,
                     const ttcore::DeviceAttr &device,
                     const ttnn::CoreRangeSetAttr &coreRangeSet) {
-  if (cbs.empty()) {
+  if (infos.empty()) {
     llvm_unreachable("Expected circular buffers.");
   }
 
   MLIRContext *ctx = builder.getContext();
-  SmallVector<ttnn::KernelCBAttr> cbDescriptors(cbs.size());
+  SmallVector<ttnn::KernelCBAttr> cbDescriptors(infos.size());
 
-  for (auto [i, cb] : llvm::enumerate(cbs)) {
-    auto cbMemref = dyn_cast<MemRefType>(cb.getType());
+  for (auto [i, info] : llvm::enumerate(infos)) {
+    auto cbMemref = mlir::cast<MemRefType>(info.cbMemref.getType());
     TT_assertv(mlir::isa<ttcore::TileType>(cbMemref.getElementType()),
                "Only TileType supported.");
     ttcore::DataType dtype =
@@ -319,30 +319,27 @@ createCBDescriptors(Builder &builder, const SmallVector<Value> &cbs,
 
     ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
 
-    bool isShardedL1 =
-        ttcore::getMemorySpace(cbMemref) != ttcore::MemorySpace::DeviceDRAM;
-
-    if (i < infos.size() && isShardedL1) {
-      // For IO operands, check whether the CB is aliased to the global tensor
-      // buffer. Aliased means the CB is not streaming (no StreamLayoutOp in
-      // the chain). The findCBMemref logic returns stream.getStorage() for
-      // streaming operands, and the operand itself for non-streaming. We
-      // reproduce the original heuristic: aliased when the CB's defining op
-      // is a TTNNMetalLayoutCastOp (input already in L1), or when it's an
-      // alloc with no streaming users (output aliased in L1).
-      bool isHoistedCB =
-          mlir::isa_and_present<ttcore::CBLayoutAttr>(cbMemref.getLayout());
-      bool isAliasedOutput =
-          !isHoistedCB &&
-          mlir::dyn_cast_if_present<memref::AllocOp>(cb.getDefiningOp()) &&
-          llvm::none_of(cb.getUsers(), [](Operation *user) {
-            return mlir::isa<d2m::StreamLayoutOp>(user);
-          });
-      if (mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-              cb.getDefiningOp()) ||
-          isAliasedOutput) {
+    if (ttcore::getMemorySpace(cbMemref) != ttcore::MemorySpace::DeviceDRAM) {
+      if (info.isOutput) {
+        // L1 outputs are always aliased.
         globalCBIndexOfTensor =
             ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
+      } else {
+        bool isLocalFuncArg =
+            mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+                info.cbMemref.getDefiningOp());
+        bool isLocalIntermediate =
+            mlir::dyn_cast_if_present<memref::AllocOp>(
+                info.cbMemref.getDefiningOp()) &&
+            !mlir::isa_and_present<ttcore::CBLayoutAttr>(
+                  cbMemref.getLayout()) &&
+            llvm::none_of(info.cbMemref.getUsers(), [](Operation *user) {
+              return mlir::isa<d2m::StreamLayoutOp>(user);
+            });
+        if (isLocalFuncArg || isLocalIntermediate) {
+          globalCBIndexOfTensor =
+              ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
+        }
       }
     }
 
@@ -352,10 +349,6 @@ createCBDescriptors(Builder &builder, const SmallVector<Value> &cbs,
 
   return cbDescriptors;
 }
-
-// ===----------------------------------------------------------------------===//
-// Phase 1: Materialize TTNN Tensors
-// ===----------------------------------------------------------------------===//
 
 static LogicalResult handleMemrefAlloc(memref::AllocOp op, IRRewriter &rewriter,
                                        DenseMap<Value, Value> &valueMapping) {
@@ -374,7 +367,7 @@ static LogicalResult handleMemrefAlloc(memref::AllocOp op, IRRewriter &rewriter,
 
   // Case 2: Hoisted CB alloc (CBLayoutAttr) -- skip.
   if (auto cbLayout = mlir::dyn_cast_if_present<ttcore::CBLayoutAttr>(
-      memrefType.getLayout())) {
+          memrefType.getLayout())) {
     return success();
   }
 
@@ -580,8 +573,6 @@ materializeTTNNTensors(ModuleOp module, DenseMap<Value, Value> &valueMapping) {
   SmallVector<memref::AllocOp> allocOps;
   SmallVector<d2m::EmptyOp> emptyOps;
   SmallVector<d2m::FullOp> fullOps;
-  SmallVector<d2m::CreateGlobalSemaphoreOp> createSemOps;
-  SmallVector<d2m::ResetGlobalSemaphoreOp> resetSemOps;
 
   module.walk([&](Operation *op) {
     if (auto allocOp = dyn_cast<memref::AllocOp>(op)) {
@@ -590,10 +581,6 @@ materializeTTNNTensors(ModuleOp module, DenseMap<Value, Value> &valueMapping) {
       emptyOps.push_back(emptyOp);
     } else if (auto fullOp = dyn_cast<d2m::FullOp>(op)) {
       fullOps.push_back(fullOp);
-    } else if (auto createOp = dyn_cast<d2m::CreateGlobalSemaphoreOp>(op)) {
-      createSemOps.push_back(createOp);
-    } else if (auto resetOp = dyn_cast<d2m::ResetGlobalSemaphoreOp>(op)) {
-      resetSemOps.push_back(resetOp);
     }
   });
 
@@ -612,6 +599,25 @@ materializeTTNNTensors(ModuleOp module, DenseMap<Value, Value> &valueMapping) {
       return failure();
     }
   }
+
+  return success();
+}
+
+LogicalResult convertSemaphores(ModuleOp module,
+                                DenseMap<Value, Value> &valueMapping) {
+  IRRewriter rewriter(module.getContext());
+
+  SmallVector<d2m::CreateGlobalSemaphoreOp> createSemOps;
+  SmallVector<d2m::ResetGlobalSemaphoreOp> resetSemOps;
+
+  module.walk([&](Operation *op) {
+    if (auto createOp = dyn_cast<d2m::CreateGlobalSemaphoreOp>(op)) {
+      createSemOps.push_back(createOp);
+    } else if (auto resetOp = dyn_cast<d2m::ResetGlobalSemaphoreOp>(op)) {
+      resetSemOps.push_back(resetOp);
+    }
+  });
+
   for (auto op : createSemOps) {
     if (failed(handleD2MCreateGlobalSemaphore(op, rewriter, valueMapping))) {
       return failure();
@@ -625,10 +631,6 @@ materializeTTNNTensors(ModuleOp module, DenseMap<Value, Value> &valueMapping) {
 
   return success();
 }
-
-// ===----------------------------------------------------------------------===//
-// Phase 2: Convert Generics
-// ===----------------------------------------------------------------------===//
 
 static Value findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping) {
   if (valueMapping.count(operand)) {
@@ -723,7 +725,6 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       analyzeGenericOperands(op, valueMapping);
 
   // Process additionalArgs.
-  SmallVector<Value> extraCBs;
   SmallVector<Value> additionalArgs;
 
   for (Value arg : op.getAdditionalArgs()) {
@@ -734,8 +735,6 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       unsigned targetIdx = static_cast<unsigned>(cbForOp.getInt());
       TT_assertv(targetIdx < infos.size(), "d2m.cb_for_operand out of range");
       infos[targetIdx].cbMemref = arg;
-    } else if (isa<MemRefType>(arg.getType())) {
-      extraCBs.push_back(arg);
     } else if (isa<ttnn::GlobalSemaphoreType>(arg.getType()) ||
                isa<RankedTensorType>(arg.getType())) {
       Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
@@ -750,18 +749,9 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
     }
   }
 
-  // Build CB list: IO operand CBs first, then extra CBs.
-  SmallVector<Value> allCBs;
-  for (auto &info : infos) {
-    allCBs.push_back(info.cbMemref);
-  }
-  for (auto &extra : extraCBs) {
-    allCBs.push_back(extra);
-  }
-
   // Create CB descriptors.
   SmallVector<ttnn::KernelCBAttr> cbDescriptors =
-      createCBDescriptors(rewriter, allCBs, infos, device, coreRangeSet);
+      createCBDescriptors(rewriter, infos, device, coreRangeSet);
 
   // Create Kernel descriptors.
   SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
@@ -806,19 +796,15 @@ static LogicalResult convertGenerics(ModuleOp module,
   return success();
 }
 
-// ===----------------------------------------------------------------------===//
-// Phase 3: Cleanup and Verification
-// ===----------------------------------------------------------------------===//
-
 static LogicalResult cleanupAndVerify(ModuleOp module,
                                       DenseMap<Value, Value> &valueMapping) {
-  // Step 1a: Replace all mapped values' uses with their TTNN equivalents.
+  // Replace all mapped values' uses with their TTNN equivalents.
   // This handles d2m.empty/full results used directly by func.return, etc.
   for (auto &[oldVal, newVal] : valueMapping) {
     oldVal.replaceAllUsesWith(newVal);
   }
 
-  // Step 1b: Resolve "exit" casts -- TTNNMetalLayoutCastOps whose result type
+  // Resolve "exit" casts -- TTNNMetalLayoutCastOps whose result type
   // is a tensor (used by surviving TTNN ops like ttnn.to_memory_config or
   // function returns). Replace their uses with the resolved TTNN tensor.
   module.walk([&](ttir::TTNNMetalLayoutCastOp op) {
@@ -832,7 +818,7 @@ static LogicalResult cleanupAndVerify(ModuleOp module,
     op.getResult().replaceAllUsesWith(resolved);
   });
 
-  // Step 2: Collect and erase all remaining D2M/memref/cast ops. Generics are
+  // Collect and erase all remaining D2M/memref/cast ops. Generics are
   // already erased by replaceOpWithNewOp in Phase 2. External uses were
   // resolved in Step 1; remaining uses are internal among ops being erased, so
   // dropAllUses is safe.
@@ -849,7 +835,7 @@ static LogicalResult cleanupAndVerify(ModuleOp module,
     op->erase();
   }
 
-  // Step 4: Verification walk.
+  // Verification walk.
   WalkResult result = module.walk([](Operation *op) -> WalkResult {
     if (isa<d2m::D2MDialect>(op->getDialect())) {
       return op->emitError("unexpected D2M op after conversion"),
@@ -882,6 +868,9 @@ LogicalResult runD2MToTTNNConversion(ModuleOp module,
                                      ttmetal::MathFidelity mathFidelity) {
   DenseMap<Value, Value> valueMapping;
   if (failed(materializeTTNNTensors(module, valueMapping))) {
+    return failure();
+  }
+  if (failed(convertSemaphores(module, valueMapping))) {
     return failure();
   }
   if (failed(convertGenerics(module, valueMapping, mathFidelity))) {
