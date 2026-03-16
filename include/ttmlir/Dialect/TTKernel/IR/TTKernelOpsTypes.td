@@ -134,20 +134,33 @@ def TTKernel_ArgAttr : TTKernel_Attr<"Arg", "arg"> {
   }];
   let parameters = (ins "ArgType":$arg_type, "size_t":$operand_index,
                         DefaultValuedParameter<"bool", "true">:$is_uniform,
-                        DefaultValuedParameter<"StringAttr", "StringAttr::get($_ctxt, \"\")">:$argument_name);
+                        DefaultValuedParameter<"StringAttr", "StringAttr::get($_ctxt, \"\")">:$argument_name,
+                        DefaultValuedParameter<"int64_t", "-1">:$port);
   let assemblyFormat = "`<` struct(params) `>`";
 
   let extraClassDeclaration = [{
     static ArgAttr get(::mlir::MLIRContext *context, ArgType argType, size_t index) {
-      return ArgAttr::get(context, argType, index, true);
+      return ArgAttr::get(context, argType, index, true, StringAttr::get(context, ""), /*port=*/-1);
     }
 
     static ArgAttr get(::mlir::MLIRContext *context, ArgType argType, size_t index, bool isUniform) {
-      return ArgAttr::get(context, argType, index, isUniform, StringAttr::get(context, ""));
+      return ArgAttr::get(context, argType, index, isUniform, StringAttr::get(context, ""), /*port=*/-1);
     }
 
     static ArgAttr get(::mlir::MLIRContext *context, StringAttr argumentName) {
-      return ArgAttr::get(context, ArgType::NamedArgument, 0, true, argumentName);
+      return ArgAttr::get(context, ArgType::NamedArgument, 0, true, argumentName, /*port=*/-1);
+    }
+
+    /// Create a CBPort arg with an explicit port number.
+    static ArgAttr getCBPort(::mlir::MLIRContext *context, size_t operandIndex, int64_t port) {
+      return ArgAttr::get(context, ArgType::CBPort, operandIndex, true,
+                          StringAttr::get(context, ""), port);
+    }
+
+    /// Return the CB port number.  Falls back to operandIndex when port is
+    /// not explicitly set (port == -1), preserving backward compatibility.
+    int64_t getCBPort() const {
+      return getPort() >= 0 ? getPort() : static_cast<int64_t>(getOperandIndex());
     }
   }];
 }

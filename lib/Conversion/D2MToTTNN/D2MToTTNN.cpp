@@ -150,8 +150,7 @@ static mlir::Attribute convertKernelArg(Builder &builder,
         arg.getOperandIndex());
   }
   case ttkernel::ArgType::CBPort: {
-    return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(
-        arg.getOperandIndex());
+    return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(arg.getCBPort());
   }
   case ttkernel::ArgType::Semaphore: {
     return builder.getAttr<ttnn::KernelArgSemaphoreAtAttr>(
