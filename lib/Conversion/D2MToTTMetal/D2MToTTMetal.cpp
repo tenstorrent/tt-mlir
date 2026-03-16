@@ -127,32 +127,29 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
 
-    // Phase 1: Scan additional args to build a map from I/O operand index
+    // Scan additional args to build a map from I/O operand index
     // to its hoisted CB, and collect other additional args separately.
     unsigned ioSize = op.getInputsAndOutputs().size();
     DenseMap<unsigned, Value> hoistedCBMap;
     llvm::SmallVector<Value> extraArgs;
-    llvm::SmallVector<Value> extraCBs;
-    llvm::SmallVector<int64_t> extraCBPorts;
-    int64_t cbPort = static_cast<int64_t>(ioSize);
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operand = adaptor.getOperands()[ioSize + i];
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
         extraArgs.push_back(operand);
       } else if (mlir::isa<MemRefType>(operand.getType())) {
         // Hoisted CB buffer (already converted to CreateBufferOp by
-        // MemrefAllocRewriter).  If it backs a regular operand, record
-        // the mapping; otherwise collect as an extra CB entry.
-        if (auto cbForOp =
-                operand.getDefiningOp()
-                    ? operand.getDefiningOp()->getAttrOfType<IntegerAttr>(
-                          "d2m.cb_for_operand")
-                    : IntegerAttr()) {
-          hoistedCBMap[static_cast<unsigned>(cbForOp.getInt())] = operand;
-        } else {
-          extraCBs.push_back(operand);
-          extraCBPorts.push_back(cbPort++);
+        // MemrefAllocRewriter).  Must be tagged with the I/O operand
+        // index it backs.
+        auto cbForOp =
+            operand.getDefiningOp()
+                ? operand.getDefiningOp()->getAttrOfType<IntegerAttr>(
+                      "d2m.cb_for_operand")
+                : IntegerAttr();
+        if (!cbForOp) {
+          op.emitOpError("memref additional arg missing d2m.cb_for_operand");
+          return failure();
         }
+        hoistedCBMap[static_cast<unsigned>(cbForOp.getInt())] = operand;
       } else {
         op.emitOpError(
             "unexpected operand type in d2m.generic's additionalArgs: ")
@@ -161,7 +158,7 @@ public:
       }
     }
 
-    // Phase 2: Process I/O operands, using hoisted CBs where available.
+    // Process I/O operands, using hoisted CBs where available.
     llvm::SmallVector<Value> args;
     llvm::SmallVector<Value> cbs;
     llvm::SmallVector<int64_t> cbPorts;
@@ -195,10 +192,8 @@ public:
       cbPorts.push_back(static_cast<int64_t>(i));
     }
 
-    // Append non-I/O additional args and CBs.
+    // Append non-I/O additional args (semaphores).
     args.append(extraArgs);
-    cbs.append(extraCBs);
-    cbPorts.append(extraCBPorts);
 
     ArrayAttr threads = op.getThreads();
     auto physicalGridShape = op.getPhysicalGridShape();
