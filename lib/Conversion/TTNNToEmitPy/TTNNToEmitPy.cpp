@@ -2691,25 +2691,7 @@ public:
     // Check for device argument (target-module mode).
     auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
     auto deviceType = mlir::tt::ttnn::DeviceType::get(ctx);
-    auto *ctx = rewriter.getContext();
-    auto loc = loadCachedOp.getLoc();
-    auto tensorType = emitpy::OpaqueType::get(ctx, "ttnn.Tensor");
-    auto tensorListType = emitpy::OpaqueType::get(ctx, "[ttnn.Tensor]");
 
-    llvm::StringRef calleeName = loadCachedOp.getCallee();
-
-    // Pack inputs into a list if present.
-    llvm::SmallVector<Value> callOperands;
-    if (!adaptor.getInputs().empty()) {
-      auto inputList = rewriter.create<emitpy::CallOpaqueOp>(
-          loc, tensorListType, ttnn_to_emitpy::kCreateListFunctionName,
-          adaptor.getInputs());
-      callOperands.push_back(inputList.getResult(0));
-    }
-
-    // Check for device argument (target-module mode).
-    auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
-    auto deviceType = mlir::tt::ttnn::DeviceType::get(ctx);
     Type convertedDeviceType = nullptr;
     if (auto *typeConverter = this->getTypeConverter()) {
       convertedDeviceType = typeConverter->convertType(deviceType);
