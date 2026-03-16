@@ -4780,8 +4780,8 @@ TEST_F(OpModelBase, groupNormOp) {
   // group_norm requires explicit core_grid; use a fixed test value.
   auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
 
-  GroupNormOp groupNormOp = builder.create<GroupNormOp>(
-      builder.getUnknownLoc(), outputType, input,
+  GroupNormOp groupNormOp = GroupNormOp::create(
+      builder, builder.getUnknownLoc(), outputType, input,
       /*input_mask=*/inputMask, weight, bias, numGroups, epsilon,
       /*memoryConfig=*/nullptr, coreGrid);
   groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
@@ -4836,8 +4836,8 @@ TEST_F(OpModelBase, groupNormOpL1Memory) {
   // group_norm requires explicit core_grid; use a fixed test value.
   auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
 
-  GroupNormOp groupNormOp = builder.create<GroupNormOp>(
-      builder.getUnknownLoc(), outputType, input,
+  GroupNormOp groupNormOp = GroupNormOp::create(
+      builder, builder.getUnknownLoc(), outputType, input,
       /*input_mask=*/inputMask, weight, bias, numGroups, epsilon,
       /*memoryConfig=*/nullptr, coreGrid);
   groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
