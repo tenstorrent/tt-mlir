@@ -5,8 +5,9 @@
 #ifndef TTMLIR_CONVERSION_D2MTOTTNN_D2MTOTTNN_H
 #define TTMLIR_CONVERSION_D2MTOTTNN_D2MTOTTNN_H
 
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Support/LogicalResult.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 
 namespace mlir::tt::d2m {
@@ -18,8 +19,8 @@ namespace mlir::tt::d2m {
 
 namespace mlir::tt {
 
-void populateD2MToTTNNPatterns(
-    MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
+LogicalResult runD2MToTTNNConversion(
+    ModuleOp module,
     ttmetal::MathFidelity mathFidelity = ttmetal::MathFidelity::HiFi4);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTNNPass();
