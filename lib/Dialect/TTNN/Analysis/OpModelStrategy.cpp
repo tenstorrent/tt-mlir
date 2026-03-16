@@ -93,7 +93,7 @@ OutputHints getOutputHints(Operation *op,
       // https://github.com/tenstorrent/tt-metal/issues/39419
       // TODO(rpavlovicTT): re-enable sharded concat once tt-metal fixes it.
       .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp, PadOp, SliceStaticOp,
-            SliceDynamicOp, ConcatOp>([&](auto) {
+            SliceDynamicOp, ConcatOp, EmbeddingOp>([&](auto) {
         auto nonShardedConfigs = filterNonSharded(legalConfigs);
         return OutputHints{nonShardedConfigs, {}, /*attemptL1Sharding=*/false};
       })
