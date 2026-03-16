@@ -2964,6 +2964,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getClusterAxis()),
+        emitter.emit(srcOp.getReduceType()),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
         emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(srcOp.getNumLinks()),

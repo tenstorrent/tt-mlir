@@ -3589,6 +3589,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getReduceType(), "math_op"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
