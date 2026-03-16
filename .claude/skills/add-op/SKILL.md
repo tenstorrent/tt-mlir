@@ -13,21 +13,39 @@ description: >
 # Adding an Op to tt-mlir
 
 Adding a new op touches ~15-30 files across the compiler, runtime, and test infrastructure. This
-skill walks through each layer in pipeline order. Use the existing ops in each file as your primary
-reference — find the most similar op and follow its pattern.
+skill walks through each layer, starting from the TTNN device-level API and working upward. Use
+the existing ops in each file as your primary reference — find the most similar op and follow its
+pattern.
 
-The pipeline flows:
+The implementation order is:
 
 ```
-StableHLO composite → TTIR → TTNN → Flatbuffer → Runtime
-                                  → EmitC → C++
-                                  → EmitPy → Python
+1. TTNN dialect definition (models the TTNN C++ API)
+2. TTIR dialect definition (higher-level, device-agnostic)
+3. TTIR → TTNN conversion
+4. TTNN → EmitC / EmitPy conversions
+5. StableHLO composite → TTIR conversion (if needed)
+6. Flatbuffer schema and serialization
+7. Runtime implementation
+8. OpModel
+9. TTIRBuilder, golden functions, tests
 ```
+
+The key principle: **start from the TTNN C++ API** and work outward. The TTNN dialect op should
+model the TTNN library function as closely as possible. The TTIR op is a simplified, device-agnostic
+version derived from it.
+
+Consult `references/ttnn_type_mapping.md` for the mapping between TTNN C++ types and their MLIR
+tablegen equivalents. This covers tensor types, scalar attributes, TTNN-specific types (MemoryConfig,
+DeviceComputeKernelConfig, Topology, etc.), and which C++ types have no MLIR equivalent and are
+handled at runtime only.
 
 Before starting, identify:
-- **The TTNN API** you're targeting (check tt-metal docs or headers)
+- **The TTNN C++ API** you're targeting — read the actual function signature in
+  `third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/operations/`. This is the source of truth for
+  what parameters the op takes, their types, and which are optional.
 - **A similar existing op** to use as a template (e.g., `RMSNormOp` for normalization ops,
-  `MatmulOp` for ops with multiple tensor inputs)
+  `MatmulOp` for ops with multiple tensor inputs, `ReduceScatterOp` for CCL ops)
 - **Which arguments are optional** — this affects whether you need `AttrSizedOperandSegments`
 - **Naming conflicts** — check if an op with the same name already exists (e.g., StableHLO `GatherOp`
   already exists, so torch.gather semantics was named `GatherDimOp` in TTIR). Search the existing
@@ -40,13 +58,56 @@ Before starting, identify:
   exact tensor shapes, dtypes, and any required permutations. These tests are the ground truth for
   what shapes the metal kernel actually supports.
 
-## Step 1: Define the Op in TTIR
+## Step 1: Define the Op in TTNN
 
 ### 1a. Tablegen definition
 
+**File:** `include/ttmlir/Dialect/TTNN/IR/TTNNOps.td`
+
+The TTNN op should model the TTNN C++ API as closely as possible. Read the actual C++ function
+signature and map each parameter to its MLIR equivalent using `references/ttnn_type_mapping.md`.
+
+Refer to `references/ttnn_type_mapping.md` for the complete mapping of C++ types to tablegen
+types, op interfaces, optional/default patterns, and which types have no MLIR equivalent.
+
+```tablegen
+def TTNN_YourOp : TTNN_Op<"your_op",
+    [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
+  let summary = "Your operation.";
+  let description = [{...}];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$bias,
+                       DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+```
+
+### 1b. Verifier implementation
+
+**File:** `lib/Dialect/TTNN/IR/TTNNOps.cpp`
+
+The TTNN verifier enforces device-specific constraints (e.g., TTNN LayerNorm only supports
+normalization over the last dimension, so weight/bias must be 1D).
+
+## Step 2: Define the Op in TTIR
+
+### 2a. Tablegen definition
+
 **File:** `include/ttmlir/Dialect/TTIR/IR/TTIROps.td`
 
-Add the op definition. Choose the right base class:
+The TTIR op is a simplified, device-agnostic version of the TTNN op. It captures the mathematical
+semantics without device-specific parameters. Key differences from TTNN:
+- Drops device-specific attributes (memory_config, compute_config, sub_device_id, topology, etc.)
+- Drops parameters that only matter at the hardware level
+- Keeps only the essential mathematical/logical parameters
+
+Choose the right base class:
 - `TTIR_NamedOp` — most non-elementwise ops (normalization, matmul, etc.)
 - `TTIR_ElementwiseUnaryOp` / `TTIR_ElementwiseBinaryOp` — elementwise ops
 - `TTIR_DPSOp` — destination-passing style ops
@@ -74,18 +135,10 @@ def TTIR_YourOp : TTIR_NamedOp<"your_op", [AttrSizedOperandSegments]> {
 }
 ```
 
-Key conventions:
-- Use `AnyRankedTensor` for tensor operands
-- Use `Optional<AnyRankedTensor>` for optional tensor operands
-- Use `DefaultValuedAttr<F32Attr, "value">` for attributes with defaults
-- Use `DenseI64ArrayAttr` for shape-like attributes
-- Use `SI32Attr` for signed 32-bit integer attributes (like dimension indices). In MLIR syntax
-  these use `si32` type: `{dim = 0 : si32}`. In the Python builder, use
-  `IntegerAttr.get(IntegerType.get_signed(32), value)` — NOT `get_signless(32)`.
-- Use `I32Attr` for signless 32-bit integer attributes. In MLIR syntax these use `i32`.
-- Set `hasVerifier = 1` if you need shape/type validation
+See `references/ttnn_type_mapping.md` for the complete type mapping (tensor types, scalar
+attributes, optional/default patterns, etc.). The same types apply to TTIR ops.
 
-### 1b. Verifier implementation
+### 2b. Verifier implementation
 
 **File:** `lib/Dialect/TTIR/IR/TTIROps.cpp`
 
@@ -111,44 +164,6 @@ device-specific constraints).
   return success();
 }
 ```
-
-## Step 2: Define the Op in TTNN
-
-### 2a. Tablegen definition
-
-**File:** `include/ttmlir/Dialect/TTNN/IR/TTNNOps.td`
-
-The TTNN op reflects the device-level API. Key differences from TTIR:
-- May drop attributes that the device doesn't need (e.g., `normalized_shape` if TTNN always
-  normalizes over the last dim)
-- Adds `TTNN_MemoryConfigAttr` (almost always)
-- May add `TTNN_ComputeKernelConfigOpInterface` for compute-intensive ops
-- Default values may differ (e.g., epsilon defaults)
-
-```tablegen
-def TTNN_YourOp : TTNN_Op<"your_op",
-    [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
-  let summary = "Your operation.";
-  let description = [{...}];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       Optional<AnyRankedTensor>:$weight,
-                       Optional<AnyRankedTensor>:$bias,
-                       DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
-                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let hasVerifier = 1;
-}
-```
-
-### 2b. Verifier implementation
-
-**File:** `lib/Dialect/TTNN/IR/TTNNOps.cpp`
-
-The TTNN verifier enforces device-specific constraints (e.g., TTNN LayerNorm only supports
-normalization over the last dimension, so weight/bias must be 1D).
 
 ### 2c. Operand layout workarounds (if needed)
 
@@ -867,10 +882,10 @@ python .claude/skills/add-op/review/generate_review.py \
 
 Use this to make sure you haven't missed anything:
 
-- [ ] TTIR tablegen definition (`TTIROps.td`)
-- [ ] TTIR verifier (`TTIROps.cpp`)
 - [ ] TTNN tablegen definition (`TTNNOps.td`)
 - [ ] TTNN verifier (`TTNNOps.cpp`)
+- [ ] TTIR tablegen definition (`TTIROps.td`)
+- [ ] TTIR verifier (`TTIROps.cpp`)
 - [ ] TTIR → TTNN conversion pattern (`TTIRToTTNN.cpp`)
 - [ ] TTNN → EmitC conversion pattern (`TTNNToEmitC.cpp`)
 - [ ] TTNN → EmitPy conversion pattern (`TTNNToEmitPy.cpp`)
