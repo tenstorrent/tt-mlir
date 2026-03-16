@@ -418,17 +418,21 @@ static void addRemainingStableHLOPasses(OpPassManager &pm) {
 static void stripMarkArgumentCalls(ModuleOp module) {
   SmallVector<mlir::stablehlo::CustomCallOp> toErase;
   module.walk([&](mlir::stablehlo::CustomCallOp callOp) {
-    if (callOp.getCallTargetName() != "tt.mark_argument")
+    if (callOp.getCallTargetName() != "tt.mark_argument") {
       return;
-    if (callOp.getNumOperands() != 1 || callOp.getNumResults() != 1)
+    }
+    if (callOp.getNumOperands() != 1 || callOp.getNumResults() != 1) {
       return;
-    if (callOp.getOperand(0).getType() != callOp.getResult(0).getType())
+    }
+    if (callOp.getOperand(0).getType() != callOp.getResult(0).getType()) {
       return;
+    }
     callOp.getResult(0).replaceAllUsesWith(callOp.getOperand(0));
     toErase.push_back(callOp);
   });
-  for (auto callOp : toErase)
+  for (auto callOp : toErase) {
     callOp->erase();
+  }
 }
 
 // Evaluate cost of a lowered StableHLO module by counting and weighting CCL
