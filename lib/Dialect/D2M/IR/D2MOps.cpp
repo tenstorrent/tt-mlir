@@ -90,8 +90,10 @@ computeReblockedOperandGridShape(d2m::GenericOp genericOp, int64_t operandIndex,
     }
   }
 
-  // Reduction dims (not in output map): total = block_factor.
-  // Parallel dims: total = grid_dim * block_factor.
+  // Parallel dims start from the output grid extent and then multiply in the
+  // block factor.
+  // Reduction dims (i.e. not in the output map) contribute only their block
+  // factor.
   for (unsigned i = 0; i < numLoopDims; ++i) {
     if (loopTotals[i] == 0) {
       loopTotals[i] = newBlockFactors[i];
@@ -2387,20 +2389,13 @@ static void repairParallelizedRegionTypes(Block *newBlock) {
   }
 }
 
-// Rebuild the optional view that matches the original generic result/output.
+// Build a return view for the rebuilt generic when the caller requests one.
 static d2m::ViewLayoutOp createReturnView(d2m::GenericOp thisOp,
                                           d2m::GenericOp newGenericOp,
-                                          OpBuilder &builder,
-                                          bool generateReturnView) {
-  if (!generateReturnView) {
-    return d2m::ViewLayoutOp();
-  }
-
+                                          OpBuilder &builder) {
   OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointAfter(newGenericOp);
   if (thisOp.getNumResults() > 0) {
-    // TODO(anuragsingh): insert multiple return views instead of just one.
-    // Required for Allocator.
     return builder.create<d2m::ViewLayoutOp>(thisOp.getLoc(),
                                              thisOp.getResult(0).getType(),
                                              newGenericOp.getResult(0));
@@ -2414,24 +2409,24 @@ static d2m::ViewLayoutOp createReturnView(d2m::GenericOp thisOp,
 }
 
 // Rewrite the IR:
-// - inserting operand views
-// - creating the new generic
-// - cloning/retyping the region ops
-// - optionally creating the return view.
+// - insert operand views
+// - create the new generic
+// - clone/retype the region ops
+// - optionally create the return view.
 static FailureOr<d2m::ParallelizedGeneric>
 withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
                         ArrayRef<Type> reblockedTypes, ttcore::GridAttr newGrid,
                         ArrayRef<int64_t> newBlockFactors,
                         bool generateReturnView) {
-  // Step 1: Reblock operands via explicit view_layout ops.
+  // Reblock operands via explicit view_layout ops.
   auto [reblockedOperands, operandViews] =
       createReblockedOperands(thisOp, builder, reblockedTypes);
 
-  // Step 2: Reconstruct the GenericOp shell with new attrs + operands.
+  // Reconstruct the GenericOp shell with new attrs + operands.
   auto newGenericOp = createParallelizedGenericShell(
       thisOp, builder, reblockedOperands, newGrid, newBlockFactors);
 
-  // Step 3: Reconstruct regions, remapping values and repairing type-dependent
+  // Reconstruct regions, remapping values and repairing type-dependent
   // ops.
   for (unsigned regionIndex = 0; regionIndex < thisOp.getNumRegions();
        ++regionIndex) {
@@ -2447,8 +2442,10 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
   }
 
   // Only return a view into the old generic op result if requested.
-  auto returnView =
-      createReturnView(thisOp, newGenericOp, builder, generateReturnView);
+  d2m::ViewLayoutOp returnView = nullptr;
+  if (generateReturnView) {
+    returnView = createReturnView(thisOp, newGenericOp, builder);
+  }
 
   return d2m::ParallelizedGeneric{std::move(operandViews), newGenericOp,
                                   returnView};
