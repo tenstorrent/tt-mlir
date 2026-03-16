@@ -1930,12 +1930,11 @@ public:
       ctArgIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);
     });
 
-    // Emit a CB port reference that reads the port from ct_args at runtime.
-    // This allows the spatial op to remap CB ports per grid range by
-    // overriding compile-time arguments.
-    rewriter.replaceOpWithNewOp<ttkernel::CBPortOp>(
-        op, cbType,
-        rewriter.getI32IntegerAttr(static_cast<int32_t>(ctArgIndex)));
+    // Emit a get_compile_time_arg_val that reads the port from ct_args at
+    // runtime. This allows the spatial op to remap CB ports per grid range
+    // by overriding compile-time arguments.
+    rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
+        op, cbType, static_cast<int32_t>(ctArgIndex));
     return success();
   }
 };
