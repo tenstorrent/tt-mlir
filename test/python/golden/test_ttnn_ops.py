@@ -8,6 +8,8 @@ from conftest import get_request_kwargs
 from typing import List, Optional, Tuple
 from collections import OrderedDict
 
+from ttmlir.dialects import ttnn
+
 from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import compile_and_execute_ttnn
@@ -282,20 +284,28 @@ def test_all_gather(
     def module(builder: TTNNBuilder):
         @builder.func([full_input_shape], [dtype], host_inputs=True)
         def all_gather(in0: Operand, builder: TTNNBuilder):
-            in_shard = builder.distribute_tensor(
+            device = builder.get_device()
+
+            distributed = builder.distribute_tensor(
                 in0,
+                device=device,
                 shard_dims=shard_dims,
                 shard_shape=shard_shape,
             )
+            tilized = builder.to_layout(distributed, layout=ttnn.Layout.Tile)
+            on_device = builder.to_device(tilized, device=device)
 
-            all_gather0 = builder.all_gather(
-                in_shard,
+            gathered = builder.all_gather(
+                on_device,
                 all_gather_dim=all_gather_dim,
                 cluster_axis=cluster_axis,
             )
 
+            from_dev = builder.from_device(gathered)
+            untilized = builder.to_layout(from_dev, layout=ttnn.Layout.RowMajor)
             return builder.aggregate_tensor(
-                all_gather0,
+                untilized,
+                device=device,
                 shard_dims=shard_dims,
                 shard_shape=shard_shape,
             )
