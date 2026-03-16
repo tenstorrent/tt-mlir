@@ -15,15 +15,12 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinDialect.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/DialectConversion.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -44,33 +41,10 @@ struct ConvertD2MToTTNNPass final
       : ConvertD2MToTTNNBase(options) {}
 
   void runOnOperation() final {
-    mlir::ConversionTarget target(getContext());
-    target.addLegalDialect<BuiltinDialect>();
-    target.addLegalDialect<arith::ArithDialect>();
-    target.addLegalDialect<func::FuncDialect>();
-    target.addLegalDialect<memref::MemRefDialect>();
-    target.addLegalDialect<ttnn::TTNNDialect>();
-    target.addLegalDialect<ttkernel::TTKernelDialect>();
-    target.addLegalDialect<ttcore::TTCoreDialect>();
-    target.addLegalDialect<scf::SCFDialect>();
-    target.addLegalDialect<emitc::EmitCDialect>();
-    target.addIllegalDialect<math::MathDialect>();
-    target.addIllegalDialect<d2m::D2MDialect>();
-
-    target.addIllegalOp<memref::AllocOp>();
-    target.addIllegalOp<memref::DeallocOp>();
-
-    TypeConverter typeConverter;
-    typeConverter.addConversion([](Type type) { return type; });
-
-    RewritePatternSet patterns(&getContext());
-    populateD2MToTTNNPatterns(&getContext(), patterns, typeConverter,
-                              mathFidelity);
-
-    if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
+    ModuleOp module = getOperation();
+    auto result = runD2MToTTNNConversion(module, mathFidelity);
+    if (failed(result)) {
       signalPassFailure();
-      return;
     }
   }
 };
