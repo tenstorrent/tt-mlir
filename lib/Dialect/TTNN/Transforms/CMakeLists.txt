@@ -1,6 +1,6 @@
 if (TTMLIR_ENABLE_OPMODEL)
         add_definitions(-DTTMLIR_ENABLE_OPMODEL)
-        set(OPMODEL_SRCS Fusing/RoPEFusingPattern.cpp)
+        set(OPMODEL_SRCS Fusing/RoPEFusingPattern.cpp Fusing/TopKFusingPattern.cpp Fusing/FusionValidator.cpp)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
@@ -53,7 +53,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterConfigRewritePattern.cpp
         Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp
-        Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.cpp
         Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.cpp
         Workarounds/Decomposition/Conv3dPadOutputChannelsRewritePattern.cpp
         Workarounds/Decomposition/Conv3dDepthPaddingRewritePattern.cpp

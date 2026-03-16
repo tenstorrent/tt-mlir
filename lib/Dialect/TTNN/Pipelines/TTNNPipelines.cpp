@@ -108,7 +108,6 @@ void createTTNNPipelineAnalysisPasses(
     wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
-    validationOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
     pm.addPass(createDevicePassesWrapper(
@@ -160,10 +159,12 @@ void createTTNNFusingPass(OpPassManager &pm,
       wrapperOptions.devicePtr = options.devicePtr;
       wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
+      uint32_t fallbackAttempts = options.maxFallbackAttempts;
       pm.addPass(createDevicePassesWrapper(
-          [](OpPassManager &innerPm) {
+          [fallbackAttempts](OpPassManager &innerPm) {
             TTNNFusingOptions fusingOptions;
             fusingOptions.enableOpConstraints = true;
+            fusingOptions.maxFallbackAttempts = fallbackAttempts;
             innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
           },
           wrapperOptions));
@@ -241,7 +242,6 @@ void createTTIRToTTNNDevicePipeline(
   pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
 
   pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::createCSEPass());
 
   // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
@@ -266,6 +266,8 @@ void createTTIRToTTNNDevicePipeline(
     ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
     quantOptions.targetBitWidth = options.quantBitWidth;
     devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
+
+    devicePm.addPass(mlir::createCSEPass());
 
     // Const-eval hoisting pass.
     if (options.enableConstEval) {

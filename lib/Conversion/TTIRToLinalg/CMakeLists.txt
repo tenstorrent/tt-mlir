@@ -1,4 +1,5 @@
 add_mlir_conversion_library(TTMLIRTTIRToLinalg
+  EltwiseBinary.cpp
   EltwiseUnary.cpp
   TTIRToLinalg.cpp
   TTIRToLinalgPass.cpp
