@@ -2300,6 +2300,7 @@ public:
     SmallVector<Value> origInputs = adaptor.getOperands();
 
     auto device = ttcore::lookupDevice(op);
+    auto workerGridShape = device.getWorkerGrid().getShape();
     auto meshShape = device.getMeshShape();
     assert(meshShape.size() == 2 && "Mesh shape must be 2D");
 
@@ -2331,26 +2332,25 @@ public:
         mlir::cast<mlir::RankedTensorType>(origInputs[0].getType())
             .getShape()
             .size();
-    llvm::SmallVector<int64_t> unitGridShardShape =
+    llvm::SmallVector<int64_t> physicalShape =
         layout.getPhysicalShape(ttcore::TileType::getDefaultShape());
     // store last dim as initial value
     uint32_t workerCoreSplitDim = inputRank;
     for (uint32_t i = 0; i < inputRank; i++) {
-      if (unitGridShardShape[i] % num_cores == 0) {
+      if (physicalShape[i] % num_cores == 0) {
         workerCoreSplitDim = i;
         break;
       }
     }
     assert(workerCoreSplitDim != inputRank &&
            "No dim found for worker core split");
-    workerCoreSplitDim = 1;
 
     // calc grids for input and output
-    llvm::SmallVector<int64_t> inputGrid(inputRank, 1);
-    llvm::SmallVector<int64_t> outputGrid(inputRank, 1);
-    inputGrid[workerCoreSplitDim] *= num_cores;
-    outputGrid[workerCoreSplitDim] *= num_cores;
-    outputGrid[op.getAllGatherDim()] *= num_devices;
+    llvm::SmallVector<int64_t> inputViewGrid(inputRank, 1);
+    llvm::SmallVector<int64_t> outputViewGrid(inputRank, 1);
+    inputViewGrid[workerCoreSplitDim] *= num_cores;
+    outputViewGrid[workerCoreSplitDim] *= num_cores;
+    outputViewGrid[op.getAllGatherDim()] *= num_devices;
 
     // create input and output streams for generic
     Value inputStreamResult;
@@ -2363,30 +2363,45 @@ public:
       ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
           memorySpaces[0], ttcore::TensorMemoryLayout::Sharded);
-      llvm::SmallVector<int64_t> shardedShape =
-          layout.getDeviceShape(inputGrid, ttcore::TileType::getDefaultShape());
+      auto optimalGrid = d2m::utils::computeOptimalBlockShardedGrid(
+          layout.getPhysicalShape(ttcore::TileType::getDefaultShape()),
+          workerGridShape);
+      llvm::SmallVector<int64_t> deviceShape = layout.getDeviceShape(
+          optimalGrid, ttcore::TileType::getDefaultShape());
       auto emptyOp = rewriter.create<d2m::EmptyOp>(
-          origInput.getLoc(), shardedShape, tiledElementType, layout);
+          origInput.getLoc(), deviceShape, tiledElementType, layout);
       auto input =
           rewriter
               .create<d2m::ToLayoutOp>(origInput.getLoc(), origInput, emptyOp)
               ->getResult(0);
 
       // streams need to be explicitly inserted for explicict DM generics
-      AffineMap identityMap = rewriter.getMultiDimIdentityMap(
-          ttcore::getDeviceLayout(input).getRank());
+      // AffineMap identityMap = rewriter.getMultiDimIdentityMap(
+      //    ttcore::getDeviceLayout(input).getRank());
+      auto inputTensorType =
+          mlir::cast<mlir::RankedTensorType>(input.getType());
+      auto viewTensorType =
+          d2m::utils::reblockTensor(inputTensorType, inputViewGrid);
+      auto reblockMap = ttmlir::utils::calculateReblockMap(
+          inputTensorType.getShape(), viewTensorType.getShape(),
+          rewriter.getContext());
+      // auto view = rewriter.create<d2m::ViewLayoutOp>(
+      //     op.getLoc(), viewTensorType, input, reblockMap,
+      //     /*reinterpretLayout=*/false);
+      //  TODO: change to view
       auto storage =
-          rewriter.create<d2m::EmptyOp>(op.getLoc(), input.getType(),
+          rewriter.create<d2m::EmptyOp>(op.getLoc(), viewTensorType,
                                         /*virtualGridInverseMapping=*/nullptr,
                                         /*virtualGridForwardMapping=*/nullptr);
       inputStreamResult =
           rewriter
-              .create<d2m::StreamLayoutOp>(op.getLoc(), input.getType(), input,
-                                           identityMap, storage.getResult())
+              .create<d2m::StreamLayoutOp>(op.getLoc(), viewTensorType, input,
+                                           reblockMap, storage.getResult())
               ->getResult(0);
     }
 
     Value outputStreamResult;
+    Value output;
     {
       auto origOutput = origOutputs[0];
       auto tensorType =
@@ -2397,27 +2412,41 @@ public:
       ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
           memorySpaces[0], ttcore::TensorMemoryLayout::Sharded);
-      llvm::SmallVector<int64_t> shardedShape = layout.getDeviceShape(
-          outputGrid, ttcore::TileType::getDefaultShape());
+      auto optimalGrid = d2m::utils::computeOptimalBlockShardedGrid(
+          layout.getPhysicalShape(ttcore::TileType::getDefaultShape()),
+          workerGridShape);
+      llvm::SmallVector<int64_t> deviceShape = layout.getDeviceShape(
+          optimalGrid, ttcore::TileType::getDefaultShape());
       auto emptyOp = rewriter.create<d2m::EmptyOp>(
-          origOutput.getLoc(), shardedShape, tiledElementType, layout);
-      auto output =
+          origOutput.getLoc(), deviceShape, tiledElementType, layout);
+      output =
           rewriter
               .create<d2m::ToLayoutOp>(origOutput.getLoc(), origOutput, emptyOp)
               ->getResult(0);
 
       // streams need to be explicitly inserted for explicict DM generics
-      AffineMap identityMap = rewriter.getMultiDimIdentityMap(
-          ttcore::getDeviceLayout(output).getRank());
+      // AffineMap identityMap = rewriter.getMultiDimIdentityMap(
+      //    ttcore::getDeviceLayout(output).getRank());
+      auto outputTensorType =
+          mlir::cast<mlir::RankedTensorType>(output.getType());
+      auto viewTensorType =
+          d2m::utils::reblockTensor(outputTensorType, outputViewGrid);
+      auto reblockMap = ttmlir::utils::calculateReblockMap(
+          outputTensorType.getShape(), viewTensorType.getShape(),
+          rewriter.getContext());
+      // auto view = rewriter.create<d2m::ViewLayoutOp>(
+      //     op.getLoc(), viewTensorType, output, reblockMap,
+      //     /*reinterpretLayout=*/false);
+      //  TODO: change to view
       auto storage =
-          rewriter.create<d2m::EmptyOp>(op.getLoc(), output.getType(),
+          rewriter.create<d2m::EmptyOp>(op.getLoc(), viewTensorType,
                                         /*virtualGridInverseMapping=*/nullptr,
                                         /*virtualGridForwardMapping=*/nullptr);
-      outputStreamResult = rewriter
-                               .create<d2m::StreamLayoutOp>(
-                                   op.getLoc(), output.getType(), output,
-                                   identityMap, storage.getResult())
-                               ->getResult(0);
+      outputStreamResult =
+          rewriter
+              .create<d2m::StreamLayoutOp>(op.getLoc(), viewTensorType, output,
+                                           reblockMap, storage.getResult())
+              ->getResult(0);
     }
 
     // TODO: assert that operand shape must fit our requirements
@@ -2430,12 +2459,13 @@ public:
         rewriter.getContext(), ttcore::NocIndex::Noc0, topology, clusterAxis,
         ttcore::RoutingMode::UnidirRingTorus, num_links);
 
-    llvm::SmallVector<int64_t> gridShape =
+    llvm::SmallVector<int64_t> computeGridShape =
         llvm::to_vector(ttcore::getGridShape(inputStreamResult));
+    // llvm::SmallVector<int64_t> computeGridShape = {1, num_cores};
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, TypeRange(outputStreamResult), inputStreamResult,
         outputStreamResult, /*additionalArgs=*/ValueRange(),
-        ttcore::GridAttr::get(rewriter.getContext(), gridShape),
+        ttcore::GridAttr::get(rewriter.getContext(), computeGridShape),
         rewriter.getI64ArrayAttr(emptyBlockFactors),
         rewriter.getAffineMapArrayAttr(emptyIndexingMaps),
         rewriter.getArrayAttr(emptyIteratorTypes),
@@ -2510,7 +2540,7 @@ public:
             // device index * device shard size + shard index
             auto deviceIndex = mlir::getAffineDimExpr(0, rewriter.getContext());
             auto deviceShardOffset = mlir::getAffineConstantExpr(
-                outputGrid[i] / num_devices, rewriter.getContext());
+                outputViewGrid[i] / num_devices, rewriter.getContext());
             results.push_back(deviceIndex * deviceShardOffset + currentIndex);
           } else {
             results.push_back(currentIndex);
