@@ -69,7 +69,9 @@ static DstExecutionClass classifyLinalgExecutionClass(linalg::GenericOp op) {
   return execClass;
 }
 
-static std::optional<int64_t> getMaxDstTilesForLinalgOp(linalg::GenericOp op) {
+static std::optional<int64_t>
+getMaxDstTilesForLinalgOp(linalg::GenericOp op,
+                          unsigned maxDstPhysicalSizeTiles) {
   TT_assertv(op.getOutputs().size() == 1u,
              "expected exactly one linalg.generic output");
   auto outputShapedType =
@@ -87,6 +89,10 @@ static std::optional<int64_t> getMaxDstTilesForLinalgOp(linalg::GenericOp op) {
   unsigned dstLogicalSizeTiles =
       ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
           tileType.getElementType());
+  if (maxDstPhysicalSizeTiles > 0) {
+    dstLogicalSizeTiles =
+        std::min(dstLogicalSizeTiles, maxDstPhysicalSizeTiles);
+  }
   int64_t maxDstTiles =
       classifyLinalgExecutionClass(op) == DstExecutionClass::FPU
           ? static_cast<int64_t>(dstLogicalSizeTiles)
@@ -149,7 +155,8 @@ struct PendingDSTPackingResult {
 
 static std::optional<DSTPackingRegionInfo>
 computeDSTPackingForRegion(d2m::GenericOp generic,
-                           ArrayRef<linalg::GenericOp> linalgOps) {
+                           ArrayRef<linalg::GenericOp> linalgOps,
+                           unsigned maxDstPhysicalSizeTiles) {
   DSTPackingRegionInfo results;
   SmallVector<PendingDSTPackingResult> pendingResults;
   SmallVector<int64_t> numDstFlipsPerOp;
@@ -178,7 +185,8 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     }
     sawMultiTileShard = true;
 
-    std::optional<int64_t> maxDstTiles = getMaxDstTilesForLinalgOp(linalgOp);
+    std::optional<int64_t> maxDstTiles =
+        getMaxDstTilesForLinalgOp(linalgOp, maxDstPhysicalSizeTiles);
     if (!maxDstTiles) {
       linalgOp.emitOpError("failed to compute max DST tile capacity");
       return std::nullopt;
@@ -279,7 +287,8 @@ const DSTPackingRegionInfo *DSTPackingInfo::lookup(Region *region) const {
   return &it->second;
 }
 
-DstRegisterAnalysis::DstRegisterAnalysis(Operation *op) {
+DstRegisterAnalysis::DstRegisterAnalysis(Operation *op,
+                                         unsigned maxDstPhysicalSizeTiles) {
   op->walk([&](d2m::GenericOp generic) {
     if (!generic.isUnifiedForm()) {
       generic.emitOpError("expected unified form for DST packing analysis");
@@ -299,7 +308,8 @@ DstRegisterAnalysis::DstRegisterAnalysis(Operation *op) {
 
     for (const auto &[parentRegion, linalgOps] : linalgOpsByParentRegion) {
       std::optional<DSTPackingRegionInfo> regionPackingInfo =
-          computeDSTPackingForRegion(generic, linalgOps);
+          computeDSTPackingForRegion(generic, linalgOps,
+                                    maxDstPhysicalSizeTiles);
       if (!regionPackingInfo) {
         continue;
       }
