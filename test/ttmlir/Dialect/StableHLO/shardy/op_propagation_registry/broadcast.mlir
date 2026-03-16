@@ -17,6 +17,7 @@ func.func @broadcast_in_dim(%arg0: tensor<2x13x1xf32> {sdy.sharding = #sdy.shard
 // CHECK: %1 = stablehlo.broadcast_in_dim %arg1, dims = [0, 2, 3] : (tensor<1x13x1xf32>) -> tensor<1x64x13x1xf32>
 // CHECK: sdy.return %1 : tensor<1x64x13x1xf32>
 
+
 func.func @broadcast_in_dim_size_zero_dim(%arg0: tensor<2x13x0xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}]>}) -> tensor<2x64x13x0xf32> {
   %0 = stablehlo.broadcast_in_dim %arg0, dims = [0, 2, 3] : (tensor<2x13x0xf32>) -> tensor<2x64x13x0xf32>
   return %0 :  tensor<2x64x13x0xf32>
