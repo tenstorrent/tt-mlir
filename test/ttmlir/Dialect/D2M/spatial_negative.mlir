@@ -30,7 +30,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%arg0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<2x2x!ttcore.tile<32x32, f32>>)
         } : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
@@ -66,7 +65,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%arg0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_2>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<2x2x!ttcore.tile<32x32, f32>>)
         } : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_2>
@@ -120,7 +118,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%arg0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_3b>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<2x2x!ttcore.tile<32x32, f32>>)
         } : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_3b>
@@ -132,7 +129,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%arg0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_3b>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<2x2x!ttcore.tile<32x32, f32>>)
         } : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_3b>
@@ -166,7 +162,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%arg0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_4>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<2x2x!ttcore.tile<32x32, f32>>)
         } : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_4>
@@ -199,7 +194,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%arg0 : tensor<3x5x2x2x!ttcore.tile<32x32, f32>, #layout_5>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<3x5x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<3x5x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<3x5x!ttcore.tile<32x32, f32>>)
         } : tensor<3x5x2x2x!ttcore.tile<32x32, f32>, #layout_5>
@@ -235,7 +229,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<1x1x!ttcore.tile<32x32, f32>>)
         } : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b>
@@ -269,7 +262,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%arg0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_2>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<2x2x!ttcore.tile<32x32, f32>>)
         } : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_2>
@@ -305,7 +297,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_3>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<1x1x!ttcore.tile<32x32, f32>>)
         } : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_3>
@@ -340,7 +331,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_4>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<2x2x!ttcore.tile<32x32, f32>>)
         } : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_4>
@@ -375,7 +365,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_5>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<2x2x!ttcore.tile<32x32, f32>>)
         } : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_5>
@@ -410,7 +399,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_6>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<1x1x!ttcore.tile<32x32, f32>>)
         } : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_6>
@@ -445,7 +433,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_7>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<1x1x!ttcore.tile<32x32, f32>>)
         } : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_7>
@@ -480,7 +467,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_8>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<1x1x!ttcore.tile<32x32, f32>>)
         } : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_8>
@@ -515,7 +501,6 @@ module {
                             #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<unified>]
         } ins() outs(%0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_9>) {
-        ^unified0(%cb_out: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
           %out = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
           d2m.yield %out : (tensor<2x2x!ttcore.tile<32x32, f32>>)
         } : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_9>
