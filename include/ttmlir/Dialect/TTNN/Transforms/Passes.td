@@ -48,6 +48,12 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
              "ttnn-is-optimizer-enabled",
              "bool", /*default=*/"false",
              "flag specifying if optimizer is enabled">,
+      Option<"nocDmaHangWorkaroundsEnabled",
+             "ttnn-enable-noc-dma-hang-workarounds",
+             "bool", /*default=*/"false",
+             "Enable NOC DMA hang workarounds (ReshapeNarrowTiled, "
+             "ConcatOpPadDim). Only needed on Wormhole B0 for shapes that "
+             "produce partial-tile NOC writes < 32 bytes.">,
   ];
 }
 
