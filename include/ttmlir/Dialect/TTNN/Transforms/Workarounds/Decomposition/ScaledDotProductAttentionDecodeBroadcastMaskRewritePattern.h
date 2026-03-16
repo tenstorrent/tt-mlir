@@ -16,6 +16,7 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // for ScaledDotProductAttentionDecode when it is 1 (broadcast) to match the
 // query num_heads. tt-metal requires mask[2] == num_heads for decode SDPA and
 // does not support implicit broadcasting on that dimension.
+// Tracking issue: https://github.com/tenstorrent/tt-metal/issues/39946
 
 class ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern
     : public OpRewritePattern<ttnn::ScaledDotProductAttentionDecodeOp> {
