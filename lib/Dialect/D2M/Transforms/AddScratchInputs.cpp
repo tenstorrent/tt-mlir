@@ -24,7 +24,7 @@ namespace mlir::tt::d2m {
 namespace {
 
 // Fixed scratch buffer size in bytes.
-constexpr size_t kScratchSizeBytes = 128 * 1024; // 128KB
+constexpr size_t kScratchSizeBytes = 128 * 1024 * 2; // 128KB
 
 // Get the tile type from a memref type, if it has one.
 static ttcore::TileType getTileType(MemRefType memrefType) {
@@ -47,16 +47,18 @@ static MemRefType findTiledInputType(GenericOp genericOp) {
 }
 
 // Check if a d2m.generic needs a scratch buffer. Scratch is needed when the
-// region contains more than one linalg.generic, which means elementwise fusion
-// produced a multi-op kernel whose intermediate results must be spilled to L1.
+// region contains multiple fused linalg.generic ops, because after tiling each
+// becomes a separate compute loop nest and intermediate results between them
+// must be spilled to scratch L1 (handled later by SpillAndScratch).
 static bool needsScratch(GenericOp genericOp) {
   if (genericOp.getNumRegions() == 0) {
     return false;
   }
 
-  unsigned linalgCount = 0;
-  genericOp.getRegion(0).walk([&](linalg::GenericOp) { ++linalgCount; });
-  return linalgCount > 1;
+  unsigned linalgGenericCount = 0;
+  genericOp.getRegion(0).walk([&](linalg::GenericOp) { ++linalgGenericCount; });
+
+  return linalgGenericCount > 1;
 }
 
 // Add scratch input to a single d2m.generic op (post-bufferization).
@@ -80,9 +82,8 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
     return failure();
   }
 
-  // Only add scratch to fused generics with multiple linalg.generic ops,
-  // which indicates elementwise fusion produced a multi-op kernel whose
-  // intermediate results must be spilled to L1.
+  // Only add scratch to fused generics with multiple linalg.generic ops
+  // that may need to spill intermediate results between compute loops.
   if (!needsScratch(genericOp)) {
     return failure();
   }

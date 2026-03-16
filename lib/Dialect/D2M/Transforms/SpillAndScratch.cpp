@@ -29,13 +29,19 @@ struct ScratchLoopInfo {
   SmallVector<int64_t> scratchShape; // Shape for scratch buffer
 };
 
+/// A single consumer loop and the loads it contains for a given intermediate.
+struct ConsumerLoopLoads {
+  ScratchLoopInfo *loop;
+  SmallVector<affine::AffineLoadOp> loads;
+};
+
 /// Information about an intermediate allocation that needs to become scratch
 struct IntermediateAllocInfo {
   memref::AllocOp allocOp;
   ScratchLoopInfo *producer; // Loop nest that writes to this alloc
-  ScratchLoopInfo *consumer; // Loop nest that reads from this alloc
+  SmallVector<ConsumerLoopLoads>
+      consumers; // all consumer loop nests that read from it
   SmallVector<affine::AffineStoreOp> stores; // Stores to this alloc
-  SmallVector<affine::AffineLoadOp> loads;   // Loads from this alloc
 };
 
 /// Find the innermost affine.for loop with d2m.linalg_root attribute.
@@ -442,7 +448,6 @@ private:
       IntermediateAllocInfo allocInfo;
       allocInfo.allocOp = allocOp;
       allocInfo.producer = nullptr;
-      allocInfo.consumer = nullptr;
 
       Value allocResult = allocOp.getResult();
 
@@ -458,14 +463,17 @@ private:
         SmallVector<affine::AffineLoadOp> loads;
         collectLoadsInLoop(allocResult, loopInfo, loads);
         if (!loads.empty()) {
-          allocInfo.consumer = &loopInfo;
-          allocInfo.loads = loads;
+          allocInfo.consumers.push_back({&loopInfo, std::move(loads)});
         }
       }
 
-      // Only include if we found both producer and consumer.
-      if (allocInfo.producer && allocInfo.consumer &&
-          allocInfo.producer != allocInfo.consumer) {
+      // Only include if we found a producer and at least one consumer
+      // that differs from the producer.
+      bool hasExternalConsumer =
+          llvm::any_of(allocInfo.consumers, [&](const ConsumerLoopLoads &c) {
+            return c.loop != allocInfo.producer;
+          });
+      if (allocInfo.producer && hasExternalConsumer) {
         intermediates.push_back(allocInfo);
       }
     });
@@ -523,18 +531,23 @@ private:
         rewriter.eraseOp(storeOp);
       }
 
-      // Step 6: Update loads in the consumer loop.
-      ScratchLoopInfo &consumer = *allocInfo.consumer;
-      auto [consumerMap, consumerOperands] =
-          getScratchAccessMapAndOperands(consumer, &getContext());
+      // Step 6: Update loads in all consumer loops.
+      for (auto &consumerEntry : allocInfo.consumers) {
+        if (consumerEntry.loop == allocInfo.producer) {
+          continue;
+        }
+        ScratchLoopInfo &consumer = *consumerEntry.loop;
+        auto [consumerMap, consumerOperands] =
+            getScratchAccessMapAndOperands(consumer, &getContext());
 
-      for (auto loadOp : allocInfo.loads) {
-        rewriter.setInsertionPoint(loadOp);
+        for (auto loadOp : consumerEntry.loads) {
+          rewriter.setInsertionPoint(loadOp);
 
-        Value reloaded = rewriter.create<affine::AffineLoadOp>(
-            loadOp.getLoc(), scratchBuf, consumerMap, consumerOperands);
+          Value reloaded = rewriter.create<affine::AffineLoadOp>(
+              loadOp.getLoc(), scratchBuf, consumerMap, consumerOperands);
 
-        rewriter.replaceOp(loadOp, reloaded);
+          rewriter.replaceOp(loadOp, reloaded);
+        }
       }
 
       // Step 7: Clean up - remove subviews and old allocation if unused.
