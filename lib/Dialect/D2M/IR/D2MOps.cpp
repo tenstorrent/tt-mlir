@@ -2340,8 +2340,8 @@ d2m::GenericOp::getInputOutputOperandShardShapes(bool convertTileToScalar) {
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getPhysicalGridShape() {
   TT_assert(getOutputs().size() == 1u);
-  return llvm::to_vector(getGrid().getShape());
-  // TODO: this is not correct for virtual grids (where grid can be 1x64)
+  // TODO: fix this is is a hack
+  return d2m::utils::getPhysicalGridShape(getInputs().front());
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
