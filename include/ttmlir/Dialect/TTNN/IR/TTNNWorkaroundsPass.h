@@ -360,7 +360,12 @@ public:
   static TTNNOperandsWorkarounds
   createMoeExpertTokenRemapOpOperandsWorkarounds();
 
-  // Create workarounds for topk op operands.
+  // Create workarounds for topk ops.
+  // Input must be BFloat16 or BFP_BFloat8.
+  // Output values must be same data type as input.
+  // Output indices must be uint16.
+  // Source for restrictions:
+  // https://docs.tenstorrent.com/tt-metal/latest/ttnn/ttnn/api/ttnn.topk.html
   static TTNNOperandsWorkarounds
   createTopKOpOperandsWorkarounds(ttnn::TopKOp op);
 };
