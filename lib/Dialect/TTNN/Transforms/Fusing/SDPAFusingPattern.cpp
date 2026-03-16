@@ -93,7 +93,7 @@ bool SDPAFusing::isKeyTransposed(Value key, Value query, Value value) const {
 // ============================================================================
 
 std::optional<float> SDPAFusing::extractConstant(Value v) const {
-  v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
 
   if (auto fullOp = v.getDefiningOp<FullOp>()) {
     if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
@@ -135,8 +135,7 @@ std::pair<Value, std::optional<float>>
 SDPAFusing::extractTensorWithScale(Value v) const {
   std::optional<float> scale;
 
-  Value skipped =
-      ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  Value skipped = ttmlir::utils::lookThrough<TypecastOp>(v);
   if (auto mulOp = skipped.getDefiningOp<MultiplyOp>()) {
     if (auto s = extractConstant(mulOp.getRhs())) {
       scale = s;
@@ -178,16 +177,23 @@ bool SDPAFusing::extractQKWithScales(Value a, Value b,
 // ============================================================================
 
 bool SDPAFusing::matchSoftmaxPath(Value v, SDPAComponents &c) const {
-  v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
 
+  // Peel optional slice_static. Some frontends pad the softmax input with
+  // extra columns via concat for numeric stability (preventing NaN when all
+  // attention scores are masked to -inf), then slice off the padding after
+  // softmax. The hardware SDPA op handles this internally, so we look through
+  // the slice here and the corresponding concat in matchScoreComputation.
+  if (auto sliceOp = v.getDefiningOp<SliceStaticOp>()) {
+    v = ttmlir::utils::lookThrough<TypecastOp>(sliceOp.getInput());
+  }
+
+  // Peel optional where. Some frontends wrap softmax output with
+  // where(cond, zeros, softmax) to replace NaN rows with zeros when all
+  // attention scores in a row are masked to -inf. The third operand carries
+  // the actual softmax result.
   if (auto whereOp = v.getDefiningOp<WhereOp>()) {
-    Value softmaxCandidate =
-        ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(
-            whereOp.getThird());
-    if (auto softmax = softmaxCandidate.getDefiningOp<SoftmaxOp>()) {
-      c.softmax = softmax;
-      return true;
-    }
+    v = ttmlir::utils::lookThrough<TypecastOp>(whereOp.getThird());
   }
 
   if (auto softmax = v.getDefiningOp<SoftmaxOp>()) {
@@ -199,7 +205,14 @@ bool SDPAFusing::matchSoftmaxPath(Value v, SDPAComponents &c) const {
 }
 
 bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c) const {
-  v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
+
+  // Peel optional concat — the other half of the softmax padding pattern
+  // described in matchSoftmaxPath. The concat appends extra columns to the
+  // score tensor before softmax; we skip it to reach the actual scores.
+  if (auto concatOp = v.getDefiningOp<ConcatOp>()) {
+    v = ttmlir::utils::lookThrough<TypecastOp>(concatOp.getInputs()[0]);
+  }
 
   if (auto linearOp = v.getDefiningOp<LinearOp>()) {
     c.scoreOp = linearOp;
@@ -228,17 +241,15 @@ bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c) const {
 }
 
 bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
-  v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
 
   if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
     if (auto scale = extractConstant(mulOp.getRhs())) {
       c.scale = scale;
-      v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(
-          mulOp.getLhs());
+      v = ttmlir::utils::lookThrough<TypecastOp>(mulOp.getLhs());
     } else if (auto scale = extractConstant(mulOp.getLhs())) {
       c.scale = scale;
-      v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(
-          mulOp.getRhs());
+      v = ttmlir::utils::lookThrough<TypecastOp>(mulOp.getRhs());
     }
   }
 
@@ -246,8 +257,7 @@ bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
     if (auto divisor = extractConstant(divOp.getRhs())) {
       if (*divisor != 0.0f) {
         c.scale = 1.0f / *divisor;
-        v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp,
-                                       TypecastOp>(divOp.getLhs());
+        v = ttmlir::utils::lookThrough<TypecastOp>(divOp.getLhs());
       }
     }
   }
