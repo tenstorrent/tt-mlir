@@ -2,29 +2,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// // #include "ttmlir/Target/TTNN/program_generated.h"
-// #include "ttmlir/Target/TTNN/operations/configs_generated.h"
-// #include "ttmlir/Target/TTNN/program_generated.h"
-// // #include "types_generated.h"
-// #include <concepts>
-// #include <cstdint>
-// #include "tt/runtime/detail/ttnn/operations/utils.h"
-// #include "ttmlir/OpModel/TTNN/Conversion.h"
-// #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
-// #include "gtest/gtest.h"
-
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/Target/TTNN/operations/configs_generated.h"
+#include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "gtest/gtest.h"
 #include <cstddef>
 #include <cstdio>
 #include <iostream>
 #include <optional>
-// #include "ttmlir/Target/TTNN/operations/conv_generated.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-#include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 
 template <typename T>
 ::testing::AssertionResult Equal(const char *e1, const char *e2, const char *e3,
@@ -96,9 +84,9 @@ public:
 
 protected:
   void RunTest(Attr attr) {
-    std::optional<RetType> resultC = pathC(attr);
     std::optional<RetType> resultA = pathA(attr);
     std::optional<RetType> resultB = pathB(attr);
+    std::optional<RetType> resultC = pathC(attr);
 
     compareResults(resultA, resultB, resultC);
   }
@@ -111,9 +99,6 @@ protected:
                               std::optional<RetType> pathB,
                               std::optional<RetType> pathC) = 0;
 
-  // pathA - ret DeviceComputeKernelConfig - conversionOpModel
-  // pathB - ret DeviceComputeKernelConfig - OpModelWithNative
-  // pathC - ret DeviceComputeKernelConfig - runtime
 };
 
 class DeviceComputeKernelConfigTest
@@ -141,25 +126,12 @@ protected:
   std::optional<::ttnn::DeviceComputeKernelConfig>
   pathC(mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeConfigAttr)
       override {
-    // return pathB(computeConfigAttr);
     flatbuffers::FlatBufferBuilder _fbb;
     mlir::tt::FlatbufferObjectCache cache(&_fbb);
 
-    // ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
-    // deviceComputeKernelConfigFB =
-    // tt::target::ttnn::CreateDeviceComputeKernelConfig(
-    //     _fbb,
-    //     tt::target::MathFidelity::HiFi2,
-    //     0,
-    //     1,
-    //     0,
-    //     1);
     ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
         deviceComputeKernelConfigFB =
             mlir::tt::toFlatbuffer(cache, computeConfigAttr);
-    // auto *r =
-    // ::flatbuffers::GetRoot<::tt::target::ttnn::DeviceComputeKernelConfig>(flatbuffers::GetTemporaryPointer(_fbb,
-    // deviceComputeKernelConfigFB));
     auto *r =
         flatbuffers::GetTemporaryPointer(_fbb, deviceComputeKernelConfigFB);
 
@@ -180,31 +152,20 @@ protected:
       FAIL();
     }
 
-    // overload == ?
     EXPECT_PRED_FORMAT3(Equal<MathFidelity>, pathA->math_fidelity,
                         pathB->math_fidelity, pathC->math_fidelity);
-    std::cout << pathA->math_fidelity << " == " << pathB->math_fidelity
-              << " == " << pathC->math_fidelity << std::endl;
 
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->math_approx_mode,
                         pathB->math_approx_mode, pathC->math_approx_mode);
-    std::cout << pathA->math_approx_mode << " == " << pathB->math_approx_mode
-              << " == " << pathC->math_approx_mode << std::endl;
 
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->fp32_dest_acc_en,
                         pathB->fp32_dest_acc_en, pathC->fp32_dest_acc_en);
-    std::cout << pathA->fp32_dest_acc_en << " == " << pathB->fp32_dest_acc_en
-              << " == " << pathC->fp32_dest_acc_en << std::endl;
 
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->packer_l1_acc, pathB->packer_l1_acc,
                         pathC->packer_l1_acc);
-    std::cout << pathA->packer_l1_acc << " == " << pathB->packer_l1_acc
-              << " == " << pathC->packer_l1_acc << std::endl;
 
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->dst_full_sync_en,
                         pathB->dst_full_sync_en, pathC->dst_full_sync_en);
-    std::cout << pathA->dst_full_sync_en << " == " << pathB->dst_full_sync_en
-              << " == " << pathC->dst_full_sync_en << std::endl;
   }
 };
 
@@ -258,64 +219,35 @@ protected:
     EXPECT_PRED_FORMAT3(Equal<std::optional<tt::tt_metal::DataType>>,
                         pathA->weights_dtype, pathB->weights_dtype,
                         pathC->weights_dtype);
-    if (pathA->weights_dtype) {
-      std::cout << *pathA->weights_dtype << " == " << *pathB->weights_dtype
-                << " == " << *pathC->weights_dtype << std::endl;
-    }
-
     EXPECT_PRED_FORMAT3(
         Equal<std::optional<ttnn::operations::unary::UnaryWithParam>>,
-        pathA->activation, pathB->activation, pathC->activation); // TODO
-
+        pathA->activation, pathB->activation, pathC->activation);
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->deallocate_activation,
                         pathB->deallocate_activation,
                         pathC->deallocate_activation);
-    std::cout << pathA->deallocate_activation
-              << " == " << pathB->deallocate_activation
-              << " == " << pathC->deallocate_activation << std::endl;
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->reallocate_halo_output,
                         pathB->reallocate_halo_output,
                         pathC->reallocate_halo_output);
-    std::cout << pathA->reallocate_halo_output
-              << " == " << pathB->reallocate_halo_output
-              << " == " << pathC->reallocate_halo_output << std::endl;
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->act_block_h_override,
                         pathB->act_block_h_override,
                         pathC->act_block_h_override);
-    std::cout << pathA->act_block_h_override
-              << " == " << pathB->act_block_h_override
-              << " == " << pathC->act_block_h_override << std::endl;
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->act_block_w_div,
                         pathB->act_block_w_div, pathC->act_block_w_div);
-    std::cout << pathA->act_block_w_div << " == " << pathB->act_block_w_div
-              << " == " << pathC->act_block_w_div << std::endl;
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->reshard_if_not_optimal,
                         pathB->reshard_if_not_optimal,
                         pathC->reshard_if_not_optimal);
-    std::cout << pathA->reshard_if_not_optimal
-              << " == " << pathB->reshard_if_not_optimal
-              << " == " << pathC->reshard_if_not_optimal << std::endl;
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->override_sharding_config,
                         pathB->override_sharding_config,
                         pathC->override_sharding_config);
-    std::cout << pathA->override_sharding_config
-              << " == " << pathB->override_sharding_config
-              << " == " << pathC->override_sharding_config << std::endl;
     EXPECT_PRED_FORMAT3(Equal<std::optional<tt::tt_metal::TensorMemoryLayout>>,
                         pathA->shard_layout, pathB->shard_layout,
                         pathC->shard_layout);
-    // std::cout << pathA->shard_layout << " == " << pathB->shard_layout << " ==
-    // " << pathC->shard_layout << std::endl;
     EXPECT_PRED_FORMAT3(Equal<std::optional<tt::tt_metal::CoreRangeSet>>,
                         pathA->core_grid, pathB->core_grid, pathC->core_grid);
-    // std::cout << pathA->core_grid << " == " << pathB->core_grid << " == " <<
-    // pathC->core_grid << std::endl;
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->transpose_shards,
                         pathB->transpose_shards, pathC->transpose_shards);
     EXPECT_PRED_FORMAT3(Equal<tt::tt_metal::Layout>, pathA->output_layout,
                         pathB->output_layout, pathC->output_layout);
-    std::cout << pathA->output_layout << " == " << pathB->output_layout
-              << " == " << pathC->output_layout << std::endl;
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->enable_act_double_buffer,
                         pathB->enable_act_double_buffer,
                         pathC->enable_act_double_buffer);
@@ -351,13 +283,28 @@ TEST_F(Conv2dConfigTest, Conv2dConfig) {
   baseConfig = baseConfig.withConfigTensorsInDram(false);
   baseConfig = baseConfig.withActBlockWDiv(16);
   baseConfig = baseConfig.withEnableKernelStrideFolding(true);
+  baseConfig = baseConfig.withActivation(mlir::tt::ttnn::UnaryOpType::Relu);
 
-  // TEST2
-  // baseConfig = baseConfig.withCoreGrid(mlir::tt::ttnn::CoreRangeSetAttr::get(
-  // &context,
-  // llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>{mlir::tt::ttnn::CoreRangeAttr::get(
-  //                 &context, mlir::tt::ttnn::CoreCoordAttr::get(&context, 0,
-  //                 0), mlir::tt::ttnn::CoreCoordAttr::get(&context, 7, 0))}));
+  RunTest(baseConfig);
+}
+
+TEST_F(Conv2dConfigTest, Conv2dConfigWithCoreGrid) {
+  mlir::tt::ttnn::Conv2dConfigAttr baseConfig =
+      mlir::tt::ttnn::Conv2dConfigAttr::get(&context);
+  baseConfig = baseConfig.withDeallocateActivation(true);
+  baseConfig = baseConfig.withShardLayout(
+      mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
+  baseConfig =
+      baseConfig.withWeightsDtype(mlir::tt::ttcore::DataType::BFP_BFloat8);
+  baseConfig = baseConfig.withConfigTensorsInDram(false);
+  baseConfig = baseConfig.withActBlockWDiv(16);
+  baseConfig = baseConfig.withEnableKernelStrideFolding(true);
+
+  baseConfig = baseConfig.withCoreGrid(mlir::tt::ttnn::CoreRangeSetAttr::get(
+  &context,
+  llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>{mlir::tt::ttnn::CoreRangeAttr::get(
+                  &context, mlir::tt::ttnn::CoreCoordAttr::get(&context, 0,
+                  0), mlir::tt::ttnn::CoreCoordAttr::get(&context, 7, 0))}));
 
   baseConfig = baseConfig.withActivation(mlir::tt::ttnn::UnaryOpType::Relu);
 
