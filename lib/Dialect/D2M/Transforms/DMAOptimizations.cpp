@@ -59,7 +59,7 @@ static Value getCBForOp(Operation *op) {
   return nullptr;
 }
 
-static bool areDifferentCBs(Value a, Value b) { return a && b && a != b; }
+static bool areDifferentValues(Value a, Value b) { return a && b && a != b; }
 
 static bool isReadBarrier(DMAWaitOp waitOp) {
   return mlir::cast<MemTxType>(waitOp.getMemTx().getType()).getDmaType() ==
@@ -83,28 +83,36 @@ static bool isWriteBarrier(DMAWaitOp waitOp) {
 //===----------------------------------------------------------------------===//
 
 // Barrier (dma_wait) can't sink past:
-//   - another dma_wait (preserves barrier ordering, prevents oscillation)
-//   - dma_read/write of same CB (data hazard)
-//   - read barrier: push of same CB, any semaphore op
-//   - write barrier: pop of same CB, semaphore_set
+//   - another dma_wait
+//   - read barrier: any wait or write (reads must complete before writes), read
+//   of same CB, push of same CB,
+//     any semaphore op
+//   - write barrier: read or write of same CB (data hazard), pop of
+//     same CB, semaphore_set
 static bool canBarrierSinkPast(DMAWaitOp dmaWait, Operation *sinkOver,
                                Value sinkCB) {
   if (mlir::isa<DMAWaitOp>(sinkOver)) {
     return false;
   }
-  if (mlir::isa<DMAReadOp, DMAWriteOp>(sinkOver)) {
-    return areDifferentCBs(getCBForOp(sinkOver), sinkCB);
-  }
   if (isReadBarrier(dmaWait)) {
+    if (mlir::isa<WaitOp, DMAWriteOp>(sinkOver)) {
+      return false;
+    }
+    if (mlir::isa<DMAReadOp>(sinkOver)) {
+      return areDifferentValues(getCBForOp(sinkOver), sinkCB);
+    }
     if (auto pushOp = mlir::dyn_cast<PushOp>(sinkOver)) {
-      return areDifferentCBs(pushOp.getCb(), sinkCB);
+      return areDifferentValues(pushOp.getCb(), sinkCB);
     }
     if (mlir::isa<SemaphoreSetOp, SemaphoreWaitOp, SemaphoreIncOp>(sinkOver)) {
       return false;
     }
   } else if (isWriteBarrier(dmaWait)) {
+    if (mlir::isa<DMAReadOp, DMAWriteOp>(sinkOver)) {
+      return areDifferentValues(getCBForOp(sinkOver), sinkCB);
+    }
     if (auto popOp = mlir::dyn_cast<PopOp>(sinkOver)) {
-      return areDifferentCBs(popOp.getCb(), sinkCB);
+      return areDifferentValues(popOp.getCb(), sinkCB);
     }
     if (mlir::isa<SemaphoreSetOp>(sinkOver)) {
       return false;
@@ -116,20 +124,20 @@ static bool canBarrierSinkPast(DMAWaitOp dmaWait, Operation *sinkOver,
 // Push can't sink past:
 //   - reserve of same CB (reserve needs push to free the slot)
 //   - another push of same CB
-//   - wait of same CB (wait blocks until push)
+//   - any wait (compute needs all pushes before producing any output)
 //   - dma_wait of same CB (barrier must complete before push signals readiness)
 static bool canPushSinkPast(Operation *sinkOver, Value sinkCB) {
   if (auto reserveOp = mlir::dyn_cast<ReserveOp>(sinkOver)) {
-    return areDifferentCBs(reserveOp.getCb(), sinkCB);
+    return areDifferentValues(reserveOp.getCb(), sinkCB);
   }
   if (auto otherPush = mlir::dyn_cast<PushOp>(sinkOver)) {
-    return areDifferentCBs(otherPush.getCb(), sinkCB);
+    return areDifferentValues(otherPush.getCb(), sinkCB);
   }
-  if (auto waitOp = mlir::dyn_cast<WaitOp>(sinkOver)) {
-    return areDifferentCBs(waitOp.getCb(), sinkCB);
+  if (mlir::isa<WaitOp>(sinkOver)) {
+    return false;
   }
   if (mlir::isa<DMAWaitOp>(sinkOver)) {
-    return areDifferentCBs(getCBForOp(sinkOver), sinkCB);
+    return areDifferentValues(getCBForOp(sinkOver), sinkCB);
   }
   return true;
 }
@@ -141,16 +149,16 @@ static bool canPushSinkPast(Operation *sinkOver, Value sinkCB) {
 //   - dma_wait of same CB (barrier must complete before pop releases the slot)
 static bool canPopSinkPast(Operation *sinkOver, Value sinkCB) {
   if (auto waitOp = mlir::dyn_cast<WaitOp>(sinkOver)) {
-    return areDifferentCBs(waitOp.getCb(), sinkCB);
+    return areDifferentValues(waitOp.getCb(), sinkCB);
   }
   if (auto otherPop = mlir::dyn_cast<PopOp>(sinkOver)) {
-    return areDifferentCBs(otherPop.getCb(), sinkCB);
+    return areDifferentValues(otherPop.getCb(), sinkCB);
   }
   if (auto reserveOp = mlir::dyn_cast<ReserveOp>(sinkOver)) {
-    return areDifferentCBs(reserveOp.getCb(), sinkCB);
+    return areDifferentValues(reserveOp.getCb(), sinkCB);
   }
   if (mlir::isa<DMAWaitOp>(sinkOver)) {
-    return areDifferentCBs(getCBForOp(sinkOver), sinkCB);
+    return areDifferentValues(getCBForOp(sinkOver), sinkCB);
   }
   return true;
 }

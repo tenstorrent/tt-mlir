@@ -971,10 +971,6 @@ def D2MOptimizeDMA : Pass<"d2m-optimize-dma", "::mlir::ModuleOp"> {
     Moves write dma_wait and pop from the current loop iteration to the beginning
     of the next iteration, letting the write NOC transfer run concurrently with
     the next iteration's read address generation and NOC calls.
-
-    Optimization 3 -- Write Barrier Deferral (mcast):
-    Similar deferral for multicast sender paths inside scf.if blocks within
-    scf.for loops.
   }];
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
