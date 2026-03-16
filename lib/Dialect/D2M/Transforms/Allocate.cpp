@@ -1258,7 +1258,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     const auto &L1memInfo = memSpaces[ordinal(MemorySpace::DeviceL1)];
 
     llvm::DenseSet<Operation *> visited;
-    for (const auto &[genericOp, genericCtx] : analysis.generics) {
+    for (auto &[genericOp, genericCtx] : analysis.generics) {
       if (genericCtx.isDMAOnly) {
         // Generics in "DMA only" form do not use streams.
         continue;
@@ -1366,6 +1366,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       llvm::DenseMap<Value, Type> operandCBTypeMap;
 
       for (const OperandContext &operandCtx : genericCtx.operands) {
+        d2m::GenericOp mutableGenericOp = genericOp;
+        if (mutableGenericOp.isScratchInput(operandCtx.operandIndex())) {
+          continue;
+        }
+
         const auto operandIndex = operandCtx.operand->getOperandNumber();
 
         const auto *memrefIt2 = analysis.memrefs.find(operandCtx.root);
