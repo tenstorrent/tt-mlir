@@ -17,33 +17,14 @@ void run(const ::tt::target::ttnn::GroupNormOp *op, ProgramContext &context) {
     input_mask = tensorPool.getTTNNTensorAndValidate(op->input_mask());
   }
 
-  // Handle optional weight and bias parameters.
-  // tt-metal group_norm requires gamma/beta with padded_shape[3] == TILE_WIDTH
-  // (32). Reshape from 1D (C,) to 4D (1, 1, C/32, 32) to satisfy this.
-  constexpr int32_t tileWidth = 32;
-
   std::optional<::ttnn::Tensor> weight = std::nullopt;
   if (op->weight()) {
-    ::ttnn::Tensor w = tensorPool.getTTNNTensorAndValidate(op->weight());
-    if (w.logical_shape().rank() == 1) {
-      int32_t C = static_cast<int32_t>(w.logical_shape()[-1]);
-      weight = ::ttnn::reshape(
-          w, std::vector<int32_t>{1, 1, C / tileWidth, tileWidth});
-    } else {
-      weight = w;
-    }
+    weight = tensorPool.getTTNNTensorAndValidate(op->weight());
   }
 
   std::optional<::ttnn::Tensor> bias = std::nullopt;
   if (op->bias()) {
-    ::ttnn::Tensor b = tensorPool.getTTNNTensorAndValidate(op->bias());
-    if (b.logical_shape().rank() == 1) {
-      int32_t C = static_cast<int32_t>(b.logical_shape()[-1]);
-      bias = ::ttnn::reshape(
-          b, std::vector<int32_t>{1, 1, C / tileWidth, tileWidth});
-    } else {
-      bias = b;
-    }
+    bias = tensorPool.getTTNNTensorAndValidate(op->bias());
   }
 
   float epsilon = op->epsilon();
