@@ -196,9 +196,9 @@ enumerateTier1Configs(ModuleOp &module) {
 
 // Cross-product Tier 1 configs with Tier 2 constraint choices.
 // Per constraint candidate: absent OR each valid dim sharding.
-static llvm::SmallVector<ShardingConfig>
-expandWithConstraints(const llvm::SmallVector<ShardingConfig> &tier1Configs,
-                      const llvm::SmallVector<ConstraintCandidate> &candidates) {
+static llvm::SmallVector<ShardingConfig> expandWithConstraints(
+    const llvm::SmallVector<ShardingConfig> &tier1Configs,
+    const llvm::SmallVector<ConstraintCandidate> &candidates) {
   if (candidates.empty()) {
     return tier1Configs;
   }
@@ -275,10 +275,10 @@ expandWithClosedToggle(const llvm::SmallVector<ShardingConfig> &configs) {
 }
 
 // Apply Tier 1 arg shardings and Tier 2 sharding constraints to a module.
-static void applyShardingHints(
-    ModuleOp module, const ShardingConfig &config, StringRef meshName,
-    StringRef shardAxisName,
-    const llvm::SmallVector<ConstraintCandidate> &candidates) {
+static void
+applyShardingHints(ModuleOp module, const ShardingConfig &config,
+                   StringRef meshName, StringRef shardAxisName,
+                   const llvm::SmallVector<ConstraintCandidate> &candidates) {
   MLIRContext *context = module.getContext();
 
   auto funcOps = module.getOps<func::FuncOp>();
@@ -298,8 +298,8 @@ static void applyShardingHints(
         dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
             context, {axisRef}, isClosed));
       } else {
-        dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
-            context, {}, isClosed));
+        dimShardings.push_back(
+            mlir::sdy::DimensionShardingAttr::get(context, {}, isClosed));
       }
     }
 
@@ -355,8 +355,8 @@ static void applyShardingHints(
         dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
             context, {axisRef}, isClosed));
       } else {
-        dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
-            context, {}, isClosed));
+        dimShardings.push_back(
+            mlir::sdy::DimensionShardingAttr::get(context, {}, isClosed));
       }
     }
 
@@ -401,8 +401,7 @@ static void addRemainingStableHLOPasses(OpPassManager &pm) {
   pm.addPass(createInsertExplicitReshardsPass());
   pm.addPass(createWrapUnderManualComputationPass());
 
-  pm.nest<func::FuncOp>().addPass(
-      mlir::sdy::createReshardToCollectivesPass());
+  pm.nest<func::FuncOp>().addPass(mlir::sdy::createReshardToCollectivesPass());
 
   pm.addPass(createShardyCCLCanonicalizationPass());
   pm.addPass(createUpdateGlobalToLocalShapesPass());
@@ -508,8 +507,7 @@ static int64_t computeMaxElements(func::FuncOp funcOp) {
 // memory in large models. Activations (rank > 2, typically with a batch dim)
 // are transient and less valuable to shard for memory.
 static double computeMemoryBenefit(const ShardingConfig &config,
-                                   func::FuncOp funcOp,
-                                   int64_t meshAxisSize,
+                                   func::FuncOp funcOp, int64_t meshAxisSize,
                                    int64_t maxElements,
                                    double parameterMultiplier) {
   if (meshAxisSize <= 1) {
@@ -632,8 +630,7 @@ static bool dumpModuleToFile(ModuleOp module, StringRef filePath) {
   return true;
 }
 
-class AutoShardingPass
-    : public impl::AutoShardingPassBase<AutoShardingPass> {
+class AutoShardingPass : public impl::AutoShardingPassBase<AutoShardingPass> {
 public:
   using impl::AutoShardingPassBase<AutoShardingPass>::AutoShardingPassBase;
 
@@ -647,8 +644,7 @@ public:
 
     auto meshInfoOpt = extractMeshInfo(rootModule);
     if (!meshInfoOpt) {
-      rootModule.emitWarning(
-          "AutoSharding: no mesh found in module, skipping");
+      rootModule.emitWarning("AutoSharding: no mesh found in module, skipping");
       return;
     }
     const MeshInfo &meshInfo = *meshInfoOpt;
@@ -682,8 +678,7 @@ public:
     // 1. Enumerate Tier 1 configs (arg-level shardings).
     auto tier1Configs = enumerateTier1Configs(rootModule);
     if (tier1Configs.empty()) {
-      rootModule.emitWarning(
-          "AutoSharding: no configs enumerated, skipping");
+      rootModule.emitWarning("AutoSharding: no configs enumerated, skipping");
       return;
     }
     llvm::errs() << "AutoSharding: " << tier1Configs.size()
@@ -761,7 +756,8 @@ public:
         llvm::errs() << "AutoSharding: config " << i << " "
                      << formatConfig(configs[i]) << " failed to lower\n";
         if (collectResults) {
-          results.push_back({i, formatConfig(configs[i]), false, 0.0, 0.0, 0.0});
+          results.push_back(
+              {i, formatConfig(configs[i]), false, 0.0, 0.0, 0.0});
         }
         continue;
       }
@@ -773,9 +769,9 @@ public:
       }
 
       double commCost = evaluateCost(clonedModule, maxElements);
-      double memBenefit = computeMemoryBenefit(configs[i], originalFuncOp,
-                                               meshAxisSize, maxElements,
-                                               parameterMultiplier);
+      double memBenefit =
+          computeMemoryBenefit(configs[i], originalFuncOp, meshAxisSize,
+                               maxElements, parameterMultiplier);
       double cost = commCost - memBenefit;
       llvm::errs() << "AutoSharding: config " << i << " "
                    << formatConfig(configs[i]) << " comm=" << commCost
@@ -844,8 +840,7 @@ public:
             << "parameter multiplier="
             << llvm::format("%.1f", parameterMultiplier) << "\n\n";
 
-        fos << "Config  Sharding"
-            << std::string(50, ' ')
+        fos << "Config  Sharding" << std::string(50, ' ')
             << "Status  Comm      Benefit   Net\n";
         fos << std::string(110, '-') << "\n";
         for (const auto &r : results) {
