@@ -15,6 +15,8 @@ struct OptionNames {
   static constexpr llvm::StringRef resultPresharded = "result-presharded";
   static constexpr llvm::StringRef automaticArgAnalysis =
       "automatic-arg-analysis";
+  static constexpr llvm::StringRef enableAggressiveSimplification =
+      "enable-aggressive-simplification";
 };
 
 #endif // TTMLIR_ENABLE_STABLEHLO
