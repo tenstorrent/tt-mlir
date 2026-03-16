@@ -826,21 +826,26 @@ class Run:
                                 start_get_output = time.perf_counter_ns()
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
-                                )[0]
+                                )
+                                if len(output_host) > 1 and bin.extension != ".ttm":
+                                    outputs[
+                                        i
+                                    ] = ttrt.runtime.create_multi_device_host_tensor_from_shards(
+                                        output_host, {}, fb_mesh_shape
+                                    )
+                                else:
+                                    combined_output_tensor = output_host[0]
+                                    if bin.extension != ".ttm":
+                                        combined_output_tensor = ttrt.runtime.create_multi_device_host_tensor_from_shards(
+                                            [output_host[0]], {}, (1, 1)
+                                        )
+                                    ttrt.runtime.memcpy(
+                                        outputs[i],
+                                        combined_output_tensor,
+                                    )
                                 end_get_output = time.perf_counter_ns()
                                 e2e_duration_nanoseconds_output += (
                                     end_get_output - start_get_output
-                                )
-
-                                combined_output_tensor = output_host
-                                if bin.extension != ".ttm":
-                                    combined_output_tensor = ttrt.runtime.create_multi_device_host_tensor_from_shards(
-                                        [output_host], {}, (1, 1)
-                                    )
-
-                                ttrt.runtime.memcpy(
-                                    outputs[i],
-                                    combined_output_tensor,
                                 )
                                 ttrt.runtime.deallocate_tensor(
                                     runtime_output_tensor, force=True
