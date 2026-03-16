@@ -259,6 +259,12 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Enable decomposition workaround pass."),
       llvm::cl::init(true)};
 
+  Option<bool> nocDmaHangWorkaroundsEnabled{
+      *this, "enable-noc-dma-hang-workarounds",
+      llvm::cl::desc("Enable NOC DMA hang workarounds "
+                     "(ReshapeNarrowTiled, ConcatOpPadDim)."),
+      llvm::cl::init(false)};
+
   Option<bool> implicitBroadcastFoldingEnabled{
       *this, "enable-implicit-broadcast-folding-pass",
       llvm::cl::desc("Enable implicit broadcast folding pass."),
