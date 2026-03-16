@@ -451,7 +451,9 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
-        (Twine("static_cast<::tt::CB>(") + Twine(op.getPort()) + ")").str());
+        (Twine("static_cast<::tt::CB>(get_compile_time_arg_val(") +
+         Twine(op.getCtArgIndex()) + "))")
+            .str());
     return success();
   }
 };

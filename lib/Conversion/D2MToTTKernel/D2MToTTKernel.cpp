@@ -1913,10 +1913,9 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Type cbType = getTypeConverter()->convertType(op.getResult().getType());
 
-    int64_t port = op.getPort();
     // The operand_index records which generic op operand this CB backs;
     // the port is the actual hardware CB port number.
-    int64_t operandIndex = op.getOperandIndex().value_or(port);
+    int64_t operandIndex = op.getOperandIndex().value_or(op.getPort());
 
     // Append a CBPort entry to the parent function's ArgSpec so that
     // D2MToTTNN can generate the corresponding cb_buffer_index in the
@@ -1924,12 +1923,17 @@ public:
     // which operand this CB is associated with.
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
     ArgAttr cbArg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, operandIndex);
-    rewriter.modifyOpInPlace(
-        entry, [&]() { ArgSpecAttr::appendCompileTimeArg(entry, cbArg); });
+    size_t ctArgIndex;
+    rewriter.modifyOpInPlace(entry, [&]() {
+      ctArgIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);
+    });
 
-    // Emit a direct CB port reference using the hardware port number.
+    // Emit a CB port reference that reads the port from ct_args at runtime.
+    // This allows the spatial op to remap CB ports per grid range by
+    // overriding compile-time arguments.
     rewriter.replaceOpWithNewOp<ttkernel::CBPortOp>(
-        op, cbType, rewriter.getI32IntegerAttr(static_cast<int32_t>(port)));
+        op, cbType,
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(ctArgIndex)));
     return success();
   }
 };
