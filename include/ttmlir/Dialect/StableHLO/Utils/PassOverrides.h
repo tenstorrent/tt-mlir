@@ -15,8 +15,7 @@ struct OptionNames {
   static constexpr llvm::StringRef resultPresharded = "result-presharded";
   static constexpr llvm::StringRef automaticArgAnalysis =
       "automatic-arg-analysis";
-  static constexpr llvm::StringRef enableAutoSharding =
-      "enable-auto-sharding";
+  static constexpr llvm::StringRef enableAutoSharding = "enable-auto-sharding";
   static constexpr llvm::StringRef dumpVariants = "dump-variants";
   static constexpr llvm::StringRef dumpDir = "dump-dir";
 };

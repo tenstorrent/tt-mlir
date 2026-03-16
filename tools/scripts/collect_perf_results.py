@@ -49,17 +49,17 @@ TTRT = "ttrt"
 
 
 TTCORE_ATTR_RE = re.compile(
-    r'ttcore\.runtime_tensor_sharding = #ttcore<[^>]*<[^>]*>[^>]*<[^>]*>>'
+    r"ttcore\.runtime_tensor_sharding = #ttcore<[^>]*<[^>]*>[^>]*<[^>]*>>"
 )
 TTCORE_SHARD_STATUS_RE = re.compile(
-    r'ttcore\.shard_status = #ttcore\.shard_status<[^>]*>'
+    r"ttcore\.shard_status = #ttcore\.shard_status<[^>]*>"
 )
 MARK_ARG_RE = re.compile(
-    r'\s+(%\S+) = stablehlo\.custom_call @tt\.mark_argument\((%\S+)\)'
+    r"\s+(%\S+) = stablehlo\.custom_call @tt\.mark_argument\((%\S+)\)"
 )
 
-FUNC_START_RE = re.compile(r'^\s*func\.func\b')
-FUNC_END_RE = re.compile(r'^\s*\} loc\(')
+FUNC_START_RE = re.compile(r"^\s*func\.func\b")
+FUNC_END_RE = re.compile(r"^\s*\} loc\(")
 
 
 def _strip_mark_args_in_block(lines: list[str]) -> list[str]:
@@ -77,14 +77,10 @@ def _strip_mark_args_in_block(lines: list[str]) -> list[str]:
     if not replacements:
         return kept
 
-    block = '\n'.join(kept)
-    for result_ssa, input_ssa in sorted(
-        replacements.items(), key=lambda x: -len(x[0])
-    ):
-        block = re.sub(
-            re.escape(result_ssa) + r'(?![0-9a-zA-Z_])', input_ssa, block
-        )
-    return block.split('\n')
+    block = "\n".join(kept)
+    for result_ssa, input_ssa in sorted(replacements.items(), key=lambda x: -len(x[0])):
+        block = re.sub(re.escape(result_ssa) + r"(?![0-9a-zA-Z_])", input_ssa, block)
+    return block.split("\n")
 
 
 def preprocess_mlir(input_path: str, output_path: Path) -> None:
@@ -103,17 +99,17 @@ def preprocess_mlir(input_path: str, output_path: Path) -> None:
         content = f.read()
 
     # --- ttcore.runtime_tensor_sharding ---
-    content = re.sub(r',\s*' + TTCORE_ATTR_RE.pattern, '', content)
-    content = re.sub(r'\s*\{' + TTCORE_ATTR_RE.pattern + r'\}', '', content)
-    content = re.sub(TTCORE_ATTR_RE.pattern + r'\s*,\s*', '', content)
+    content = re.sub(r",\s*" + TTCORE_ATTR_RE.pattern, "", content)
+    content = re.sub(r"\s*\{" + TTCORE_ATTR_RE.pattern + r"\}", "", content)
+    content = re.sub(TTCORE_ATTR_RE.pattern + r"\s*,\s*", "", content)
 
     # --- ttcore.shard_status ---
-    content = re.sub(r',\s*' + TTCORE_SHARD_STATUS_RE.pattern, '', content)
-    content = re.sub(r'\s*\{' + TTCORE_SHARD_STATUS_RE.pattern + r'\}', '', content)
-    content = re.sub(TTCORE_SHARD_STATUS_RE.pattern + r'\s*,\s*', '', content)
+    content = re.sub(r",\s*" + TTCORE_SHARD_STATUS_RE.pattern, "", content)
+    content = re.sub(r"\s*\{" + TTCORE_SHARD_STATUS_RE.pattern + r"\}", "", content)
+    content = re.sub(TTCORE_SHARD_STATUS_RE.pattern + r"\s*,\s*", "", content)
 
     # --- tt.mark_argument custom calls (scoped per function) ---
-    lines = content.split('\n')
+    lines = content.split("\n")
     out_lines: list[str] = []
     func_buf: list[str] | None = None
 
@@ -132,8 +128,8 @@ def preprocess_mlir(input_path: str, output_path: Path) -> None:
     if func_buf is not None:
         out_lines.extend(_strip_mark_args_in_block(func_buf))
 
-    with open(output_path, 'w') as f:
-        f.write('\n'.join(out_lines))
+    with open(output_path, "w") as f:
+        f.write("\n".join(out_lines))
 
 
 def run_cmd(cmd: list[str], label: str, log_path: Path | None = None) -> bool:
@@ -161,16 +157,14 @@ def run_auto_sharding(
     dump_dir.mkdir(parents=True, exist_ok=True)
 
     pipeline_opts = (
-        f"mesh-shape={mesh_shape} "
-        f"enable-auto-sharding=true "
-        f"dump-dir={dump_dir}"
+        f"mesh-shape={mesh_shape} " f"enable-auto-sharding=true " f"dump-dir={dump_dir}"
     )
     if dump_variants:
         pipeline_opts += " dump-variants=true"
 
     cmd = [
         str(TTMLIR_OPT),
-        f'--stablehlo-pipeline={pipeline_opts}',
+        f"--stablehlo-pipeline={pipeline_opts}",
         clean_input,
     ]
 
@@ -196,7 +190,9 @@ def run_auto_sharding(
         print(f"  See log: {log_path}")
         return None
 
-    winners = sorted(glob.glob(str(dump_dir / "**/winner_stablehlo_with_hints.mlir"), recursive=True))
+    winners = sorted(
+        glob.glob(str(dump_dir / "**/winner_stablehlo_with_hints.mlir"), recursive=True)
+    )
     if not winners:
         print("  ERROR: no winner_stablehlo_with_hints.mlir found after auto-sharding")
         return None
@@ -225,24 +221,43 @@ def lower_to_flatbuffer(
     steps = [
         (
             "stablehlo-pipeline",
-            [str(TTMLIR_OPT), f'--stablehlo-pipeline=mesh-shape={mesh_shape}',
-             str(preprocessed), "-o", str(stablehlo_ccl)],
+            [
+                str(TTMLIR_OPT),
+                f"--stablehlo-pipeline=mesh-shape={mesh_shape}",
+                str(preprocessed),
+                "-o",
+                str(stablehlo_ccl),
+            ],
         ),
         (
             "stablehlo-to-ttir",
-            [str(TTMLIR_OPT), "--stablehlo-to-ttir-pipeline",
-             str(stablehlo_ccl), "-o", str(ttir)],
+            [
+                str(TTMLIR_OPT),
+                "--stablehlo-to-ttir-pipeline",
+                str(stablehlo_ccl),
+                "-o",
+                str(ttir),
+            ],
         ),
         (
             "ttir-to-ttnn",
-            [str(TTMLIR_OPT),
-             f"--ttir-to-ttnn-backend-pipeline=system-desc-path={SYSTEM_DESC}",
-             str(ttir), "-o", str(ttnn)],
+            [
+                str(TTMLIR_OPT),
+                f"--ttir-to-ttnn-backend-pipeline=system-desc-path={SYSTEM_DESC}",
+                str(ttir),
+                "-o",
+                str(ttnn),
+            ],
         ),
         (
             "ttnn-to-flatbuffer",
-            [str(TTMLIR_TRANSLATE), "--ttnn-to-flatbuffer",
-             str(ttnn), "-o", str(flatbuffer)],
+            [
+                str(TTMLIR_TRANSLATE),
+                "--ttnn-to-flatbuffer",
+                str(ttnn),
+                "-o",
+                str(flatbuffer),
+            ],
         ),
     ]
 
@@ -259,8 +274,11 @@ def run_ttrt_perf(flatbuffer: Path, artifact_dir: Path) -> Path | None:
     """Run ttrt perf and return path to ops_perf_results.csv."""
     artifact_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
-        TTRT, "perf", str(flatbuffer),
-        "--artifact-dir", str(artifact_dir),
+        TTRT,
+        "perf",
+        str(flatbuffer),
+        "--artifact-dir",
+        str(artifact_dir),
     ]
     label = flatbuffer.stem
     log = flatbuffer.parent / "ttrt_perf.log"
@@ -322,34 +340,42 @@ def main():
         description="Compare perf of manual vs auto-sharding configurations"
     )
     parser.add_argument(
-        "--manual-input", required=True,
-        help="Path to manually-sharded StableHLO MLIR input"
+        "--manual-input",
+        required=True,
+        help="Path to manually-sharded StableHLO MLIR input",
     )
     parser.add_argument(
-        "--auto-input", required=True,
+        "--auto-input",
+        required=True,
         help="Path to clean StableHLO MLIR input (for auto-sharding search), "
-             "or path to a pre-computed winner (with --skip-auto-sharding)"
+        "or path to a pre-computed winner (with --skip-auto-sharding)",
     )
     parser.add_argument(
-        "--output-dir", default=None,
-        help=f"Directory to store all outputs (default: <tt-mlir>/generated/perf_comparison)"
+        "--output-dir",
+        default=None,
+        help=f"Directory to store all outputs (default: <tt-mlir>/generated/perf_comparison)",
     )
     parser.add_argument(
-        "--mesh-shape", default="1,2",
-        help="Mesh shape for stablehlo-pipeline (default: 1,2)"
+        "--mesh-shape",
+        default="1,2",
+        help="Mesh shape for stablehlo-pipeline (default: 1,2)",
     )
     parser.add_argument(
-        "--skip-auto-sharding", action="store_true",
+        "--skip-auto-sharding",
+        action="store_true",
         help="Skip auto-sharding search; --auto-input is treated as a "
-             "pre-computed winner MLIR"
+        "pre-computed winner MLIR",
     )
     parser.add_argument(
-        "--dump-variants", action="store_true",
-        help="Dump each auto-sharding variant IR to disk for inspection"
+        "--dump-variants",
+        action="store_true",
+        help="Dump each auto-sharding variant IR to disk for inspection",
     )
     args = parser.parse_args()
 
-    output_dir = Path(args.output_dir) if args.output_dir else GENERATED_DIR / "perf_comparison"
+    output_dir = (
+        Path(args.output_dir) if args.output_dir else GENERATED_DIR / "perf_comparison"
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     auto_input = args.auto_input
@@ -436,7 +462,11 @@ def main():
             summary_lines.append(f"    Status: {r.get('status', 'UNKNOWN')}")
         summary_lines.append("")
 
-    ok_results = {k: v for k, v in results.items() if v.get("status") == "OK" and v.get("duration_ns") is not None}
+    ok_results = {
+        k: v
+        for k, v in results.items()
+        if v.get("status") == "OK" and v.get("duration_ns") is not None
+    }
     if len(ok_results) == 2:
         manual = results["manual_sharding"]
         auto = results["auto_sharding"]
@@ -453,7 +483,9 @@ def main():
         summary_lines.append(f"  Manual:  {m_dur:>12,} ns")
         summary_lines.append(f"  Auto:    {a_dur:>12,} ns")
         summary_lines.append(f"  Speedup: {speedup:.3f}x (auto vs manual)")
-        summary_lines.append(f"  Diff:    {diff_pct:+.1f}% {'faster' if a_dur < m_dur else 'slower'} (auto)")
+        summary_lines.append(
+            f"  Diff:    {diff_pct:+.1f}% {'faster' if a_dur < m_dur else 'slower'} (auto)"
+        )
         summary_lines.append("")
         if a_dur < m_dur:
             summary_lines.append("WINNER: auto_sharding is faster")
