@@ -127,56 +127,31 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
 
-    llvm::SmallVector<Value> remappedBuffers;
-    llvm::SmallVector<Value> cbs;
-    llvm::SmallVector<int64_t> cbPorts;
-    llvm::SmallVector<Value> args;
-    int64_t cbPort = 0;
-    for (unsigned i = 0; i < op.getInputsAndOutputs().size(); ++i) {
-      auto operand = adaptor.getOperands()[i];
-
-      if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
-              operand.getDefiningOp());
-          stream) {
-        args.push_back(stream.getInput());
-        remappedBuffers.push_back(rewriter.getRemappedValue(stream.getInput()));
-        cbs.push_back(rewriter.getRemappedValue(stream.getInput()));
-      } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
-                     operand.getDefiningOp());
-                 view) {
-        args.push_back(view.getInput());
-        remappedBuffers.push_back(rewriter.getRemappedValue(view.getInput()));
-        cbs.push_back(view.getInput());
-      } else {
-        args.push_back(operand);
-        remappedBuffers.push_back(rewriter.getRemappedValue(operand));
-        cbs.push_back(operand);
-      }
-
-      cbPorts.push_back(cbPort++);
-    }
-
-    // Add additional args.
+    // Phase 1: Scan additional args to build a map from I/O operand index
+    // to its hoisted CB, and collect other additional args separately.
     unsigned ioSize = op.getInputsAndOutputs().size();
+    DenseMap<unsigned, Value> hoistedCBMap;
+    llvm::SmallVector<Value> extraArgs;
+    llvm::SmallVector<Value> extraCBs;
+    llvm::SmallVector<int64_t> extraCBPorts;
+    int64_t cbPort = static_cast<int64_t>(ioSize);
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operand = adaptor.getOperands()[ioSize + i];
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
-        args.push_back(operand);
+        extraArgs.push_back(operand);
       } else if (mlir::isa<MemRefType>(operand.getType())) {
         // Hoisted CB buffer (already converted to CreateBufferOp by
-        // MemrefAllocRewriter).  If it backs a regular operand, override
-        // that operand's CB; otherwise add as a new CB entry.
+        // MemrefAllocRewriter).  If it backs a regular operand, record
+        // the mapping; otherwise collect as an extra CB entry.
         if (auto cbForOp =
                 operand.getDefiningOp()
                     ? operand.getDefiningOp()->getAttrOfType<IntegerAttr>(
                           "d2m.cb_for_operand")
                     : IntegerAttr()) {
-          unsigned idx = static_cast<unsigned>(cbForOp.getInt());
-          assert(idx < cbs.size() && "d2m.cb_for_operand out of range");
-          cbs[idx] = operand;
+          hoistedCBMap[static_cast<unsigned>(cbForOp.getInt())] = operand;
         } else {
-          cbs.push_back(operand);
-          cbPorts.push_back(cbPort++);
+          extraCBs.push_back(operand);
+          extraCBPorts.push_back(cbPort++);
         }
       } else {
         op.emitOpError(
@@ -185,6 +160,45 @@ public:
         return failure();
       }
     }
+
+    // Phase 2: Process I/O operands, using hoisted CBs where available.
+    llvm::SmallVector<Value> args;
+    llvm::SmallVector<Value> cbs;
+    llvm::SmallVector<int64_t> cbPorts;
+    for (unsigned i = 0; i < ioSize; ++i) {
+      auto operand = adaptor.getOperands()[i];
+
+      if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
+              operand.getDefiningOp());
+          stream) {
+        args.push_back(stream.getInput());
+      } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
+                     operand.getDefiningOp());
+                 view) {
+        args.push_back(view.getInput());
+      } else {
+        args.push_back(operand);
+      }
+
+      // Use hoisted CB if one exists for this operand, otherwise the
+      // operand itself (or view input) is both the buffer and the CB.
+      auto it = hoistedCBMap.find(i);
+      if (it != hoistedCBMap.end()) {
+        cbs.push_back(it->second);
+      } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
+                     operand.getDefiningOp())) {
+        cbs.push_back(view.getInput());
+      } else {
+        cbs.push_back(operand);
+      }
+
+      cbPorts.push_back(static_cast<int64_t>(i));
+    }
+
+    // Append non-I/O additional args and CBs.
+    args.append(extraArgs);
+    cbs.append(extraCBs);
+    cbPorts.append(extraCBPorts);
 
     ArrayAttr threads = op.getThreads();
     auto physicalGridShape = op.getPhysicalGridShape();
