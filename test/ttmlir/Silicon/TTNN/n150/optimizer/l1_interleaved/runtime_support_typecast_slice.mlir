@@ -2,7 +2,7 @@
 // Comparison operations are fine for L1 interleaved if consumed by a different op, showcased by the Abs operation.
 // Example ops inspired by the YOLO model, can be used to check these ops when fixed as a trial for YOLO.
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false enable-memory-management-pass=false l1-interleaved-fallback-analysis-enabled=true" -o %t_ttnn.mlir %s --mlir-print-debuginfo
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false l1-interleaved-fallback-analysis-enabled=true" -o %t_ttnn.mlir %s --mlir-print-debuginfo
 // RUN: FileCheck %s --input-file=%t_ttnn.mlir
 
 module @L1InterleavedRuntimeSupportTypecastSlice attributes {} {

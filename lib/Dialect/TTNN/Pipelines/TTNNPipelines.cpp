@@ -289,7 +289,7 @@ void createTTIRToTTNNDevicePipeline(
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
 
-    if (options.memoryManagementEnabled) {
+    if (options.dramSpaceSavingOptimizationEnabled) {
       devicePm.addPass(createTTNNMemoryManagement());
     }
     createTTNNPipelineWorkaroundPass(devicePm, options);
