@@ -22,6 +22,7 @@ class SliceDynamicOp;
 class SliceStaticOp;
 class RotaryEmbeddingOp;
 class Conv3dOp;
+class TopKOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -358,6 +359,10 @@ public:
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39128
   static TTNNOperandsWorkarounds
   createMoeExpertTokenRemapOpOperandsWorkarounds();
+
+  // Create workarounds for topk op operands.
+  static TTNNOperandsWorkarounds
+  createTopKOpOperandsWorkarounds(ttnn::TopKOp op);
 };
 
 } // namespace mlir::tt::ttnn::wa

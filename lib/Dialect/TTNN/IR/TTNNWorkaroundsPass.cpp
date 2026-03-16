@@ -1012,6 +1012,42 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
       .addOutputOperandWorkaround(rowMajorUint16Workaround); // reduced
 }
 
+// Factory method to create a set of workarounds for topk op.
+// This operation returns two outputs:
+//   [0] values (same data type as input)
+//   [1] indices (uint16)
+// Input is forced to BFloat16 unless it is already BFloat16 or BFP_BFloat8.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(
+    ttnn::TopKOp op) {
+  // Check input tensor data type - tt-metal supports BFloat16 and BFP_BFloat8.
+  auto inputElementType = op.getInputTensor().getType().getElementType();
+  std::optional<ttcore::DataType> inputDataType =
+      ttcore::elementTypeToDataType(inputElementType);
+
+  wa::TTNNOperandWorkarounds inputWorkaround;
+  wa::TTNNOperandWorkarounds outputValuesWorkaround;
+
+  if (!inputDataType || (*inputDataType != ttcore::DataType::BFloat16 &&
+                         *inputDataType != ttcore::DataType::BFP_BFloat8)) {
+    inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+    outputValuesWorkaround.tensorDataTypeWorkaround =
+        ttcore::DataType::BFloat16;
+  } else {
+    // Values output should match the input data type.
+    outputValuesWorkaround.tensorDataTypeWorkaround = *inputDataType;
+  }
+
+  // Output[1] (indices): force UInt32.
+  wa::TTNNOperandWorkarounds outputIndicesWorkaround;
+  outputIndicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(inputWorkaround)
+      .addOutputOperandWorkaround(outputValuesWorkaround)
+      .addOutputOperandWorkaround(outputIndicesWorkaround);
+}
+
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::Conv2dOp op);
