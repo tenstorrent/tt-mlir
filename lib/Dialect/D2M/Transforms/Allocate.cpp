@@ -1484,6 +1484,21 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         });
       }
 
+      // Erase view_layout ops that were absorbed into streams and now have
+      // no remaining uses (all uses replaced by the stream above).
+      for (const OperandContext &operandCtx : genericCtx.operands) {
+        if (!operandCtx.hasViewLayout) {
+          continue;
+        }
+        for (Operation *opOnChain : operandCtx.defChain) {
+          if (auto viewOp = mlir::dyn_cast<d2m::ViewLayoutOp>(opOnChain)) {
+            if (viewOp->use_empty()) {
+              rewriter.eraseOp(viewOp);
+            }
+          }
+        }
+      }
+
       // Fix up block factors:
 
       const auto blockFactorsAttrName =
@@ -1621,17 +1636,30 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
 
     const auto oldOperandType = mlir::cast<MemRefType>(operand.get().getType());
-    const AffineMap reblockingMap = ttmlir::utils::calculateReblockMap(
+    AffineMap remappingMap = ttmlir::utils::calculateReblockMap(
         oldOperandType.getShape(), bufferType.getShape(),
         rewriter.getContext());
 
+    // When the operand is defined by a view_layout, the stream should absorb
+    // the view: take the view's input directly and use the view's remapping
+    // instead of the computed reblocking map (which would be identity since
+    // the view already reshaped to the buffer shape).
+    Value streamInput = operand.get();
+    if (operandCtx.hasViewLayout) {
+      if (auto viewOp = mlir::dyn_cast_or_null<d2m::ViewLayoutOp>(
+              operand.get().getDefiningOp())) {
+        streamInput = viewOp.getInput();
+        remappingMap = viewOp.getRemapping();
+      }
+    }
+
     const MemRefType streamType =
-        getStreamType(bufferType.getShape(), reblockingMap,
+        getStreamType(bufferType.getShape(), remappingMap,
                       oldOperandType.getElementType(), remappedMemspace);
 
     auto streamOp = rewriter.create<d2m::StreamLayoutOp>(
-        op.getLoc(), /* result */ streamType, /* input */ operand.get(),
-        AffineMapAttr::get(reblockingMap), /* storage */ bufferAllocOp);
+        op.getLoc(), /* result */ streamType, /* input */ streamInput,
+        AffineMapAttr::get(remappingMap), /* storage */ bufferAllocOp);
 
     rewriter.startOpModification(op);
     {
