@@ -7124,7 +7124,7 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
   // ~~~~~~~~~~~~~~~~~~~~~ Note ~~~~~~~~~~~~~~~~~~~~~
   // The following default values are taken from Arrange's invoke function in
-  // tt-metal/ttnn/cpp/ttnn/operations/creation.hpp
+  // tt-metal/ttnn/cpp/ttnn/operations/creation/creation.hpp
   const ::tt::tt_metal::DataType defaultDtypeInMetal =
       ::tt::tt_metal::DataType::BFLOAT16;
   const ::ttnn::MemoryConfig defaultMemoryConfigInMetal =
