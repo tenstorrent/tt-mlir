@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpDimRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpPadDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
@@ -32,6 +33,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RMSNormConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReshapeNarrowTiledRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
@@ -614,6 +616,11 @@ public:
               DistributedRMSNormWidthShardInputRewritePattern,
           workarounds::decomposition::ReduceScatterConfigRewritePattern>(
           &getContext());
+
+      patterns
+          .add<workarounds::decomposition::ConcatOpPadDimRewritePattern,
+               workarounds::decomposition::ReshapeNarrowTiledRewritePattern>(
+              &getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
       patterns
