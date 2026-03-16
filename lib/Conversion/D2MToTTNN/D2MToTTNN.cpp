@@ -332,7 +332,7 @@ createCBDescriptors(Builder &builder,
             mlir::dyn_cast_if_present<memref::AllocOp>(
                 info.cbMemref.getDefiningOp()) &&
             !mlir::isa_and_present<ttcore::CBLayoutAttr>(
-                  cbMemref.getLayout()) &&
+                cbMemref.getLayout()) &&
             llvm::none_of(info.cbMemref.getUsers(), [](Operation *user) {
               return mlir::isa<d2m::StreamLayoutOp>(user);
             });
@@ -350,13 +350,14 @@ createCBDescriptors(Builder &builder,
   return cbDescriptors;
 }
 
-static LogicalResult handleMemrefAlloc(memref::AllocOp op, IRRewriter &rewriter,
-                                       DenseMap<Value, Value> &valueMapping) {
+static LogicalResult
+materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
+                              DenseMap<Value, Value> &valueMapping) {
   MLIRContext *ctx = rewriter.getContext();
   MemRefType memrefType = op.getMemref().getType();
   Location loc = op.getLoc();
 
-  // Case 1: Backing a global semaphore -- skip.
+  // Global semaphores are processed separately.
   bool isBackingGlobalSemaphore =
       llvm::any_of(op.getResult().getUsers(), [](Operation *user) {
         return mlir::isa<d2m::CreateGlobalSemaphoreOp>(user);
@@ -365,7 +366,7 @@ static LogicalResult handleMemrefAlloc(memref::AllocOp op, IRRewriter &rewriter,
     return success();
   }
 
-  // Case 2: Hoisted CB alloc (CBLayoutAttr) -- skip.
+  // Hoisted CBs do not need to be materialized as TTNN tensors.
   if (auto cbLayout = mlir::dyn_cast_if_present<ttcore::CBLayoutAttr>(
           memrefType.getLayout())) {
     return success();
@@ -376,7 +377,6 @@ static LogicalResult handleMemrefAlloc(memref::AllocOp op, IRRewriter &rewriter,
     return op.emitOpError("could not find device attribute");
   }
 
-  // Case 3: Device layout (ShardLayoutAttr or InterleavedLayoutAttr).
   if (mlir::isa_and_present<ttcore::DeviceLayoutInterface>(
           memrefType.getLayout())) {
     auto convertedTensorType = convertMemrefToTTNNTensor(ctx, op.getMemref());
@@ -441,9 +441,7 @@ static LogicalResult handleMemrefAlloc(memref::AllocOp op, IRRewriter &rewriter,
     return success();
   }
 
-  // Case 4: Unknown layout.
-  return op.emitOpError(
-      "memref alloc does not correspond to a ttnn tensor or global semaphore");
+  return op.emitOpError("Unsupported memref.alloc");
 }
 
 struct TensorAllocAttrs {
@@ -478,8 +476,8 @@ getTensorAllocAttrs(Operation *op, RankedTensorType tensorType) {
   return op->emitOpError("unsupported encoding type"), failure();
 }
 
-static LogicalResult handleD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
-                                    DenseMap<Value, Value> &valueMapping) {
+static LogicalResult convertD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
+                                     DenseMap<Value, Value> &valueMapping) {
   auto tensorType = cast<RankedTensorType>(op.getResult().getType());
   auto attrs = getTensorAllocAttrs(op, tensorType);
   if (failed(attrs)) {
@@ -498,8 +496,8 @@ static LogicalResult handleD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
   return success();
 }
 
-static LogicalResult handleD2MFull(d2m::FullOp op, IRRewriter &rewriter,
-                                   DenseMap<Value, Value> &valueMapping) {
+static LogicalResult convertD2MFull(d2m::FullOp op, IRRewriter &rewriter,
+                                    DenseMap<Value, Value> &valueMapping) {
   auto tensorType = cast<RankedTensorType>(op.getResult().getType());
   auto attrs = getTensorAllocAttrs(op, tensorType);
   if (failed(attrs)) {
@@ -585,17 +583,17 @@ materializeTTNNTensors(ModuleOp module, DenseMap<Value, Value> &valueMapping) {
   });
 
   for (auto op : allocOps) {
-    if (failed(handleMemrefAlloc(op, rewriter, valueMapping))) {
+    if (failed(materializeIntermediateTensor(op, rewriter, valueMapping))) {
       return failure();
     }
   }
   for (auto op : emptyOps) {
-    if (failed(handleD2MEmpty(op, rewriter, valueMapping))) {
+    if (failed(convertD2MEmpty(op, rewriter, valueMapping))) {
       return failure();
     }
   }
   for (auto op : fullOps) {
-    if (failed(handleD2MFull(op, rewriter, valueMapping))) {
+    if (failed(convertD2MFull(op, rewriter, valueMapping))) {
       return failure();
     }
   }
@@ -720,13 +718,10 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
           ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
           ttnn::CoreCoordAttr::get(ctx, endCoreRange[0], endCoreRange[1])));
 
-  // Analyze generic operands.
   SmallVector<GenericOperandInfo> infos =
       analyzeGenericOperands(op, valueMapping);
 
-  // Process additionalArgs.
   SmallVector<Value> additionalArgs;
-
   for (Value arg : op.getAdditionalArgs()) {
     if (auto cbForOp = arg.getDefiningOp()
                            ? arg.getDefiningOp()->getAttrOfType<IntegerAttr>(
@@ -749,16 +744,13 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
     }
   }
 
-  // Create CB descriptors.
   SmallVector<ttnn::KernelCBAttr> cbDescriptors =
       createCBDescriptors(rewriter, infos, device, coreRangeSet);
 
-  // Create Kernel descriptors.
   SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
   SmallVector<mlir::Attribute> kernelDescriptors = createKernelDescriptors(
       rewriter, op.getThreads(), coreRangeSet, opSymTable, mathFidelity);
 
-  // Extract semaphore descriptors from kernel functions.
   SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors =
       createSemaphoreDescriptors(rewriter, op.getThreads(), coreRangeSet,
                                  opSymTable);
@@ -766,7 +758,6 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
   ttnn::ProgramAttr program = ttnn::ProgramAttr::get(
       ctx, kernelDescriptors, cbDescriptors, semaphoreDescriptors);
 
-  // Collect IO tensors.
   SmallVector<Value> ios;
   for (auto &info : infos) {
     ios.push_back(info.ioTensor);
@@ -799,7 +790,7 @@ static LogicalResult convertGenerics(ModuleOp module,
 static LogicalResult cleanupAndVerify(ModuleOp module,
                                       DenseMap<Value, Value> &valueMapping) {
   // Replace all mapped values' uses with their TTNN equivalents.
-  // This handles d2m.empty/full results used directly by func.return, etc.
+  // This handles d2m.empty/full results used directly by func.return.
   for (auto &[oldVal, newVal] : valueMapping) {
     oldVal.replaceAllUsesWith(newVal);
   }
@@ -835,7 +826,6 @@ static LogicalResult cleanupAndVerify(ModuleOp module,
     op->erase();
   }
 
-  // Verification walk.
   WalkResult result = module.walk([](Operation *op) -> WalkResult {
     if (isa<d2m::D2MDialect>(op->getDialect())) {
       return op->emitError("unexpected D2M op after conversion"),
