@@ -2340,6 +2340,53 @@ static Block *cloneParallelizedRegion(d2m::GenericOp thisOp,
   return newBlock;
 }
 
+// Repair cloned ops whose result types depend on reblocked operand types.
+static void repairParallelizedRegionTypes(Block *newBlock) {
+  for (Operation &clonedOp : *newBlock) {
+    if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&clonedOp)) {
+      Value associatedOperand = d2m::GenericOp::findAssocOperand(allocOp);
+      if (associatedOperand) {
+        Type newAllocType = d2m::utils::cloneWithShardShape(associatedOperand,
+                                                            allocOp.getType());
+        if (newAllocType != allocOp.getType()) {
+          auto newMemRefType = mlir::dyn_cast<MemRefType>(newAllocType);
+          TT_assert(newMemRefType);
+          allocOp.getResult().setType(newMemRefType);
+        }
+      }
+    } else if (auto tensorEmptyOp =
+                   mlir::dyn_cast<tensor::EmptyOp>(&clonedOp)) {
+      Value associatedOperand = d2m::GenericOp::findAssocOperand(tensorEmptyOp);
+      if (associatedOperand) {
+        Type newEmptyType = d2m::utils::cloneWithShardShape(
+            associatedOperand, tensorEmptyOp.getType());
+        if (newEmptyType != tensorEmptyOp.getType()) {
+          tensorEmptyOp.getResult().setType(
+              cast<RankedTensorType>(newEmptyType));
+        }
+      }
+    } else if (auto remoteLoadOp =
+                   mlir::dyn_cast<d2m::RemoteLoadOp>(&clonedOp)) {
+      if (Value localBuffer = remoteLoadOp.getLocalBuffer()) {
+        remoteLoadOp.getResult().setType(localBuffer.getType());
+      }
+    } else if (auto remoteStoreOp =
+                   mlir::dyn_cast<d2m::RemoteStoreOp>(&clonedOp)) {
+      if (remoteStoreOp.hasResultForm()) {
+        remoteStoreOp.getResult().setType(remoteStoreOp.getMemref().getType());
+      }
+    } else if (auto dstOp =
+                   mlir::dyn_cast<DestinationStyleOpInterface>(&clonedOp)) {
+      unsigned numIns = dstOp.getNumDpsInputs();
+      unsigned numOuts = clonedOp.getNumResults();
+      for (unsigned i = 0; i < numOuts; ++i) {
+        clonedOp.getResult(i).setType(
+            clonedOp.getOperand(numIns + i).getType());
+      }
+    }
+  }
+}
+
 // Rebuild the optional view that matches the original generic result/output.
 static d2m::ViewLayoutOp createReturnView(d2m::GenericOp thisOp,
                                           d2m::GenericOp newGenericOp,
@@ -2396,53 +2443,7 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
 
     Block *newBlock = cloneParallelizedRegion(
         thisOp, newGenericOp, builder, oldRegion, newRegion, reblockedOperands);
-
-    // Fix cloned ops whose result types depend on reblocked operand types.
-    for (Operation &clonedOp : *newBlock) {
-      if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&clonedOp)) {
-        Value associatedOperand = d2m::GenericOp::findAssocOperand(allocOp);
-        if (associatedOperand) {
-          Type newAllocType = d2m::utils::cloneWithShardShape(
-              associatedOperand, allocOp.getType());
-          if (newAllocType != allocOp.getType()) {
-            auto newMemRefType = mlir::dyn_cast<MemRefType>(newAllocType);
-            TT_assert(newMemRefType);
-            allocOp.getResult().setType(newMemRefType);
-          }
-        }
-      } else if (auto tensorEmptyOp =
-                     mlir::dyn_cast<tensor::EmptyOp>(&clonedOp)) {
-        Value associatedOperand =
-            d2m::GenericOp::findAssocOperand(tensorEmptyOp);
-        if (associatedOperand) {
-          Type newEmptyType = d2m::utils::cloneWithShardShape(
-              associatedOperand, tensorEmptyOp.getType());
-          if (newEmptyType != tensorEmptyOp.getType()) {
-            tensorEmptyOp.getResult().setType(
-                cast<RankedTensorType>(newEmptyType));
-          }
-        }
-      } else if (auto remoteLoadOp =
-                     mlir::dyn_cast<d2m::RemoteLoadOp>(&clonedOp)) {
-        if (Value localBuffer = remoteLoadOp.getLocalBuffer()) {
-          remoteLoadOp.getResult().setType(localBuffer.getType());
-        }
-      } else if (auto remoteStoreOp =
-                     mlir::dyn_cast<d2m::RemoteStoreOp>(&clonedOp)) {
-        if (remoteStoreOp.hasResultForm()) {
-          remoteStoreOp.getResult().setType(
-              remoteStoreOp.getMemref().getType());
-        }
-      } else if (auto dstOp =
-                     mlir::dyn_cast<DestinationStyleOpInterface>(&clonedOp)) {
-        unsigned numIns = dstOp.getNumDpsInputs();
-        unsigned numOuts = clonedOp.getNumResults();
-        for (unsigned i = 0; i < numOuts; ++i) {
-          clonedOp.getResult(i).setType(
-              clonedOp.getOperand(numIns + i).getType());
-        }
-      }
-    }
+    repairParallelizedRegionTypes(newBlock);
   }
 
   // Only return a view into the old generic op result if requested.
