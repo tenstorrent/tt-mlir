@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -22,7 +23,7 @@ namespace mlir::tt::d2m {
 namespace {
 
 // Fixed scratch buffer size in bytes.
-constexpr size_t kScratchSizeBytes = 128 * 1024; // 128KB
+constexpr size_t kScratchSizeBytes = 128 * 1024 * 2; // 128KB
 
 // Get the tile type from a memref type, if it has one.
 static ttcore::TileType getTileType(MemRefType memrefType) {
@@ -44,24 +45,19 @@ static MemRefType findTiledInputType(GenericOp genericOp) {
   return MemRefType();
 }
 
-// Check if a d2m.generic needs a scratch buffer. Scratch is added when the
-// compute region contains more than one binary FPU op (add/sub/mul), which
-// indicates a fused kernel that may need to spill intermediate results.
-// TODO(ckaravasilisTT): Use a more precise method to determine if a generic
-// needs a scratch buffer and of what size.
+// Check if a d2m.generic needs a scratch buffer. Scratch is needed when the
+// region contains multiple fused linalg.generic ops, because after tiling each
+// becomes a separate compute loop nest and intermediate results between them
+// must be spilled to scratch L1 (handled later by SpillAndScratch).
 static bool needsScratch(GenericOp genericOp) {
   if (genericOp.getNumRegions() == 0) {
     return false;
   }
 
-  unsigned binaryFPUCount = 0;
-  genericOp.getRegion(0).walk([&](Operation *op) {
-    if (isa<TileAddOp, TileSubOp, TileMulOp>(op)) {
-      ++binaryFPUCount;
-    }
-  });
+  unsigned linalgGenericCount = 0;
+  genericOp.getRegion(0).walk([&](linalg::GenericOp) { ++linalgGenericCount; });
 
-  return binaryFPUCount > 1;
+  return linalgGenericCount > 1;
 }
 
 // Add scratch input to a single d2m.generic op (post-bufferization).
@@ -78,8 +74,8 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
     return failure();
   }
 
-  // Only add scratch to fused generics with multiple binary FPU ops
-  // (add/sub/mul) that may need to spill intermediate results.
+  // Only add scratch to fused generics with multiple linalg.generic ops
+  // that may need to spill intermediate results between compute loops.
   if (!needsScratch(genericOp)) {
     return failure();
   }
