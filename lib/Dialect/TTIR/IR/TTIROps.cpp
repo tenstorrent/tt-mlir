@@ -39,7 +39,6 @@
 
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/ErrorHandling.h"
 #include <cstdint>
 #include <numeric>
 #include <string>
@@ -205,7 +204,7 @@ static mlir::Attribute makeScalarAttr(mlir::Type elemType, double val) {
   if (auto intType = mlir::dyn_cast<mlir::IntegerType>(elemType)) {
     return mlir::IntegerAttr::get(intType, static_cast<int64_t>(val));
   }
-  llvm_unreachable("Expected a FloatType or IntegerType");
+  return {};
 }
 
 // Extract constant fill value by looking through layout ops (broadcast,
@@ -819,33 +818,6 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
       getContext(), 32, IntegerType::SignednessSemantics::Unsigned);
   auto resultType = RankedTensorType::get(/*shape=*/{1}, resultElType);
   return mlir::DenseElementsAttr::get<uint32_t>(resultType, dimSize);
-}
-
-//===----------------------------------------------------------------------===//
-// NegOp
-//===----------------------------------------------------------------------===//
-
-// NegOp folder
-::mlir::OpFoldResult mlir::tt::ttir::NegOp::fold(FoldAdaptor adaptor) {
-  Attribute attr = adaptor.getInput();
-  if (!attr) {
-    return nullptr;
-  }
-
-  if (auto denseAttr = dyn_cast<DenseElementsAttr>(attr)) {
-    Type elementType = denseAttr.getElementType();
-    if (elementType.isInteger()) {
-      return denseAttr.mapValues(elementType,
-                                 [](const APInt &val) { return -val; });
-    }
-    if (elementType.isFloat()) {
-      return denseAttr.mapValues(elementType, [](const llvm::APFloat &val) {
-        return (-val).bitcastToAPInt();
-      });
-    }
-  }
-
-  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -4877,90 +4849,6 @@ verifyReplicaGroups(mlir::DenseIntElementsAttr replicaGroups) {
     }
   }
   return std::nullopt;
-}
-
-// Helper to convert type of scalar attribute.
-mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
-                                       mlir::Type targetType) {
-  if (typedAttr.getType() == targetType) {
-    return typedAttr;
-  }
-
-  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(typedAttr)) {
-    llvm::APFloat floatVal = floatAttr.getValue();
-
-    // Case A: Float -> Float (e.g., f64 -> f32)
-    if (auto targetFloatType = mlir::dyn_cast<mlir::FloatType>(targetType)) {
-      bool losesInfo;
-      floatVal.convert(targetFloatType.getFloatSemantics(),
-                       llvm::APFloat::rmNearestTiesToEven, &losesInfo);
-      return mlir::FloatAttr::get(targetType, floatVal);
-    }
-
-    // Case B: Float -> Integer (e.g., f32 -> i32)
-    if (auto targetIntType = mlir::dyn_cast<mlir::IntegerType>(targetType)) {
-      llvm::APSInt intVal(targetIntType.getWidth(), !targetIntType.isSigned());
-      bool isExact;
-      floatVal.convertToInteger(intVal, llvm::APFloat::rmTowardZero, &isExact);
-      return mlir::IntegerAttr::get(targetType, intVal);
-    }
-  }
-
-  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(typedAttr)) {
-    llvm::APInt intVal = intAttr.getValue();
-
-    // Case C: Integer -> Integer (e.g., i64 -> i32)
-    if (auto targetIntType = mlir::dyn_cast<mlir::IntegerType>(targetType)) {
-      intVal = intVal.sextOrTrunc(targetIntType.getWidth());
-      return mlir::IntegerAttr::get(targetType, intVal);
-    }
-
-    // Case D: Integer -> Float (e.g., i32 -> f32)
-    if (auto targetFloatType = mlir::dyn_cast<mlir::FloatType>(targetType)) {
-      llvm::APFloat floatVal(targetFloatType.getFloatSemantics());
-      auto sourceIntType = mlir::cast<mlir::IntegerType>(intAttr.getType());
-      floatVal.convertFromAPInt(intVal, sourceIntType.isSigned(),
-                                llvm::APFloat::rmNearestTiesToEven);
-      return mlir::FloatAttr::get(targetType, floatVal);
-    }
-  }
-
-  llvm_unreachable("Expected floating point or integer types");
-}
-
-// FullOp folder
-::mlir::OpFoldResult mlir::tt::ttir::FullOp::fold(FoldAdaptor adaptor) {
-  auto fillValue = llvm::dyn_cast<TypedAttr>(getFillValueAttr());
-  RankedTensorType resultType = getResult().getType();
-
-  // Fill value is 32-bit float or 32-bit signless integer, but result type
-  // might differ.
-  auto convertedFillValue =
-      convertScalarAttribute(fillValue, resultType.getElementType());
-
-  return SplatElementsAttr::get(resultType, convertedFillValue);
-}
-
-//===----------------------------------------------------------------------===//
-// ZerosOp
-//===----------------------------------------------------------------------===//
-
-// ZerosOp folder
-::mlir::OpFoldResult mlir::tt::ttir::ZerosOp::fold(FoldAdaptor adaptor) {
-  RankedTensorType resultType = getResult().getType();
-  mlir::Attribute value = makeScalarAttr(resultType.getElementType(), 0.0);
-  return SplatElementsAttr::get(resultType, value);
-}
-
-//===----------------------------------------------------------------------===//
-// OnesOp
-//===----------------------------------------------------------------------===//
-
-// OnesOp folder
-::mlir::OpFoldResult mlir::tt::ttir::OnesOp::fold(FoldAdaptor adaptor) {
-  RankedTensorType resultType = getResult().getType();
-  mlir::Attribute value = makeScalarAttr(resultType.getElementType(), 1.0);
-  return SplatElementsAttr::get(resultType, value);
 }
 
 //===----------------------------------------------------------------------===//
