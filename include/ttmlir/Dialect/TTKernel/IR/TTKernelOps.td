@@ -3053,23 +3053,6 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
     }];
 }
 
-def TTKernel_CBPortOp : TTKernel_Op<"cb_port", [Pure]> {
-    let summary = "Get a CB from compile-time arguments.";
-    let description = [{
-      Produces a CB value by reading the port from compile-time arguments
-      via `get_compile_time_arg_val(ct_arg_index)`.  This allows the
-      spatial op to remap CB ports per grid range by overriding
-      compile-time arguments.
-    }];
-
-    let arguments = (ins I32Attr:$ct_arg_index);
-
-    let results = (outs TTKernel_CB:$result);
-
-    let assemblyFormat = [{
-      `(` $ct_arg_index `)` attr-dict `:` type($result)
-    }];
-}
 
 //===----------------------------------------------------------------------===//
 // TTKernel Helper functions
