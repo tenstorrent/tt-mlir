@@ -396,8 +396,7 @@ toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
 tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSetT &coreRangeSet) {
   std::set<tt::tt_metal::CoreRange> coreRanges;
-  for (const tt::target::ttnn::CoreRange coreRange :
-       coreRangeSet.core_ranges) {
+  for (const tt::target::ttnn::CoreRange coreRange : coreRangeSet.core_ranges) {
     coreRanges.emplace(toTTNNCoreRange(coreRange));
   }
   return tt::tt_metal::CoreRangeSet(coreRanges);
