@@ -18,6 +18,22 @@ namespace {
 // SplitQueryKeyValueAndSplitHeadsFusing helpers
 // ============================================================================
 
+// Return the single non-DeallocateOp user of a value, or nullptr if there
+// are zero or multiple non-deallocate users.
+Operation *getSingleNonDeallocUser(Value v) {
+  Operation *found = nullptr;
+  for (Operation *user : v.getUsers()) {
+    if (isa<DeallocateOp>(user)) {
+      continue;
+    }
+    if (found) {
+      return nullptr; // Multiple non-deallocate users.
+    }
+    found = user;
+  }
+  return found;
+}
+
 static constexpr unsigned kRoleTraceMaxDepth = 20;
 
 enum OutputDims {
@@ -388,9 +404,21 @@ Value reorderTensorViaSliceConcat(mlir::PatternRewriter &rewriter,
 // Step 1: Structural matching
 // ============================================================================
 
-// Collect matmul users that match slice → reshape → (optional permute
-// [0,2,1,3]) chains. Unrelated users are ignored. If the reshape's sole user is
-// a permute with any other permutation, that chain is rejected.
+// Follow the single non-deallocate user chain through TypecastOps.
+// Returns the first non-typecast, non-deallocate user, or nullptr if the
+// chain branches or dead-ends.
+Operation *lookThroughTypecasts(Value v) {
+  Operation *op = getSingleNonDeallocUser(v);
+  while (op && isa<TypecastOp>(op)) {
+    op = getSingleNonDeallocUser(op->getResult(0));
+  }
+  return op;
+}
+
+// Collect matmul users that match slice → (typecast) → reshape → (typecast) →
+// (optional permute [0,2,1,3]) chains. Typecasts are looked through
+// transparently. Unrelated users are ignored. If the reshape's sole user is a
+// permute with any other permutation, that chain is rejected.
 template <typename MatMulOpType>
 std::optional<SmallVector<SliceReshapeMatch>>
 matchSliceReshapeChains(MatMulOpType matmulOp) {
@@ -398,20 +426,20 @@ matchSliceReshapeChains(MatMulOpType matmulOp) {
 
   for (Operation *user : matmulOp.getResult().getUsers()) {
     auto sliceOp = dyn_cast<SliceStaticOp>(user);
-    if (!sliceOp || !sliceOp.getResult().hasOneUse()) {
+    if (!sliceOp) {
       continue;
     }
 
+    // Look through deallocates and typecasts to find the reshape.
     auto reshapeOp =
-        dyn_cast<ReshapeOp>(*sliceOp.getResult().getUsers().begin());
+        dyn_cast_or_null<ReshapeOp>(lookThroughTypecasts(sliceOp.getResult()));
     if (!reshapeOp || reshapeOp.getType().getShape().size() != 4) {
       continue;
     }
 
     PermuteOp permuteOp = nullptr;
-    if (reshapeOp.getResult().hasOneUse()) {
-      if (auto p =
-              dyn_cast<PermuteOp>(*reshapeOp.getResult().getUsers().begin())) {
+    if (auto *singleUser = lookThroughTypecasts(reshapeOp.getResult())) {
+      if (auto p = dyn_cast<PermuteOp>(singleUser)) {
         if (p.getPermutation() == ArrayRef<int64_t>{0, 2, 1, 3}) {
           permuteOp = p; // Prefill: capture and consume.
         }
@@ -598,19 +626,48 @@ mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
       matmulOp.getLoc(), reshapeInputTy, splitInput,
       rewriter.getI32ArrayAttr(inputReshapeShapeI32), MemoryConfigAttr());
 
+  // Build split op output types in the matmul's element type. If the
+  // downstream chain contains typecasts, the final types may differ — we
+  // insert typecasts after the split op to bridge the gap.
+  auto matmulDataType =
+      ttcore::elementTypeToDataType(matmulOp.getType().getElementType());
+  auto makeSplitOutputType = [&](RankedTensorType finalType) {
+    return utils::RankedTensorTypeFactory::create(finalType, matmulDataType);
+  };
+
+  RankedTensorType qSplitTy = makeSplitOutputType(q.match.getFinalType());
+  RankedTensorType kSplitTy = makeSplitOutputType(k.match.getFinalType());
+  RankedTensorType vSplitTy = makeSplitOutputType(v.match.getFinalType());
+
   auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
-      matmulOp.getLoc(),
-      TypeRange{q.match.getFinalType(), k.match.getFinalType(),
-                v.match.getFinalType()},
+      matmulOp.getLoc(), TypeRange{qSplitTy, kSplitTy, vSplitTy},
       inputReshape.getResult(),
       Value(), // no separate KV input
       rewriter.getUI32IntegerAttr(q.numHeads()),
       isGQA ? rewriter.getUI32IntegerAttr(k.numHeads()) : IntegerAttr(),
       rewriter.getBoolAttr(false) /*transpose_key*/, MemoryConfigAttr());
 
-  rewriter.replaceOp(q.match.getFinalOp(), splitOp.getQuery());
-  rewriter.replaceOp(k.match.getFinalOp(), splitOp.getKey());
-  rewriter.replaceOp(v.match.getFinalOp(), splitOp.getValue());
+  // Helper to insert a typecast if the split output dtype differs from what
+  // the downstream ops expect.
+  auto maybeTypecast = [&](Value splitResult,
+                           RankedTensorType finalType) -> Value {
+    if (splitResult.getType() == finalType) {
+      return splitResult;
+    }
+    auto dtype = ttcore::DataTypeAttr::get(
+        rewriter.getContext(),
+        ttcore::elementTypeToDataType(finalType.getElementType()));
+    return rewriter
+        .create<TypecastOp>(matmulOp.getLoc(), finalType, splitResult, dtype)
+        .getResult();
+  };
+
+  rewriter.replaceOp(q.match.getFinalOp(),
+                     maybeTypecast(splitOp.getQuery(), q.match.getFinalType()));
+  rewriter.replaceOp(k.match.getFinalOp(),
+                     maybeTypecast(splitOp.getKey(), k.match.getFinalType()));
+  rewriter.replaceOp(v.match.getFinalOp(),
+                     maybeTypecast(splitOp.getValue(), v.match.getFinalType()));
 
   return mlir::success();
 }
