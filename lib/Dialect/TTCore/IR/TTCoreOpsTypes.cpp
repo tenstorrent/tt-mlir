@@ -14,7 +14,6 @@
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
 #include "ttmlir/Target/Common/types_generated.h"
-#include <fstream>
 #endif
 
 #include "mlir/IR/Builders.h"
@@ -28,6 +27,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <fstream>
 #include <numeric>
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreAttrInterfaces.cpp.inc"
@@ -282,9 +282,8 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
     MLIRContext *context, StringRef path,
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
 #ifdef TTMLIR_NO_FLATBUFFERS
-  diagFn() << "loading system descriptor from file requires flatbuffers "
-              "support (disabled by TTMLIR_NO_FLATBUFFERS)";
-  return failure();
+  return diagFn() << "loading system descriptor from file requires flatbuffers "
+                     "support (disabled by TTMLIR_NO_FLATBUFFERS)";
 #else
   if (path.empty()) {
     diagFn() << "system desc path must not be empty";
@@ -309,9 +308,9 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
     MLIRContext *context, void *systemDesc,
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
 #ifdef TTMLIR_NO_FLATBUFFERS
-  diagFn() << "loading system descriptor from buffer requires flatbuffers "
-              "support (disabled by TTMLIR_NO_FLATBUFFERS)";
-  return failure();
+  return diagFn()
+         << "loading system descriptor from buffer requires flatbuffers "
+            "support (disabled by TTMLIR_NO_FLATBUFFERS)";
 #else
   // Read relevant information from binary
   const auto *binarySystemDescRoot =
