@@ -1420,8 +1420,9 @@ public:
       RankedTensorType permutedType =
           ttnn::utils::RankedTensorTypeFactory::create(inputType,
                                                        permutedShape);
-      input = rewriter.create<ttnn::PermuteOp>(
-          loc, permutedType, input, rewriter.getDenseI64ArrayAttr(permutation),
+      input = ttnn::PermuteOp::create(
+          rewriter, loc, permutedType, input,
+          rewriter.getDenseI64ArrayAttr(permutation),
           /*memory_config=*/nullptr, /*pad_value=*/mlir::FloatAttr());
 
       // Update inputShape to the permuted shape (channel is now last).
@@ -1446,9 +1447,10 @@ public:
       RankedTensorType reshapedType =
           ttnn::utils::RankedTensorTypeFactory::create(inputType,
                                                        reshapedShape);
-      input = rewriter.create<ttnn::ReshapeOp>(
-          loc, reshapedType, input, rewriter.getI32ArrayAttr(reshapedShapeI32),
-          /*memory_config=*/nullptr);
+      input =
+          ttnn::ReshapeOp::create(rewriter, loc, reshapedType, input,
+                                  rewriter.getI32ArrayAttr(reshapedShapeI32),
+                                  /*memory_config=*/nullptr);
     }
     // Compute core_grid from the device worker grid and input dimensions.
     // Input is now in [N, 1, H*W, C] form.
@@ -1511,26 +1513,24 @@ public:
               : nullptr;
 
       if (!weight) {
-        weight = rewriter
-                     .create<ttnn::OnesOp>(loc, affineType, affineDevice,
-                                           affineShapeAttr, affineDTypeAttr,
-                                           affineTensorLayoutAttr,
-                                           affineMemoryConfig)
-                     .getResult();
+        weight =
+            ttnn::OnesOp::create(rewriter, loc, affineType, affineDevice,
+                                 affineShapeAttr, affineDTypeAttr,
+                                 affineTensorLayoutAttr, affineMemoryConfig)
+                .getResult();
       }
       if (!bias) {
-        bias = rewriter
-                   .create<ttnn::ZerosOp>(loc, affineType, affineDevice,
-                                          affineShapeAttr, affineDTypeAttr,
-                                          affineTensorLayoutAttr,
-                                          affineMemoryConfig)
+        bias = ttnn::ZerosOp::create(rewriter, loc, affineType, affineDevice,
+                                     affineShapeAttr, affineDTypeAttr,
+                                     affineTensorLayoutAttr, affineMemoryConfig)
                    .getResult();
       }
     }
 
     // Create the GroupNormOp.
-    Value groupNormResult = rewriter.create<ttnn::GroupNormOp>(
-        loc, this->getTypeConverter()->convertType(groupNormInputType), input,
+    Value groupNormResult = ttnn::GroupNormOp::create(
+        rewriter, loc,
+        this->getTypeConverter()->convertType(groupNormInputType), input,
         adaptor.getInputMask(), weight, bias, adaptor.getNumGroups(),
         adaptor.getEpsilon(),
         /*memoryConfig*/ nullptr, coreGridAttr);
@@ -1543,16 +1543,16 @@ public:
           ttnn::utils::RankedTensorTypeFactory::create(
               mlir::cast<RankedTensorType>(groupNormResult.getType()),
               preNormShape);
-      groupNormResult = rewriter.create<ttnn::ReshapeOp>(
-          loc, this->getTypeConverter()->convertType(preNormType),
+      groupNormResult = ttnn::ReshapeOp::create(
+          rewriter, loc, this->getTypeConverter()->convertType(preNormType),
           groupNormResult, rewriter.getI32ArrayAttr(preNormShapeI32),
           /*memory_config=*/nullptr);
     }
 
     // Permute back to the original dimension order if permuted.
     if (needsPermute) {
-      groupNormResult = rewriter.create<ttnn::PermuteOp>(
-          loc, this->getTypeConverter()->convertType(op.getType()),
+      groupNormResult = ttnn::PermuteOp::create(
+          rewriter, loc, this->getTypeConverter()->convertType(op.getType()),
           groupNormResult, rewriter.getDenseI64ArrayAttr(inversePermutation),
           /*memory_config=*/nullptr, /*pad_value=*/mlir::FloatAttr());
     }
