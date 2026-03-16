@@ -15,7 +15,6 @@ from ttmlir.passes import (
     ttmetal_to_flatbuffer_file,
     ttnn_to_flatbuffer_file,
 )
-from ttrt.common.api import API
 from ttrt.common.util import Binary, FileManager, Logger
 
 from .compile_and_run_utils import *
@@ -129,28 +128,6 @@ def ttmetal_to_flatbuffer_file_worker(
 # ---------- Utility wrappers around ttrt ----------
 
 
-def run_flatbuffer_worker(
-    flatbuffer_file_path: str, result_queue: queues.Queue
-) -> None:
-    """
-    Runs flatbuffer given as path to flatbuffer file on device.
-
-    Wrapper around runtime `Run` API.
-
-    It is not resistant to segfaults, i.e. some unpredictable errors that can happen.
-    Thus it is meant to be used as a worker for a Process which will guard the caller
-    from such errors.
-    """
-    try:
-        API.initialize_apis()
-        run_instance = API.Run(args={"binary": flatbuffer_file_path})
-        return_code, _ = run_instance()
-
-        result_queue.put(RunProcessResult.success(return_code))
-    except Exception as e:
-        result_queue.put(RunProcessResult.error(str(e)))
-
-
 # ---------- Public API ----------
 
 
@@ -192,14 +169,55 @@ def run_translation_process(
 
 
 def run_flatbuffer_execution_process(
-    worker_fn: Callable,
-    worker_args_without_queue: Tuple = (),
+    flatbuffer_file_path: str,
+    timeout: float = 60,
 ) -> int:
     """
-    Runss `worker_fn` (function doing flatbuffer run on device) in a separate process,
-    returns return code of `ttrt run flatbuffer.file_path` process if no errors
-    happened, otherwise raises RuntimeError.
+    Runs flatbuffer on device using subprocess for clean hardware shutdown.
+
+    Subprocess is used (not multiprocessing) to ensure C++ destructors run,
+    preventing hardware state corruption that would require manual reset.
     """
-    process_manager = get_process_manager()
-    result: RunProcessResult = process_manager.run(worker_fn, worker_args_without_queue)
-    return result.return_code
+    result = run_subprocess_worker(
+        "_flatbuffer_worker.py", (flatbuffer_file_path,), timeout
+    )
+
+    if result["status"] == "error":
+        error = result.get("error", "Unknown error")
+        stderr = _extract_error_from_stderr(result.get("stderr", ""))
+        msg = f"{error}\n{stderr}".strip() if stderr else error
+        raise RuntimeError(f"{msg}")
+
+    return result["return_code"]
+
+
+def _extract_error_from_stderr(stderr: str) -> str:
+    """Extracts ERROR lines and following info blocks from stderr.
+
+    Keeps ERROR log lines and the non-backtrace, non-log context that follows
+    them.
+    """
+    if not stderr:
+        return ""
+
+    lines = stderr.splitlines()
+    extracted = []
+    capturing_info = False
+
+    for line in lines:
+        if "- ERROR -" in line:
+            extracted.append(line)
+            capturing_info = True
+        elif capturing_info:
+            stripped = line.strip()
+            if (
+                stripped.startswith("---")
+                or stripped == "backtrace:"
+                or "- INFO -" in line
+                or "- WARNING -" in line
+            ):
+                capturing_info = False
+            elif stripped:
+                extracted.append(line)
+
+    return "\n".join(extracted)
