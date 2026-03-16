@@ -649,6 +649,7 @@ def generate_shell_html(op_names: list[str], cfg: "GlobalConfig | None" = None) 
                 "test_lit_ttnn": True,
                 "test_lit_emitc": True,
                 "test_pytest": True,
+                "test_emitc_dylib": True,
                 "emitted_python": True,
                 "emitted_cpp": True,
             },
@@ -729,6 +730,8 @@ class AsyncDataCollector:
                     loading["test_lit_emitc"] = True
                 if oc.pytest_filter or oc.op_name:
                     loading["test_pytest"] = True
+                if oc.emitc_input:
+                    loading["test_emitc_dylib"] = True
                 ops[oc.op_name] = {
                     "info": {},
                     "tests": {},
@@ -767,6 +770,12 @@ class AsyncDataCollector:
             if oc.pytest_filter or oc.op_name:
                 threading.Thread(
                     target=self._collect_test_pytest,
+                    args=(gen, oc),
+                    daemon=True,
+                ).start()
+            if oc.emitc_input:
+                threading.Thread(
+                    target=self._collect_test_emitc_dylib,
                     args=(gen, oc),
                     daemon=True,
                 ).start()
@@ -903,6 +912,146 @@ class AsyncDataCollector:
                 "passed": passed,
                 "failed": failed,
                 "cmd": " ".join(cmd),
+            },
+        )
+
+    def _collect_test_emitc_dylib(self, gen: int, oc: OpConfig) -> None:
+        """Compile EmitC output to dylib and run via ttrt emitc."""
+        print(f"  [bg] [{oc.op_name}] Running EmitC dylib test...", flush=True)
+
+        # Check ttrt availability
+        if not shutil.which("ttrt"):
+            self._set_op_test(
+                gen,
+                oc.op_name,
+                "emitc_dylib",
+                "test_emitc_dylib",
+                {
+                    "status": "skip",
+                    "output": (
+                        "ttrt is not available in PATH.\n"
+                        "Build with: cmake -G Ninja -B build "
+                        "-DTTMLIR_ENABLE_RUNTIME=ON\n"
+                        "cmake --build build --target ttrt"
+                    ),
+                    "passed": 0,
+                    "failed": 0,
+                    "cmd": "",
+                },
+            )
+            return
+
+        input_mlir = oc.emitc_input
+        if not input_mlir or not Path(input_mlir).exists():
+            self._set_op_test(
+                gen,
+                oc.op_name,
+                "emitc_dylib",
+                "test_emitc_dylib",
+                {
+                    "status": "skip",
+                    "output": "No emitc_input MLIR file configured.",
+                    "passed": 0,
+                    "failed": 0,
+                    "cmd": "",
+                },
+            )
+            return
+
+        tmp_dir = f"/tmp/addop_emitc_dylib_{oc.op_name}"
+        os.makedirs(tmp_dir, exist_ok=True)
+        tmp_ttnn = f"{tmp_dir}/ttnn.mlir"
+        tmp_emitc = f"{tmp_dir}/emitc.mlir"
+        tmp_cpp = f"{tmp_dir}/ttnn-dylib.cpp"
+        standalone_src = str(
+            Path(__file__).resolve().parent.parent.parent.parent.parent
+            / "tools"
+            / "ttnn-standalone"
+        )
+        build_dir = f"{tmp_dir}/build"
+        so_path = f"{build_dir}/libttnn-dylib.so"
+
+        # Step 1: EmitC pipeline (TTIR -> TTNN -> EmitC -> C++)
+        pipeline_cmd = (
+            f"ttmlir-opt --ttir-to-ttnn-backend-pipeline -o {tmp_ttnn} {input_mlir}"
+            f" && ttmlir-opt --ttnn-to-emitc-device-pipeline -o {tmp_emitc} {tmp_ttnn}"
+            f" && ttmlir-translate --mlir-to-cpp {tmp_emitc} > {tmp_cpp}"
+        )
+        rc, output = run_cmd(["bash", "-c", pipeline_cmd], timeout=120)
+        if rc != 0:
+            self._set_op_test(
+                gen,
+                oc.op_name,
+                "emitc_dylib",
+                "test_emitc_dylib",
+                {
+                    "status": "fail",
+                    "output": f"EmitC pipeline failed:\n{output}",
+                    "passed": 0,
+                    "failed": 1,
+                    "cmd": pipeline_cmd,
+                },
+            )
+            return
+
+        # Step 2: Compile to dylib using per-op build dir
+        # Copy required source files into tmp_dir so CMake -S works
+        for fname in (
+            "CMakeLists.txt",
+            "ttnn-precompiled.hpp",
+            "workarounds.hpp",
+            "compile_so.cpp",
+            "compile_so.hpp",
+            "ttnn-standalone.cpp",
+        ):
+            src = os.path.join(standalone_src, fname)
+            dst = os.path.join(tmp_dir, fname)
+            if os.path.exists(src):
+                shutil.copy2(src, dst)
+        compile_cmd = (
+            f"cmake -G Ninja -B {build_dir} -S {tmp_dir}"
+            f" -DCMAKE_BUILD_TYPE=Release"
+            f" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
+            f" && cmake --build {build_dir} -- ttnn-dylib"
+        )
+        rc, output_compile = run_cmd(["bash", "-c", compile_cmd], timeout=300)
+        if rc != 0 or not Path(so_path).exists():
+            self._set_op_test(
+                gen,
+                oc.op_name,
+                "emitc_dylib",
+                "test_emitc_dylib",
+                {
+                    "status": "fail",
+                    "output": f"Dylib compilation failed:\n{output_compile}",
+                    "passed": 0,
+                    "failed": 1,
+                    "cmd": f"{pipeline_cmd}\n{compile_cmd}",
+                },
+            )
+            return
+
+        # Step 3: Run via ttrt emitc (same as CI, no --flatbuffer)
+        ttrt_cmd = f"ttrt emitc {so_path}"
+        rc, output_run = run_cmd(["ttrt", "emitc", so_path], timeout=300)
+        full_output = (
+            f"=== EmitC Pipeline ===\n{output}\n\n"
+            f"=== Compile Dylib ===\n{output_compile}\n\n"
+            f"=== ttrt emitc ===\n{output_run}"
+        )
+        full_cmd = f"{pipeline_cmd}\n{compile_cmd}\n{ttrt_cmd}"
+
+        self._set_op_test(
+            gen,
+            oc.op_name,
+            "emitc_dylib",
+            "test_emitc_dylib",
+            {
+                "status": "pass" if rc == 0 else "fail",
+                "output": full_output,
+                "passed": 1 if rc == 0 else 0,
+                "failed": 0 if rc == 0 else 1,
+                "cmd": full_cmd,
             },
         )
 

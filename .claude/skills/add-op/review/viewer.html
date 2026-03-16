@@ -729,7 +729,7 @@
       if (!opData) return '';
       const loading = opData._loading || {};
       if (subTab === 'info')   return JSON.stringify({ t: 'info', l: loading.info, d: opData.info });
-      if (subTab === 'tests')  return JSON.stringify({ t: 'tests', l: [loading.test_lit_ttnn, loading.test_lit_emitc, loading.test_pytest], d: Object.keys(opData.tests || {}) });
+      if (subTab === 'tests')  return JSON.stringify({ t: 'tests', l: [loading.test_lit_ttnn, loading.test_lit_emitc, loading.test_pytest, loading.test_emitc_dylib], d: Object.keys(opData.tests || {}) });
       if (subTab === 'emitpy') return JSON.stringify({ t: 'emitpy', l: loading.emitted_python, len: ((opData.emitted_python || {}).code || '').length });
       if (subTab === 'emitc')  return JSON.stringify({ t: 'emitc', l: loading.emitted_cpp, len: ((opData.emitted_cpp || {}).code || '').length });
       if (subTab === 'alchemist') {
@@ -804,7 +804,7 @@
     function renderTestsBadge(opData) {
       const badge = document.getElementById('tests-badge');
       const loading = opData._loading || {};
-      const anyTestLoading = loading.test_lit_ttnn || loading.test_lit_emitc || loading.test_pytest;
+      const anyTestLoading = loading.test_lit_ttnn || loading.test_lit_emitc || loading.test_pytest || loading.test_emitc_dylib;
       const tests = opData.tests || {};
       let totalPassed = 0, totalFailed = 0;
       Object.values(tests).forEach(t => {
@@ -832,6 +832,7 @@
       { key: 'lit_ttnn', loadingKey: 'test_lit_ttnn', label: 'TTIR-to-TTNN Conversion (llvm-lit)' },
       { key: 'lit_emitc', loadingKey: 'test_lit_emitc', label: 'EmitC Pipeline (llvm-lit)' },
       { key: 'pytest',   loadingKey: 'test_pytest',    label: 'Builder / Golden Tests (pytest)' },
+      { key: 'emitc_dylib', loadingKey: 'test_emitc_dylib', label: 'EmitC Dylib / ttrt emitc (e2e)' },
     ];
 
     function renderTests(tests, loading) {
@@ -855,6 +856,8 @@
         } else {
           const statusBadge = t.status === 'pass'
             ? `<span class="badge pass">${t.passed || t.count || 'pass'}</span>`
+            : t.status === 'skip'
+            ? `<span class="badge info">skip</span>`
             : `<span class="badge fail">${t.failed ? t.failed + ' failed' : 'fail'}</span>`;
           const cmdHtml = t.cmd
             ? `<div class="test-cmd"><code>${escapeHtml(t.cmd)}</code><button class="copy-btn" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>{this.textContent='copied!';setTimeout(()=>this.textContent='copy',1000)})">copy</button></div>`
