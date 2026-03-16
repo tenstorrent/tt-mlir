@@ -23,9 +23,8 @@ namespace {
 struct ScratchLoopInfo {
   affine::AffineForOp scratchLoop; // The loop with d2m.scratch_space_loop attr
   affine::AffineForOp linalgRoot;  // The nested loop with d2m.linalg_root attr
-  // All affine loops from scratch_space body to innermost (gap loops,
-  // linalg_root, and inner loops), in top-down order. Does NOT include
-  // scratch_space_loop itself.
+  // All affine loops nested inside scratch_space_loop (linalg_root and inner
+  // loops), in top-down order. Does NOT include scratch_space_loop itself.
   SmallVector<affine::AffineForOp> allLoops;
   SmallVector<int64_t> scratchShape; // Shape for scratch buffer
 };
@@ -52,11 +51,10 @@ static affine::AffineForOp findLinalgRootLoop(affine::AffineForOp scratchLoop) {
   return result;
 }
 
-/// Collect ALL affine.for loops nested inside scratchLoop (excluding
-/// scratchLoop itself). This captures gap loops between scratch_space_loop and
-/// linalg_root, the linalg_root itself, and any inner loops, all in top-down
-/// (pre-order) order. Pre-order is critical to ensure the shape dimensions
-/// match the loop nesting: outermost loop -> first dimension.
+/// Collect ALL affine.for loops nested inside scratch_space_loop (excluding
+/// scratch_space_loop itself), including linalg_root and any inner loops, in
+/// top-down (pre-order) order. Pre-order is critical to ensure the shape
+/// dimensions match the loop nesting: outermost loop -> first dimension.
 static void collectAllInnerLoops(affine::AffineForOp scratchLoop,
                                  SmallVector<affine::AffineForOp> &allLoops) {
   scratchLoop.walk<WalkOrder::PreOrder>([&](affine::AffineForOp innerFor) {
@@ -67,8 +65,8 @@ static void collectAllInnerLoops(affine::AffineForOp scratchLoop,
 }
 
 /// Compute the scratch shape from loop bounds.
-/// Returns: [scratch_iters, gap_loop_iters..., root_iters, inner_iters...]
-/// Each loop dimension contributes (upper - lower) / step iterations.
+/// Returns: [scratch_iters, linalg_root_iters, inner_iters...]
+/// Each loop dimension contributes ceildiv(upper - lower, step) iterations.
 static bool computeScratchShape(ScratchLoopInfo &info) {
   // First dimension: scratch_space_loop iterations.
   if (!info.scratchLoop.hasConstantBounds()) {
@@ -77,9 +75,9 @@ static bool computeScratchShape(ScratchLoopInfo &info) {
   int64_t lower = info.scratchLoop.getConstantLowerBound();
   int64_t upper = info.scratchLoop.getConstantUpperBound();
   int64_t step = info.scratchLoop.getStepAsInt();
-  info.scratchShape.push_back((upper - lower) / step);
+  info.scratchShape.push_back(llvm::divideCeil(upper - lower, step));
 
-  // Remaining dimensions: all inner loops (gap + linalg_root + inner).
+  // Remaining dimensions: linalg_root and inner loops.
   for (auto loopOp : info.allLoops) {
     if (!loopOp.hasConstantBounds()) {
       return false;
@@ -87,7 +85,8 @@ static bool computeScratchShape(ScratchLoopInfo &info) {
     int64_t loopLower = loopOp.getConstantLowerBound();
     int64_t loopUpper = loopOp.getConstantUpperBound();
     int64_t loopStep = loopOp.getStepAsInt();
-    info.scratchShape.push_back((loopUpper - loopLower) / loopStep);
+    info.scratchShape.push_back(
+        llvm::divideCeil(loopUpper - loopLower, loopStep));
   }
 
   return true;
@@ -176,7 +175,7 @@ getScratchAccessMapAndOperands(ScratchLoopInfo &info, MLIRContext *ctx) {
   // First: scratch_space_loop.
   addLoop(info.scratchLoop);
 
-  // Then: all inner loops (gap + linalg_root + inner).
+  // Then: linalg_root and inner loops.
   for (auto loop : info.allLoops) {
     addLoop(loop);
   }
