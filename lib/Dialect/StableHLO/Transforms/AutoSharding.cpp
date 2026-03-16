@@ -600,21 +600,12 @@ static std::string configDirName(size_t idx, const ShardingConfig &config) {
 }
 
 static std::string createDumpRoot(StringRef baseDir) {
-  auto now = std::chrono::system_clock::now();
-  auto timeT = std::chrono::system_clock::to_time_t(now);
-  std::tm tm{};
-  ::localtime_r(&timeT, &tm);
-
-  char buf[32];
-  std::strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", &tm);
-
   llvm::SmallString<256> path;
   if (baseDir.empty()) {
     path = ".";
   } else {
     path = baseDir;
   }
-  llvm::sys::path::append(path, llvm::Twine("auto_sharding_") + buf);
 
   if (auto ec = llvm::sys::fs::create_directories(path)) {
     llvm::errs() << "AutoSharding: failed to create dump directory " << path
