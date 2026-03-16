@@ -130,8 +130,8 @@ toTTNNUnaryWithParam(const ::tt::target::ttnn::UnaryWithParam &unaryWithParam) {
                          unaryWithParam.params()->end()));
 }
 
-::ttnn::operations::unary::UnaryWithParam
-toTTNNUnaryWithParam(const ::tt::target::ttnn::UnaryWithParamT &unaryWithParam) {
+::ttnn::operations::unary::UnaryWithParam toTTNNUnaryWithParam(
+    const ::tt::target::ttnn::UnaryWithParamT &unaryWithParam) {
   return ::ttnn::operations::unary::UnaryWithParam(
       toTTNNUnaryOpType(unaryWithParam.op_type),
       std::vector<float>(unaryWithParam.params.begin(),
@@ -542,28 +542,29 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
 }
 
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
-  const ::tt::target::ttnn::DeviceComputeKernelConfigT &config) {
+    const ::tt::target::ttnn::DeviceComputeKernelConfigT &config) {
   ::ttnn::WormholeComputeKernelConfig computeKernelConfig;
 
-  if(config.math_fidelity) {
-    computeKernelConfig.math_fidelity = tt::runtime::ttnn::utils::toTTNNMathFidelity(*config.math_fidelity);
-  } 
+  if (config.math_fidelity) {
+    computeKernelConfig.math_fidelity =
+        tt::runtime::ttnn::utils::toTTNNMathFidelity(*config.math_fidelity);
+  }
 
-  if(config.math_approx_mode) {
+  if (config.math_approx_mode) {
     computeKernelConfig.math_approx_mode = *config.math_approx_mode;
-  } 
+  }
 
-  if(config.fp32_dest_acc_en) {
+  if (config.fp32_dest_acc_en) {
     computeKernelConfig.fp32_dest_acc_en = *config.fp32_dest_acc_en;
-  } 
+  }
 
-  if(config.packer_l1_acc) {
+  if (config.packer_l1_acc) {
     computeKernelConfig.packer_l1_acc = *config.packer_l1_acc;
-  } 
+  }
 
-  if(config.dst_full_sync_en) {
+  if (config.dst_full_sync_en) {
     computeKernelConfig.dst_full_sync_en = *config.dst_full_sync_en;
-  } 
+  }
 
   return computeKernelConfig;
 }
