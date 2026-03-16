@@ -431,16 +431,10 @@ public:
   LogicalResult
   matchAndRewrite(ttkernel::GetCompileArgValOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    Type convertedType =
-        getTypeConverter()->convertType(op.getResult().getType());
-    std::string literal =
+    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()),
         (Twine("get_compile_time_arg_val(") + Twine(op.getArgIndex()) + ")")
-            .str();
-    // CB ports need an explicit cast from the uint32_t ct_arg to ::tt::CB.
-    if (mlir::isa<ttkernel::CBType>(op.getResult().getType())) {
-      literal = "static_cast<::tt::CB>(" + literal + ")";
-    }
-    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(op, convertedType, literal);
+            .str());
     return success();
   }
 };
