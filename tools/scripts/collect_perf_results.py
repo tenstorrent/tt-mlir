@@ -355,7 +355,8 @@ def main():
     auto_input = args.auto_input
 
     if not args.skip_auto_sharding:
-        auto_sharding_dir = GENERATED_DIR / "auto_sharding"
+        input_stem = Path(args.auto_input).stem
+        auto_sharding_dir = GENERATED_DIR / "auto_sharding" / input_stem
         winner = run_auto_sharding(
             args.auto_input, args.mesh_shape, auto_sharding_dir, args.dump_variants
         )
