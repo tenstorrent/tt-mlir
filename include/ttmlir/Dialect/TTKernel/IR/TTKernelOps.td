@@ -2729,6 +2729,8 @@ def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier", [TTKe
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTKernel_NocAsyncReadBarrierWithTridOp : TTKernel_Op<"noc_async_read_barrier_with_trid", [TTKernel_DeviceZoneOpTrait, TTKernel_TridNocOpTrait]> {
@@ -2826,6 +2828,8 @@ def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TT
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTKernel_NocAsyncWriteBarrierWithTridOp : TTKernel_Op<"noc_async_write_barrier_with_trid", [TTKernel_DeviceZoneOpTrait, TTKernel_TridNocOpTrait]> {
