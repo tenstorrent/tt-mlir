@@ -1377,12 +1377,22 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_debug(memrefIt2 != analysis.memrefs.end());
         const MemorySpace operandMemSpace = *memrefIt2->second.remappedMemSpace;
 
-        // Get the CB argument type for this operand
+        // Get the CB argument type for this operand.
+        // In TTNN mode (positional alloc counting, no d2m.get_cb), scratch
+        // inputs have no inner alloc so the positional index must be adjusted.
         TT_assert(!genericOp->getRegions().empty());
         Region &region = genericOp->getRegions().front();
         TT_assert(region.hasOneBlock());
+        unsigned allocIndex = operandIndex;
+        if (auto scratchInputs = mutableGenericOp.getScratchInputsAttr()) {
+          for (int64_t scratchIdx : scratchInputs.asArrayRef()) {
+            if (static_cast<unsigned>(scratchIdx) < operandIndex) {
+              --allocIndex;
+            }
+          }
+        }
         Value operandAlloc =
-            d2m::GenericOp::getOperandAlloc(region, operandIndex);
+            d2m::GenericOp::getOperandAlloc(region, allocIndex);
         TT_assert(operandAlloc);
         Type cbUnderlyingType = operandAlloc.getType();
         // Unwrap CBType to get the underlying memref/tensor type.
