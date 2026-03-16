@@ -929,7 +929,7 @@ template struct UnaryEltwiseOpModel<ReciprocalOp>;
 template struct UnaryEltwiseOpModel<CbrtOp>;
 template struct UnaryEltwiseOpModel<BitwiseNotOp>;
 template struct UnaryEltwiseOpModel<SiluOp>;
-template struct UnaryEltwiseOpModel<MishOp>;
+template struct UnaryEltwiseWithFastApproxModeOpModel<MishOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp>;
