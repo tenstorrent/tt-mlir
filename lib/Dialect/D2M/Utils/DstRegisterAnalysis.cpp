@@ -308,7 +308,7 @@ DstRegisterAnalysis::DstRegisterAnalysis(Operation *op,
     for (const auto &[parentRegion, linalgOps] : linalgOpsByParentRegion) {
       std::optional<DSTPackingRegionInfo> regionPackingInfo =
           computeDSTPackingForRegion(generic, linalgOps,
-                                    maxDstPhysicalSizeTiles);
+                                     maxDstPhysicalSizeTiles);
       if (!regionPackingInfo) {
         continue;
       }
