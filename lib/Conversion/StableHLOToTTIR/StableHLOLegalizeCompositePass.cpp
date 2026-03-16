@@ -100,6 +100,11 @@ public:
     if (!supportedOpNames.contains(srcOp.getName())) {
       return failure();
     }
+    if (adaptor.getOperands().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.topk composite op must have exactly one input operand.");
+    }
 
     bool isTopKWithValues = srcOp.getName() == "tenstorrent.topk_values";
     bool isTopKWithIndices = srcOp.getName() == "tenstorrent.topk_indices";
@@ -154,6 +159,10 @@ public:
       if (auto attr = compositeAttrs.getAs<BoolAttr>("sorted")) {
         sortedAttr = attr;
       }
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.topk composite op must have composite_attributes.");
     }
 
     auto inputType =
