@@ -20,17 +20,17 @@ namespace mlir::tt::ttnn {
 // TTNNPrepareConstEvalCaching Pass
 //
 // This pass prepares const-eval results for caching by consolidating all
-// LoadCachedOps within each forward function into a single global caching
+// LoadCachedOps within each forward function into a single global cache
 // dictionary. For each forward function containing LoadCachedOps, it:
 //
-//   1. Creates a global caching dictionary (e.g., `_cached_forward`).
+//   1. Creates a global cache dictionary (e.g., `_cached_forward`).
 //   2. Inserts a retrieval of the dictionary at the top of the forward function
 //   body.
 //   3. Creates a separate consteval wrapper function and moves the complete
 //   const-eval logic of that forward function into it.
 //   4. Inserts a call to the consteval wrapper function after the dictionary
 //   retrieval in the forward function body. The consteval wrapper function
-//   receives the global caching dictionary and the forward function inputs as
+//   receives the global cache dictionary and the forward function inputs as
 //   arguments.
 //
 //===----------------------------------------------------------------------===//
@@ -88,18 +88,18 @@ public:
       auto dictType = ttcore::DictType::get(&getContext());
       std::string cacheName = kCachePrefix + funcOp.getName().str();
 
-      // Create the global caching dictionary before the function.
+      // Create the global cache dictionary before the function.
       builder.setInsertionPoint(funcOp);
       builder.create<ttcore::GlobalOp>(funcOp.getLoc(),
                                        llvm::StringRef(cacheName), dictType,
                                        /*index=*/IntegerAttr());
 
-      // Retrieve the caching dictionary at the top of the function body.
+      // Retrieve the cache dictionary at the top of the function body.
       Block &entryBlock = funcOp.getBody().front();
       builder.setInsertionPointToStart(&entryBlock);
       auto dict = builder.create<ttcore::GetGlobalOp>(funcOp.getLoc(), dictType,
                                                       cacheName);
-      dict->setDiscardableAttr(kCachingDictAttr, builder.getUnitAttr());
+      dict->setDiscardableAttr(kCacheDictAttr, builder.getUnitAttr());
 
       // Create the wrapper function that will encapsulate the complete
       // const-eval logic from the forward function.
@@ -121,7 +121,7 @@ public:
           TypeRange{dictType}, callArgs);
 
       // Replace each LoadCachedOp with a dictionary lookup. The results of
-      // the LoadCachedOp are stored under one key in the caching dictionary.
+      // the LoadCachedOp are stored under one key in the cache dictionary.
       for (auto loadCachedOp : loadCachedOps) {
         builder.setInsertionPointAfter(loadCachedOp);
         auto getKVOp = builder.create<ttcore::GetKeyValueOp>(
@@ -187,13 +187,10 @@ public:
         collectSortedDefUseChain(loadCachedPtrs, &forwardBody);
 
     for (auto *op : opsToClone) {
-      Operation *clonedOp = builder.clone(*op, mapping);
-      for (unsigned i = 0; i < op->getNumResults(); ++i) {
-        mapping.map(op->getResult(i), clonedOp->getResult(i));
-      }
+      builder.clone(*op, mapping);
     }
 
-    // For each LoadCachedOp, store its results under one key in the caching
+    // For each LoadCachedOp, store its results under one key in the cache
     // dictionary. The key is the callee name of the LoadCachedOp.
     for (auto loadCachedOp : loadCachedOps) {
       auto *clonedLoadCachedOp = mapping.lookup(loadCachedOp);

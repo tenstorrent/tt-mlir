@@ -25,7 +25,7 @@ namespace {
 using ttnn_to_emitpy::kConstEvaledAttr;
 using ttnn_to_emitpy::kNameAttr;
 
-constexpr const char *kCachingDictAttr = "caching_dict";
+constexpr const char *kCacheDictAttr = "cache_dict";
 constexpr const char *kWrapperAttr = "consteval_wrapper";
 
 class EmitPyConstEvalCaching
@@ -96,7 +96,7 @@ public:
       // in the forward function body.
       if (ttmlir::utils::isForwardDeviceFunc(funcOp)) {
         for (auto globalStmt : body.getOps<emitpy::GlobalStatementOp>()) {
-          if (globalStmt->hasAttr(kCachingDictAttr)) {
+          if (globalStmt->hasAttr(kCacheDictAttr)) {
             Value cacheDict = globalStmt.getResult();
             for (auto *user : cacheDict.getUsers()) {
               if (auto callOp = dyn_cast<func::CallOp>(user)) {
@@ -116,7 +116,7 @@ public:
                 }
               }
             }
-            globalStmt->removeDiscardableAttr(kCachingDictAttr);
+            globalStmt->removeDiscardableAttr(kCacheDictAttr);
           }
         }
       }

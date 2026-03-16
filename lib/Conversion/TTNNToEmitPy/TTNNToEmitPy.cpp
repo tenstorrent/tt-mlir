@@ -2646,20 +2646,12 @@ public:
 } // namespace
 
 // LoadCachedOp conversion pattern
-// LoadCachedOp conversion pattern
 //
 // Converts ttcore.load_cached to a plain function call. The caching
 // infrastructure (globals, if-guards) is handled by the
 // TTNNPrepareConstEvalCaching pass (pre-split) and the
 // EmitPyConstEvalCaching pass (post-conversion).
 //
-
-// Converts ttcore.load_cached to a plain function call. The caching
-// infrastructure (globals, if-guards) is handled by the
-// TTNNPrepareConstEvalCaching pass (pre-split) and the
-// EmitPyConstEvalCaching pass (post-conversion).
-//
-
 namespace {
 class LoadCachedOpConversionPattern
     : public OpConversionPattern<mlir::tt::ttcore::LoadCachedOp> {
