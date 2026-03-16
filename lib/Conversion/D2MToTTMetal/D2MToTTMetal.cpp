@@ -177,11 +177,16 @@ public:
         args.push_back(operand);
       }
 
-      // Use hoisted CB if one exists for this operand, otherwise the
-      // operand itself (or view input) is both the buffer and the CB.
+      // Use hoisted CB if one exists for this operand.  Otherwise the
+      // buffer itself is the CB.  For streams/views we must unwrap to
+      // the underlying buffer so the stream_layout/view_layout op
+      // doesn't stay alive in the output IR.
       auto it = hoistedCBMap.find(i);
       if (it != hoistedCBMap.end()) {
         cbs.push_back(it->second);
+      } else if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
+                     operand.getDefiningOp())) {
+        cbs.push_back(stream.getInput());
       } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
                      operand.getDefiningOp())) {
         cbs.push_back(view.getInput());

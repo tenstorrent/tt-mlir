@@ -651,6 +651,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               continue;
             }
             auto memrefType = allocOp.getType();
+            // Inner allocs may lack a memory space before remapping;
+            // ensure they are registered as L1 so the planner can
+            // assign them an address.
+            if (!memrefType.getMemorySpace()) {
+              memrefType = MemRefType::get(memrefType.getShape(),
+                                           memrefType.getElementType(),
+                                           memrefType.getLayout(), L1Attr);
+            }
             MemrefValueContext &ctx = addMemrefValueContext(
                 rewriter, analysis, allocOp.getResult(), memrefType, device);
             ctx.live = {genericSeqPos, genericSeqPos};
