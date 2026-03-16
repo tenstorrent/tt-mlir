@@ -385,6 +385,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
+    if (failed(reblockGenerics(funcOp, analysis))) {
+      return failure();
+    }
+
     if (failed(insertOperandStreams(funcOp, analysis))) {
       return failure();
     }
@@ -1243,12 +1247,92 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return success();
   }
 
+  /// Rebuild generic ops using the planned block factors so subsequent stream
+  /// insertion operates on the same IR shape as the allocator analysis.
+  LogicalResult reblockGenerics(func::FuncOp funcOp,
+                                FuncAnalysisData &analysis) {
+    IRRewriter rewriter(funcOp->getContext());
+    llvm::MapVector<d2m::GenericOp, GenericOpContext> updatedGenerics;
+
+    for (auto &[genericOp, genericCtx] : analysis.generics) {
+      d2m::GenericOp oldGenericOp = genericOp;
+      if (genericCtx.isDMAOnly || genericCtx.isExplicitDatamovement ||
+          oldGenericOp.getBlockFactorsValue() == genericCtx.reblockedFactors) {
+        updatedGenerics.insert({oldGenericOp, std::move(genericCtx)});
+        continue;
+      }
+
+      rewriter.setInsertionPoint(oldGenericOp);
+      FailureOr<d2m::ParallelizedGeneric> reblocked =
+          oldGenericOp.withParallelization(rewriter, std::nullopt,
+                                           genericCtx.reblockedFactors,
+                                           /*generateReturnView=*/true);
+      if (failed(reblocked)) {
+        oldGenericOp.emitOpError()
+            << "allocator failed to rebuild generic op with updated block "
+               "factors";
+        return failure();
+      }
+
+      Operation *sequenceAnchor = reblocked->returnView
+                                      ? reblocked->returnView.getOperation()
+                                      : reblocked->genericOp.getOperation();
+      SequenceT sequencePosition = analysis.sequencing[oldGenericOp];
+      analysis.sequencing.positionMap[sequencePosition] = sequenceAnchor;
+      analysis.sequencing.operationMap.erase(oldGenericOp.getOperation());
+      analysis.sequencing.operationMap[sequenceAnchor] = sequencePosition;
+
+      if (oldGenericOp.getNumResults() > 0) {
+        TT_assert(oldGenericOp.getNumResults() == 1u);
+        if (reblocked->returnView) {
+          oldGenericOp.getResult(0).replaceAllUsesWith(
+              reblocked->returnView.getResult());
+        }
+      } else if (!oldGenericOp.getOutputs().empty() && reblocked->returnView) {
+        TT_assert(oldGenericOp.getOutputs().size() == 1u);
+        Value newOutput = reblocked->returnView.getResult();
+        oldGenericOp.getOutputs().front().replaceUsesWithIf(
+            newOutput, [&](OpOperand &use) {
+              Operation *owner = use.getOwner();
+              return owner != oldGenericOp.getOperation() &&
+                     owner->getBlock() == sequenceAnchor->getBlock() &&
+                     sequenceAnchor->isBeforeInBlock(owner);
+            });
+      }
+
+      OperandContextList oldOperandContexts = genericCtx.operands;
+      GenericOpContext updatedCtx = std::move(genericCtx);
+      updatedCtx.operands.clear();
+      updatedCtx.operands.reserve(oldOperandContexts.size());
+
+      MutableArrayRef<OpOperand> newOperands =
+          reblocked->genericOp.getInputsAndOutputsMutable();
+      TT_assert(newOperands.size() == oldOperandContexts.size());
+      for (auto [operandIndex, operand] : llvm::enumerate(newOperands)) {
+        OperandContext operandCtx = oldOperandContexts[operandIndex];
+        operandCtx.operand = &operand;
+        operandCtx.defChain.clear();
+
+        MemRefType memrefType = nullptr;
+        std::tie(operandCtx.root, memrefType, operandCtx.hasStream) =
+            analyzeOperandDefChain(reblocked->genericOp, operand.get(),
+                                   operandCtx.defChain);
+        updatedCtx.operands.push_back(std::move(operandCtx));
+      }
+
+      updatedGenerics.insert({reblocked->genericOp, std::move(updatedCtx)});
+      rewriter.eraseOp(oldGenericOp);
+    }
+
+    analysis.generics = std::move(updatedGenerics);
+    return success();
+  }
+
   /// Sweep through all collected generic ops and make several in-place
   /// modifications:
   ///  - modify root alloc ops and any view layout ops to be in the final
   ///    memspace decided by the planner;
   ///  - insert stream layout ops together with their stream buffer allocs.
-  ///  - fix block factors
   ///
   LogicalResult insertOperandStreams(func::FuncOp funcOp,
                                      const FuncAnalysisData &analysis) {
@@ -1458,13 +1542,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               });
         });
       }
-
-      // Fix up block factors:
-
-      const auto blockFactorsAttrName =
-          const_cast<GenericOp &>(genericOp).getBlockFactorsAttrName();
-      genericOp->setAttr(blockFactorsAttrName,
-                         rewriter.getI64ArrayAttr(genericCtx.reblockedFactors));
     }
 
     return success();

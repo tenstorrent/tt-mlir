@@ -2399,8 +2399,6 @@ static d2m::ViewLayoutOp createReturnView(d2m::GenericOp thisOp,
   OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointAfter(newGenericOp);
   if (thisOp.getNumResults() > 0) {
-    // TODO(anuragsingh): insert multiple return views instead of just one.
-    // Required for Allocator.
     return builder.create<d2m::ViewLayoutOp>(thisOp.getLoc(),
                                              thisOp.getResult(0).getType(),
                                              newGenericOp.getResult(0));
