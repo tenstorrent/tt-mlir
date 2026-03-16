@@ -24,7 +24,7 @@ namespace mlir::tt::d2m {
 namespace {
 
 // Fixed scratch buffer size in bytes.
-constexpr size_t kScratchSizeBytes = 128 * 1024; // 128KB
+constexpr size_t kScratchSizeBytes = 128 * 1024 * 2; // 128KB
 
 // Get the tile type from a memref type, if it has one.
 static ttcore::TileType getTileType(MemRefType memrefType) {
