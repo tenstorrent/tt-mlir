@@ -63,7 +63,6 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
 )
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.xfail(reason="Compile failure on CPU target")
 def test_cpu_hoistable_concat_op(
     shapes: List[Shape],
     dim: int,
@@ -385,6 +384,8 @@ def test_cpu_hoistable_reshape_op(
         ((1024, 1024), [3, 2], [64 * 11, 64 * 13], [11, 13]),
         # Simple 3D
         ((2, 64, 32), [0, 0, 0], [1, 64, 32], None),
+        # Crop 3D
+        ((19, 160, 64), [0, 0, 0], [19, 96, 32], None),
         # Interleaved 3D
         ((2, 64, 32), [0, 1, 0], [1, 64, 32], [1, 2, 1]),
         ((2, 64, 32), [0, 1, 0], [1, 64, 32], [1, 2, 2]),

@@ -92,7 +92,13 @@ def CPUHoistConstEvalTransform: Pass<"cpu-hoist-const-eval", "::mlir::ModuleOp">
     and reduces peak DRAM/L1 usage by keeping intermediate tensors in host memory.
   }];
 
-  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect",
+                           "::mlir::tt::ttir::TTIRDialect",
+                           "::mlir::linalg::LinalgDialect",
+                           "::mlir::tosa::TosaDialect",
+                           "::mlir::arith::ArithDialect",
+                           "::mlir::math::MathDialect",
+                           "::mlir::tensor::TensorDialect"];
 }
 
 def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">
@@ -285,7 +291,7 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
              "Controls if we should enable the Conv2dWithMultiply pattern">,
       Option<"permuteMatmulEnabled",
              "enable-permute-matmul-fusion",
-             "bool", /*default=*/"true",
+             "bool", /*default=*/"false",
              "Fuse permute ops into matmul/linear transpose attributes">,
   ];
 }

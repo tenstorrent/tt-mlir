@@ -126,6 +126,7 @@ class CMakeBuild(build_ext):
                 "-DTTMLIR_ENABLE_OPMODEL=OFF",
                 "-DTTMLIR_ENABLE_TESTS=OFF",
                 "-DTTMLIR_ENABLE_ALCHEMIST=OFF",
+                "-DTT_USE_SYSTEM_SFPI=ON",
             ]
             cmake_args.extend(["-S", str(source_dir)])
             print(f"Running CMake configure: {' '.join(cmake_args)}")

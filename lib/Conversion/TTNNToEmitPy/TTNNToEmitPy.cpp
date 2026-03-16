@@ -2646,7 +2646,14 @@ public:
 } // namespace
 
 // LoadCachedOp conversion pattern
+// LoadCachedOp conversion pattern
 //
+// Converts ttcore.load_cached to a plain function call. The caching
+// infrastructure (globals, if-guards) is handled by the
+// TTNNPrepareConstEvalCaching pass (pre-split) and the
+// EmitPyConstEvalCaching pass (post-conversion).
+//
+
 // Converts ttcore.load_cached to a plain function call. The caching
 // infrastructure (globals, if-guards) is handled by the
 // TTNNPrepareConstEvalCaching pass (pre-split) and the
@@ -2665,6 +2672,25 @@ public:
   matchAndRewrite(mlir::tt::ttcore::LoadCachedOp loadCachedOp,
                   mlir::tt::ttcore::LoadCachedOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto *ctx = rewriter.getContext();
+    auto loc = loadCachedOp.getLoc();
+    auto tensorType = emitpy::OpaqueType::get(ctx, "ttnn.Tensor");
+    auto tensorListType = emitpy::OpaqueType::get(ctx, "[ttnn.Tensor]");
+
+    llvm::StringRef calleeName = loadCachedOp.getCallee();
+
+    // Pack inputs into a list if present.
+    llvm::SmallVector<Value> callOperands;
+    if (!adaptor.getInputs().empty()) {
+      auto inputList = rewriter.create<emitpy::CallOpaqueOp>(
+          loc, tensorListType, ttnn_to_emitpy::kCreateListFunctionName,
+          adaptor.getInputs());
+      callOperands.push_back(inputList.getResult(0));
+    }
+
+    // Check for device argument (target-module mode).
+    auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
+    auto deviceType = mlir::tt::ttnn::DeviceType::get(ctx);
     auto *ctx = rewriter.getContext();
     auto loc = loadCachedOp.getLoc();
     auto tensorType = emitpy::OpaqueType::get(ctx, "ttnn.Tensor");
@@ -3209,6 +3235,39 @@ public:
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// MeshPartitionOp conversion pattern
+//
+namespace {
+class MeshPartitionOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::MeshPartitionOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::MeshPartitionOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MeshPartitionOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MeshPartitionOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getDim(), "dim"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -4383,6 +4442,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                ReduceScatterOpConversionPattern,
                AllReduceOpConversionPattern,
                PointToPointOpConversionPattern,
+               MeshPartitionOpConversionPattern,
                MeshShardOpConversionPattern,
                DistributeTensorOpConversionPattern,
                AggregateTensorOpConversionPattern,

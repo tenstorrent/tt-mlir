@@ -72,7 +72,6 @@ def create_tileid_debug_tensor(shape: Shape, dtype: torch.dtype):
     return tile_id.to(dtype)
 
 
-@pytest.mark.skip_config(["p150"], ["p300"], reason="See issue #6248")
 @pytest.mark.parametrize(
     "shape",
     [

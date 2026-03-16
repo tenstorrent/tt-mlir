@@ -45,7 +45,10 @@ module attributes {ttcore.system_desc = #system_desc} {
     d2m.generic {block_factors = [1, 1, 64], grid = #ttcore.grid<1x64, (d0, d1) -> (0, 0, d0 * 8 + d1)>, indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>], threads = [#d2m.thread<unified>]}
         ins(%view_5, %view_6 : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<64x64x2x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
         outs(%view_out : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>) {
-    ^unified0(%cb0: !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       %bf0 = d2m.get_block_factor(0) : index

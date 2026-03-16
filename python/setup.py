@@ -82,6 +82,7 @@ class CMakeBuild(build_ext):
                 "-DCMAKE_CXX_COMPILER=clang++",
                 "-DTTMLIR_ENABLE_TESTS=OFF",
                 "-DTTMLIR_ENABLE_TOOLS=OFF",
+                "-DTT_USE_SYSTEM_SFPI=ON",
                 "-DTTMLIR_ENABLE_TTNN_JIT=OFF",  # Disable ttnn-jit to avoid circular dependency
             ]
 

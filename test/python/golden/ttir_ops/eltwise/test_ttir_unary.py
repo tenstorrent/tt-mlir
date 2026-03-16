@@ -219,7 +219,7 @@ unary_ops = [
     abs,
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
-    ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
+    ceil,
     cos,
     erf,
     erfc,

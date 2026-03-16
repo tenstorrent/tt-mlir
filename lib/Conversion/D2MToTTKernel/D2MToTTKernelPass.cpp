@@ -99,10 +99,8 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<memref::GlobalOp>();
     target.addLegalOp<memref::GetGlobalOp>();
 
-    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-      return !op->hasAttr(d2m::ThreadAttr::name) ||
-             (op.getFunctionType().getNumInputs() == 0);
-    });
+    target.addDynamicallyLegalOp<func::FuncOp>(
+        [&](func::FuncOp op) { return !op->hasAttr(d2m::ThreadAttr::name); });
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });

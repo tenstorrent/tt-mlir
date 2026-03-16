@@ -11,10 +11,8 @@ func.func @main0(%arg0: tensor<1x16x32xf32>, %arg1: tensor<1x1x32xf32>) -> tenso
 }
 
 func.func @main1(%arg0: tensor<128xf32>, %arg1: tensor<128xf32>) -> tensor<784x128xf32> {
-  // CHECK: %{{[0-9]+}} = "ttnn.reshape"
-  // CHECK-NOT: "ttnn.repeat"
-  // CHECK: %{{[0-9]+}} = "ttnn.reshape"
   // CHECK: %{{[0-9]+}} = "ttnn.add"
+  // CHECK: %{{[0-9]+}} = "ttnn.reshape"
   // CHECK: %{{[0-9]+}} = "ttnn.repeat"
   // CHECK-SAME: repeat_dims = #ttnn.shape<784x1>
   %1 = "ttir.reshape"(%arg0) <{shape = [1 : i32, 128 : i32]}> : (tensor<128xf32>) -> tensor<1x128xf32>

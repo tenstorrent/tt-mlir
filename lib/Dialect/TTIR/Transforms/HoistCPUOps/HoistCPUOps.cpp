@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/TTIR/Transforms/HoistCPUOps/HoistCPUOps.h"
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
+#include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -15,9 +17,12 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Pass/PassManager.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
@@ -530,6 +535,81 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
 //===----------------------------------------------------------------------===//
 // Shared public functions
 //===----------------------------------------------------------------------===//
+
+bool canLowerTTIRToLinalg(mlir::Operation *op) {
+  mlir::MLIRContext *context = op->getContext();
+
+  // Build a temporary module containing a func that wraps a clone of the op.
+  mlir::OpBuilder builder(context);
+  mlir::OwningOpRef<mlir::ModuleOp> tempModule =
+      mlir::ModuleOp::create(op->getLoc());
+  builder.setInsertionPointToEnd(tempModule->getBody());
+
+  // Collect operand and result types, converting to CPU-compatible types
+  // and dropping sign information, mirroring the type conversions
+  // performed in createCPUHoistedFunctionDefinition.
+  auto convertType = [](mlir::Type type) -> mlir::Type {
+    if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(type)) {
+      return dropSignInformation(convertTensorType(tensorType));
+    }
+    return type;
+  };
+
+  llvm::SmallVector<mlir::Type> operandTypes;
+  for (auto operand : op->getOperands()) {
+    operandTypes.push_back(convertType(operand.getType()));
+  }
+
+  llvm::SmallVector<mlir::Type> resultTypes;
+  for (auto result : op->getResults()) {
+    resultTypes.push_back(convertType(result.getType()));
+  }
+
+  auto funcType = mlir::FunctionType::get(context, operandTypes, resultTypes);
+  auto funcOp = func::FuncOp::create(op->getLoc(), "test_lower", funcType);
+  tempModule->push_back(funcOp);
+
+  mlir::Block *block = funcOp.addEntryBlock();
+  builder.setInsertionPointToEnd(block);
+
+  // Clone the op, mapping its operands to the function block arguments.
+  mlir::IRMapping mapping;
+  for (auto [operand, blockArg] :
+       llvm::zip(op->getOperands(), block->getArguments())) {
+    mapping.map(operand, blockArg);
+  }
+  mlir::Operation *clonedOp = builder.clone(*op, mapping);
+
+  // Convert cloned op's result types to CPU-compatible types.
+  // Operand types are already correct — they come from the block arguments
+  // via IRMapping.
+  for (auto result : clonedOp->getResults()) {
+    result.setType(convertType(result.getType()));
+  }
+
+  // Convert constant op value attributes to match converted types.
+  convertConstantOpValue(clonedOp);
+
+  // Build the return op from the cloned op's results.
+  llvm::SmallVector<mlir::Value> returnValues(clonedOp->getResults());
+  builder.create<mlir::func::ReturnOp>(op->getLoc(), returnValues);
+
+  // Run TTIRToTTIRDecomposition (CPUFallback mode) followed by
+  // TTIRToLinalg conversion on the temporary module, mirroring the
+  // TTIRToLLVMCPU pipeline.
+  mlir::PassManager pm(context);
+  TTIRToTTIRDecompositionOptions decompOptions;
+  decompOptions.decompConfig = DecompMode::CPUFallback;
+  pm.addPass(createTTIRToTTIRDecompositionPass(decompOptions));
+  pm.addPass(createConvertTTIRToLinalgPass());
+
+  // Suppress diagnostics from the trial lowering — failed conversions are
+  // expected and should not surface as errors.
+  mlir::ScopedDiagnosticHandler diagHandler(
+      context, [](mlir::Diagnostic &) { return mlir::success(); });
+
+  return mlir::succeeded(pm.run(*tempModule));
+}
 
 llvm::SmallVector<CPUHoistedOpsDescriptor> createDescriptorsWithPredicate(
     func::FuncOp funcOp,

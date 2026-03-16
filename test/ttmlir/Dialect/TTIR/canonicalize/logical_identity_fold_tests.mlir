@@ -169,7 +169,9 @@ module {
     %zero2 = "ttir.full"() <{shape = array<i32: 64, 64>, fill_value = 0.000000e+00 : f32}> : () -> tensor<64x64xf32>
     // CHECK-LABEL: func.func @logical_or_both_zero
     // CHECK-NOT: "ttir.logical_or"
-    // CHECK: "ttir.zeros"
+    // CHECK: "ttir.full"
+    // CHECK-SAME: fill_value = 0.000000e+00
+    // CHECK-NOT: "ttir.full"
     %1 = "ttir.logical_or"(%zero1, %zero2) : (tensor<64x64xf32>, tensor<64x64xf32>) -> tensor<64x64xf32>
     return %1 : tensor<64x64xf32>
   }

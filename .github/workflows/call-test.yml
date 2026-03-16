@@ -157,6 +157,8 @@ jobs:
         TTRT_LOGGER_LEVEL: "WARNING"
         LOGURU_LEVEL: "ERROR"
         TT_METAL_LOGGER_LEVEL: "FATAL"
+        TT_METAL_INSPECTOR: "0"
+        TT_METAL_INSPECTOR_RPC: "0"
       run: |
         # Run Tests
         source env/activate
