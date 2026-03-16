@@ -3,16 +3,24 @@ if (NOT TTMLIR_ENABLE_RUNTIME OR (NOT TT_RUNTIME_ENABLE_TTNN AND NOT TT_RUNTIME_
 endif()
 
 enable_testing()
-include(FetchContent)
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
-  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
-FetchContent_MakeAvailable(googletest)
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
-  target_compile_options(gtest PRIVATE -Wno-covered-switch-default)
+# Prefer system-installed GTest with FetchContent fallback
+find_package(GTest QUIET)
+if(NOT GTest_FOUND)
+  message(STATUS "System GTest not found, fetching from source")
+  include(FetchContent)
+  FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  )
+  FetchContent_MakeAvailable(googletest)
+
+  if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+    target_compile_options(gtest PRIVATE -Wno-covered-switch-default)
+  endif()
+else()
+  message(STATUS "Using system GTest")
 endif()
 
 include(GoogleTest)
