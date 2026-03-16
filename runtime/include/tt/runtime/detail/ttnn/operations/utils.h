@@ -37,6 +37,9 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOp *op);
 ::ttnn::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg);
 
+::ttnn::Conv2dConfig
+createConv2dConfig(const ::tt::target::ttnn::Conv2dConfigT &config);
+
 ::ttnn::Conv2dSliceConfig
 createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config);
 
