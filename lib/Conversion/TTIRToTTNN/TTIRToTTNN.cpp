@@ -1476,8 +1476,9 @@ public:
     }
 
     // Create the GroupNormOp.
-    Value groupNormResult = rewriter.create<ttnn::GroupNormOp>(
-        loc, this->getTypeConverter()->convertType(groupNormInputType), input,
+    Value groupNormResult = ttnn::GroupNormOp::create(
+        rewriter, loc,
+        this->getTypeConverter()->convertType(groupNormInputType), input,
         adaptor.getInputMask(), weight, bias, adaptor.getNumGroups(),
         adaptor.getEpsilon());
 
@@ -1496,8 +1497,8 @@ public:
 
     // Permute back to the original dimension order if permuted.
     if (needsPermute) {
-      groupNormResult = rewriter.create<ttnn::PermuteOp>(
-          loc, this->getTypeConverter()->convertType(op.getType()),
+      groupNormResult = ttnn::PermuteOp::create(
+          rewriter, loc, this->getTypeConverter()->convertType(op.getType()),
           groupNormResult, rewriter.getDenseI64ArrayAttr(inversePermutation),
           /*pad_value=*/mlir::FloatAttr());
     }
