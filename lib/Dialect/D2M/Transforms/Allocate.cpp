@@ -628,7 +628,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // passes like LowerToLayout).  In both cases the internal alloc needs
       // a planner-assigned L1 address and will be stamped with
       // CBLayoutAttr.
-      if (genericIt != analysis.generics.end() && !genericOp.isDMAOnlyForm() &&
+      if (genericIt != analysis.generics.end() &&
           !genericIt->second.isExplicitDatamovement) {
         for (Region &region : genericOp->getRegions()) {
           for (const OperandContext &operandCtx : genericIt->second.operands) {
@@ -1038,8 +1038,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     Planner::Problem &problem = analysis.problem(MemorySpace::DeviceL1);
 
     for (auto &[memref, memrefCtx] : analysis.memrefs) {
+      // Inner allocs (inside generic regions) are always L1 even if the
+      // memref type lacks a memory space (e.g. from bufferized tensor.empty).
       const MemorySpace memspace =
-          ttcore::getMemorySpace(memrefCtx.type, MemorySpace::System);
+          memrefCtx.isInsideGeneric
+              ? MemorySpace::DeviceL1
+              : ttcore::getMemorySpace(memrefCtx.type, MemorySpace::System);
       if (!ttcore::isDeviceMemorySpace(memspace)) {
         continue;
       }
@@ -1181,7 +1185,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       const auto &memInfo = memSpaces[ordinal(MemorySpace::DeviceDRAM)];
 
       for (auto &[memref, memrefCtx] : analysis.memrefs) {
-        if (!isDeviceMemorySpace(memrefCtx.type, MemorySpace::System)) {
+        if (!memrefCtx.isInsideGeneric &&
+            !isDeviceMemorySpace(memrefCtx.type, MemorySpace::System)) {
           continue;
         }
 
@@ -1241,7 +1246,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     IRRewriter rewriter(funcOp->getContext());
 
     for (auto &[memref, memrefCtx] : analysis.memrefs) {
-      if (!isDeviceMemorySpace(memrefCtx.type, MemorySpace::System)) {
+      if (!memrefCtx.isInsideGeneric &&
+          !isDeviceMemorySpace(memrefCtx.type, MemorySpace::System)) {
         continue;
       }
       memref::AllocOp allocOp = memref.getDefiningOp<memref::AllocOp>();

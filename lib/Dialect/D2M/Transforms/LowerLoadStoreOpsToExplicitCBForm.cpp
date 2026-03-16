@@ -184,7 +184,14 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
     Value localBuffer = remoteLoad.getLocalBuffer();
     memref::AllocOp allocToErase = nullptr;
     RemoteStoreOp forwardableStore = nullptr;
-    if (localBuffer) {
+    // Check if the local buffer is a hoisted CB (defined outside the
+    // generic by HoistCBAllocs, passed via additionalArgs).  These are
+    // real CB buffers that legitimately share between load and store —
+    // skip forwarding validation and alloc erasure.
+    bool isHoistedCB = localBuffer && localBuffer.getDefiningOp() &&
+                       localBuffer.getDefiningOp()->getParentRegion() !=
+                           remoteLoad->getParentRegion();
+    if (localBuffer && !isHoistedCB) {
       if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
               localBuffer.getDefiningOp())) {
         allocToErase = allocOp;
