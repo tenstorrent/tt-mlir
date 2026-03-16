@@ -120,6 +120,11 @@ def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir:
     This pass tiles linalg.generic compute loops according to fusion and DST register constraints.
   }];
 
+  list<Option> options = [
+    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0",
+           "Override the max DST physical size in tiles, upper-bounding the numTilesPerFlip for any op. 0 means use the device descriptor value.">,
+  ];
+
   let dependentDialects = [
     "mlir::tt::d2m::D2MDialect",
     "::mlir::affine::AffineDialect",

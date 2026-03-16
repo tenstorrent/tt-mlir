@@ -147,11 +147,15 @@ static affine::AffineForOp convertScfForToAffine(scf::ForOp scfForOp,
 }
 
 struct D2MGenericComputeRewriter : public OpRewritePattern<GenericOp> {
-  using OpRewritePattern<GenericOp>::OpRewritePattern;
+  D2MGenericComputeRewriter(MLIRContext *ctx, unsigned maxDstPhysicalSizeTiles)
+      : OpRewritePattern<GenericOp>(ctx),
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {}
+
+  unsigned maxDstPhysicalSizeTiles = 0;
 
   LogicalResult matchAndRewrite(GenericOp genericOp,
                                 PatternRewriter &rewriter) const final {
-    utils::DstRegisterAnalysis analysis(genericOp);
+    utils::DstRegisterAnalysis analysis(genericOp, maxDstPhysicalSizeTiles);
     const utils::DSTPackingInfo *packingInfo = analysis.lookup(genericOp);
     if (!packingInfo || packingInfo->empty()) {
       return failure();
@@ -333,7 +337,7 @@ public:
   void runOnOperation() final {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<D2MGenericComputeRewriter>(ctx);
+    patterns.add<D2MGenericComputeRewriter>(ctx, maxDstPhysicalSizeTiles);
     walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };
