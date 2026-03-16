@@ -28,7 +28,7 @@ module {
   // CHECK: "ttnn.empty"(%{{.*}}) {{.*}}#ttnn.core_range<(0,0), (0,0)>{{.*}}tensor<64x64xf32, #ttnn_layout2>
   // CHECK: "ttnn.generic"(%arg0, %arg1, %{{.*}}) {{.*}}program = #ttnn.program<
   //
-  // --- TC1: single region, core (0,0), 3 CBs ---
+  //     TC1: single region, core (0,0), 3 CBs
   //   kernel   | core_ranges | ct_args | common_rt_args | rt_args
   //   ---------|-------------|---------|----------------|--------
   //   dm_s0    | (0,0)       | 0,1,2   | address<0>     | [*]
@@ -38,7 +38,7 @@ module {
   // CHECK-SAME: {{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_s0{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_cb_buffer_index<2>{{.*}}#ttnn.kernel_arg_address_of_tensor<0>], rt_args = [{{[^]]*}}]>,
   // CHECK-SAME: {{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_s1{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_cb_buffer_index<2>{{.*}}#ttnn.kernel_arg_address_of_tensor<1>], rt_args = [{{[^]]*}}]>,
   // CHECK-SAME: {{.*}}#ttnn.compute_kernel<symbol_ref = @cp_s0{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_cb_buffer_index<2>{{.*}}common_rt_args = [], rt_args = [{{[^]]*}}]>], cbs =
-  // --- cbs: kernel_cb 2; semaphores ---
+  //     cbs: kernel_cb 2; semaphores
   // CHECK-SAME: {{.*}}kernel_cb_global_buffer_address_of_tensor<2>{{.*}}semaphores = []
   func.func @spatial_single_region(%arg0: tensor<64x128xf32, #ttnn_layout>, %arg1: tensor<128x64xf32, #ttnn_layout1>) -> tensor<64x64xf32, #ttnn_layout2> {
     %0 = d2m.empty() : tensor<64x64xf32, #ttnn_layout2>
@@ -89,7 +89,7 @@ module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
   // CHECK: "ttnn.generic"(%arg0, %arg1, %{{.*}}, %{{.*}}) {{.*}}program = #ttnn.program<
   //
-  // --- Region0 (core (0,0)): cb 0,1; address 0,2 ---
+  //     Region0 (core (0,0)): cb 0,1; address 0,2
   //   kernel   | core_ranges | ct_args | common_rt_args | rt_args
   //   ---------|-------------|---------|----------------|--------
   //   dm_ns0   | (0,0)       | 0,1     | address<0>     | [*]
@@ -100,7 +100,7 @@ module {
   // CHECK-SAME:{{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_ns1{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>{{.*}}#ttnn.kernel_arg_address_of_tensor<2>], rt_args = [{{[^]]*}}]>,
   // CHECK-SAME:{{.*}}#ttnn.compute_kernel<symbol_ref = @cp_ns0{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>{{.*}}common_rt_args = [], rt_args = [{{[^]]*}}]>,
   //
-  // --- Region1 (core (1,1)): cb 2,3; address 1,3 ---
+  //     Region1 (core (1,1)): cb 2,3; address 1,3
   //   kernel   | core_ranges | ct_args | common_rt_args | rt_args
   //   ---------|-------------|---------|----------------|--------
   //   dm_ns2   | (1,1)       | 2,3     | address<1>     | [*]
@@ -111,7 +111,7 @@ module {
   // CHECK-SAME:{{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_ns3{{.*}}core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<2>, #ttnn.kernel_arg_cb_buffer_index<3>{{.*}}#ttnn.kernel_arg_address_of_tensor<3>], rt_args = [{{[^]]*}}]>,
   // CHECK-SAME:{{.*}}#ttnn.compute_kernel<symbol_ref = @cp_ns1{{.*}}core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<2>, #ttnn.kernel_arg_cb_buffer_index<3>{{.*}}common_rt_args = [], rt_args = [{{[^]]*}}]>], cbs =
   //
-  // --- cbs: kernel_cb 2, 3; semaphores ---
+  //     cbs: kernel_cb 2, 3; semaphores
   // CHECK-SAME:{{.*}}kernel_cb_global_buffer_address_of_tensor<2>{{.*}}kernel_cb_global_buffer_address_of_tensor<3>{{.*}}semaphores = []
   func.func @spatial_multi_inputs_not_shared(%arg0: tensor<64x128xf32, #ttnn_layout>, %arg1: tensor<128x64xf32, #ttnn_layout1>) -> (tensor<64x64xf32, #ttnn_layout2>, tensor<64x64xf32, #ttnn_layout3>) {
     %0 = d2m.empty() : tensor<64x64xf32, #ttnn_layout2>
@@ -179,7 +179,7 @@ module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
   // CHECK: "ttnn.generic"(%arg0, %arg1, %{{.*}}, %{{.*}}) {{.*}}program = #ttnn.program<
   //
-  // --- Region0 (core (0,0)): 2 CBs; in0 shared -> address 0, out0 -> address 2 ---
+  //     Region0 (core (0,0)): 2 CBs; in0 shared -> address 0, out0 -> address 2
   //   kernel    | core_ranges | ct_args | common_rt_args | rt_args
   //   ----------|-------------|---------|----------------|--------
   //   dm_2p3_0  | (0,0)       | 0,1     | address<0>     | [*]
@@ -190,7 +190,7 @@ module {
   // CHECK-SAME:{{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_2p3_1{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>{{.*}}#ttnn.kernel_arg_address_of_tensor<2>], rt_args = [{{[^]]*}}]>,
   // CHECK-SAME:{{.*}}#ttnn.compute_kernel<symbol_ref = @cp_2p3_0{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>{{.*}}common_rt_args = [], rt_args = [{{[^]]*}}]>,
   //
-  // --- Region1 (core (1,1)): 3 CBs; in0 shared -> address 0, in1 -> address 1 ---
+  //     Region1 (core (1,1)): 3 CBs; in0 shared -> address 0, in1 -> address 1
   //   kernel    | core_ranges | ct_args | common_rt_args | rt_args
   //   ----------|-------------|---------|----------------|--------
   //   dm_2p3_2  | (1,1)       | 2,3,4   | address<0>     | [*]
@@ -201,7 +201,7 @@ module {
   // CHECK-SAME:{{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_2p3_3{{.*}}core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<2>, #ttnn.kernel_arg_cb_buffer_index<3>, #ttnn.kernel_arg_cb_buffer_index<4>{{.*}}#ttnn.kernel_arg_address_of_tensor<1>], rt_args = [{{[^]]*}}]>,
   // CHECK-SAME:{{.*}}#ttnn.compute_kernel<symbol_ref = @cp_2p3_1{{.*}}core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<2>, #ttnn.kernel_arg_cb_buffer_index<3>, #ttnn.kernel_arg_cb_buffer_index<4>{{.*}}common_rt_args = [], rt_args = [{{[^]]*}}]>], cbs =
   //
-  // --- cbs: kernel_cb 2, 3; semaphores ---
+  //     cbs: kernel_cb 2, 3; semaphores
   // CHECK-SAME:{{.*}}kernel_cb_global_buffer_address_of_tensor<2>{{.*}}kernel_cb_global_buffer_address_of_tensor<3>{{.*}}semaphores = []
   func.func @spatial_multi_cb_2_plus_3(%arg0: tensor<64x128xf32, #ttnn_layout>, %arg1: tensor<128x64xf32, #ttnn_layout1>) -> (tensor<64x64xf32, #ttnn_layout2>, tensor<64x64xf32, #ttnn_layout3>) {
     %0 = d2m.empty() : tensor<64x64xf32, #ttnn_layout2>
@@ -274,7 +274,7 @@ module {
   // CHECK: "ttnn.empty"(%{{.*}}) {{.*}}#ttnn.core_range<(1,1), (1,1)>{{.*}}tensor<64x64xf32, #ttnn_layout3>
   // CHECK: "ttnn.generic"(%arg0, %arg1, %{{.*}}, %{{.*}}) {{.*}}program = #ttnn.program<
   //
-  // --- Region0 (core (0,0)): 3 CBs; 2 shared inputs -> address 0, 1 ---
+  //     Region0 (core (0,0)): 3 CBs; 2 shared inputs -> address 0, 1
   //   kernel   | core_ranges | ct_args | common_rt_args | rt_args
   //   ---------|-------------|---------|----------------|--------
   //   dm_k0    | (0,0)       | 0,1,2   | address<0>     | [*]
@@ -285,7 +285,7 @@ module {
   // CHECK-SAME:{{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_k1{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_cb_buffer_index<2>], common_rt_args = [#ttnn.kernel_arg_address_of_tensor<1>], rt_args = [{{[^]]*}}]>,
   // CHECK-SAME:{{.*}}#ttnn.compute_kernel<symbol_ref = @cp_k0{{.*}}core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_cb_buffer_index<2>{{.*}}common_rt_args = [], rt_args = [{{[^]]*}}]>,
   //
-  // --- Region1 (core (1,1)): 3 CBs; 2 shared inputs -> address 0, 1 ---
+  //     Region1 (core (1,1)): 3 CBs; 2 shared inputs -> address 0, 1
   //   kernel   | core_ranges | ct_args | common_rt_args | rt_args
   //   ---------|-------------|---------|----------------|--------
   //   dm_k2    | (1,1)       | 3,4,5   | address<0>     | [*]
@@ -296,7 +296,7 @@ module {
   // CHECK-SAME:{{.*}}#ttnn.data_movement_kernel<symbol_ref = @dm_k3{{.*}}core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<3>, #ttnn.kernel_arg_cb_buffer_index<4>, #ttnn.kernel_arg_cb_buffer_index<5>{{.*}}#ttnn.kernel_arg_address_of_tensor<1>], rt_args = [{{[^]]*}}]>,
   // CHECK-SAME:{{.*}}#ttnn.compute_kernel<symbol_ref = @cp_k1{{.*}}core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>{{.*}}#ttnn.kernel_arg_cb_buffer_index<3>, #ttnn.kernel_arg_cb_buffer_index<4>, #ttnn.kernel_arg_cb_buffer_index<5>{{.*}}common_rt_args = [], rt_args = [{{[^]]*}}]>], cbs =
   //
-  // --- cbs: kernel_cb 2, 3; semaphores ---
+  //     cbs: kernel_cb 2, 3; semaphores
   // CHECK-SAME:{{.*}}kernel_cb_global_buffer_address_of_tensor<2>{{.*}}kernel_cb_global_buffer_address_of_tensor<3>{{.*}}semaphores = []
   func.func @spatial_multi_region(%arg0: tensor<64x128xf32, #ttnn_layout>, %arg1: tensor<128x64xf32, #ttnn_layout1>) -> (tensor<64x64xf32, #ttnn_layout2>, tensor<64x64xf32, #ttnn_layout3>) {
     %0 = d2m.empty() : tensor<64x64xf32, #ttnn_layout2>
@@ -372,7 +372,7 @@ module {
   // Match ttnn.generic that contains @dm_r0_sem so we stay in this test block.
   // CHECK: "ttnn.generic"(%arg0, %arg1, %{{.*}}, %{{.*}}) {{.*}}program = #ttnn.program<kernels = [#ttnn.data_movement_kernel<symbol_ref = @dm_r0_sem
   //
-  // --- TC5: Region0 (0,0): 2 CBs, 2 semaphores (ids 0,1). Region1 (1,1): 2 CBs, 2 semaphores (ids 2,3). ---
+  //     TC5: Region0 (0,0): 2 CBs, 2 semaphores (ids 0,1). Region1 (1,1): 2 CBs, 2 semaphores (ids 2,3).
   //   region0 kernel  | semaphore_at 0,1
   //   region1 kernel   | semaphore_at 2,3 (incremental, no overlap)
   //
