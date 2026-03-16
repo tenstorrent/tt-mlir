@@ -114,27 +114,6 @@ computeReblockedOperandGridShape(d2m::GenericOp genericOp, int64_t operandIndex,
   return operandGrid;
 }
 
-static Type getShardTypeFromOperand(Value operand, Type oldType) {
-  auto operandShapedType = mlir::dyn_cast<ShapedType>(operand.getType());
-  auto layout = ttcore::getDeviceLayout(operandShapedType);
-  if (!layout) {
-    return oldType;
-  }
-
-  SmallVector<int64_t> shardShape(layout.getShardShape(operandShapedType));
-  if (auto oldTensorType = mlir::dyn_cast<RankedTensorType>(oldType)) {
-    return RankedTensorType::get(shardShape, oldTensorType.getElementType(),
-                                 oldTensorType.getEncoding());
-  }
-  if (auto oldMemRefType = mlir::dyn_cast<MemRefType>(oldType)) {
-    return MemRefType::get(shardShape, oldMemRefType.getElementType(),
-                           oldMemRefType.getLayout(),
-                           oldMemRefType.getMemorySpace());
-  }
-
-  return oldType;
-}
-
 void d2m::GenericOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
@@ -2281,32 +2260,6 @@ createReblockedOperands(d2m::GenericOp thisOp, OpBuilder &builder,
       continue;
     }
 
-    // This is a workaround to avoid type checking errors during/after
-    // canonicalization.  There is an offline proposal being discussed to
-    // address this more holistically.  The short of it is that we need to
-    // just reach through the view to get to the original to_layout operand
-    // so that view_layout folding doesn't need to be applied in the first
-    // place. View layout folding can cause the index_map inside of the
-    // metal_layout to differ from the generic op's result type, leading to
-    // type-checking errors.
-    if (thisOp.isDpsInit(&operand)) {
-      if (auto definingView =
-              operand.get().getDefiningOp<d2m::ViewLayoutOp>()) {
-        if (auto inputTensorType = mlir::dyn_cast<RankedTensorType>(
-                definingView.getInput().getType())) {
-          if (auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(
-                  inputTensorType.getEncoding())) {
-            if (metalLayout.getMemorySpace() !=
-                ttcore::MemorySpace::DeviceDRAM) {
-              operandViews.push_back(nullptr);
-              reblockedOperands.push_back(definingView.getInput());
-              continue;
-            }
-          }
-        }
-      }
-    }
-
     d2m::ViewLayoutOp view = builder.create<d2m::ViewLayoutOp>(
         thisOp.getLoc(), reblockedType, operand.get());
     operandViews.push_back(view);
@@ -2449,8 +2402,8 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
       if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&clonedOp)) {
         Value associatedOperand = d2m::GenericOp::findAssocOperand(allocOp);
         if (associatedOperand) {
-          Type newAllocType =
-              getShardTypeFromOperand(associatedOperand, allocOp.getType());
+          Type newAllocType = d2m::utils::cloneWithShardShape(
+              associatedOperand, allocOp.getType());
           if (newAllocType != allocOp.getType()) {
             auto newMemRefType = mlir::dyn_cast<MemRefType>(newAllocType);
             TT_assert(newMemRefType);
@@ -2462,8 +2415,8 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
         Value associatedOperand =
             d2m::GenericOp::findAssocOperand(tensorEmptyOp);
         if (associatedOperand) {
-          Type newEmptyType = getShardTypeFromOperand(associatedOperand,
-                                                      tensorEmptyOp.getType());
+          Type newEmptyType = d2m::utils::cloneWithShardShape(
+              associatedOperand, tensorEmptyOp.getType());
           if (newEmptyType != tensorEmptyOp.getType()) {
             tensorEmptyOp.getResult().setType(
                 cast<RankedTensorType>(newEmptyType));

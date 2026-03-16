@@ -142,6 +142,31 @@ ShapedType reblockShapedType(ShapedType oldType,
                          oldMemRefType.getMemorySpace());
 }
 
+Type cloneWithShardShape(Value referenceOperand, Type typeToRetype) {
+  auto operandShapedType =
+      mlir::dyn_cast<ShapedType>(referenceOperand.getType());
+  if (!operandShapedType) {
+    return typeToRetype;
+  }
+
+  auto layout = ttcore::getDeviceLayout(operandShapedType);
+  if (!layout) {
+    return typeToRetype;
+  }
+
+  ArrayRef<int64_t> shardShape = layout.getShardShape(operandShapedType);
+  if (auto oldTensorType = mlir::dyn_cast<RankedTensorType>(typeToRetype)) {
+    return RankedTensorType::get(shardShape, oldTensorType.getElementType());
+  }
+  if (auto oldMemRefType = mlir::dyn_cast<MemRefType>(typeToRetype)) {
+    return MemRefType::get(shardShape, oldMemRefType.getElementType(),
+                           MemRefLayoutAttrInterface{},
+                           oldMemRefType.getMemorySpace());
+  }
+
+  return typeToRetype;
+}
+
 std::optional<SmallVector<int64_t>>
 computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
                       mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes) {
