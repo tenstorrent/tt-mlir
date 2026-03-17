@@ -1275,25 +1275,25 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         return failure();
       }
 
+      TT_assert(reblocked->returnView &&
+                "allocator reblocking expects a return view to the original "
+                "generic result");
+      TT_assert(oldGenericOp.getOutputs().size() == 1u &&
+                "allocator reblocking expects a single output operand");
+      Operation *sequenceAnchor = reblocked->returnView.getOperation();
+      Value newOutput = reblocked->returnView.getResult();
+
       // Move sequencing metadata to the new anchor op produced by the rewrite.
-      Operation *sequenceAnchor = reblocked->returnView
-                                      ? reblocked->returnView.getOperation()
-                                      : reblocked->genericOp.getOperation();
       SequenceT sequencePosition = analysis.sequencing[oldGenericOp];
       analysis.sequencing.positionMap[sequencePosition] = sequenceAnchor;
       analysis.sequencing.operationMap.erase(oldGenericOp.getOperation());
       analysis.sequencing.operationMap[sequenceAnchor] = sequencePosition;
 
-      // Redirect downstream users to the rebuilt generic/result view.
+      // Redirect the single externally visible output to the rebuilt view.
       if (oldGenericOp.getNumResults() > 0) {
         TT_assert(oldGenericOp.getNumResults() == 1u);
-        if (reblocked->returnView) {
-          oldGenericOp.getResult(0).replaceAllUsesWith(
-              reblocked->returnView.getResult());
-        }
-      } else if (!oldGenericOp.getOutputs().empty() && reblocked->returnView) {
-        TT_assert(oldGenericOp.getOutputs().size() == 1u);
-        Value newOutput = reblocked->returnView.getResult();
+        oldGenericOp.getResult(0).replaceAllUsesWith(newOutput);
+      } else {
         oldGenericOp.getOutputs().front().replaceUsesWithIf(
             newOutput, [&](OpOperand &use) {
               Operation *owner = use.getOwner();
