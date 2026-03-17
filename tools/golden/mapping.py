@@ -84,6 +84,9 @@ class GoldenMapTensor:
         for name in _MUTATING_METHOD_NAMES
     }
 
+    # Torch matmul functions that are too slow on CPUs w/o hardware bf16 support.
+    _BF16_UPCAST_MM_FUNCS = frozenset({torch.matmul, torch.mm, torch.bmm, torch.einsum})
+
     # ----- Methods -----
 
     def __init__(self, shard_map: Dict[int, torch.Tensor], mesh_shape: Tuple[int, int]):
@@ -255,6 +258,28 @@ class GoldenMapTensor:
             if isinstance(obj, dict):
                 return {kk: _take(v, k) for kk, v in obj.items()}
             return obj
+
+        # Transparently upcast bf16 matmul to f32 and cast back so it uses the fast BLAS backend.
+        if func in cls._BF16_UPCAST_MM_FUNCS and any(
+            st.dtype == torch.bfloat16 for st in st_inputs
+        ):
+            _orig_func = func
+            # Torch promotes mixed-precision matmuls (bf16 @ f32 -> f32), so we only downcast if there's no f32.
+            has_f32_input = any(st.dtype == torch.float32 for st in st_inputs)
+
+            print(f"Upcasting bf16 matmul to f32 for {_orig_func.__name__}")
+
+            def func(*a, **kw):
+                a = tuple(
+                    x.float()
+                    if isinstance(x, torch.Tensor) and x.dtype == torch.bfloat16
+                    else x
+                    for x in a
+                )
+                result = _orig_func(*a, **kw)
+                if not has_f32_input:
+                    return result.to(torch.bfloat16)
+                return result
 
         # Apply func shard-wise.
         out_shards = {k: func(*_take(args, k), **_take(kwargs, k)) for k in keys}
