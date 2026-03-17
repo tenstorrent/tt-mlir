@@ -1,6 +1,7 @@
 // REQUIRES: stablehlo
 // RUN: ttmlir-opt --stablehlo-pipeline="mesh-shape=1,2 automatic-arg-analysis" --stablehlo-to-ttir-pipeline --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% mesh-shape=1,2" -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
+// RUN: ttrt run %t.ttnn
 
 sdy.mesh @mesh = <["model"=1, "batch"=2]>
 
