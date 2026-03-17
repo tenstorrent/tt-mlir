@@ -939,7 +939,7 @@ toNative(ttnn::DeviceComputeKernelConfigAttr computeConfigAttr) {
   ::tt::target::ttnn::DeviceComputeKernelConfigT deviceComputeKernelConfigT;
 
   FlatbufferObjectCache dummyCache(nullptr);
- 
+
   deviceComputeKernelConfigT.math_fidelity =
       toFlatbuffer(dummyCache, computeConfigAttr.getMathFidelity());
   deviceComputeKernelConfigT.math_approx_mode =

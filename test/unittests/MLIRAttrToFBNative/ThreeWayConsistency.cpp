@@ -98,7 +98,6 @@ protected:
   virtual void compareResults(std::optional<RetType> pathA,
                               std::optional<RetType> pathB,
                               std::optional<RetType> pathC) = 0;
-
 };
 
 class DeviceComputeKernelConfigTest
@@ -301,10 +300,11 @@ TEST_F(Conv2dConfigTest, Conv2dConfigWithCoreGrid) {
   baseConfig = baseConfig.withEnableKernelStrideFolding(true);
 
   baseConfig = baseConfig.withCoreGrid(mlir::tt::ttnn::CoreRangeSetAttr::get(
-  &context,
-  llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>{mlir::tt::ttnn::CoreRangeAttr::get(
-                  &context, mlir::tt::ttnn::CoreCoordAttr::get(&context, 0,
-                  0), mlir::tt::ttnn::CoreCoordAttr::get(&context, 7, 0))}));
+      &context,
+      llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>{
+          mlir::tt::ttnn::CoreRangeAttr::get(
+              &context, mlir::tt::ttnn::CoreCoordAttr::get(&context, 0, 0),
+              mlir::tt::ttnn::CoreCoordAttr::get(&context, 7, 0))}));
 
   baseConfig = baseConfig.withActivation(mlir::tt::ttnn::UnaryOpType::Relu);
 
