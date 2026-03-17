@@ -16,6 +16,23 @@ module attributes {} {
 
 // -----
 
+// Verify 1D tensor all_gather is decomposed with reshape workaround
+module attributes {} {
+  // CHECK-LABEL: all_gather_reshape_1d
+  func.func @all_gather_reshape_1d(%arg0: tensor<32xbf16>) -> tensor<128xbf16> {
+    %0 = "ttir.all_gather"(%arg0) <{all_gather_dim = 0 : si32, cluster_axis = 1 : ui32}> : (tensor<32xbf16>) -> tensor<128xbf16>
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 32 : i32]
+    // CHECK: "ttnn.all_gather"
+    // CHECK-SAME: all_gather_dim = 1 : si32
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [128 : i32]
+    return %0 : tensor<128xbf16>
+  }
+}
+
+// -----
+
 // Verify op folding for single mesh device communication
 module attributes {} {
   // CHECK-LABEL: all_gather_positive_folding
