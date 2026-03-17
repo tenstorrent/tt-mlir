@@ -261,11 +261,18 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     }
 
     // Fused generics may have multiple linalg ops writing to the same output
-    // buffer. Skip duplicates — the packing info is identical for the same
-    // Value since it has the same shard shape.
-    results.perResult.try_emplace(
+    // buffer with potentially different DST constraints. Keep the most
+    // restrictive (smallest numTilesPerFlip) to avoid DST overflow for ops
+    // that need more DST slots per tile (e.g., clamp uses binary_max +
+    // binary_min, consuming 2 DST slots per tile vs 1 for a plain SFPU op).
+    auto [perResultIt, inserted] = results.perResult.try_emplace(
         pending.outputValue,
         DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip});
+    if (!inserted &&
+        pending.numTilesPerFlip < perResultIt->second.numTilesPerFlip) {
+      perResultIt->second =
+          DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip};
+    }
   }
 
   TT_assertv(commonNumTilesPerResult.has_value(),
