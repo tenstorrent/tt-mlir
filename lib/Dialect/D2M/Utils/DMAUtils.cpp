@@ -7,6 +7,8 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+
 namespace mlir::tt::d2m::utils {
 
 RemoteStoreOp findForwardableStore(RemoteLoadOp remoteLoad) {
@@ -21,6 +23,10 @@ RemoteStoreOp findForwardableStore(RemoteLoadOp remoteLoad) {
   Type localBufferType = localBuffer.getType();
 
   for (Operation *user : localBuffer.getUsers()) {
+    // generic ops 'use' local buffers as they appear in the additionalArgs list
+    if (mlir::isa<GenericOp>(user)) {
+      continue;
+    }
     ++userCount;
 
     if (auto loadUser = mlir::dyn_cast<RemoteLoadOp>(user)) {

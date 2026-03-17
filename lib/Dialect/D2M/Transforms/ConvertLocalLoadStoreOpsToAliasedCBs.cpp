@@ -240,47 +240,38 @@ public:
         continue;
       }
 
-      // Find the last use of the alloc result or remote_load result BEFORE we
-      // modify the IR
-      Block *block = allocOp->getBlock();
-      Operation *lastUseOfAlloc = findLastUse(allocOp.getResult(), block);
-      Operation *lastUseOfRemoteLoad =
-          findLastUse(remoteLoad.getResult(), block);
+      TT_assertv(remoteLoad.getResult().use_empty(),
+                 "expected converted remote_load result to have no users: {0}",
+                 remoteLoad);
 
-      // Exclude the remote_load itself from being considered the last use
-      if (lastUseOfAlloc == remoteLoad.getOperation()) {
-        lastUseOfAlloc = nullptr;
-      }
+      // Use only the remote_load block as the anchor scope.
+      Block *block = remoteLoad->getBlock();
+      Operation *lastUse = findLastUse(allocOp.getResult(), block);
+      TT_assertv(lastUse,
+                 "expected alloc-derived local buffer to have a use in the "
+                 "remote_load block: {0}",
+                 remoteLoad);
 
-      // Determine the actual last use (the one that appears later in the
-      // block).
-      Operation *lastUse = nullptr;
-      if (lastUseOfAlloc && lastUseOfRemoteLoad) {
-        // Both have uses, find which one is later
-        lastUse = lastUseOfAlloc->isBeforeInBlock(lastUseOfRemoteLoad)
-                      ? lastUseOfRemoteLoad
-                      : lastUseOfAlloc;
-      } else {
-        lastUse = lastUseOfAlloc ? lastUseOfAlloc : lastUseOfRemoteLoad;
-      }
-
-      // Insert reserve, push, and wait where the alloc was, so they dominate
-      // all uses of the buffer (including view operations like collapse_shape
-      // that may occur before the remote_load)
-      rewriter.setInsertionPoint(allocOp);
+      // Insert reserve/push/wait at the last alloc-derived use in the
+      // remote_load block.
+      rewriter.setInsertionPoint(lastUse);
 
       // Create reserve, push, and wait operations
       rewriter.create<ReserveOp>(loc, assocCb);
       rewriter.create<PushOp>(loc, assocCb);
       auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
 
-      // Replace all uses of the alloc result and remote_load result with the
-      // wait result
-      rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
-      rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
+      // Rewrite alloc users in this block that occur after wait.
+      rewriter.replaceUsesWithIf(
+          allocOp.getResult(), waitOp.getResult(), [&](OpOperand &use) {
+            Operation *owner = use.getOwner();
+            return owner->getBlock() == block && waitOp->isBeforeInBlock(owner);
+          });
 
-      // Erase the alloc operation
-      rewriter.eraseOp(allocOp);
+      if (allocOp->use_empty() &&
+          allocOp->getParentRegion() == remoteLoad->getParentRegion()) {
+        rewriter.eraseOp(allocOp);
+      }
 
       // Insert pop after the last use
       if (lastUse) {
@@ -337,11 +328,27 @@ public:
         continue;
       }
 
+      Region *remoteStoreRegion = remoteStore->getParentRegion();
+      TT_assertv(remoteStoreRegion != nullptr,
+                 "expected remote_store to have an enclosing region: {0}",
+                 remoteStore);
+
+      Operation *assocCbDefOp = assocCb.getDefiningOp();
+      TT_assertv(assocCbDefOp != nullptr,
+                 "expected assocCb to have a defining op: {0}", remoteStore);
+      auto assocGetCbOp = mlir::dyn_cast<GetCBOp>(assocCbDefOp);
+      TT_assertv(assocGetCbOp != nullptr,
+                 "expected assocCb to be defined by d2m.get_cb: {0}",
+                 remoteStore);
+
       // Replace memref.alloc with reserve
-      rewriter.setInsertionPoint(allocOp);
+      rewriter.setInsertionPointAfter(assocGetCbOp);
       auto reserveOp = rewriter.create<ReserveOp>(loc, assocCb);
       rewriter.replaceAllUsesWith(allocOp.getResult(), reserveOp.getResult());
-      rewriter.eraseOp(allocOp);
+      // Replace allocOp only if it is inside a d2m.generic
+      if (allocOp->getParentOfType<GenericOp>()) {
+        rewriter.eraseOp(allocOp);
+      }
 
       // At remote_store location, insert: push, wait, pop
       rewriter.setInsertionPoint(remoteStore);

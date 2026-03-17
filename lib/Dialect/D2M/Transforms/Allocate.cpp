@@ -628,8 +628,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // passes like LowerToLayout).  In both cases the internal alloc needs
       // a planner-assigned L1 address and will be stamped with
       // CBLayoutAttr.
-      if (genericIt != analysis.generics.end() && !genericOp.isDMAOnlyForm() &&
-          !genericIt->second.isExplicitDatamovement) {
+      if (genericIt != analysis.generics.end()) {
         for (Region &region : genericOp->getRegions()) {
           for (const OperandContext &operandCtx : genericIt->second.operands) {
             if (!operandCtx.bufferType) {

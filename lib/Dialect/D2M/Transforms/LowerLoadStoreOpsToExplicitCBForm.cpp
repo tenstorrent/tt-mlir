@@ -135,6 +135,7 @@ static LogicalResult getLegalForwardableStore(RemoteLoadOp remoteLoad,
         storeUser.getLocalBuffer() != localBuffer) {
       continue;
     }
+
     return remoteLoad.emitOpError("local buffer shared between "
                                   "d2m.remote_load and d2m.remote_store must "
                                   "form an exclusive forward-able pair");
@@ -251,9 +252,6 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
       }
       rewriter.eraseOp(forwardableStore);
       rewriter.eraseOp(remoteLoad);
-      if (allocToErase) {
-        rewriter.eraseOp(allocToErase);
-      }
       continue;
     }
 

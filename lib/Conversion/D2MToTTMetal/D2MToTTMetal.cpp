@@ -22,6 +22,11 @@ namespace mlir::tt::ttmetal {
 
 namespace {
 
+static bool isUnaddressedAlloc(Value value) {
+  auto allocOp = value.getDefiningOp<memref::AllocOp>();
+  return allocOp && !allocOp->getAttrOfType<IntegerAttr>("address");
+}
+
 // Returns true if the kernel function contains an op of type OpT.
 template <typename OpT>
 static bool kernelContainsOp(const SymbolTable &symbolTable,
@@ -164,35 +169,39 @@ public:
     llvm::SmallVector<int64_t> cbPorts;
     for (unsigned i = 0; i < ioSize; ++i) {
       auto operand = adaptor.getOperands()[i];
+      Value arg;
 
       if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
               operand.getDefiningOp());
           stream) {
-        args.push_back(stream.getInput());
+        arg = stream.getInput();
       } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
                      operand.getDefiningOp());
                  view) {
-        args.push_back(view.getInput());
+        arg = view.getInput();
       } else {
-        args.push_back(operand);
+        arg = operand;
       }
+      args.push_back(arg);
 
-      // Use hoisted CB if one exists for this operand.  Otherwise the
-      // buffer itself is the CB.  For streams/views we must unwrap to
-      // the underlying buffer so the stream_layout/view_layout op
-      // doesn't stay alive in the output IR.
-      auto it = hoistedCBMap.find(i);
-      if (it != hoistedCBMap.end()) {
-        cbs.push_back(it->second);
-      } else if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
-                     operand.getDefiningOp())) {
-        cbs.push_back(stream.getInput());
+      Value cb;
+      // For streamed operands, the external CB/storage buffer is the stream
+      // storage, not the stream input.
+      if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
+              operand.getDefiningOp())) {
+        cb = stream.getStorage();
+      } else if (auto it = hoistedCBMap.find(i); it != hoistedCBMap.end()) {
+        cb = it->second;
       } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
                      operand.getDefiningOp())) {
-        cbs.push_back(view.getInput());
+        cb = view.getInput();
       } else {
-        cbs.push_back(operand);
+        cb = operand;
       }
+      if (isUnaddressedAlloc(cb)) {
+        cb = arg;
+      }
+      cbs.push_back(cb);
 
       cbPorts.push_back(static_cast<int64_t>(i));
     }
