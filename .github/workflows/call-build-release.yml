@@ -108,8 +108,8 @@ jobs:
         export CMAKE_BUILD_PARALLEL_LEVEL=32
         cmake -G Ninja \
           -B ${{ steps.strings.outputs.build-output-dir }} \
-          -DCMAKE_CXX_COMPILER=clang++-17 \
-          -DCMAKE_C_COMPILER=clang-17 \
+          -DCMAKE_CXX_COMPILER=clang++-20 \
+          -DCMAKE_C_COMPILER=clang-20 \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_INSTALL_PREFIX=${{  steps.strings.outputs.install-output-dir }} \
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
