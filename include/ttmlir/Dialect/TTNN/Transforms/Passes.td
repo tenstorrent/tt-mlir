@@ -236,7 +236,15 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
     Option<"enableOpConstraints",
             "enable-op-constraints",
             "bool", /*default=*/"false",
-            "When enabled fusing pass includes patterns which check for op constraints.">
+            "Enable op model constraint validation for fusion patterns. "
+            "Requires TTMLIR_ENABLE_OPMODEL. When enabled, fused ops are "
+            "validated in an isolated module before being applied.">,
+    Option<"maxFallbackAttempts",
+            "max-fallback-attempts",
+            "uint32_t", /*default=*/"10000",
+            "Maximum number of fallback configurations to try before "
+            "giving up (0 = unlimited). Only used when "
+            "enable-op-constraints is true.">
   ];
 }
 
@@ -325,10 +333,6 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
     to find working configurations.
   }];
   let options = [
-    Option<"tensorL1UsageCap",
-           "tensor-l1-usage-cap",
-           "float", /*default=*/"1.0",
-           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">,
     Option<"maxFallbackAttempts",
            "max-fallback-attempts",
            "uint32_t", /*default=*/"10000",
@@ -349,13 +353,6 @@ def TTNNRowMajorLayoutPropagation : Pass<"ttnn-rm-layout-propagation", "::mlir::
 
     This pass should run before the optimizer to provide better initial layout hints.
   }];
-
-  let options = [
-    Option<"tensorL1UsageCap",
-           "tensor-l1-usage-cap",
-           "float", /*default=*/"1.0",
-           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">
-  ];
 }
 
 def TTNNEmitPyWorkarounds: Pass<"ttnn-emitpy-workarounds", "::mlir::ModuleOp"> {
@@ -505,6 +502,48 @@ def TTNNSimplifyLocsForCodegen: Pass<"ttnn-simplify-locs-for-codegen", "::mlir::
     This pass simplifies location information by removing nested locations from NameLocs.
     It only processes TTNN dialect operations and skips UnknownLocs.
   }];
+}
+
+def TTNNPrepareConstEvalCaching : Pass<"ttnn-prepare-const-eval-caching", "::mlir::ModuleOp"> {
+  let summary = "Prepare const-eval results for caching.";
+  let description = [{
+    Packs the results of all LoadCachedOps into a single global caching
+    dictionary per forward function.  For each forward function containing
+    LoadCachedOps it creates a global dictionary (e.g. `_cached_forward`),
+    retrieves it at the top of the function body, and stores each
+    LoadCachedOp result under its callee name.
+  }];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect"];
+}
+
+def TTNNFileSplit : Pass<"ttnn-file-split", "::mlir::ModuleOp"> {
+  let summary = "Organize TTNN IR into FileOp containers before lowering.";
+  let description = [{
+    Organizes TTNN IR into FileOp containers (emitpy::FileOp or emitc::FileOp,
+    selected via the `target` pass option) before lowering to a target dialect.
+
+    Example usage:
+    ```bash
+    ttmlir-opt --ttnn-file-split="target=emitpy" input.mlir
+    ```
+  }];
+
+  let dependentDialects = [
+    "mlir::tt::emitpy::EmitPyDialect",
+    "mlir::emitc::EmitCDialect",
+    "mlir::tt::ttcore::TTCoreDialect"
+  ];
+
+  let options = [
+    Option<"target", "target", "FileSplitTarget",
+           /*default=*/"",
+           "Target dialect for file splitting",
+           [{::llvm::cl::values(
+              clEnumValN(FileSplitTarget::EmitPy, "emitpy", "EmitPy target"),
+              clEnumValN(FileSplitTarget::EmitC, "emitc", "EmitC target")
+           )}]>
+  ];
 }
 
 def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {

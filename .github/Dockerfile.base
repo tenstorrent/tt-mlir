@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 SHELL ["/bin/bash", "-c"]
 
 # Set environment variables
@@ -30,7 +30,6 @@ apt-get install -y -qq \
     doxygen \
     graphviz \
     libyaml-cpp-dev \
-    libboost-all-dev \
     curl \
     jq \
     sudo \
@@ -38,15 +37,16 @@ apt-get install -y -qq \
     zstd \
     unzip
 
-# Install Python 3.12
-add-apt-repository ppa:deadsnakes/ppa -y
-apt-get update -qq
+# Install Python 3.12 (native in Ubuntu 24.04)
 apt-get install -y -qq python3.12 python3.12-dev python3.12-venv
 
 # Setup / install metal dependencies
 wget -q https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_DEPENDENCIES_COMMIT}/{install_dependencies.sh,tt_metal/sfpi-info.sh,tt_metal/sfpi-version}
 chmod u+x sfpi-info.sh
 bash install_dependencies.sh --docker
+
+apt-get clean
+rm -rf /var/lib/apt/lists/*
 # ANCHOR_END: developer_dependencies
 EOT
 
@@ -54,31 +54,25 @@ EOT
 RUN wget https://apt.llvm.org/llvm.sh && \
     chmod u+x llvm.sh && \
     ./llvm.sh 17 && \
-    apt install -y libc++-17-dev libc++abi-17-dev && \
+    apt-get update && \
+    apt-get install -y libc++-17-dev libc++abi-17-dev && \
+    rm llvm.sh && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
     ln -s /usr/bin/clang-17 /usr/bin/clang && \
     ln -s /usr/bin/clang++-17 /usr/bin/clang++ && \
     ln -s /usr/bin/clangd-17 /usr/bin/clangd
 
 # Install python packages
-RUN pip install --no-cache-dir cmake \
+RUN python3.12 -m pip install --no-cache-dir --break-system-packages cmake \
     sphinx \
     sphinx-markdown-builder
-
-# Install Googletest
-RUN git clone https://github.com/google/googletest.git -b release-1.12.1 && \
-    cd googletest && \
-    mkdir build && \
-    cd build && \
-    cmake .. -DBUILD_GMOCK=OFF && \
-    make && \
-    make install && \
-    cd ../.. && \
-    rm -rf googletest
 
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && apt update \
-    && apt install -y gh \
+    && apt-get update \
+    && apt-get install -y gh \
+    && rm -rf /var/lib/apt/lists/* \
     && gh --version

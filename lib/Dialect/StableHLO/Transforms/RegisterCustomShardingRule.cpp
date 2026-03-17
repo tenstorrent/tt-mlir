@@ -750,6 +750,58 @@ getAllToAllCombineShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Sharding rules for stablehlo.batch_norm_{training,grad}.
+// (batch_norm_inference is handled natively by Shardy's
+// op_sharding_rule_registry.)
+//
+// Feature dimension (feature_index): kPassThrough — the only dim that can be
+// sharded. Non-feature dimensions: kNeedReplication — batch norm reduces over
+// these to compute statistics, so they must stay replicated for correct
+// results.
+
+// batch_norm_training(input[ND], scale[1D], bias[1D])
+//   -> (output[ND], mean[1D], variance[1D])
+static mlir::sdy::OpShardingRuleAttr
+getBatchNormTrainingShardingRule(mlir::stablehlo::BatchNormTrainingOp bnOp) {
+  sdy::OpShardingRuleBuilder builder(bnOp);
+  uint64_t featureIndex = bnOp.getFeatureIndex();
+  for (auto [dim, dimSize] :
+       llvm::enumerate(bnOp.getOperand().getType().getShape())) {
+    // Operands: input[dim], scale[?], bias[?]
+    // Results:  output[dim], mean[?], variance[?]
+    // 1-D operands/results participate only on the feature dimension (at dim
+    // 0).
+    int64_t oneDimIdx = (dim == featureIndex) ? 0 : sdy::kNullDim;
+    builder.addFactor({static_cast<int64_t>(dim), oneDimIdx, oneDimIdx},
+                      {static_cast<int64_t>(dim), oneDimIdx, oneDimIdx},
+                      dimSize,
+                      dim == featureIndex ? sdy::FactorType::kPassThrough
+                                          : sdy::FactorType::kNeedReplication);
+  }
+  return builder.build();
+}
+
+// batch_norm_grad(input[ND], scale[1D], mean[1D], var[1D], grad_output[ND])
+//   -> (grad_input[ND], grad_scale[1D], grad_bias[1D])
+static mlir::sdy::OpShardingRuleAttr
+getBatchNormGradShardingRule(mlir::stablehlo::BatchNormGradOp bnOp) {
+  sdy::OpShardingRuleBuilder builder(bnOp);
+  uint64_t featureIndex = bnOp.getFeatureIndex();
+  for (auto [dim, dimSize] :
+       llvm::enumerate(bnOp.getOperand().getType().getShape())) {
+    // Operands: input[dim], scale[?], mean[?], var[?], grad_output[dim]
+    // Results:  grad_input[dim], grad_scale[?], grad_bias[?]
+    int64_t oneDimIdx = (dim == featureIndex) ? 0 : sdy::kNullDim;
+    builder.addFactor({static_cast<int64_t>(dim), oneDimIdx, oneDimIdx,
+                       oneDimIdx, static_cast<int64_t>(dim)},
+                      {static_cast<int64_t>(dim), oneDimIdx, oneDimIdx},
+                      dimSize,
+                      dim == featureIndex ? sdy::FactorType::kPassThrough
+                                          : sdy::FactorType::kNeedReplication);
+  }
+  return builder.build();
+}
+
 template <typename OpTy>
 struct StablehloShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
@@ -758,6 +810,12 @@ struct StablehloShardingModel
   mlir::sdy::OpShardingRuleAttr getShardingRule(mlir::Operation *op) const {
     if (auto scatterOp = llvm::dyn_cast<mlir::stablehlo::ScatterOp>(op)) {
       return getScatterShardingRule(scatterOp);
+    }
+    if (auto bnOp = llvm::dyn_cast<mlir::stablehlo::BatchNormTrainingOp>(op)) {
+      return getBatchNormTrainingShardingRule(bnOp);
+    }
+    if (auto bnOp = llvm::dyn_cast<mlir::stablehlo::BatchNormGradOp>(op)) {
+      return getBatchNormGradShardingRule(bnOp);
     }
     return mlir::sdy::OpShardingRuleBuilder::buildPointwise(op);
   }
@@ -933,6 +991,10 @@ public:
         StablehloCustomCallShardingModel>(*context);
     mlir::stablehlo::ScatterOp::attachInterface<
         StablehloShardingModel<mlir::stablehlo::ScatterOp>>(*context);
+    mlir::stablehlo::BatchNormTrainingOp::attachInterface<
+        StablehloShardingModel<mlir::stablehlo::BatchNormTrainingOp>>(*context);
+    mlir::stablehlo::BatchNormGradOp::attachInterface<
+        StablehloShardingModel<mlir::stablehlo::BatchNormGradOp>>(*context);
   }
 };
 

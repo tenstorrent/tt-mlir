@@ -695,9 +695,7 @@ createOp(FlatbufferObjectCache &cache, MorehCumSumOp op) {
                                             /*local_shape*/ std::nullopt);
 
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
-  auto memoryConfig = op.getMemoryConfig()
-                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
-                          : 0;
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateMorehCumSumOp(*cache.fbb, in, output,
                                                  op.getDim(), memoryConfig);
@@ -1100,7 +1098,7 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
     subDeviceId = std::make_optional<uint8_t>(
         static_cast<uint8_t>(op.getSubDeviceId().value()));
   }
-  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
@@ -1124,7 +1122,7 @@ createOp(FlatbufferObjectCache &cache, AllReduceOp op) {
     subDeviceId = std::make_optional<uint8_t>(
         static_cast<uint8_t>(op.getSubDeviceId().value()));
   }
-  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
@@ -1148,7 +1146,7 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
     subDeviceId = std::make_optional<uint8_t>(
         static_cast<uint8_t>(op.getSubDeviceId().value()));
   }
-  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
@@ -1528,6 +1526,53 @@ createOp(FlatbufferObjectCache &cache, LayerNormOp op) {
   return ::tt::target::ttnn::CreateLayerNormOp(*cache.fbb, input, weight, bias,
                                                op.getEpsilon().convertToFloat(),
                                                memoryConfig, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::GroupNormOp>
+createOp(FlatbufferObjectCache &cache, GroupNormOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+
+  // Handle optional input mask operand
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> inputMask = 0;
+  if (op.getInputMask()) {
+    inputMask = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getInputMask()));
+  }
+
+  // Handle optional weight and bias operands
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight = 0;
+  if (op.getWeight()) {
+    weight = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getWeight()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias = 0;
+  if (op.getBias()) {
+    bias = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      getMemoryConfigIfNeeded(cache, op);
+
+  // Handle optional core_grid attribute
+  const ::tt::target::ttnn::CoreCoord *coreGridPtr = nullptr;
+  ::tt::target::ttnn::CoreCoord coreGridVal;
+  if (auto coreGridAttr = op.getCoreGrid()) {
+    coreGridVal = toFlatbuffer(cache, *coreGridAttr);
+    coreGridPtr = &coreGridVal;
+  }
+
+  return ::tt::target::ttnn::CreateGroupNormOp(
+      *cache.fbb, input, inputMask, weight, bias, op.getNumGroups(),
+      op.getEpsilon().convertToFloat(), memoryConfig, output, coreGridPtr);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
@@ -4207,6 +4252,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto layerNormOp = dyn_cast<LayerNormOp>(op); layerNormOp) {
     return createOperation(cache, createOp(cache, layerNormOp), debugString,
+                           locInfo);
+  }
+  if (auto groupNormOp = dyn_cast<GroupNormOp>(op); groupNormOp) {
+    return createOperation(cache, createOp(cache, groupNormOp), debugString,
                            locInfo);
   }
   if (auto constantOp = dyn_cast<ConstantOp>(op); constantOp) {

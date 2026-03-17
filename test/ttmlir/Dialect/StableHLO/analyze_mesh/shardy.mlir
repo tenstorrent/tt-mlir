@@ -3,7 +3,7 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 
 module {
-  // CHECK: sdy.mesh @mesh = <["batch_updated"=1, "batch"=8]>
+  // CHECK: sdy.mesh @mesh = <["batch_aux"=1, "batch"=8]>
   sdy.mesh @mesh = <["batch"=8]>
   func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>}) -> (tensor<2048x1024xf32> {jax.result_info = ""}) {
     %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>

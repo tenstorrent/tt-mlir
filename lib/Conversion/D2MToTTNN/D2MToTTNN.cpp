@@ -332,7 +332,12 @@ public:
       // TODO (#7158): This is brittle. Ideally we should specifically identify
       // outputs and handle them separately from inputs, but that will require a
       // larger refactor of this pass.
+      // Hoisted CB allocs (CBLayoutAttr) are streaming buffers, not aliased
+      // to a global tensor — exclude them from the aliased-output check.
+      bool isHoistedCB =
+          mlir::isa_and_present<ttcore::CBLayoutAttr>(cb_memref.getLayout());
       bool isAliasedOutput =
+          !isHoistedCB &&
           mlir::dyn_cast_if_present<memref::AllocOp>(cb.getDefiningOp()) &&
           llvm::none_of(cb.getUsers(), [](Operation *user) {
             return mlir::isa<d2m::StreamLayoutOp>(user);
@@ -473,24 +478,28 @@ public:
     }
 
     // Process additionalArgs: semaphores/tensors go to the GenericOp,
-    // hoisted CB allocs (MemRefType) override the corresponding CB.
+    // hoisted CB allocs override the corresponding CB descriptor.
     llvm::SmallVector<Value> additionalArgs;
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operand = adaptor.getOperands()[ioSize + i];
       auto origOperand = op.getAdditionalArgs()[i];
+      // Hoisted CB allocs carry a d2m.cb_for_operand attribute that
+      // maps them to a specific operand's CB slot.  Check this on the
+      // *original* operand because MemrefAllocRewriter may have already
+      // converted the alloc to a ttnn.empty (tensor type).  Use the
+      // original memref for CB descriptor derivation.
+      if (auto cbForOp =
+              origOperand.getDefiningOp()
+                  ? origOperand.getDefiningOp()->getAttrOfType<IntegerAttr>(
+                        "d2m.cb_for_operand")
+                  : IntegerAttr()) {
+        unsigned idx = static_cast<unsigned>(cbForOp.getInt());
+        TT_assertv(idx < cbs.size(), "d2m.cb_for_operand out of range");
+        cbs[idx] = origOperand;
+        continue;
+      }
       if (mlir::isa<MemRefType>(operand.getType())) {
-        // Hoisted CB buffer — override the regular operand's CB if mapped.
-        if (auto cbForOp =
-                origOperand.getDefiningOp()
-                    ? origOperand.getDefiningOp()->getAttrOfType<IntegerAttr>(
-                          "d2m.cb_for_operand")
-                    : IntegerAttr()) {
-          unsigned idx = static_cast<unsigned>(cbForOp.getInt());
-          assert(idx < cbs.size() && "d2m.cb_for_operand out of range");
-          cbs[idx] = operand;
-        } else {
-          cbs.push_back(operand);
-        }
+        cbs.push_back(operand);
       } else if (mlir::isa<ttnn::GlobalSemaphoreType>(operand.getType())) {
         additionalArgs.push_back(operand);
       } else if (mlir::isa<RankedTensorType>(operand.getType())) {

@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
-#include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
