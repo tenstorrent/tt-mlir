@@ -28,7 +28,3 @@ target_link_libraries(ThreeWayConsistencyTests
     MLIRTTNNDialect
     TTRuntimeTTNN
 )
-
-
-message(STATUS "PROJECT_SOURCE_DIR = ${PROJECT_SOURCE_DIR}")
-message(STATUS "PROJECT_BINARY_DIR = ${PROJECT_BINARY_DIR}")
