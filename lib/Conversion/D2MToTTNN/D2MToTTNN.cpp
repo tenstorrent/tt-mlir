@@ -292,6 +292,29 @@ struct GenericOperandInfo {
   unsigned operandIdx;
 };
 
+// True when the TTNN/Metal tensor encoding places data in device L1. Used to
+// decide if a circular buffer may be globally allocated at the tensor buffer
+// address (illegal for DRAM-backed tensors in tt-metal).
+static bool ioTensorHasL1Buffer(Value ioTensor) {
+  auto tensorTy = mlir::dyn_cast<RankedTensorType>(ioTensor.getType());
+  if (!tensorTy || !tensorTy.getEncoding()) {
+    return false;
+  }
+  if (auto layout =
+          mlir::dyn_cast<ttnn::TTNNLayoutAttr>(tensorTy.getEncoding())) {
+    return layout.hasL1BufferType();
+  }
+  if (auto layout =
+          mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(tensorTy.getEncoding())) {
+    return layout.getBufferType() == ttnn::BufferType::L1;
+  }
+  if (auto layout =
+          mlir::dyn_cast<ttcore::MetalLayoutAttr>(tensorTy.getEncoding())) {
+    return layout.getMemorySpace() == ttcore::MemorySpace::DeviceL1;
+  }
+  return false;
+}
+
 static SmallVector<ttnn::KernelCBAttr>
 createCBDescriptors(Builder &builder,
                     const SmallVector<GenericOperandInfo> &infos,
@@ -320,9 +343,12 @@ createCBDescriptors(Builder &builder,
 
     if (ttcore::getMemorySpace(cbMemref) != ttcore::MemorySpace::DeviceDRAM) {
       if (info.isOutput) {
-        // L1 outputs are always aliased.
-        globalCBIndexOfTensor =
-            ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
+        // L1-resident outputs alias the CB; DRAM outputs use L1 CB as staging
+        // only and must not use kernel_cb_global_buffer_address_of_tensor.
+        if (ioTensorHasL1Buffer(info.ioTensor)) {
+          globalCBIndexOfTensor =
+              ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
+        }
       } else {
         bool isLocalFuncArg =
             mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
