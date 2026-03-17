@@ -39,20 +39,25 @@ export TT_METAL_PROFILER_MID_RUN_DUMP=1
 export TT_METAL_PROFILER_CPP_POST_PROCESS=1
 export TT_METAL_PROFILER_DIR="$OUT_DIR"
 
+REPORT_DIR="$OUT_DIR/reports"
+mkdir -p "$REPORT_DIR"
+
 echo "Running all perf tests..."
 if ! pytest test/ttnn-jit/perf_ci/perf_tests.py "$@"; then
   echo "Warning: pytest exited with non-zero status (results may still be present)."
 fi
 
 echo ""
-echo "Results written under: $OUT_DIR"
 echo "Summarizing..."
 JOB_ID_ARG=""
 if [ -n "$JOB_ID" ]; then
   JOB_ID_ARG="--job-id $JOB_ID"
 fi
-if python test/ttnn-jit/perf_ci/summarize_perf_results.py "$OUT_DIR" --output-dir "$OUT_DIR" $JOB_ID_ARG; then
-  echo "Summary reports written to $OUT_DIR"
+if python test/ttnn-jit/perf_ci/summarize_perf_results.py "$OUT_DIR" --output-dir "$REPORT_DIR" $JOB_ID_ARG; then
+  echo "Summary reports written to $REPORT_DIR"
+  if [ -n "$UPLOAD_LIST" ]; then
+    echo "{\"name\":\"perf-reports-${JOB_ID:-local}\",\"path\":\"$REPORT_DIR\"}," >> "$UPLOAD_LIST"
+  fi
 else
   echo "Warning: summarizer exited with an error (run dir may be partial)." >&2
 fi

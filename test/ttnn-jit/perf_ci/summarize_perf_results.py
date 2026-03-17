@@ -98,7 +98,7 @@ def generate_reports(
             "measurements": measurements,
         }
 
-        filename = f"perf_{op}_{dtype}_{mem_cfg}{job_suffix}.json"
+        filename = f"perf_{op}_{g['shape']}_{dtype}_{mem_cfg}{job_suffix}.json"
         filepath = out_dir / filename
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2)

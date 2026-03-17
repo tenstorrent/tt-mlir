@@ -108,13 +108,11 @@ def test_op_compare(
         memory_config=memory_config,
     )
 
-    function_to_test = (
-        ttnn_jit.jit(debug=True, enable_cache=True)(op) if jit_enabled else op
-    )
+    function_to_test = ttnn_jit.jit(enable_cache=True)(op) if jit_enabled else op
     output_tensor = (
         function_to_test(input_a)
         if is_unary(op)
         else function_to_test(input_a, input_b)
     )
 
-    print(f"output_tensor\n: {output_tensor}")
+    assert output_tensor is not None
