@@ -204,6 +204,9 @@ void createTTIRToTTMetalMiddleendPipeline(
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
+void createTTIRToTTMetalFabricPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
 void createTTIRToTTMetalPipeline(OpPassManager &pm,
                                  const TTIRToTTMetalPipelineOptions &options);
 

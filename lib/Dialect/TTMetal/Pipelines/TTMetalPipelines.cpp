@@ -267,6 +267,19 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(mlir::emitc::createFormExpressionsPass());
 }
 
+// Pipeline for pre-lowered fabric (and similar) snippets: wrap device module
+// then run only the backend on the nested module. Skips frontend/middleend
+// (TTIR normalization, D2M, bufferization, etc.).
+void createTTIRToTTMetalFabricPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
+
+  OpPassManager &devicePm =
+      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+  createTTIRToTTMetalBackendPipeline(devicePm, options);
+}
+
 void createTTIRToTTMetalPipeline(OpPassManager &pm,
                                  const TTIRToTTMetalPipelineOptions &options) {
   // Mark all public functions without a type assigned to them as Device Forward
@@ -310,6 +323,10 @@ void registerTTMetalPipelines() {
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-to-ttmetal-be-pipeline", "Backend lowering passes.",
       tt::ttmetal::createTTIRToTTMetalBackendPipeline);
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+      "ttir-to-ttmetal-fabric-pipeline",
+      "Wrap device module and run backend only (for pre-lowered fabric IR).",
+      tt::ttmetal::createTTIRToTTMetalFabricPipeline);
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-bufferization-pipeline",
       "Pipeline bufferizing ttir ops on tensors to ops on buffers (memrefs).",
