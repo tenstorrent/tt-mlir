@@ -475,8 +475,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, llvm::ArrayRef<int64_t> tensorGrid,
 inline std::vector<::tt::target::Dim2dRange>
 toFlatbuffer(FlatbufferObjectCache &cache, ttcore::GridAttr tensorGrid,
              ttcore::GridAttr deviceGrid) {
-  auto mapping = tensorGrid.getMapping().isEmpty() ? deviceGrid.getMapping()
-                                                   : tensorGrid.getMapping();
+  auto mapping = tensorGrid.getVirtToPhysicalMap().isEmpty()
+                     ? deviceGrid.getVirtToPhysicalMap()
+                     : tensorGrid.getVirtToPhysicalMap();
   return toFlatbuffer(cache, tensorGrid.getShape(), mapping);
 }
 
@@ -997,14 +998,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
                      ttnn::CoreCoordAttr::get(ctx, shardGrid.getShape()[1] - 1,
                                               shardGrid.getShape()[0] - 1)));
       } else {
+        auto [virtToPhysicalMap, physicalToVirtMap] =
+            ttnn::optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
+                ctx, memLayoutAttr.getValue(), deviceGrid.getShape());
         coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
             ctx, llvm::map_to_vector(
-                     ttcore::utils::toCoreRangeSet(
-                         shardGrid.getShape(),
-                         ttnn::optimizer_utils::
-                             createSingleDeviceVirtualToPhysicalAffineMap(
-                                 ctx, memLayoutAttr.getValue(),
-                                 deviceGrid.getShape())),
+                     ttcore::utils::toCoreRangeSet(shardGrid.getShape(),
+                                                   virtToPhysicalMap),
                      [ctx](const auto &range) {
                        const auto [loc, size] = range;
                        return ttnn::CoreRangeAttr::get(

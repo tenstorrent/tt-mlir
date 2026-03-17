@@ -1043,9 +1043,9 @@ ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
                                mlir::tt::ttcore::GridAttr shardGrid,
                                mlir::tt::ttcore::GridAttr deviceGrid) {
   llvm::SmallVector<CoreRangeAttr> coreRangeSet;
-  AffineMap mapping = (shardGrid.getMapping().isEmpty() == true)
-                          ? deviceGrid.getMapping()
-                          : shardGrid.getMapping();
+  AffineMap mapping = (shardGrid.getVirtToPhysicalMap().isEmpty() == true)
+                          ? deviceGrid.getVirtToPhysicalMap()
+                          : shardGrid.getVirtToPhysicalMap();
 
   for (const auto &locsize2d :
        mlir::tt::ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping)) {
