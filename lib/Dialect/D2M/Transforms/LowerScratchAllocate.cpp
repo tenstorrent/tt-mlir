@@ -149,9 +149,7 @@ private:
 
   // Compute liveness ranges for scratch allocations.
   //
-  // Each allocation's live range spans from its definition to its last use,
-  // where nested uses (e.g. inside affine.for) are mapped to the enclosing
-  // top-level operation in the block.
+  // Each allocation's live range spans from its definition to its last use.
   void computeLiveness(SmallVectorImpl<ScratchAllocationInfo> &allocations,
                        Block &block, Region &region) {
     // Assign sequential position indices to top-level operations in the block.
@@ -162,8 +160,7 @@ private:
     }
 
     // Helper: walk up to find the enclosing operation that lives directly in
-    // the region's entry block. This maps nested uses (e.g. inside affine.for)
-    // to the top-level op that contains them.
+    // the region's entry block.
     auto getTopLevelOp = [&](Operation *op) -> Operation * {
       while (op->getParentRegion() != &region) {
         op = op->getParentOp();
