@@ -52,16 +52,6 @@ public:
 
           return type;
         });
-    // Pass-through for non-tensor types (e.g. memref in function signatures)
-    // so convertType never returns null and UniformTypeRewriter does not
-    // build a FunctionType with null types. Reject RankedTensorType so the
-    // conversion above is used for tensor types.
-    addConversion([](Type type) -> std::optional<Type> {
-      if (mlir::isa<mlir::RankedTensorType>(type)) {
-        return std::nullopt;
-      }
-      return type;
-    });
   }
 };
 
@@ -428,14 +418,6 @@ public:
           }
           return type;
         });
-    // Pass-through for non-tensor types so convertType never returns null.
-    // Reject RankedTensorType so the conversion above is used for tensor types.
-    addConversion([](Type type) -> std::optional<Type> {
-      if (mlir::isa<mlir::RankedTensorType>(type)) {
-        return std::nullopt;
-      }
-      return type;
-    });
   }
 };
 
