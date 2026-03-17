@@ -199,42 +199,52 @@ import ttnn_jit
 ttnn_jit_ext = Extension("ttnn_jit._build_trigger", sources=[])
 
 """
-Installed wheel in a metal dev env starting from TT_METAL_HOME:
-tt_metal/
-├── python_env/
-│   └── lib/
-│       └── python3.10/
-│           └── site-packages/
-│               ├── ttnn/  (if installed via wheel)
-│               │   └── build/
-│               │       └── lib/
-│               │           ├── libtt_metal.so
-│               │           ├── _ttnncpp.so
-│               │           ├── libdevice.so
-│               │           └── libtt_stl.so
-│               │
-│               └── ttnn_jit/
-│                   ├── __init__.py
-│                   ├── api.py
-│                   ├── _src/
-│                   └── runtime/
-│                       ├── libTTMLIRRuntime.so
-│                       ├── _ttmlir_runtime.cpython-310-x86_64-linux-gnu.so
-│                       ├── _ttnn_jit.cpython-310-x86_64-linux-gnu.so
-│                       ├── libJITCPP.so
-│                       └── ttmlir/
-│                           ├── dialects/
-│                           ├── _mlir_libs/
-│                           ├── ir.py
-│                           └── passes.py (and others)
+Installed wheel in a dev env, site-packages layout:
+
+site-packages/
+├── ttmlir/  (installed as a dependency of ttnn-jit)
+│   ├── _mlir_libs/
+│   │   ├── __init__.py
+│   │   ├── _mlir.cpython-312-x86_64-linux-gnu.so
+│   │   ├── _ttmlir.cpython-312-x86_64-linux-gnu.so
+│   │   ├── _stablehlo.cpython-312-x86_64-linux-gnu.so
+│   │   ├── _sdy.cpython-312-x86_64-linux-gnu.so
+│   │   ├── _mpmd.cpython-312-x86_64-linux-gnu.so
+│   │   ├── libTTMLIRPythonCAPI.so
+│   │   └── (other dialect .so files)
+│   ├── dialects/
+│   ├── ir.py
+│   ├── passes.py
+│   └── (and others)
 │
-└── build/  (if using editable install via build_metal.sh)
-    └── lib/
-        ├── libtt_metal.so
-        ├── _ttnncpp.so
-        ├── libdevice.so
-        ├── libtt_stl.so
-        └── libtracy.so.0.10.0
+└── ttnn_jit/
+    ├── __init__.py
+    ├── api.py
+    ├── setup.py
+    ├── libTTMLIRRuntime.so
+    ├── _ttmlir_runtime.cpython-312-x86_64-linux-gnu.so
+    ├── _ttnn_jit.cpython-312-x86_64-linux-gnu.so
+    ├── libJITCPP.so
+    └── _src/
+        ├── __init__.py
+        ├── conversions.py
+        ├── dispatch_op.py
+        ├── ir_generator.py
+        ├── jit.py
+        ├── jit_functions.py
+        ├── memory_analyzer.py
+        ├── supported_ops.py
+        ├── tensor_translator.py
+        ├── tracing_compiler.py
+        └── utils.py
+
+TT_METAL_HOME build/lib/ contains (used at runtime via LD_LIBRARY_PATH):
+├── libtt_metal.so
+├── _ttnncpp.so
+├── _ttnn.so
+├── libdevice.so
+├── libtt_stl.so
+└── libtracy.so.0.10.0
 """
 
 setup(
@@ -251,6 +261,6 @@ setup(
     ext_modules=[ttnn_jit_ext],
     cmdclass={"build_ext": CMakeBuild},
     install_requires=["ttmlir"],
-    python_requires=">=3.10",  # tt-metal uses python3.10
+    python_requires=">=3.10",
     zip_safe=False,
 )
