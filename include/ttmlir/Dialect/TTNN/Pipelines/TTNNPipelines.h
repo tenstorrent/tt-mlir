@@ -367,6 +367,16 @@ struct TTIRToTTNNDevicePipelineOptions
                      "BFP BFloat4 format")),
       llvm::cl::init(WeightDtype::None)};
 
+  Option<WeightDtype> experimentalKVCacheDtype{
+      *this, "experimental-kv-cache-dtype",
+      llvm::cl::desc("Experimental: Target dtype for KV cache conversion."),
+      llvm::cl::values(
+          clEnumValN(WeightDtype::None, "none", "Disabled"),
+          clEnumValN(WeightDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
+          clEnumValN(WeightDtype::BFP_BFloat4, "bfp_bf4",
+                     "BFP BFloat4 format")),
+      llvm::cl::init(WeightDtype::None)};
+
   // ComputeKernelConfig options
   // Note: computeCfgMathFidelity default value is HiFi4
   // And computeCfgFp32DestAccEn default value is true.
