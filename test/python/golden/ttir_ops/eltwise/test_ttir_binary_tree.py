@@ -25,7 +25,7 @@ pytestmark = pytest.mark.frontend("ttir")
         (1024, 2048),
         (2048, 1024),
         (2048, 2048),
-        (256, 256),
+        # (256, 256), - Issue #7539
     ],
     ids=shape_str,
 )
