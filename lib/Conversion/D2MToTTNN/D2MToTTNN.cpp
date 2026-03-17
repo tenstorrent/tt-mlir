@@ -336,6 +336,7 @@ public:
       // to a global tensor — exclude them from the aliased-output check.
       bool isHoistedCB =
           mlir::isa_and_present<ttcore::CBLayoutAttr>(cb_memref.getLayout());
+      Value cbVal = cb;
       bool isAliasedOutput =
           !isHoistedCB &&
           mlir::dyn_cast_if_present<memref::AllocOp>(cb.getDefiningOp()) &&
@@ -362,14 +363,24 @@ public:
     return cbDescriptors;
   }
 
+  // Return true if the operand is used as an output of a d2m generic op.
+  static bool isOutputOfGeneric(Value operand) {
+    auto isOutputOf = [operand](Operation *user) {
+      if (auto genericOp = mlir::dyn_cast<d2m::GenericOp>(user)) {
+        return llvm::is_contained(genericOp.getOutputs(), operand);
+      }
+      return false;
+    };
+    return llvm::any_of(operand.getUsers(), isOutputOf);
+  }
+
   // Extract IO and CB from a generic operand.
   // - origOperand: the original operand from op->getOperands()
   // - convertedOperand: the remapped operand from adaptor.getOperands()
   // IO comes from converted operands (e.g., ttnn.empty results).
   // CB comes from original operands (memref types for CB descriptors).
   static IOAndCB extractIOAndCBFromGenericOperand(Value origOperand,
-                                                  Value convertedOperand,
-                                                  bool isOutput) {
+                                                  Value convertedOperand) {
     if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
             origOperand.getDefiningOp())) {
       if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
@@ -379,12 +390,9 @@ public:
         return {castOp.getOperand(), streamLayoutOp.getStorage()};
       }
 
-      // Stream input is a plain alloc (intermediate buffer between generics).
-      // For outputs: use the data alloc as CB so it gets a global buffer
-      //   binding and the kernel writes results to the tensor's backing buffer.
-      // For inputs: use the storage as CB (streaming CB, no buffer binding
-      //   needed since the kernel reads via runtime args).
-      if (isOutput) {
+      // If the operand is used as an output of a d2m generic op, use the data
+      // alloc as CB. Otherwise, use the storage as CB.
+      if (isOutputOfGeneric(origOperand)) {
         return {convertedOperand, streamLayoutOp.getInput()};
       }
       return {convertedOperand, streamLayoutOp.getStorage()};
@@ -487,9 +495,7 @@ public:
                                            adaptor.getOutputs().size());
     for (auto [i, orig, converted] :
          llvm::enumerate(op.getInputsAndOutputs(), adaptorInputsAndOutputs)) {
-      bool isOutput = (i >= op.getInputs().size());
-      auto [io, cb] =
-          extractIOAndCBFromGenericOperand(orig, converted, isOutput);
+      auto [io, cb] = extractIOAndCBFromGenericOperand(orig, converted);
       ios[i] = io;
       cbs[i] = cb;
     }
