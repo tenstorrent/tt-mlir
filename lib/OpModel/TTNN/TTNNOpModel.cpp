@@ -3417,11 +3417,28 @@ llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  // tt-metal's nlp_concat_heads_decode infers on_subcoregrids from the input
+  // shard grid: if the CoreRangeSet has multiple ranges or doesn't start at
+  // (0,0), it sets on_subcoregrids=true and requires sub_core_grids.
+  // Compute sub_core_grids from the input layout so the subcoregrids path
+  // doesn't crash on a nullopt dereference in compute_output_specs.
+  std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
+  if (inputLayout.hasL1BufferType() && inputLayout.getMemLayout() &&
+      isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
+    auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
+    auto ranges = coreRangeSet.ranges();
+    if (ranges.size() != 1 ||
+        ranges[0].start_coord != ::tt::tt_metal::CoreCoord{0, 0}) {
+      subCoreGrids = coreRangeSet;
+    }
+  }
+
   // Create query closure
   auto nlpConcatHeadsDecodeOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::experimental::nlp_concat_heads_decode, device, inputSpec,
-        numHeads, detail::getNullableMemoryConfig(outputLayout));
+        numHeads, detail::getNullableMemoryConfig(outputLayout),
+        std::optional<::tt::tt_metal::Tensor>(std::nullopt), subCoreGrids);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -3445,11 +3462,25 @@ llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  // Pass sub_core_grids when the input shard grid would trigger subcoregrids
+  // (see getOpConstraints above for rationale).
+  std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
+  if (inputLayout.hasL1BufferType() && inputLayout.getMemLayout() &&
+      isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
+    auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
+    auto ranges = coreRangeSet.ranges();
+    if (ranges.size() != 1 ||
+        ranges[0].start_coord != ::tt::tt_metal::CoreCoord{0, 0}) {
+      subCoreGrids = coreRangeSet;
+    }
+  }
+
   // Create query closure
   auto nlpConcatHeadsDecodeOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::experimental::nlp_concat_heads_decode, device, inputSpec,
-        numHeads, detail::getNullableMemoryConfig(outputLayout));
+        numHeads, detail::getNullableMemoryConfig(outputLayout),
+        std::optional<::tt::tt_metal::Tensor>(std::nullopt), subCoreGrids);
   };
 
   return operation::getOpRuntime(nlpConcatHeadsDecodeOpQuery);
