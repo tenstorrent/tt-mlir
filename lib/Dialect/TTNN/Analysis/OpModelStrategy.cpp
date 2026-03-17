@@ -103,7 +103,10 @@ OutputHints getOutputHints(Operation *op,
       // only valid output is DRAM-interleaved via the NULL hint —
       // every sharded output hint is rejected. Use NULL hint only,
       // no fallbacks.
-      .Case<ScaledDotProductAttentionDecodeOp,
+      // NLPConcatHeadsDecode: tt-metal requires height-sharded L1 input
+      // (set by workaround pass) and always outputs DRAM-interleaved.
+      // Probing sharded output configs crashes compute_output_specs.
+      .Case<NLPConcatHeadsDecodeOp, ScaledDotProductAttentionDecodeOp,
             PagedScaledDotProductAttentionDecodeOp,
             ScaledDotProductAttentionOp>(
           [&](auto) { return OutputHints{{OpConfig(TTNNLayoutAttr())}, {}}; })
