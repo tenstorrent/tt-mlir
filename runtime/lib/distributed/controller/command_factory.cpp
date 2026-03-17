@@ -215,22 +215,39 @@ uint64_t CommandFactory::buildCreateHostTensorCommand(
     ::flatbuffers::FlatBufferBuilder &fbb,
     const ::tt::runtime::Tensor &outputTensor, const void *data,
     const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,
-    uint32_t itemSize, ::tt::target::DataType dataType) {
+    uint32_t itemSize, ::tt::target::DataType dataType, uint32_t numFrames,
+    uint64_t dataBytes) {
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  std::uint64_t numElements =
-      std::accumulate(shape.begin(), shape.end(), static_cast<std::uint64_t>(1),
-                      std::multiplies<std::uint64_t>());
-  std::uint64_t numBytes = numElements * itemSize;
+  if (dataBytes == 0) {
+    std::uint64_t numElements = std::accumulate(
+        shape.begin(), shape.end(), static_cast<std::uint64_t>(1),
+        std::multiplies<std::uint64_t>());
+    dataBytes = numElements * itemSize;
+  }
   auto dataVec =
-      fbb.CreateVector<uint8_t>(static_cast<const uint8_t *>(data), numBytes);
+      fbb.CreateVector<uint8_t>(static_cast<const uint8_t *>(data), dataBytes);
   auto shapeVec = fbb.CreateVector<uint32_t>(shape.data(), shape.size());
   auto strideVec = fbb.CreateVector<uint32_t>(stride.data(), stride.size());
 
   uint64_t commandId =
       BUILD_COMMAND(CreateHostTensor, fbb, outputTensor.getGlobalId(), dataVec,
-                    shapeVec, strideVec, itemSize, dataType);
+                    shapeVec, strideVec, itemSize, dataType, numFrames);
+
+  return commandId;
+}
+
+uint64_t CommandFactory::buildTensorDataFrameCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t outputGlobalId,
+    uint32_t frameIndex, const uint8_t *frameData, uint64_t frameBytes) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  auto dataVec = fbb.CreateVector<uint8_t>(frameData, frameBytes);
+
+  uint64_t commandId =
+      BUILD_COMMAND(TensorDataFrame, fbb, outputGlobalId, frameIndex, dataVec);
 
   return commandId;
 }

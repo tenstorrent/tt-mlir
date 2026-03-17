@@ -63,6 +63,18 @@ table CreateHostTensorCommand {
   stride: [uint32];
   item_size: uint32;
   data_type: tt.target.DataType;
+  // When num_frames > 1, this is the last frame in a streamed transfer.
+  // Preceding frames arrive as TensorDataFrameCommand messages with the same
+  // output_global_id.  Defaults to 1 (legacy single-message path).
+  num_frames: uint32 = 1;
+}
+
+// One chunk of a large tensor streamed in frames.  The receiver accumulates
+// all frames keyed by output_global_id before constructing the tensor.
+table TensorDataFrameCommand {
+  output_global_id: uint64;
+  frame_index: uint32;
+  data: [ubyte];
 }
 
 table StrategyEntry {
@@ -174,6 +186,7 @@ union CommandType {
   ReleaseSubMeshDeviceCommand,
   GetMeshShapeCommand,
   CreateHostTensorCommand,
+  TensorDataFrameCommand,
   CreateMultiDeviceHostTensorFromShardsCommand,
   IsTensorAllocatedCommand,
   GetTensorVolumeCommand,

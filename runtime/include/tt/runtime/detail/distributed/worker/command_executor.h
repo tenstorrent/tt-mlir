@@ -6,8 +6,10 @@
 #define TT_RUNTIME_DETAIL_DISTRIBUTED_WORKER_COMMAND_EXECUTOR_H
 
 #include <atomic>
+#include <cstdint>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include "tt/runtime/detail/common/socket.h"
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
@@ -44,6 +46,13 @@ private:
   std::unordered_map<uint64_t, ::tt::runtime::Binary> binaryPool_;
   std::unordered_map<uint64_t, ::tt::runtime::Layout> layoutPool_;
   std::unordered_map<uint64_t, ::tt::runtime::Tensor> tensorPool_;
+
+  // Accumulation buffer for large tensors received as multiple frames.
+  struct PendingTensorData {
+    std::vector<uint8_t> buffer;
+    uint32_t framesReceived = 0;
+  };
+  std::unordered_map<uint64_t, PendingTensorData> pendingTensors_;
 
   ::tt::runtime::Binary
   getOrCreateBinary(const flatbuffers::Vector<uint8_t> *binary,
@@ -105,6 +114,11 @@ private:
   void
   execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::CreateHostTensorCommand
+              *command);
+
+  void
+  execute(uint64_t commandId,
+          const ::tt::runtime::distributed::flatbuffer::TensorDataFrameCommand
               *command);
 
   void execute(uint64_t commandId,

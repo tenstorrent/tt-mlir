@@ -68,6 +68,10 @@ public:
                                 uint64_t commandId);
 
   static void
+  buildTensorDataFrameResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                               uint64_t commandId);
+
+  static void
   buildIsTensorAllocatedResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                  uint64_t commandId, bool allocated);
 

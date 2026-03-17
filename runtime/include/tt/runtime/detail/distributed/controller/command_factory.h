@@ -8,9 +8,14 @@
 #include "flatbuffers/flatbuffers.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/types.h"
+#include <cstdint>
 #include <string_view>
 
 namespace tt::runtime::distributed::controller {
+
+// Maximum number of bytes packed into a single TensorDataFrameCommand.
+// Kept well below the FlatBuffers 32-bit 2 GB hard limit.
+inline constexpr uint64_t kMaxTensorFrameBytes = 512ULL * 1024 * 1024;
 
 class CommandFactory {
 public:
@@ -62,11 +67,23 @@ public:
   buildGetMeshShapeCommand(::flatbuffers::FlatBufferBuilder &fbb,
                            const ::tt::runtime::Device &deviceHandle);
 
+  // When numFrames == 1 (default), dataBytes is computed from shape * itemSize.
+  // When numFrames > 1, this is the FINAL frame: dataBytes must be provided
+  // explicitly so that only the last chunk is embedded in the command.
   static uint64_t buildCreateHostTensorCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
       const ::tt::runtime::Tensor &outputTensor, const void *data,
       const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,
-      uint32_t itemSize, ::tt::target::DataType dataType);
+      uint32_t itemSize, ::tt::target::DataType dataType,
+      uint32_t numFrames = 1, uint64_t dataBytes = 0);
+
+  // Builds a single intermediate data frame for a large tensor transfer.
+  // frame_index is zero-based; the final frame is sent as a
+  // CreateHostTensorCommand so the worker knows the full tensor metadata.
+  static uint64_t
+  buildTensorDataFrameCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                              uint64_t outputGlobalId, uint32_t frameIndex,
+                              const uint8_t *frameData, uint64_t frameBytes);
 
   static uint64_t buildCreateMultiDeviceHostTensorFromShardsCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,

@@ -6,11 +6,13 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/common/socket.h"
+#include "tt/runtime/detail/distributed/controller/command_factory.h"
 #include "tt/runtime/detail/distributed/worker/response_factory.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
+#include <cstring>
 #include <thread>
 
 namespace tt::runtime::distributed::worker {
@@ -331,15 +333,70 @@ void CommandExecutor::execute(uint64_t commandId,
 }
 
 void CommandExecutor::execute(uint64_t commandId,
+                              const fb::TensorDataFrameCommand *command) {
+  uint64_t tensorGlobalId = command->output_global_id();
+  uint32_t frameIndex = command->frame_index();
+  const uint8_t *frameData = command->data()->data();
+  size_t frameBytes = command->data()->size();
+
+  // Lazily allocate the accumulation buffer on the first frame.
+  auto &pending = pendingTensors_[tensorGlobalId];
+  size_t offset = static_cast<size_t>(frameIndex) * kMaxTensorFrameBytes;
+  if (pending.buffer.size() < offset + frameBytes) {
+    pending.buffer.resize(offset + frameBytes);
+  }
+  std::memcpy(pending.buffer.data() + offset, frameData, frameBytes);
+  ++pending.framesReceived;
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildTensorDataFrameResponse, commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
                               const fb::CreateHostTensorCommand *command) {
   uint64_t tensorGlobalId = command->output_global_id();
-  const uint8_t *tensorData = command->data()->data();
+  uint32_t numFrames = command->num_frames();
+
   std::vector<uint32_t> shape(command->shape()->begin(),
                               command->shape()->end());
   std::vector<uint32_t> stride(command->stride()->begin(),
                                command->stride()->end());
   uint32_t itemSize = command->item_size();
   ::tt::target::DataType dataType = command->data_type();
+
+  const uint8_t *tensorData = nullptr;
+  std::vector<uint8_t> assembledBuffer; // owns memory for multi-frame case
+
+  if (numFrames == 1) {
+    // Legacy single-message path: data is fully embedded in this command.
+    tensorData = command->data()->data();
+  } else {
+    // Multi-frame path: append the last chunk to the accumulated buffer.
+    auto it = pendingTensors_.find(tensorGlobalId);
+    LOG_ASSERT(it != pendingTensors_.end(),
+               "Received final CreateHostTensorCommand for tensor ",
+               tensorGlobalId, " but no preceding frames found");
+
+    PendingTensorData &pending = it->second;
+    LOG_ASSERT(pending.framesReceived == numFrames - 1, "Expected ",
+               numFrames - 1, " preceding frames for tensor ", tensorGlobalId,
+               " but received ", pending.framesReceived);
+
+    const uint8_t *lastChunk = command->data()->data();
+    size_t lastChunkBytes = command->data()->size();
+    size_t lastFrameOffset =
+        static_cast<size_t>(numFrames - 1) * kMaxTensorFrameBytes;
+
+    pending.buffer.resize(lastFrameOffset + lastChunkBytes);
+    std::memcpy(pending.buffer.data() + lastFrameOffset, lastChunk,
+                lastChunkBytes);
+
+    assembledBuffer = std::move(pending.buffer);
+    pendingTensors_.erase(it);
+    tensorData = assembledBuffer.data();
+  }
 
   ::tt::runtime::Tensor tensor = ::tt::runtime::createOwnedHostTensor(
       tensorData, shape, stride, itemSize, dataType);
@@ -744,6 +801,10 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
   case fb::CommandType::CreateHostTensorCommand: {
     return execute(command->command_id(),
                    command->type_as_CreateHostTensorCommand());
+  }
+  case fb::CommandType::TensorDataFrameCommand: {
+    return execute(command->command_id(),
+                   command->type_as_TensorDataFrameCommand());
   }
   case fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand: {
     return execute(

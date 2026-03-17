@@ -11,6 +11,7 @@
 #include "tt/runtime/detail/distributed/utils/utils.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+#include <numeric>
 namespace tt::runtime::distributed::controller {
 
 namespace fb = ::tt::runtime::distributed::flatbuffer;
@@ -396,17 +397,54 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType) {
 
-  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
-
   ::tt::runtime::Tensor outputTensorHandle;
 
-  uint64_t commandId = CommandFactory::buildCreateHostTensorCommand(
-      *commandBuilder, outputTensorHandle, data, shape, stride, itemsize,
-      dataType);
+  std::uint64_t numElements =
+      std::accumulate(shape.begin(), shape.end(), static_cast<std::uint64_t>(1),
+                      std::multiplies<std::uint64_t>());
+  std::uint64_t numBytes = numElements * itemsize;
 
+  if (numBytes <= kMaxTensorFrameBytes) {
+    auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+    uint64_t commandId = CommandFactory::buildCreateHostTensorCommand(
+        *commandBuilder, outputTensorHandle, data, shape, stride, itemsize,
+        dataType);
+    pushToCommandAndResponseQueues(commandId,
+                                   fb::CommandType::CreateHostTensorCommand,
+                                   std::move(commandBuilder));
+    return outputTensorHandle;
+  }
+
+  // Large tensor: stream in kMaxTensorFrameBytes-sized frames.
+  // Intermediate frames are sent as TensorDataFrameCommand messages.
+  // The final frame is sent as a CreateHostTensorCommand (which carries the
+  // shape/stride/dtype metadata) so the worker knows when to assemble.
+  const uint32_t numFrames = static_cast<uint32_t>(
+      (numBytes + kMaxTensorFrameBytes - 1) / kMaxTensorFrameBytes);
+  const auto *src = static_cast<const uint8_t *>(data);
+
+  for (uint32_t i = 0; i < numFrames - 1; ++i) {
+    auto frameBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+    uint64_t frameId = CommandFactory::buildTensorDataFrameCommand(
+        *frameBuilder, outputTensorHandle.getGlobalId(), i,
+        src + i * kMaxTensorFrameBytes, kMaxTensorFrameBytes);
+    pushToCommandAndResponseQueues(frameId,
+                                   fb::CommandType::TensorDataFrameCommand,
+                                   std::move(frameBuilder));
+  }
+
+  // Final frame: embed the last chunk plus full tensor metadata.
+  const uint64_t lastFrameOffset =
+      static_cast<uint64_t>(numFrames - 1) * kMaxTensorFrameBytes;
+  const uint64_t lastFrameBytes = numBytes - lastFrameOffset;
+  auto finalBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildCreateHostTensorCommand(
+      *finalBuilder, outputTensorHandle, src + lastFrameOffset, shape, stride,
+      itemsize, dataType, numFrames, lastFrameBytes);
   pushToCommandAndResponseQueues(commandId,
                                  fb::CommandType::CreateHostTensorCommand,
-                                 std::move(commandBuilder));
+                                 std::move(finalBuilder));
 
   return outputTensorHandle;
 }
@@ -1163,6 +1201,18 @@ void Controller::handleCreateHostTensorResponse(
   debug::assertNoAwaitingState(*awaitingResponse, "CreateHostTensor");
 }
 
+void Controller::handleTensorDataFrameResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::TensorDataFrameResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse, "TensorDataFrame");
+}
+
 void Controller::handleCreateMultiDeviceHostTensorFromShardsResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
@@ -1528,6 +1578,10 @@ void Controller::handleResponse(
   case fb::CommandType::CreateHostTensorCommand: {
     return handleCreateHostTensorResponse(responseBuffers,
                                           std::move(awaitingResponse));
+  }
+  case fb::CommandType::TensorDataFrameCommand: {
+    return handleTensorDataFrameResponse(responseBuffers,
+                                         std::move(awaitingResponse));
   }
   case fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand: {
     return handleCreateMultiDeviceHostTensorFromShardsResponse(
