@@ -579,8 +579,9 @@ toFlatbuffer(FlatbufferObjectCache &cache,
 inline ::tt::target::ttnn::CoreRangeSetT
 toNative(ttnn::CoreRangeSetAttr coreRangeSetAttr) {
   ::tt::target::ttnn::CoreRangeSetT coreRangeSetT;
+  ::flatbuffers::FlatBufferBuilder dummyBuilder;
+  FlatbufferObjectCache dummyCache(&dummyBuilder);
 
-  FlatbufferObjectCache dummyCache(nullptr);
   auto core_ranges = coreRangeSetAttr.getCoreRanges().vec();
   for (auto &core_range : core_ranges) {
     coreRangeSetT.core_ranges.push_back(toFlatbuffer(dummyCache, core_range));
@@ -707,10 +708,14 @@ toFlatbuffer(FlatbufferObjectCache &cache,
 inline ::tt::target::ttnn::UnaryWithParamT
 toNative(ttnn::UnaryWithParamAttr unaryWithParam) {
   ::tt::target::ttnn::UnaryWithParamT unaryWithParamT;
-  FlatbufferObjectCache dummyCache(nullptr);
+  ::flatbuffers::FlatBufferBuilder dummyBuilder;
+  FlatbufferObjectCache dummyCache(&dummyBuilder);
 
   unaryWithParamT.op_type =
       toFlatbuffer(dummyCache, unaryWithParam.getOpType());
+  for (auto param : unaryWithParam.getParams()) {
+    unaryWithParamT.params.push_back(toFlatbuffer(dummyCache, param));
+  }
   return unaryWithParamT;
 }
 
@@ -850,7 +855,8 @@ inline ::tt::target::ttnn::Conv2dConfigT
 toNative(ttnn::Conv2dConfigAttr config) {
   ::tt::target::ttnn::Conv2dConfigT conv2dConfigT;
 
-  FlatbufferObjectCache dummyCache(nullptr);
+  ::flatbuffers::FlatBufferBuilder dummyBuilder;
+  FlatbufferObjectCache dummyCache(&dummyBuilder);
 
   conv2dConfigT.weights_dtype =
       toFlatbuffer(dummyCache, config.getWeightsDtype());
@@ -945,8 +951,9 @@ inline ::tt::target::ttnn::DeviceComputeKernelConfigT
 toNative(ttnn::DeviceComputeKernelConfigAttr computeConfigAttr) {
   ::tt::target::ttnn::DeviceComputeKernelConfigT deviceComputeKernelConfigT;
 
-  FlatbufferObjectCache dummyCache(nullptr);
- 
+  ::flatbuffers::FlatBufferBuilder dummyBuilder;
+  FlatbufferObjectCache dummyCache(&dummyBuilder);
+
   deviceComputeKernelConfigT.math_fidelity =
       toFlatbuffer(dummyCache, computeConfigAttr.getMathFidelity());
   deviceComputeKernelConfigT.math_approx_mode =
