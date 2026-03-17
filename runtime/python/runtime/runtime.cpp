@@ -650,16 +650,23 @@ void registerRuntimeBindings(nb::module_ &m) {
           "get",
           [](nb::callable pre_op_func, nb::callable post_op_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+            PyObject* pre = pre_op_func.ptr();
+            Py_XINCREF(pre);
+            PyObject* post = post_op_func.ptr();
+            Py_XINCREF(post);
+            
             return tt::runtime::debug::Hooks::get(
-                [pre_op_func](tt::runtime::Binary Binary,
+                [pre](tt::runtime::Binary Binary,
                               tt::runtime::CallbackContext programContext,
                               tt::runtime::OpContext opContext) {
-                  pre_op_func(Binary, programContext, opContext);
+                  nb::gil_scoped_acquire gil;
+                  nb::borrow<nb::object>(pre)(Binary, programContext, opContext);
                 },
-                [post_op_func](tt::runtime::Binary Binary,
+                [post](tt::runtime::Binary Binary,
                                tt::runtime::CallbackContext programContext,
                                tt::runtime::OpContext opContext) {
-                  post_op_func(Binary, programContext, opContext);
+                  nb::gil_scoped_acquire gil;
+                  nb::borrow<nb::object>(post)(Binary, programContext, opContext);
                 });
 #else
             tt::runtime::debug::Hooks::get();
