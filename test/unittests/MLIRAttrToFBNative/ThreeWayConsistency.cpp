@@ -98,7 +98,6 @@ protected:
   virtual void compareResults(std::optional<RetType> pathA,
                               std::optional<RetType> pathB,
                               std::optional<RetType> pathC) = 0;
-
 };
 
 class DeviceComputeKernelConfigTest
@@ -148,6 +147,7 @@ protected:
       if (pathA == std::nullopt && pathB == std::nullopt &&
           pathC == std::nullopt) {
         SUCCEED();
+        return;
       }
       FAIL();
     }
@@ -228,6 +228,9 @@ protected:
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->reallocate_halo_output,
                         pathB->reallocate_halo_output,
                         pathC->reallocate_halo_output);
+    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->config_tensors_in_dram,
+                        pathB->config_tensors_in_dram,
+                        pathC->config_tensors_in_dram);
     EXPECT_PRED_FORMAT3(Equal<bool>, pathA->act_block_h_override,
                         pathB->act_block_h_override,
                         pathC->act_block_h_override);
@@ -258,9 +261,6 @@ protected:
                         pathA->enable_kernel_stride_folding,
                         pathB->enable_kernel_stride_folding,
                         pathC->enable_kernel_stride_folding);
-    EXPECT_PRED_FORMAT3(Equal<std::optional<tt::tt_metal::TensorMemoryLayout>>,
-                        pathA->shard_layout, pathB->shard_layout,
-                        pathC->shard_layout);
   }
 };
 
@@ -301,10 +301,11 @@ TEST_F(Conv2dConfigTest, Conv2dConfigWithCoreGrid) {
   baseConfig = baseConfig.withEnableKernelStrideFolding(true);
 
   baseConfig = baseConfig.withCoreGrid(mlir::tt::ttnn::CoreRangeSetAttr::get(
-  &context,
-  llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>{mlir::tt::ttnn::CoreRangeAttr::get(
-                  &context, mlir::tt::ttnn::CoreCoordAttr::get(&context, 0,
-                  0), mlir::tt::ttnn::CoreCoordAttr::get(&context, 7, 0))}));
+      &context,
+      llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>{
+          mlir::tt::ttnn::CoreRangeAttr::get(
+              &context, mlir::tt::ttnn::CoreCoordAttr::get(&context, 0, 0),
+              mlir::tt::ttnn::CoreCoordAttr::get(&context, 7, 0))}));
 
   baseConfig = baseConfig.withActivation(mlir::tt::ttnn::UnaryOpType::Relu);
 
