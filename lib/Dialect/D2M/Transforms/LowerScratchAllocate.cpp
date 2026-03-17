@@ -11,9 +11,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "llvm/Support/Debug.h"
-
-#define DEBUG_TYPE "d2m-lower-scratch-allocate"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERSCRATCHALLOCATE
@@ -117,7 +114,6 @@ private:
 
     // Get the scratch operand value (CB block arg or memref.alloc).
     int64_t scratchInputIdx = scratchInputsAttr[0];
-    Block &block = region.front();
     Value scratchValue =
         d2m::GenericOp::getOperandAlloc(region, scratchInputIdx);
 

@@ -105,9 +105,12 @@ func.func @packing_non_conflicting() {
   }
   ins(%in, %scratch_buf : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
-  ^bb0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+  ^bb0():
+    %alloc_cb11 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb12 = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb13 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
-    // CHECK: %[[SCRATCH:.*]] = d2m.get_scratch_from_cb %{{.*}} : <memref<1x8x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>,
 
     // Slot 2 (5 tiles): defined and last-used here. Dies before slots 0/1.
     // CHECK: %[[SV2:.*]] = memref.subview %[[SCRATCH]][0, 0] [1, 5] [1, 1]
