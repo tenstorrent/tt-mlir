@@ -192,7 +192,8 @@ def test_reduction_cpu_hoisted_ops(
         pytest.param([(4, 4, 128)], 2, id="rank3_dim2"),
     ],
 )
-def test_cumsum(shapes: List[Shape], dim: int, request, device):
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_cumsum(shapes: List[Shape], dim: int, request, target, device):
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [torch.float32] * len(shapes))
         def cumsum(
@@ -205,6 +206,7 @@ def test_cumsum(shapes: List[Shape], dim: int, request, device):
     compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
+        target=target,
         device=device,
     )
 
@@ -219,11 +221,9 @@ def test_cumsum(shapes: List[Shape], dim: int, request, device):
     ],
     ids=["dim1", "dim0", "dim_negative"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_cumsum(
     shapes: List[Shape],
     dim: int,
-    target: str,
     request,
     device,
 ):
@@ -239,7 +239,6 @@ def test_hoisted_cumsum(
     compile_and_execute_ttir(
         module,
         test_base=request.node.name,
-        target=target,
         device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
