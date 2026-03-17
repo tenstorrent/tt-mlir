@@ -241,8 +241,6 @@ void createTTIRToTTNNDevicePipeline(
   // identifying Device Forward functions downstream.
   pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
 
-  pm.addPass(mlir::createCanonicalizerPass());
-
   // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
 
@@ -253,6 +251,9 @@ void createTTIRToTTNNDevicePipeline(
   {
     auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
+    // Element type normalization must run before canonicalization and other
+    // transformative passes. Canonicalization patterns assume normalized types
+    // (e.g., no i64/f64) and may produce incorrect results otherwise.
     // Element type normalization should be applied only to the ops in the
     // Device Module, since we aren't restricted with element types on CPU.
     ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
