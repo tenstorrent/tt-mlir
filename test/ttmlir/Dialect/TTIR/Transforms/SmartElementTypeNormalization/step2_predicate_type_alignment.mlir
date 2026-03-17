@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttir-element-type-normalization-for-ttmetal %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-smart-element-type-normalization %s | FileCheck %s
 
 // =============================================================================
 // Step 2: Predicate-like type alignment in one place:

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -11,7 +11,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_ELEMENTTYPENORMALIZATIONFORTTMETAL
+#define GEN_PASS_DEF_SMARTELEMENTTYPENORMALIZATION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
@@ -24,7 +24,8 @@ public:
 
           // Tensor-of-tile types use TTCore TileType as element type; do not
           // run float/integer normalization on them (TileType has
-          // FloatTypeInterface but getFloatSemantics is not fully implemented).
+          // FloatTypeInterface but getFloatSemantics is not fully implemented,
+          // issue https://github.com/tenstorrent/tt-mlir/issues/5124 ).
           if (mlir::isa<mlir::tt::ttcore::TileType>(elementType)) {
             return type;
           }
@@ -273,7 +274,7 @@ struct AlignElementwiseBinaryTypesPattern : public mlir::RewritePattern {
 // Normalize 32-bit integer element type to signless i32 so step 2 result types
 // match step 3's type converter (avoids function result type vs return value
 // mismatch).
-static Type normalizeI32ForTTMetal(Type elementType, MLIRContext *ctx) {
+static Type normalizeI32Signless(Type elementType, MLIRContext *ctx) {
   if (auto intTy = mlir::dyn_cast<mlir::IntegerType>(elementType)) {
     if (intTy.getWidth() == 32) {
       return IntegerType::get(ctx, 32);
@@ -304,7 +305,7 @@ struct ComparisonResultTypePattern
     }
 
     Type elemType =
-        normalizeI32ForTTMetal(lhsType.getElementType(), op.getContext());
+        normalizeI32Signless(lhsType.getElementType(), op.getContext());
     auto newResultType = mlir::RankedTensorType::get(
         resultType.getShape(), elemType, resultType.getEncoding());
 
@@ -336,7 +337,7 @@ struct LogicalNotResultTypePattern
     }
 
     Type elemType =
-        normalizeI32ForTTMetal(inputType.getElementType(), op.getContext());
+        normalizeI32Signless(inputType.getElementType(), op.getContext());
     auto newResultType = mlir::RankedTensorType::get(
         resultType.getShape(), elemType, resultType.getEncoding());
 
@@ -366,7 +367,7 @@ struct ReduceOrResultTypePattern : public mlir::OpRewritePattern<ReduceOrOp> {
     }
 
     Type elemType =
-        normalizeI32ForTTMetal(inputType.getElementType(), op.getContext());
+        normalizeI32Signless(inputType.getElementType(), op.getContext());
     auto newResultType = mlir::RankedTensorType::get(
         resultType.getShape(), elemType, resultType.getEncoding());
 
@@ -476,12 +477,11 @@ private:
   mlir::TypeConverter converter;
 };
 
-struct ElementTypeNormalizationForTTMetal
-    : public impl::ElementTypeNormalizationForTTMetalBase<
-          ElementTypeNormalizationForTTMetal> {
-  using impl::ElementTypeNormalizationForTTMetalBase<
-      ElementTypeNormalizationForTTMetal>::
-      ElementTypeNormalizationForTTMetalBase;
+struct SmartElementTypeNormalization
+    : public impl::SmartElementTypeNormalizationBase<
+          SmartElementTypeNormalization> {
+  using impl::SmartElementTypeNormalizationBase<
+      SmartElementTypeNormalization>::SmartElementTypeNormalizationBase;
 
   void runOnOperation() final {
     I64ToI32AndF64ToF32TypeConverter converter;

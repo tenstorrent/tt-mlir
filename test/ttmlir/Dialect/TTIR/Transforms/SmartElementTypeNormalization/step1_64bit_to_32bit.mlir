@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttir-element-type-normalization-for-ttmetal %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-smart-element-type-normalization %s | FileCheck %s
 
 // =============================================================================
 // Step 1: i64 and f64 tensors and constants are converted to i32 and f32.
