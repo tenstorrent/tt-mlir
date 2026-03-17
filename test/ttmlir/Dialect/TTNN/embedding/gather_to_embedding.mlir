@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-const-eval=false" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 module attributes {} {
   // Examples 0 to 5 are from models.
