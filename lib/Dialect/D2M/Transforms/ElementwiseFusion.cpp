@@ -473,11 +473,12 @@ static GenericOp createFusedGeneric(
   // Storing repl for later use when we skip the consumer's remote_load:
   Value producerYieldedValue = repl;
 
-  // Map skipped duplicate consumer block arguments to the producer's yielded
-  // value. These positions reference the same producer result as fusedOperand
-  // and were excluded from the fused op's operand list.
+  // Map skipped duplicate consumer tensor.empty values to the producer's
+  // yielded value. These positions reference the same producer result as
+  // fusedOperand and were excluded from the fused op's operand list.
   for (unsigned skippedIdx : skippedDups) {
-    irMap.map(cb.getArgument(skippedIdx), producerYieldedValue);
+    Value origEmpty = GenericOp::getOperandAlloc(*cb.getParent(), skippedIdx);
+    irMap.map(origEmpty, producerYieldedValue);
   }
 
   // Clone remaining consumer body ops (except terminator). Treat nested
