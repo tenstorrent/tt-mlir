@@ -39,6 +39,10 @@ struct StableHLOPipelineOptions
       *this, OptionNames::automaticArgAnalysis,
       llvm::cl::desc("Automatically determine argument shardings.")};
 
+  Option<bool> enableAggressiveSimplification{
+      *this, OptionNames::enableAggressiveSimplification,
+      llvm::cl::desc("Run StableHLO aggressive simplification pass.")};
+
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
           *this, ttcore::OptionNames::argumentTypes,
