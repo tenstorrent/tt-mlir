@@ -10,6 +10,14 @@ import pytest
 
 from op_definitions import abs, exp, add, mul, matmul
 
+
+def fusion_test(input_a, input_b):
+    a = ttnn.add(input_a, input_b)
+    b = ttnn.multiply(a, input_b)
+    c = ttnn.exp(b)
+    return ttnn.sigmoid(c)
+
+
 # Memory configs that pass for all ops and both JIT and non-JIT.
 # DRAM interleaved works for matmul (requires interleaved) and all elementwise ops.
 # L1 interleaved is not used: JIT runtime fails with RuntimeError on L1 interleaved
@@ -37,6 +45,7 @@ def is_unary(op):
         add,
         mul,
         matmul,
+        fusion_test,
     ],
     ids=[
         "abs",
@@ -44,6 +53,7 @@ def is_unary(op):
         "add",
         "mul",
         "matmul",
+        "fusion_test",
     ],
 )
 @pytest.mark.parametrize(
@@ -67,9 +77,19 @@ def is_unary(op):
     ],
 )
 def test_op_compare(
-    h, w, op, dtype, ttnn_dtype, memory_config, memory_config_id, jit_enabled
+    h,
+    w,
+    op,
+    dtype,
+    ttnn_dtype,
+    memory_config,
+    memory_config_id,
+    jit_enabled,
+    perf_device,
 ):
-    device = ttnn.open_device(device_id=0)
+    if op == fusion_test and ttnn_dtype == ttnn.DataType.BFLOAT8_B:
+        pytest.skip("Fusion test is not supported for bfp8 dtype")
+    device = perf_device
     torch_tensor_a = torch.rand((h, w), dtype=dtype) * 100
     torch_tensor_b = torch.rand((h, w), dtype=dtype) * 100
 
@@ -98,4 +118,3 @@ def test_op_compare(
     )
 
     print(f"output_tensor\n: {output_tensor}")
-    ttnn.close_device(device)

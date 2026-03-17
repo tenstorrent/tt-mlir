@@ -49,14 +49,6 @@ jobs:
       test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
       timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
 
-  jit-perf-test:
-    needs: [ build-image, release-build ]
-    uses: ./.github/workflows/call-jit-perf-test.yml
-    secrets: inherit
-    with:
-      docker_image: ${{ needs.build-image.outputs.docker-image }}
-
-
   fail-notify:
     if: always()
     needs:
