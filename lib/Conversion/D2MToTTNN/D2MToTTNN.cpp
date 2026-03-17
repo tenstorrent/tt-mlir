@@ -639,7 +639,7 @@ static Value findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping) {
     return iter->second;
   }
 
-  auto def = operand.getDefiningOp();
+  auto *def = operand.getDefiningOp();
   if (auto stream = dyn_cast<d2m::StreamLayoutOp>(def)) {
     return findIOTensor(stream.getInput(), valueMapping);
   }
@@ -672,11 +672,11 @@ static Value findCBMemref(Value operand) {
   if (auto view = dyn_cast<d2m::ViewLayoutOp>(def)) {
     if (isa_and_present<d2m::StreamLayoutOp>(view.getInput().getDefiningOp())) {
       return view.getInput();
-    } else {
-      TT_assertv(isa<MemRefType>(operand.getType()),
-                 "expected operand to be a memref");
-      return operand;
     }
+
+    TT_assertv(isa<MemRefType>(operand.getType()),
+               "expected operand to be a memref");
+    return operand;
   }
 
   TT_assertv(isa<MemRefType>(operand.getType()),
