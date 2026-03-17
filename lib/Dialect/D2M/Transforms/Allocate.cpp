@@ -1275,11 +1275,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         return failure();
       }
 
-      TT_assert(reblocked->returnView &&
-                "allocator reblocking expects a return view to the original "
-                "generic result");
-      TT_assert(oldGenericOp.getOutputs().size() == 1u &&
-                "allocator reblocking expects a single output operand");
+      TT_assertv(reblocked->returnView,
+                 "allocator reblocking expects a return view to the original "
+                 "generic result");
+      TT_assertv(oldGenericOp.getOutputs().size() == 1u,
+                 "allocator reblocking expects a single output operand");
       Operation *sequenceAnchor = reblocked->returnView.getOperation();
       Value newOutput = reblocked->returnView.getResult();
 
