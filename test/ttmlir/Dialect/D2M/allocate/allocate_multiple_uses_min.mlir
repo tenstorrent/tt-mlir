@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=9437184 test-buffer-size-policy=max" -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=9437184 test-buffer-size-policy=min" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // This test triggers stream insertion on a DRAM-allocated operand and checks that the same operand
@@ -17,11 +17,13 @@ module {
   func.func @main() -> memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1> {
     %r = memref.alloc() : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>
     // CHECK: %[[DATA:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64}{{.+}} #dram>
+    // CHECK: %[[VIEW_1:.*]] = d2m.view_layout %[[DATA]]
+    // CHECK: %[[VIEW_2:.*]] = d2m.view_layout %[[DATA]]
     %a = memref.alloc() : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #dram>
     // CHECK: %[[BUF_1:.*]] = memref.alloc(){{.+}} #l1>
-    // CHECK: %[[STREAM_1:.*]] = "d2m.stream_layout"(%[[DATA]], %[[BUF_1]])
+    // CHECK: %[[STREAM_1:.*]] = "d2m.stream_layout"(%[[VIEW_1]], %[[BUF_1]])
     // CHECK: %[[BUF_2:.*]] = memref.alloc(){{.+}} #l1>
-    // CHECK: %[[STREAM_2:.*]] = "d2m.stream_layout"(%[[DATA]], %[[BUF_2]])
+    // CHECK: %[[STREAM_2:.*]] = "d2m.stream_layout"(%[[VIEW_2]], %[[BUF_2]])
     d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
         ins(%a, %a : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #dram>, memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #dram>)
         outs(%r : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>)  {

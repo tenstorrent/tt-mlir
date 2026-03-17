@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=stream-insert-policy=infer test-buffer-size-policy=max" -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=stream-insert-policy=infer test-buffer-size-policy=min" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verify several supported use cases for operand stream insertion by d2m-allocate in stream-insert-policy=infer mode (current default).
@@ -31,9 +31,9 @@ module {
     %rhs = memref.alloc() : memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
     %r = memref.alloc() : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
     // expect two streams inserted by the pass, for %lhs and %rhs, in operand order:
-    // CHECK: %[[STREAM_LHS:.*]] = "d2m.stream_layout"({{.+}}) <{remapping = #map{{.*}}}> : (memref<1x1x2x3
-    // CHECK: %[[STREAM_RHS:.*]] = "d2m.stream_layout"({{.+}}) <{remapping = #map{{.*}}}> : (memref<1x1x3x4
-    // CHECK: ins(%[[STREAM_LHS]], %[[STREAM_RHS]] :
+    // CHECK: %[[STREAM_LHS:.*]] = "d2m.stream_layout"({{.+}}) <{remapping = #map{{.*}}}>
+    // CHECK: %[[STREAM_RHS:.*]] = "d2m.stream_layout"({{.+}}) <{remapping = #map{{.*}}}>
+    // CHECK: ins(%[[STREAM_LHS]], %[[STREAM_RHS]] : memref<{{.+}}#ttcore.view<4>, #l1>, memref<{{.+}}#ttcore.view<4>, #l1>)
     d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<unified>]}
         ins(%lhs, %rhs : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%r : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
@@ -68,9 +68,9 @@ module {
     %rhs = memref.alloc() : memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
     %r = memref.alloc() : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
     // expect two streams, for lhs and rhs, in operand order; one of them should be %stream_lhs, the other inserted by the pass:
-    // CHECK: %[[STREAM_LHS:.*]] = "d2m.stream_layout"({{.+}}) <{remapping = #map{{.*}}}> : (memref<1x1x2x3
-    // CHECK: %[[STREAM_RHS:.*]] = "d2m.stream_layout"({{.+}}) <{remapping = #map{{.*}}}> : (memref<1x1x3x4
-    // CHECK: ins(%[[STREAM_LHS]], %[[STREAM_RHS]] :
+    // CHECK: %[[STREAM_LHS:.*]] = "d2m.stream_layout"({{.+}}) <{remapping = #map{{.*}}}>
+    // CHECK: %[[STREAM_RHS:.*]] = "d2m.stream_layout"({{.+}}) <{remapping = #map{{.*}}}>
+    // CHECK: ins(%{{.+}}, %[[STREAM_RHS]] : memref<{{.+}}#ttcore.view<4>, #l1>, memref<{{.+}}#ttcore.view<4>, #l1>)
     %buf_lhs = memref.alloc() : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 2>, #l1>
     %stream_lhs = "d2m.stream_layout"(%lhs, %buf_lhs) {remapping = #remap4} : (memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1>, memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 2>, #l1>) -> memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
     d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<unified>]}

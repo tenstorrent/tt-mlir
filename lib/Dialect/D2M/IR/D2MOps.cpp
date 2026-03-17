@@ -2467,15 +2467,18 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
                 cast<RankedTensorType>(newEmptyType));
           }
         }
-      } else if (auto getCbOp = dyn_cast<d2m::GetCBOp>(&clonedOp)) {
+<<<<<<< HEAD
+      } else if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&clonedOp)) {
         const unsigned operandIndex = static_cast<unsigned>(getCbOp.getPort());
         if (operandIndex < reblockedOperands.size()) {
-          auto oldCbType = cast<d2m::CBType>(getCbOp.getResult().getType());
+          auto oldCbType =
+              mlir::cast<d2m::CBType>(getCbOp.getResult().getType());
           Type newUnderlyingType = getShardTypeFromOperand(
               reblockedOperands[operandIndex], oldCbType.getUnderlying());
           if (newUnderlyingType != oldCbType.getUnderlying()) {
-            getCbOp.getResult().setType(d2m::CBType::get(
-                cast<ShapedType>(newUnderlyingType)));
+            getCbOp.getResult().setType(
+                d2m::CBType::get(getCbOp.getContext(),
+                                 mlir::cast<ShapedType>(newUnderlyingType)));
           }
         }
       } else if (auto remoteLoadOp =
