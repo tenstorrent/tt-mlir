@@ -332,8 +332,6 @@ public:
       // TODO (#7158): This is brittle. Ideally we should specifically identify
       // outputs and handle them separately from inputs, but that will require a
       // larger refactor of this pass.
-      // Hoisted CB allocs (CBLayoutAttr) are streaming buffers, not aliased
-      // to a global tensor — exclude them from the aliased-output check.
       bool isHoistedCB =
           mlir::isa_and_present<ttcore::CBLayoutAttr>(cb_memref.getLayout());
       Value cbVal = cb;
@@ -389,13 +387,14 @@ public:
                    "Expected TTNNMetalLayoutCastOp producing stream input.");
         return {castOp.getOperand(), streamLayoutOp.getStorage()};
       }
-
-      // If the operand is used as an output of a d2m generic op, use the data
-      // alloc as CB. Otherwise, use the storage as CB.
-      if (isOutputOfGeneric(origOperand)) {
-        return {convertedOperand, streamLayoutOp.getInput()};
+      if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
+              streamLayoutOp.getInput().getDefiningOp())) {
+        TT_assertv(allocOp, "Expected memref.alloc producing stream input.");
+        if (isOutputOfGeneric(origOperand)) {
+          return {convertedOperand, allocOp};
+        }
+        return {convertedOperand, streamLayoutOp.getStorage()};
       }
-      return {convertedOperand, streamLayoutOp.getStorage()};
     }
 
     if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
