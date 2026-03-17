@@ -2,18 +2,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Utils.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/ADT/SmallVector.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
+#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Fusing/SDPAFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/TopKFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -1120,6 +1120,128 @@ private:
   }
 };
 
+// ============================================================================
+// NLP Concat Heads Decode Fusing
+// ============================================================================
+//
+// Matches the decode-phase concat-heads pattern that appears after
+// scaled_dot_product_attention_decode in LLMs:
+//
+//   permute([1, 2, 0, 3])  :  [S, B, H, D] -> [B, H, S, D]
+//   reshape                 :  [B, H, S, D] -> [B, H*D]  (or similar collapse)
+//
+// This sequence shuffles the multi-head attention output back into a single
+// hidden dimension. It is replaced by the optimized hardware op
+// nlp_concat_heads_decode which performs:
+//
+//   [S, B, H_padded, D] -> [S, 1, B, num_heads * D]
+//
+// followed by a reshape to match the original output shape.
+//
+class NLPConcatHeadsDecodeFusing : public mlir::OpRewritePattern<ReshapeOp> {
+  using NLPConcatHeadsDecodeFusing::OpRewritePattern<
+      ReshapeOp>::OpRewritePattern;
+
+  // Permutation that converts [S, B, H, D] -> [B, H, S, D].
+  static constexpr std::array<int64_t, 4> kConcatHeadsDecodePermutation = {
+      1, 2, 0, 3};
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ReshapeOp reshapeOp,
+                  mlir::PatternRewriter &rewriter) const override {
+    auto permuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
+    if (!permuteOp) {
+      return failure();
+    }
+
+    // Check permutation is [1, 2, 0, 3].
+    auto permutation = permuteOp.getPermutation();
+    if (!llvm::equal(permutation,
+                     ArrayRef<int64_t>(kConcatHeadsDecodePermutation))) {
+      return failure();
+    }
+
+    Value input = permuteOp.getInput();
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+
+    auto inputShape = inputType.getShape();
+    int64_t seqLen = inputShape[0];
+    int64_t batchSize = inputShape[1];
+    int64_t numHeads = inputShape[2];
+    int64_t headDim = inputShape[3];
+
+    // NLP concat heads decode is specifically for decode phase (seq_len == 1).
+    if (seqLen != 1) {
+      return failure();
+    }
+
+    // TODO(vkovacevic): https://github.com/tenstorrent/tt-metal/issues/38992
+    // The tt-metal nlp_concat_heads_decode op computes its output logical shape
+    // from the input's padded shape. If head_dim or batch aren't tile-aligned,
+    // the output logical shape will differ from what our IR expects, causing a
+    // volume mismatch in the subsequent reshape at runtime.
+    constexpr int64_t kTileSize = 32;
+    if (headDim % kTileSize != 0 || batchSize % kTileSize != 0) {
+      return failure();
+    }
+
+    SmallVector<int64_t> concatHeadsOutputShape = {seqLen, 1, batchSize,
+                                                   numHeads * headDim};
+    auto concatHeadsResultType = utils::RankedTensorTypeFactory::create(
+        inputType, concatHeadsOutputShape);
+
+    op_model::ScopedSingletonDeviceGuard deviceGuard(reshapeOp);
+
+    auto nlpConcatHeadsDecodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
+        reshapeOp.getLoc(), concatHeadsResultType, input,
+        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
+        /*memory_config=*/MemoryConfigAttr());
+
+    // Validate the fused op. The op requires height-sharded L1 input, so
+    // try the workaround-sharded version since the workaround pass hasn't
+    // run yet.
+    auto workaround = workarounds::decomposition::getWorkaroundedInput(
+        nlpConcatHeadsDecodeOp, rewriter);
+    if (workaround) {
+      auto shardedInputType =
+          mlir::cast<RankedTensorType>(workaround->getType());
+      auto shardedResultType = utils::RankedTensorTypeFactory::create(
+          shardedInputType, concatHeadsOutputShape);
+
+      auto validationOp = rewriter.create<NLPConcatHeadsDecodeOp>(
+          reshapeOp.getLoc(), shardedResultType, workaround->getResult(),
+          rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
+          /*memory_config=*/MemoryConfigAttr());
+
+      std::vector<TTNNLayoutAttr> inputLayouts =
+          utils::extractInputLayouts(validationOp.getOperation());
+      OpConfig config(
+          mlir::cast<TTNNLayoutAttr>(shardedResultType.getEncoding()));
+      auto validationResult = op_constraint_validation::validateOperation(
+          validationOp.getOperation(), inputLayouts, config);
+
+      rewriter.eraseOp(validationOp);
+      rewriter.eraseOp(*workaround);
+
+      if (!validationResult.isSuccess()) {
+        rewriter.eraseOp(nlpConcatHeadsDecodeOp);
+        return failure();
+      }
+    }
+
+    rewriter.setInsertionPointAfter(nlpConcatHeadsDecodeOp);
+
+    auto newReshapeOp = rewriter.create<ReshapeOp>(
+        reshapeOp.getLoc(), reshapeOp.getType(),
+        nlpConcatHeadsDecodeOp.getResult(), reshapeOp.getShapeAttr(),
+        /*memory_config=*/MemoryConfigAttr());
+
+    rewriter.replaceOp(reshapeOp, newReshapeOp.getResult());
+    return mlir::success();
+  }
+};
+
 #endif // TTMLIR_ENABLE_OPMODEL
 
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
@@ -1148,7 +1270,8 @@ public:
       patterns.add<fusing::RoPEFusing>(&getContext());
       patterns.add<fusing::RoPEDecodeFusing>(&getContext());
       patterns.add<fusing::TopKFusing>(&getContext(), validationConfig);
-      patterns.add<SDPAFusing>(&getContext());
+      patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
+      patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
     }
 #endif // TTMLIR_ENABLE_OPMODEL
 
