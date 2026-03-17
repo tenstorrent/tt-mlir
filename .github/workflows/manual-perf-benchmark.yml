@@ -46,7 +46,7 @@ jobs:
     name: 'Run Perf Benchmarks (tt-xla: ${{ inputs.build_xla }}, tt-torch: ${{ inputs.build_torch }}, tt-forge-fe: ${{ inputs.build_forge_fe }})'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - id: set-inputs
         run: |
           if [ "${{ inputs.same_branch }}" == 'true' ]; then

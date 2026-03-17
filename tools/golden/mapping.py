@@ -84,6 +84,9 @@ class GoldenMapTensor:
         for name in _MUTATING_METHOD_NAMES
     }
 
+    # Torch matmul functions that are too slow on CPUs w/o hardware bf16 support.
+    _BF16_UPCAST_MM_FUNCS = frozenset({torch.matmul, torch.mm, torch.bmm, torch.einsum})
+
     # ----- Methods -----
 
     def __init__(self, shard_map: Dict[int, torch.Tensor], mesh_shape: Tuple[int, int]):
@@ -255,6 +258,28 @@ class GoldenMapTensor:
             if isinstance(obj, dict):
                 return {kk: _take(v, k) for kk, v in obj.items()}
             return obj
+
+        # Transparently upcast bf16 matmul to f32 and cast back so it uses the fast BLAS backend.
+        if func in cls._BF16_UPCAST_MM_FUNCS and any(
+            st.dtype == torch.bfloat16 for st in st_inputs
+        ):
+            _orig_func = func
+            # Torch promotes mixed-precision matmuls (bf16 @ f32 -> f32), so we only downcast if there's no f32.
+            has_f32_input = any(st.dtype == torch.float32 for st in st_inputs)
+
+            print(f"Upcasting bf16 matmul to f32 for {_orig_func.__name__}")
+
+            def func(*a, **kw):
+                a = tuple(
+                    x.float()
+                    if isinstance(x, torch.Tensor) and x.dtype == torch.bfloat16
+                    else x
+                    for x in a
+                )
+                result = _orig_func(*a, **kw)
+                if not has_f32_input:
+                    return result.to(torch.bfloat16)
+                return result
 
         # Apply func shard-wise.
         out_shards = {k: func(*_take(args, k), **_take(kwargs, k)) for k in keys}
@@ -1204,6 +1229,42 @@ def ttir_layer_norm_golden(
     ).to(output_dtype)
 
 
+def ttir_group_norm_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor],
+    bias: Optional[GoldenMapTensor],
+    num_groups,
+    epsilon: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    num_groups = unpack_mlir_attr(num_groups)
+    epsilon = unpack_mlir_attr(epsilon)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_float = input.float()
+
+    # torch.group_norm expects [N, C, ...] (channels at dim=1), but the TTIR
+    # GroupNorm op uses channels-last: [N, 1, H*W, C]. Permute to NCHW,
+    # compute, then permute back.
+    if input_float.dim() == 4 and input_float.shape[1] == 1:
+        input_nchw = input_float.permute(0, 3, 1, 2)
+        result = torch.nn.functional.group_norm(
+            input_nchw,
+            num_groups=num_groups,
+            weight=weight,
+            bias=bias,
+            eps=epsilon,
+        )
+        return result.permute(0, 2, 3, 1).to(output_dtype)
+
+    return torch.nn.functional.group_norm(
+        input_float,
+        num_groups=num_groups,
+        weight=weight,
+        bias=bias,
+        eps=epsilon,
+    ).to(output_dtype)
+
+
 def typecast_golden(input_tensor: GoldenMapTensor, dtype) -> GoldenMapTensor:
     """
     Custom golden function for typecasting.
@@ -1539,6 +1600,118 @@ def linear_golden(
         else bias
     )
     return torch.add(output, bias)
+
+
+def sdpa_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: GoldenMapTensor,
+    attention_mask=None,
+    is_causal=True,
+    scale=None,
+    **kwargs,
+) -> GoldenMapTensor:
+    """
+    Golden function for scaled dot product attention.
+    Matches tt-metal's FlashAttention implementation where scale is fused into
+    exp: exp((QK + mask - max) * scale). This means the mask is effectively
+    scaled, unlike PyTorch's standard SDPA which computes QK * scale + mask.
+
+    Supports standard attention and Grouped-Query Attention (GQA).
+    """
+    q_heads = query.shape[1]
+    kv_heads = key.shape[1]
+
+    # Handle GQA: broadcast K/V heads to match Q heads
+    if q_heads != kv_heads:
+        assert q_heads % kv_heads == 0
+        num_repeats = q_heads // kv_heads
+        key = torch.repeat_interleave(key, num_repeats, dim=1)
+        value = torch.repeat_interleave(value, num_repeats, dim=1)
+
+    # QK = Q @ K^T
+    qk = torch.matmul(query.float(), key.float().transpose(-2, -1))
+
+    # Apply causal mask if requested (before scaling, matching tt-metal)
+    if is_causal and attention_mask is None:
+        seq_len_q = qk.shape[-2]
+        seq_len_k = qk.shape[-1]
+        causal_mask = torch.triu(
+            torch.full((seq_len_q, seq_len_k), float("-inf")), diagonal=1
+        )
+        qk = torch.add(qk, causal_mask)
+
+    # Add attention mask (before scaling, matching tt-metal)
+    if attention_mask is not None:
+        qk = torch.add(qk, attention_mask.float())
+
+    # Scale AFTER masking (tt-metal fuses scale into exp)
+    if scale is not None:
+        qk = torch.mul(qk, scale)
+
+    # Softmax + matmul with V
+    attn_weights = torch.softmax(qk, dim=-1)
+    output = torch.matmul(attn_weights, value.float())
+
+    return output.to(query.dtype)
+
+
+def sdpa_decode_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: GoldenMapTensor,
+    cur_pos_tensor: GoldenMapTensor = None,
+    attention_mask=None,
+    is_causal=True,
+    scale=None,
+    **kwargs,
+) -> GoldenMapTensor:
+    """
+    Golden function for scaled dot product attention decode.
+    Matches tt-metal's Flash-Decode implementation.
+
+    Decode layout:
+        Query:  [1, batch, num_heads, head_dim]
+        Key:    [batch, num_kv_heads, seq_len, head_dim]
+        Value:  [batch, num_kv_heads, seq_len, head_dim]
+        Output: [1, batch, num_heads, head_dim]
+    """
+    # Query: [1, B, H, D] -> [B, H, 1, D]
+    q = query.float().squeeze(0).unsqueeze(2)
+
+    k = key.float()
+    v = value.float()
+
+    q_heads = q.shape[1]
+    kv_heads = k.shape[1]
+
+    # Handle GQA: broadcast K/V heads to match Q heads
+    if q_heads != kv_heads:
+        assert q_heads % kv_heads == 0
+        num_repeats = q_heads // kv_heads
+        k = torch.repeat_interleave(k, num_repeats, dim=1)
+        v = torch.repeat_interleave(v, num_repeats, dim=1)
+
+    # QK = Q @ K^T: [B, H, 1, D] @ [B, H, D, S] -> [B, H, 1, S]
+    qk = torch.matmul(q, k.transpose(-2, -1))
+
+    # Add attention mask (before scaling, matching tt-metal)
+    # Mask is in decode layout [B, 1, H, S], permute to [B, H, 1, S] to match qk
+    if attention_mask is not None:
+        qk = torch.add(qk, attention_mask.float().transpose(1, 2))
+
+    # Scale AFTER masking (tt-metal fuses scale into exp)
+    if scale is not None:
+        qk = torch.mul(qk, scale)
+
+    # Softmax + matmul with V
+    attn_weights = torch.softmax(qk, dim=-1)
+    output = torch.matmul(attn_weights, v)  # [B, H, 1, D]
+
+    # Output: [B, H, 1, D] -> [1, B, H, D]
+    output = output.squeeze(2).unsqueeze(0)
+
+    return output.to(query.dtype)
 
 
 def dot_general_golden(
@@ -3386,6 +3559,13 @@ def ttir_dropout_golden(
     return torch.dropout(input_tensor, prob_val, True).to(output_dtype)
 
 
+def ttir_gelu_backward_golden(grad, input, approximate="none"):
+    # torch.ops.aten.gelu_backward with approximate="none" does not support
+    # implicit broadcasting (ONEDNN limitation). Broadcast inputs explicitly.
+    grad, input = torch.broadcast_tensors(grad, input)
+    return torch.ops.aten.gelu_backward(grad, input, approximate=approximate)
+
+
 def ttir_cos_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -3493,7 +3673,7 @@ def ttir_slice_golden(
 
     shard_map = {}
     for device_id, shard in input_tensor.shard_map.items():
-        shard_map[device_id] = shard[slices]
+        shard_map[device_id] = shard[tuple(slices)]
 
     return GoldenMapTensor(shard_map, input_tensor.mesh_shape).to(output_dtype)
 
@@ -4213,21 +4393,34 @@ def ttir_reverse_golden(
 
 
 def stablehlo_sort_golden(
-    input_tensor: GoldenMapTensor,
+    input_tensors,
     dimension_attr: IntegerAttr,
     is_stable_attr: BoolAttr,
     descending_attr: BoolAttr,
-    output_type_mlir: Type,
-) -> GoldenMapTensor:
+    output_types_mlir,
+):
+    # Normalize single-input case to tuple
+    if isinstance(input_tensors, GoldenMapTensor):
+        input_tensors = (input_tensors,)
+    if not isinstance(output_types_mlir, (list, tuple)):
+        output_types_mlir = [output_types_mlir]
+
     dimension = unpack_mlir_attr(dimension_attr)
     is_stable = unpack_mlir_attr(is_stable_attr)
     descending = unpack_mlir_attr(descending_attr)
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
-    values, _ = torch.sort(
-        input_tensor, dim=dimension, descending=descending, stable=is_stable
+    key_tensor = input_tensors[0]
+    sorted_key, indices = torch.sort(
+        key_tensor, dim=dimension, descending=descending, stable=is_stable
     )
-    return values.to(output_dtype)
+
+    results = [sorted_key.to(mlir_type_to_torch_dtype(output_types_mlir[0]))]
+
+    for i in range(1, len(input_tensors)):
+        sorted_value = torch.gather(input_tensors[i], dimension, indices)
+        results.append(sorted_value.to(mlir_type_to_torch_dtype(output_types_mlir[i])))
+
+    return tuple(results)
 
 
 def ttir_equal_golden(
@@ -6136,6 +6329,28 @@ def ttnn_layer_norm_golden(
     ).to(output_dtype)
 
 
+def ttnn_group_norm_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor],
+    bias: Optional[GoldenMapTensor],
+    num_groups,
+    epsilon: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    num_groups = unpack_mlir_attr(num_groups)
+    epsilon = unpack_mlir_attr(epsilon)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_float = input.float()
+
+    return torch.nn.functional.group_norm(
+        input_float,
+        num_groups=num_groups,
+        weight=weight,
+        bias=bias,
+        eps=epsilon,
+    ).to(output_dtype)
+
+
 def ttnn_concat_golden(
     input_tensors: List[GoldenMapTensor], dim_attr: IntegerAttr, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -6256,7 +6471,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ErfcOp: torch.erfc,
     ttir.FloorOp: ttir_floor_golden,
     ttir.GeluOp: torch.nn.functional.gelu,
-    ttir.GeluBackwardOp: torch.ops.aten.gelu_backward,
+    ttir.GeluBackwardOp: ttir_gelu_backward_golden,
     ttir.IsFiniteOp: ttir_isfinite_golden,
     ttir.MishOp: torch.nn.functional.mish,
     ttir.NegOp: ttir_neg_golden,
@@ -6348,6 +6563,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
+    ttir.GroupNormOp: ttir_group_norm_golden,
     ttir.RMSNormOp: ttir_rms_norm_golden,
     ttir.DistributedRMSNormOp: ttir_distributed_rms_norm_golden,
     # Type operations
@@ -6376,6 +6592,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.MaxPool2dWithIndicesOp: ttir_max_pool2d_with_indices,
     ttir.ArgMaxOp: argmax_golden,
     ttir.LinearOp: linear_golden,
+    ttir.ScaledDotProductAttentionOp: sdpa_golden,
+    ttir.ScaledDotProductAttentionDecodeOp: sdpa_decode_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
@@ -6533,6 +6751,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.MatmulOp: ttnn_matmul_golden,
     ttnn.LinearOp: ttnn_linear_golden,
     ttnn.LayerNormOp: ttnn_layer_norm_golden,
+    ttnn.GroupNormOp: ttnn_group_norm_golden,
     ttnn.RMSNormOp: rms_norm_golden,
     # Tensor manipulation
     ttnn.ConcatOp: ttnn_concat_golden,

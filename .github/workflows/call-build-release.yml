@@ -11,7 +11,7 @@ on:
         description: 'Docker image for the build'
         required: false
         type: string
-        default: 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest'
+        default: 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-24-04:latest'
       runner:
         description: Runner machine
         required: false
@@ -62,7 +62,7 @@ jobs:
       if: inputs.runner == 'ubuntu-latest'
       uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
 
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
           fetch-depth: 0
 
@@ -121,6 +121,7 @@ jobs:
           -DTTMLIR_ENABLE_STABLEHLO=ON \
           -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
           -DTTMLIR_ENABLE_ALCHEMIST_WHEEL=${{ matrix.build.enable_alchemist_whl }} \
+          -DTT_USE_SYSTEM_SFPI=ON \
           -DTT_RUNTIME_DEBUG=${{ matrix.build.enable_runtime_debug }} \
           -S ${{ steps.strings.outputs.work-dir }}
 

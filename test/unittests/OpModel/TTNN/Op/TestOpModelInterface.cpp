@@ -11,6 +11,8 @@
 #include "ttmlir/OpModel/TTNN/TTNNOpsModelCache.h"
 #include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
 
+#include "Constants.h"
+
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
@@ -4374,6 +4376,111 @@ TEST_F(OpModelBase, layerNormOpL1Memory) {
   }
 }
 
+TEST_F(OpModelBase, groupNormOp) {
+  // Test case 1: Basic GroupNorm with weight and bias
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 64, 480};
+  llvm::SmallVector<int64_t> inputMaskShape = {1, 8, 32, 96};
+  llvm::SmallVector<int64_t> weightShape = {1, 1, inputShape.back() / 32, 32};
+  llvm::SmallVector<int64_t> biasShape = {1, 1, inputShape.back() / 32, 32};
+
+  auto input = createEmptyTensor(inputShape);
+  auto inputMask = createEmptyTensor(inputMaskShape);
+  const TTNNLayoutAttr tensorLayout_DRAMRowMajor = CreateRowMajorLayout(
+      weightShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  auto weight = createEmptyTensor(weightShape, builder.getBF16Type(),
+                                  tensorLayout_DRAMRowMajor);
+  auto bias = createEmptyTensor(biasShape, builder.getBF16Type(),
+                                tensorLayout_DRAMRowMajor);
+  auto outputType = createRankedTensorType(inputShape);
+
+  int64_t numGroups = 8;
+  llvm::APFloat epsilon(1e-12f);
+
+  // group_norm requires explicit core_grid; use a fixed test value.
+  auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
+
+  GroupNormOp groupNormOp = builder.create<GroupNormOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*input_mask=*/inputMask, weight, bias, numGroups, epsilon,
+      /*memoryConfig=*/nullptr, coreGrid);
+  groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(groupNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(groupNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, groupNormOpL1Memory) {
+  // Test case 2: GroupNorm with L1 memory buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 64, 480};
+  llvm::SmallVector<int64_t> inputMaskShape = {1, 8, 32, 96};
+  llvm::SmallVector<int64_t> weightShape = {1, 1, inputShape.back() / 32, 32};
+  llvm::SmallVector<int64_t> biasShape = {1, 1, inputShape.back() / 32, 32};
+
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputMaskLayout_L1 = CreateTiledLayout(
+      inputMaskShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr tensorLayout_L1RowMajor = CreateRowMajorLayout(
+      weightShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto inputMask = createEmptyTensor(inputMaskShape, builder.getBF16Type(),
+                                     inputMaskLayout_L1);
+  auto weight = createEmptyTensor(weightShape, builder.getBF16Type(),
+                                  tensorLayout_L1RowMajor);
+  auto bias = createEmptyTensor(biasShape, builder.getBF16Type(),
+                                tensorLayout_L1RowMajor);
+  auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
+
+  int64_t numGroups = 8;
+  llvm::APFloat epsilon(1e-12f);
+
+  // group_norm requires explicit core_grid; use a fixed test value.
+  auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
+
+  GroupNormOp groupNormOp = builder.create<GroupNormOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*input_mask=*/inputMask, weight, bias, numGroups, epsilon,
+      /*memoryConfig=*/nullptr, coreGrid);
+  groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(groupNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(groupNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, EmptyOpInterface) {
   // create EmptyOp with full TTNN layout attributes
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
@@ -5562,5 +5669,90 @@ TEST_F(OpModelBase, DropoutOpInterface) {
            << llvm::toString(runtimeExp.takeError()) << std::endl;
   }
 }
+
+struct MeshPartitionRuntimeParam {
+  size_t meshRows;
+  size_t meshCols;
+  int32_t dim;
+  uint32_t clusterAxis;
+};
+
+class OpModelMeshPartitionInterfaceRuntimeTest
+    : public OpModelBase,
+      public ::testing::WithParamInterface<MeshPartitionRuntimeParam> {};
+
+TEST_P(OpModelMeshPartitionInterfaceRuntimeTest,
+       MeshPartitionOpInterfaceRuntime) {
+  const auto &p = GetParam();
+  const size_t numChips = p.meshRows * p.meshCols;
+
+  // Runtime queries require a real multi-chip device.
+  // Try to reopen with the requested mesh; if the system doesn't have enough
+  // devices the open will throw, so catch and skip gracefully.
+  op_model::SingletonDeviceContext::closeInstance();
+  try {
+    op_model::SingletonDeviceContext::getInstance().openDevice(
+        ::tt::constants::opModelDefaultTraceRegionSize,
+        /*isMock=*/false,
+        /*meshShape=*/std::make_pair(p.meshRows, p.meshCols));
+  } catch (...) {
+    // Reopen the default device for TearDown before skipping.
+    op_model::SingletonDeviceContext::getInstance().openDevice();
+    GTEST_SKIP() << "Unable to open {" << p.meshRows << "," << p.meshCols
+                 << "} mesh device; not enough hardware";
+  }
+
+  const size_t meshDims[] = {p.meshRows, p.meshCols};
+  const int64_t splitFactor = static_cast<int64_t>(meshDims[p.clusterAxis]);
+
+  llvm::SmallVector<int64_t> inputShape = {static_cast<int64_t>(numChips),
+                                           1024};
+  llvm::SmallVector<int64_t> outputShape = inputShape;
+  outputShape[p.dim] = inputShape[p.dim] / splitFactor;
+
+  auto inputLayout = CreateRowMajorLayout(inputShape, BufferType::L1,
+                                          TensorMemoryLayout::Interleaved);
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  auto outputType = createRankedTensorType(outputShape);
+
+  auto meshPartitionOp = builder.create<MeshPartitionOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*dim=*/builder.getSI32IntegerAttr(p.dim),
+      /*cluster_axis=*/builder.getUI32IntegerAttr(p.clusterAxis),
+      /*memory_config=*/nullptr);
+  meshPartitionOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto runtimeExp = getOpRuntime(meshPartitionOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Missing runtime; Error="
+           << llvm::toString(runtimeExp.takeError()) << std::endl;
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(MeshPartitionRuntime,
+                         OpModelMeshPartitionInterfaceRuntimeTest,
+                         ::testing::Values(
+                             // {1,2} mesh: only axis 1 splits.
+                             MeshPartitionRuntimeParam{1, 2, 0, 1},
+                             MeshPartitionRuntimeParam{1, 2, 1, 1},
+                             // {1,4} mesh: only axis 1 splits.
+                             MeshPartitionRuntimeParam{1, 4, 0, 1},
+                             MeshPartitionRuntimeParam{1, 4, 1, 1},
+                             // {1,8} mesh: only axis 1 splits.
+                             MeshPartitionRuntimeParam{1, 8, 0, 1},
+                             MeshPartitionRuntimeParam{1, 8, 1, 1},
+                             // {2,2} mesh: both axes split.
+                             MeshPartitionRuntimeParam{2, 2, 0, 0},
+                             MeshPartitionRuntimeParam{2, 2, 0, 1},
+                             MeshPartitionRuntimeParam{2, 2, 1, 0},
+                             MeshPartitionRuntimeParam{2, 2, 1, 1},
+                             // {2,4} mesh: both axes split.
+                             MeshPartitionRuntimeParam{2, 4, 0, 0},
+                             MeshPartitionRuntimeParam{2, 4, 0, 1},
+                             MeshPartitionRuntimeParam{2, 4, 1, 0},
+                             MeshPartitionRuntimeParam{2, 4, 1, 1}));
 
 } // namespace mlir::tt::ttnn

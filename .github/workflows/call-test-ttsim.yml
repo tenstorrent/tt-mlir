@@ -56,7 +56,7 @@ jobs:
         working-directory: ${{ github.workspace }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -147,6 +147,8 @@ jobs:
           export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
           export LD_LIBRARY_PATH="$INSTALL_DIR/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
           export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+          export TT_METAL_INSPECTOR="0"
+          export TT_METAL_INSPECTOR_RPC="0"
           mkdir -p test_reports
 
           run_sim_test() {

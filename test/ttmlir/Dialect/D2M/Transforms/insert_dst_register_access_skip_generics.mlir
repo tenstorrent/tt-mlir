@@ -14,7 +14,9 @@ module {
     %2 = d2m.generic {block_factors = [], grid = #ttcore.grid<1x1x1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%1 : tensor<1x1x1x1x1x32x32x32xf32, #layout>)
         outs(%1 : tensor<1x1x1x1x1x32x32x32xf32, #layout>)  {
-    ^unified0(%cb0: !d2m.cb<tensor<1x32x32x32xf32>>, %cb1: !d2m.cb<tensor<1x32x32x32xf32>>):
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<1x32x32x32xf32>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<1x32x32x32xf32>>
       %5 = d2m.wait %cb0 : <tensor<1x32x32x32xf32>> -> tensor<1x32x32x32xf32>
       d2m.yield %5 : (tensor<1x32x32x32xf32>)
     } : tensor<1x1x1x1x1x32x32x32xf32, #layout>

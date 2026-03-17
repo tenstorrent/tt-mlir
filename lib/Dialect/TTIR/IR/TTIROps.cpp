@@ -380,7 +380,7 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
   const RankedTensorType outputTensorType =
       mlir::cast<RankedTensorType>(getResult().getType());
 
-  if (inputTensorType != outputTensorType) {
+  if (inputTensorType.getShape() != outputTensorType.getShape()) {
     return emitOpError("input and output must have same shape.");
   }
 
@@ -648,6 +648,17 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
 //===----------------------------------------------------------------------===//
 // EmptyOp
 //===----------------------------------------------------------------------===//
+
+// EmptyOp models allocation semantics: each empty() is a distinct allocation
+// that gets written into (e.g. DPS output buffer for ttir.ToLayoutOp). The
+// Allocate effect prevents CSE from merging identical empty ops while still
+// allowing DCE to remove unused ones.
+void EmptyOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(MemoryEffects::Allocate::get(),
+                       cast<OpResult>(getResult()));
+}
 
 //===----------------------------------------------------------------------===//
 // RandOp
@@ -3491,24 +3502,7 @@ bool mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferizesToMemoryWrite(
              << ttmlir::utils::join(expectedOutputShape, ",") << ")";
     }
 
-    // tt-metal uses a composite LinearOp where the bias is added after the
-    // matmul, and ttnn.add supports broadcasting of both operands. Otherwise,
-    // tt-metal lowers to a fused LinearOp, which uses the matmul result shape
-    // as the output shape. The composite LinearOp requires that the bias
-    // second-to-last dim (of padded shape) does not match the tile height.
-    // Update the expected output shape to the fully broadcasted shape when:
-    // 1) The matmul result is a scalar (vector x vector), so the inferred
-    //    output shape is empty and must be derived from the bias via
-    //    broadcasting, or
-    // 2) The bias second-to-last dim (of padded shape) does not match the
-    //    tile height, indicating the composite LinearOp is used.
-    llvm::SmallVector<int64_t> paddedBiasShape =
-        ttnn::utils::getTilePaddedShape(biasShape);
-    if (expectedOutputShape.empty() ||
-        (paddedBiasShape.size() > 1 &&
-         paddedBiasShape[paddedBiasShape.size() - 2] != ttnn::TILE_HEIGHT)) {
-      expectedOutputShape = broadcastShape;
-    }
+    expectedOutputShape = broadcastShape;
   }
 
   // Check the case of a vector-vector product. At this moment we don't
@@ -5489,6 +5483,66 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// GroupNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::GroupNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Input must be 4D.
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be a 4D tensor, got rank ")
+           << inputType.getRank();
+  }
+
+  int64_t numGroups = getNumGroups();
+  if (numGroups <= 0) {
+    return emitOpError("num_groups must be positive, got ") << numGroups;
+  }
+
+  // Validate channel_dim is within bounds.
+  int64_t channelDimIdx = getChannelDim();
+  if (channelDimIdx < 0 || channelDimIdx >= inputType.getRank()) {
+    return emitOpError("channel_dim must be in range [0, rank), got ")
+           << channelDimIdx << " for rank " << inputType.getRank();
+  }
+
+  // Channel dimension must be divisible by num_groups.
+  int64_t c = inputType.getShape()[channelDimIdx];
+  if (c % numGroups != 0) {
+    return emitOpError("channel dimension (dim ")
+           << channelDimIdx << ") must be divisible by num_groups; got C=" << c
+           << ", num_groups=" << numGroups;
+  }
+
+  // Weight must be 1D with size matching channel dimension.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != c) {
+      return emitOpError(
+                 "weight must be 1D with size matching channel dimension C=")
+             << c;
+    }
+  }
+
+  // Bias must be 1D with size matching channel dimension.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != c) {
+      return emitOpError(
+                 "bias must be 1D with size matching channel dimension C=")
+             << c;
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
@@ -5562,15 +5616,18 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    if (attentionMaskType.getShape()[0] != batchSize) {
-      return emitOpError(
-          "Attention mask batch size must match query batch size");
+    if (attentionMaskType.getShape()[0] != 1 &&
+        attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError("Attention mask batch size must be 1 (broadcast) or "
+                         "match query batch size");
     }
     if (attentionMaskType.getShape()[1] != 1) {
       return emitOpError("Attention mask dim 1 must be 1");
     }
-    if (attentionMaskType.getShape()[2] != nQueryHeads) {
-      return emitOpError("Attention mask num heads must match query num heads");
+    if (attentionMaskType.getShape()[2] != 1 &&
+        attentionMaskType.getShape()[2] != nQueryHeads) {
+      return emitOpError("Attention mask num heads must be 1 (broadcast) or "
+                         "match query num heads");
     }
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask sequence length must match key/value "
@@ -5736,12 +5793,15 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    if (attentionMaskType.getShape()[0] != batchSize) {
-      return emitOpError(
-          "Attention mask batch size must match query batch size");
+    if (attentionMaskType.getShape()[0] != 1 &&
+        attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError("Attention mask batch size must be 1 (broadcast) or "
+                         "match query batch size");
     }
-    if (attentionMaskType.getShape()[1] != 1) {
-      return emitOpError("Attention mask dim 1 must be 1");
+    if (attentionMaskType.getShape()[1] != 1 &&
+        attentionMaskType.getShape()[1] != nQueryHeads) {
+      return emitOpError("Attention mask dim 1 must be 1 (broadcast) or match "
+                         "query num heads");
     }
     if (attentionMaskType.getShape()[2] != seqLen) {
       return emitOpError(

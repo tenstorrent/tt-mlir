@@ -35,6 +35,7 @@ struct ShardSpec;
 struct CoreRangeSet;
 struct CoreRange;
 struct CoreCoord;
+struct CoreGrid;
 
 struct DataType;
 struct TensorMemoryLayout;
@@ -96,6 +97,9 @@ struct LayerNormShardedMultiCoreProgramConfig;
 namespace mlir {
 namespace tt {
 namespace ttnn_to_emitpy {
+
+constexpr const char *kNameAttr = "emitpy.name";
+constexpr const char *kConstEvaledAttr = "emitpy.const_evaled";
 
 template <typename T, typename Enable = void>
 struct TypeName;
@@ -212,6 +216,11 @@ struct TypeName<std::set<T>> {
 template <>
 struct TypeName<::ttnn::CoreCoord> {
   inline static const std::string value = "ttnn.CoreCoord";
+};
+
+template <>
+struct TypeName<::ttnn::CoreGrid> {
+  inline static const std::string value = "ttnn.CoreGrid";
 };
 
 template <>
@@ -535,6 +544,34 @@ struct EmitPyTypeConverter<::ttnn::CoreCoord> {
 };
 
 template <>
+struct EmitPyTypeConverter<::ttnn::CoreGrid> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto coreCoordAttr =
+            mlir::dyn_cast_if_present<ttnn::CoreCoordAttr>(attr)) {
+      return convert(coreCoordAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::CoreCoordAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::CoreGrid>;
+    rso << "(x=";
+    rso << EmitPyTypeConverter<size_t>::convert(attr.getX()) << ", y=";
+    rso << EmitPyTypeConverter<size_t>::convert(attr.getY());
+    rso << ")";
+
+    return buf;
+  }
+};
+
+template <>
 struct EmitPyTypeConverter<::ttnn::CoreRange> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto coreRangeAttr =
@@ -601,6 +638,14 @@ struct EmitPyTypeConverter<::ttnn::DataType> {
       return convert(dataTypeAttr);
     }
     return {};
+  }
+
+  static std::string convert(ttcore::DataTypeAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    return convert(attr.getValue());
   }
 
   static std::string convert(ttcore::DataType attr) {
@@ -2201,6 +2246,14 @@ public:
             layoutAttr, deviceOp.getDeviceAttr().getWorkerGrid()));
 
     return memoryConfigAttr;
+  }
+
+  ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
+    auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    return ttcore::DataTypeAttr::get(resultLayoutAttr.getContext(),
+                                     resultLayoutAttr.getDataType());
   }
 
   template <typename OpConversionPatternTy>

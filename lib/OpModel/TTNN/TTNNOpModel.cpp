@@ -247,6 +247,27 @@ getNullableMemoryConfig(TTNNLayoutAttr layout) {
 }
 
 /**
+ * @brief Reorder pool2d padding from IR convention to tt-metal convention.
+ *
+ * IR stores padding as [H_low, W_low, H_high, W_high] (top, left, bottom,
+ * right) but tt-metal expects [top, bottom, left, right] (H_low, H_high,
+ * W_low, W_high). The runtime does this reordering when executing from
+ * flatbuffers, but the op_model constraint query path must do it too.
+ */
+std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>
+reorderPool2dPadding(llvm::ArrayRef<int32_t> padding) {
+  if (padding.size() == 2) {
+    return conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding);
+  }
+  return std::array<uint32_t, 4>{
+      static_cast<uint32_t>(padding[0]), // top
+      static_cast<uint32_t>(padding[2]), // bottom
+      static_cast<uint32_t>(padding[1]), // left
+      static_cast<uint32_t>(padding[3]), // right
+  };
+}
+
+/**
  * @brief Convenience wrapper to get a DataType from a TTNNLayout attr that
  * may be a nullptr. Returns std::nullopt if layout is nullptr
  */
@@ -617,8 +638,7 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
         in_channels, out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
@@ -634,8 +654,7 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
         input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
@@ -709,11 +728,13 @@ getPrepareConv2dBiasOpOutputTensorSpec(
     ::ttnn::Conv2dConfig localConfig;
     if (!conv2dConfigConverted.has_value()) {
       localConfig = ::ttnn::Conv2dConfig();
-      // Weights dtype needs to be set for prepare_conv_bias.
-      localConfig.weights_dtype = weightsDtype;
     } else {
       localConfig = *conv2dConfigConverted;
     }
+    // Weights dtype must always be set for prepare_conv_bias.
+    // tt-metal's prepare_conv_bias accesses weights_dtype.value() without
+    // checking has_value(), causing std::bad_optional_access when unset.
+    localConfig.weights_dtype = weightsDtype;
 
     return ::ttnn::graph::query_op_constraints(
         &::ttnn::operations::conv::conv2d::prepare_conv_bias, device,
@@ -721,8 +742,7 @@ getPrepareConv2dBiasOpOutputTensorSpec(
         out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, *inputDtype, outputDtype, localConfig,
         /*compute_config_=*/std::nullopt,
@@ -737,8 +757,7 @@ getPrepareConv2dBiasOpOutputTensorSpec(
         in_channels, out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, *inputDtype, outputDtype, conv2dConfigConverted,
         /*compute_config_=*/std::nullopt,
@@ -4839,8 +4858,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
         out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         deviceComputeKernelConfigConverted,
@@ -4924,8 +4942,7 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
         out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         deviceComputeKernelConfigConverted,
@@ -5369,8 +5386,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
         inChannels, outChannels, batchSize, inputHeight, inputWidth,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
@@ -5428,8 +5444,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
         batchSize, inputHeight, inputWidth,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
@@ -5488,8 +5503,7 @@ OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints(
         inChannels, outChannels, batchSize, inputHeight, inputWidth,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
@@ -5548,8 +5562,7 @@ OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints(
         batchSize, inputHeight, inputWidth,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
@@ -5602,8 +5615,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
@@ -5653,8 +5665,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
@@ -5710,8 +5721,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
@@ -5762,8 +5772,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
+        detail::reorderPool2dPadding(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
@@ -5823,10 +5832,8 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
-        ceilMode, countIncludePad, divisorOverride,
-        detail::getNullableMemoryConfig(outputLayout),
+        detail::reorderPool2dPadding(padding), ceilMode, countIncludePad,
+        divisorOverride, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
         false /* deallocate_input */, reallocateHaloOutput,
@@ -5881,10 +5888,8 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
-            padding),
-        ceilMode, countIncludePad, divisorOverride,
-        detail::getNullableMemoryConfig(outputLayout),
+        detail::reorderPool2dPadding(padding), ceilMode, countIncludePad,
+        divisorOverride, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
         false /* deallocate_input */, reallocateHaloOutput,
@@ -6381,6 +6386,129 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(layerNormQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// GroupNormOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
+    std::optional<TTNNLayoutAttr> inputMaskLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
+    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+    std::optional<CoreCoordAttr> coreGrid) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> inputMaskSpec =
+      detail::convertToOptionalTensorSpec(device, inputMaskShape,
+                                          inputMaskLayout);
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+
+  int numGroupsInt = static_cast<int>(numGroups);
+  float epsilonFloat = epsilon.convertToFloat();
+  std::optional<::ttnn::types::CoreGrid> coreGridCoord = std::nullopt;
+  if (coreGrid) {
+    coreGridCoord = ::ttnn::CoreGrid(coreGrid->getX(), coreGrid->getY());
+  }
+
+  auto groupNormQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::group_norm, device, inputSpec, numGroupsInt, epsilonFloat,
+        inputMaskSpec, weightSpec, biasSpec,
+        /*reciprocals=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*dtype=*/std::nullopt,
+        /*core_grid=*/coreGridCoord,
+        /*inplace=*/std::nullopt,
+        /*output_layout=*/std::nullopt,
+        /*num_out_blocks=*/-1,
+        /*compute_kernel_config=*/std::nullopt,
+        /*negative_mask=*/std::nullopt,
+        /*use_welford=*/false);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     groupNormQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
+    std::optional<TTNNLayoutAttr> inputMaskLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
+    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+    std::optional<CoreCoordAttr> coreGrid) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> inputMaskSpec =
+      detail::convertToOptionalTensorSpec(device, inputMaskShape,
+                                          inputMaskLayout);
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+
+  int numGroupsInt = static_cast<int>(numGroups);
+  float epsilonFloat = epsilon.convertToFloat();
+  std::optional<::ttnn::types::CoreGrid> coreGridCoord = std::nullopt;
+  if (coreGrid) {
+    coreGridCoord = ::ttnn::CoreGrid(coreGrid->getX(), coreGrid->getY());
+  }
+
+  // Create query closure
+  auto groupNormQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::group_norm, device, inputSpec, numGroupsInt, epsilonFloat,
+        inputMaskSpec, weightSpec, biasSpec,
+        /*reciprocals=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*dtype=*/std::nullopt,
+        /*core_grid=*/coreGridCoord,
+        /*inplace=*/std::nullopt,
+        /*output_layout=*/std::nullopt,
+        /*num_out_blocks=*/-1,
+        /*compute_kernel_config=*/std::nullopt,
+        /*negative_mask=*/std::nullopt,
+        /*use_welford=*/false);
+  };
+
+  return operation::getOpRuntime(groupNormQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -7451,6 +7579,68 @@ llvm::Expected<size_t> OpModel<TopKOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(topKQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// MeshPartitionOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<MeshPartitionOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, int32_t dim,
+    std::optional<uint32_t> clusterAxis, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert input tensor to TensorSpec
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto meshPartitionOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::mesh_partition, device, inputSpec, dim, clusterAxis,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     meshPartitionOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<MeshPartitionOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout, int32_t dim,
+    std::optional<uint32_t> clusterAxis, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert input tensor to TensorSpec
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto meshPartitionOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::mesh_partition, device, inputSpec, dim, clusterAxis,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(meshPartitionOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

@@ -27,6 +27,11 @@ def load_requirements(filename):
                 or requirement.startswith("--")
             ):
                 continue
+
+            # Skip torch requirements - we'll handle them separately based on platform
+            if requirement.startswith("torch"):
+                continue
+
             requirements.append(requirement)
 
     return requirements
@@ -61,6 +66,14 @@ runlibs = []
 perflibs = []
 metallibs = []
 install_requires = load_requirements("requirements.txt")
+
+# Add platform-specific torch requirement
+if platform.system() == "Linux":
+    install_requires.append(
+        "torch @ https://download.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl"
+    )
+elif platform.system() == "Darwin":
+    install_requires.append("torch==2.9.1")
 
 if enable_ttnn:
     runlibs += ["_ttnncpp.so"]

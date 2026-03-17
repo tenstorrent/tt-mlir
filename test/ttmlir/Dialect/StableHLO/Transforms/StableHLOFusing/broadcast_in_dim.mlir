@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-pipeline --split-input-file  -o %t.mlir %s
+// RUN: ttmlir-opt --stablehlo-pipeline="enable-aggressive-simplification=true" --split-input-file -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 module {
@@ -73,17 +73,85 @@ module {
   func.func @concatenate_reshape_4(%arg0: tensor<2x4xbf16>) -> tensor<3x2x4xbf16> {
     %0 = stablehlo.reshape %arg0 : (tensor<2x4xbf16>) -> tensor<1x2x4xbf16>
     %1 = stablehlo.concatenate %0, %0, %0, dim = 0 : (tensor<1x2x4xbf16>, tensor<1x2x4xbf16>, tensor<1x2x4xbf16>) -> tensor<3x2x4xbf16>
-    // not yet added support for reshape -> concat fusion
-    // CHECK-NOT: stablehlo.broadcast_in_dim
+    // CHECK: stablehlo.broadcast_in_dim
+    // CHECK-SAME: dims = [1, 2]
     return %1 : tensor<3x2x4xbf16>
-    // broadcast dims [1, 2]
   }
   func.func @concatenate_reshape_5(%arg0: tensor<2x4xbf16>) -> tensor<2x3x4xbf16> {
     %0 = stablehlo.reshape %arg0 : (tensor<2x4xbf16>) -> tensor<2x1x4xbf16>
     %1 = stablehlo.concatenate %0, %0, %0, dim = 1 : (tensor<2x1x4xbf16>, tensor<2x1x4xbf16>, tensor<2x1x4xbf16>) -> tensor<2x3x4xbf16>
-    // not yet added support for reshape -> concat fusion
-    // CHECK-NOT: stablehlo.broadcast_in_dim
+    // CHECK: stablehlo.broadcast_in_dim
+    // CHECK-SAME: dims = [0, 2]
     return %1 : tensor<2x3x4xbf16>
-    // broadcast dims [0, 2]
+  }
+  func.func @concatenate_reshape_6(%arg0: tensor<1xbf16>) -> tensor<100xbf16> {
+    %0 = stablehlo.reshape %arg0 : (tensor<1xbf16>) -> tensor<1x1x1xbf16>
+    %1 = stablehlo.reshape %0 : (tensor<1x1x1xbf16>) -> tensor<1xbf16>
+    %2 = stablehlo.concatenate
+        %1, %1, %1, %1, %1, %1, %1, %1, %1, %1,
+        %1, %1, %1, %1, %1, %1, %1, %1, %1, %1,
+        %1, %1, %1, %1, %1, %1, %1, %1, %1, %1,
+        %1, %1, %1, %1, %1, %1, %1, %1, %1, %1,
+        %1, %1, %1, %1, %1, %1, %1, %1, %1, %1,
+        %1, %1, %1, %1, %1, %1, %1, %1, %1, %1,
+        %1, %1, %1, %1, %1, %1, %1, %1, %1, %1,
+        %1, %1, %1, %1, %1, %1, %1, %1, %1, %1,
+        %1, %1, %1, %1, %1, %1, %1, %1, %1, %1,
+        %1, %1, %1, %1, %1, %1, %1, %1, %1, %1,
+        dim = 0 : (
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>,
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>
+        ) -> tensor<100xbf16>
+    // CHECK: stablehlo.broadcast_in_dim
+    // CHECK-SAME: dims = [0]
+    return %2 : tensor<100xbf16>
+  }
+  func.func @concatenate_reshape_7(%arg0: tensor<1xbf16>) -> tensor<4xbf16> {
+    %0 = stablehlo.concatenate
+        %arg0, %arg0, %arg0, %arg0,
+        dim = 0 : (
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>
+        ) -> tensor<4xbf16>
+    // CHECK: stablehlo.broadcast_in_dim
+    // CHECK-SAME: dims = [0]
+    return %0 : tensor<4xbf16>
+  }
+  func.func @concatenate_reshape_8(%arg0: tensor<4x1xbf16>) -> tensor<4x4xbf16> {
+    %0 = stablehlo.concatenate
+        %arg0, %arg0, %arg0, %arg0,
+        dim = 1 : (
+          tensor<4x1xbf16>, tensor<4x1xbf16>, tensor<4x1xbf16>, tensor<4x1xbf16>
+        ) -> tensor<4x4xbf16>
+    // CHECK: stablehlo.broadcast_in_dim
+    // CHECK-SAME: dims = [0, 1]
+    return %0 : tensor<4x4xbf16>
+  }
+  func.func @concatenate_reshape_9(%arg0: tensor<4x1xbf16>) -> tensor<16x1xbf16> {
+    %0 = stablehlo.concatenate
+        %arg0, %arg0, %arg0, %arg0,
+        dim = 0 : (
+          tensor<4x1xbf16>, tensor<4x1xbf16>, tensor<4x1xbf16>, tensor<4x1xbf16>
+        ) -> tensor<16x1xbf16>
+    // CHECK-NOT: stablehlo.broadcast_in_dim
+    // Not a broadcast operation because concat dim is not 1.
+    return %0 : tensor<16x1xbf16>
   }
 }
