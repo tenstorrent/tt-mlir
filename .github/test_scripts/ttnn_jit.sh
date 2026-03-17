@@ -41,7 +41,7 @@ if [ "$1" == "nightly" ]; then
     # Run perf tests for Superset
     $WORK_DIR/test/ttnn-jit/perf_ci/run_perf_collect.sh "$WORK_DIR/jit_perf_results" -v --junit-xml=$TEST_REPORT_PATH
     # Run tests that are exclusive to the nightly workflow
-    # pytest -v $WORK_DIR/test/ttnn-jit/nightly/ --junit-xml=$TEST_REPORT_PATH
+    pytest -v $WORK_DIR/test/ttnn-jit/nightly/ --junit-xml=$TEST_REPORT_PATH
 else
     if [[ "$RUNS_ON" == "n300-llmbox" ]]; then
         # only run multichip tests and matmul smoketests for llmbox
