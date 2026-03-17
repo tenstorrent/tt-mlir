@@ -1247,8 +1247,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return success();
   }
 
-  /// Rebuild generic ops using the planned block factors so subsequent stream
-  /// insertion operates on the same IR shape as the allocator analysis.
+  /// Rebuild generic ops using the planned block factors.
   LogicalResult reblockGenerics(func::FuncOp funcOp,
                                 FuncAnalysisData &analysis) {
     IRRewriter rewriter(funcOp->getContext());
@@ -1256,12 +1255,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     for (auto &[genericOp, genericCtx] : analysis.generics) {
       d2m::GenericOp oldGenericOp = genericOp;
+      // Skip generics whose execution shape is already final.
       if (genericCtx.isDMAOnly || genericCtx.isExplicitDatamovement ||
           oldGenericOp.getBlockFactorsValue() == genericCtx.reblockedFactors) {
         updatedGenerics.insert({oldGenericOp, std::move(genericCtx)});
         continue;
       }
 
+      // Rebuild the generic so its types match allocator-chosen factors.
       rewriter.setInsertionPoint(oldGenericOp);
       FailureOr<d2m::ParallelizedGeneric> reblocked =
           oldGenericOp.withParallelization(rewriter, std::nullopt,
@@ -1274,6 +1275,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         return failure();
       }
 
+      // Move sequencing metadata to the new anchor op produced by the rewrite.
       Operation *sequenceAnchor = reblocked->returnView
                                       ? reblocked->returnView.getOperation()
                                       : reblocked->genericOp.getOperation();
@@ -1282,6 +1284,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       analysis.sequencing.operationMap.erase(oldGenericOp.getOperation());
       analysis.sequencing.operationMap[sequenceAnchor] = sequencePosition;
 
+      // Redirect downstream users to the rebuilt generic/result view.
       if (oldGenericOp.getNumResults() > 0) {
         TT_assert(oldGenericOp.getNumResults() == 1u);
         if (reblocked->returnView) {
@@ -1300,6 +1303,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             });
       }
 
+      // Recompute operand def-chains against the rebuilt generic operands.
       OperandContextList oldOperandContexts = genericCtx.operands;
       GenericOpContext updatedCtx = std::move(genericCtx);
       updatedCtx.operands.clear();
@@ -1320,6 +1324,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         updatedCtx.operands.push_back(std::move(operandCtx));
       }
 
+      // Replace the old generic entry in analysis with the rebuilt one.
       updatedGenerics.insert({reblocked->genericOp, std::move(updatedCtx)});
       rewriter.eraseOp(oldGenericOp);
     }
