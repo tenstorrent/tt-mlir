@@ -37,8 +37,11 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
                         ArrayRefParameter<"int64_t">:$shape,
                         DefaultValuedParameter<
                           "AffineMap",
-                          "$_builder.getEmptyAffineMap()">:$mapping);
-  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` $mapping^)? `>`";
+                          "$_builder.getEmptyAffineMap()">:$virtToPhysicalMap,
+                        DefaultValuedParameter<
+                          "AffineMap",
+                          "$_builder.getEmptyAffineMap()">:$physicalToVirtMap);
+  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` `virt_to_physical_map` `=` $virtToPhysicalMap `,` `physical_to_virt_map` `=` $physicalToVirtMap^)? `>`";
 
   let extraClassDeclaration = [{
       static GridAttr get(::mlir::MLIRContext *context) {
@@ -46,7 +49,7 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
       }
 
       static GridAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape) {
-        return GridAttr::get(context, shape, AffineMap::get(context));
+        return GridAttr::get(context, shape, AffineMap::get(context), AffineMap::get(context));
       }
 
       static GridAttr get(::mlir::MLIRContext *context, std::int64_t rank) {
@@ -648,6 +651,20 @@ def TTCore_LocalShapeAttr : TTCore_Attr<"LocalShape", "local_shape"> {
   let assemblyFormat = [{
         `local_shape` `=` $localShape
   }];
+}
+
+def TTCore_FabricConnectionConfigAttr: TTCore_Attr<"FabricConnectionConfig", "fabric_connection_config"> {
+  let summary = "Fabric Connection Config attribute.";
+  let description = [{
+    Structure for configuring fabric connections for worker cores (in CCL ops).
+  }];
+
+  let parameters = (ins "NocIndex":$noc_index,
+                        "Topology":$topology,
+                        "uint32_t":$cluster_axis,
+                        "RoutingMode":$routing_mode,
+                        "uint32_t":$num_links);
+  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links `>`";
 }
 
 //===----------------------------------------------------------------------===//

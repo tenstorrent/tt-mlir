@@ -205,11 +205,12 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
       rewriter.setInsertionPointAfter(pushOp);
       auto waitOp = rewriter.create<WaitOp>(loc, loadTargetCb);
 
-      rewriter.setInsertionPointAfter(waitOp);
+      rewriter.setInsertionPoint(forwardableStore);
       if (!eraseForwardableStoreWithoutReplacement) {
         rewriter.create<RemoteStoreOp>(
             forwardableStore.getLoc(), forwardableStore.getMemref(),
-            forwardableStore.getIndices(), loadTargetCb);
+            forwardableStore.getIndices(), loadTargetCb,
+            forwardableStore.getStartDevice(), forwardableStore.getEndDevice());
       }
 
       if (remoteLoad.getResult()) {
@@ -384,7 +385,8 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
       // Create the explicit CB form of remote_store (no local buffer, has CB)
       // d2m.remote_store %memref[indices] from %cb
       rewriter.create<RemoteStoreOp>(loc, memref, remoteStore.getIndices(),
-                                     assocCb);
+                                     assocCb, remoteStore.getStartDevice(),
+                                     remoteStore.getEndDevice());
 
       // Track the reserve op for push insertion (avoid duplicates).
       // When the CB was found through a WaitOp (non-simplified load-store

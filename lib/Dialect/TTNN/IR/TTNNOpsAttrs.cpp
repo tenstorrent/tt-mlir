@@ -1043,9 +1043,9 @@ ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
                                mlir::tt::ttcore::GridAttr shardGrid,
                                mlir::tt::ttcore::GridAttr deviceGrid) {
   llvm::SmallVector<CoreRangeAttr> coreRangeSet;
-  AffineMap mapping = (shardGrid.getMapping().isEmpty() == true)
-                          ? deviceGrid.getMapping()
-                          : shardGrid.getMapping();
+  AffineMap mapping = (shardGrid.getVirtToPhysicalMap().isEmpty() == true)
+                          ? deviceGrid.getVirtToPhysicalMap()
+                          : shardGrid.getVirtToPhysicalMap();
 
   for (const auto &locsize2d :
        mlir::tt::ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping)) {
@@ -1160,7 +1160,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 ::llvm::LogicalResult MeshProgramDescriptorAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     ::llvm::ArrayRef<MeshProgramAttr> meshPrograms,
-    FabricConnectionConfigAttr fabricConnectionConfig) {
+    ttcore::FabricConnectionConfigAttr fabricConnectionConfig) {
   return ::llvm::success();
 }
 
@@ -1284,7 +1284,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 ::llvm::LogicalResult DataMovementKernelAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
-    DataMovementProcessor processor, NocIndex nocIndex, NocMode nocMode,
+    DataMovementProcessor processor, ttcore::NocIndex nocIndex, NocMode nocMode,
     llvm::ArrayRef<mlir::Attribute> commonRtArgs,
     llvm::ArrayRef<CoreRuntimeArgsAttr> rtArgs,
     llvm::ArrayRef<mlir::Attribute> ctArgs) {

@@ -31,6 +31,7 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <array>
+#include <cstdint>
 
 namespace mlir::tt {
 
@@ -453,11 +454,28 @@ protected:
     return mcastGridDims;
   }
 
+  static std::pair<SmallVector<SmallVector<Value>>,
+                   SmallVector<SmallVector<int64_t>>>
+  createInputIndicesAndMcastGridDims(mlir::OpBuilder &builder,
+                                     mlir::Location loc,
+                                     d2m::GenericOp generic) {
+    SmallVector<SmallVector<Value>> inputIndices(generic.getNumOperands());
+    SmallVector<SmallVector<int64_t>> mcastGridDims(generic.getNumOperands());
+    for (size_t i = 0; i < generic.getNumOperands(); ++i) {
+      inputIndices[i] =
+          d2m::utils::buildGridIndices(builder, loc, generic.getIndexingMap(i));
+      mcastGridDims[i] = getMulticastGridDims(generic.getIndexingMap(i),
+                                              generic.getIteratorTypes());
+    }
+    return std::make_pair(inputIndices, mcastGridDims);
+  }
+
   static SmallVector<Value>
   createBlockArguments(mlir::OpBuilder &builder, mlir::Block *block,
                        mlir::Location loc, mlir::TypeRange inputs,
                        mlir::TypeRange outputs, d2m::GenericOp generic,
-                       bool enableMulticastInference) {
+                       SmallVector<SmallVector<Value>> inputIndices,
+                       SmallVector<SmallVector<int64_t>> mcastGridDims) {
     auto fn = [&](Type t) {
       mlir::RankedTensorType tensorType = mlir::cast<mlir::RankedTensorType>(t);
       ttcore::MetalLayoutAttr layout =
@@ -480,22 +498,11 @@ protected:
       auto cbType = mlir::cast<d2m::CBType>(cbArg.getType());
       Type shardType = cbType.getUnderlying();
 
-      // Get the indexing map for this operand
-      AffineMap indexingMap = generic.getIndexingMap(i);
-
-      // Build grid indices from the indexing map
-      SmallVector<Value> indices =
-          d2m::utils::buildGridIndices(builder, loc, indexingMap);
-
       // Get the generic operand (the remote memref/tensor)
       Value genericOperand = generic->getOperand(i);
 
-      // Check if we should use high-level multicast form
-      SmallVector<int64_t> mcastGridDims;
-      if (enableMulticastInference) {
-        mcastGridDims =
-            getMulticastGridDims(indexingMap, generic.getIteratorTypes());
-      }
+      // Build grid indices from the indexing map
+      SmallVector<Value> indices = inputIndices[i];
 
       // Create a buffer for the load result
       auto tensorType = mlir::cast<RankedTensorType>(shardType);
@@ -504,11 +511,11 @@ protected:
       Value buffer = bufferOp.getResult();
 
       Value loadResult;
-      if (!mcastGridDims.empty()) {
+      if (!mcastGridDims[i].empty()) {
         // Build mcast dimension indices (constant Values) for the grid
         // dimensions that need multicast
         SmallVector<Value> mcastDims;
-        for (int64_t gridDim : mcastGridDims) {
+        for (int64_t gridDim : mcastGridDims[i]) {
           mcastDims.push_back(
               builder.create<arith::ConstantIndexOp>(loc, gridDim));
         }
@@ -841,9 +848,11 @@ private:
 
       // Populate 'block'.
       {
+        auto [inputIndices, mcastGridDims] =
+            createInputIndicesAndMcastGridDims(rewriter, loc, generic);
         auto blockArgsVec = createBlockArguments(
             rewriter, block, loc, TypeRange(inputs), TypeRange(outputs),
-            generic, enableMulticastInference);
+            generic, inputIndices, mcastGridDims);
         ArrayRef<Value> blockArgs(blockArgsVec);
 
         // Create 'linalg.generic' accepting 'blockArgs'.
@@ -1007,9 +1016,11 @@ private:
 
       // Populate 'block'.
       {
+        auto [inputIndices, mcastGridDims] =
+            createInputIndicesAndMcastGridDims(rewriter, loc, generic);
         auto blockArgsVec = createBlockArguments(
             rewriter, block, loc, TypeRange(inputs), TypeRange(outputs),
-            generic, enableMulticastInference);
+            generic, inputIndices, mcastGridDims);
         ArrayRef<Value> blockArgs(blockArgsVec);
         assert(blockArgs.size() == numOperands);
 
@@ -1294,9 +1305,11 @@ private:
 
       // Populate 'block'.
       {
+        auto [inputIndices, mcastGridDims] =
+            createInputIndicesAndMcastGridDims(rewriter, loc, generic);
         auto blockArgsVec = createBlockArguments(
             rewriter, block, loc, TypeRange(inputs), TypeRange(outputs),
-            generic, enableMulticastInference);
+            generic, inputIndices, mcastGridDims);
         ArrayRef<Value> blockArgs(blockArgsVec);
 
         // Delegate next level of nesting to a "block" op.
@@ -1988,9 +2001,11 @@ public:
       mlir::Region &region = generic->getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
 
+      auto [inputIndices, mcastGridDims] =
+          createInputIndicesAndMcastGridDims(rewriter, loc, generic);
       auto blockArgsVec = createBlockArguments(
           rewriter, block, loc, TypeRange(genericInputs), TypeRange(outputs),
-          generic, enableMulticastInference);
+          generic, inputIndices, mcastGridDims);
       ArrayRef<Value> blockArgs(blockArgsVec);
       Value indexTileTensor = blockArgs[0];
       Value outputTensor = blockArgs[1];
@@ -2031,6 +2046,241 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
         op, op.getResult().getType(), adaptor.getInput(), op.getShardType(),
         op.getShardDirection(), op.getShardShape(), op.getShardDims());
     return success();
+  }
+};
+
+class D2MAllGatherRewriter : public OpConversionPattern<ttir::AllGatherOp>,
+                             D2MNamedRewriterCommon {
+public:
+  D2MAllGatherRewriter(const TypeConverter &typeConverter,
+                       mlir::MLIRContext *ctx,
+                       ttcore::MemorySpace defaultInputMemSpace,
+                       ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                       bool collapseTensors, bool enableMulticastInference)
+      : OpConversionPattern<ttir::AllGatherOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+  Value createToLayoutOp(Value originalValue,
+                         mlir::ConversionPatternRewriter &rewriter,
+                         llvm::SmallVector<int64_t> workerGridShape) const {
+    auto tensorType =
+        mlir::cast<mlir::RankedTensorType>(originalValue.getType());
+    ArrayRef<int64_t> logicalShape = tensorType.getShape();
+    Type tiledElementType = ttcore::TileType::get(
+        tensorType.getElementType(), ttcore::TileType::getDefaultShape());
+    ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
+        memorySpaces[0], ttcore::TensorMemoryLayout::Sharded);
+    auto optimalGrid = d2m::utils::computeOptimalBlockShardedGrid(
+        layout.getPhysicalShape(ttcore::TileType::getDefaultShape()),
+        workerGridShape);
+    llvm::SmallVector<int64_t> deviceShape =
+        layout.getDeviceShape(optimalGrid, ttcore::TileType::getDefaultShape());
+    auto emptyOp = rewriter.create<d2m::EmptyOp>(
+        originalValue.getLoc(), deviceShape, tiledElementType, layout);
+    auto toLayoutResult = rewriter
+                              .create<d2m::ToLayoutOp>(originalValue.getLoc(),
+                                                       originalValue, emptyOp)
+                              ->getResult(0);
+    return toLayoutResult;
+  }
+
+  LogicalResult
+  matchAndRewrite(ttir::AllGatherOp op, ttir::AllGatherOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // multicast based AG
+    mlir::Location loc = op->getLoc();
+
+    auto device = ttcore::lookupDevice(op);
+    auto workerGridShape = llvm::to_vector(device.getWorkerGrid().getShape());
+    auto meshShape = device.getMeshShape();
+    assert(meshShape.size() == 2 && "Mesh shape must be 2D");
+
+    uint32_t clusterAxis = op.getClusterAxis();
+    assert(clusterAxis <= meshShape.size() &&
+           "Cluster axis must be one of the mesh dimensions");
+
+    // Get the supported topology
+    auto topology = device.getMeshTopology()[clusterAxis];
+    assert(topology == ttcore::Topology::Ring &&
+           "Only ring topology is supported for all gather");
+    // TODO: get num links from DeviceAttr
+    uint32_t num_links = 1;
+    // We use unidir routing mode for ring topology so we get 2 cores for each
+    // link
+    int num_cores =
+        topology == ttcore::Topology::Ring ? num_links * 2 : num_links * 1;
+    int num_devices = meshShape[clusterAxis];
+
+    // create input and output
+    auto origOutputs =
+        createDpsOutputs(loc, rewriter, {op.getResult().getType()});
+    SmallVector<Value> origInputs = adaptor.getOperands();
+    auto input = createToLayoutOp(origInputs[0], rewriter, workerGridShape);
+    auto output = createToLayoutOp(origOutputs[0], rewriter, workerGridShape);
+
+    // Find dim to split work across cores and use it to calc view grids for
+    // input and output Go through all dims in order and find one that where
+    // num_cores divides the dim size
+    uint32_t inputRank =
+        mlir::cast<mlir::RankedTensorType>(origInputs[0].getType())
+            .getShape()
+            .size();
+    ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(),
+        mlir::cast<mlir::RankedTensorType>(origInputs[0].getType()).getShape(),
+        ttcore::OOBVal::Undef, memorySpaces[0],
+        ttcore::TensorMemoryLayout::Sharded);
+    llvm::SmallVector<int64_t> physicalShape =
+        layout.getPhysicalShape(ttcore::TileType::getDefaultShape());
+    uint32_t workerCoreSplitDim = inputRank;
+    for (uint32_t i = 0; i < inputRank; i++) {
+      if (physicalShape[i] % num_cores == 0) {
+        workerCoreSplitDim = i;
+        break;
+      }
+    }
+    assert(workerCoreSplitDim != inputRank &&
+           "No dim found for worker core split");
+
+    // create input and output stream (TODO: change to view)
+    llvm::SmallVector<int64_t> inputViewGrid(inputRank, 1);
+    llvm::SmallVector<int64_t> outputViewGrid(inputRank, 1);
+    inputViewGrid[workerCoreSplitDim] *= num_cores;
+    outputViewGrid[workerCoreSplitDim] *= num_cores;
+    outputViewGrid[op.getAllGatherDim()] *= num_devices;
+
+    auto inputTensorType = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto inputStreamTensorType =
+        d2m::utils::reblockTensor(inputTensorType, inputViewGrid);
+    auto inputStreamReblockMap = ttmlir::utils::calculateReblockMap(
+        inputTensorType.getShape(), inputStreamTensorType.getShape(),
+        rewriter.getContext());
+    auto inputStreamstorage =
+        rewriter.create<d2m::EmptyOp>(op.getLoc(), inputStreamTensorType,
+                                      /*virtualGridInverseMapping=*/nullptr,
+                                      /*virtualGridForwardMapping=*/nullptr);
+    Value inputStreamResult =
+        rewriter
+            .create<d2m::StreamLayoutOp>(op.getLoc(), inputStreamTensorType,
+                                         input, inputStreamReblockMap,
+                                         inputStreamstorage.getResult())
+            ->getResult(0);
+
+    auto outputTensorType =
+        mlir::cast<mlir::RankedTensorType>(output.getType());
+    auto outputStreamTensorType =
+        d2m::utils::reblockTensor(outputTensorType, outputViewGrid);
+    auto outputStreamReblockMap = ttmlir::utils::calculateReblockMap(
+        outputTensorType.getShape(), outputStreamTensorType.getShape(),
+        rewriter.getContext());
+    auto outputStreamStorage =
+        rewriter.create<d2m::EmptyOp>(op.getLoc(), outputStreamTensorType,
+                                      /*virtualGridInverseMapping=*/nullptr,
+                                      /*virtualGridForwardMapping=*/nullptr);
+    Value outputStreamResult =
+        rewriter
+            .create<d2m::StreamLayoutOp>(op.getLoc(), outputStreamTensorType,
+                                         output, outputStreamReblockMap,
+                                         outputStreamStorage.getResult())
+            ->getResult(0);
+
+    // Create generic in explicit form: block factors, indexing maps, and
+    // iterator types are empty
+    SmallVector<mlir::AffineMap> emptyIndexingMaps;
+    SmallVector<mlir::Attribute> emptyIteratorTypes;
+    ArrayRef<int64_t> emptyBlockFactors = {};
+    llvm::SmallVector<int64_t> genericGridShape =
+        llvm::to_vector(ttcore::getGridShape(inputStreamResult));
+    auto fabricConnectionConfig = ttcore::FabricConnectionConfigAttr::get(
+        rewriter.getContext(), ttcore::NocIndex::Noc0, topology, clusterAxis,
+        ttcore::RoutingMode::UnidirRingTorus, num_links);
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, TypeRange(outputStreamResult), inputStreamResult,
+        outputStreamResult, /*additionalArgs=*/ValueRange(),
+        ttcore::GridAttr::get(rewriter.getContext(), genericGridShape),
+        rewriter.getI64ArrayAttr(emptyBlockFactors),
+        rewriter.getAffineMapArrayAttr(emptyIndexingMaps),
+        rewriter.getArrayAttr(emptyIteratorTypes),
+        rewriter.getArrayAttr(
+            rewriter.getAttr<d2m::ThreadAttr>(d2m::ThreadType::Unified)),
+        /*scratch_inputs=*/nullptr, fabricConnectionConfig, /*numRegions=*/1);
+
+    // Create one bb in 'generic''s region and set its arguments.
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    {
+      mlir::Region &region = generic->getRegions().front();
+      mlir::Block *block = rewriter.createBlock(&region);
+
+      // Populate 'block'.
+      {
+        SmallVector<Value> inputIndices;
+        for (uint32_t i = 0; i < inputRank; i++) {
+          if (i == workerCoreSplitDim) {
+            inputIndices.push_back(rewriter.create<d2m::CoreIndexOp>(loc, i));
+          } else {
+            inputIndices.push_back(
+                rewriter.create<arith::ConstantIndexOp>(loc, 0));
+          }
+        }
+
+        SmallVector<SmallVector<int64_t>> mcastGridDims(1);
+        auto blockArgsVec = createBlockArguments(
+            rewriter, block, loc, TypeRange(inputStreamResult),
+            TypeRange(outputStreamResult), generic, {inputIndices},
+            mcastGridDims);
+        Value loadResult = blockArgsVec[0];
+
+        SmallVector<Value> startDevice = {
+            rewriter.create<d2m::MeshPositionOp>(loc, 1 - clusterAxis),
+            rewriter.create<arith::ConstantIndexOp>(loc, 0)};
+        SmallVector<Value> endDevice = {
+            rewriter.create<d2m::MeshPositionOp>(loc, 1 - clusterAxis),
+            rewriter.create<arith::ConstantIndexOp>(
+                loc, meshShape[clusterAxis] - 1)};
+
+        // Create affine map to translate input indices to output indices
+        mlir::SmallVector<mlir::AffineExpr> results;
+        for (uint32_t i = 0; i < inputRank; i++) {
+          auto currentIndex =
+              mlir::getAffineDimExpr(i + 1, rewriter.getContext());
+          if (i == static_cast<uint32_t>(op.getAllGatherDim())) {
+            // device index * device shard size + shard index
+            auto deviceIndex = mlir::getAffineDimExpr(0, rewriter.getContext());
+            auto deviceShardOffset = mlir::getAffineConstantExpr(
+                outputViewGrid[i] / num_devices, rewriter.getContext());
+            results.push_back(deviceIndex * deviceShardOffset + currentIndex);
+          } else {
+            results.push_back(currentIndex);
+          }
+        }
+        auto outputIndexingMap = mlir::AffineMap::get(inputRank + 1, 0, results,
+                                                      rewriter.getContext());
+        auto meshPosition =
+            rewriter.create<d2m::MeshPositionOp>(loc, clusterAxis);
+        inputIndices.insert(inputIndices.begin(), meshPosition);
+        SmallVector<Value> outputIndices = ttmlir::utils::fullyApplyAffineMap(
+            rewriter, loc, outputIndexingMap, inputIndices);
+
+        SmallVector<Value> storeResults;
+        auto remoteStoreOp = rewriter.create<d2m::RemoteStoreOp>(
+            loc, outputStreamResult.getType(), outputStreamResult,
+            outputIndices, loadResult, startDevice, endDevice);
+        Value storeResult = remoteStoreOp.getResult();
+
+        storeResults.push_back(storeResult);
+
+        rewriter.create<d2m::YieldOp>(loc, storeResults);
+      }
+    }
+    rewriter.finalizeOpModification(generic);
+    rewriter.restoreInsertionPoint(insertPoint);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
+    return llvm::success();
   }
 };
 
@@ -2398,7 +2648,9 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MTensorManipulationOpRewriter<ttir::ConcatenateHeadsOp, concatenateHeadsLogicalInfo>,
     // Permute (handles transpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter,
-    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>
+    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>,
+    // CCL
+    D2MAllGatherRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
 
 
@@ -2470,6 +2722,7 @@ public:
     target.addLegalDialect<::mlir::func::FuncDialect>();
     target.addLegalDialect<::mlir::linalg::LinalgDialect>();
     target.addLegalDialect<::mlir::arith::ArithDialect>();
+    target.addLegalDialect<::mlir::affine::AffineDialect>();
     target.addLegalDialect<mlir::tt::d2m::D2MDialect>();
     target.addLegalDialect<mlir::tt::ttcore::TTCoreDialect>();
 
@@ -2479,6 +2732,15 @@ public:
     // Tensor empty is used within GenericOp regions to create local scratch
     // buffers for remote_load and remote_store ops.
     target.addLegalOp<::mlir::tensor::EmptyOp>();
+
+    // Debug: log any ops that are checked for legality and found illegal
+    target.markUnknownOpDynamicallyLegal([](Operation *op) {
+      llvm::errs() << "DEBUG: Checking legality of unknown op: "
+                   << op->getName()
+                   << " from dialect: " << op->getDialect()->getNamespace()
+                   << "\n";
+      return false; // Mark as illegal to see what's being checked
+    });
 
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
       signalPassFailure();

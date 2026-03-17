@@ -286,7 +286,7 @@ public:
           nocIdx = unassignedNocCounter++ % 2;
         }
         auto nocIndex =
-            nocIdx == 0 ? ttnn::NocIndex::Noc0 : ttnn::NocIndex::Noc1;
+            nocIdx == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
         auto processor = nocIdx == 0 ? ttnn::DataMovementProcessor::RiscV1
                                      : ttnn::DataMovementProcessor::RiscV0;
         kernelConfigs[i] = builder.getAttr<ttnn::DataMovementKernelAttr>(
@@ -433,26 +433,10 @@ public:
     auto device = ttcore::lookupDevice(op->getParentOp());
     TT_assert(device);
 
-    ttcore::GridAttr opGrid = op.getGrid();
-    llvm::SmallVector<int64_t> endCoreRange;
-    if (!opGrid.getMapping().isEmpty()) {
-      // The genericOp has a virtual grid. We need to recover the original
-      // physical grid.
-      auto output = op.getOutputs()[0];
-      mlir::ShapedType outputType =
-          mlir::cast<mlir::ShapedType>(output.getType());
-      auto shardLayout = mlir::dyn_cast<ttcore::ShardLayoutAttr>(
-          ttcore::getDeviceLayout(outputType));
-      TT_assertv(shardLayout, "Expected shardLayoutAttr for the output of a "
-                              "generic op with a virtual grid.");
-
-      auto physicalGridShape = d2m::utils::getPhysicalGridShape(output);
-      // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
-      endCoreRange = {physicalGridShape[1] - 1, physicalGridShape[0] - 1};
-    } else {
-      // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
-      endCoreRange = {opGrid.getShape()[1] - 1, opGrid.getShape()[0] - 1};
-    }
+    auto physicalGridShape = op.getPhysicalGridShape();
+    // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
+    llvm::SmallVector<int64_t> endCoreRange = {physicalGridShape[1] - 1,
+                                               physicalGridShape[0] - 1};
 
     ttnn::CoreRangeSetAttr coreRangeSet = ttnn::CoreRangeSetAttr::get(
         ctx,
