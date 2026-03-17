@@ -50,7 +50,7 @@ jobs:
         - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
           fetch-depth: 0
 
@@ -240,7 +240,7 @@ jobs:
     outputs:
       failed-test-summary: ${{ steps.test-summary.outputs.failed-test-summary }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Process test summary
         id: test-summary
         continue-on-error: true
