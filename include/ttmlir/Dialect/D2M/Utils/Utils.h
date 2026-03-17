@@ -29,6 +29,10 @@ constexpr llvm::StringLiteral kVirtualGridForwardMappingAttr =
 ShapedType reblockShapedType(ShapedType oldType,
                              ArrayRef<int64_t> newGridShape);
 
+// Clone a local shard type using the shard shape implied by a reference
+// operand's device layout.
+Type cloneWithShardShape(Value referenceOperand, Type typeToRetype);
+
 // Get square target grid shape.
 llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape);

@@ -1081,11 +1081,11 @@ deriveGenericGridAttr(d2m::GenericOp genericOp,
 }
 
 // Phase 5: Recreate the d2m.generic with updated operands.
-// After updating all ToLayout and StreamLayout ops, the generic's operands
-// now have new types with optimized grids. We must recreate the generic to
-// reflect these type changes. We derive the generic grid from the output
-// operand's chosen grid and re-derive block factors from the chosen operand
-// grids so the rebuilt generic reflects the full execution plan.
+// After updating ToLayout and StreamLayout ops, the generic's operands have
+// new types with the selected grids. The generic grid is still anchored by the
+// output operand's chosen grid, but we must re-materialize the generic attrs
+// from the selected operand grids after those rewrites so the rebuilt op stays
+// consistent with the new operand types and the derived block factors.
 static void
 recreateGenericOp(d2m::GenericOp genericOp,
                   ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {

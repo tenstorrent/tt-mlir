@@ -90,8 +90,10 @@ computeReblockedOperandGridShape(d2m::GenericOp genericOp, int64_t operandIndex,
     }
   }
 
-  // Reduction dims (not in output map): total = block_factor.
-  // Parallel dims: total = grid_dim * block_factor.
+  // Parallel dims start from the output grid extent and then multiply in the
+  // block factor.
+  // Reduction dims (i.e. not in the output map) contribute only their block
+  // factor.
   for (unsigned i = 0; i < numLoopDims; ++i) {
     if (loopTotals[i] == 0) {
       loopTotals[i] = newBlockFactors[i];
@@ -112,27 +114,6 @@ computeReblockedOperandGridShape(d2m::GenericOp genericOp, int64_t operandIndex,
     }
   }
   return operandGrid;
-}
-
-static Type getShardTypeFromOperand(Value operand, Type oldType) {
-  auto operandShapedType = mlir::dyn_cast<ShapedType>(operand.getType());
-  auto layout = ttcore::getDeviceLayout(operandShapedType);
-  if (!layout) {
-    return oldType;
-  }
-
-  SmallVector<int64_t> shardShape(layout.getShardShape(operandShapedType));
-  if (auto oldTensorType = mlir::dyn_cast<RankedTensorType>(oldType)) {
-    return RankedTensorType::get(shardShape, oldTensorType.getElementType(),
-                                 oldTensorType.getEncoding());
-  }
-  if (auto oldMemRefType = mlir::dyn_cast<MemRefType>(oldType)) {
-    return MemRefType::get(shardShape, oldMemRefType.getElementType(),
-                           oldMemRefType.getLayout(),
-                           oldMemRefType.getMemorySpace());
-  }
-
-  return oldType;
 }
 
 void d2m::GenericOp::getEffects(
@@ -2281,32 +2262,6 @@ createReblockedOperands(d2m::GenericOp thisOp, OpBuilder &builder,
       continue;
     }
 
-    // This is a workaround to avoid type checking errors during/after
-    // canonicalization.  There is an offline proposal being discussed to
-    // address this more holistically.  The short of it is that we need to
-    // just reach through the view to get to the original to_layout operand
-    // so that view_layout folding doesn't need to be applied in the first
-    // place. View layout folding can cause the index_map inside of the
-    // metal_layout to differ from the generic op's result type, leading to
-    // type-checking errors.
-    if (thisOp.isDpsInit(&operand)) {
-      if (auto definingView =
-              operand.get().getDefiningOp<d2m::ViewLayoutOp>()) {
-        if (auto inputTensorType = mlir::dyn_cast<RankedTensorType>(
-                definingView.getInput().getType())) {
-          if (auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(
-                  inputTensorType.getEncoding())) {
-            if (metalLayout.getMemorySpace() !=
-                ttcore::MemorySpace::DeviceDRAM) {
-              operandViews.push_back(nullptr);
-              reblockedOperands.push_back(definingView.getInput());
-              continue;
-            }
-          }
-        }
-      }
-    }
-
     d2m::ViewLayoutOp view = builder.create<d2m::ViewLayoutOp>(
         thisOp.getLoc(), reblockedType, operand.get());
     operandViews.push_back(view);
@@ -2387,15 +2342,69 @@ static Block *cloneParallelizedRegion(d2m::GenericOp thisOp,
   return newBlock;
 }
 
-// Rebuild the optional view that matches the original generic result/output.
+// Repair cloned ops whose result types depend on reblocked operand types.
+static void repairParallelizedRegionTypes(Block *newBlock,
+                                          ArrayRef<Value> reblockedOperands) {
+  for (Operation &clonedOp : *newBlock) {
+    if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&clonedOp)) {
+      Value associatedOperand = d2m::GenericOp::findAssocOperand(allocOp);
+      if (associatedOperand) {
+        Type newAllocType = d2m::utils::cloneWithShardShape(associatedOperand,
+                                                            allocOp.getType());
+        if (newAllocType != allocOp.getType()) {
+          auto newMemRefType = mlir::dyn_cast<MemRefType>(newAllocType);
+          TT_assert(newMemRefType);
+          allocOp.getResult().setType(newMemRefType);
+        }
+      }
+    } else if (auto tensorEmptyOp =
+                   mlir::dyn_cast<tensor::EmptyOp>(&clonedOp)) {
+      Value associatedOperand = d2m::GenericOp::findAssocOperand(tensorEmptyOp);
+      if (associatedOperand) {
+        Type newEmptyType = d2m::utils::cloneWithShardShape(
+            associatedOperand, tensorEmptyOp.getType());
+        if (newEmptyType != tensorEmptyOp.getType()) {
+          tensorEmptyOp.getResult().setType(
+              cast<RankedTensorType>(newEmptyType));
+        }
+      }
+    } else if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&clonedOp)) {
+      const unsigned operandIndex = static_cast<unsigned>(getCbOp.getPort());
+      if (operandIndex < reblockedOperands.size()) {
+        auto oldCbType = mlir::cast<d2m::CBType>(getCbOp.getResult().getType());
+        Type newUnderlyingType = d2m::utils::cloneWithShardShape(
+            reblockedOperands[operandIndex], oldCbType.getUnderlying());
+        if (newUnderlyingType != oldCbType.getUnderlying()) {
+          getCbOp.getResult().setType(d2m::CBType::get(
+              getCbOp.getContext(), mlir::cast<ShapedType>(newUnderlyingType)));
+        }
+      }
+    } else if (auto remoteLoadOp =
+                   mlir::dyn_cast<d2m::RemoteLoadOp>(&clonedOp)) {
+      if (Value localBuffer = remoteLoadOp.getLocalBuffer()) {
+        remoteLoadOp.getResult().setType(localBuffer.getType());
+      }
+    } else if (auto remoteStoreOp =
+                   mlir::dyn_cast<d2m::RemoteStoreOp>(&clonedOp)) {
+      if (remoteStoreOp.hasResultForm()) {
+        remoteStoreOp.getResult().setType(remoteStoreOp.getMemref().getType());
+      }
+    } else if (auto dstOp =
+                   mlir::dyn_cast<DestinationStyleOpInterface>(&clonedOp)) {
+      unsigned numIns = dstOp.getNumDpsInputs();
+      unsigned numOuts = clonedOp.getNumResults();
+      for (unsigned i = 0; i < numOuts; ++i) {
+        clonedOp.getResult(i).setType(
+            clonedOp.getOperand(numIns + i).getType());
+      }
+    }
+  }
+}
+
+// Build a return view for the rebuilt generic when the caller requests one.
 static d2m::ViewLayoutOp createReturnView(d2m::GenericOp thisOp,
                                           d2m::GenericOp newGenericOp,
-                                          OpBuilder &builder,
-                                          bool generateReturnView) {
-  if (!generateReturnView) {
-    return d2m::ViewLayoutOp();
-  }
-
+                                          OpBuilder &builder) {
   OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointAfter(newGenericOp);
   if (thisOp.getNumResults() > 0) {
@@ -2412,24 +2421,24 @@ static d2m::ViewLayoutOp createReturnView(d2m::GenericOp thisOp,
 }
 
 // Rewrite the IR:
-// - inserting operand views
-// - creating the new generic
-// - cloning/retyping the region ops
-// - optionally creating the return view.
+// - insert operand views
+// - create the new generic
+// - clone/retype the region ops
+// - optionally create the return view.
 static FailureOr<d2m::ParallelizedGeneric>
 withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
                         ArrayRef<Type> reblockedTypes, ttcore::GridAttr newGrid,
                         ArrayRef<int64_t> newBlockFactors,
                         bool generateReturnView) {
-  // Step 1: Reblock operands via explicit view_layout ops.
+  // Reblock operands via explicit view_layout ops.
   auto [reblockedOperands, operandViews] =
       createReblockedOperands(thisOp, builder, reblockedTypes);
 
-  // Step 2: Reconstruct the GenericOp shell with new attrs + operands.
+  // Reconstruct the GenericOp shell with new attrs + operands.
   auto newGenericOp = createParallelizedGenericShell(
       thisOp, builder, reblockedOperands, newGrid, newBlockFactors);
 
-  // Step 3: Reconstruct regions, remapping values and repairing type-dependent
+  // Reconstruct regions, remapping values and repairing type-dependent
   // ops.
   for (unsigned regionIndex = 0; regionIndex < thisOp.getNumRegions();
        ++regionIndex) {
@@ -2441,73 +2450,14 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
 
     Block *newBlock = cloneParallelizedRegion(
         thisOp, newGenericOp, builder, oldRegion, newRegion, reblockedOperands);
-
-    // Fix cloned ops whose result types depend on reblocked operand types.
-    for (Operation &clonedOp : *newBlock) {
-      if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&clonedOp)) {
-        Value associatedOperand = d2m::GenericOp::findAssocOperand(allocOp);
-        if (associatedOperand) {
-          Type newAllocType =
-              getShardTypeFromOperand(associatedOperand, allocOp.getType());
-          if (newAllocType != allocOp.getType()) {
-            auto newMemRefType = mlir::dyn_cast<MemRefType>(newAllocType);
-            TT_assert(newMemRefType);
-            allocOp.getResult().setType(newMemRefType);
-          }
-        }
-      } else if (auto tensorEmptyOp =
-                     mlir::dyn_cast<tensor::EmptyOp>(&clonedOp)) {
-        Value associatedOperand =
-            d2m::GenericOp::findAssocOperand(tensorEmptyOp);
-        if (associatedOperand) {
-          Type newEmptyType = getShardTypeFromOperand(associatedOperand,
-                                                      tensorEmptyOp.getType());
-          if (newEmptyType != tensorEmptyOp.getType()) {
-            tensorEmptyOp.getResult().setType(
-                cast<RankedTensorType>(newEmptyType));
-          }
-        }
-<<<<<<< HEAD
-      } else if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&clonedOp)) {
-        const unsigned operandIndex = static_cast<unsigned>(getCbOp.getPort());
-        if (operandIndex < reblockedOperands.size()) {
-          auto oldCbType =
-              mlir::cast<d2m::CBType>(getCbOp.getResult().getType());
-          Type newUnderlyingType = getShardTypeFromOperand(
-              reblockedOperands[operandIndex], oldCbType.getUnderlying());
-          if (newUnderlyingType != oldCbType.getUnderlying()) {
-            getCbOp.getResult().setType(
-                d2m::CBType::get(getCbOp.getContext(),
-                                 mlir::cast<ShapedType>(newUnderlyingType)));
-          }
-        }
-      } else if (auto remoteLoadOp =
-                     mlir::dyn_cast<d2m::RemoteLoadOp>(&clonedOp)) {
-        if (Value localBuffer = remoteLoadOp.getLocalBuffer()) {
-          remoteLoadOp.getResult().setType(localBuffer.getType());
-        }
-      } else if (auto remoteStoreOp =
-                     mlir::dyn_cast<d2m::RemoteStoreOp>(&clonedOp)) {
-        if (remoteStoreOp.hasResultForm()) {
-          remoteStoreOp.getResult().setType(
-              remoteStoreOp.getMemref().getType());
-        }
-      } else if (auto dstOp =
-                     mlir::dyn_cast<DestinationStyleOpInterface>(&clonedOp)) {
-        unsigned numIns = dstOp.getNumDpsInputs();
-        unsigned numOuts = clonedOp.getNumResults();
-        for (unsigned i = 0; i < numOuts; ++i) {
-          clonedOp.getResult(i).setType(
-              clonedOp.getOperand(numIns + i).getType());
-        }
-      }
-    }
+    repairParallelizedRegionTypes(newBlock, reblockedOperands);
   }
 
   // Only return a view into the old generic op result if requested.
-  auto returnView =
-      createReturnView(thisOp, newGenericOp, builder, generateReturnView);
-
+  d2m::ViewLayoutOp returnView = nullptr;
+  if (generateReturnView) {
+    returnView = createReturnView(thisOp, newGenericOp, builder);
+  }
   return d2m::ParallelizedGeneric{std::move(operandViews), newGenericOp,
                                   returnView};
 }
