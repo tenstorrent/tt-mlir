@@ -290,6 +290,7 @@ struct GenericOperandInfo {
   Value ioTensor;
   Value cbMemref;
   bool isOutput;
+  bool isDRAM;
   unsigned operandIdx;
 };
 
@@ -319,7 +320,7 @@ createCBDescriptors(Builder &builder,
 
     ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
 
-    if (ttcore::getMemorySpace(cbMemref) != ttcore::MemorySpace::DeviceDRAM) {
+    if (!info.isDRAM) {
       if (info.isOutput) {
         // L1 outputs are always aliased.
         globalCBIndexOfTensor =
@@ -670,13 +671,10 @@ static Value findCBMemref(Value operand) {
     return stream.getStorage();
   }
   if (auto view = dyn_cast<d2m::ViewLayoutOp>(def)) {
-    if (isa_and_present<d2m::StreamLayoutOp>(view.getInput().getDefiningOp())) {
-      return view.getInput();
+    if (auto stream =
+            dyn_cast<d2m::StreamLayoutOp>(view.getInput().getDefiningOp())) {
+      return stream.getStorage();
     }
-
-    TT_assertv(isa<MemRefType>(operand.getType()),
-               "expected operand to be a memref");
-    return operand;
   }
 
   TT_assertv(isa<MemRefType>(operand.getType()),
@@ -692,13 +690,19 @@ analyzeGenericOperands(d2m::GenericOp op,
 
   for (Value input : op.getInputs()) {
     infos.push_back({findIOTensor(input, valueMapping), findCBMemref(input),
-                     /*isOutput=*/false, idx++});
+                     /*isOutput=*/false, /*isDRAM=*/false, idx++});
   }
   for (Value output : op.getOutputs()) {
     infos.push_back({findIOTensor(output, valueMapping), findCBMemref(output),
-                     /*isOutput=*/true, idx++});
+                     /*isOutput=*/true, /*isDRAM=*/false, idx++});
   }
 
+  for (auto &info : infos) {
+    auto ttnnTensor = mlir::cast<RankedTensorType>(info.ioTensor.getType());
+    auto ttnnLayout =
+        mlir::cast<ttnn::TTNNLayoutAttr>(ttnnTensor.getEncoding());
+    info.isDRAM = ttnnLayout.getBufferType() == ttnn::BufferType::DRAM;
+  }
   return infos;
 }
 
