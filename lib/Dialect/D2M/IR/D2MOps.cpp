@@ -2489,6 +2489,9 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
   d2m::ViewLayoutOp returnView = nullptr;
   if (generateReturnView) {
     returnView = createReturnView(thisOp, newGenericOp, builder);
+    TT_assertv(returnView,
+               "withParallelization expects a return view to the original "
+               "generic result");
   }
   return d2m::ParallelizedGeneric{std::move(operandViews), newGenericOp,
                                   returnView};

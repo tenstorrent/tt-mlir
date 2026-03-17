@@ -1270,16 +1270,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                            /*generateReturnView=*/true);
       if (failed(reblocked)) {
         oldGenericOp.emitOpError()
-            << "allocator failed to rebuild generic op with updated block "
+            << "Allocator failed to rebuild generic op with updated block "
                "factors";
         return failure();
       }
 
-      TT_assertv(reblocked->returnView,
-                 "allocator reblocking expects a return view to the original "
-                 "generic result");
       TT_assertv(oldGenericOp.getOutputs().size() == 1u,
-                 "allocator reblocking expects a single output operand");
+                 "Allocator reblocking expects a single output operand");
       Operation *sequenceAnchor = reblocked->returnView.getOperation();
       Value newOutput = reblocked->returnView.getResult();
 
