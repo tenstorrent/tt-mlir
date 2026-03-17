@@ -20,6 +20,8 @@ from ttmlir.passes import (
 from ttmlir.passmanager import PassManager
 import math
 
+CUSTOM_TTIR_PIPELINE = "ttcore-mark-functions-as-forward,ttcore-wrap-device-module,ttcore.device_module(builtin.module(ttir-to-ttmetal-be-pipeline))"
+
 
 @pytest.mark.frontend("ttir")
 @pytest.mark.parametrize(
@@ -143,9 +145,7 @@ def test_fabric_unicast_2x4_line(
 
     module = run_ttir_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(
-            "ttcore-mark-functions-as-forward,ttcore-wrap-device-module,ttcore.device_module(builtin.module(ttir-to-ttmetal-be-pipeline))"
-        ),
+        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -274,9 +274,7 @@ def test_fabric_unicast_sem_inc_2x4_line(
 
     module = run_ttir_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(
-            "ttcore-mark-functions-as-forward,ttcore-wrap-device-module,ttcore.device_module(builtin.module(ttir-to-ttmetal-be-pipeline))"
-        ),
+        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -443,9 +441,7 @@ def test_fabric_mcast_1x8_line(
 
     module = run_ttir_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(
-            "ttcore-mark-functions-as-forward,ttcore-wrap-device-module,ttcore.device_module(builtin.module(ttir-to-ttmetal-be-pipeline))"
-        ),
+        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -602,9 +598,7 @@ def test_fabric_mcast_1x8_ring(
 
     module = run_ttir_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(
-            "ttcore-mark-functions-as-forward,ttcore-wrap-device-module,ttcore.device_module(builtin.module(ttir-to-ttmetal-be-pipeline))"
-        ),
+        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -756,9 +750,7 @@ def test_fabric_mcast_2x4_line(
 
     module = run_ttir_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(
-            "ttcore-mark-functions-as-forward,ttcore-wrap-device-module,ttcore.device_module(builtin.module(ttir-to-ttmetal-be-pipeline))"
-        ),
+        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -914,9 +906,7 @@ def test_fabric_mcast_8x4_ring(
 
     module = run_ttir_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(
-            "ttcore-mark-functions-as-forward,ttcore-wrap-device-module,ttcore.device_module(builtin.module(ttir-to-ttmetal-be-pipeline))"
-        ),
+        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1076,9 +1066,7 @@ def test_fabric_mcast_8x4_torus(
 
     module = run_ttir_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(
-            "ttcore-mark-functions-as-forward,ttcore-wrap-device-module,ttcore.device_module(builtin.module(ttir-to-ttmetal-be-pipeline))"
-        ),
+        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
