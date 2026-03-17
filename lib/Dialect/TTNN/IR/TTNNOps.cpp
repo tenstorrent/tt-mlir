@@ -4894,15 +4894,18 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    if (attentionMaskType.getShape()[0] != batchSize) {
-      return emitOpError(
-          "Attention mask batch size must match query batch size");
+    if (attentionMaskType.getShape()[0] != 1 &&
+        attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError("Attention mask batch size must be 1 (broadcast) or "
+                         "match query batch size");
     }
     if (attentionMaskType.getShape()[1] != 1) {
       return emitOpError("Attention mask dim 1 must be 1");
     }
-    if (attentionMaskType.getShape()[2] != nQueryHeads) {
-      return emitOpError("Attention mask num heads must match query num heads");
+    if (attentionMaskType.getShape()[2] != 1 &&
+        attentionMaskType.getShape()[2] != nQueryHeads) {
+      return emitOpError("Attention mask num heads must be 1 (broadcast) or "
+                         "match query num heads");
     }
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask sequence length must match key/value "
@@ -5083,12 +5086,15 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    if (attentionMaskType.getShape()[0] != batchSize) {
-      return emitOpError(
-          "Attention mask batch size must match query batch size");
+    if (attentionMaskType.getShape()[0] != 1 &&
+        attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError("Attention mask batch size must be 1 (broadcast) or "
+                         "match query batch size");
     }
-    if (attentionMaskType.getShape()[1] != 1) {
-      return emitOpError("Attention mask dim 1 must be 1");
+    if (attentionMaskType.getShape()[1] != 1 &&
+        attentionMaskType.getShape()[1] != nQueryHeads) {
+      return emitOpError("Attention mask dim 1 must be 1 (broadcast) or match "
+                         "query num heads");
     }
     if (attentionMaskType.getShape()[2] != seqLen) {
       return emitOpError(
