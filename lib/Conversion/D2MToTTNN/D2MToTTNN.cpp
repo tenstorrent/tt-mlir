@@ -24,6 +24,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <optional>
+
 namespace mlir::tt {
 
 namespace {
@@ -826,6 +828,18 @@ static LogicalResult convertGenerics(ModuleOp module,
 // Spatial op conversion: merge region ttnn.generics into one (index remap only)
 // ===----------------------------------------------------------------------===//
 
+static ttnn::CoreRangeSetAttr
+ttCoreRangeToTtnnCoreRangeSet(MLIRContext *ctx, ttcore::CoreRangeAttr cr) {
+  auto sc = cr.getStartCoord();
+  auto ec = cr.getEndCoord();
+  auto tts = ttnn::CoreCoordAttr::get(ctx, static_cast<uint64_t>(sc.getX()),
+                                      static_cast<uint64_t>(sc.getY()));
+  auto tte = ttnn::CoreCoordAttr::get(ctx, static_cast<uint64_t>(ec.getX()),
+                                      static_cast<uint64_t>(ec.getY()));
+  return ttnn::CoreRangeSetAttr::get(
+      ctx, llvm::ArrayRef{ttnn::CoreRangeAttr::get(ctx, tts, tte)});
+}
+
 struct SpatialIndexMappings {
   // Per (generic, localIndex) -> unified index. Built per-region when merging.
   DenseMap<std::pair<ttnn::GenericOp, unsigned>, unsigned> ioMap;
@@ -944,46 +958,49 @@ static SmallVector<Attribute> remapKernelArgs(MLIRContext *ctx,
   return out;
 }
 
-static Attribute remapKernelDescriptor(MLIRContext *ctx, Attribute kernelAttr,
-                                       ttnn::GenericOp generic,
-                                       SpatialIndexMappings &mappings) {
+static Attribute
+remapKernelDescriptor(MLIRContext *ctx, Attribute kernelAttr,
+                      ttnn::GenericOp generic, SpatialIndexMappings &mappings,
+                      std::optional<ttnn::CoreRangeSetAttr> coreOv) {
   if (auto compute = mlir::dyn_cast<ttnn::ComputeKernelAttr>(kernelAttr)) {
     auto crt =
         remapKernelArgs(ctx, compute.getCommonRtArgs(), generic, mappings);
     auto ct = remapKernelArgs(ctx, compute.getCtArgs(), generic, mappings);
+    ttnn::CoreRangeSetAttr crs = coreOv.value_or(compute.getCoreRanges());
     return ttnn::ComputeKernelAttr::get(
-        ctx, compute.getSymbolRef(), compute.getCoreRanges(),
-        compute.getMathFidelity(), compute.getFp32DestAccEn(),
-        compute.getDstFullSyncEn(), compute.getUnpackToDestModes(),
-        compute.getBfp8PackPrecise(), compute.getMathApproxMode(), crt, ct);
+        ctx, compute.getSymbolRef(), crs, compute.getMathFidelity(),
+        compute.getFp32DestAccEn(), compute.getDstFullSyncEn(),
+        compute.getUnpackToDestModes(), compute.getBfp8PackPrecise(),
+        compute.getMathApproxMode(), crt, ct);
   }
   if (auto dm = mlir::dyn_cast<ttnn::DataMovementKernelAttr>(kernelAttr)) {
     auto crt = remapKernelArgs(ctx, dm.getCommonRtArgs(), generic, mappings);
     auto ct = remapKernelArgs(ctx, dm.getCtArgs(), generic, mappings);
+    ttnn::CoreRangeSetAttr crs = coreOv.value_or(dm.getCoreRanges());
     return ttnn::DataMovementKernelAttr::get(
-        ctx, dm.getSymbolRef(), dm.getCoreRanges(), dm.getProcessor(),
-        dm.getNocIndex(), dm.getNocMode(), crt, ct);
+        ctx, dm.getSymbolRef(), crs, dm.getProcessor(), dm.getNocIndex(),
+        dm.getNocMode(), crt, ct);
   }
   if (auto read = mlir::dyn_cast<ttnn::ReadKernelAttr>(kernelAttr)) {
     auto crt = remapKernelArgs(ctx, read.getCommonRtArgs(), generic, mappings);
     auto ct = remapKernelArgs(ctx, read.getCtArgs(), generic, mappings);
-    return ttnn::ReadKernelAttr::get(ctx, read.getSymbolRef(),
-                                     read.getCoreRanges(), crt, ct);
+    ttnn::CoreRangeSetAttr crs = coreOv.value_or(read.getCoreRanges());
+    return ttnn::ReadKernelAttr::get(ctx, read.getSymbolRef(), crs, crt, ct);
   }
   if (auto write = mlir::dyn_cast<ttnn::WriteKernelAttr>(kernelAttr)) {
     auto crt = remapKernelArgs(ctx, write.getCommonRtArgs(), generic, mappings);
     auto ct = remapKernelArgs(ctx, write.getCtArgs(), generic, mappings);
-    return ttnn::WriteKernelAttr::get(ctx, write.getSymbolRef(),
-                                      write.getCoreRanges(), crt, ct);
+    ttnn::CoreRangeSetAttr crs = coreOv.value_or(write.getCoreRanges());
+    return ttnn::WriteKernelAttr::get(ctx, write.getSymbolRef(), crs, crt, ct);
   }
   return kernelAttr;
 }
 
-static ttnn::KernelCBAttr remapCBDescriptor(MLIRContext *ctx,
-                                            ttnn::KernelCBAttr cb,
-                                            ttnn::GenericOp generic,
-                                            SpatialIndexMappings &mappings,
-                                            unsigned numUnifiedIO) {
+static ttnn::KernelCBAttr
+remapCBDescriptor(MLIRContext *ctx, ttnn::KernelCBAttr cb,
+                  ttnn::GenericOp generic, SpatialIndexMappings &mappings,
+                  unsigned numUnifiedIO,
+                  std::optional<ttnn::CoreRangeSetAttr> coreOv) {
   SmallVector<ttnn::KernelCBFormatAttr> newFormats;
   for (const auto &format : cb.getFormats()) {
     auto unified =
@@ -1005,8 +1022,19 @@ static ttnn::KernelCBAttr remapCBDescriptor(MLIRContext *ctx,
           ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, *unified);
     }
   }
-  return ttnn::KernelCBAttr::get(ctx, cb.getTotalSize(), cb.getCoreRanges(),
-                                 newFormats, bufferToUse);
+  ttnn::CoreRangeSetAttr crs = coreOv.value_or(cb.getCoreRanges());
+  return ttnn::KernelCBAttr::get(ctx, cb.getTotalSize(), crs, newFormats,
+                                 bufferToUse);
+}
+
+static ttnn::KernelSemaphoreAttr
+remapSemaphoreDescriptor(MLIRContext *ctx, ttnn::KernelSemaphoreAttr sem,
+                         std::optional<ttnn::CoreRangeSetAttr> coreOv) {
+  if (!coreOv) {
+    return sem;
+  }
+  return ttnn::KernelSemaphoreAttr::get(ctx, sem.getId(), sem.getCoreType(),
+                                        *coreOv, sem.getInitialValue());
 }
 
 static LogicalResult
@@ -1023,6 +1051,14 @@ convertSingleSpatial(d2m::SpatialOp spatialOp, IRRewriter &rewriter,
              << generics.size();
     }
     regionGenerics.push_back(generics.front());
+  }
+
+  ArrayRef<ttcore::CoreRangeAttr> spatialGridRanges =
+      spatialOp.getGridRanges().getCoreRanges();
+  if (!spatialGridRanges.empty() &&
+      spatialGridRanges.size() != regionGenerics.size()) {
+    return spatialOp.emitOpError(
+        "grid_ranges must list exactly one core range per spatial region");
   }
 
   // 1) Build unified IO using resolved tensors (findIOTensor) so we match
@@ -1107,18 +1143,23 @@ convertSingleSpatial(d2m::SpatialOp spatialOp, IRRewriter &rewriter,
   SmallVector<ttnn::KernelCBAttr> mergedCBs;
   SmallVector<ttnn::KernelSemaphoreAttr> mergedSemaphores;
   cbOffset = 0;
-  for (ttnn::GenericOp g : regionGenerics) {
+  for (const auto [regionIdx, g] : llvm::enumerate(regionGenerics)) {
+    std::optional<ttnn::CoreRangeSetAttr> coreOv;
+    if (!spatialGridRanges.empty()) {
+      coreOv = ttCoreRangeToTtnnCoreRangeSet(ctx, spatialGridRanges[regionIdx]);
+    }
     auto program = llvm::cast<ttnn::ProgramAttr>(g.getProgram());
     for (Attribute k : program.getKernels()) {
-      mergedKernels.push_back(remapKernelDescriptor(ctx, k, g, mappings));
+      mergedKernels.push_back(
+          remapKernelDescriptor(ctx, k, g, mappings, coreOv));
     }
     for (ttnn::KernelCBAttr cb : program.getCbs()) {
       mergedCBs.push_back(
-          remapCBDescriptor(ctx, cb, g, mappings, numUnifiedIO));
+          remapCBDescriptor(ctx, cb, g, mappings, numUnifiedIO, coreOv));
     }
     cbOffset += program.getCbs().size();
-    for (auto sem : program.getSemaphores()) {
-      mergedSemaphores.push_back(sem);
+    for (ttnn::KernelSemaphoreAttr sem : program.getSemaphores()) {
+      mergedSemaphores.push_back(remapSemaphoreDescriptor(ctx, sem, coreOv));
     }
   }
 
