@@ -630,16 +630,16 @@ static LogicalResult convertSemaphores(ModuleOp module,
 }
 
 static Value findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping) {
-  if (valueMapping.count(operand)) {
-    return valueMapping[operand];
+  auto iter = valueMapping.find(operand);
+  if (iter != valueMapping.end()) {
+    auto tensorType = dyn_cast<RankedTensorType>(iter->second.getType());
+    TT_assertv(tensorType, "expected mapped value to be a ranked tensor");
+    TT_assertv(isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding()),
+               "expected mapped value to be a TTNN tensor");
+    return iter->second;
   }
 
-  Operation *def = operand.getDefiningOp();
-  if (!def) {
-    // Function args (tensor<..., #ttnn_layout>) are already TTNN-typed.
-    return operand;
-  }
-
+  auto def = operand.getDefiningOp();
   if (auto stream = dyn_cast<d2m::StreamLayoutOp>(def)) {
     return findIOTensor(stream.getInput(), valueMapping);
   }
@@ -647,17 +647,22 @@ static Value findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping) {
     return findIOTensor(view.getInput(), valueMapping);
   }
   if (auto cast = dyn_cast<ttir::TTNNMetalLayoutCastOp>(def)) {
-    return findIOTensor(cast.getOperand(), valueMapping);
+    // Input is already a TTNN tensor.
+    auto tensorType = dyn_cast<RankedTensorType>(cast.getInput().getType());
+    TT_assertv(tensorType, "expected input to be a ranked tensor");
+    TT_assertv(isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding()),
+               "expected input to be a ranked tensor");
+    return cast.getInput();
   }
 
-  // If we've walked past all D2M/cast ops and reached something else (e.g.,
-  // ttnn.to_memory_config), the operand is already a TTNN tensor.
-  return operand;
+  llvm_unreachable("unexpected operand def chain");
 }
 
 static Value findCBMemref(Value operand) {
   Operation *def = operand.getDefiningOp();
   if (!def) {
+    TT_assertv(isa<MemRefType>(operand.getType()),
+               "expected operand to be a memref");
     return operand;
   }
 
@@ -667,8 +672,15 @@ static Value findCBMemref(Value operand) {
   if (auto view = dyn_cast<d2m::ViewLayoutOp>(def)) {
     if (isa_and_present<d2m::StreamLayoutOp>(view.getInput().getDefiningOp())) {
       return view.getInput();
+    } else {
+      TT_assertv(isa<MemRefType>(operand.getType()),
+                 "expected operand to be a memref");
+      return operand;
     }
   }
+
+  TT_assertv(isa<MemRefType>(operand.getType()),
+             "expected operand to be a memref");
   return operand;
 }
 
