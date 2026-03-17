@@ -2,14 +2,24 @@
     {
         "runs-on": [
             "n150",
-            "n300",
-            "llmbox"
+            "n300"
         ],
         "image": "speedy",
         "script": "ttrt.sh",
         "args": [
             "run",
             "Silicon"
+        ]
+    },
+    {
+        "runs-on": "llmbox",
+        "image": "speedy",
+        "script": "ttrt.sh",
+        "args": [
+            "run",
+            "Silicon",
+            "--fabric-config",
+            "fabric_1d_ring"
         ]
     },
     {
@@ -26,12 +36,12 @@
         ]
     },
     {
-        "runs-on": "n300",
+        "runs-on": "llmbox",
         "image": "tracy",
         "script": "ttrt.sh",
         "args": [
             "perf",
-            "Silicon/TTNN/n300/perf/ring",
+            "Silicon/TTNN/llmbox/perf/ring",
             "--fabric-config",
             "fabric_1d_ring"
         ]
