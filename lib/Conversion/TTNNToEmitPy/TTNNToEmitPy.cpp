@@ -2652,7 +2652,6 @@ public:
 // TTNNPrepareConstEvalCaching pass (pre-split) and the
 // EmitPyConstEvalCaching pass (post-conversion).
 //
-
 namespace {
 class LoadCachedOpConversionPattern
     : public OpConversionPattern<mlir::tt::ttcore::LoadCachedOp> {
@@ -2684,6 +2683,7 @@ public:
     // Check for device argument (target-module mode).
     auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
     auto deviceType = mlir::tt::ttnn::DeviceType::get(ctx);
+
     Type convertedDeviceType = nullptr;
     if (auto *typeConverter = this->getTypeConverter()) {
       convertedDeviceType = typeConverter->convertType(deviceType);
@@ -2768,9 +2768,11 @@ public:
     auto dictType =
         emitpy::DictType::get(rewriter.getContext(), /*keyType=*/nullptr,
                               /*valueType=*/nullptr);
-    rewriter.replaceOpWithNewOp<emitpy::GlobalStatementOp>(
+    auto discardableAttrs = getGlobalOp->getDiscardableAttrDictionary();
+    auto newOp = rewriter.replaceOpWithNewOp<emitpy::GlobalStatementOp>(
         getGlobalOp, dictType,
         rewriter.getStringAttr(getGlobalOp.getSymName()));
+    newOp->setDiscardableAttrs(discardableAttrs);
     return success();
   }
 };
