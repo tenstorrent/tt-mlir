@@ -7021,7 +7021,8 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingBackwardOp>::getOpConstraints(
   auto embeddingBackwardOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::embedding_bw, device, inputSpec, weightSpec, inGradientSpec,
-        /*dtype*/ std::nullopt, detail::getNullableMemoryConfig(outputLayout));
+        /*dtype*/ std::nullopt, detail::getNullableMemoryConfig(outputLayout),
+        /*optional_output_tensor*/ std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -7065,7 +7066,8 @@ OpModel<mlir::tt::ttnn::EmbeddingBackwardOp>::getOpRuntime(
   auto embeddingBackwardOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::embedding_bw, device, inputSpec, weightSpec, inGradientSpec,
-        /*dtype*/ std::nullopt, detail::getNullableMemoryConfig(outputLayout));
+        /*dtype*/ std::nullopt, detail::getNullableMemoryConfig(outputLayout),
+        /*optional_output_tensor*/ std::nullopt);
   };
 
   return operation::getOpRuntime(embeddingBackwardOpQuery);
