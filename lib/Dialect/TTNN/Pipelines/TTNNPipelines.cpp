@@ -290,6 +290,9 @@ void createTTIRToTTNNDevicePipeline(
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
 
+    if (options.dramSpaceSavingOptimizationEnabled) {
+      devicePm.addPass(createTTNNMemoryManagement());
+    }
     createTTNNPipelineWorkaroundPass(devicePm, options);
     // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
