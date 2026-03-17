@@ -1577,6 +1577,118 @@ def linear_golden(
     return torch.add(output, bias)
 
 
+def sdpa_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: GoldenMapTensor,
+    attention_mask=None,
+    is_causal=True,
+    scale=None,
+    **kwargs,
+) -> GoldenMapTensor:
+    """
+    Golden function for scaled dot product attention.
+    Matches tt-metal's FlashAttention implementation where scale is fused into
+    exp: exp((QK + mask - max) * scale). This means the mask is effectively
+    scaled, unlike PyTorch's standard SDPA which computes QK * scale + mask.
+
+    Supports standard attention and Grouped-Query Attention (GQA).
+    """
+    q_heads = query.shape[1]
+    kv_heads = key.shape[1]
+
+    # Handle GQA: broadcast K/V heads to match Q heads
+    if q_heads != kv_heads:
+        assert q_heads % kv_heads == 0
+        num_repeats = q_heads // kv_heads
+        key = torch.repeat_interleave(key, num_repeats, dim=1)
+        value = torch.repeat_interleave(value, num_repeats, dim=1)
+
+    # QK = Q @ K^T
+    qk = torch.matmul(query.float(), key.float().transpose(-2, -1))
+
+    # Apply causal mask if requested (before scaling, matching tt-metal)
+    if is_causal and attention_mask is None:
+        seq_len_q = qk.shape[-2]
+        seq_len_k = qk.shape[-1]
+        causal_mask = torch.triu(
+            torch.full((seq_len_q, seq_len_k), float("-inf")), diagonal=1
+        )
+        qk = torch.add(qk, causal_mask)
+
+    # Add attention mask (before scaling, matching tt-metal)
+    if attention_mask is not None:
+        qk = torch.add(qk, attention_mask.float())
+
+    # Scale AFTER masking (tt-metal fuses scale into exp)
+    if scale is not None:
+        qk = torch.mul(qk, scale)
+
+    # Softmax + matmul with V
+    attn_weights = torch.softmax(qk, dim=-1)
+    output = torch.matmul(attn_weights, value.float())
+
+    return output.to(query.dtype)
+
+
+def sdpa_decode_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: GoldenMapTensor,
+    cur_pos_tensor: GoldenMapTensor = None,
+    attention_mask=None,
+    is_causal=True,
+    scale=None,
+    **kwargs,
+) -> GoldenMapTensor:
+    """
+    Golden function for scaled dot product attention decode.
+    Matches tt-metal's Flash-Decode implementation.
+
+    Decode layout:
+        Query:  [1, batch, num_heads, head_dim]
+        Key:    [batch, num_kv_heads, seq_len, head_dim]
+        Value:  [batch, num_kv_heads, seq_len, head_dim]
+        Output: [1, batch, num_heads, head_dim]
+    """
+    # Query: [1, B, H, D] -> [B, H, 1, D]
+    q = query.float().squeeze(0).unsqueeze(2)
+
+    k = key.float()
+    v = value.float()
+
+    q_heads = q.shape[1]
+    kv_heads = k.shape[1]
+
+    # Handle GQA: broadcast K/V heads to match Q heads
+    if q_heads != kv_heads:
+        assert q_heads % kv_heads == 0
+        num_repeats = q_heads // kv_heads
+        k = torch.repeat_interleave(k, num_repeats, dim=1)
+        v = torch.repeat_interleave(v, num_repeats, dim=1)
+
+    # QK = Q @ K^T: [B, H, 1, D] @ [B, H, D, S] -> [B, H, 1, S]
+    qk = torch.matmul(q, k.transpose(-2, -1))
+
+    # Add attention mask (before scaling, matching tt-metal)
+    # Mask is in decode layout [B, 1, H, S], permute to [B, H, 1, S] to match qk
+    if attention_mask is not None:
+        qk = torch.add(qk, attention_mask.float().transpose(1, 2))
+
+    # Scale AFTER masking (tt-metal fuses scale into exp)
+    if scale is not None:
+        qk = torch.mul(qk, scale)
+
+    # Softmax + matmul with V
+    attn_weights = torch.softmax(qk, dim=-1)
+    output = torch.matmul(attn_weights, v)  # [B, H, 1, D]
+
+    # Output: [B, H, 1, D] -> [1, B, H, D]
+    output = output.squeeze(2).unsqueeze(0)
+
+    return output.to(query.dtype)
+
+
 def dot_general_golden(
     lhs: GoldenMapTensor,
     rhs: GoldenMapTensor,
@@ -6455,6 +6567,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.MaxPool2dWithIndicesOp: ttir_max_pool2d_with_indices,
     ttir.ArgMaxOp: argmax_golden,
     ttir.LinearOp: linear_golden,
+    ttir.ScaledDotProductAttentionOp: sdpa_golden,
+    ttir.ScaledDotProductAttentionDecodeOp: sdpa_decode_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
