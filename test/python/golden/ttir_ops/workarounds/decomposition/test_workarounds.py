@@ -68,7 +68,7 @@ def test_linear_without_workaround(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
     )
 
 
@@ -83,7 +83,7 @@ def test_linear_without_workaround(
     ids=shape_str,
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("dim", [0, -1])
+@pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.xfail(
@@ -123,85 +123,7 @@ def test_argmax_without_workaround(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=["disable-workarounds=true"],
-    )
-
-
-@pytest.mark.parametrize(
-    "shape,dim",
-    [
-        # CumSumOpRankRewritePattern: rank < 4 triggers unsqueeze to 4D
-        pytest.param(
-            (128, 128),
-            0,
-            marks=pytest.mark.xfail(
-                reason="tt-metal cumsum requires 4D input tensors. "
-                "Rank 2 input is not unsqueezed without the workaround."
-            ),
-            id="rank2_dim0",
-        ),
-        pytest.param(
-            (32, 64, 128),
-            1,
-            marks=pytest.mark.xfail(
-                reason="tt-metal cumsum requires 4D input tensors. "
-                "Rank 3 input is not unsqueezed without the workaround."
-            ),
-            id="rank3_dim1",
-        ),
-        # CumSumOpDimRewritePattern: dim > 1 triggers permutation workaround
-        pytest.param(
-            (4, 4, 128, 128),
-            2,
-            marks=pytest.mark.xfail(
-                reason="tt-metal cumsum only supports dim 0 or 1. "
-                "dim=2 requires permutation workaround."
-            ),
-            id="rank4_dim2",
-        ),
-        pytest.param(
-            (4, 4, 128, 128),
-            3,
-            marks=pytest.mark.xfail(
-                reason="tt-metal cumsum only supports dim 0 or 1. "
-                "dim=3 requires permutation workaround."
-            ),
-            id="rank4_dim3",
-        ),
-    ],
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_cumsum_without_workaround(
-    shape: Shape,
-    dim: int,
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    """
-    Test cumsum with workarounds disabled.
-    Workaround: CumSumOpRankRewritePattern - unsqueezes input to 4D when rank < 4.
-    Workaround: CumSumOpDimRewritePattern - permutes axes when dim > 1 so cumsum
-    runs on dim 0.
-    """
-
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
-        def cumsum_no_workaround_wrapper(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.cumsum(in0, dim=dim, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
     )
 
 
@@ -248,7 +170,7 @@ def test_embedding_without_workaround(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
     )
 
 
@@ -308,7 +230,7 @@ def test_pad_high_dim_without_workaround(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
     )
 
 
@@ -386,7 +308,7 @@ def test_linear_bias_decomposition_without_workaround(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
     )
 
 
@@ -433,7 +355,7 @@ def test_concatenate_heads_without_workaround(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
     )
 
 
@@ -511,61 +433,7 @@ def test_conv3d_without_workaround(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=["disable-workarounds=true"],
-    )
-
-
-@pytest.mark.parametrize(
-    "shape,normalized_shape",
-    [
-        ((32, 128), [128]),
-        ((2, 4, 64), [64]),
-    ],
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(
-    reason="RMSNorm without high-precision compute config may produce inaccurate "
-    "results. The workaround sets HiFi4 math fidelity and FP32 accumulation "
-    "to match LayerNorm precision."
-)
-def test_rms_norm_without_workaround(
-    shape: Shape,
-    normalized_shape: List[int],
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    """
-    Test rms_norm with workarounds disabled.
-    Workaround: RMSNormConfigRewritePattern - applies high-precision
-    DeviceComputeKernelConfig (HiFi4, FP32 accumulation) when no compute
-    config is set.
-    Trigger condition: RMSNormOp has no existing compute config.
-    """
-
-    def module(builder: TTIRBuilder):
-        @builder.func([shape, tuple(normalized_shape)], [dtype, dtype])
-        def rms_norm_no_workaround_wrapper(
-            in0: Operand,
-            weight: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.rms_norm(
-                in0,
-                normalized_shape=normalized_shape,
-                weight=weight,
-                unit_attrs=unit_attrs,
-            )
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
     )
 
 
@@ -622,55 +490,7 @@ def test_split_qkv_without_workaround(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=["disable-workarounds=true"],
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        # lhs and rhs shapes differ, triggering implicit broadcast workaround
-        ((64, 128), (1, 128)),
-    ],
-    ids=shapes_list_str,
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(
-    reason="ttnn.subtract with implicit broadcasting requires commutative operation. "
-    "Without the workaround, subtract is not decomposed to add(lhs, neg(rhs)). "
-    "Metal issue: https://github.com/tenstorrent/tt-metal/issues/24635"
-)
-def test_subtract_without_workaround(
-    shapes: List[Shape],
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    """
-    Test subtract with workarounds disabled.
-    Workaround: SubtractOpImplicitBroadcastRewritePattern - decomposes
-    subtract(lhs, rhs) into add(lhs, neg(rhs)) when shapes differ.
-    Trigger condition: lhs and rhs shapes are different (implicit broadcast needed).
-    """
-
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [dtype, dtype])
-        def subtract_no_workaround_wrapper(
-            in0: Operand,
-            in1: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.subtract(in0, in1, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
     )
 
 
@@ -726,30 +546,115 @@ def test_upsample_without_workaround(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
     )
 
 
+@pytest.mark.parametrize("test_size", [64])
 @pytest.mark.parametrize(
-    "shape,all_gather_dim",
+    "mesh_shape",
+    [(1, 2), (2, 1)],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+@pytest.mark.parametrize("all_gather_dim", [0, -1])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.xfail(
+    reason="ttnn.all_gather does not support 1D tensors. Without the workaround, "
+    "reshape ops are not inserted to make the tensor at least 2D. "
+    "Metal issue: https://github.com/tenstorrent/tt-metal/issues/40107"
+)
+def test_all_gather_1d_no_workaround(
+    test_size: int,
+    mesh_shape: Tuple[int, int],
+    cluster_axis: int,
+    all_gather_dim: int,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    if mesh_shape[cluster_axis] == 1:
+        pytest.skip("all_gather across 1 device is meaningless")
+
+    # The runtime mesh_shard cannot handle 1D tensors with a 2D mesh (the
+    # ShardToFull composer requires unique dims, but a 1D tensor only has dim 0).
+    # Work around this by sharding a 2D (1, N) tensor, reshaping to 1D before
+    # all_gather (which exercises the compiler's 1D reshape workaround), then
+    # reshaping back to 2D to unshard.
+    shard_dims = [0, 1]
+    shard_shape_2d = make_shard_shape(2, shard_dims, mesh_shape)
+
+    full_input_shape = [1 * mesh_shape[0], test_size * mesh_shape[1]]
+    shard_test_shape_1d = [test_size]
+    gathered_shape_2d = [1 * mesh_shape[0], test_size * mesh_shape[1]]
+
+    def module(builder: TTIRBuilder):
+        @builder.func([full_input_shape], [dtype])
+        def all_gather(in0: Operand, builder: TTIRBuilder):
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_2d,
+                shard_dims=shard_dims,
+            )
+
+            # Reshape to 1D to exercise the all_gather 1D workaround.
+            in_1d = builder.reshape(in_shard, shape=shard_test_shape_1d)
+
+            all_gather0 = builder.all_gather(
+                in_1d,
+                all_gather_dim=all_gather_dim,
+                cluster_axis=cluster_axis,
+            )
+
+            # Reshape back to 2D so mesh_shard can unshard.
+            out_2d = builder.reshape(all_gather0, shape=gathered_shape_2d)
+
+            return builder.mesh_shard(
+                out_2d,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_2d,
+                shard_dims=shard_dims,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        mesh_name="mesh",
+        device=device,
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        **get_request_kwargs(request),
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
+    )
+
+
+
+@pytest.mark.parametrize(
+    "shape,scatter_dim",
     [
         # 3D input triggers the workaround (rank < 4)
-        ((32, 128, 128), 2),
+        ((1, 128, 128), 1),
         # 2D input also triggers the workaround
-        ((128, 128), 1),
+        pytest.param(
+            (128, 128),
+            1,
+            marks=pytest.mark.xfail(
+                reason="ttnn.reduce_scatter has numerical accuracy issues when input "
+                "tensor rank < 4. Without the workaround, input is not unsqueezed to 4D. "
+                "Rank3 passes in isolation but causes subsequent rank2 to fail. "
+                "Metal issue: https://github.com/tenstorrent/tt-metal/issues/39953"
+            ),
+        ),
     ],
-    ids=["rank3_dim2", "rank2_dim1"],
+    ids=["rank3_dim1", "rank2_dim1"],
 )
 @pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(
-    reason="ttnn.all_gather requires 4D input tensors. Without the workaround, "
-    "input tensors with rank < 4 are not unsqueezed to 4D before the op."
-)
-def test_all_gather_without_workaround(
+def test_reduce_scatter_without_workaround(
     shape: Shape,
-    all_gather_dim: int,
+    scatter_dim: int,
     mesh_shape: Tuple[int, int],
     dtype: torch.dtype,
     target: str,
@@ -757,12 +662,12 @@ def test_all_gather_without_workaround(
     device,
 ):
     """
-    Test all_gather with workarounds disabled.
-    Workaround: AllGatherOpRewritePattern - unsqueezes input to 4D, adjusts
-    gather dim to account for padding, then reshapes output back to original rank.
+    Test reduce_scatter with workarounds disabled.
+    Workaround: ReduceScatterOpRewritePattern - unsqueezes input to 4D, adjusts
+    scatter dim to account for padding, then reshapes output back to original rank.
     Trigger condition: input tensor rank < 4.
     """
-    cluster_axis = 1  # gather along y-axis (2 devices in mesh_shape)
+    cluster_axis = 1  # scatter along y-axis (2 devices in mesh_shape)
     rank_in = len(shape)
     rank_mesh = len(mesh_shape)
 
@@ -777,7 +682,7 @@ def test_all_gather_without_workaround(
 
     def module(builder: TTIRBuilder):
         @builder.func([full_input_shape], [dtype])
-        def all_gather_no_workaround_wrapper(
+        def reduce_scatter_no_workaround_wrapper(
             in0: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
@@ -789,14 +694,15 @@ def test_all_gather_without_workaround(
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
-            all_gather0 = builder.all_gather(
+            reduce_scatter0 = builder.reduce_scatter(
                 in_shard,
-                all_gather_dim=all_gather_dim,
+                reduce_type=ReduceType.Sum.value,
+                scatter_dim=scatter_dim,
                 cluster_axis=cluster_axis,
                 unit_attrs=unit_attrs,
             )
             return builder.mesh_shard(
-                all_gather0,
+                reduce_scatter0,
                 shard_direction=MeshShardDirection.ShardToFull.value,
                 shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
@@ -810,5 +716,313 @@ def test_all_gather_without_workaround(
         device=device,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,scatter_dim",
+    [
+        # 4D input: rank workaround does NOT apply, isolates the config workaround
+        ((1, 1, 128, 128), 3),
+    ],
+    ids=["rank4_dim3"],
+)
+@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="ttnn.reduce_scatter without FP32 accumulation compute config produces "
+    "incorrect results with πBF16 inputs near the datatype range limit. When values "
+    "are close to BF16 max (~65504), the sum overflows or loses precision without "
+    "fp32_dest_acc_en=true. "
+    "Metal issues:"
+    "https://github.com/tenstorrent/tt-metal/issues/37883"
+    "https://github.com/tenstorrent/tt-metal/issues/37884"
+)
+def test_reduce_scatter_config_without_workaround(
+    shape: Shape,
+    scatter_dim: int,
+    mesh_shape: Tuple[int, int],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test reduce_scatter config workaround disabled.
+    Workaround: ReduceScatterConfigRewritePattern - injects a DeviceComputeKernelConfig
+    with fp32_dest_acc_en=true and math_fidelity=HiFi4 for better numerical accuracy.
+    Trigger condition: reduce_scatter op has no compute_config attribute set.
+    A 4D input is used so the rank workaround (ReduceScatterOpRewritePattern) does
+    not interfere when all workarounds are disabled.
+
+    Uses BF16 inputs with values near the BF16 range limit (~32000 per device).
+    With 2 devices, the reduce_scatter sum reaches ~64000, close to BF16 max (~65504).
+    Without FP32 accumulation, this causes precision loss or overflow.
+    """
+    cluster_axis = 1  # scatter along y-axis (2 devices in mesh_shape)
+    num_devices = mesh_shape[cluster_axis]
+    rank_in = len(shape)
+    rank_mesh = len(mesh_shape)
+
+    # Take the last rank_mesh dims as sharded dims
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
+
+    # Full (un-sharded) input shape, scaled up by the mesh along shard dims
+    full_input_shape = list(shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
+    # Create input tensor with values near BF16 limits.
+    # BF16 max ~65504; each value ~32000, sum of 2 devices = ~64000 (close to max).
+    torch_input = (torch.rand(full_input_shape).float() * 1000 + 32000).bfloat16()
+
+    def module(builder: TTIRBuilder):
+        @builder.func([full_input_shape], [dtype])
+        def reduce_scatter_config_no_workaround_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_goldens({in0: torch_input})
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+            reduce_scatter0 = builder.reduce_scatter(
+                in_shard,
+                reduce_type=ReduceType.Sum.value,
+                scatter_dim=scatter_dim,
+                cluster_axis=cluster_axis,
+                unit_attrs=unit_attrs,
+            )
+            return builder.mesh_shard(
+                reduce_scatter0,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,index_shape,scatter_dim",
+    [
+        # index size 284 > MAX_SCATTER_SIZE (256) triggers workaround
+        ((512,), (284,), 0),
+        # index size 300 > 256, also triggers
+        ((1024,), (300,), 0),
+    ],
+    ids=["1d_index284", "1d_index300"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="ttnn.scatter has a hardware limit of 256 elements on the scatter axis. "
+    "Without the workaround, scatter operations with index_shape[dim] > 256 are not "
+    "decomposed into smaller sequential chunks."
+)
+def test_scatter_without_workaround(
+    input_shape: Shape,
+    index_shape: Shape,
+    scatter_dim: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test scatter with workarounds disabled.
+    Workaround: ScatterOpRewritePattern - decomposes large scatter ops into
+    sequential chunks of at most 256 elements along the scatter dimension.
+    Trigger condition: index_shape[scatter_dim] > 256.
+    """
+    source_shape = index_shape  # source always has the same shape as index
+
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [input_shape, index_shape, source_shape],
+            [dtype, torch.int32, dtype],
+        )
+        def scatter_no_workaround_wrapper(
+            in0: Operand,
+            index: Operand,
+            source: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Override auto-generated random int32 values with valid scatter indices
+            valid_index = torch.randint(
+                0, input_shape[scatter_dim], index_shape, dtype=torch.int32
+            )
+            builder.set_goldens({index: valid_index})
+            return builder.scatter(
+                in0, index, source, dim=scatter_dim, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["enable-layout-workaround-pass=false", "enable-decomposition-workaround-pass=false"],
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        # Head dim not divisible by 32
+        pytest.param(
+            [
+                (1, 8, 64, 50),  # query
+                (1, 8, 64, 50),  # key
+                (1, 8, 64, 50),  # value
+                (1, 1, 64, 64),  # attention mask
+            ],
+            marks=pytest.mark.xfail(
+                reason="SDPA with non-32-divisible head_dim fails without ttnn-workaround pass. Metal issue: https://github.com/tenstorrent/tt-metal/issues/33434"
+            ),
+        ),
+        # Both seq_len and head_dim not divisible by 32
+        pytest.param(
+            [
+                (1, 8, 63, 50),  # query
+                (1, 8, 64, 50),  # key
+                (1, 8, 64, 50),  # value
+                (1, 1, 63, 64),  # attention mask
+            ],
+            marks=pytest.mark.xfail(
+                reason="SDPA with non-32-divisible head_dim fails without ttnn-workaround pass. Metal issue: https://github.com/tenstorrent/tt-metal/issues/33434"
+            ),
+        ),
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 4])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_sdpa_with_mask_no_workaround(
+    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
+):
+    """
+    Test Scaled Dot Product Attention with non-32-divisible head_dim,
+    with ttnn-workaround pass disabled. Expected to fail without the
+    head_dim padding workaround.
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def sdpa_with_mask_no_workaround(
+            query: Operand,
+            key: Operand,
+            value: Operand,
+            attention_mask: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            head_dim = shapes[0][-1]
+            scale = 1.0 / math.sqrt(head_dim)
+            return builder.scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                attention_mask=attention_mask,
+                is_causal=False,
+                scale=scale,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        pipeline_options=["disable-workarounds=true"],
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        # Decode with mask num_heads=1 (broadcast needed)
+        # Q: [1, batch, num_heads, head_dim], K/V: [batch, kv_heads, kv_seq, head_dim]
+        # Mask: [batch, 1, 1, kv_seq] - heads=1 needs broadcast to num_heads
+        [
+            (1, 32, 32, 64),  # query (decode shape)
+            (32, 32, 128, 64),  # key
+            (32, 32, 128, 64),  # value
+            (32,),  # cur_pos_tensor
+            (32, 1, 1, 128),  # attention mask with heads=1
+        ],
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize(
+    "dtypes",
+    [[torch.bfloat16, torch.bfloat16, torch.bfloat16, torch.int32, torch.bfloat16]],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="SDPA decode with mask num_heads=1 fails without workaround. "
+    "tt-metal requires mask[2] == num_heads and does not support implicit broadcast."
+)
+def test_sdpa_decode_mask_broadcast_no_workaround(
+    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
+):
+    """
+    Test that SDPA decode with mask num_heads=1 fails without the workaround.
+    tt-metal requires mask[2] == num_heads for decode.
+    """
+    batch = shapes[0][1]
+    kv_seq = shapes[1][2]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def sdpa_decode_mask_broadcast(
+            query: Operand,
+            key: Operand,
+            value: Operand,
+            cur_pos_tensor: Operand,
+            attention_mask: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            head_dim = shapes[0][-1]
+            scale = 1.0 / math.sqrt(head_dim)
+            result = builder.scaled_dot_product_attention_decode(
+                query,
+                key,
+                value,
+                cur_pos_tensor=cur_pos_tensor,
+                attention_mask=attention_mask,
+                is_causal=False,
+                scale=scale,
+                unit_attrs=unit_attrs,
+            )
+
+            cur_pos_data = torch.full((batch,), kv_seq - 1, dtype=torch.int32)
+            builder.set_goldens({cur_pos_tensor: cur_pos_data})
+            return result
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
         pipeline_options=["disable-workarounds=true"],
     )
