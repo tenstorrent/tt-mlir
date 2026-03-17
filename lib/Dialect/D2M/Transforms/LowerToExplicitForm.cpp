@@ -85,7 +85,7 @@ static SmallVector<int64_t> buildLoopDimToGridDimMap(GenericOp generic,
 
   // The first output map results correspond to grid dimensions. The grid
   // mapping includes a leading device id result when present.
-  AffineMap gridMapping = generic.getGrid().getMapping();
+  AffineMap gridMapping = generic.getGrid().getPhysicalToVirtMap();
   constexpr unsigned numPhysicalGridDims = 2;
   unsigned numGridDims = gridMapping.isEmpty()
                              ? numPhysicalGridDims
@@ -110,7 +110,7 @@ static void lowerBlockOffsetOps(IRRewriter &rewriter, GenericOp generic,
                                 ArrayRef<int64_t> blockFactors) {
   SmallVector<int64_t> loopDimToGridDim =
       buildLoopDimToGridDimMap(generic, blockFactors.size());
-  AffineMap gridMapping = generic.getGrid().getMapping();
+  AffineMap gridMapping = generic.getGrid().getPhysicalToVirtMap();
 
   SmallVector<BlockOffsetOp> blockOffsetOps;
   generic.walk([&](BlockOffsetOp op) { blockOffsetOps.push_back(op); });
