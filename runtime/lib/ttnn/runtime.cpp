@@ -34,6 +34,10 @@
 #include <optional>
 #include <vector>
 
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#include "tracy/Tracy.hpp"
+#endif
+
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
@@ -1866,6 +1870,9 @@ getOpInputRefs(OpContext opContextHandle,
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  ZoneScopedN("ttnn::submit");
+#endif
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   ::tt::runtime::utils::logMemoryStateIfNeeded(

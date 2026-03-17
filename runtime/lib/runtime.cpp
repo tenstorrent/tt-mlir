@@ -14,6 +14,10 @@
 #include <optional>
 #include <vector>
 
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#include "tracy/Tracy.hpp"
+#endif
+
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #endif
@@ -1166,6 +1170,9 @@ void setFabricConfig(tt::runtime::FabricConfig config) {
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs) {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  ZoneScopedN("runtime::submit");
+#endif
   using RetType = std::vector<Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,

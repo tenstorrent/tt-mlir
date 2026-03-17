@@ -7,6 +7,10 @@
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#include "tracy/Tracy.hpp"
+#endif
+
 namespace tt::runtime::ttnn {
 
 LayoutConverter::LayoutConverter(const LayoutDesc &inputDesc,
@@ -26,6 +30,9 @@ LayoutConverter::LayoutConverter(const LayoutDesc &inputDesc,
 ::ttnn::Tensor
 LayoutConverter::convertTensorLayout(const ::ttnn::Tensor &input,
                                      OptionalMeshDeviceRef targetDevice) {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  ZoneScopedN("LayoutConverter::convertTensorLayout");
+#endif
   if (inputDesc.isOnHost()) {
     return convertHostTensorLayout(input, targetDevice);
   }

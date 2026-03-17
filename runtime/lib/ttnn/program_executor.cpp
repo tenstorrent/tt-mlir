@@ -98,6 +98,10 @@
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#include "tracy/Tracy.hpp"
+#endif
+
 namespace tt::runtime::ttnn {
 
 using LogType = ::tt::runtime::logger::LogType;
@@ -153,6 +157,13 @@ void ProgramExecutor::runCallback(
 void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  ZoneScopedN("ProgramExecutor::execute");
+  {
+    std::string programName(program->name()->c_str());
+    ZoneName(programName.c_str(), programName.size());
+  }
+#endif
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
@@ -162,7 +173,18 @@ void ProgramExecutor::execute() {
         perf::Env::get().tracyProgramMetadata);
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
-    runOperation(op);
+    {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+      ZoneScopedN("runOperation");
+      const char *opTypeName =
+          ::tt::target::ttnn::EnumNameOpType(op->type_type());
+      ZoneName(opTypeName, std::strlen(opTypeName));
+      if (op->debug_info()) {
+        ZoneText(op->debug_info()->c_str(), op->debug_info()->size());
+      }
+#endif
+      runOperation(op);
+    }
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
     dumpPerfCountersIfNeeded();
