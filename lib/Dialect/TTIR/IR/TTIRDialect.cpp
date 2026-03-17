@@ -118,10 +118,51 @@ void TTIRDialect::initialize() {
 // TTIR constant materializer.
 //===----------------------------------------------------------------------===//
 
+// Check if fill_value attirbute of FullOp can be of this type.
+bool isValidFullValueType(Type t) {
+  return t.isF32() || t.isSignlessInteger(32);
+}
+
+// Check if the attribute represents zero.
+static bool isZeroAttr(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValue().isPosZero();
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return intAttr.getValue().isZero();
+  }
+  return false;
+}
+
+// Check if the attribute represents one.
+static bool isOneAttr(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValue().isExactlyValue(1.0);
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return intAttr.getValue().isOne();
+  }
+  return false;
+}
+
 ::mlir::Operation *TTIRDialect::materializeConstant(OpBuilder &builder,
                                                     Attribute value, Type type,
                                                     Location loc) {
   if (auto elementsAttr = mlir::dyn_cast<mlir::ElementsAttr>(value)) {
+    if (elementsAttr.isSplat()) {
+      auto shape =
+          llvm::to_vector_of<int32_t>(elementsAttr.getShapedType().getShape());
+      auto splatValue = elementsAttr.getSplatValue<mlir::Attribute>();
+      if (isZeroAttr(splatValue)) {
+        return builder.create<ttir::ZerosOp>(loc, type, shape);
+      }
+      if (isOneAttr(splatValue)) {
+        return builder.create<ttir::OnesOp>(loc, type, shape);
+      }
+      if (isValidFullValueType(elementsAttr.getElementType())) {
+        return builder.create<ttir::FullOp>(loc, type, shape, splatValue);
+      }
+    }
     return builder.create<ttir::ConstantOp>(loc, type, elementsAttr);
   }
   return {};
