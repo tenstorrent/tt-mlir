@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "669abf56e5e1ed13fb3008ce6a79bef580a88c41")
+set(TT_METAL_VERSION "hshah/cherry-pick-test")
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
