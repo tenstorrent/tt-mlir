@@ -158,13 +158,10 @@ struct ConvertD2MToTTKernel
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 
-    // Insert fabric connection manager and setup fabric connections at the
-    // start of the function.
-    // TODO: should this be a pattern as well?, just want to ensure its used at
-    // the start.
-    // insert fcm ops if there is a fabric write
-    // what if we insert everytime and then remove on canonicalization?
-    // technically not valid since we can only setup connections once
+    // If there is any fabric related writes,
+    // insert fabric connection manager ops and setup fabric connections at the
+    // start of the function and close at the end.
+    // TODO: should this be a separate pass or pattern
     ModuleOp moduleOp = getOperation();
     moduleOp->walk([&](func::FuncOp func) {
       bool fabric_write_present = false;
