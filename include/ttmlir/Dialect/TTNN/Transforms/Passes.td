@@ -390,6 +390,21 @@ def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::Mod
   ];
 }
 
+def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::ModuleOp"> {
+  let summary = "Convert KV cache tensors to a lower precision dtype.";
+  let description = [{
+    This pass changes KV cache function argument types to a target dtype and inserts
+    ttnn.typecast ops on the input operands of ttnn.fill_cache and
+    ttnn.update_cache so written data matches the new cache format.
+  }];
+
+  list<Option> options = [
+    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::WeightDtype",
+           /*default=*/"::mlir::tt::ttnn::WeightDtype::None",
+           "Target data type for KV cache conversion (bfp_bf8, bfp_bf4).">
+  ];
+}
+
 def TTNNConstEvalInputsToSystemMemory : Pass<"ttnn-force-const-eval-to-system-memory", "::mlir::ModuleOp"> {
   let summary = "Force const-eval function inputs to system memory.";
   let description = [{
