@@ -177,6 +177,22 @@ module attributes {} {
     // CHECK-SAME: value = dense_resource<dense_attr>
     return %0 : tensor<1x2xf64>
   }
+
+  // Regression tests for https://github.com/tenstorrent/tt-mlir/issues/7496.
+  // ElementTypeNormalization must run before canonicalization — if the order
+  // were reversed, MAX_I64 would be silently truncated to -1 instead of
+  // saturated to INT32_MAX (2147483647).
+  func.func @test_constant_i64_max() -> tensor<4xi64> {
+    // CHECK: fill_value = 2147483647 : i32
+    %0 = "ttir.constant"() <{value = dense<9223372036854775807> : tensor<4xi64>}> : () -> tensor<4xi64>
+    return %0 : tensor<4xi64>
+  }
+
+  func.func @test_constant_i64_min() -> tensor<4xi64> {
+    // CHECK: fill_value = -2147483648 : i32
+    %0 = "ttir.constant"() <{value = dense<-9223372036854775808> : tensor<4xi64>}> : () -> tensor<4xi64>
+    return %0 : tensor<4xi64>
+  }
 }
 {-#
     dialect_resources: {
