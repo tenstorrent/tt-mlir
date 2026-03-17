@@ -364,8 +364,7 @@ public:
   // Input must be BFloat16 or BFP_BFloat8.
   // Output values must be same data type as input.
   // Output indices must be uint16.
-  // Source for restrictions:
-  // https://docs.tenstorrent.com/tt-metal/latest/ttnn/ttnn/api/ttnn.topk.html
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/40086
   static TTNNOperandsWorkarounds
   createTopKOpOperandsWorkarounds(ttnn::TopKOp op);
 };

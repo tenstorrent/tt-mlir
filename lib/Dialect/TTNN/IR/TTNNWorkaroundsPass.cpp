@@ -1017,8 +1017,7 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 //   [0] values (same data type as input)
 //   [1] indices (uint16)
 // Input is forced to BFloat16 unless it is already BFloat16 or BFP_BFloat8.
-// Source for restrictions:
-// https://docs.tenstorrent.com/tt-metal/latest/ttnn/ttnn/api/ttnn.topk.html
+// Issue page: https://github.com/tenstorrent/tt-metal/issues/40086
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(
     ttnn::TopKOp op) {
