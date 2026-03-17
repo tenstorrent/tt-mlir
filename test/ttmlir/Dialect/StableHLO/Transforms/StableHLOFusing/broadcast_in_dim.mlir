@@ -124,4 +124,34 @@ module {
     // CHECK-SAME: dims = [0]
     return %2 : tensor<100xbf16>
   }
+  func.func @concatenate_reshape_7(%arg0: tensor<1xbf16>) -> tensor<4xbf16> {
+    %0 = stablehlo.concatenate
+        %arg0, %arg0, %arg0, %arg0,
+        dim = 0 : (
+          tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>
+        ) -> tensor<4xbf16>
+    // CHECK: stablehlo.broadcast_in_dim
+    // CHECK-SAME: dims = [0]
+    return %0 : tensor<4xbf16>
+  }
+  func.func @concatenate_reshape_8(%arg0: tensor<4x1xbf16>) -> tensor<4x4xbf16> {
+    %0 = stablehlo.concatenate
+        %arg0, %arg0, %arg0, %arg0,
+        dim = 1 : (
+          tensor<4x1xbf16>, tensor<4x1xbf16>, tensor<4x1xbf16>, tensor<4x1xbf16>
+        ) -> tensor<4x4xbf16>
+    // CHECK: stablehlo.broadcast_in_dim
+    // CHECK-SAME: dims = [0, 1]
+    return %0 : tensor<4x4xbf16>
+  }
+  func.func @concatenate_reshape_9(%arg0: tensor<4x1xbf16>) -> tensor<16x1xbf16> {
+    %0 = stablehlo.concatenate
+        %arg0, %arg0, %arg0, %arg0,
+        dim = 0 : (
+          tensor<4x1xbf16>, tensor<4x1xbf16>, tensor<4x1xbf16>, tensor<4x1xbf16>
+        ) -> tensor<16x1xbf16>
+    // CHECK-NOT: stablehlo.broadcast_in_dim
+    // Not a broadcast operation because concat dim is not 1.
+    return %0 : tensor<16x1xbf16>
+  }
 }
