@@ -118,7 +118,7 @@ void TTIRDialect::initialize() {
 // TTIR constant materializer.
 //===----------------------------------------------------------------------===//
 
-// Check if fill_value attirbute of FullOp can be of this type.
+// Check if fill_value attribute of FullOp can be of this type.
 bool isValidFullValueType(Type t) {
   return t.isF32() || t.isSignlessInteger(32);
 }
