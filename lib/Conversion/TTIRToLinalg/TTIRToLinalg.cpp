@@ -1339,19 +1339,34 @@ public:
     auto maxIndicesType =
         RankedTensorType::get(reducedShape, rewriter.getI32Type());
 
-    // Initialize max values to -inf and max indices to 0.
-    auto negInfAttr = rewriter.getFloatAttr(
-        elementType,
-        APFloat::getInf(cast<FloatType>(elementType).getFloatSemantics(),
-                        /*Negative=*/true));
-    Value negInf =
-        arith::ConstantOp::create(rewriter, loc, elementType, negInfAttr);
+    // Initialize max values to -inf (float) or INT_MIN (integer), and max
+    // indices to 0.
+    Value initMax;
+    if (isa<FloatType>(elementType)) {
+      auto negInfAttr = rewriter.getFloatAttr(
+          elementType,
+          APFloat::getInf(cast<FloatType>(elementType).getFloatSemantics(),
+                          /*Negative=*/true));
+      initMax =
+          arith::ConstantOp::create(rewriter, loc, elementType, negInfAttr);
+    } else {
+      auto intType = cast<IntegerType>(elementType);
+      unsigned bitWidth = intType.getWidth();
+      // For unsigned integers (including i1), use 0 as the initial minimum.
+      // For signed/signless integers, use the signed minimum value.
+      APInt minValue(bitWidth, /*val=*/0, /*isSigned=*/false);
+      if (!intType.isUnsignedInteger()) {
+        minValue = APInt::getSignedMinValue(bitWidth);
+      }
+      auto minAttr = rewriter.getIntegerAttr(elementType, minValue);
+      initMax = arith::ConstantOp::create(rewriter, loc, elementType, minAttr);
+    }
     Value zero = arith::ConstantOp::create(rewriter, loc, rewriter.getI32Type(),
                                            rewriter.getI32IntegerAttr(0));
 
     Value maxValuesFilled =
         linalg::FillOp::create(
-            rewriter, loc, negInf,
+            rewriter, loc, initMax,
             tensor::EmptyOp::create(rewriter, loc, reducedShape, elementType)
                 .getResult())
             .getResult(0);
@@ -1395,8 +1410,18 @@ public:
             }
           }
 
-          Value isGreater = arith::CmpFOp::create(
-              b, loc, arith::CmpFPredicate::OGT, currentVal, currentMax);
+          Value isGreater;
+          if (isa<FloatType>(elementType)) {
+            isGreater = arith::CmpFOp::create(b, loc, arith::CmpFPredicate::OGT,
+                                              currentVal, currentMax);
+          } else {
+            auto intType = cast<IntegerType>(elementType);
+            arith::CmpIPredicate pred = intType.isUnsignedInteger()
+                                            ? arith::CmpIPredicate::ugt
+                                            : arith::CmpIPredicate::sgt;
+            isGreater =
+                arith::CmpIOp::create(b, loc, pred, currentVal, currentMax);
+          }
           Value newMax = arith::SelectOp::create(b, loc, isGreater, currentVal,
                                                  currentMax);
           Value newIdx =
