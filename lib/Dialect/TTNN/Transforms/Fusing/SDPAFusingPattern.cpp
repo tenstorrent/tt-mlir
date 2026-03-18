@@ -686,7 +686,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {c.query.getType()}, c.query, c.key, c.value, c.mask,
             /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-            /*sliding_window_size=*/IntegerAttr(),
+            /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
             /*memory_config=*/MemoryConfigAttr());
 
     if (!validationResult.isSuccess()) {
@@ -700,7 +700,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key, c.value,
         c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-        /*sliding_window_size=*/IntegerAttr(),
+        /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
         /*memory_config=*/MemoryConfigAttr());
 
     Value finalResult = restoreElementTypeIfNeeded(
