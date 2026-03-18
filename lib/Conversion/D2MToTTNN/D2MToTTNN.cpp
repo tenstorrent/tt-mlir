@@ -168,7 +168,8 @@ public:
           arg.getOperandIndex());
     }
     case ttkernel::ArgType::CBPort: {
-      return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(arg.getCBPort());
+      return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(
+          arg.getOperandIndex());
     }
     case ttkernel::ArgType::Semaphore: {
       return builder.getAttr<ttnn::KernelArgSemaphoreAtAttr>(

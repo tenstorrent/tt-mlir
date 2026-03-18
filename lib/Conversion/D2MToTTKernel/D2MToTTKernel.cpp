@@ -1913,18 +1913,17 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Type cbType = getTypeConverter()->convertType(op.getResult().getType());
 
-    int64_t port = op.getPort();
-    // The operand_index records which generic op operand this CB backs;
-    // the port is the actual hardware CB port number (may differ for spatial).
-    int64_t operandIndex = op.getOperandIndex().value_or(port);
+    assert(op.getOperandIndex() &&
+           "d2m.get_cb must have an operand_index by the time it reaches "
+           "D2MToTTKernel lowering");
+    int64_t operandIndex = *op.getOperandIndex();
 
     // Append a CBPort entry to the parent function's ArgSpec so that
     // D2MToTTNN can generate the corresponding cb_buffer_index in the
     // kernel descriptor's ct_args.  The operand index tells the runtime
-    // which operand's buffer to associate; the port is the actual CB port.
+    // which operand's buffer to associate with this CB.
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
-    ArgAttr cbArg =
-        ArgAttr::getCBPort(rewriter.getContext(), operandIndex, port);
+    ArgAttr cbArg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, operandIndex);
     size_t ctArgIndex;
     rewriter.modifyOpInPlace(entry, [&]() {
       ctArgIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);
