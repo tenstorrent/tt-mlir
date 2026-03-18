@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "sshon/wip-260316-rs-hang-fix")
+set(TT_METAL_VERSION "jzx/sshon/wip-260316-rs-hang-fix")
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
