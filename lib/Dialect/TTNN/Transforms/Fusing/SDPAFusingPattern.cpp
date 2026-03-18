@@ -479,6 +479,48 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
   if (c.attentionSink) {
     c.attentionSink =
         ttmlir::utils::lookThrough<TypecastOp, RepeatOp>(c.attentionSink);
+
+    // If the sink still has a batch dimension > 1, it may come from a
+    // load_cached op where the repeat is baked inside the const_eval function.
+    // Look inside the const_eval, strip the repeat from its return value, and
+    // update the load_cached result type to match.
+    auto sinkType = mlir::cast<RankedTensorType>(c.attentionSink.getType());
+    if (sinkType.getRank() >= 1 && sinkType.getShape()[0] > 1) {
+      if (auto loadCached =
+              c.attentionSink.getDefiningOp<ttcore::LoadCachedOp>()) {
+        auto funcOp = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+            loadCached, loadCached.getCalleeAttr());
+        if (funcOp) {
+          unsigned resultIdx =
+              mlir::cast<OpResult>(c.attentionSink).getResultNumber();
+          auto &block = funcOp.getBody().front();
+          auto returnOp = cast<func::ReturnOp>(block.getTerminator());
+          Value innerV = returnOp.getOperand(resultIdx);
+
+          // Walk back through repeat inside the const_eval body.
+          Value stripped =
+              ttmlir::utils::lookThrough<TypecastOp, RepeatOp>(innerV);
+          if (stripped != innerV) {
+            // Update the const_eval function: return the pre-repeat value.
+            returnOp.setOperand(resultIdx, stripped);
+
+            auto strippedType =
+                mlir::cast<RankedTensorType>(stripped.getType());
+
+            // Update function signature return type.
+            auto funcType = funcOp.getFunctionType();
+            SmallVector<Type> newResultTypes(funcType.getResults());
+            newResultTypes[resultIdx] = strippedType;
+            funcOp.setType(FunctionType::get(
+                funcOp.getContext(), funcType.getInputs(), newResultTypes));
+
+            // Update load_cached result type.
+            loadCached.getResult(resultIdx).setType(strippedType);
+            c.attentionSink = loadCached.getResult(resultIdx);
+          }
+        }
+      }
+    }
   }
 }
 
