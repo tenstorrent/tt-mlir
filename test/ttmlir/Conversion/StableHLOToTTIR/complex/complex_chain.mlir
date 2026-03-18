@@ -4,28 +4,12 @@
 
 // Test chained complex ops: complex(real, imag) then real and imag extraction.
 module {
+  // Aggressive simplification folds real(complex(a,b)) -> a and imag(complex(a,b)) -> b.
   func.func @test_complex_real_imag_chain(%arg0: tensor<3xf32>, %arg1: tensor<3xf32>) -> (tensor<3xf32>, tensor<3xf32>) {
-    // CHECK: "ttir.reshape"(%arg0)
-    // CHECK-SAME: (tensor<3xf32>) -> tensor<1x3xf32>
-    // CHECK: "ttir.reshape"(%arg1)
-    // CHECK-SAME: (tensor<3xf32>) -> tensor<1x3xf32>
-    // CHECK: "ttir.concat"
-    // CHECK-SAME: {dim = 0 : si32}
-    // CHECK-SAME: (tensor<1x3xf32>, tensor<1x3xf32>) -> tensor<2x3xf32>
-    // CHECK: "ttir.permute"
-    // CHECK-SAME: {permutation = array<i64: 1, 0>}
-    // CHECK-SAME: (tensor<2x3xf32>) -> tensor<3x2xf32>
     %c = "stablehlo.complex"(%arg0, %arg1) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xcomplex<f32>>
-    // CHECK: "ttir.slice_static"
-    // CHECK-SAME: {begins = [0 : i32, 0 : i32], ends = [1 : i32, 3 : i32], step = [1 : i32, 1 : i32]}
-    // CHECK: "ttir.reshape"
-    // CHECK-SAME: (tensor<1x3xf32>) -> tensor<3xf32>
     %r = "stablehlo.real"(%c) : (tensor<3xcomplex<f32>>) -> tensor<3xf32>
-    // CHECK: "ttir.slice_static"
-    // CHECK-SAME: {begins = [1 : i32, 0 : i32], ends = [2 : i32, 3 : i32], step = [1 : i32, 1 : i32]}
-    // CHECK: "ttir.reshape"
-    // CHECK-SAME: (tensor<1x3xf32>) -> tensor<3xf32>
     %i = "stablehlo.imag"(%c) : (tensor<3xcomplex<f32>>) -> tensor<3xf32>
+    // CHECK: return %arg0, %arg1 : tensor<3xf32>, tensor<3xf32>
     return %r, %i : tensor<3xf32>, tensor<3xf32>
   }
 
