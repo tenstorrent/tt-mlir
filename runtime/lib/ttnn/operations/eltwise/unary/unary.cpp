@@ -182,7 +182,7 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Mish: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::mish);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::mish);
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sin: {
