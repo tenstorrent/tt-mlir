@@ -14,6 +14,7 @@ Covers all all_gather, all_reduce, and reduce_scatter use cases from example_ccl
 - ttnn.all_gather with all_gather_dim=2, cluster_axis=1
 """
 
+import ttmlir.ir  # Ensure ttmlir is loaded before ttnn_jit to avoid TypeID conflicts
 import ttnn
 import torch
 import inspect
