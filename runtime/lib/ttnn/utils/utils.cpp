@@ -257,6 +257,8 @@ MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
     return ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
   case ::tt::target::ttnn::TensorMemoryLayout::BlockSharded:
     return ::ttnn::TensorMemoryLayout::BLOCK_SHARDED;
+  case ::tt::target::ttnn::TensorMemoryLayout::NDSharded:
+    return ::ttnn::TensorMemoryLayout::ND_SHARDED;
   }
 }
 
@@ -271,6 +273,8 @@ fromTTNNTensorMemoryLayout(::ttnn::TensorMemoryLayout tensorMemoryLayout) {
     return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
   case ::ttnn::TensorMemoryLayout::BLOCK_SHARDED:
     return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
+  case ::ttnn::TensorMemoryLayout::ND_SHARDED:
+    return ::tt::target::ttnn::TensorMemoryLayout::NDSharded;
   }
 }
 
