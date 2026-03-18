@@ -761,9 +761,9 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
       return failure();
     }
 
-    auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
-        c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key, c.value,
-        c.mask,
+    auto sdpaOp = ScaledDotProductAttentionOp::create(
+        rewriter, c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key,
+        c.value, c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
         /*sliding_window_size=*/IntegerAttr(), c.attentionSink);
 
