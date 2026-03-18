@@ -3,12 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+// #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/Target/TTNN/operations/configs_generated.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "gtest/gtest.h"
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <iostream>
@@ -176,10 +177,10 @@ protected:
   std::optional<::ttnn::Conv2dConfig>
   pathA(mlir::tt::ttnn::Conv2dConfigAttr conv2dConfigAttr) override {
     // TODO(#2130)
-    if (conv2dConfigAttr.hasCoreGrid()) {
-      std::cout << "not empty core_grid\n";
-      return pathC(conv2dConfigAttr);
-    }
+    //if (conv2dConfigAttr.hasCoreGrid()) {
+    //  std::cout << "not empty core_grid\n";
+    //  return pathC(conv2dConfigAttr);
+    //}
     return mlir::tt::ttnn::op_model::conversion::getConv2dConfig(
         conv2dConfigAttr);
   }
@@ -212,55 +213,73 @@ protected:
       if (pathA == std::nullopt && pathB == std::nullopt &&
           pathC == std::nullopt) {
         SUCCEED();
+        return;
       }
       FAIL();
     }
 
-    EXPECT_PRED_FORMAT3(Equal<std::optional<tt::tt_metal::DataType>>,
-                        pathA->weights_dtype, pathB->weights_dtype,
-                        pathC->weights_dtype);
-    EXPECT_PRED_FORMAT3(
-        Equal<std::optional<ttnn::operations::unary::UnaryWithParam>>,
-        pathA->activation, pathB->activation, pathC->activation);
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->deallocate_activation,
-                        pathB->deallocate_activation,
-                        pathC->deallocate_activation);
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->reallocate_halo_output,
-                        pathB->reallocate_halo_output,
-                        pathC->reallocate_halo_output);
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->config_tensors_in_dram,
-                        pathB->config_tensors_in_dram,
-                        pathC->config_tensors_in_dram);
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->act_block_h_override,
-                        pathB->act_block_h_override,
-                        pathC->act_block_h_override);
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->act_block_w_div,
-                        pathB->act_block_w_div, pathC->act_block_w_div);
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->reshard_if_not_optimal,
-                        pathB->reshard_if_not_optimal,
-                        pathC->reshard_if_not_optimal);
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->override_sharding_config,
-                        pathB->override_sharding_config,
-                        pathC->override_sharding_config);
-    EXPECT_PRED_FORMAT3(Equal<std::optional<tt::tt_metal::TensorMemoryLayout>>,
-                        pathA->shard_layout, pathB->shard_layout,
-                        pathC->shard_layout);
-    EXPECT_PRED_FORMAT3(Equal<std::optional<tt::tt_metal::CoreRangeSet>>,
-                        pathA->core_grid, pathB->core_grid, pathC->core_grid);
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->transpose_shards,
-                        pathB->transpose_shards, pathC->transpose_shards);
-    EXPECT_PRED_FORMAT3(Equal<tt::tt_metal::Layout>, pathA->output_layout,
-                        pathB->output_layout, pathC->output_layout);
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->enable_act_double_buffer,
-                        pathB->enable_act_double_buffer,
-                        pathC->enable_act_double_buffer);
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->enable_weights_double_buffer,
-                        pathB->enable_weights_double_buffer,
-                        pathC->enable_weights_double_buffer);
-    EXPECT_PRED_FORMAT3(Equal<std::optional<bool>>,
-                        pathA->enable_kernel_stride_folding,
-                        pathB->enable_kernel_stride_folding,
-                        pathC->enable_kernel_stride_folding);
+    EXPECT_EQ(pathA->weights_dtype, pathB->weights_dtype);
+    EXPECT_EQ(pathA->weights_dtype, pathC->weights_dtype);
+
+    auto compareUnaryWithParam =
+        [](const std::optional<ttnn::operations::unary::UnaryWithParam> &a,
+           const std::optional<ttnn::operations::unary::UnaryWithParam> &b) {
+          if (a.has_value() != b.has_value()) {
+            return false;
+          }
+          if (!a) {
+            return true;
+          }
+          return a->op_type == b->op_type && a->params == b->params;
+        };
+    EXPECT_EQ(true, compareUnaryWithParam(pathA->activation, pathB->activation));
+    EXPECT_EQ(true, compareUnaryWithParam(pathA->activation, pathC->activation));
+
+    EXPECT_EQ(pathA->deallocate_activation, pathB->deallocate_activation);
+    EXPECT_EQ(pathA->deallocate_activation, pathC->deallocate_activation);
+
+    EXPECT_EQ(pathA->reallocate_halo_output, pathB->reallocate_halo_output);
+    EXPECT_EQ(pathA->reallocate_halo_output, pathC->reallocate_halo_output);
+
+    EXPECT_EQ(pathA->config_tensors_in_dram, pathB->config_tensors_in_dram);
+    EXPECT_EQ(pathA->config_tensors_in_dram, pathC->config_tensors_in_dram);
+
+    EXPECT_EQ(pathA->act_block_h_override, pathB->act_block_h_override);
+    EXPECT_EQ(pathA->act_block_h_override, pathC->act_block_h_override);
+
+    EXPECT_EQ(pathA->act_block_w_div, pathB->act_block_w_div);
+    EXPECT_EQ(pathA->act_block_w_div, pathC->act_block_w_div);
+
+    EXPECT_EQ(pathA->reshard_if_not_optimal, pathB->reshard_if_not_optimal);
+    EXPECT_EQ(pathA->reshard_if_not_optimal, pathC->reshard_if_not_optimal);
+
+    EXPECT_EQ(pathA->override_sharding_config, pathB->override_sharding_config);
+    EXPECT_EQ(pathA->override_sharding_config, pathC->override_sharding_config);
+
+    EXPECT_EQ(pathA->shard_layout, pathB->shard_layout);
+    EXPECT_EQ(pathA->shard_layout, pathC->shard_layout);
+
+    EXPECT_EQ(pathA->core_grid, pathB->core_grid);
+    EXPECT_EQ(pathB->core_grid, pathC->core_grid);
+
+    EXPECT_EQ(pathA->transpose_shards, pathB->transpose_shards);
+    EXPECT_EQ(pathA->transpose_shards, pathC->transpose_shards);
+
+    EXPECT_EQ(pathA->output_layout, pathB->output_layout);
+    EXPECT_EQ(pathA->output_layout, pathC->output_layout);
+
+    EXPECT_EQ(pathA->enable_act_double_buffer, pathB->enable_act_double_buffer);
+    EXPECT_EQ(pathA->enable_act_double_buffer, pathC->enable_act_double_buffer);
+
+    EXPECT_EQ(pathA->enable_weights_double_buffer,
+              pathB->enable_weights_double_buffer);
+    EXPECT_EQ(pathA->enable_weights_double_buffer,
+              pathC->enable_weights_double_buffer);
+
+    EXPECT_EQ(pathA->enable_kernel_stride_folding,
+              pathB->enable_kernel_stride_folding);
+    EXPECT_EQ(pathA->enable_kernel_stride_folding,
+              pathC->enable_kernel_stride_folding);
   }
 };
 
