@@ -1611,20 +1611,20 @@ TEST_F(OpModelBase, transposeOp) {
   }
 }
 
-TEST_F(OpModelBase, morehCumSumOp) {
-  // create MorehCumSumOp
+TEST_F(OpModelBase, cumSumOp) {
+  // create CumSumOp
   llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
   llvm::SmallVector<int64_t> tensorShapeO = {128, 128};
 
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
-  auto morehCumSum = builder.create<MorehCumSumOp>(
-      builder.getUnknownLoc(), output.getType(), input,
-      builder.getI64IntegerAttr(0), nullptr);
+  auto cumSum =
+      builder.create<CumSumOp>(builder.getUnknownLoc(), output.getType(), input,
+                               builder.getI32IntegerAttr(0), nullptr, nullptr);
 
-  // test morehCumSum Op interface
-  auto constraintsExp = getOpConstraints(morehCumSum.getOperation());
+  // test cumSum Op interface
+  auto constraintsExp = getOpConstraints(cumSum.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
@@ -1637,7 +1637,7 @@ TEST_F(OpModelBase, morehCumSumOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeExp = getOpRuntime(morehCumSum.getOperation());
+  auto runtimeExp = getOpRuntime(cumSum.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
