@@ -128,7 +128,7 @@ template <>
 struct OpModel<SiluOp> : UnaryEltwiseOpModel<SiluOp> {};
 
 template <>
-struct OpModel<MishOp> : UnaryEltwiseOpModel<MishOp> {};
+struct OpModel<MishOp> : UnaryEltwiseWithFastApproxModeOpModel<MishOp> {};
 
 template <>
 struct OpModel<RsqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp> {};
