@@ -154,17 +154,6 @@ struct AlignElementwiseBinaryTypesPattern : public mlir::RewritePattern {
   }
 };
 
-// Use signless i32 for 32-bit integer compare/logical results so later passes
-// see a single i32 kind.
-static Type normalizeI32Signless(Type elementType, MLIRContext *ctx) {
-  if (auto intTy = mlir::dyn_cast<mlir::IntegerType>(elementType)) {
-    if (intTy.getWidth() == 32) {
-      return IntegerType::get(ctx, 32);
-    }
-  }
-  return elementType;
-}
-
 template <typename ComparisonOp>
 struct ComparisonResultTypePattern
     : public mlir::OpRewritePattern<ComparisonOp> {
@@ -184,8 +173,7 @@ struct ComparisonResultTypePattern
       return rewriter.notifyMatchFailure(op, "result already matches lhs type");
     }
 
-    Type elemType =
-        normalizeI32Signless(lhsType.getElementType(), op.getContext());
+    Type elemType = lhsType.getElementType();
     auto newResultType = mlir::RankedTensorType::get(
         resultType.getShape(), elemType, resultType.getEncoding());
 
@@ -215,8 +203,7 @@ struct LogicalNotResultTypePattern
                                          "result already matches input type");
     }
 
-    Type elemType =
-        normalizeI32Signless(inputType.getElementType(), op.getContext());
+    Type elemType = inputType.getElementType();
     auto newResultType = mlir::RankedTensorType::get(
         resultType.getShape(), elemType, resultType.getEncoding());
 
@@ -244,8 +231,7 @@ struct ReduceOrResultTypePattern : public mlir::OpRewritePattern<ReduceOrOp> {
                                          "result already matches input type");
     }
 
-    Type elemType =
-        normalizeI32Signless(inputType.getElementType(), op.getContext());
+    Type elemType = inputType.getElementType();
     auto newResultType = mlir::RankedTensorType::get(
         resultType.getShape(), elemType, resultType.getEncoding());
 
