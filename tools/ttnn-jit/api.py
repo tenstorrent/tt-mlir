@@ -28,6 +28,7 @@ def jit(
                       If unspecified (None), the output will use a maximally L1 block sharded layout.
         fallback: If True, falls back to running the original function directly
                  through ttnn when JIT compilation or execution fails.
+                 Cannot be used together with compile_only=True.
 
     Returns:
         A wrapped version of the function that when invoked, will JIT compile through D2M and execute the resulting flatbuffer.

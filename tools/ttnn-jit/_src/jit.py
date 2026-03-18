@@ -47,6 +47,12 @@ class JitFunction:
         self.out_dir = os.path.join("generated", "ttnn-jit", func.__name__)
         self.math_fidelity = math_fidelity
         self.memory_config = memory_config
+        if fallback and compile_only:
+            raise ValueError(
+                "fallback=True is incompatible with compile_only=True. "
+                "Fallback executes eagerly and returns a tensor, but "
+                "compile_only expects IR/flatbuffer artifacts."
+            )
         self.fallback = fallback
         self.fallback_used = False
         os.makedirs(self.out_dir, exist_ok=True)

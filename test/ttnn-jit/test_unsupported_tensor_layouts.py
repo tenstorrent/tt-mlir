@@ -64,6 +64,13 @@ def test_l1_interleaved_not_supported(device):
         output_tensor = op_jit(ttnn_tensor)
 
 
+def test_fallback_incompatible_with_compile_only():
+    with pytest.raises(
+        ValueError, match="fallback=True is incompatible with compile_only=True"
+    ):
+        ttnn_jit.jit(compile_only=True, fallback=True)(exp)
+
+
 def test_row_major_layout_not_supported(device):
 
     with pytest.raises(
