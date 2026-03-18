@@ -735,9 +735,12 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     if (isTTNNOperand(operand)) {
       result.ttnnTensors.push_back({operand, idx, optimalGrid});
     } else if (auto viewLayout = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
-      // Track the view so its output type can be updated to match the
-      // normalized grid.
-      result.viewLayouts.push_back({viewLayout, idx, optimalGrid});
+      // Track non-reinterpret views so their output type can be updated to
+      // match the normalized grid. Reinterpret views are just type casts and
+      // their grid must match the input — don't update them.
+      if (!viewLayout.getReinterpretLayout()) {
+        result.viewLayouts.push_back({viewLayout, idx, optimalGrid});
+      }
 
       // If the view's input is a ToLayoutOp, also compute and apply the
       // optimal grid for that ToLayoutOp independently.
