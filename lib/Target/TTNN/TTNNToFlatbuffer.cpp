@@ -3082,10 +3082,15 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
   ::flatbuffers::Optional<uint32_t> slidingWindowSize =
       toFlatbuffer(cache, op.getSlidingWindowSize());
 
+  auto attentionSink = op.getAttentionSink()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionSink()))
+                           : 0;
+
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
   return ::tt::target::ttnn::CreateScaledDotProductAttentionOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, scale,
-      slidingWindowSize, out, memoryConfig);
+      slidingWindowSize, attentionSink, out, memoryConfig);
 }
 
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
