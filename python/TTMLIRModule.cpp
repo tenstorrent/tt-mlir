@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
+#include "ttmlir-c/Dialects.h"
 #include "mlir-c/Pass.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Signals.h"
@@ -52,10 +53,11 @@ NB_MODULE(_ttmlir, m) {
       [](MlirDialectRegistry _registry) {
         mlir::registerAllPasses();
 
-        mlir::DialectRegistry *registry = unwrap(_registry);
-
-        mlir::tt::registerAllDialects(*registry);
-        mlir::tt::registerAllExtensions(*registry);
+        // Call ttmlirRegisterAllDialects which is compiled into the common
+        // CAPI library. This ensures dialects are registered using the CAPI
+        // library's TypeID instances, avoiding TypeID conflicts between the
+        // CAPI library and this Python extension module.
+        ttmlirRegisterAllDialects(_registry);
       },
       nb::arg("dialectRegistry"));
 
@@ -65,18 +67,15 @@ NB_MODULE(_ttmlir, m) {
   m.def(
       "register_dialect",
       [](MlirContext context, bool load) {
-        mlir::DialectRegistry registry;
-
-        // Register all dialects + extensions.
-        mlir::tt::registerAllDialects(registry);
-        mlir::tt::registerAllExtensions(registry);
-
-        // Append registry to mlir context
-        mlir::MLIRContext *mlirContext = unwrap(context);
-        mlirContext->appendDialectRegistry(registry);
+        // Create a dialect registry using the C API to ensure dialects are
+        // registered with the CAPI library's TypeID instances.
+        MlirDialectRegistry dialectRegistry = mlirDialectRegistryCreate();
+        ttmlirRegisterAllDialects(dialectRegistry);
+        mlirContextAppendDialectRegistry(context, dialectRegistry);
+        mlirDialectRegistryDestroy(dialectRegistry);
 
         if (load) {
-          mlirContext->loadAllAvailableDialects();
+          mlirContextLoadAllAvailableDialects(context);
         }
       },
       nb::arg("context"), nb::arg("load") = true);
