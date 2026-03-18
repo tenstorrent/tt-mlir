@@ -398,7 +398,7 @@ inline MemorySpace getMemorySpace(Value memrefTypedValue) {
 
 inline void printCoordBracketStyle(::mlir::AsmPrinter &printer,
                                    CoreCoordAttr coreCoordAttr) {
-  printer << "(" << coreCoordAttr.getX() << "," << coreCoordAttr.getY() << ")";
+  printer << "(" << coreCoordAttr.getY() << "," << coreCoordAttr.getX() << ")";
 }
 
 inline ::mlir::ParseResult
