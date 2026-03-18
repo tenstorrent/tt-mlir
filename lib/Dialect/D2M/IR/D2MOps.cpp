@@ -2221,8 +2221,8 @@ createReblockedOperands(d2m::GenericOp thisOp, OpBuilder &builder,
       continue;
     }
 
-    d2m::ViewLayoutOp view = builder.create<d2m::ViewLayoutOp>(
-        thisOp.getLoc(), reblockedType, operand.get());
+    d2m::ViewLayoutOp view = d2m::ViewLayoutOp::create(
+        builder, thisOp.getLoc(), reblockedType, operand.get());
     operandViews.push_back(view);
     reblockedOperands.push_back(view.getResult());
   }
@@ -2251,9 +2251,9 @@ createParallelizedGenericShell(d2m::GenericOp thisOp, OpBuilder &builder,
     newResultTypes.push_back(newOutputs[resultIndex].getType());
   }
 
-  return builder.create<d2m::GenericOp>(
-      thisOp.getLoc(), TypeRange(newResultTypes), newInputs, newOutputs,
-      thisOp.getAdditionalArgs(), newGrid,
+  return d2m::GenericOp::create(
+      builder, thisOp.getLoc(), TypeRange(newResultTypes), newInputs,
+      newOutputs, thisOp.getAdditionalArgs(), newGrid,
       builder.getI64ArrayAttr(newBlockFactors), thisOp.getIndexingMaps(),
       thisOp.getIteratorTypes(), thisOp.getThreads(),
       thisOp.getScratchInputsAttr(), thisOp.getFabricConnectionConfigAttr(),
@@ -2400,14 +2400,14 @@ static d2m::ViewLayoutOp createReturnView(d2m::GenericOp thisOp,
   OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointAfter(newGenericOp);
   if (thisOp.getNumResults() > 0) {
-    return builder.create<d2m::ViewLayoutOp>(thisOp.getLoc(),
-                                             thisOp.getResult(0).getType(),
-                                             newGenericOp.getResult(0));
+    return d2m::ViewLayoutOp::create(builder, thisOp.getLoc(),
+                                     thisOp.getResult(0).getType(),
+                                     newGenericOp.getResult(0));
   }
   if (!thisOp.getOutputs().empty()) {
-    return builder.create<d2m::ViewLayoutOp>(
-        thisOp.getLoc(), thisOp.getOutputs().front().getType(),
-        newGenericOp.getOutputs().front());
+    return d2m::ViewLayoutOp::create(builder, thisOp.getLoc(),
+                                     thisOp.getOutputs().front().getType(),
+                                     newGenericOp.getOutputs().front());
   }
   return d2m::ViewLayoutOp();
 }
