@@ -82,7 +82,7 @@ This demo is available [here](../../test/ttnn-jit/demo/test_cosh.py).
 | `enable_cache` | `bool` | `False` | Enables caching for compiled JIT graphs. |
 | `math_fidelity` | `ttnn.MathFidelity` | `ttnn.MathFidelity.HiFi4` | Sets the math fidelity setting for the JIT graph. |
 | `debug` | `bool` | `False` | Enables debug prints during compilation and execution. |
-| `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer and kernel source files will be dumped to `generated/jit`. |
+| `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer and kernel source files will be dumped to `generated/ttnn-jit/<func_name>`. |
 | `memory_config` | `ttnn.MemoryConfig` | `None` | Output memory configuration for the JIT function. If specified, the output tensor will use this exact layout. If unspecified, a maximally L1 block sharded layout will be used as default. |
 | `fallback` | `bool` | `False` | When enabled, falls back to running the original function eagerly through TTNN if JIT compilation or execution fails. Cannot be used together with `compile_only`. |
 
@@ -149,15 +149,20 @@ The output is a valid MLIR module in the TTIR dialect. The previous `cosh` [exam
 ```mlir
 module {
   func.func @cosh(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> {
-    %0 = ttir.exp %arg0 : tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
-    %1 = ttir.neg %arg0 : tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
-    %2 = ttir.exp %1 : tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
-    %3 = ttir.add %0, %2 : tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
-    %4 = ttir.multiply %3, 0.5 : tensor<32x32xbf16, #ttnn_layout>, f32 -> tensor<32x32xbf16, #ttnn_layout>
-    return %4 : tensor<32x32xbf16, #ttnn_layout>
+    %0 = "ttir.exp"(%arg0) : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16>
+    %1 = "ttir.neg"(%arg0) : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16>
+    %2 = "ttir.exp"(%1) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %3 = "ttir.add"(%0, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %cst = "ttir.full"() <{shape = array<i32: 32, 32>, fill_value = 5.000000e-01 : f32}> : () -> tensor<32x32xf32>
+    %4 = "ttir.multiply"(%3, %cst) : (tensor<32x32xbf16>, tensor<32x32xf32>) -> tensor<32x32xbf16>
+    %5 = ttir.empty() : tensor<32x32xbf16, #ttnn_layout>
+    %6 = ttir.to_layout %4, %5 : tensor<32x32xbf16> into tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
+    return %6 : tensor<32x32xbf16, #ttnn_layout>
   }
 }
 ```
+
+Only function arguments and the final return value carry a `#ttnn_layout` encoding that specifies the exact tensor layout (sharding, memory space, grid). Intermediate results are left as bare tensor types; the D2M GridSelection pass infers optimal layouts for these during compilation.
 
 ### Step 2: D2M Compilation Pipeline
 
