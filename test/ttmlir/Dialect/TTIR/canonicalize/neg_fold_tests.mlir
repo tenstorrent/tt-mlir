@@ -11,16 +11,6 @@ module {
     return %1 : tensor<64x64xf32>
   }
 
-  func.func @neg_full_negative() -> tensor<64x64xf32> {
-    %0 = "ttir.full"() <{shape = array<i32: 64, 64>, fill_value = -5.000000e+00 : f32}> : () -> tensor<64x64xf32>
-    // CHECK-LABEL: func.func @neg_full_negative
-    // CHECK-NOT: "ttir.neg"
-    // CHECK: "ttir.full"
-    // CHECK-SAME: fill_value = 5.000000e+00
-    %1 = "ttir.neg"(%0) : (tensor<64x64xf32>) -> tensor<64x64xf32>
-    return %1 : tensor<64x64xf32>
-  }
-
   func.func @neg_full_int() -> tensor<64x64xi32> {
     %0 = "ttir.full"() <{shape = array<i32: 64, 64>, fill_value = 2 : i32}> : () -> tensor<64x64xi32>
     // CHECK-LABEL: func.func @neg_full_int
@@ -29,6 +19,26 @@ module {
     // CHECK-SAME: fill_value = -2
     %1 = "ttir.neg"(%0) : (tensor<64x64xi32>) -> tensor<64x64xi32>
     return %1 : tensor<64x64xi32>
+  }
+
+  func.func @neg_full_float_to_int() -> tensor<64x64xi64> {
+    %0 = "ttir.full"() <{shape = array<i32: 64, 64>, fill_value = -2.0 : f32}> : () -> tensor<64x64xi64>
+    // CHECK-LABEL: func.func @neg_full_float_to_int
+    // CHECK-NOT: "ttir.neg"
+    // CHECK: "ttir.full"
+    // CHECK-SAME: fill_value = 2 : i32
+    %1 = "ttir.neg"(%0) : (tensor<64x64xi64>) -> tensor<64x64xi64>
+    return %1 : tensor<64x64xi64>
+  }
+
+  func.func @neg_full_int_to_float() -> tensor<64x64xf64> {
+    %0 = "ttir.full"() <{shape = array<i32: 64, 64>, fill_value = -5 : i32}> : () -> tensor<64x64xf64>
+    // CHECK-LABEL: func.func @neg_full_int_to_float
+    // CHECK-NOT: "ttir.neg"
+    // CHECK: "ttir.full"
+    // CHECK-SAME: fill_value = 5.000000e+00 : f32
+    %1 = "ttir.neg"(%0) : (tensor<64x64xf64>) -> tensor<64x64xf64>
+    return %1 : tensor<64x64xf64>
   }
 
   func.func @neg_full_bf() -> tensor<64x64xbf16> {
@@ -53,7 +63,7 @@ module {
 
   func.func @neg_zeros_float() -> tensor<64x64xf32> {
     %0 = "ttir.zeros"() <{shape = array<i32: 64, 64>}> : () -> tensor<64x64xf32>
-    // CHECK-LABEL: func.func @neg_zeros
+    // CHECK-LABEL: func.func @neg_zeros_float
     // CHECK-NOT: "ttir.neg"
     // CHECK: "ttir.full"
     // CHECK-SAME: fill_value = -0.000000e+00
@@ -63,7 +73,7 @@ module {
 
   func.func @neg_zeros_int() -> tensor<64x64xi32> {
     %0 = "ttir.zeros"() <{shape = array<i32: 64, 64>}> : () -> tensor<64x64xi32>
-    // CHECK-LABEL: func.func @neg_zeros
+    // CHECK-LABEL: func.func @neg_zeros_int
     // CHECK-NOT: "ttir.neg"
     // CHECK: "ttir.zeros"
     %1 = "ttir.neg"(%0) : (tensor<64x64xi32>) -> tensor<64x64xi32>

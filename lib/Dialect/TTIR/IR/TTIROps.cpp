@@ -4899,7 +4899,7 @@ mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
 
     // Case B: Float -> Integer (e.g., f32 -> i32)
     if (auto targetIntType = mlir::dyn_cast<mlir::IntegerType>(targetType)) {
-      llvm::APSInt intVal(targetIntType.getWidth(), !targetIntType.isSigned());
+      llvm::APSInt intVal(targetIntType.getWidth(), targetIntType.isUnsigned());
       bool isExact;
       floatVal.convertToInteger(intVal, llvm::APFloat::rmTowardZero, &isExact);
       return mlir::IntegerAttr::get(targetType, intVal);
@@ -4919,7 +4919,9 @@ mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
     if (auto targetFloatType = mlir::dyn_cast<mlir::FloatType>(targetType)) {
       llvm::APFloat floatVal(targetFloatType.getFloatSemantics());
       auto sourceIntType = mlir::cast<mlir::IntegerType>(intAttr.getType());
-      floatVal.convertFromAPInt(intVal, sourceIntType.isSigned(),
+      // Treat signless intergers as signed.
+      bool isSigned = !sourceIntType.isUnsigned();
+      floatVal.convertFromAPInt(intVal, isSigned,
                                 llvm::APFloat::rmNearestTiesToEven);
       return mlir::FloatAttr::get(targetType, floatVal);
     }
