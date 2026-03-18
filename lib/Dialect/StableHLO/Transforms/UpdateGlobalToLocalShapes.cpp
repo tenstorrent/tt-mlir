@@ -325,8 +325,39 @@ static mlir::LogicalResult updateManualAxes(MLIRContext *context,
               tensorShardings[arg.getArgNumber()]);
 
       if (failed(newType)) {
-        manualComputationOp.emitError("Could not apply propagated tensor "
-                                      "shardings to tensor dimensions");
+        mlir::InFlightDiagnostic diag =
+            manualComputationOp.emitError("Could not apply propagated tensor "
+                                          "shardings to tensor dimensions");
+        shardy_utils::MeshMap meshMap =
+            shardy_utils::createMeshMapFromMeshAttr(globalMeshOp.getMesh());
+        mlir::sdy::TensorShardingAttr sharding =
+            tensorShardings[arg.getArgNumber()];
+        llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+            sharding.getDimShardings();
+        for (uint32_t dim = 0; dim < oldType.getShape().size(); dim++) {
+          if (dim >= dimShardings.size()) {
+            continue;
+          }
+          for (auto axis : dimShardings[dim].getAxes()) {
+            llvm::StringRef axisName = axis.getName();
+            auto it = meshMap.find(axisName.str());
+            if (it == meshMap.end()) {
+              diag.attachNote()
+                  << "argument " << arg.getArgNumber() << ", dimension " << dim
+                  << ": mesh axis '" << axisName << "' not found in mesh";
+              continue;
+            }
+            int64_t meshSize = it->second;
+            int64_t dimSize = oldType.getShape()[dim];
+            if (dimSize % meshSize != 0) {
+              diag.attachNote()
+                  << "argument " << arg.getArgNumber() << ", dimension " << dim
+                  << " has size " << dimSize
+                  << " which is not divisible by mesh axis '" << axisName
+                  << "' of size " << meshSize;
+            }
+          }
+        }
         return WalkResult::interrupt();
       }
 
@@ -363,8 +394,40 @@ static mlir::LogicalResult updateShapes(MLIRContext *context,
           shardy_utils::getNewResultTypes(op, globalMeshOp, tensorShardings);
 
       if (failed(newTypes)) {
-        op->emitError("Could not apply propagated tensor shardings to "
-                      "tensor dimensions");
+        mlir::InFlightDiagnostic diag =
+            op->emitError("Could not apply propagated tensor shardings to "
+                          "tensor dimensions");
+        shardy_utils::MeshMap meshMap =
+            shardy_utils::createMeshMapFromMeshAttr(globalMeshOp.getMesh());
+        for (uint32_t i = 0; i < tensorShardings.size(); i++) {
+          mlir::RankedTensorType type =
+              mlir::cast<mlir::RankedTensorType>(op->getResult(i).getType());
+          llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+              tensorShardings[i].getDimShardings();
+          for (uint32_t dim = 0; dim < type.getShape().size(); dim++) {
+            if (dim >= dimShardings.size()) {
+              continue;
+            }
+            for (auto axis : dimShardings[dim].getAxes()) {
+              llvm::StringRef axisName = axis.getName();
+              auto it = meshMap.find(axisName.str());
+              if (it == meshMap.end()) {
+                diag.attachNote()
+                    << "result " << i << ", dimension " << dim
+                    << ": mesh axis '" << axisName << "' not found in mesh";
+                continue;
+              }
+              int64_t meshSize = it->second;
+              int64_t dimSize = type.getShape()[dim];
+              if (dimSize % meshSize != 0) {
+                diag.attachNote()
+                    << "result " << i << ", dimension " << dim << " has size "
+                    << dimSize << " which is not divisible by mesh axis '"
+                    << axisName << "' of size " << meshSize;
+              }
+            }
+          }
+        }
         return WalkResult::interrupt();
       }
 
