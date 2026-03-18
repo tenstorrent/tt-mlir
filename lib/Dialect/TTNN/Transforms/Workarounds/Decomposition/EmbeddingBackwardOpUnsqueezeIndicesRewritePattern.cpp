@@ -1,17 +1,13 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+
 
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingBackwardOpUnsqueezeIndicesRewritePattern.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Utils.h"
 
-#include "mlir/IR/Value.h"
-#include "mlir/Support/LLVM.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 LogicalResult
