@@ -286,11 +286,17 @@ createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
   return kernelConfigs;
 }
 
+enum class OperandLocality {
+  L1Local,
+  L1Remote,
+  DRAM,
+};
+
 struct GenericOperandInfo {
   Value ioTensor;
   Value cbMemref;
   bool isOutput;
-  bool isDRAM;
+  OperandLocality locality;
   unsigned operandIdx;
 };
 
@@ -319,29 +325,9 @@ createCBDescriptors(Builder &builder,
         ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
 
     ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-
-    if (!info.isDRAM) {
-      if (info.isOutput) {
-        // L1 outputs are always aliased.
-        globalCBIndexOfTensor =
-            ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
-      } else {
-        bool isLocalFuncArg =
-            mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-                info.cbMemref.getDefiningOp());
-        bool isLocalIntermediate =
-            mlir::dyn_cast_if_present<memref::AllocOp>(
-                info.cbMemref.getDefiningOp()) &&
-            !mlir::isa_and_present<ttcore::CBLayoutAttr>(
-                cbMemref.getLayout()) &&
-            llvm::none_of(info.cbMemref.getUsers(), [](Operation *user) {
-              return mlir::isa<d2m::StreamLayoutOp>(user);
-            });
-        if (isLocalFuncArg || isLocalIntermediate) {
-          globalCBIndexOfTensor =
-              ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
-        }
-      }
+    if (info.locality == OperandLocality::L1Local) {
+      globalCBIndexOfTensor =
+          ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
     }
 
     cbDescriptors[i] = ttnn::KernelCBAttr::get(
@@ -630,22 +616,26 @@ static LogicalResult convertSemaphores(ModuleOp module,
   return success();
 }
 
-static Value findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping) {
+static std::pair<Value, OperandLocality>
+findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping,
+             OperandLocality currentLocality = OperandLocality::L1Local) {
   auto iter = valueMapping.find(operand);
   if (iter != valueMapping.end()) {
     auto tensorType = dyn_cast<RankedTensorType>(iter->second.getType());
     TT_assertv(tensorType, "expected mapped value to be a ranked tensor");
     TT_assertv(isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding()),
                "expected mapped value to be a TTNN tensor");
-    return iter->second;
+    return {iter->second, currentLocality};
   }
 
   auto *def = operand.getDefiningOp();
   if (auto stream = dyn_cast<d2m::StreamLayoutOp>(def)) {
-    return findIOTensor(stream.getInput(), valueMapping);
+    return findIOTensor(stream.getInput(), valueMapping,
+                        OperandLocality::L1Remote);
   }
   if (auto view = dyn_cast<d2m::ViewLayoutOp>(def)) {
-    return findIOTensor(view.getInput(), valueMapping);
+    return findIOTensor(view.getInput(), valueMapping,
+                        OperandLocality::L1Remote);
   }
   if (auto cast = dyn_cast<ttir::TTNNMetalLayoutCastOp>(def)) {
     // Input is already a TTNN tensor.
@@ -653,7 +643,7 @@ static Value findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping) {
     TT_assertv(tensorType, "expected input to be a ranked tensor");
     TT_assertv(isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding()),
                "expected input to be a ranked tensor");
-    return cast.getInput();
+    return {cast.getInput(), currentLocality};
   }
 
   llvm_unreachable("unexpected operand def chain");
@@ -689,19 +679,23 @@ analyzeGenericOperands(d2m::GenericOp op,
   unsigned idx = 0;
 
   for (Value input : op.getInputs()) {
-    infos.push_back({findIOTensor(input, valueMapping), findCBMemref(input),
-                     /*isOutput=*/false, /*isDRAM=*/false, idx++});
+    auto [tensor, locality] = findIOTensor(input, valueMapping);
+    infos.push_back({tensor, findCBMemref(input),
+                     /*isOutput=*/false, locality, idx++});
   }
   for (Value output : op.getOutputs()) {
-    infos.push_back({findIOTensor(output, valueMapping), findCBMemref(output),
-                     /*isOutput=*/true, /*isDRAM=*/false, idx++});
+    auto [tensor, locality] = findIOTensor(output, valueMapping);
+    infos.push_back({tensor, findCBMemref(output),
+                     /*isOutput=*/true, locality, idx++});
   }
 
   for (auto &info : infos) {
     auto ttnnTensor = mlir::cast<RankedTensorType>(info.ioTensor.getType());
     auto ttnnLayout =
         mlir::cast<ttnn::TTNNLayoutAttr>(ttnnTensor.getEncoding());
-    info.isDRAM = ttnnLayout.getBufferType() == ttnn::BufferType::DRAM;
+    if (ttnnLayout.getBufferType() == ttnn::BufferType::DRAM) {
+      info.locality = OperandLocality::DRAM;
+    }
   }
   return infos;
 }
@@ -819,7 +813,7 @@ static LogicalResult cleanupAndVerify(ModuleOp module,
     if (op.use_empty()) {
       return;
     }
-    Value resolved = findIOTensor(op.getOperand(), valueMapping);
+    Value resolved = findIOTensor(op.getOperand(), valueMapping).first;
     op.getResult().replaceAllUsesWith(resolved);
   });
 
