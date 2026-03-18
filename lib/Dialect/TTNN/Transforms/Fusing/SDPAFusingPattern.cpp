@@ -238,7 +238,7 @@ bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c) const {
     if (concatOp.getInputs().size() == 2 && concatOp.getDim() == lastDim) {
       v = ttmlir::utils::lookThrough<TypecastOp>(concatOp.getInputs()[0]);
       c.attentionSink =
-          ttmlir::utils::lookThrough<RepeatOp>(concatOp.getInputs()[1]);
+          ttmlir::utils::lookThrough<TypecastOp>(concatOp.getInputs()[1]);
     }
   }
 
