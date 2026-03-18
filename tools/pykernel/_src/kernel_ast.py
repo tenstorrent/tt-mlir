@@ -145,7 +145,7 @@ class TTCompilerBase(PyKernelAstBase):
                 arith.CmpIPredicate.ne, if_cond, arith.ConstantOp(cond_type, 0)
             )
         # if_cond = arith.TruncIOp(IntegerType.get_signless(1), if_cond) # temporary since expr not implemented yet
-        if_exp = scf.IfOp(cond=if_cond, hasElse=bool(node.orelse))
+        if_exp = scf.IfOp(cond=if_cond, has_else=bool(node.orelse))
 
         with InsertionPoint(if_exp.then_block), Location.unknown():
             self.symbol_tables.append({})
