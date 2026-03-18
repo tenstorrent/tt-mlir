@@ -2,120 +2,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 
-#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_SMARTELEMENTTYPENORMALIZATION
+#define GEN_PASS_DEF_PREDICATETYPEALIGNMENT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-class I64ToI32AndF64ToF32TypeConverter : public TypeConverter {
-public:
-  I64ToI32AndF64ToF32TypeConverter() {
-    addConversion(
-        [](mlir::RankedTensorType type) -> std::optional<RankedTensorType> {
-          Type elementType = type.getElementType();
-
-          // Tensor-of-tile types use TTCore TileType as element type; do not
-          // run float/integer normalization on them (TileType has
-          // FloatTypeInterface but getFloatSemantics is not fully implemented,
-          // issue https://github.com/tenstorrent/tt-mlir/issues/5124 ).
-          if (mlir::isa<mlir::tt::ttcore::TileType>(elementType)) {
-            return type;
-          }
-
-          if (mlir::isa<mlir::quant::QuantizedType>(elementType)) {
-            return type;
-          }
-
-          if (auto intType = mlir::dyn_cast<mlir::IntegerType>(elementType)) {
-            if (intType.getWidth() == 64) {
-              Type newElementType = IntegerType::get(type.getContext(), 32);
-              return mlir::RankedTensorType::get(
-                  type.getShape(), newElementType, type.getEncoding());
-            }
-          }
-
-          if (auto floatType = mlir::dyn_cast<mlir::FloatType>(elementType)) {
-            if (floatType.getWidth() == 64) {
-              Type newElementType = mlir::Float32Type::get(type.getContext());
-              return mlir::RankedTensorType::get(
-                  type.getShape(), newElementType, type.getEncoding());
-            }
-          }
-
-          return type;
-        });
-  }
-};
-
-class I64AndF64ConstantOpAttrRewriter
-    : public mlir::OpRewritePattern<tt::ttir::ConstantOp> {
-public:
-  using mlir::OpRewritePattern<tt::ttir::ConstantOp>::OpRewritePattern;
-
-  I64AndF64ConstantOpAttrRewriter(const mlir::TypeConverter &converter,
-                                  mlir::MLIRContext *ctx)
-      : OpRewritePattern(ctx), converter(converter) {}
-
-  mlir::LogicalResult
-  matchAndRewrite(tt::ttir::ConstantOp op,
-                  mlir::PatternRewriter &rewriter) const override {
-    auto attr = op.getValue();
-    auto elementType = attr.getElementType();
-
-    if (mlir::isa<DenseResourceElementsAttr>(attr)) {
-      return rewriter.notifyMatchFailure(
-          op, "DenseResourceElementsAttr conversion not supported");
-    }
-
-    auto newType = mlir::cast<mlir::ShapedType>(
-        converter.convertType(attr.getShapedType()));
-    if (newType.getElementType() == elementType) {
-      return rewriter.notifyMatchFailure(op, "no conversion needed");
-    }
-
-    if (auto intType = mlir::dyn_cast<mlir::IntegerType>(elementType)) {
-      if (intType.getWidth() == 64) {
-        llvm::SmallVector<mlir::APInt> intValues;
-        for (mlir::APInt v : attr.getValues<mlir::APInt>()) {
-          intValues.push_back(v.truncSSat(32));
-        }
-        auto newAttr = mlir::DenseElementsAttr::get(newType, intValues);
-        rewriter.modifyOpInPlace(op, [&]() { op.setValueAttr(newAttr); });
-        return success();
-      }
-    }
-
-    if (auto floatType = mlir::dyn_cast<mlir::FloatType>(elementType)) {
-      if (floatType.getWidth() == 64) {
-        llvm::SmallVector<mlir::APFloat> floatValues;
-        for (mlir::APFloat v : attr.getValues<mlir::APFloat>()) {
-          float f = static_cast<float>(v.convertToDouble());
-          floatValues.emplace_back(f);
-        }
-        auto newAttr = mlir::DenseElementsAttr::get(newType, floatValues);
-        rewriter.modifyOpInPlace(op, [&]() { op.setValueAttr(newAttr); });
-        return success();
-      }
-    }
-
-    return rewriter.notifyMatchFailure(op, "no i64/f64 to convert");
-  }
-
-private:
-  mlir::TypeConverter converter;
-};
-
-// Generic downstream propagation for unary tensor-manipulation ops.
-// Propagation intentionally stops at typecast, which is an explicit type
-// boundary.
 struct PropagateUnaryTensorManipulationResultElementTypePattern
     : public mlir::RewritePattern {
   explicit PropagateUnaryTensorManipulationResultElementTypePattern(
@@ -157,7 +53,6 @@ struct PropagateUnaryTensorManipulationResultElementTypePattern
   }
 };
 
-// Propagate gather output element type from data input element type.
 struct GatherResultTypePattern : public mlir::OpRewritePattern<GatherOp> {
   using mlir::OpRewritePattern<GatherOp>::OpRewritePattern;
 
@@ -184,8 +79,6 @@ struct GatherResultTypePattern : public mlir::OpRewritePattern<GatherOp> {
   }
 };
 
-// Align mixed elementwise-binary operand/result dtypes by replacing i1 with
-// the non-i1 type. This normalizes ops like logical_and(i1, i32) -> i32.
 struct AlignElementwiseBinaryTypesPattern : public mlir::RewritePattern {
   explicit AlignElementwiseBinaryTypesPattern(mlir::MLIRContext *ctx)
       : mlir::RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
@@ -261,9 +154,8 @@ struct AlignElementwiseBinaryTypesPattern : public mlir::RewritePattern {
   }
 };
 
-// Normalize 32-bit integer element type to signless i32 so step 2 result types
-// match step 3's type converter (avoids function result type vs return value
-// mismatch).
+// Use signless i32 for 32-bit integer compare/logical results so later passes
+// see a single i32 kind.
 static Type normalizeI32Signless(Type elementType, MLIRContext *ctx) {
   if (auto intTy = mlir::dyn_cast<mlir::IntegerType>(elementType)) {
     if (intTy.getWidth() == 32) {
@@ -273,8 +165,6 @@ static Type normalizeI32Signless(Type elementType, MLIRContext *ctx) {
   return elementType;
 }
 
-// Rewrite comparison ops so the result type matches the input (lhs) type
-// instead of i1.
 template <typename ComparisonOp>
 struct ComparisonResultTypePattern
     : public mlir::OpRewritePattern<ComparisonOp> {
@@ -305,7 +195,6 @@ struct ComparisonResultTypePattern
   }
 };
 
-// Rewrite logical_not so the result type matches the input type instead of i1.
 struct LogicalNotResultTypePattern
     : public mlir::OpRewritePattern<LogicalNotOp> {
   using mlir::OpRewritePattern<LogicalNotOp>::OpRewritePattern;
@@ -336,7 +225,6 @@ struct LogicalNotResultTypePattern
   }
 };
 
-// Rewrite reduce_or so the result type matches the input type instead of i1.
 struct ReduceOrResultTypePattern : public mlir::OpRewritePattern<ReduceOrOp> {
   using mlir::OpRewritePattern<ReduceOrOp>::OpRewritePattern;
 
@@ -368,8 +256,6 @@ struct ReduceOrResultTypePattern : public mlir::OpRewritePattern<ReduceOrOp> {
   }
 };
 
-// Rewrite where so the condition tensor type matches the true/false value
-// types.
 struct WhereConditionTypePattern : public mlir::OpRewritePattern<WhereOp> {
   using mlir::OpRewritePattern<WhereOp>::OpRewritePattern;
 
@@ -404,120 +290,33 @@ struct WhereConditionTypePattern : public mlir::OpRewritePattern<WhereOp> {
   }
 };
 
-// Step 3: Convert remaining i1 to bf16.
-class I1ToBF16TypeConverter : public TypeConverter {
-public:
-  I1ToBF16TypeConverter() {
-    addConversion(
-        [](mlir::RankedTensorType type) -> std::optional<RankedTensorType> {
-          Type elementType = type.getElementType();
-          if (elementType.isInteger(1)) {
-            Type newElementType = mlir::BFloat16Type::get(type.getContext());
-            return mlir::RankedTensorType::get(type.getShape(), newElementType,
-                                               type.getEncoding());
-          }
-          return type;
-        });
-  }
-};
-
-class I1ConstantOpAttrRewriter
-    : public mlir::OpRewritePattern<tt::ttir::ConstantOp> {
-public:
-  using mlir::OpRewritePattern<tt::ttir::ConstantOp>::OpRewritePattern;
-
-  I1ConstantOpAttrRewriter(const mlir::TypeConverter &converter,
-                           mlir::MLIRContext *ctx)
-      : OpRewritePattern(ctx), converter(converter) {}
-
-  mlir::LogicalResult
-  matchAndRewrite(tt::ttir::ConstantOp op,
-                  mlir::PatternRewriter &rewriter) const override {
-    auto attr = op.getValue();
-    if (!attr.getElementType().isInteger(1)) {
-      return rewriter.notifyMatchFailure(op, "not i1 constant");
-    }
-    if (mlir::isa<DenseResourceElementsAttr>(attr)) {
-      return rewriter.notifyMatchFailure(
-          op, "DenseResourceElementsAttr i1 conversion not supported");
-    }
-    auto newType = mlir::cast<mlir::ShapedType>(
-        converter.convertType(attr.getShapedType()));
-    llvm::SmallVector<mlir::APFloat> bf16Values;
-    for (bool v : attr.getValues<bool>()) {
-      mlir::APFloat bf16Value(mlir::APFloat::BFloat());
-      bf16Value.convertFromAPInt(mlir::APInt(1, v ? 1 : 0), /*isSigned=*/false,
-                                 mlir::APFloat::rmNearestTiesToEven);
-      bf16Values.push_back(bf16Value);
-    }
-    auto newAttr = mlir::DenseElementsAttr::get(newType, bf16Values);
-    rewriter.modifyOpInPlace(op, [&]() { op.setValueAttr(newAttr); });
-    return success();
-  }
-
-private:
-  mlir::TypeConverter converter;
-};
-
-struct SmartElementTypeNormalization
-    : public impl::SmartElementTypeNormalizationBase<
-          SmartElementTypeNormalization> {
-  using impl::SmartElementTypeNormalizationBase<
-      SmartElementTypeNormalization>::SmartElementTypeNormalizationBase;
+struct PredicateTypeAlignment
+    : public impl::PredicateTypeAlignmentBase<PredicateTypeAlignment> {
+  using impl::PredicateTypeAlignmentBase<
+      PredicateTypeAlignment>::PredicateTypeAlignmentBase;
 
   void runOnOperation() final {
-    I64ToI32AndF64ToF32TypeConverter converter;
     mlir::GreedyRewriteConfig config;
     config.enableFolding(false);
 
-    // Step 1: Convert i64->i32, f64->f32.
-    {
-      mlir::RewritePatternSet patterns(&getContext());
-      patterns.add<UniformTypeRewriter>(converter, &getContext());
-      patterns.add<I64AndF64ConstantOpAttrRewriter>(converter, &getContext());
-      if (failed(mlir::applyPatternsGreedily(getOperation(),
-                                             std::move(patterns), config))) {
-        signalPassFailure();
-        return;
-      }
-    }
+    mlir::RewritePatternSet patterns(&getContext());
+    patterns.add<PropagateUnaryTensorManipulationResultElementTypePattern>(
+        &getContext());
+    patterns.add<GatherResultTypePattern>(&getContext());
+    patterns.add<AlignElementwiseBinaryTypesPattern>(&getContext());
+    patterns.add<ComparisonResultTypePattern<EqualOp>>(&getContext());
+    patterns.add<ComparisonResultTypePattern<NotEqualOp>>(&getContext());
+    patterns.add<ComparisonResultTypePattern<GreaterThanOp>>(&getContext());
+    patterns.add<ComparisonResultTypePattern<GreaterEqualOp>>(&getContext());
+    patterns.add<ComparisonResultTypePattern<LessThanOp>>(&getContext());
+    patterns.add<ComparisonResultTypePattern<LessEqualOp>>(&getContext());
+    patterns.add<LogicalNotResultTypePattern>(&getContext());
+    patterns.add<ReduceOrResultTypePattern>(&getContext());
+    patterns.add<WhereConditionTypePattern>(&getContext());
 
-    // Step 2: Match comparison/where/logical_not/reduce_or output to input
-    // types.
-    {
-      mlir::RewritePatternSet patterns(&getContext());
-      patterns.add<PropagateUnaryTensorManipulationResultElementTypePattern>(
-          &getContext());
-      patterns.add<GatherResultTypePattern>(&getContext());
-      patterns.add<AlignElementwiseBinaryTypesPattern>(&getContext());
-      patterns.add<ComparisonResultTypePattern<EqualOp>>(&getContext());
-      patterns.add<ComparisonResultTypePattern<NotEqualOp>>(&getContext());
-      patterns.add<ComparisonResultTypePattern<GreaterThanOp>>(&getContext());
-      patterns.add<ComparisonResultTypePattern<GreaterEqualOp>>(&getContext());
-      patterns.add<ComparisonResultTypePattern<LessThanOp>>(&getContext());
-      patterns.add<ComparisonResultTypePattern<LessEqualOp>>(&getContext());
-      patterns.add<LogicalNotResultTypePattern>(&getContext());
-      patterns.add<ReduceOrResultTypePattern>(&getContext());
-      patterns.add<WhereConditionTypePattern>(&getContext());
-
-      if (failed(mlir::applyPatternsGreedily(getOperation(),
-                                             std::move(patterns), config))) {
-        signalPassFailure();
-        return;
-      }
-    }
-
-    // Step 3: Convert remaining i1->bf16.
-    {
-      I1ToBF16TypeConverter i1Converter;
-      mlir::RewritePatternSet patterns(&getContext());
-      patterns.add<UniformTypeRewriter>(i1Converter, &getContext());
-      patterns.add<I1ConstantOpAttrRewriter>(i1Converter, &getContext());
-
-      if (failed(mlir::applyPatternsGreedily(getOperation(),
-                                             std::move(patterns), config))) {
-        signalPassFailure();
-      }
+    if (failed(mlir::applyPatternsGreedily(getOperation(), std::move(patterns),
+                                           config))) {
+      signalPassFailure();
     }
   }
 };
