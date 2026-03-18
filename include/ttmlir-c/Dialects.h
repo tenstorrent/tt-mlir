@@ -16,6 +16,12 @@ MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(TTIR, ttir);
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(TTKernel, ttkernel);
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(TTNN, ttnn);
 
+/// Registers all ttmlir and standard dialects and their extensions into the
+/// provided dialect registry. This is safe to call from a Python extension
+/// that links against the common CAPI library.
+MLIR_CAPI_EXPORTED void
+ttmlirRegisterAllDialects(MlirDialectRegistry dialectRegistry);
+
 #ifdef __cplusplus
 }
 #endif
