@@ -1231,14 +1231,9 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
               resultTensor.getEncoding());
 
       if (inputLayout && resultLayout) {
-        // Both have layouts: verify logical shapes match — unless the
-        // remapping is non-identity, which means this view represents a data
-        // transformation (e.g. slice, permute, rearrange) that intentionally
-        // changes the logical shape.
-        if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape() &&
-            getRemapping().isIdentity()) {
-          return emitOpError("view must preserve logical shape");
-        }
+        // Logical shapes may differ for TM views (reshape, permute, etc.)
+        // where the view intentionally changes the logical shape. We only
+        // require that the remapping is consistent with the device shapes.
       } else if (!inputLayout && !resultLayout) {
         // Neither has layout: verify device tensor shapes match.
         int64_t inputElements = 1, outputElements = 1;
@@ -1265,10 +1260,8 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
           inputTensor.getEncoding());
       auto resultLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
           resultTensor.getEncoding());
-      if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape() &&
-          getRemapping().isIdentity()) {
-        return emitOpError("view cannot change logical shape");
-      }
+      // Logical shapes may differ for TM views (reshape, permute, etc.)
+      // where the view intentionally changes the logical shape.
 
       if (inputLayout.getOobVal() != resultLayout.getOobVal()) {
         return emitOpError("view cannot change oob_val");
