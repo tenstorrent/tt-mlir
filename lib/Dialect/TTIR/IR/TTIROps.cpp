@@ -4891,7 +4891,7 @@ static mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
   if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(typedAttr)) {
     llvm::APFloat floatVal = floatAttr.getValue();
 
-    // Case A: Float -> Float (e.g., f64 -> f32)
+    // Case A: Float -> Float (e.g., f32 -> f64)
     if (auto targetFloatType = mlir::dyn_cast<mlir::FloatType>(targetType)) {
       bool losesInfo;
       floatVal.convert(targetFloatType.getFloatSemantics(),
@@ -4911,9 +4911,13 @@ static mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
   if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(typedAttr)) {
     llvm::APInt intVal = intAttr.getValue();
 
-    // Case C: Integer -> Integer (e.g., i64 -> i32)
+    // Case C: Integer -> Integer (e.g., i32 -> i64)
     if (auto targetIntType = mlir::dyn_cast<mlir::IntegerType>(targetType)) {
-      intVal = intVal.sextOrTrunc(targetIntType.getWidth());
+      if (intAttr.getType().isUnsignedInteger()) {
+        intVal = intVal.zextOrTrunc(targetIntType.getWidth());
+      } else {
+        intVal = intVal.sextOrTrunc(targetIntType.getWidth());
+      }
       return mlir::IntegerAttr::get(targetType, intVal);
     }
 
