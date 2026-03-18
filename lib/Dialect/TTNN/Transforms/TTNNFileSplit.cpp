@@ -114,9 +114,9 @@ private:
     // function so that func.call ops can resolve the symbols.
     builder.setInsertionPointToEnd(&mainFile.getBodyRegion().front());
     for (auto wrapperFunc : wrapperFuncs) {
-      auto privateDecl = builder.create<func::FuncOp>(
-          wrapperFunc.getLoc(), wrapperFunc.getName().str(),
-          wrapperFunc.getFunctionType());
+      auto privateDecl = func::FuncOp::create(builder, wrapperFunc.getLoc(),
+                                              wrapperFunc.getName().str(),
+                                              wrapperFunc.getFunctionType());
       privateDecl.setPrivate();
       ttmlir::utils::setFunctionType(
           privateDecl, ttmlir::utils::FunctionType::ImportedDeclaration);
