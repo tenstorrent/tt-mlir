@@ -112,9 +112,9 @@ private:
       broadcastDims.push_back(i);
     }
     ::mlir::stablehlo::BroadcastInDimOp broadcastInDimOp =
-        rewriter.create<::mlir::stablehlo::BroadcastInDimOp>(
-            concatOp.getLoc(), concatOp.getResult().getType(), concatInput,
-            broadcastDims);
+        ::mlir::stablehlo::BroadcastInDimOp::create(
+            rewriter, concatOp.getLoc(), concatOp.getResult().getType(),
+            concatInput, broadcastDims);
     rewriter.replaceOp(concatOp, broadcastInDimOp.getResult());
     return success();
   }
@@ -183,9 +183,9 @@ private:
           static_cast<int64_t>(i) < static_cast<int64_t>(dim) ? i : i + 1);
     }
     ::mlir::stablehlo::BroadcastInDimOp broadcastInDimOp =
-        rewriter.create<::mlir::stablehlo::BroadcastInDimOp>(
-            concatOp.getLoc(), concatOp.getResult().getType(), reshapeInput,
-            broadcastDims);
+        ::mlir::stablehlo::BroadcastInDimOp::create(
+            rewriter, concatOp.getLoc(), concatOp.getResult().getType(),
+            reshapeInput, broadcastDims);
     rewriter.replaceOp(concatOp, broadcastInDimOp.getResult());
     return success();
   }

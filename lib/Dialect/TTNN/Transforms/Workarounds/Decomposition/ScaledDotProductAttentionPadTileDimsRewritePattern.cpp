@@ -106,8 +106,8 @@ ScaledDotProductAttentionPadTileDimsRewritePattern::matchAndRewrite(
                    rewriter, srcOp.getLoc());
 
   auto resultType = paddedQuery.getType();
-  auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
-      srcOp.getLoc(), resultType, paddedQuery, paddedKey, paddedValue,
+  auto sdpaOp = ScaledDotProductAttentionOp::create(
+      rewriter, srcOp.getLoc(), resultType, paddedQuery, paddedKey, paddedValue,
       srcOp.getAttentionMask(), srcOp.getIsCausal(), srcOp.getScaleAttr(),
       srcOp.getSlidingWindowSizeAttr(), srcOp.getAttentionSink(),
       srcOp.getMemoryConfigAttr());
