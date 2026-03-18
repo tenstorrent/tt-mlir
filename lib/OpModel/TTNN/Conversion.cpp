@@ -446,10 +446,6 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
     return std::nullopt;
   }
 
-  // TODO(#2130): config.core_grid is hardcoded to nullopt until we add
-  // CoreRangeSet as an IR attribute.
-  assert(!conv2dConfig->getCoreGrid() && "CoreGrid is not supported yet");
-
   ::ttnn::Conv2dConfig config;
 
   if (conv2dConfig->getWeightsDtype()) {
@@ -495,7 +491,9 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
     config.shard_layout = std::nullopt;
   }
 
-  config.core_grid = std::nullopt;
+  if (conv2dConfig->getCoreGrid()) {
+    config.core_grid = getCoreRangeSet(conv2dConfig->getCoreGrid());
+  }
 
   if (conv2dConfig->getTransposeShards()) {
     config.transpose_shards = conv2dConfig->getTransposeShards().getValue();

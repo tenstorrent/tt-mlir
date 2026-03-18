@@ -27,4 +27,6 @@ target_link_libraries(ThreeWayConsistencyTests
     MLIRTTCoreDialect
     MLIRTTNNDialect
     TTRuntimeTTNN
+    TTRuntimeUtils
+    TTRuntimeContext
 )
