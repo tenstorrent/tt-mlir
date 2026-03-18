@@ -118,11 +118,6 @@ void TTIRDialect::initialize() {
 // TTIR constant materializer.
 //===----------------------------------------------------------------------===//
 
-// Check if fill_value attribute of FullOp can be of this type.
-bool isValidFullValueType(Type t) {
-  return t.isF32() || t.isSignlessInteger(32);
-}
-
 // Check if the attribute represents zero.
 static bool isZeroAttr(mlir::Attribute attr) {
   if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
@@ -159,7 +154,8 @@ static bool isOneAttr(mlir::Attribute attr) {
       if (isOneAttr(splatValue)) {
         return builder.create<ttir::OnesOp>(loc, type, shape);
       }
-      if (isValidFullValueType(elementsAttr.getElementType())) {
+      if (elementsAttr.getElementType().isF32() ||
+          elementsAttr.getElementType().isSignlessInteger(32)) {
         return builder.create<ttir::FullOp>(loc, type, shape, splatValue);
       }
     }
