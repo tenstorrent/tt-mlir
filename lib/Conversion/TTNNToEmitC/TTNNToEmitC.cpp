@@ -1118,7 +1118,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDimension()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
-        emitter.template emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
         emitter.emit(srcOp.getNumericStable()),
     };
 

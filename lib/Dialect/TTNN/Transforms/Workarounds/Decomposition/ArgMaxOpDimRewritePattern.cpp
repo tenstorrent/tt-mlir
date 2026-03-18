@@ -56,7 +56,6 @@ ArgMaxOpDimRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute"),
       permutedInputType, srcOp.getInput(),
       rewriter.getDenseI64ArrayAttr(permutation),
-      /*memory_config=*/ttnn::MemoryConfigAttr(),
       /*pad_value=*/mlir::FloatAttr());
 
   // Compute permuted output shape and inverse permutation for the output.
@@ -89,14 +88,12 @@ ArgMaxOpDimRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
       mlir::IntegerType::get(getContext(), 32), rank - 1);
   auto argMaxOp = rewriter.create<ttnn::ArgMaxOp>(
       srcOp->getLoc(), permutedOutputType, forwardPermute, lastDimAttr,
-      srcOp.getKeepDimAttr(), srcOp.getUseMulticoreAttr(),
-      srcOp.getMemoryConfigAttr());
+      srcOp.getKeepDimAttr(), srcOp.getUseMulticoreAttr());
 
   // Inverse permute to restore original dimension order.
   auto inversePermute = rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
       srcOp, outputType, argMaxOp,
       rewriter.getDenseI64ArrayAttr(outputInversePerm),
-      /*memory_config=*/ttnn::MemoryConfigAttr(),
       /*pad_value=*/mlir::FloatAttr());
   inversePermute->setLoc(ttmlir::utils::appendLocationSuffix(
       inversePermute.getLoc(), "_permuteInverse"));
