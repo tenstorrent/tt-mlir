@@ -35,6 +35,7 @@ struct ShardSpec;
 struct CoreRangeSet;
 struct CoreRange;
 struct CoreCoord;
+struct CoreGrid;
 
 struct DataType;
 struct TensorMemoryLayout;
@@ -215,6 +216,11 @@ struct TypeName<std::set<T>> {
 template <>
 struct TypeName<::ttnn::CoreCoord> {
   inline static const std::string value = "ttnn.CoreCoord";
+};
+
+template <>
+struct TypeName<::ttnn::CoreGrid> {
+  inline static const std::string value = "ttnn.CoreGrid";
 };
 
 template <>
@@ -538,6 +544,34 @@ struct EmitPyTypeConverter<::ttnn::CoreCoord> {
 };
 
 template <>
+struct EmitPyTypeConverter<::ttnn::CoreGrid> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto coreCoordAttr =
+            mlir::dyn_cast_if_present<ttnn::CoreCoordAttr>(attr)) {
+      return convert(coreCoordAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::CoreCoordAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::CoreGrid>;
+    rso << "(x=";
+    rso << EmitPyTypeConverter<size_t>::convert(attr.getX()) << ", y=";
+    rso << EmitPyTypeConverter<size_t>::convert(attr.getY());
+    rso << ")";
+
+    return buf;
+  }
+};
+
+template <>
 struct EmitPyTypeConverter<::ttnn::CoreRange> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto coreRangeAttr =
@@ -695,6 +729,9 @@ struct EmitPyTypeConverter<::ttnn::TensorMemoryLayout> {
       break;
     case ttnn::TensorMemoryLayout::WidthSharded:
       rso << "WIDTH_SHARDED";
+      break;
+    case ttnn::TensorMemoryLayout::NDSharded:
+      rso << "ND_SHARDED";
       break;
     }
 

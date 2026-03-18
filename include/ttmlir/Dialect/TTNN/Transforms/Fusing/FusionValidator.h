@@ -117,7 +117,10 @@ void FusionValidator::createValidationFunc(ModuleOp module, Location loc,
       [&] {
         if constexpr (!std::is_same_v<std::decay_t<Args>, std::nullptr_t> &&
                       std::is_convertible_v<std::decay_t<Args>, Value>) {
-          capturedValues.push_back(args);
+          // Skip empty Values (optional operands that are not present).
+          if (Value(args)) {
+            capturedValues.push_back(args);
+          }
         }
       }(),
       ...);
@@ -130,9 +133,13 @@ void FusionValidator::createValidationFunc(ModuleOp module, Location loc,
   }
 
   // Substitution helper: replace original Values with block args.
+  // Empty Values (optional operands) are passed through unchanged.
   auto sub = [&](auto &&a) -> decltype(auto) {
     if constexpr (!std::is_same_v<std::decay_t<decltype(a)>, std::nullptr_t> &&
                   std::is_convertible_v<std::decay_t<decltype(a)>, Value>) {
+      if (!Value(a)) {
+        return Value(a);
+      }
       return subs.lookup(Value(a));
     } else {
       return std::forward<decltype(a)>(a);

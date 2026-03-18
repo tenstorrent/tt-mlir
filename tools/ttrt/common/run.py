@@ -827,28 +827,24 @@ class Run:
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
                                 )
-                                if (
-                                    len(program.output_tensors[i]) > 1
-                                    and bin.extension != ".ttm"
-                                ):
-                                    output_shards = ttrt.runtime.get_device_tensors(
-                                        outputs[i]
+                                if bin.extension != ".ttm":
+                                    mesh = (
+                                        fb_mesh_shape
+                                        if len(output_host) > 1
+                                        else (1, 1)
                                     )
-                                    for shard_idx in range(len(output_host)):
-                                        ttrt.runtime.memcpy(
-                                            output_shards[shard_idx],
-                                            output_host[shard_idx],
-                                        )
+                                    outputs[
+                                        i
+                                    ] = ttrt.runtime.create_multi_device_host_tensor_from_shards(
+                                        output_host, {}, mesh
+                                    )
+                                    program.output_tensors[i] = [
+                                        convert_runtime_to_torch_tensor(shard)
+                                        for shard in output_host
+                                    ]
                                 else:
-                                    combined_output_tensor = output_host[0]
-                                    if bin.extension != ".ttm":
-                                        combined_output_tensor = ttrt.runtime.create_multi_device_host_tensor_from_shards(
-                                            [output_host[0]], {}, (1, 1)
-                                        )
-                                    ttrt.runtime.memcpy(
-                                        outputs[i],
-                                        combined_output_tensor,
-                                    )
+                                    ttrt.runtime.memcpy(outputs[i], output_host[0])
+
                                 end_get_output = time.perf_counter_ns()
                                 e2e_duration_nanoseconds_output += (
                                     end_get_output - start_get_output

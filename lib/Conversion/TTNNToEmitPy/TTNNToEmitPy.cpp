@@ -918,28 +918,28 @@ public:
 };
 } // namespace
 
-// Moreh CumSum op conversion pattern
+// CumSum op conversion pattern
 //
 namespace {
-class MorehCumSumOpConversionPattern
-    : public TTNNToEmitPyBaseOpConversionPattern<
-          mlir::tt::ttnn::MorehCumSumOp> {
+class CumSumOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::CumSumOp> {
 
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
-      mlir::tt::ttnn::MorehCumSumOp>::TTNNToEmitPyBaseOpConversionPattern;
+      mlir::tt::ttnn::CumSumOp>::TTNNToEmitPyBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::MorehCumSumOp srcOp,
-                  mlir::tt::ttnn::MorehCumSumOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::CumSumOp srcOp,
+                  mlir::tt::ttnn::CumSumOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MorehCumSumOp> emitter(
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::CumSumOp> emitter(
         srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getDtype(), "dtype"),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
@@ -2652,7 +2652,6 @@ public:
 // TTNNPrepareConstEvalCaching pass (pre-split) and the
 // EmitPyConstEvalCaching pass (post-conversion).
 //
-
 namespace {
 class LoadCachedOpConversionPattern
     : public OpConversionPattern<mlir::tt::ttcore::LoadCachedOp> {
@@ -2684,6 +2683,7 @@ public:
     // Check for device argument (target-module mode).
     auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
     auto deviceType = mlir::tt::ttnn::DeviceType::get(ctx);
+
     Type convertedDeviceType = nullptr;
     if (auto *typeConverter = this->getTypeConverter()) {
       convertedDeviceType = typeConverter->convertType(deviceType);
@@ -2768,9 +2768,11 @@ public:
     auto dictType =
         emitpy::DictType::get(rewriter.getContext(), /*keyType=*/nullptr,
                               /*valueType=*/nullptr);
-    rewriter.replaceOpWithNewOp<emitpy::GlobalStatementOp>(
+    auto discardableAttrs = getGlobalOp->getDiscardableAttrDictionary();
+    auto newOp = rewriter.replaceOpWithNewOp<emitpy::GlobalStatementOp>(
         getGlobalOp, dictType,
         rewriter.getStringAttr(getGlobalOp.getSymName()));
+    newOp->setDiscardableAttrs(discardableAttrs);
     return success();
   }
 };
@@ -3207,6 +3209,39 @@ public:
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// MeshPartitionOp conversion pattern
+//
+namespace {
+class MeshPartitionOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::MeshPartitionOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::MeshPartitionOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MeshPartitionOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MeshPartitionOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getDim(), "dim"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3744,6 +3779,57 @@ public:
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
         emitter.emit(std::nullopt, "program_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// GroupNormOp conversion pattern
+//
+namespace {
+class GroupNormOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::GroupNormOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::GroupNormOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GroupNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GroupNormOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    // ttnn::group_norm requires core_grid to be explicitly specified.
+    // If the op doesn't have it set, derive it from the device's worker grid.
+    mlir::tt::ttnn::CoreCoordAttr coreGridValue;
+    if (srcOp.getCoreGrid()) {
+      coreGridValue = *srcOp.getCoreGrid();
+    } else {
+      ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp);
+      auto gridShape = deviceAttr.getWorkerGrid().getShape();
+      // GridAttr shape is [y, x], CoreCoordAttr takes (x, y).
+      coreGridValue = mlir::tt::ttnn::CoreCoordAttr::get(
+          rewriter.getContext(), gridShape[1], gridShape[0]);
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getInputMask(), "input_mask"),
+        emitter.emit(srcOp.getWeight(), "weight"),
+        emitter.emit(srcOp.getBias(), "bias"),
+        emitter.emit(srcOp.getNumGroups(), "num_groups"),
+        emitter.emit(srcOp.getEpsilon(), "epsilon"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit<::ttnn::CoreGrid>(coreGridValue, "core_grid"),
+        emitter.emit(false, "inplace"),
+        emitter.emit(-1, "num_out_blocks"),
     };
 
     emitter.replaceOp(*this, args);
@@ -4334,11 +4420,11 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Normalization ops
   //
-  patterns
-      .add<BatchNormInferenceOpConversionPattern,
-           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-           DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern>(
-          typeConverter, ctx, enableGoldenMode);
+  patterns.add<BatchNormInferenceOpConversionPattern,
+               BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+               DistributedRMSNormOpConversionPattern,
+               LayerNormOpConversionPattern, GroupNormOpConversionPattern>(
+      typeConverter, ctx, enableGoldenMode);
 
   // Transformers ops
   //
@@ -4349,7 +4435,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format off
   patterns.add<EmbeddingOpConversionPattern,
                EmbeddingBackwardOpConversionPattern,
-               MorehCumSumOpConversionPattern,
+               CumSumOpConversionPattern,
                SoftmaxOpConversionPattern
               >(typeConverter, ctx, enableGoldenMode);
   // clang-format on
@@ -4381,6 +4467,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                ReduceScatterOpConversionPattern,
                AllReduceOpConversionPattern,
                PointToPointOpConversionPattern,
+               MeshPartitionOpConversionPattern,
                MeshShardOpConversionPattern,
                DistributeTensorOpConversionPattern,
                AggregateTensorOpConversionPattern,
