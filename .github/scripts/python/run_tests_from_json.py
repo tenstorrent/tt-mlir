@@ -45,6 +45,7 @@ def main(machine, image, jobid):
             env["TTRT_REPORT_PATH"] = ttrt_report_path
             env["TEST_REPORT_PATH"] = test_report_path
             env["REQUIREMENTS"] = " ".join(reqs)
+            env["JOB_ID"] = jobid
             print(
                 f"\033[1;96m====================================\n\033[1;96mRunning test {test_no}-{hash}:\n\033[1;96m{hash_string}\n\033[1;96m{cmd}\n\033[1;96m====================================\n\n\n\n\033[0m"
             )
