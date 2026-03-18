@@ -273,7 +273,7 @@ def perform_golden_workarounds():
 
     missing_golden_function_ops = [
         ttnn.avg_pool2d,
-        ttnn.moreh_cumsum,
+        ttnn.cumsum,
         ttnn.slice,
     ]
 
