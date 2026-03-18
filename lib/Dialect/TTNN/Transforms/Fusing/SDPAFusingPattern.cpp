@@ -33,6 +33,7 @@ static constexpr std::array<int64_t, 4> kUnTransposeKeyPermutation = {0, 1, 3,
 
 struct SDPAFusing::SDPAComponents {
   Value query, key, value, mask;
+  Value attentionSink;
   std::optional<float> scale;
   MatmulOp attentionMatmul;
   SoftmaxOp softmax;
@@ -184,8 +185,24 @@ bool SDPAFusing::matchSoftmaxPath(Value v, SDPAComponents &c) const {
   // attention scores are masked to -inf), then slice off the padding after
   // softmax. The hardware SDPA op handles this internally, so we look through
   // the slice here and the corresponding concat in matchScoreComputation.
+  //
+  // Verify the slice trims only the last dimension (starts at 0 with step 1
+  // and produces a smaller extent than the input).
   if (auto sliceOp = v.getDefiningOp<SliceStaticOp>()) {
-    v = ttmlir::utils::lookThrough<TypecastOp>(sliceOp.getInput());
+    auto inputType = mlir::cast<RankedTensorType>(sliceOp.getInput().getType());
+    int64_t lastDim = inputType.getRank() - 1;
+
+    auto getI32 = [](ArrayAttr attr, int64_t idx) -> int32_t {
+      return mlir::cast<IntegerAttr>(attr[idx]).getInt();
+    };
+
+    bool isLastDimTrim =
+        getI32(sliceOp.getBegins(), lastDim) == 0 &&
+        getI32(sliceOp.getStep(), lastDim) == 1 &&
+        getI32(sliceOp.getEnds(), lastDim) < inputType.getShape()[lastDim];
+    if (isLastDimTrim) {
+      v = ttmlir::utils::lookThrough<TypecastOp>(sliceOp.getInput());
+    }
   }
 
   // Peel optional where. Some frontends wrap softmax output with
@@ -210,8 +227,19 @@ bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c) const {
   // Peel optional concat — the other half of the softmax padding pattern
   // described in matchSoftmaxPath. The concat appends extra columns to the
   // score tensor before softmax; we skip it to reach the actual scores.
+  // Save the padding tensor as the attention sink for the SDPA decode op.
+  //
+  // Verify the concat is on the last dimension with exactly two inputs.
   if (auto concatOp = v.getDefiningOp<ConcatOp>()) {
-    v = ttmlir::utils::lookThrough<TypecastOp>(concatOp.getInputs()[0]);
+    auto resultType =
+        mlir::cast<RankedTensorType>(concatOp.getResult().getType());
+    int64_t lastDim = resultType.getRank() - 1;
+
+    if (concatOp.getInputs().size() == 2 && concatOp.getDim() == lastDim) {
+      v = ttmlir::utils::lookThrough<TypecastOp>(concatOp.getInputs()[0]);
+      c.attentionSink =
+          ttmlir::utils::lookThrough<RepeatOp>(concatOp.getInputs()[1]);
+    }
   }
 
   if (auto linearOp = v.getDefiningOp<LinearOp>()) {
@@ -398,23 +426,6 @@ std::pair<Value, Type> SDPAFusing::analyzeV(Value v) const {
   return {v, targetDtype};
 }
 
-Value SDPAFusing::prepareMask(Value v) const {
-  while (Operation *defOp = v.getDefiningOp()) {
-    if (isa<TypecastOp>(defOp)) {
-      v = defOp->getOperand(0);
-      continue;
-    }
-
-    if (auto repeatOp = dyn_cast<RepeatOp>(defOp)) {
-      v = repeatOp.getInput();
-      continue;
-    }
-
-    break;
-  }
-  return v;
-}
-
 void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
                                       PatternRewriter &rewriter) const {
   auto [preparedQ, preparedQElementType] = analyzeQ(c.query);
@@ -443,7 +454,7 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
   c.value = restoreElementTypeIfNeeded(c.value, preparedVElementType, rewriter);
 
   if (c.mask) {
-    c.mask = prepareMask(c.mask);
+    c.mask = ttmlir::utils::lookThrough<TypecastOp, RepeatOp>(c.mask);
 
     // tt-metal requires the attention mask to be a 4D tensor. TTIR fusing can
     // produce lower-rank masks when it folds matmul+add into linear and drops
@@ -463,6 +474,11 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
     }
 
     c.mask = restoreElementTypeIfNeeded(c.mask, preparedQElementType, rewriter);
+  }
+
+  if (c.attentionSink) {
+    c.attentionSink =
+        ttmlir::utils::lookThrough<TypecastOp, RepeatOp>(c.attentionSink);
   }
 }
 
@@ -561,10 +577,6 @@ bool SDPAFusing::validateSemantics(const SDPAComponents &c) const {
     }
   }
 
-  if (c.scale.has_value() && (*c.scale <= 0.0f || *c.scale > 1.0f)) {
-    return false;
-  }
-
   return true;
 }
 
@@ -640,8 +652,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {permutedQuery.getType()}, permutedQuery, c.key, c.value,
             /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
-            /*cur_pos_tensor=*/Value(),
-            /*attention_sink=*/Value(), scaleAttr,
+            /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
             /*memory_config=*/MemoryConfigAttr(),
             /*program_config=*/SDPAProgramConfigAttr());
 
@@ -656,8 +667,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
         c.key, c.value,
         /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
-        /*cur_pos_tensor=*/Value(),
-        /*attention_sink=*/Value(), scaleAttr,
+        /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
         /*memory_config=*/MemoryConfigAttr(),
         /*program_config=*/SDPAProgramConfigAttr());
 
