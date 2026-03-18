@@ -1231,8 +1231,12 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
               resultTensor.getEncoding());
 
       if (inputLayout && resultLayout) {
-        // Both have layouts: verify logical shapes match.
-        if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape()) {
+        // Both have layouts: verify logical shapes match — unless the
+        // remapping is non-identity, which means this view represents a data
+        // transformation (e.g. slice, permute, rearrange) that intentionally
+        // changes the logical shape.
+        if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape() &&
+            getRemapping().isIdentity()) {
           return emitOpError("view must preserve logical shape");
         }
       } else if (!inputLayout && !resultLayout) {
@@ -1261,7 +1265,8 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
           inputTensor.getEncoding());
       auto resultLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
           resultTensor.getEncoding());
-      if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape()) {
+      if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape() &&
+          getRemapping().isIdentity()) {
         return emitOpError("view cannot change logical shape");
       }
 
@@ -1340,10 +1345,18 @@ d2m::ViewLayoutOp::getBufferType(
 }
 
 bool d2m::ViewLayoutOp::isReblockOnly() {
-  mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
-      mlir::cast<mlir::ShapedType>(getInput().getType()).getShape(),
-      mlir::cast<mlir::ShapedType>(getResult().getType()).getShape(),
-      getContext());
+  auto inputShape =
+      mlir::cast<mlir::ShapedType>(getInput().getType()).getShape();
+  auto resultShape =
+      mlir::cast<mlir::ShapedType>(getResult().getType()).getShape();
+  // A reblock map requires equal volumes; views that change the logical shape
+  // (TM views) are never reblock-only.
+  if (ttmlir::utils::volume<int64_t>(inputShape) !=
+      ttmlir::utils::volume<int64_t>(resultShape)) {
+    return false;
+  }
+  mlir::AffineMap reblockMap =
+      ttmlir::utils::calculateReblockMap(inputShape, resultShape, getContext());
   return getRemapping() == reblockMap;
 }
 

@@ -138,9 +138,16 @@ public:
       if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
               operand.getDefiningOp());
           stream) {
-        args.push_back(stream.getInput());
-        remappedBuffers.push_back(rewriter.getRemappedValue(stream.getInput()));
-        cbs.push_back(rewriter.getRemappedValue(stream.getInput()));
+        // Peel through any intervening view_layout between the
+        // allocator-inserted stream and the underlying buffer.
+        Value input = stream.getInput();
+        if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
+                input.getDefiningOp())) {
+          input = view.getInput();
+        }
+        args.push_back(input);
+        remappedBuffers.push_back(rewriter.getRemappedValue(input));
+        cbs.push_back(rewriter.getRemappedValue(input));
       } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
                      operand.getDefiningOp());
                  view) {

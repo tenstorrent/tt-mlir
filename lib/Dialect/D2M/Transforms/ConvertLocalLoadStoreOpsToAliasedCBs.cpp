@@ -20,11 +20,11 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Helper function to check if an operand is local (i.e., NOT a stream op
+// Helper function to check if an operand is local (i.e., NOT a stream/view op
 // and NOT in a DMA-only generic op)
 static bool isLocalOperand(Value operand, Operation *op) {
-  // Check if operand comes from stream_layout op
-  if (mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp())) {
+  // Check if operand comes from a view op (stream_layout or view_layout)
+  if (mlir::isa_and_nonnull<ViewOpInterface>(operand.getDefiningOp())) {
     return false;
   }
 

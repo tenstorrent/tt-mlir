@@ -1571,13 +1571,13 @@ public:
     auto viewType = mlir::RankedTensorType::get(
         permuted.physicalShape, inputTensorType.getElementType(), resultLayout);
 
-    // For inner permute, we need a streamLayout to do reblocking.
-    auto storage = rewriter.create<d2m::EmptyOp>(
-        loc, permuted.physicalShape, inputTensorType.getElementType(),
-        resultLayout);
-    auto stream = rewriter.create<d2m::StreamLayoutOp>(
-        loc, viewType, inputs[0], permuted.transposeMap, storage);
-    inputs[0] = stream.getResult();
+    // For inner permute, we need a view to express the reblocking.
+    // The allocator will later decide whether to insert a stream_layout
+    // with a proper CB allocation for the consuming GenericOp.
+    auto view = rewriter.create<d2m::ViewLayoutOp>(loc, viewType, inputs[0],
+                                                   permuted.transposeMap,
+                                                   /*reinterpretLayout=*/false);
+    inputs[0] = view.getResult();
     unsigned logicalRank = deviceRank / 2;
     // For inner permute, we alse need a GenericOp to transpose each individual
     // tile.
@@ -2060,12 +2060,12 @@ public:
     auto newOutTy = RankedTensorType::get(outTy.getShape(),
                                           outTy.getElementType(), newLayout);
 
-    auto storage =
-        rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType(),
-                                      /*virtualGridInverseMapping=*/nullptr,
-                                      /*virtualGridForwardMapping=*/nullptr);
-    auto view = rewriter.create<d2m::StreamLayoutOp>(
-        op.getLoc(), newOutTy, inputs[0], deviceMap, storage.getResult());
+    // Express the data rearrangement as a view. The allocator will later
+    // decide whether to insert a stream_layout with a proper CB allocation
+    // for any GenericOp that consumes this view.
+    auto view = rewriter.create<d2m::ViewLayoutOp>(op.getLoc(), newOutTy,
+                                                   inputs[0], deviceMap,
+                                                   /*reinterpretLayout=*/false);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
                                           op->getResult(0).getType()));

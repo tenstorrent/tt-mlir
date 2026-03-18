@@ -835,25 +835,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           "\tadding memref value ctx: root {}, memref type {}, has stream: {}",
           asOperand(operandCtx.root), memrefType, operandCtx.hasStream);
 
-      Value operandValue = operandCtx.operand->get();
-
       if (isOperandExemptFromStreaming(operandCtx,
                                        ttcore::getMemorySpace(memrefType))) {
         // For now, disabled `allow-l1-output-spilling` also means
         // "don't insert streams but allow them in the incoming IR".
       } else {
-        if (!operandCtx.hasStream) {
-          // Generics in "explicit datamovement" form manage their own
-          // streams and it is an error for the incoming IR not to
-          // have them.
-          TT_assertv(!genericCtx.isExplicitDatamovement,
-                     "[allow-l1-output-spilling: {}] {} operand '{}' of a "
-                     "generic op in explicit "
-                     "datamovement form must have a stream",
-                     allowL1OutputSpilling,
-                     (operandCtx.isOutput ? "output" : "input"),
-                     asOperand(operandValue));
-        }
+        // The allocator is the sole owner of stream insertion. Pre-existing
+        // stream_layout ops are not expected at this point.
       }
 
       MemrefValueContext &memrefCtx = addMemrefValueContext(
@@ -1091,6 +1079,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
           for (d2m::GenericOp user : memrefCtx.genericUsers) {
             GenericOpContext &genericCtx = analysis.generics[user];
+
+            // Generics in "explicit datamovement" form manage their own
+            // streams; the planner does not insert streams for them.
+            if (genericCtx.isExplicitDatamovement) {
+              continue;
+            }
+
             // A given user can have multiple uses of `memref` at
             // different operand positions; each position will have its own
             // stream.
@@ -1378,7 +1373,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_assert(region.hasOneBlock());
         Value operandAlloc =
             d2m::GenericOp::getOperandAlloc(region, operandIndex);
-        TT_assert(operandAlloc);
+        if (!operandAlloc) {
+          // DMA-only generics may not have per-operand allocs in their body.
+          continue;
+        }
         Type cbUnderlyingType = operandAlloc.getType();
         // Unwrap CBType to get the underlying memref/tensor type.
         if (auto cbType = mlir::dyn_cast<d2m::CBType>(cbUnderlyingType)) {
@@ -1732,9 +1730,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   bool inferStreamRequirement(d2m::GenericOp genericOp,
                               const OperandContext &operandCtx,
                               MemorySpace memspace) const {
-    if (operandCtx.hasStream) {
-      return false;
-    }
+    // Note: pre-existing stream_layout ops no longer exist at this point.
+    // The allocator is the sole owner of stream insertion.
+    assert(!operandCtx.hasStream && "unexpected pre-existing stream_layout op");
 
     if (useAlwaysStreamPolicy()) {
       return true;

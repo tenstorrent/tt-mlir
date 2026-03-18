@@ -59,20 +59,18 @@ module {
     return
   }
 
-  // Verify that it is ok for incoming IR to have some operand streams already inserted.
+  // Verify that the allocator inserts streams for all operands (no pre-existing streams).
   // CHECK-LABEL: func @test_generic_accept_operand_streams
   func.func @test_generic_accept_operand_streams() {
     %lhs = memref.alloc() : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1>
     %rhs = memref.alloc() : memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
     %r = memref.alloc() : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
-    // expect two streams, for lhs and rhs, in operand order; one of them should be %stream_lhs, the other inserted by the pass:
+    // expect two streams inserted by the pass, for %lhs and %rhs, in operand order:
     // CHECK: %[[STREAM_LHS:.*]] = "d2m.stream_layout"({{.+}}) <{remapping = #map{{.*}}}> : (memref<1x1x2x3
     // CHECK: %[[STREAM_RHS:.*]] = "d2m.stream_layout"({{.+}}) <{remapping = #map{{.*}}}> : (memref<1x1x3x4
     // CHECK: ins(%[[STREAM_LHS]], %[[STREAM_RHS]] :
-    %buf_lhs = memref.alloc() : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 2>, #l1>
-    %stream_lhs = "d2m.stream_layout"(%lhs, %buf_lhs) {remapping = #remap4} : (memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1>, memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 2>, #l1>) -> memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
     d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<unified>]}
-        ins(%stream_lhs, %rhs : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
+        ins(%lhs, %rhs : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%r : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
     ^unified0():
       %bf0 = d2m.get_block_factor(0) : index
@@ -82,7 +80,7 @@ module {
         affine.for %iter1 = 0 to %bf1 {
           affine.for %iter2 = 0 to %bf2 {
             %buffer_lhs = memref.alloc() : memref<2x3x!ttcore.tile<32x32, f32>, #l1>
-            %0 = d2m.remote_load %buffer_lhs %stream_lhs[%iter0, %iter2] : memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1> -> memref<2x3x!ttcore.tile<32x32, f32>, #l1>
+            %0 = d2m.remote_load %buffer_lhs %lhs[%iter0, %iter2] : memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1> -> memref<2x3x!ttcore.tile<32x32, f32>, #l1>
             %buffer_rhs = memref.alloc() : memref<3x4x!ttcore.tile<32x32, f32>, #l1>
             %1 = d2m.remote_load %buffer_rhs %rhs[%iter2, %iter1] : memref<3x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1> -> memref<3x4x!ttcore.tile<32x32, f32>, #l1>
             %buffer_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
