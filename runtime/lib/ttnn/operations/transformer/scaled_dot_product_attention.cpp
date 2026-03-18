@@ -32,11 +32,17 @@ static void runScaledDotProductAttentionOp(
   std::optional<float> scale = op->scale();
   std::optional<uint32_t> slidingWindowSize = op->sliding_window_size();
 
+  const std::optional<::ttnn::Tensor> &attentionSink =
+      op->attention_sink()
+          ? std::make_optional(
+                tensorPool.getTTNNTensorAndValidate(op->attention_sink()))
+          : std::nullopt;
+
   ::ttnn::Tensor out = ::ttnn::transformer::scaled_dot_product_attention(
       query, key, value, attentionMask, isCausal, scale, slidingWindowSize,
       outputMemoryConfig,
       /*program_config=*/std::nullopt,
-      /*compute_kernel_config=*/std::nullopt);
+      /*compute_kernel_config=*/std::nullopt, attentionSink);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
