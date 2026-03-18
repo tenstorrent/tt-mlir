@@ -4880,8 +4880,8 @@ verifyReplicaGroups(mlir::DenseIntElementsAttr replicaGroups) {
 }
 
 // Helper to convert type of scalar attribute.
-mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
-                                       mlir::Type targetType) {
+static mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
+                                               mlir::Type targetType) {
   if (typedAttr.getType() == targetType) {
     return typedAttr;
   }
