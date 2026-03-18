@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingBackwardOpUnsqueezeIndicesRewritePattern.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
