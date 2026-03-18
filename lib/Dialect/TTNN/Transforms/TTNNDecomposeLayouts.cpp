@@ -128,6 +128,13 @@ private:
     }
   };
 
+  bool isOutputFromCPUHoistedFunction(mlir::Value value) const {
+    if (auto callOp = value.getDefiningOp<func::CallOp>()) {
+      return callOp->hasAttr(ttmlir::utils::g_cpuHoistFuncCallAttrName);
+    }
+    return false;
+  }
+
   bool canTilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
     // tt-metal tilize supports: bfloat16, float32, uint32, int32, uint16
     // See: ttnn/operations/data_movement/tilize/device/tilize_op.cpp
@@ -437,6 +444,19 @@ private:
       return;
     }
 
+    // If the input value is an output from a CPU-hoisted function, we should
+    // perform layout change on host to minimize intermediate DRAM/L1 usage.
+    if (isOutputFromCPUHoistedFunction(currentInput)) {
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput =
+          this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
     // If the output is on device and we can untilize on device, move to device
     // and untilize.
     if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(output.dataType)) {
@@ -513,6 +533,19 @@ private:
       return;
     }
 
+    // If the input value is an output from a CPU-hoisted function, we should
+    // perform typecast on host to minimize intermediate DRAM/L1 usage.
+    if (isOutputFromCPUHoistedFunction(currentInput)) {
+      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                           currentInput, info);
+      currentInput =
+          this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
     // Device typecast only supports tilized tensors. Therefore, if the output
     // tensor is in row-major (input as well is in row-major) and resides on the
     // device, we should perform the data type casting on the host before moving
@@ -558,6 +591,22 @@ private:
                                                            currentInput, info);
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
+    // If the input value is an output from a CPU-hoisted function, we should
+    // perform both typecast and layout change on host to minimize
+    // intermediate DRAM/L1 usage.
+    if (isOutputFromCPUHoistedFunction(currentInput)) {
+      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                           currentInput, info);
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput =
+          this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                           currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
