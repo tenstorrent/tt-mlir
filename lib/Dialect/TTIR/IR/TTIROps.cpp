@@ -840,6 +840,8 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
     }
     if (elementType.isFloat()) {
       return denseAttr.mapValues(elementType, [](const llvm::APFloat &val) {
+        // Negate the float and reinterpret its raw bits as an integer for
+        // DenseElementsAttr's internal storage.
         return (-val).bitcastToAPInt();
       });
     }
@@ -4881,7 +4883,7 @@ verifyReplicaGroups(mlir::DenseIntElementsAttr replicaGroups) {
 
 // Helper to convert type of scalar attribute.
 static mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
-                                               mlir::Type targetType) {
+                                              mlir::Type targetType) {
   if (typedAttr.getType() == targetType) {
     return typedAttr;
   }
