@@ -638,21 +638,20 @@ struct OpModel<TransposeOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// MorehCumSumOp
+// CumSumOp
 //===----------------------------------------------------------------------===//
 
 template <>
-struct OpModel<MorehCumSumOp> {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(ttcore::GridAttr deviceGrid,
-                   llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, const int64_t dim,
-                   TTNNLayoutAttr outputLayout);
+struct OpModel<CumSumOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, const int32_t dim,
+      std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                             TTNNLayoutAttr inputLayout,
-                                             const int64_t dim,
-                                             TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               const int32_t dim, std::optional<ttcore::DataType> dtype,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

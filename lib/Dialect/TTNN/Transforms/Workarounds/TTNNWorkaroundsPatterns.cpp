@@ -18,8 +18,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv3dDepthPaddingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv3dPadOutputChannelsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv3dRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
@@ -583,8 +581,6 @@ public:
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
-          workarounds::decomposition::CumSumOpDimRewritePattern,
-          workarounds::decomposition::CumSumOpRankRewritePattern,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
           workarounds::decomposition::GroupNormAffineReshapeRewritePattern,
           workarounds::decomposition::ArgMaxOpRewritePattern,

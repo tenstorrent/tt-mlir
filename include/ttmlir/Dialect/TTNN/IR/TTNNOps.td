@@ -1118,8 +1118,8 @@ def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw", [TTNN_DtypeOpInterface, T
     let hasVerifier = 1;
 }
 
-def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum"> {
-  let summary = "Moreh cumulative sum op.";
+def TTNN_CumSumOp : TTNN_Op<"cumsum", [TTNN_DtypeOpInterface]> {
+  let summary = "Cumulative sum op.";
   let description = [{
     Computes the cumulative sum of elements of a tensor along specified dimension.
 
@@ -1137,7 +1137,8 @@ def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       I64Attr:$dim,
+                       I32Attr:$dim,
+                       OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
