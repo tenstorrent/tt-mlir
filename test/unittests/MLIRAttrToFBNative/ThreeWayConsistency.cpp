@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
-// #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/Target/TTNN/operations/configs_generated.h"
@@ -15,73 +14,23 @@
 #include <iostream>
 #include <optional>
 
-template <typename T>
-::testing::AssertionResult Equal(const char *e1, const char *e2, const char *e3,
-                                 const T &v1, const T &v2, const T &v3) {
-  bool ok12 = (v1 == v2);
-  bool ok13 = (v1 == v3);
-
-  if (ok12 && ok13) {
-    return ::testing::AssertionSuccess();
-  }
-
-  ::testing::AssertionResult failure = ::testing::AssertionFailure();
-  failure << e1 << " == " << e2 << " && " << e1 << " == " << e3 << " failed;";
-  return failure;
-}
-
-template <>
-::testing::AssertionResult
-Equal<std::optional<ttnn::operations::unary::UnaryWithParam>>(
-    const char *e1, const char *e2, const char *e3,
-    const std::optional<ttnn::operations::unary::UnaryWithParam> &v1,
-    const std::optional<ttnn::operations::unary::UnaryWithParam> &v2,
-    const std::optional<ttnn::operations::unary::UnaryWithParam> &v3) {
-  bool params12 = true;
-  if (v1 && v2) {
-    if (v1->params.size() != v2->params.size()) {
-      params12 = false;
-    } else {
-      for (size_t i = 0; i < v1->params.size(); i++) {
-        if (v1->params[i] != v2->params[i]) {
-          params12 = false;
-          break;
-        }
-      }
-    }
-  }
-  bool params13 = true;
-  if (v1 && v3) {
-    if (v1->params.size() != v3->params.size()) {
-      params13 = false;
-    } else {
-      for (size_t i = 0; i < v1->params.size(); i++) {
-        if (v1->params[i] != v3->params[i]) {
-          params13 = false;
-          break;
-        }
-      }
-    }
-  }
-  bool ok12 =
-      (!v1 && !v2) || (v1 && v2 && v1->op_type == v2->op_type && params12);
-  bool ok13 =
-      (!v1 && !v3) || (v1 && v3 && v1->op_type == v3->op_type && params13);
-
-  if (ok12 && ok13) {
-    return ::testing::AssertionSuccess();
-  }
-
-  ::testing::AssertionResult failure = ::testing::AssertionFailure();
-  failure << e1 << " == " << e2 << " && " << e1 << " == " << e3 << " failed;";
-  return failure;
-}
-
 template <typename Attr, typename RetType>
-class ThreeWayConsistencyTest : public ::testing::Test {
+class ThreeWayConsistencyTest : public ::testing::Test,
+                                public ::testing::WithParamInterface<Attr> {
+protected:
+  static mlir::MLIRContext context;
+  static bool initialized;
+
 public:
-  mlir::MLIRContext context;
-  void SetUp() override { context.loadDialect<mlir::tt::ttnn::TTNNDialect>(); }
+  static mlir::MLIRContext *getContext() {
+    if (!initialized) {
+      context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
+      initialized = true;
+    }
+    return &context;
+  }
+
+  void SetUp() override { getContext(); }
 
 protected:
   void RunTest(Attr attr) {
@@ -100,6 +49,12 @@ protected:
                               std::optional<RetType> pathB,
                               std::optional<RetType> pathC) = 0;
 };
+
+template <typename Attr, typename RetType>
+bool ThreeWayConsistencyTest<Attr, RetType>::initialized = false;
+
+template <typename Attr, typename RetType>
+mlir::MLIRContext ThreeWayConsistencyTest<Attr, RetType>::context;
 
 class DeviceComputeKernelConfigTest
     : public ThreeWayConsistencyTest<
@@ -153,20 +108,20 @@ protected:
       FAIL();
     }
 
-    EXPECT_PRED_FORMAT3(Equal<MathFidelity>, pathA->math_fidelity,
-                        pathB->math_fidelity, pathC->math_fidelity);
+    EXPECT_EQ(pathA->math_fidelity, pathB->math_fidelity);
+    EXPECT_EQ(pathA->math_fidelity, pathC->math_fidelity);
 
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->math_approx_mode,
-                        pathB->math_approx_mode, pathC->math_approx_mode);
+    EXPECT_EQ(pathA->math_approx_mode, pathB->math_approx_mode);
+    EXPECT_EQ(pathA->math_approx_mode, pathC->math_approx_mode);
 
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->fp32_dest_acc_en,
-                        pathB->fp32_dest_acc_en, pathC->fp32_dest_acc_en);
+    EXPECT_EQ(pathA->fp32_dest_acc_en, pathB->fp32_dest_acc_en);
+    EXPECT_EQ(pathA->fp32_dest_acc_en, pathC->fp32_dest_acc_en);
 
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->packer_l1_acc, pathB->packer_l1_acc,
-                        pathC->packer_l1_acc);
+    EXPECT_EQ(pathA->packer_l1_acc, pathB->packer_l1_acc);
+    EXPECT_EQ(pathA->packer_l1_acc, pathC->packer_l1_acc);
 
-    EXPECT_PRED_FORMAT3(Equal<bool>, pathA->dst_full_sync_en,
-                        pathB->dst_full_sync_en, pathC->dst_full_sync_en);
+    EXPECT_EQ(pathA->dst_full_sync_en, pathB->dst_full_sync_en);
+    EXPECT_EQ(pathA->dst_full_sync_en, pathC->dst_full_sync_en);
   }
 };
 
@@ -176,11 +131,6 @@ class Conv2dConfigTest
 protected:
   std::optional<::ttnn::Conv2dConfig>
   pathA(mlir::tt::ttnn::Conv2dConfigAttr conv2dConfigAttr) override {
-    // TODO(#2130)
-    //if (conv2dConfigAttr.hasCoreGrid()) {
-    //  std::cout << "not empty core_grid\n";
-    //  return pathC(conv2dConfigAttr);
-    //}
     return mlir::tt::ttnn::op_model::conversion::getConv2dConfig(
         conv2dConfigAttr);
   }
@@ -232,8 +182,10 @@ protected:
           }
           return a->op_type == b->op_type && a->params == b->params;
         };
-    EXPECT_EQ(true, compareUnaryWithParam(pathA->activation, pathB->activation));
-    EXPECT_EQ(true, compareUnaryWithParam(pathA->activation, pathC->activation));
+    EXPECT_EQ(true,
+              compareUnaryWithParam(pathA->activation, pathB->activation));
+    EXPECT_EQ(true,
+              compareUnaryWithParam(pathA->activation, pathC->activation));
 
     EXPECT_EQ(pathA->deallocate_activation, pathB->deallocate_activation);
     EXPECT_EQ(pathA->deallocate_activation, pathC->deallocate_activation);
@@ -283,50 +235,94 @@ protected:
   }
 };
 
-TEST_F(DeviceComputeKernelConfigTest, ComputeKernelConfig) {
-  mlir::tt::ttnn::DeviceComputeKernelConfigAttr baseConfig =
-      mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(&context);
-  baseConfig = baseConfig.withMathFidelity(mlir::tt::ttnn::MathFidelity::HiFi3);
-  baseConfig = baseConfig.withPackerL1Acc(true);
-  RunTest(baseConfig);
+TEST_P(DeviceComputeKernelConfigTest, DeviceComputeKernelConfig) {
+  auto params = GetParam();
+  RunTest(params);
 }
 
-TEST_F(Conv2dConfigTest, Conv2dConfig) {
-  mlir::tt::ttnn::Conv2dConfigAttr baseConfig =
-      mlir::tt::ttnn::Conv2dConfigAttr::get(&context);
-  baseConfig = baseConfig.withDeallocateActivation(true);
-  baseConfig = baseConfig.withShardLayout(
-      mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
-  baseConfig =
-      baseConfig.withWeightsDtype(mlir::tt::ttcore::DataType::BFP_BFloat8);
-  baseConfig = baseConfig.withConfigTensorsInDram(false);
-  baseConfig = baseConfig.withActBlockWDiv(16);
-  baseConfig = baseConfig.withEnableKernelStrideFolding(true);
-  baseConfig = baseConfig.withActivation(mlir::tt::ttnn::UnaryOpType::Relu);
+mlir::MLIRContext *contextDeviceComputeKernelConfig =
+    DeviceComputeKernelConfigTest::getContext();
+const std::initializer_list<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+    deviceComputeKernelConfigAttrlist = {
+        mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
+            DeviceComputeKernelConfigTest::getContext()),
+        mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
+            DeviceComputeKernelConfigTest::getContext(),
+            mlir::tt::ttnn::MathFidelity::HiFi2,
+            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, false),
+            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, true),
+            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, true),
+            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, false)),
+        mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
+            DeviceComputeKernelConfigTest::getContext(), std::nullopt,
+            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, true),
+            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, false),
+            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, false),
+            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, true))};
 
-  RunTest(baseConfig);
+INSTANTIATE_TEST_SUITE_P(
+    DeviceComputeKernelConfigTest, DeviceComputeKernelConfigTest,
+    ::testing::ValuesIn(deviceComputeKernelConfigAttrlist));
+
+TEST_P(Conv2dConfigTest, Conv2dConfig) {
+  auto params = GetParam();
+  RunTest(params);
 }
 
-TEST_F(Conv2dConfigTest, Conv2dConfigWithCoreGrid) {
-  mlir::tt::ttnn::Conv2dConfigAttr baseConfig =
-      mlir::tt::ttnn::Conv2dConfigAttr::get(&context);
-  baseConfig = baseConfig.withDeallocateActivation(true);
-  baseConfig = baseConfig.withShardLayout(
-      mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
-  baseConfig =
-      baseConfig.withWeightsDtype(mlir::tt::ttcore::DataType::BFP_BFloat8);
-  baseConfig = baseConfig.withConfigTensorsInDram(false);
-  baseConfig = baseConfig.withActBlockWDiv(16);
-  baseConfig = baseConfig.withEnableKernelStrideFolding(true);
+mlir::MLIRContext *contextConv2dConfig = Conv2dConfigTest::getContext();
+const std::initializer_list<mlir::tt::ttnn::Conv2dConfigAttr>
+    conv2dConfigAttrlist = {
+        mlir::tt::ttnn::Conv2dConfigAttr::get(Conv2dConfigTest::getContext()),
+        mlir::tt::ttnn::Conv2dConfigAttr::get(
+            Conv2dConfigTest::getContext(),
+            mlir::tt::ttcore::DataType::BFP_BFloat4,
+            mlir::tt::ttnn::UnaryWithParamAttr::get(
+                contextConv2dConfig, mlir::tt::ttnn::UnaryOpType::Relu,
+                ::llvm::ArrayRef<mlir::FloatAttr>()),
+            mlir::BoolAttr::get(contextConv2dConfig, true),
+            mlir::BoolAttr::get(contextConv2dConfig, false), 4, 7,
+            mlir::BoolAttr::get(contextConv2dConfig, true),
+            mlir::BoolAttr::get(contextConv2dConfig, false),
+            mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
+            mlir::tt::ttnn::CoreRangeSetAttr::get(
+                contextConv2dConfig,
+                llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>(
+                    {mlir::tt::ttnn::CoreRangeAttr::get(
+                        contextConv2dConfig,
+                        mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
+                                                           0, 0),
+                        mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
+                                                           7, 0))})),
+            mlir::BoolAttr::get(contextConv2dConfig, true),
+            mlir::tt::ttnn::Layout::Tile,
+            mlir::BoolAttr::get(contextConv2dConfig, true),
+            mlir::BoolAttr::get(contextConv2dConfig, true),
+            mlir::BoolAttr::get(contextConv2dConfig, false),
+            mlir::BoolAttr::get(contextConv2dConfig, true)),
+        mlir::tt::ttnn::Conv2dConfigAttr::get(
+            Conv2dConfigTest::getContext(), std::nullopt,
+            mlir::tt::ttnn::UnaryWithParamAttr::get(
+                contextConv2dConfig, mlir::tt::ttnn::UnaryOpType::UnaryGt,
+                llvm::ArrayRef<mlir::FloatAttr>()),
+            mlir::BoolAttr::get(contextConv2dConfig, true),
+            mlir::BoolAttr::get(contextConv2dConfig, false), std::nullopt, 7,
+            mlir::BoolAttr::get(contextConv2dConfig, true),
+            mlir::BoolAttr::get(contextConv2dConfig, false),
+            mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
+            mlir::tt::ttnn::CoreRangeSetAttr::get(
+                contextConv2dConfig,
+                llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>(
+                    {mlir::tt::ttnn::CoreRangeAttr::get(
+                        contextConv2dConfig,
+                        mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
+                                                           1, 2),
+                        mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
+                                                           3, 5))})),
+            mlir::BoolAttr::get(contextConv2dConfig, false), std::nullopt,
+            mlir::BoolAttr::get(contextConv2dConfig, true),
+            mlir::BoolAttr::get(contextConv2dConfig, false),
+            mlir::BoolAttr::get(contextConv2dConfig, true),
+            mlir::BoolAttr::get(contextConv2dConfig, false))};
 
-  baseConfig = baseConfig.withCoreGrid(mlir::tt::ttnn::CoreRangeSetAttr::get(
-      &context,
-      llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>{
-          mlir::tt::ttnn::CoreRangeAttr::get(
-              &context, mlir::tt::ttnn::CoreCoordAttr::get(&context, 0, 0),
-              mlir::tt::ttnn::CoreCoordAttr::get(&context, 7, 0))}));
-
-  baseConfig = baseConfig.withActivation(mlir::tt::ttnn::UnaryOpType::Relu);
-
-  RunTest(baseConfig);
-}
+INSTANTIATE_TEST_SUITE_P(Conv2dConfigTest, Conv2dConfigTest,
+                         ::testing::ValuesIn(conv2dConfigAttrlist));
