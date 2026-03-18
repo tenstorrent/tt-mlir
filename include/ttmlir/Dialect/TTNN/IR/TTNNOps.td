@@ -13,6 +13,7 @@ include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNTraits.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.td"
 
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
@@ -123,7 +124,7 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
 }
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_ElementwiseUnary] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -147,7 +148,7 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_DtypeOpInterface] # traits> {
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_DtypeOpInterface, TTNN_ElementwiseBinary] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -1117,8 +1118,8 @@ def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw", [TTNN_DtypeOpInterface, T
     let hasVerifier = 1;
 }
 
-def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum"> {
-  let summary = "Moreh cumulative sum op.";
+def TTNN_CumSumOp : TTNN_Op<"cumsum", [TTNN_DtypeOpInterface]> {
+  let summary = "Cumulative sum op.";
   let description = [{
     Computes the cumulative sum of elements of a tensor along specified dimension.
 
@@ -1136,7 +1137,8 @@ def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       I64Attr:$dim,
+                       I32Attr:$dim,
+                       OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
@@ -2356,6 +2358,36 @@ def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_Mem
     let hasVerifier = 1;
 }
 
+def TTNN_GroupNormOp : TTNN_Op<"group_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
+    let summary = "Group normalization op.";
+    let description = [{
+      Computes group normalization over the input tensor. The input tensor's channels
+      are split into groups, and mean and variance are computed per group. The result
+      is normalized by subtracting the mean and dividing by the standard deviation,
+      then optionally scaled and shifted by weight (gamma) and bias (beta).
+    }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$input_mask,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$bias,
+                       I64Attr:$num_groups,
+                       DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       OptionalAttr<TTNN_CoreCoordAttr>:$core_grid);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createGroupNormOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Clamp op.";
     let description = [{
@@ -3422,7 +3454,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
     let summary = "Scaled dot product attention operation.";
     let description = [{
       Scaled dot product attention.
-      The implementation is FlashAttention-2."
+      The implementation is FlashAttention-2.
 
       Args:
           query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]

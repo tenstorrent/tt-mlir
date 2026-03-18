@@ -62,6 +62,7 @@
 #include "shardy/dialect/sdy/ir/register.h"
 #include "shardy/dialect/sdy/transforms/passes.h"
 #include "stablehlo/dialect/Register.h"
+#include "stablehlo/transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Pipelines/StableHLOPipelines.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #endif
@@ -157,6 +158,7 @@ void mlir::tt::registerAllPasses() {
 
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::tt::stablehlo::registerPasses();
+  mlir::stablehlo::registerStablehloComplexMathExpanderPass();
 #endif
 
   // Register pipelines.

@@ -49,40 +49,6 @@ class DeviceGetter:
         return cls._instance
 
 
-# Wrapper to abstract const-eval logic out of runtime funcs to keep them
-# cleaner. Invokes constEvalFunc iff key is not in cacheDict.
-def constEvalFuncWrapper(constEvalFunc, inputs, cacheDict, key, device=None):
-    if key not in cacheDict:
-        # Support both calling conventions:
-        # - Singleton-device path: constEvalFunc(inputs) and const-eval body
-        #   opens device via DeviceGetter.
-        # - Explicit-device-arg path: constEvalFunc(inputs, device) where device
-        #   is passed from the exported forward() entrypoint.
-        #
-        if device is not None:
-            cacheDict[key] = constEvalFunc(inputs, device)
-        else:
-            cacheDict[key] = constEvalFunc(inputs)
-    return cacheDict[key]
-
-
-# Wrapper to abstract const-eval logic out of runtime funcs to keep them
-# cleaner. Invokes constEvalFunc iff key is not in cacheDict.
-# This is an overload of constEvalFuncWrapper for const-eval functions that
-# take zero arguments.
-def constEvalFuncWrapperZeroArg(constEvalFunc, cacheDict, key, device=None):
-    if key not in cacheDict:
-        # Support both calling conventions:
-        # - Singleton-device path: constEvalFunc()
-        # - Explicit-device-arg path: constEvalFunc(device)
-        #
-        if device is not None:
-            cacheDict[key] = constEvalFunc(device)
-        else:
-            cacheDict[key] = constEvalFunc()
-    return cacheDict[key]
-
-
 def get_scalar_from_tensor(tensor: ttnn.Tensor) -> int:
     assert tensor.logical_volume() == 1, "expected scalar tensor"
     assert tensor.dtype == ttnn.DataType.UINT32, "expected uint32 tensor"
@@ -256,7 +222,8 @@ def perform_golden_workarounds():
     #
     # Golden function operates only on 4D tensors.
     #
-    def new_repeat_golden_function(tensor, repeats):
+    # Golden function doesn't accept memory_config keyword argument.
+    def new_repeat_golden_function(tensor, repeats, memory_config):
         return tensor.repeat(*repeats)
 
     ttnn.repeat.golden_function = new_repeat_golden_function
@@ -273,7 +240,7 @@ def perform_golden_workarounds():
 
     missing_golden_function_ops = [
         ttnn.avg_pool2d,
-        ttnn.moreh_cumsum,
+        ttnn.cumsum,
         ttnn.slice,
     ]
 

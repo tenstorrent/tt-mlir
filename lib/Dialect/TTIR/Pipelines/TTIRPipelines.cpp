@@ -36,6 +36,7 @@
 #include "stablehlo/conversions/linalg/transforms/Passes.h"
 #include "stablehlo/transforms/Passes.h"
 #include "stablehlo/transforms/optimization/Passes.h"
+#include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #endif
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
@@ -63,12 +64,20 @@ void createStableHLOToTTIRPipeline(
   }
   pm.addPass(createLegalizeStableHLOCompositeToTTIRPass());
   if (options.legalizeCompositeToCallEnabled) {
-    pm.addPass(stablehlo::createStablehloLegalizeCompositeToCallPass());
+    pm.addPass(::mlir::stablehlo::createStablehloLegalizeCompositeToCallPass());
   }
   pm.addPass(mlir::createInlinerPass());
   if (options.enableAggressiveSimplification) {
-    pm.addPass(stablehlo::createStablehloAggressiveSimplificationPass());
+    pm.addPass(
+        ::mlir::stablehlo::createStablehloAggressiveSimplificationPass());
   }
+  // Expand complex math ops (e.g. mul, sqrt, log) into real arithmetic before
+  // converting complex types to float-pair representation.
+  pm.addPass(::mlir::stablehlo::createStablehloComplexMathExpanderPass());
+  // Convert complex types to float-pair representation before lowering.
+  pm.addPass(
+      mlir::tt::stablehlo::createStableHLOComplexDataTypeConversionPass());
+
   ttir::ConvertStableHLOToTTIROptions passOptions;
   passOptions.enablePartialConversion = options.enableCPUFallback;
   pm.addPass(createConvertStableHLOToTTIRPass(passOptions));
@@ -270,7 +279,7 @@ void createTTIRToLLVMCPUPipeline(OpPassManager &pm,
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
   // Directly convert any hoisted SHLO ops into linalg ops.
-  cpuPm.addPass(stablehlo::createStablehloLegalizeToLinalgPass());
+  cpuPm.addPass(::mlir::stablehlo::createStablehloLegalizeToLinalgPass());
 #endif
 
   // Decomp TTIR to reduce number of conversions we need to support in
@@ -278,6 +287,9 @@ void createTTIRToLLVMCPUPipeline(OpPassManager &pm,
   mlir::tt::TTIRToTTIRDecompositionOptions decompOptions;
   decompOptions.decompConfig = mlir::tt::DecompMode::CPUFallback;
   cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
+
+  cpuPm.addPass(mlir::createCanonicalizerPass());
+  cpuPm.addPass(mlir::createCSEPass());
 
   // Lower TTIR to mix of linalg direct, TOSA (which we can subsequently lower
   // to linalg), and Tensor dialect ops.

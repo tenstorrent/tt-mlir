@@ -220,6 +220,8 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
     return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
   case ttnn::TensorMemoryLayout::BlockSharded:
     return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
+  case ttnn::TensorMemoryLayout::NDSharded:
+    return ::tt::target::ttnn::TensorMemoryLayout::NDSharded;
   }
 }
 

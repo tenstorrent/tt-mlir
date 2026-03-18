@@ -35,14 +35,16 @@
 #include "operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
 #include "operations/kv_cache/kv_cache.hpp"
 #include "operations/matmul/matmul.hpp"
-#include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "operations/normalization/batch_norm/batch_norm.hpp"
+#include "operations/normalization/groupnorm/groupnorm.hpp"
+#include "operations/normalization/layernorm/layernorm.hpp"
 #include "operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
 #include "operations/pool/global_avg_pool/global_avg_pool.hpp"
 #include "operations/pool/upsample/upsample.hpp"
 #include "operations/rand/rand.hpp"
+#include "operations/reduction/accumulation/cumsum/cumsum.hpp"
 #include "operations/reduction/argmax/argmax.hpp"
 #include "operations/reduction/generic/generic_reductions.hpp"
 #include "operations/reduction/prod/prod.hpp"
@@ -90,8 +92,8 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static constexpr std::size_t l1SmallSize = 1 << 15;     // 32kB
-  static constexpr std::size_t traceRegionSize = 1 << 20; // 1MB
+  static constexpr std::size_t l1SmallSize = 1 << 15; // 32kB
+  static constexpr std::size_t traceRegionSize = 0;
 
   static ttnn::MeshDevice *getInstance() {
     // If we have an external device, use it.

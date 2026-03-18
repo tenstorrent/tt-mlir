@@ -47,10 +47,6 @@ public:
   using impl::TTNNRowMajorLayoutPropagationBase<
       TTNNRowMajorLayoutPropagation>::TTNNRowMajorLayoutPropagationBase;
 
-  TTNNRowMajorLayoutPropagation(TTNNRowMajorLayoutPropagationOptions options)
-      : impl::TTNNRowMajorLayoutPropagationBase<TTNNRowMajorLayoutPropagation>(
-            std::move(options)) {}
-
   void runOnOperation() final {
 #ifndef TTMLIR_ENABLE_OPMODEL
     llvm::llvm_unreachable_internal(

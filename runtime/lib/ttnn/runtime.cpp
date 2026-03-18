@@ -1084,8 +1084,8 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_SparseMatmulOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
-    tensorRef = opContext.type_as_MorehCumSumOp()->out();
+  case ::tt::target::ttnn::OpType::CumSumOp: {
+    tensorRef = opContext.type_as_CumSumOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::RandOp: {
@@ -1210,6 +1210,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::LayerNormOp: {
     tensorRef = opContext.type_as_LayerNormOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GroupNormOp: {
+    tensorRef = opContext.type_as_GroupNormOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
@@ -1486,8 +1490,8 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_SparseMatmulOp()->sparsity()};
     break;
   }
-  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
-    tensorRefs = {opContext.type_as_MorehCumSumOp()->in()};
+  case ::tt::target::ttnn::OpType::CumSumOp: {
+    tensorRefs = {opContext.type_as_CumSumOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
@@ -1648,6 +1652,19 @@ getOpInputRefs(OpContext opContextHandle,
     }
     if (opContext.type_as_LayerNormOp()->bias()) {
       tensorRefs.push_back(opContext.type_as_LayerNormOp()->bias());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GroupNormOp: {
+    tensorRefs = {opContext.type_as_GroupNormOp()->input()};
+    if (opContext.type_as_GroupNormOp()->input_mask()) {
+      tensorRefs.push_back(opContext.type_as_GroupNormOp()->input_mask());
+    }
+    if (opContext.type_as_GroupNormOp()->weight()) {
+      tensorRefs.push_back(opContext.type_as_GroupNormOp()->weight());
+    }
+    if (opContext.type_as_GroupNormOp()->bias()) {
+      tensorRefs.push_back(opContext.type_as_GroupNormOp()->bias());
     }
     break;
   }

@@ -13,13 +13,8 @@ namespace tt::constants {
 // This reserves a region of L1 memory for L1_SMALL buffers used by convs.
 constexpr static std::size_t L1_SMALL_SIZE = 1 << 16;
 
-// Used only in unittests:
-// todo(arminaleTT): look into dynamically adjusting this
-// getOpRuntime() uses trace capture to run and measure the runtime of an op.
-// This requires the device to be opened with sufficient trace region size.
-// This number is currently set based on manual testing of supported ops to
-// accommodate the highest required trace buffer size (2004992B)
-static constexpr size_t opModelDefaultTraceRegionSize = 6000000;
+// Use dynamic trace region (size = 0).
+static constexpr size_t opModelDefaultTraceRegionSize = 0;
 
 } // namespace tt::constants
 

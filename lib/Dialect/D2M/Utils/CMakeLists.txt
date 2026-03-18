@@ -1,4 +1,5 @@
 add_mlir_library(MLIRD2MUtils
+  CBUtils.cpp
   DMAUtils.cpp
   DstRegisterAnalysis.cpp
   Utils.cpp

@@ -18,7 +18,7 @@
 # For production deployment with OAuth2 and HTTPS, see docker-compose.yml
 # For local development without authentication, see docker-compose.local.yml
 #
-FROM --platform=linux/amd64 ubuntu:22.04
+FROM --platform=linux/amd64 ubuntu:24.04
 
 SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
@@ -39,7 +39,6 @@ apt-get install -y \
     graphviz \
     jq \
     lcov \
-    libboost-all-dev \
     libcapstone-dev \
     libgtest-dev \
     libhwloc-dev \
@@ -55,8 +54,7 @@ apt-get install -y \
     wget \
     unzip
 
-add-apt-repository ppa:deadsnakes/ppa
-apt-get update
+# Install Python 3.12 (native in Ubuntu 24.04)
 apt-get install -y python3.12 python3.12-dev python3.12-venv
 
 apt-get clean

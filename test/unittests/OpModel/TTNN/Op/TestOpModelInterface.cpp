@@ -1613,20 +1613,20 @@ TEST_F(OpModelBase, transposeOp) {
   }
 }
 
-TEST_F(OpModelBase, morehCumSumOp) {
-  // create MorehCumSumOp
+TEST_F(OpModelBase, cumSumOp) {
+  // create CumSumOp
   llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
   llvm::SmallVector<int64_t> tensorShapeO = {128, 128};
 
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
-  auto morehCumSum = builder.create<MorehCumSumOp>(
-      builder.getUnknownLoc(), output.getType(), input,
-      builder.getI64IntegerAttr(0), nullptr);
+  auto cumSum =
+      builder.create<CumSumOp>(builder.getUnknownLoc(), output.getType(), input,
+                               builder.getI32IntegerAttr(0), nullptr, nullptr);
 
-  // test morehCumSum Op interface
-  auto constraintsExp = getOpConstraints(morehCumSum.getOperation());
+  // test cumSum Op interface
+  auto constraintsExp = getOpConstraints(cumSum.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
@@ -1639,7 +1639,7 @@ TEST_F(OpModelBase, morehCumSumOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeExp = getOpRuntime(morehCumSum.getOperation());
+  auto runtimeExp = getOpRuntime(cumSum.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
@@ -4369,6 +4369,111 @@ TEST_F(OpModelBase, layerNormOpL1Memory) {
   EXPECT_GT(outputSize, 0);
 
   auto runtimeExp = getOpRuntime(layerNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, groupNormOp) {
+  // Test case 1: Basic GroupNorm with weight and bias
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 64, 480};
+  llvm::SmallVector<int64_t> inputMaskShape = {1, 8, 32, 96};
+  llvm::SmallVector<int64_t> weightShape = {1, 1, inputShape.back() / 32, 32};
+  llvm::SmallVector<int64_t> biasShape = {1, 1, inputShape.back() / 32, 32};
+
+  auto input = createEmptyTensor(inputShape);
+  auto inputMask = createEmptyTensor(inputMaskShape);
+  const TTNNLayoutAttr tensorLayout_DRAMRowMajor = CreateRowMajorLayout(
+      weightShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  auto weight = createEmptyTensor(weightShape, builder.getBF16Type(),
+                                  tensorLayout_DRAMRowMajor);
+  auto bias = createEmptyTensor(biasShape, builder.getBF16Type(),
+                                tensorLayout_DRAMRowMajor);
+  auto outputType = createRankedTensorType(inputShape);
+
+  int64_t numGroups = 8;
+  llvm::APFloat epsilon(1e-12f);
+
+  // group_norm requires explicit core_grid; use a fixed test value.
+  auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
+
+  GroupNormOp groupNormOp = builder.create<GroupNormOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*input_mask=*/inputMask, weight, bias, numGroups, epsilon,
+      /*memoryConfig=*/nullptr, coreGrid);
+  groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(groupNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(groupNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, groupNormOpL1Memory) {
+  // Test case 2: GroupNorm with L1 memory buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 64, 480};
+  llvm::SmallVector<int64_t> inputMaskShape = {1, 8, 32, 96};
+  llvm::SmallVector<int64_t> weightShape = {1, 1, inputShape.back() / 32, 32};
+  llvm::SmallVector<int64_t> biasShape = {1, 1, inputShape.back() / 32, 32};
+
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputMaskLayout_L1 = CreateTiledLayout(
+      inputMaskShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr tensorLayout_L1RowMajor = CreateRowMajorLayout(
+      weightShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto inputMask = createEmptyTensor(inputMaskShape, builder.getBF16Type(),
+                                     inputMaskLayout_L1);
+  auto weight = createEmptyTensor(weightShape, builder.getBF16Type(),
+                                  tensorLayout_L1RowMajor);
+  auto bias = createEmptyTensor(biasShape, builder.getBF16Type(),
+                                tensorLayout_L1RowMajor);
+  auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
+
+  int64_t numGroups = 8;
+  llvm::APFloat epsilon(1e-12f);
+
+  // group_norm requires explicit core_grid; use a fixed test value.
+  auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
+
+  GroupNormOp groupNormOp = builder.create<GroupNormOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*input_mask=*/inputMask, weight, bias, numGroups, epsilon,
+      /*memoryConfig=*/nullptr, coreGrid);
+  groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(groupNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(groupNormOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {

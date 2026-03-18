@@ -1,20 +1,23 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-convert-local-load-store-ops-to-aliased-cbs --canonicalize %s | FileCheck %s
 
 // CHECK-LABEL: func.func @test_convert_local_load_store
-// CHECK: d2m.reserve %cb0
-// CHECK: d2m.push %cb0
-// CHECK: d2m.wait %cb0
-// CHECK: d2m.reserve %cb1
-// CHECK: d2m.push %cb1
-// CHECK: d2m.wait %cb1
-// CHECK: d2m.reserve %cb2
+// CHECK-DAG: %[[CB0:.*]] = d2m.get_cb(0)
+// CHECK-DAG: %[[CB1:.*]] = d2m.get_cb(1)
+// CHECK-DAG: %[[CB2:.*]] = d2m.get_cb(2)
+// CHECK: d2m.reserve %[[CB0]]
+// CHECK: d2m.push %[[CB0]]
+// CHECK: d2m.wait %[[CB0]]
+// CHECK: d2m.reserve %[[CB1]]
+// CHECK: d2m.push %[[CB1]]
+// CHECK: d2m.wait %[[CB1]]
+// CHECK: d2m.reserve %[[CB2]]
 // CHECK: linalg.generic
 // CHECK: d2m.tile_add
-// CHECK: d2m.pop %cb1
-// CHECK: d2m.pop %cb0
-// CHECK: d2m.push %cb2
-// CHECK: d2m.wait %cb2
-// CHECK: d2m.pop %cb2
+// CHECK: d2m.pop %[[CB1]]
+// CHECK: d2m.pop %[[CB0]]
+// CHECK: d2m.push %[[CB2]]
+// CHECK: d2m.wait %[[CB2]]
+// CHECK: d2m.pop %[[CB2]]
 // CHECK-NOT: d2m.remote_load
 // CHECK-NOT: d2m.remote_store
 
@@ -33,7 +36,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     d2m.generic {block_factors = [], grid = #ttcore.grid<4x3>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%alloc, %alloc_0 : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
         outs(%alloc_1 : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)  {
-    ^unified0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0:
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg3 = %c0 to %c1 step %c1 {

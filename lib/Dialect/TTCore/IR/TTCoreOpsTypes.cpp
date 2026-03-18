@@ -8,9 +8,13 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Utils.h"
+
+#ifndef TTMLIR_NO_FLATBUFFERS
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
-#include "ttmlir/Utils.h"
+#include "ttmlir/Target/Common/types_generated.h"
+#endif
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -31,7 +35,6 @@
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.cpp.inc"
-#include "ttmlir/Target/Common/types_generated.h"
 
 namespace mlir::tt::ttcore {
 
@@ -278,6 +281,10 @@ SystemDescAttr::getDefault(MLIRContext *context, Arch arch,
 mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
     MLIRContext *context, StringRef path,
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
+#ifdef TTMLIR_NO_FLATBUFFERS
+  return diagFn() << "loading system descriptor from file requires flatbuffers "
+                     "support (disabled by TTMLIR_NO_FLATBUFFERS)";
+#else
   if (path.empty()) {
     diagFn() << "system desc path must not be empty";
     return failure();
@@ -294,11 +301,17 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
   fbb.read(static_cast<char *>(buffer.get()), size);
 
   return SystemDescAttr::getFromBuffer(context, buffer.get(), diagFn);
+#endif
 }
 
 mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
     MLIRContext *context, void *systemDesc,
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
+#ifdef TTMLIR_NO_FLATBUFFERS
+  return diagFn()
+         << "loading system descriptor from buffer requires flatbuffers "
+            "support (disabled by TTMLIR_NO_FLATBUFFERS)";
+#else
   // Read relevant information from binary
   const auto *binarySystemDescRoot =
       ::tt::target::GetSizePrefixedSystemDescRoot(systemDesc);
@@ -487,6 +500,7 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
       chipCoordinateList, chipChannelList);
 
   return systemDescAttr;
+#endif // TTMLIR_NO_FLATBUFFERS
 }
 
 ChipDescAttr SystemDescAttr::getChipDesc(unsigned chipIndex) const {
@@ -571,6 +585,38 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MemRefType memrefType,
 mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
   return ttmlir::utils::generateAffineMapFromShardStrides(getStride(),
                                                           getContext());
+}
+
+CBLayoutAttr CBLayoutAttr::get(mlir::MLIRContext *context,
+                               ArrayRef<int64_t> shape, uint64_t elementSize,
+                               uint32_t buffers) {
+  auto strides =
+      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize));
+  SmallVector<int64_t> emptyGrid;
+  return get(context, strides, buffers, emptyGrid);
+}
+
+CBLayoutAttr CBLayoutAttr::get(ArrayRef<int64_t> shape, Type elementType,
+                               uint32_t buffers) {
+  return get(elementType.getContext(), shape, getElementSizeBytes(elementType),
+             buffers);
+}
+
+CBLayoutAttr CBLayoutAttr::get(mlir::MLIRContext *context,
+                               ArrayRef<int64_t> shape, uint64_t elementSize,
+                               uint32_t buffers, ArrayRef<int64_t> gridShape) {
+  auto strides =
+      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize));
+  return get(context, strides, buffers, gridShape);
+}
+
+mlir::AffineMap CBLayoutAttr::getAffineMap() const {
+  // Return an identity map so that memrefs with this layout are
+  // cast-compatible with bare memrefs used by downstream ops (e.g.
+  // memref.cast in D2MToTTKernel).  The stride/buffers fields carry the
+  // CB configuration but don't affect the memref's logical indexing.
+  return mlir::AffineMap::getMultiDimIdentityMap(getStride().size(),
+                                                 getContext());
 }
 
 InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MLIRContext *context,
@@ -1539,6 +1585,12 @@ size_t DeviceAttr::getShardSizeInBytes(MemRefType memrefType, size_t alignSize,
     if (auto shardLayout = mlir::dyn_cast<ShardLayoutAttr>(devLayout)) {
       numBuffers = (includeBuffers) ? shardLayout.getBuffers() : 1;
     }
+  } else if (auto cbLayout =
+                 mlir::dyn_cast<CBLayoutAttr>(memrefType.getLayout())) {
+    // Core-local CB buffers: full shape is the shard, numBuffers is
+    // programmable.
+    shardShape = memrefType.getShape();
+    numBuffers = (includeBuffers) ? cbLayout.getBuffers() : 1;
   } else {
     // local memrefs have no layout attribute
     numBuffers = 1;

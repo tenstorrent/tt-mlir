@@ -1212,28 +1212,30 @@ public:
 };
 } // namespace
 
-// Moreh CumSum op conversion pattern
+// CumSum op conversion pattern
 //
 namespace {
-class MorehCumSumOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::MorehCumSumOp> {
+class CumSumOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::CumSumOp> {
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::MorehCumSumOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::CumSumOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::MorehCumSumOp srcOp,
-                  mlir::tt::ttnn::MorehCumSumOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::CumSumOp srcOp,
+                  mlir::tt::ttnn::CumSumOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MorehCumSumOp> emitter(
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::CumSumOp> emitter(
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim()),
-        /*output=*/emitter.emit(std::nullopt),
+        /*dtype=*/emitter.emit(srcOp.getDtype()),
+        /*reverse_order=*/emitter.emit(false),
+        /*optional_out=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -3505,6 +3507,59 @@ public:
 };
 } // namespace
 
+// GroupNormOp conversion pattern
+//
+namespace {
+class GroupNormOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::GroupNormOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::GroupNormOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GroupNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::GroupNormOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // ttnn::group_norm requires core_grid to be explicitly specified.
+    // If the op doesn't have it set, derive it from the device's worker grid.
+    mlir::Attribute coreGridArg;
+    if (srcOp.getCoreGrid()) {
+      coreGridArg = emitter.emit<::ttnn::CoreGrid>(srcOp.getCoreGrid());
+    } else {
+      ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp);
+      auto gridShape = deviceAttr.getWorkerGrid().getShape();
+      // GridAttr shape is [y, x], CoreCoordAttr takes (x, y).
+      auto defaultCoreGrid = mlir::tt::ttnn::CoreCoordAttr::get(
+          rewriter.getContext(), gridShape[1], gridShape[0]);
+      coreGridArg = emitter.emit<::ttnn::CoreGrid>(defaultCoreGrid);
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getNumGroups()),
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(srcOp.getInputMask()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(/* reciprocals= */ std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(/* dtype= */ std::nullopt),
+        coreGridArg,
+        emitter.emit(/* inplace= */ std::nullopt),
+        emitter.emit(/* output_layout= */ std::nullopt),
+        emitter.emit(/* num_out_blocks= */ -1),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // PermuteOp conversion pattern
 //
 namespace {
@@ -4880,10 +4935,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-               MorehCumSumOpConversionPattern,
-               BatchNormInferenceOpConversionPattern,
+               CumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
                BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-               LayerNormOpConversionPattern>(typeConverter, ctx);
+               LayerNormOpConversionPattern, GroupNormOpConversionPattern>(
+      typeConverter, ctx);
 
   // CCL ops
   //
@@ -4891,6 +4946,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<AllReduceOpConversionPattern>(typeConverter, ctx);
   patterns.add<ReduceScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScatterOpConversionPattern>(typeConverter, ctx);
+  patterns.add<MeshPartitionOpConversionPattern>(typeConverter, ctx);
   patterns.add<MeshShardOpConversionPattern>(typeConverter, ctx);
   patterns.add<DistributeTensorOpConversionPattern>(typeConverter, ctx);
   patterns.add<AggregateTensorOpConversionPattern>(typeConverter, ctx);

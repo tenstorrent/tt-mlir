@@ -15,7 +15,9 @@ module attributes {ttcore.device = #any_device} {
     %6 = d2m.generic {block_factors = [1, 1, 1, 1], grid = #ttcore.grid<1x1x1x1>, indexing_maps = [affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<datamovement>]}
         ins(%stream : tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>)
         outs(%4 : tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>)  {
-    ^unified0(%cb0: !d2m.cb<tensor<1x64x64x32xf32>>, %cb1: !d2m.cb<tensor<1x64x64x32xf32>>):
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<1x64x64x32xf32>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<1x64x64x32xf32>>
       %i = d2m.block_index(0) : index
       %j = d2m.block_index(1) : index
       %k = d2m.block_index(2) : index

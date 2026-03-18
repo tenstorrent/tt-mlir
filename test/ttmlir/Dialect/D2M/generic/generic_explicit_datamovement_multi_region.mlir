@@ -32,15 +32,24 @@ func.func @explicit_datamovement_multi_region(
     operandSegmentSizes = array<i32: 2, 1, 0>,
     threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>]
   }> ({
-  ^bb0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
+  ^bb0:
+    %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
+    %cb2 = d2m.get_cb(2) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
     %2 = "d2m.reserve"(%cb0) : (!d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>
     %c0 = "arith.constant"() <{value = 0 : index}> : () -> index
   }, {
-  ^bb0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
+  ^bb0:
+    %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
+    %cb2 = d2m.get_cb(2) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
     %2 = "d2m.reserve"(%cb1) : (!d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>
     %c0 = "arith.constant"() <{value = 0 : index}> : () -> index
   }, {
-  ^bb0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
+  ^bb0:
+    %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
+    %cb2 = d2m.get_cb(2) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
     %3 = "d2m.wait"(%cb0) : (!d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>
     %4 = "d2m.wait"(%cb1) : (!d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>
     %5 = "d2m.reserve"(%cb2) : (!d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>

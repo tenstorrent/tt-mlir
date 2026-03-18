@@ -7,6 +7,7 @@
 #include "shardy/dialect/sdy/transforms/propagation/user_priority_propagation.h"
 
 #include "mlir/Transforms/Passes.h"
+#include "stablehlo/transforms/optimization/Passes.h"
 
 namespace mlir::tt::stablehlo {
 //===----------------------------------------------------------------------===//
@@ -24,6 +25,11 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Convert any xla.sdy ops to sdy ops.
   pm.addPass(createConvertXlaSdyToSdyPass());
+
+  // Optionally run aggressive StableHLO simplification if enabled.
+  if (options.enableAggressiveSimplification) {
+    pm.addPass(mlir::stablehlo::createStablehloAggressiveSimplificationPass());
+  }
 
   // Apply StableHLO fusing pass.
   pm.addPass(mlir::tt::stablehlo::createStableHLOFusingPass());
@@ -46,6 +52,11 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(createAnalyzeMeshPass(analyzeMeshOptions));
 
   pm.addPass(createDecoupleConstFanoutPass());
+
+  // Convert tuple-returning custom_call ops to multi-result ops so that
+  // Shardy can propagate shardings through them (Shardy does not support
+  // tuple types).
+  pm.addPass(createDecomposeCustomCallTuplesPass());
 
   // Flatten all composite ops to make sharding propagation easier.
   pm.addPass(createFlattenCompositePass());

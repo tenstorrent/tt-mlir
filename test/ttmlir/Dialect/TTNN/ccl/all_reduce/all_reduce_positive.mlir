@@ -98,7 +98,9 @@ module attributes {} {
 // -----
 
 // Verify default all_reduce dimensions lower to scatter/all_gather on the last
-// divisible dimension (dim 3 for this shape).
+// divisible dimension. For a 2D input (32x256), the reduce_scatter workaround
+// reshapes to 4D (scatter_dim=3), then reshapes back; all_gather then operates
+// on the 2D result (all_gather_dim=1).
 module attributes {} {
   // CHECK-LABEL: all_reduce_default_dims_last_divisible_dim3
   func.func @all_reduce_default_dims_last_divisible_dim3(%arg0: tensor<32x256xbf16>) -> tensor<32x256xbf16> {
@@ -106,7 +108,7 @@ module attributes {} {
     // CHECK: "ttnn.reduce_scatter"
     // CHECK-SAME: scatter_dim = 3 : si32
     // CHECK: "ttnn.all_gather"
-    // CHECK-SAME: all_gather_dim = 3 : si32
+    // CHECK-SAME: all_gather_dim = 1 : si32
     return %1 : tensor<32x256xbf16>
   }
 }

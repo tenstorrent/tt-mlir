@@ -85,7 +85,7 @@ def maximum(
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.maximum(in0, in1)
+    return builder.maximum(in0, in1, unit_attrs=unit_attrs)
 
 
 def minimum(
@@ -296,36 +296,6 @@ def test_logical_ops(
         target=target,
         device=device,
         pipeline_options=pipeline_options,
-    )
-
-
-@x86_only
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.parametrize("test_fn", logical_ops)
-def test_hoisted_logical_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
-):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape, shape], [dtype, dtype])
-        def hoisted_logical_op_fn(
-            in0: Operand, in1: Operand, builder: TTIRBuilder
-        ) -> Operand:
-            golden0, golden1, output_golden = create_logical_op_goldens(
-                shape, dtype, test_fn.__name__
-            )
-            result = test_fn(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
-            builder.set_goldens(
-                inputs={in0: golden0, in1: golden1}, outputs={result: output_golden}
-            )
-            return result
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
     )
 
 
@@ -750,21 +720,19 @@ def test_unaligned_shapes_add(
     )
 
 
-# Hoisted binary ops
-def create_hoisted_binary_op(op_func, name):
-    """Create a hoisted version of a binary operation by adding the should_hoist unit attribute"""
+# CPU-hoisted binary ops.
+hoisted_binary_ops_float = [
+    atan2,
+    gelu_backward,
+    gelu_backward_tanh,
+]
 
-    def hoisted_op(in0, in1, builder, **kwargs):
-        return op_func(in0, in1, builder, unit_attrs=["ttir.should_hoist"], **kwargs)
-
-    hoisted_op.__name__ = f"hoisted_{name}"
-    return hoisted_op
-
-
-hoisted_binary_ops = [
+hoisted_binary_ops_float_integer = [
     add,
+    div,
+    maximum,
+    minimum,
     multiply,
-    subtract,
     # TODO(#6183): Re-enable when F32 untilize on-device precision loss is fixed
     # F32 untilize on-device introduces precision loss that causes close values to become
     # identical, breaking exact equality comparisons in CPU-hoisted ops.
@@ -775,26 +743,36 @@ hoisted_binary_ops = [
     ge,
     lt,
     le,
-    minimum,
-    maximum,
+    subtract,
+    remainder,
+]
+
+hoisted_binary_ops_integer = [
+    bitwise_and,
+    bitwise_or,
+    bitwise_xor,
+    # logical_left_shift and logical_right_shift are excluded because random i32
+    # shift amounts (values >= 32 or negative) produce all-zero outputs, making
+    # PCC comparison degenerate. They are tested separately in
+    # test_hoisted_logical_shift_ops with controlled shift amounts.
+]
+
+hoisted_binary_shapes = [
+    [(128, 128), (128, 128)],  # Same shapes
+    [(128, 128), (1, 128)],  # Broadcasting second dimension
+    [(128, 128), (128, 1)],  # Broadcasting first dimension
+    [(1, 32), (1, 32)],  # Small shapes
+    [(128, 128, 64), (128, 1, 64)],  # 3D tensors with broadcasting
+    [(7, 41, 43, 11), (7, 41, 43, 11)],  # 4D tensors
 ]
 
 
 @x86_only
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        [(128, 128), (128, 128)],  # Same shapes
-        [(128, 128), (1, 128)],  # Broadcasting second dimension
-        [(128, 128), (128, 1)],  # Broadcasting first dimension
-        [(128, 128, 64), (128, 1, 64)],  # 3D tensors with broadcasting
-    ],
-    ids=shapes_list_str,
-)
+@pytest.mark.parametrize("shapes", hoisted_binary_shapes, ids=shapes_list_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("test_fn", hoisted_binary_ops)
+@pytest.mark.parametrize("test_fn", hoisted_binary_ops_float)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_cpu_hoistable_binary_ops(
+def test_cpu_hoistable_binary_ops_float(
     test_fn: Callable,
     shapes: List[Shape],
     dtype: torch.dtype,
@@ -802,8 +780,6 @@ def test_cpu_hoistable_binary_ops(
     target: str,
     device,
 ):
-    """Test binary ops that support CPU hoisting"""
-
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [dtype] * len(shapes))
         def hoisted_binary_op_fn(
@@ -816,7 +792,136 @@ def test_cpu_hoistable_binary_ops(
 
     compile_and_execute_ttir(
         module,
-        test_base=f"{request.node.name}",
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shapes", hoisted_binary_shapes, ids=shapes_list_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("test_fn", hoisted_binary_ops_float_integer)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_cpu_hoistable_binary_ops_float_integer(
+    test_fn: Callable,
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    request,
+    target: str,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def hoisted_binary_op_fn(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ) -> Operand:
+            return test_fn(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("test_fn", logical_ops)
+def test_hoisted_logical_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    # Separate from the generic hoisted test because logical ops need custom
+    # goldens with a deliberate mix of zeros and non-zeros to exercise the
+    # logical truth table. Random float inputs would rarely produce exact zeros.
+    # These ops are excluded from hoisted_binary_ops_float to avoid duplication.
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def hoisted_logical_op_fn(
+            in0: Operand, in1: Operand, builder: TTIRBuilder
+        ) -> Operand:
+            golden0, golden1, output_golden = create_logical_op_goldens(
+                shape, dtype, test_fn.__name__
+            )
+            result = test_fn(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+            builder.set_goldens(
+                inputs={in0: golden0, in1: golden1}, outputs={result: output_golden}
+            )
+            return result
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shapes", hoisted_binary_shapes, ids=shapes_list_str)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("test_fn", hoisted_binary_ops_integer)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_cpu_hoistable_binary_ops_integer(
+    test_fn: Callable,
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    request,
+    target: str,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def hoisted_binary_op_fn(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ) -> Operand:
+            return test_fn(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("test_fn", binary_logical_shift_ops)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_logical_shift_ops(
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    # Separate from the generic hoisted integer test because random shift
+    # amounts (values >= 32 or negative) produce all-zero outputs, making PCC
+    # comparison degenerate. We use controlled shift amounts in [0, 31].
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def hoisted_shift_op_fn(
+            in0: Operand, in1: Operand, builder: TTIRBuilder
+        ) -> Operand:
+            shift_amounts = torch.randint(0, 32, shape, dtype=dtype)
+            builder.set_goldens(inputs={in1: shift_amounts})
+            return test_fn(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1041,6 +1146,8 @@ def test_binary_eltwise_ops_implicit_broadcast(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    # Separate from the generic hoisted test because pow needs torch.abs() on
+    # the base operand to avoid negative bases with fractional exponents (NaN).
     # FP32 pow fails due to tt-metal untilize NaN handling.
     # See: https://github.com/tenstorrent/tt-metal/pull/33904
     if dtype == torch.float32 and target == "ttnn":
