@@ -1029,12 +1029,11 @@ remapCBDescriptor(MLIRContext *ctx, ttnn::KernelCBAttr cb,
 
 static ttnn::KernelSemaphoreAttr
 remapSemaphoreDescriptor(MLIRContext *ctx, ttnn::KernelSemaphoreAttr sem,
-                         std::optional<ttnn::CoreRangeSetAttr> coreOv) {
-  if (!coreOv) {
-    return sem;
-  }
-  return ttnn::KernelSemaphoreAttr::get(ctx, sem.getId(), sem.getCoreType(),
-                                        *coreOv, sem.getInitialValue());
+                         std::optional<ttnn::CoreRangeSetAttr> coreOv,
+                         unsigned unifiedSemaphoreId) {
+  ttnn::CoreRangeSetAttr crs = coreOv.value_or(sem.getCoreRanges());
+  return ttnn::KernelSemaphoreAttr::get(
+      ctx, unifiedSemaphoreId, sem.getCoreType(), crs, sem.getInitialValue());
 }
 
 static LogicalResult
@@ -1158,8 +1157,12 @@ convertSingleSpatial(d2m::SpatialOp spatialOp, IRRewriter &rewriter,
           remapCBDescriptor(ctx, cb, g, mappings, numUnifiedIO, coreOv));
     }
     cbOffset += program.getCbs().size();
-    for (ttnn::KernelSemaphoreAttr sem : program.getSemaphores()) {
-      mergedSemaphores.push_back(remapSemaphoreDescriptor(ctx, sem, coreOv));
+    for (const auto [i, sem] : llvm::enumerate(program.getSemaphores())) {
+      auto semIt = mappings.semMap.find({g, static_cast<unsigned>(i)});
+      TT_assertv(semIt != mappings.semMap.end(),
+                 "spatial merge: missing semMap for semaphore descriptor");
+      mergedSemaphores.push_back(
+          remapSemaphoreDescriptor(ctx, sem, coreOv, semIt->second));
     }
   }
 
