@@ -9,9 +9,9 @@ module @module_argmax attributes {} {
   func.func public @argmax_torch_2d(%arg0: tensor<1x32128xf32>) -> tensor<1xi64> {
     // CHECK-LABEL: func.func public @argmax_torch_2d(
     // CHECK: "ttnn.argmax"
-    // CHECK-SAME: {dim = 3 : i32, keep_dim = false, use_multicore = false}>
-    // CHECK-SAME: tensor<1x1x1x32128xf32
-    // CHECK-SAME: -> tensor<1x1x1xui32
+    // CHECK-SAME: {dim = 1 : i32, keep_dim = false, use_multicore = false}>
+    // CHECK-SAME: tensor<1x32128xf32
+    // CHECK-SAME: -> tensor<1xui32
     %cst = stablehlo.constant dense<0xFF800000> : tensor<f32>
     %c = stablehlo.constant dense<0> : tensor<i64>
     %0 = stablehlo.iota dim = 1 : tensor<1x32128xi64>
@@ -31,9 +31,9 @@ module @module_argmax attributes {} {
   func.func public @argmax_jax_3d(%arg0: tensor<1x32x32xf32>) -> tensor<1x32xi32> {
     // CHECK-LABEL: func.func public @argmax_jax_3d(
     // CHECK: "ttnn.argmax"
-    // CHECK-SAME: {dim = 3 : i32, keep_dim = false, use_multicore = false}>
-    // CHECK-SAME: tensor<1x1x32x32xf32
-    // CHECK-SAME: -> tensor<1x1x32xui32
+    // CHECK-SAME: {dim = 2 : i32, keep_dim = false, use_multicore = false}>
+    // CHECK-SAME: tensor<1x32x32xf32
+    // CHECK-SAME: -> tensor<1x32xui32
     %0 = stablehlo.iota dim = 2 : tensor<1x32x32xi32>
     %cst = stablehlo.constant dense<0xFF800000> : tensor<f32>
     %c = stablehlo.constant dense<0> : tensor<i32>

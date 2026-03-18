@@ -35,6 +35,7 @@ keep_dim_options = [
 
 
 dim_arg_options = [
+    [0],
     [2],
     [1, 2],
     None,
@@ -60,33 +61,6 @@ def test_reduction_ops(
     if target == "emitc":
         pytest.skip(
             "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
-    if (
-        reduction_op_name == "max"
-        or reduction_op_name == "min"
-        or reduction_op_name == "mean"
-        or reduction_op_name == "sum"
-    ) and dim_arg is None:
-        request.node.add_marker(
-            pytest.xfail(
-                reason="Fails Golden, see issue https://github.com/tenstorrent/tt-metal/issues/32274"
-            )
-        )
-
-    # FP32 prod reduction fails due to tt-metal untilize NaN handling.
-    # See: https://github.com/tenstorrent/tt-metal/pull/33904
-    if reduction_op_name == "prod" and dtype == torch.float32 and target == "ttnn":
-        pytest.xfail(
-            "FP32 prod reduction fails due to tt-metal untilize NaN handling. "
-            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
-        )
-
-    if reduction_op_name == "prod" and dim_arg is None and keep_dim is True:
-        request.node.add_marker(
-            pytest.xfail(
-                reason="Fails in ttnn runtime, see issue https://github.com/tenstorrent/tt-metal/issues/32279"
-            )
         )
 
     def module(builder: TTIRBuilder):
