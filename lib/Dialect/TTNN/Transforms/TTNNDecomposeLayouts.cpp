@@ -135,6 +135,17 @@ private:
     return false;
   }
 
+  bool isInputToCPUHoistedFunction(ttnn::ToLayoutOp op) const {
+    if (!op.getResult().hasOneUse()) {
+      return false;
+    }
+    if (auto callOp =
+            dyn_cast<func::CallOp>(*op.getResult().getUsers().begin())) {
+      return callOp->hasAttr(ttmlir::utils::g_cpuHoistFuncCallAttrName);
+    }
+    return false;
+  }
+
   bool canTilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
     // tt-metal tilize supports: bfloat16, float32, uint32, int32, uint16
     // See: ttnn/operations/data_movement/tilize/device/tilize_op.cpp
@@ -740,6 +751,20 @@ private:
     assert(input.dataType == output.dataType &&
            "Data type should be the same if we're not creating typecast op");
 
+    // If the result feeds into a CPU-hoisted function, we should move to host
+    // first and perform layout change on host to minimize intermediate DRAM/L1
+    // usage.
+    if (isInputToCPUHoistedFunction(op)) {
+      currentInput =
+          this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
     // If the output data type is untilizable on device, untilize on device then
     // move to host
     if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(input.dataType)) {
@@ -849,6 +874,20 @@ private:
     assert(input.layoutEnum == output.layoutEnum &&
            "Layout should be the same if we're not creating toLayout op");
 
+    // If the result feeds into a CPU-hoisted function, we should move to host
+    // first and perform typecast on host to minimize intermediate DRAM/L1
+    // usage.
+    if (isInputToCPUHoistedFunction(op)) {
+      currentInput =
+          this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                           currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
     // If the output is tilized, typecast directly on device
     if (output.isTilized()) {
       // If the input is sharded, typecast should happen after converting to
@@ -907,6 +946,22 @@ private:
     const LayoutInfo &input = info.input;
     const LayoutInfo &output = info.output;
     const OpsToCreate &opsToCreate = info.opsToCreate;
+
+    // If the result feeds into a CPU-hoisted function, we should move to host
+    // first and perform both typecast and layout change on host to minimize
+    // intermediate DRAM/L1 usage.
+    if (isInputToCPUHoistedFunction(op)) {
+      currentInput =
+          this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                           currentInput, info);
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
 
     // If we need to untilize and the output data type can be untilized on
     // device typecast and untilize on device
