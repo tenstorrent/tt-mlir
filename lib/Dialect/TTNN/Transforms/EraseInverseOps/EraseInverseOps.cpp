@@ -2,11 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
+#include "ttmlir/Dialect/TTNN/Transforms/EraseInverseOps/EraseInverseOps.h"
 
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/OperationSupport.h"
@@ -14,45 +13,25 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_TTIRERASEINVERSEOPS
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
-
-// Check if any op in the funcOp has TTIR_FlattenedCompatInfoAttr
-bool hasFlattenedCompatInfoAttr(Operation *op) {
-  bool hasAttr = false;
-  op->walk([&](Operation *innerOp) {
-    for (auto attr : innerOp->getAttrs()) {
-      if (llvm::isa<ttir::FlattenedCompatInfoAttr>(attr.getValue())) {
-        hasAttr = true;
-
-        return WalkResult::interrupt();
-      }
-    }
-    return WalkResult::advance();
-  });
-  return hasAttr;
-}
+namespace mlir::tt::ttnn {
+#define GEN_PASS_DEF_TTNNERASEINVERSEOPS
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 uint64_t countTms(Operation *op) {
   uint64_t tmCount = 0;
-  op->walk([&](Operation *op) {
-    if (op->hasTrait<tt::ttir::TensorManipulation::Trait>()) {
-      // If the TM lies on a constevalable subgraph then we will not count it
-      // as it will be removed from the main graph.
-      if (!ttcore::valueTracesToConstantArgs(op->getResult(0))) {
-        tmCount++;
-      }
+  op->walk([&](Operation *innerOp) {
+    if (isa<ttnn::PermuteOp, ttnn::ReshapeOp, ttnn::TransposeOp>(innerOp)) {
+      tmCount++;
     }
   });
   return tmCount;
 }
 
-class TTIREraseInverseOps
-    : public impl::TTIREraseInverseOpsBase<TTIREraseInverseOps> {
+class TTNNEraseInverseOps
+    : public impl::TTNNEraseInverseOpsBase<TTNNEraseInverseOps> {
 public:
-  using impl::TTIREraseInverseOpsBase<
-      TTIREraseInverseOps>::TTIREraseInverseOpsBase;
+  using impl::TTNNEraseInverseOpsBase<
+      TTNNEraseInverseOps>::TTNNEraseInverseOpsBase;
 
   void runOnOperation() final {
 
@@ -72,11 +51,6 @@ public:
     commuteBelowPatterns =
         getCommuteRewritePatternSet<CommuteDirection::DOWNWARDS>();
     for (auto funcOp : funcOps) {
-      // If no ops were flattened, we don't expect any inverse TMs.
-      // TTIR_FlattenedCompatInfoAttr (unless force flag is set)
-      if (!force.getValue() && !hasFlattenedCompatInfoAttr(funcOp)) {
-        continue;
-      }
 
 #ifdef TTMLIR_ENABLE_DEBUG_LOGS
       const int64_t nonConstevalableTMsBefore = countTms(funcOp);
@@ -147,18 +121,18 @@ private:
     RewritePatternSet patterns(&getContext());
     populateElementwiseCommutePatterns<commuteDirection>(&getContext(),
                                                          patterns);
-    // Elementwise downwards can move reshapes onto consteval paths, creating
-    // broadcast->reshape matches; keep broadcast-upwards in both sets so
-    // elementwise-upwards does not race and pull those reshapes back first.
-    populateBroadcastCommutePatterns<CommuteDirection::UPWARDS>(&getContext(),
-                                                                patterns);
-    populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns);
-    populateSliceCommutePatterns<commuteDirection>(&getContext(), patterns);
-    populateReduceCommutePatterns<commuteDirection>(&getContext(), patterns);
-    populateRMSNormCommutePatterns<commuteDirection>(&getContext(), patterns);
-    populateSoftmaxCommutePatterns<commuteDirection>(&getContext(), patterns);
-
-    populateTTIRTMFusionPatterns(&getContext(), patterns);
+    // // Elementwise downwards can move reshapes onto consteval paths, creating
+    // // broadcast->reshape matches; keep broadcast-upwards in both sets so
+    // // elementwise-upwards does not race and pull those reshapes back first.
+    // populateBroadcastCommutePatterns<CommuteDirection::UPWARDS>(&getContext(),
+    //                                                             patterns);
+    // populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns);
+    // populateSliceCommutePatterns<commuteDirection>(&getContext(), patterns);
+    // populateReduceCommutePatterns<commuteDirection>(&getContext(), patterns);
+    // populateRMSNormCommutePatterns<commuteDirection>(&getContext(),
+    // patterns);
+    // populateSoftmaxCommutePatterns<commuteDirection>(&getContext(),
+    // patterns);
     return patterns;
   }
 
@@ -178,4 +152,4 @@ private:
     }
   }
 };
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttnn

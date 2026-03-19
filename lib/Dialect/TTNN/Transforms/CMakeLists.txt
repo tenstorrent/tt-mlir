@@ -1,3 +1,5 @@
+add_subdirectory(EraseInverseOps)
+
 if (TTMLIR_ENABLE_OPMODEL)
         add_definitions(-DTTMLIR_ENABLE_OPMODEL)
         set(OPMODEL_SRCS Fusing/RoPEFusingPattern.cpp Fusing/SDPAFusingPattern.cpp Fusing/TopKFusingPattern.cpp Fusing/FusionValidator.cpp)
@@ -73,6 +75,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         MLIRTTNNDialect
         MLIRTTNNAnalysis
         MLIRTTCoreDialect
+        MLIRTTNNEraseInverseOps
         PRIVATE
         TTMLIRTTIRToTTNN
         MLIRTTNNValidation

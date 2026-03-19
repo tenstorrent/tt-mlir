@@ -577,4 +577,26 @@ def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNEraseInverseOps: Pass<"ttnn-erase-inverse-ops", "::mlir::ModuleOp">
+{
+  let summary = "Erase inverse ops.";
+  let description = [{
+    This pass walks through the graph and erases inverse operations.
+
+    For example:
+      ttnn.permute(0, 1, 3, 2) -> ttnn.exp -> ttnn.permute(0, 1, 3, 2)
+
+    The above sequence can be reduced to simply: "ttnn.exp" as the permutations
+    on either end are inverses.
+  }];
+
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
+
+  list<Option> options = [
+    Option<"enableCommuteUpwards", "enable-commute-upwards", "bool", "true", "Enable commuting upwards. This should only be false for testing purposes (i.e you want to test a commute downwards pattern)">,
+    Option<"enableCommuteDownwards", "enable-commute-downwards", "bool", "true", "Enable commuting downwards. This should only be false for testing purposes (i.e you want to test a commute upwards pattern)">,
+    Option<"maxIterations", "max-iterations", "uint64_t", "100", "Maximum number of iterations to perform commuting. The number of TMs is expected to converge before this limit is reached.">
+  ];
+}
+
 #endif
