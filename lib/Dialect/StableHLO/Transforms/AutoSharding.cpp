@@ -47,11 +47,6 @@ struct ShardingConfig {
   // std::nullopt = no constraint at this point.
   // SmallVector<bool> = insert sdy.sharding_constraint with this target.
   llvm::SmallVector<std::optional<llvm::SmallVector<bool>>> constraintTargets;
-
-  // When true, all shardings (arg + constraint) use is_closed=true, forcing
-  // Shardy to respect them exactly. When false, shardings are open and Shardy
-  // can adjust them during propagation.
-  bool closedShardings = true;
 };
 
 struct MeshInfo {
@@ -257,23 +252,6 @@ static llvm::SmallVector<ShardingConfig> expandWithConstraints(
   return combined;
 }
 
-// Duplicate each config into an open variant and a closed variant.
-static llvm::SmallVector<ShardingConfig>
-expandWithClosedToggle(const llvm::SmallVector<ShardingConfig> &configs) {
-  llvm::SmallVector<ShardingConfig> expanded;
-  expanded.reserve(configs.size() * 2);
-  for (const auto &config : configs) {
-    ShardingConfig openCfg = config;
-    openCfg.closedShardings = false;
-    expanded.push_back(std::move(openCfg));
-
-    ShardingConfig closedCfg = config;
-    closedCfg.closedShardings = true;
-    expanded.push_back(std::move(closedCfg));
-  }
-  return expanded;
-}
-
 // Apply Tier 1 arg shardings and Tier 2 sharding constraints to a module.
 static void
 applyShardingHints(ModuleOp module, const ShardingConfig &config,
@@ -288,7 +266,7 @@ applyShardingHints(ModuleOp module, const ShardingConfig &config,
   func::FuncOp funcOp = *funcOps.begin();
 
   // --- Tier 1: set sdy.sharding on function arguments ---
-  const bool isClosed = config.closedShardings;
+  constexpr bool isClosed = false;
   for (size_t argIdx = 0; argIdx < config.argDimSharded.size(); ++argIdx) {
     llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
 
@@ -572,7 +550,6 @@ static std::string formatConfig(const ShardingConfig &config) {
       os << "]";
     }
   }
-  os << ", " << (config.closedShardings ? "closed" : "open");
   os << "]";
   return result;
 }
@@ -597,7 +574,6 @@ static std::string configDirName(size_t idx, const ShardingConfig &config) {
       }
     }
   }
-  os << (config.closedShardings ? "_closed" : "_open");
   return result;
 }
 
@@ -693,11 +669,8 @@ public:
     // 3. Cross-product Tier 1 with Tier 2 constraint options.
     auto configs = expandWithConstraints(tier1Configs, candidates);
 
-    // 4. Duplicate each config for open and closed shardings.
-    configs = expandWithClosedToggle(configs);
-
     llvm::errs() << "AutoSharding: evaluating " << configs.size()
-                 << " total configurations (Tier 1 x Tier 2 x open/closed)\n";
+                 << " total configurations (Tier 1 x Tier 2)\n";
 
     // Set up dump directory for summary and (optionally) per-variant MLIR.
     std::string dumpRoot;

@@ -59,7 +59,7 @@ MARK_ARG_RE = re.compile(
 )
 
 FUNC_START_RE = re.compile(r"^\s*func\.func\b")
-FUNC_END_RE = re.compile(r"^\s*\} loc\(")
+FUNC_END_RE = re.compile(r"^\s*\}(?:\s*loc\(|\s*$)")
 
 
 def _strip_mark_args_in_block(lines: list[str]) -> list[str]:
@@ -115,6 +115,8 @@ def preprocess_mlir(input_path: str, output_path: Path) -> None:
 
     for line in lines:
         if FUNC_START_RE.match(line):
+            if func_buf is not None:
+                out_lines.extend(_strip_mark_args_in_block(func_buf))
             func_buf = [line]
             continue
         if func_buf is not None:
