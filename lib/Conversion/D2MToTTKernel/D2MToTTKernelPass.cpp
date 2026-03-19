@@ -55,33 +55,6 @@ struct ConvertD2MToTTKernel
   }
 
   void runOnOperation() final {
-    ModuleOp module = getOperation();
-
-    if (!ttnnMode) {
-      bool hasTTNNMetalLayoutCast = false;
-      module.walk(
-          [&](ttir::TTNNMetalLayoutCastOp) { hasTTNNMetalLayoutCast = true; });
-      if (hasTTNNMetalLayoutCast) {
-        module.emitOpError()
-            << "found ttir.ttnn_metal_layout_cast while ttnn-mode is disabled; "
-               "rerun with --convert-d2m-to-ttkernel=\"ttnn-mode=true\"";
-        signalPassFailure();
-        return;
-      }
-    }
-
-    bool hasD2MGenericRegions = false;
-    module.walk([&](d2m::GenericOp op) {
-      hasD2MGenericRegions |= (op->getNumRegions() != 0);
-    });
-    if (hasD2MGenericRegions) {
-      module.emitOpError() << "found d2m.generic with regions; run "
-                              "--d2m-generic-regions-to-funcs "
-                              "before --convert-d2m-to-ttkernel";
-      signalPassFailure();
-      return;
-    }
-
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<arith::ArithDialect>();
@@ -183,7 +156,8 @@ struct ConvertD2MToTTKernel
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 
-    if (failed(applyFullConversion(module, target, std::move(patterns)))) {
+    if (failed(
+            applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
       return;
     }
