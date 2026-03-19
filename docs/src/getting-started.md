@@ -110,7 +110,7 @@ You have now configured tt-mlir.
 
 You can add different flags to your build. Here are some options to consider:
 
-- To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`. Clang 17 is the minimum required version when enabling the runtime.
+- To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`. Clang 20 is the minimum required version when enabling the runtime.
 - To enable the ttnn/metal perf runtime add `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
 - To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
 - To workaround OOM issues it can be useful to decrease the number of parallel jobs with `-DCMAKE_BUILD_PARALLEL_LEVEL=4`.

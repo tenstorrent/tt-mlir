@@ -50,7 +50,7 @@ rm -rf /var/lib/apt/lists/*
 # ANCHOR_END: developer_dependencies
 EOT
 
-# Install clang 17
+# Install clang 20
 RUN wget https://apt.llvm.org/llvm.sh && \
     chmod u+x llvm.sh && \
     ./llvm.sh 20 && \
