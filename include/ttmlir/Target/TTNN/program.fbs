@@ -111,6 +111,7 @@ union OpType {
   ReduceScatterOp,
   RepeatInterleaveOp,
   RepeatOp,
+  RMSNormPreAllGatherOp,
   RMSNormOp,
   ReshapeOp,
   ScaledDotProductAttentionOp,

@@ -72,6 +72,7 @@
 #include "operations/normalization/group_norm.h"
 #include "operations/normalization/layer_norm.h"
 #include "operations/normalization/rms_norm.h"
+#include "operations/normalization/rms_norm_pre_all_gather.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
@@ -362,6 +363,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
     return operations::rms_norm::run(op->type_as_RMSNormOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
+    return operations::rms_norm_pre_all_gather::run(
+        op->type_as_RMSNormPreAllGatherOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
     return operations::distributed_rms_norm::run(

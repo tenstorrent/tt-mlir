@@ -2335,6 +2335,62 @@ def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     let hasVerifier = 1;
 }
 
+def TTNN_RMSNormPreAllGatherOp :  TTNN_Op<"rms_norm_pre_all_gather",
+    [TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Pre all-gather RMS normalization op.";
+    let description = [{
+      Computes local partial statistics for distributed RMS normalization across mesh devices.
+      This op performs the local pre-processing stage of RMSNorm when the normalized dimension
+      is sharded across devices. It computes the local RMS statistics (partial/local sum(x) and
+      sum(x²)) needed to form the globally-correct RMS normalization factor,
+      before an all-gather collects these statistics along the specified cluster_axis.
+
+      The gathered statistics are then consumed by the corresponding post-all-gather op, which
+      computes the final normalization factor ( x / sqrt(E(x²) + epsilon) ) and applies normalization
+      and optional weight scaling locally on each device.
+
+      Only statistics are communicated across devices; the input tensor itself is not all-gathered.
+
+      Maps to ttnn::rms_norm_pre_all_gather at runtime.
+
+      This operation requires the input tensor to be width-sharded across devices.
+
+      Inputs:
+        - input: Input tensor. Must be width-sharded in L1. Tiled layout required.
+        - residual: Optional Residual Input Tensor to add to input
+          before normalization (x + residual). If provided, it must match
+          input's padded shape and sharding.
+
+      Outputs:
+        - result: Intermediate/local statistics tensor that is later aggregated across
+          devices via all-gather. The result is in TILE layout.
+
+      Attributes:
+        - memory_config: Output memory configuration. Typically matches the
+            input's width-sharded shard spec.
+        - compute_config: Device compute kernel configuration. Controls math
+            fidelity, fp32_dest_acc_en, and packer L1 accumulation.
+        - program_config: LayerNormShardedMultiCoreProgramConfig derived from
+            the input's shard spec (core grid, block_h, block_w).
+        - dtype: Optional Output Datatype. Defaults to BFLOAT16
+        - use_2d_core_grid: Optional flag controlling 2D core-grid execution.
+           Defaults to None
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$residual,
+                         TTNN_Device:$device,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_LayerNormShardedMultiCoreProgramConfigAttr>:$program_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<BoolAttr>:$use_2d_core_grid);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
     let summary = "Layer normalization op.";
     let description = [{
