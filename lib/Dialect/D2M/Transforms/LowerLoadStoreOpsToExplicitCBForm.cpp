@@ -19,7 +19,8 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-static LogicalResult verifyGenericOperand(Operation *op, Value memrefOperand) {
+static LogicalResult verifyRemoteLoadStoreMemref(Operation *op,
+                                                 Value memrefOperand) {
   GenericOp generic = op->getParentOfType<GenericOp>();
   if (!generic) {
     return op->emitError("must be nested in d2m.generic");
@@ -180,7 +181,8 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
     Location loc = remoteLoad.getLoc();
     Value memref = remoteLoad.getMemref();
 
-    if (failed(verifyGenericOperand(remoteLoad.getOperation(), memref))) {
+    if (failed(
+            verifyRemoteLoadStoreMemref(remoteLoad.getOperation(), memref))) {
       return failure();
     }
 
@@ -406,7 +408,8 @@ static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
     Value localBuffer = remoteStore.getLocalBuffer();
     Value assocCb;
 
-    if (failed(verifyGenericOperand(remoteStore.getOperation(), memref))) {
+    if (failed(
+            verifyRemoteLoadStoreMemref(remoteStore.getOperation(), memref))) {
       return failure();
     }
 
