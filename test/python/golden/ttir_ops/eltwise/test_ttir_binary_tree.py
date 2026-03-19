@@ -55,5 +55,6 @@ def test_binary_tree(shape: Shape, dtype: torch.dtype, target: str, request, dev
         **get_request_kwargs(request),
         target=target,
         device=device,
-        save_artifacts=True
+        pipeline_options=["enable-elementwise-fusion=true"],
+        save_artifacts=True,
     )

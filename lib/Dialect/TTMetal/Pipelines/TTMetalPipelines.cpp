@@ -127,12 +127,12 @@ void createTTIRToTTMetalFrontendPipeline(
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
-  {
+  if (options.enableElementwiseFusion) {
+    d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
     elementwiseFusionOptions.maxDstPhysicalSizeTiles =
         options.maxDstPhysicalSizeTiles;
+    pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
   }
-  pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MAddScratchInputs());
