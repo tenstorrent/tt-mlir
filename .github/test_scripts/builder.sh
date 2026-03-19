@@ -13,7 +13,7 @@ runttrt=""
 PYTEST_ARGS=""
 FLATBUFFER=""
 
-[[ "$RUNS_ON" != "n150" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-exact-mesh"
+[[ "$RUNS_ON" != "n150" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-exact-mesh --maxfail=3"
 
 for flag in $3; do
     [[ "$flag" == "run-ttrt" ]] && runttrt=1
