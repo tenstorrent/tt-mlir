@@ -810,6 +810,27 @@ public:
     CopyInfoMap copyInfos;
     DstSliceAllocationState dstSliceAllocationState;
     DstIntermediatesMap dstIntermediates;
+    // For in-place ops (unary SFPU, scalar rhs), the output DST slot is the
+    // same as the input's slot. If the input came from another compute op
+    // tracked in dstIntermediates, use that op's slot; otherwise fall back to
+    // the allocator's current slot (the last CB->DST load allocated).
+    auto getInPlaceDstSlice =
+        [&](OperandLoadStoreRegisterOpInterface op) -> int {
+      for (int64_t operandIdx : op.getOperandsLoadFromDstRegister()) {
+        if (op.isScalarOperand(operandIdx)) {
+          continue;
+        }
+        auto *defOp = op->getOperand(operandIdx).getDefiningOp();
+        if (defOp) {
+          auto it = dstIntermediates.find(defOp);
+          if (it != dstIntermediates.end()) {
+            return it->second.dstSlice;
+          }
+        }
+      }
+      return dstSliceAllocationState.getCurrSliceIndex();
+    };
+
     region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
       // Filter out non CB<->DST loads & stores.
       auto notDstMemspace = [](auto op) {
@@ -836,7 +857,7 @@ public:
           ++numLoads;
           collectDstLoadOrStore<affine::AffineLoadOp>(
               gOp, potentialLoad, copyInfos, dstSlice,
-              outermostInnerComputeLoop);
+              outermostInnerComputeLoop, /*noAccumGuard=*/true);
         }
       }
 
@@ -867,7 +888,7 @@ public:
                 "ops "
                 "would reference wrong tile, but those ops should be setting "
                 "output tile.");
-            dstSlice = dstSliceAllocationState.getCurrSliceIndex();
+            dstSlice = getInPlaceDstSlice(computeOp);
           } else if (numLoads >= 2) {
             // SFPU binary/ternary ops: output overwrites first operand's slot
             // to maximize DST utilization (same as scheduled path).
@@ -897,7 +918,7 @@ public:
                 (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
                 "Only unary ops, tile matmul, reductions, and tile+scalar ops "
                 "supported for destination register in place.");
-            dstSlice = dstSliceAllocationState.getCurrSliceIndex();
+            dstSlice = getInPlaceDstSlice(computeOp);
           } else if (numLoads >= 2) {
             // SFPU binary/ternary ops: output overwrites first operand's slot.
             dstSlice = firstInputDstSlice;
@@ -925,7 +946,7 @@ public:
           // slot to maximize DST utilization (same as scheduled path).
           int dstSlice;
           if (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1)) {
-            dstSlice = dstSliceAllocationState.getCurrSliceIndex();
+            dstSlice = getInPlaceDstSlice(computeOp);
           } else if (numLoads >= 2) {
             dstSlice = firstInputDstSlice;
           } else {
@@ -983,10 +1004,14 @@ public:
   }
 
   // Collect a single load or store and determine its loop guard.
+  // noAccumGuard: when true, suppress Accum guard generation (e.g. for SFPU
+  // operands loaded into DST per-tile — DST is acquired/released each time so
+  // there is no accumulation across outer loop iterations).
   template <typename LoadOrStoreTy>
   static void collectDstLoadOrStore(GenericOp gOp, LoadOrStoreTy loadOrStore,
                                     CopyInfoMap &copyInfos, int dstSlice,
-                                    Operation *outermostInnerComputeLoop) {
+                                    Operation *outermostInnerComputeLoop,
+                                    bool noAccumGuard = false) {
     if (!outermostInnerComputeLoop) {
       // If there is no outermostInnerComputeLoop, the common ancestor is the
       // operation itself.
@@ -997,7 +1022,7 @@ public:
     Value assocCB = lookThroughSubView(loadOrStore.getMemRef());
 
     SmallVector<Value> guardIVs;
-    if (assocCB) {
+    if (assocCB && !noAccumGuard) {
       guardIVs = getGuardLoopIVs(loadOrStore, outermostInnerComputeLoop);
     }
 
@@ -1765,12 +1790,13 @@ public:
             affineLoad && notDstMemspace(affineLoad)) {
           collectDstLoadOrStore<affine::AffineLoadOp>(
               op, affineLoad, copyInfos, dstStackAllocator.allocate(),
-              outermostInnerComputeLoop);
+              outermostInnerComputeLoop, /*noAccumGuard=*/true);
         } else if (auto memrefLoad = operand.getDefiningOp<memref::LoadOp>();
                    memrefLoad && notDstMemspace(memrefLoad)) {
           collectDstLoadOrStore<memref::LoadOp>(op, memrefLoad, copyInfos,
                                                 dstStackAllocator.allocate(),
-                                                outermostInnerComputeLoop);
+                                                outermostInnerComputeLoop,
+                                                /*noAccumGuard=*/true);
         }
       }
 
