@@ -60,11 +60,12 @@ static Type getScalarElementType(MemRefType memrefType) {
   return elemType;
 }
 
-// Type-only overload for cases where no VGM tracing is needed (e.g. hoisted
-// CB allocs).  The memref layout must be a DeviceLayoutInterface and cannot
-// be InterleavedLayoutAttr (interleaved requires different grid handling).
+// Common implementation: builds TTNNLayoutAttr from a MemRefType given
+// a pre-resolved grid and tensor memory layout.
 static ttnn::TTNNLayoutAttr
-getTTNNLayoutFromDeviceLayout(MLIRContext *ctx, MemRefType memrefType) {
+getTTNNLayoutFromDeviceLayoutImpl(MLIRContext *ctx, MemRefType memrefType,
+                                  ttcore::GridAttr grid,
+                                  ttnn::TensorMemoryLayout memLayoutEnum) {
   auto bufferType = ttnn::BufferType::DRAM;
   if (auto memSpace = mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
           memrefType.getMemorySpace());
@@ -80,11 +81,10 @@ getTTNNLayoutFromDeviceLayout(MLIRContext *ctx, MemRefType memrefType) {
                       AffineMap::getMultiDimIdentityMap(shardShape.size(), ctx),
                       ttnn::BufferTypeAttr::get(ctx, bufferType));
 
-  ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(memrefType);
-  auto grid = ttcore::GridAttr::get(ctx, gridShape);
-  auto memLayoutEnum = ttnn::TensorMemoryLayout::BlockSharded;
-
   constexpr size_t kRank = 2;
+  // This affine map only describes dim collapsing for rank > 2 tensors. Since
+  // we can only recover the collapsed shape here, we can just set it to
+  // identity.
   auto linearMap = AffineMap::getMultiDimIdentityMap(kRank, ctx);
   auto memLayout = ttnn::TensorMemoryLayoutAttr::get(ctx, memLayoutEnum);
 
@@ -93,30 +93,28 @@ getTTNNLayoutFromDeviceLayout(MLIRContext *ctx, MemRefType memrefType) {
       /*ignorePhysicalLayout=*/false, /*exactGrid=*/true)};
 }
 
-// Value overload that traces VGM attributes through the def chain for grid
-// derivation.
+// Type-only overload — assumes BlockSharded with the grid from the layout.
+// Used for synthetic memref types (e.g. hoisted CB allocs) where there is
+// no Value to inspect.
+static ttnn::TTNNLayoutAttr
+getTTNNLayoutFromDeviceLayout(MLIRContext *ctx, MemRefType memrefType) {
+  auto deviceLayout = ttcore::getDeviceLayout(memrefType);
+  ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(memrefType);
+  auto grid = ttcore::GridAttr::get(ctx, gridShape);
+  return getTTNNLayoutFromDeviceLayoutImpl(
+      ctx, memrefType, grid, ttnn::TensorMemoryLayout::BlockSharded);
+}
+
+// Value overload — inspects the defining op chain to determine the grid
+// derivation strategy (interleaved, VGM-mapped, or plain sharded).
 static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
                                                           Value memrefValue) {
   MemRefType memrefType = mlir::cast<MemRefType>(memrefValue.getType());
-
-  auto bufferType = ttnn::BufferType::DRAM;
-  if (auto memSpace = mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
-          memrefType.getMemorySpace());
-      memSpace && memSpace.getValue() == ttcore::MemorySpace::DeviceL1) {
-    bufferType = ttnn::BufferType::L1;
-  }
-
   auto deviceLayout = ttcore::getDeviceLayout(memrefValue);
-  ArrayRef<int64_t> shardShape = deviceLayout.getShardShape(memrefType);
-
-  auto shardMemref =
-      MemRefType::get(shardShape, memrefType.getElementType(),
-                      AffineMap::getMultiDimIdentityMap(shardShape.size(), ctx),
-                      ttnn::BufferTypeAttr::get(ctx, bufferType));
+  ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(memrefType);
 
   ttcore::GridAttr grid;
   ttnn::TensorMemoryLayout memLayoutEnum;
-  ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(memrefType);
 
   if (mlir::isa<ttcore::InterleavedLayoutAttr>(memrefType.getLayout())) {
     grid = ttcore::GridAttr::get(ctx, SmallVector<int64_t>(2, 1));
@@ -138,19 +136,10 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
     }
   }
 
-  constexpr size_t kRank = 2;
-  // This affine map only describes dim collapsing for rank > 2 tensors. Since
-  // we can only recover the collapsed shape here, we can just set it to
-  // identity.
-  auto linearMap = AffineMap::getMultiDimIdentityMap(kRank, ctx);
-  auto memLayout = ttnn::TensorMemoryLayoutAttr::get(ctx, memLayoutEnum);
-
-  return {ttnn::TTNNLayoutAttr::get(
-      ctx, linearMap, grid, shardMemref, memLayout, /*tensorMesh=*/nullptr,
-      /*ignorePhysicalLayout=*/false, /*exactGrid=*/true)};
+  return getTTNNLayoutFromDeviceLayoutImpl(ctx, memrefType, grid,
+                                           memLayoutEnum);
 }
 
-// Type-only overload for cases where no VGM tracing is needed.
 static RankedTensorType convertMemrefToTTNNTensor(MLIRContext *ctx,
                                                   MemRefType memrefType) {
   TT_assertv(mlir::isa<ttcore::DeviceLayoutInterface>(memrefType.getLayout()),
