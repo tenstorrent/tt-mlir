@@ -7062,6 +7062,10 @@ public:
             srcOp, "num_devices must be a valid integer.");
       }
     }
+    if (numDevices <= 0) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "num_devices must be positive.");
+    }
 
     // Parse cluster_axis attribute
     auto clusterAxisStringAttr =
@@ -7215,6 +7219,9 @@ public:
     Value inputTensor = adaptor.getOperands()[0];
     Value expertMetadata = adaptor.getOperands()[1];
     Value expertMapping = adaptor.getOperands()[2];
+    auto mappingInputType = cast<RankedTensorType>(expertMapping.getType());
+    auto mappingShape = mappingInputType.getShape();
+    int64_t totalDevices = mappingShape[3];
 
     RankedTensorType outputType = cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
@@ -7234,8 +7241,6 @@ public:
     // subsets.
     // mapping shape: [1, 1, E_total, D_total] where D_total = total devices.
     // nonClusterSize = D_total / dispatch_devices = devices on the other axis.
-    auto mappingType = cast<RankedTensorType>(expertMapping.getType());
-    int64_t totalDevices = mappingType.getShape()[3];
     int64_t nonClusterSize =
         totalDevices / std::max(numDevices, static_cast<int64_t>(1));
     if (nonClusterSize > 1 && numDevices > 1) {

@@ -1208,7 +1208,8 @@ createOp(FlatbufferObjectCache &cache, AllToAllCombineOp op) {
       *cache.fbb, inputTensor, expertMetadata, expertMapping, output,
       static_cast<uint32_t>(op.getNumDevices()),
       static_cast<uint32_t>(op.getClusterAxis()),
-      static_cast<uint32_t>(op.getNumExpertsPerTok()), memoryConfig);
+      static_cast<uint32_t>(op.getNumExpertsPerTok()),
+      static_cast<uint32_t>(op.getOutputShardDim()), memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MoeExpertTokenRemapOp>
