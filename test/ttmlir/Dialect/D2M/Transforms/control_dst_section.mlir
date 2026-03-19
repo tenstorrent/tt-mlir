@@ -106,3 +106,20 @@ func.func @mixed_flat_and_nested() attributes {ttkernel.thread = #ttkernel.threa
   // CHECK: ttkernel.tile_regs_release
   return
 }
+
+// CHECK-LABEL: func.func @single_dst_section_pack_tile_block
+func.func @single_dst_section_pack_tile_block() attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+  %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<4, !ttcore.tile<32x32, f32>>
+  %c0 = arith.constant 0 : index
+  %c4 = arith.constant 4 : index
+  // CHECK: ttkernel.tile_regs_acquire
+  // CHECK: ttkernel.copy_tile
+  ttkernel.tile_regs_acquire() : () -> ()
+  ttkernel.copy_tile(%cb, %c0, %c0) : (!ttkernel.cb<4, !ttcore.tile<32x32, f32>>, index, index) -> ()
+  // CHECK: ttkernel.tile_regs_commit
+  // CHECK: ttkernel.tile_regs_wait
+  // CHECK: ttkernel.pack_tile_block
+  ttkernel.pack_tile_block(%c0, %cb, %c4) : (index, !ttkernel.cb<4, !ttcore.tile<32x32, f32>>, index) -> ()
+  // CHECK: ttkernel.tile_regs_release
+  return
+}

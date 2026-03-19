@@ -122,6 +122,28 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
     }];
 }
 
+def TTKernel_PackTileBlockOp : TTKernel_Op<"pack_tile_block"> {
+    let summary = "PackTileBlock op.";
+    let description = [{
+      Copies a contiguous block of tiles from the DST register buffer starting
+      at a specified index to a specified output CB. Unlike pack_tile, which
+      copies a single tile and supports out-of-order packing, this copies
+      ntiles tiles sequentially. The CB write pointer advances by ntiles after
+      each call and resets after cb_push_back.
+
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+
+      Operates in tandem with functions cb_reserve_back and cb_push_back.
+    }];
+
+    let arguments = (ins IndexLike:$dst_index, TTKernel_CB:$out_cb, IndexLike:$ntiles);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $out_cb `,` $ntiles `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_PackReconfigL1AccOp : TTKernel_Op<"pack_reconfig_l1_acc"> {
     let summary = "Reconfigure packer to L1 accumulation mode.";
     let description = [{

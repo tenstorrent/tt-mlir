@@ -65,6 +65,16 @@ func.func @test_sub_binary_tile() -> () {
   return
 }
 
+// CHECK-LABEL: func.func @test_pack_tile_block
+func.func @test_pack_tile_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>} {
+  %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<16, !ttcore.tile<32x32, f32>>
+  %c0 = arith.constant 0 : index
+  %c4 = arith.constant 4 : index
+  ttkernel.pack_tile_block(%c0, %cb, %c4) : (index, !ttkernel.cb<16, !ttcore.tile<32x32, f32>>, index) -> ()
+  // CHECK: ttkernel.pack_tile_block(%{{.*}}, %{{.*}}, %{{.*}}) : (index, !ttkernel.cb<16, !ttcore.tile<32x32, f32>>, index) -> ()
+  return
+}
+
 // CHECK-LABEL: func.func @test_copy_dest_values_init
 func.func @test_copy_dest_values_init() -> () {
   // CHECK: ttkernel.copy_dest_values_init() : () -> ()
