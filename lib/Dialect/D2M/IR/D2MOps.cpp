@@ -2342,6 +2342,39 @@ static Block *cloneParallelizedRegion(d2m::GenericOp thisOp,
   return newBlock;
 }
 
+// Use operand_index or remote_load/remote_store binding to find the associated
+// operand for a get_cb op.
+static Value findAssocOperandForGetCB(d2m::GetCBOp getCbOp) {
+  GenericOp genericOp = getCbOp->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    return Value();
+  }
+
+  if (std::optional<int64_t> operandIndex = getCbOp.getOperandIndex()) {
+    if (*operandIndex >= 0 && static_cast<size_t>(*operandIndex) <
+                                  genericOp.getInputsAndOutputs().size()) {
+      return genericOp.getInputsAndOutputs()[*operandIndex];
+    }
+    return Value();
+  }
+
+  Value cb = getCbOp.getResult();
+  for (Operation *userOp : cb.getUsers()) {
+    if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(userOp)) {
+      if (loadOp.isExplicitCBForm() && loadOp.getCb() == cb) {
+        return loadOp.getMemref();
+      }
+    }
+    if (auto storeOp = mlir::dyn_cast<RemoteStoreOp>(userOp)) {
+      if (storeOp.isExplicitCBForm() && storeOp.getCb() == cb) {
+        return storeOp.getMemref();
+      }
+    }
+  }
+
+  return Value();
+}
+
 // Repair cloned ops whose result types depend on reblocked operand types.
 static void repairParallelizedRegionTypes(Block *newBlock) {
   for (Operation &clonedOp : *newBlock) {
@@ -2365,6 +2398,17 @@ static void repairParallelizedRegionTypes(Block *newBlock) {
         if (newEmptyType != tensorEmptyOp.getType()) {
           tensorEmptyOp.getResult().setType(
               cast<RankedTensorType>(newEmptyType));
+        }
+      }
+    } else if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&clonedOp)) {
+      Value associatedOperand = findAssocOperandForGetCB(getCbOp);
+      if (associatedOperand) {
+        auto oldCbType = mlir::cast<d2m::CBType>(getCbOp.getResult().getType());
+        Type newUnderlyingType = d2m::utils::cloneWithShardShape(
+            associatedOperand, oldCbType.getUnderlying());
+        if (newUnderlyingType != oldCbType.getUnderlying()) {
+          getCbOp.getResult().setType(d2m::CBType::get(
+              getCbOp.getContext(), mlir::cast<ShapedType>(newUnderlyingType)));
         }
       }
     } else if (auto remoteLoadOp =
@@ -2445,8 +2489,10 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
   d2m::ViewLayoutOp returnView = nullptr;
   if (generateReturnView) {
     returnView = createReturnView(thisOp, newGenericOp, builder);
+    TT_assertv(returnView,
+               "withParallelization expects a return view to the original "
+               "generic result");
   }
-
   return d2m::ParallelizedGeneric{std::move(operandViews), newGenericOp,
                                   returnView};
 }
@@ -3052,8 +3098,9 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
   // (scf.for without d2m.blocking_loop) — allocs inside those are local
   // working buffers, not operand allocations.
   //
-  // d2m.get_cb ops carry an explicit port attribute and are matched
-  // directly.  tensor.empty/memref.alloc ops are matched by positional order.
+  // d2m.get_cb ops are matched by operand_index when present, otherwise by
+  // their remote_load/remote_store binding. tensor.empty/memref.alloc ops are
+  // matched by positional order.
   Value result;
   unsigned idx = 0;
   std::function<void(Block &)> scanBlock = [&](Block &block) {
@@ -3062,9 +3109,21 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
         return;
       }
       if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&op)) {
-        if (static_cast<unsigned>(getCbOp.getPort()) == operandIndex) {
-          result = getCbOp.getResult();
-          return;
+        if (std::optional<int64_t> assocOperandIndex =
+                getCbOp.getOperandIndex()) {
+          if (*assocOperandIndex >= 0 &&
+              static_cast<unsigned>(*assocOperandIndex) == operandIndex) {
+            result = getCbOp.getResult();
+            return;
+          }
+        } else if (Value associatedOperand =
+                       findAssocOperandForGetCB(getCbOp)) {
+          GenericOp generic = getCbOp->getParentOfType<GenericOp>();
+          if (generic && generic.getOperandIndex(associatedOperand) ==
+                             static_cast<int64_t>(operandIndex)) {
+            result = getCbOp.getResult();
+            return;
+          }
         }
       } else if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
         if (idx == operandIndex) {

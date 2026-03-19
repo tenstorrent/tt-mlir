@@ -1,17 +1,11 @@
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=2097152 test-buffer-size-policy=min" -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=9437184 test-buffer-size-policy=min" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// This test uses a tight L1 capacity limit but succeeds by using min-sized stream buffers.
-
-// CHECK-LABEL: func.func @main()
-// CHECK: %{{.+}} = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64}{{.+}} #dram>
-// CHECK: %[[LHS_STREAM:.*]] = "d2m.stream_layout"
-// CHECK: %[[RHS_STREAM:.*]] = "d2m.stream_layout"
-// CHECK: d2m.generic {block_factors = [1, 1, 16], grid = #ttcore.grid<1x1>
-// CHECK: ins(%[[LHS_STREAM]], %[[RHS_STREAM]]
-// CHECK: outs(%{{.+}} : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>)
+// This test triggers stream insertion on a DRAM-allocated operand and checks that the same operand
+// used in multiple operand positions results in a dedicated stream instance being inserted.
 
 #l1 = #ttcore.memory_space<l1>
+#dram = #ttcore.memory_space<dram>
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #mapL = affine_map<(d0, d1, d2) -> (d0, d2)>
 #mapR = affine_map<(d0, d1, d2) -> (d2, d1)>
@@ -21,11 +15,17 @@
 
 module {
   func.func @main() -> memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1> {
-    %lhs = memref.alloc() : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>
-    %rhs = memref.alloc() : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>
     %r = memref.alloc() : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>
+    // CHECK: %[[DATA:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64}{{.+}} #dram>
+    // CHECK: %[[VIEW_1:.*]] = d2m.view_layout %[[DATA]]
+    // CHECK: %[[VIEW_2:.*]] = d2m.view_layout %[[DATA]]
+    %a = memref.alloc() : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #dram>
+    // CHECK: %[[BUF_1:.*]] = memref.alloc(){{.+}} #l1>
+    // CHECK: %[[STREAM_1:.*]] = "d2m.stream_layout"(%[[VIEW_1]], %[[BUF_1]])
+    // CHECK: %[[BUF_2:.*]] = memref.alloc(){{.+}} #l1>
+    // CHECK: %[[STREAM_2:.*]] = "d2m.stream_layout"(%[[VIEW_2]], %[[BUF_2]])
     d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
-        ins(%lhs, %rhs : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>, memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>)
+        ins(%a, %a : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #dram>, memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #dram>)
         outs(%r : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>)  {
     ^compute0():
       %0 = memref.alloc() : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
