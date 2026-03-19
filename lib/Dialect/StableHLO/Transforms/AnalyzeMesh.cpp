@@ -255,13 +255,6 @@ public:
     MLIRContext *context = rootModule.getContext();
     mlir::OpBuilder builder(context);
 
-    // loop on different sharding configs
-    // a,b
-    // a_sharing, b_sharding,
-    // run all passes
-    // for each cloned graph, run cost function on graph
-    // select sharding configh with best cost
-
     bool gspmdAnnotationsExist = gspmd_utils::gspmdAnnotationsExist(rootModule);
     bool sdyAnnotationsExist = shardy_utils::sdyAnnotationsExist(rootModule);
 
