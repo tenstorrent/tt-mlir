@@ -1,3 +1,5 @@
+add_subdirectory(EraseInverseOps)
+
 if (TTMLIR_ENABLE_OPMODEL)
         add_definitions(-DTTMLIR_ENABLE_OPMODEL)
         set(OPMODEL_SRCS
@@ -79,6 +81,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         MLIRTTNNDialect
         MLIRTTNNAnalysis
         MLIRTTCoreDialect
+        MLIRTTNNEraseInverseOps
         PRIVATE
         TTMLIRTTIRToTTNN
         MLIRTTNNValidation
