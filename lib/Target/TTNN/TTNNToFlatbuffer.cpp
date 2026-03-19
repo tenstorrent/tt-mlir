@@ -1498,6 +1498,48 @@ createOp(FlatbufferObjectCache &cache, DistributedRMSNormOp op) {
       topology, computeConfig.value_or(0), stats, programConfig, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormPreAllGatherOp>
+createOp(FlatbufferObjectCache &cache, RMSNormPreAllGatherOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> residual = 0;
+  if (op.getResidual()) {
+    residual = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getResidual()));
+  }
+
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+      programConfig = 0;
+  if (op.getProgramConfig()) {
+    programConfig = toFlatbuffer(cache, op.getProgramConfig().value());
+  }
+
+  bool use2DCoreGrid = false;
+  if (op.getUse_2dCoreGrid()) {
+    use2DCoreGrid = op.getUse_2dCoreGrid().value();
+  }
+
+  return ::tt::target::ttnn::CreateRMSNormPreAllGatherOp(
+      *cache.fbb, input, dtype.value_or(::tt::target::DataType::BFloat16),
+      residual, memoryConfig, computeConfig.value_or(0), programConfig,
+      use2DCoreGrid, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::LayerNormOp>
 createOp(FlatbufferObjectCache &cache, LayerNormOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -4311,6 +4353,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto distributedRMSNormOp = dyn_cast<DistributedRMSNormOp>(op);
       distributedRMSNormOp) {
     return createOperation(cache, createOp(cache, distributedRMSNormOp),
+                           debugString, locInfo);
+  }
+  if (auto rmsNormPreAllGatherOp = dyn_cast<RMSNormPreAllGatherOp>(op);
+      rmsNormPreAllGatherOp) {
+    return createOperation(cache, createOp(cache, rmsNormPreAllGatherOp),
                            debugString, locInfo);
   }
   if (auto layerNormOp = dyn_cast<LayerNormOp>(op); layerNormOp) {
