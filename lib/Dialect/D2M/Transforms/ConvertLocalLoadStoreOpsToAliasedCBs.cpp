@@ -298,16 +298,9 @@ public:
       // Rewrite local aliases produced by the implicit remote_load.
       replaceUsesInBlock(allocOp.getResult(), waitOp.getResult(), block,
                          remoteLoad.getOperation());
-      if (Value result = remoteLoad.getResult()) {
-        replaceUsesInBlock(result, waitOp.getResult(), block,
-                           remoteLoad.getOperation());
-      }
-      if (Value result = remoteLoad.getResult()) {
-        TT_assertv(
-            result.use_empty(),
-            "expected converted remote_load result to have no users: {0}",
-            remoteLoad);
-      }
+      TT_assertv(remoteLoad->getUses().empty(),
+                 "expected converted remote_load result to have no users: {0}",
+                 remoteLoad);
 
       // Insert pop after the alias-aware last use in this block.
       rewriter.setInsertionPointAfter(lastUse);
