@@ -447,8 +447,7 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
       c.mask =
           rewriter
               .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType, c.mask,
-                                 rewriter.getI32ArrayAttr(shapeAttr),
-                                 /*memory_config=*/MemoryConfigAttr())
+                                 rewriter.getI32ArrayAttr(shapeAttr))
               .getResult();
     }
 
@@ -632,7 +631,6 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
             /*cur_pos_tensor=*/Value(),
             /*attention_sink=*/Value(), scaleAttr,
-            /*memory_config=*/MemoryConfigAttr(),
             /*program_config=*/SDPAProgramConfigAttr());
 
     if (!validationResult.isSuccess()) {
@@ -648,7 +646,6 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
         /*cur_pos_tensor=*/Value(),
         /*attention_sink=*/Value(), scaleAttr,
-        /*memory_config=*/MemoryConfigAttr(),
         /*program_config=*/SDPAProgramConfigAttr());
 
     Value finalResult = ttir_to_ttnn::utils::generatePermute(
@@ -666,8 +663,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {c.query.getType()}, c.query, c.key, c.value, c.mask,
             /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-            /*sliding_window_size=*/IntegerAttr(),
-            /*memory_config=*/MemoryConfigAttr());
+            /*sliding_window_size=*/IntegerAttr());
 
     if (!validationResult.isSuccess()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
@@ -680,8 +676,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key, c.value,
         c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-        /*sliding_window_size=*/IntegerAttr(),
-        /*memory_config=*/MemoryConfigAttr());
+        /*sliding_window_size=*/IntegerAttr());
 
     Value finalResult = restoreElementTypeIfNeeded(
         sdpaOp.getResult(), originalElementType, rewriter);

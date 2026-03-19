@@ -361,7 +361,6 @@ private:
 
     auto deviceOp =
         utils::getOrInsertDevice(rewriter, runAndCaptureTraceFuncEntryBlock);
-    auto device = ttcore::lookupDevice(deviceOp);
 
     // allocate input slots
     llvm::SmallVector<mlir::Value> inputSlots;
@@ -384,18 +383,11 @@ private:
 
       ttnn::TTNNLayoutAttr ttnnLayoutAttr =
           mlir::cast<ttnn::TTNNLayoutAttr>(inputTensorType.getEncoding());
-      ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-          context, ttnnLayoutAttr.getMemLayout(),
-          ttnn::BufferTypeAttr::get(context, ttnnLayoutAttr.getBufferType()),
-          utils::createShardSpecIfNeeded(ttnnLayoutAttr,
-                                         device.getWorkerGrid()));
-
       auto emptyOp = builder.create<ttnn::EmptyOp>(
           runAndCaptureTraceFunc.getLoc(), inputTensorType, deviceOp,
           ttnn::ShapeAttr::get(context, inputTensorType.getShape()),
           ttcore::DataTypeAttr::get(context, ttnnLayoutAttr.getDataType()),
-          ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()),
-          memoryConfigAttr);
+          ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()));
 
       inputSlots.push_back(emptyOp.getResult());
     }

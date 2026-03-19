@@ -156,7 +156,7 @@ module {
 
   // CHECK-LABEL: func.func private @non_splat_constant_const_eval_0
   // CHECK: = "ttnn.get_device"
-  // CHECK: = "ttnn.constant"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, value = dense<{{\[\[}}1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]>
+  // CHECK: = "ttnn.constant"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, value = dense<{{\[\[}}1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]>
   // CHECK: = "ttnn.neg"
 
   // CHECK: func.func @non_splat_constant(

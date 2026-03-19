@@ -605,7 +605,6 @@ mlir::LogicalResult createFusedRoPEOp(mlir::PatternRewriter &rewriter,
   auto ropeOp = rewriter.create<RotaryEmbeddingOp>(
       srcOp.getLoc(), inputs.x.getType(), inputs.x, inputs.cos, inputs.sin,
       /*token_index=*/nullptr,
-      /*memory_config=*/nullptr,
       /*compute_config=*/computeConfig);
 
   // Validate the fused op. If validation fails, try the workaround-padded
@@ -645,7 +644,7 @@ mlir::LogicalResult createFusedRoPEOp(mlir::PatternRewriter &rewriter,
         rewriter.getDenseI64ArrayAttr(inputs.outPermutation);
     auto permuted = rewriter.create<ttnn::PermuteOp>(
         srcOp.getLoc(), srcOp.getType(), result, permutationAttr,
-        ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+        mlir::FloatAttr());
     result = permuted.getResult();
   }
 
@@ -731,7 +730,7 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
   auto newRope = rewriter.create<RotaryEmbeddingOp>(
       ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
       ropeOp.getCosCache(), ropeOp.getSinCache(), tokenIndex,
-      ropeOp.getMemoryConfigAttr(), ropeOp.getComputeConfigAttr());
+      ropeOp.getComputeConfigAttr());
 
   // Validate the fused op. If validation fails, try the workaround-padded
   // version since the workaround pass (seq_len tile alignment) hasn't run yet.

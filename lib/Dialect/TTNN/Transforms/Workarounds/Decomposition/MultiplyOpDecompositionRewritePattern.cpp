@@ -59,7 +59,7 @@ LogicalResult MultiplyOpDecompositionRewritePattern::matchAndRewrite(
 
   PermuteOp lhsPermuted = rewriter.create<ttnn::PermuteOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_lhs_permute"), lhsPermutedType,
-      lhs, permutationAttr, ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+      lhs, permutationAttr, mlir::FloatAttr());
 
   // Apply permutation to rhs input
   llvm::SmallVector<int64_t> rhsPermutedShape =
@@ -69,7 +69,7 @@ LogicalResult MultiplyOpDecompositionRewritePattern::matchAndRewrite(
 
   PermuteOp rhsPermuted = rewriter.create<ttnn::PermuteOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_rhs_permute"), rhsPermutedType,
-      rhs, permutationAttr, ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+      rhs, permutationAttr, mlir::FloatAttr());
 
   // Create the multiply operation on permuted inputs
   llvm::SmallVector<int64_t> permutedOutputShape =
@@ -85,7 +85,7 @@ LogicalResult MultiplyOpDecompositionRewritePattern::matchAndRewrite(
   // 0, 1))
   PermuteOp finalResult = rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
       originalMultiplyOp, outputType, permutedMultiply.getResult(),
-      permutationAttr, ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+      permutationAttr, mlir::FloatAttr());
   finalResult->setLoc(
       ttmlir::utils::appendLocationSuffix(loc, "_output_permute"));
 

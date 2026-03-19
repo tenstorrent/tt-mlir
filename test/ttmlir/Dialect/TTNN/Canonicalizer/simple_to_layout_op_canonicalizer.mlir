@@ -14,7 +14,6 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"(%arg0)
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
     // CHECK-SAME: -> tensor<32x32xbf16, #ttnn_layout1>
     // CHECK-NEXT: return
     %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
@@ -27,7 +26,6 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"(%arg0)
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: layout = #ttnn.layout<tile>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
     // CHECK-SAME: -> tensor<32x32xf32, #ttnn_layout2>
     // CHECK-NEXT: return
     %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
@@ -40,7 +38,6 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"(%arg0)
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<tile>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#system_memory>
     // CHECK-SAME: -> tensor<32x32xbf16, #ttnn_layout3>
     // CHECK-NEXT: return
     %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
@@ -53,7 +50,6 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"(%arg0)
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#system_memory>
     // CHECK-SAME: -> tensor<32x32xf32, #ttnn_layout4>
     // CHECK-NEXT: return
     %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
@@ -66,7 +62,6 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"(%arg0)
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#system_memory>
     // CHECK-SAME: -> tensor<32x32xf32, #ttnn_layout4>
     // CHECK-NEXT: return
     %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>

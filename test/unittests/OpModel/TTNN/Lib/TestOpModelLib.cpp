@@ -892,12 +892,8 @@ TEST_F(OpModelTest, ToMemoryConfig) {
       tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
   const TTNNLayoutAttr outputLayoutDRAMTiled = CreateTiledLayout(
       tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
-  MemoryConfigAttr memoryConfig = MemoryConfigAttr::get(
-      &context, outputLayoutDRAMTiled.getMemLayout(),
-      BufferTypeAttr::get(&context, outputLayoutDRAMTiled.getBufferType()),
-      std::nullopt /*shardSpec*/);
   auto constraintsExp = OpModel<ToMemoryConfigOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayoutL1Tiled, memoryConfig,
+      CreateWorkerGrid(), tensorShape, inputLayoutL1Tiled,
       outputLayoutDRAMTiled);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
@@ -906,26 +902,14 @@ TEST_F(OpModelTest, ToMemoryConfig) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<ToMemoryConfigOp>::getOpRuntime(
-      tensorShape, inputLayoutL1Tiled, memoryConfig, outputLayoutDRAMTiled);
+      tensorShape, inputLayoutL1Tiled, outputLayoutDRAMTiled);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
-  auto coreRangeSetAttr = CoreRangeSetAttr::get(
-      &context, llvm::ArrayRef<CoreRangeAttr>{CoreRangeAttr::get(
-                    &context, CoreCoordAttr::get(&context, 0, 0),
-                    CoreCoordAttr::get(&context, 7, 0))});
-  ShardSpecAttr shardSpec = ShardSpecAttr::get(
-      &context, coreRangeSetAttr, ShapeAttr::get(&context, {64, 128}),
-      ShardOrientationAttr::get(&context, ShardOrientation::RowMajor));
   const TTNNLayoutAttr outputLayoutL1Tiled = CreateTiledLayout(
       tensorShape, BufferType::L1, TensorMemoryLayout::HeightSharded);
-  memoryConfig = MemoryConfigAttr::get(
-      &context, outputLayoutL1Tiled.getMemLayout(),
-      BufferTypeAttr::get(&context, outputLayoutL1Tiled.getBufferType()),
-      shardSpec);
   constraintsExp = OpModel<ToMemoryConfigOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayoutL1Tiled, memoryConfig,
-      outputLayoutL1Tiled);
+      CreateWorkerGrid(), tensorShape, inputLayoutL1Tiled, outputLayoutL1Tiled);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -933,7 +917,7 @@ TEST_F(OpModelTest, ToMemoryConfig) {
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = OpModel<ToMemoryConfigOp>::getOpRuntime(
-      tensorShape, inputLayoutL1Tiled, memoryConfig, outputLayoutL1Tiled);
+      tensorShape, inputLayoutL1Tiled, outputLayoutL1Tiled);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
@@ -3820,15 +3804,6 @@ TEST_F(OpModelTest, Where) {
 
 TEST_F(OpModelTest, EmptyOp) {
   const llvm::SmallVector<int64_t> inputTensorShape = {workerCoresN300, 1024};
-  const mlir::tt::ttnn::TTNNLayoutAttr inputLayoutL1Tiled =
-      CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::L1,
-                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-  mlir::tt::ttnn::MemoryConfigAttr memoryConfig =
-      mlir::tt::ttnn::MemoryConfigAttr::get(
-          &context, inputLayoutL1Tiled.getMemLayout(),
-          mlir::tt::ttnn::BufferTypeAttr::get(
-              &context, inputLayoutL1Tiled.getBufferType()),
-          std::nullopt /*shardSpec*/);
   mlir::tt::ttcore::DataTypeAttr dtype =
       mlir::tt::ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32);
   mlir::tt::ttnn::Layout layout = mlir::tt::ttnn::Layout::Tile;
@@ -3837,8 +3812,7 @@ TEST_F(OpModelTest, EmptyOp) {
                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
   auto constraintsExp =
       ttnn::op_model::OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
-          CreateWorkerGrid(), inputTensorShape, dtype, layout, memoryConfig,
-          outputLayout);
+          CreateWorkerGrid(), inputTensorShape, dtype, layout, outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBacks] =
       constraintsExp.get();
@@ -3861,18 +3835,9 @@ TEST_F(OpModelTest, ArangeOp) {
   std::optional<mlir::tt::ttcore::DataType> dtype =
       mlir::tt::ttcore::DataType::Float32;
 
-  // Create optional memory config
-  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig =
-      mlir::tt::ttnn::MemoryConfigAttr::get(
-          &context, inputLayout.getMemLayout(),
-          mlir::tt::ttnn::BufferTypeAttr::get(&context,
-                                              inputLayout.getBufferType()),
-          std::nullopt /*shardSpec*/);
-
   auto constraintsExp =
       ttnn::op_model::OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
-          CreateWorkerGrid(), startAttr, endAttr, stepAttr, dtype, memConfig,
-          nullptr);
+          CreateWorkerGrid(), startAttr, endAttr, stepAttr, dtype, inputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBacks] =
       constraintsExp.get();
@@ -3901,7 +3866,7 @@ protected:
     auto shapeAttr = mlir::tt::ttnn::ShapeAttr::get(&context, tensorShape);
 
     auto constraintsExp = ttnn::op_model::OpModel<OpTy>::getOpConstraints(
-        CreateWorkerGrid(), shapeAttr, std::nullopt, std::nullopt, std::nullopt,
+        CreateWorkerGrid(), shapeAttr, std::nullopt, std::nullopt,
         outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -3939,7 +3904,7 @@ TEST_F(OpModelTest, FullOp) {
   auto constraintsExp =
       ttnn::op_model::OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
           CreateWorkerGrid(), shapeAttr, builder.getI32IntegerAttr(0),
-          std::nullopt, std::nullopt, std::nullopt, outputLayout);
+          std::nullopt, std::nullopt, outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBacks] =
       constraintsExp.get();
@@ -4894,9 +4859,8 @@ TEST_F(OpModelTest, RandOp) {
   auto shapeAttr = ttnn::ShapeAttr::get(&context, tensorShape);
 
   auto constraintsExp = OpModel<RandOp>::getOpConstraints(
-      workerGrid, shapeAttr, ttcore::DataType::BFloat16, nullptr,
-      ttnn::Layout::Tile, llvm::APFloat(0.0f), llvm::APFloat(1.0f), 0,
-      outputLayoutDRAM);
+      workerGrid, shapeAttr, ttcore::DataType::BFloat16, ttnn::Layout::Tile,
+      llvm::APFloat(0.0f), llvm::APFloat(1.0f), 0, outputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -4905,9 +4869,8 @@ TEST_F(OpModelTest, RandOp) {
 
   // Test RandOp with L1 output
   constraintsExp = OpModel<RandOp>::getOpConstraints(
-      workerGrid, shapeAttr, ttcore::DataType::BFloat16, nullptr,
-      ttnn::Layout::Tile, llvm::APFloat(0.0f), llvm::APFloat(1.0f), 0,
-      outputLayoutL1);
+      workerGrid, shapeAttr, ttcore::DataType::BFloat16, ttnn::Layout::Tile,
+      llvm::APFloat(0.0f), llvm::APFloat(1.0f), 0, outputLayoutL1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -4916,9 +4879,8 @@ TEST_F(OpModelTest, RandOp) {
 
   // Test RandOp with custom range parameters
   constraintsExp = OpModel<RandOp>::getOpConstraints(
-      workerGrid, shapeAttr, ttcore::DataType::BFloat16, nullptr,
-      ttnn::Layout::Tile, llvm::APFloat(-2.5f), llvm::APFloat(5.0f), 42,
-      outputLayoutDRAM);
+      workerGrid, shapeAttr, ttcore::DataType::BFloat16, ttnn::Layout::Tile,
+      llvm::APFloat(-2.5f), llvm::APFloat(5.0f), 42, outputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -4927,9 +4889,8 @@ TEST_F(OpModelTest, RandOp) {
 
   // Test RandOp with Float32 data type
   constraintsExp = OpModel<RandOp>::getOpConstraints(
-      workerGrid, shapeAttr, ttcore::DataType::Float32, nullptr,
-      ttnn::Layout::Tile, llvm::APFloat(0.0f), llvm::APFloat(1.0f), 0,
-      outputLayoutDRAM);
+      workerGrid, shapeAttr, ttcore::DataType::Float32, ttnn::Layout::Tile,
+      llvm::APFloat(0.0f), llvm::APFloat(1.0f), 0, outputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -6355,15 +6316,9 @@ TEST_F(OpModelTest, AssignOp) {
   const TTNNLayoutAttr tensorLayoutDRAM_F32 = CreateTiledLayout(
       tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
       std::nullopt, GetPhysicalGridSize(), builder.getF32Type());
-  MemoryConfigAttr memoryConfigDRAM_F32 = MemoryConfigAttr::get(
-      &context, tensorLayoutDRAM_F32.getMemLayout(),
-      BufferTypeAttr::get(&context, tensorLayoutDRAM_F32.getBufferType()),
-      std::nullopt);
-
   // Test AssignOp with DRAM output
   auto constraintsExp = OpModel<AssignOp>::getOpConstraints(
-      workerGrid, tensorShape, tensorLayoutDRAM_F32, memoryConfigDRAM_F32,
-      std::nullopt);
+      workerGrid, tensorShape, tensorLayoutDRAM_F32, std::nullopt);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -6371,54 +6326,41 @@ TEST_F(OpModelTest, AssignOp) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<AssignOp>::getOpRuntime(
-      tensorShape, tensorLayoutDRAM_F32, memoryConfigDRAM_F32, std::nullopt);
+      tensorShape, tensorLayoutDRAM_F32, std::nullopt);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   const TTNNLayoutAttr tensorLayoutL1_F32 = CreateTiledLayout(
       tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved,
       std::nullopt, GetPhysicalGridSize(), builder.getF32Type());
-  MemoryConfigAttr memoryConfigL1_F32 = MemoryConfigAttr::get(
-      &context, tensorLayoutL1_F32.getMemLayout(),
-      BufferTypeAttr::get(&context, tensorLayoutL1_F32.getBufferType()),
-      std::nullopt);
   // Test AssignOp with L1 output
   constraintsExp = OpModel<AssignOp>::getOpConstraints(
-      workerGrid, tensorShape, tensorLayoutL1_F32, memoryConfigL1_F32,
-      std::nullopt);
+      workerGrid, tensorShape, tensorLayoutL1_F32, std::nullopt);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
-  runtimeExp = OpModel<AssignOp>::getOpRuntime(
-      tensorShape, tensorLayoutL1_F32, memoryConfigL1_F32, std::nullopt);
+  runtimeExp = OpModel<AssignOp>::getOpRuntime(tensorShape, tensorLayoutL1_F32,
+                                               std::nullopt);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
-  const TTNNLayoutAttr tensorLayoutL1_BF16 = CreateTiledLayout(
-      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved,
-      std::nullopt, GetPhysicalGridSize(), builder.getBF16Type());
-  MemoryConfigAttr memoryConfigL1_BF16 = MemoryConfigAttr::get(
-      &context, tensorLayoutL1_BF16.getMemLayout(),
-      BufferTypeAttr::get(&context, tensorLayoutL1_BF16.getBufferType()),
-      std::nullopt);
   std::optional<mlir::tt::ttcore::DataType> outputDtype =
       mlir::tt::ttcore::DataType::BFloat16;
 
   // Test AssignOp with output dtype
   constraintsExp = OpModel<AssignOp>::getOpConstraints(
-      workerGrid, tensorShape, tensorLayoutL1_F32, memoryConfigL1_BF16,
-      outputDtype);
+      workerGrid, tensorShape, tensorLayoutL1_F32, outputDtype);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
-  runtimeExp = OpModel<AssignOp>::getOpRuntime(
-      tensorShape, tensorLayoutL1_F32, memoryConfigL1_BF16, outputDtype);
+  runtimeExp = OpModel<AssignOp>::getOpRuntime(tensorShape, tensorLayoutL1_F32,
+                                               outputDtype);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
