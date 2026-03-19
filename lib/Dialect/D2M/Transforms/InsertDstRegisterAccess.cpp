@@ -839,6 +839,24 @@ public:
       };
 
       // Collect CB->DST loads for this op's operands.
+      // Pre-count actual CB->DST loads to decide whether to suppress the Accum
+      // guard. When >= 2 operands are loaded fresh from CBs into DST (SFPU
+      // binary path), DST is acquired/released per tile so the guard is
+      // invalid. When only 1 operand is loaded (e.g. matmul C accumulator),
+      // the guard is semantically correct and must be preserved.
+      int totalCBLoads = 0;
+      for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
+        if (computeOp.isScalarOperand(operandIdx)) {
+          continue;
+        }
+        auto potentialLoad = computeOp->getOperand(operandIdx)
+                                 .getDefiningOp<affine::AffineLoadOp>();
+        if (potentialLoad && notDstMemspace(potentialLoad)) {
+          ++totalCBLoads;
+        }
+      }
+      const bool noAccumGuardForLoads = totalCBLoads >= 2;
+
       int numLoads = 0;
       int firstInputDstSlice = -1;
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
@@ -857,7 +875,7 @@ public:
           ++numLoads;
           collectDstLoadOrStore<affine::AffineLoadOp>(
               gOp, potentialLoad, copyInfos, dstSlice,
-              outermostInnerComputeLoop, /*noAccumGuard=*/true);
+              outermostInnerComputeLoop, noAccumGuardForLoads);
         }
       }
 
@@ -1777,6 +1795,23 @@ public:
       // Collect CB->DST loads for this op's operands.
       // Check for both affine.load and memref.load (scheduled path uses
       // memref).
+      // Pre-count actual CB->DST loads to decide whether to suppress the Accum
+      // guard. See non-scheduled path for full rationale.
+      int totalCBLoads = 0;
+      for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
+        if (computeOp.isScalarOperand(operandIdx)) {
+          continue;
+        }
+        Value operand = computeOp->getOperand(operandIdx);
+        if ((operand.getDefiningOp<affine::AffineLoadOp>() &&
+             notDstMemspace(operand.getDefiningOp<affine::AffineLoadOp>())) ||
+            (operand.getDefiningOp<memref::LoadOp>() &&
+             notDstMemspace(operand.getDefiningOp<memref::LoadOp>()))) {
+          ++totalCBLoads;
+        }
+      }
+      const bool noAccumGuardForLoads = totalCBLoads >= 2;
+
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
         // Skip scalar operands - they don't need to be loaded from dst
         if (computeOp.isScalarOperand(operandIdx)) {
@@ -1790,13 +1825,12 @@ public:
             affineLoad && notDstMemspace(affineLoad)) {
           collectDstLoadOrStore<affine::AffineLoadOp>(
               op, affineLoad, copyInfos, dstStackAllocator.allocate(),
-              outermostInnerComputeLoop, /*noAccumGuard=*/true);
+              outermostInnerComputeLoop, noAccumGuardForLoads);
         } else if (auto memrefLoad = operand.getDefiningOp<memref::LoadOp>();
                    memrefLoad && notDstMemspace(memrefLoad)) {
-          collectDstLoadOrStore<memref::LoadOp>(op, memrefLoad, copyInfos,
-                                                dstStackAllocator.allocate(),
-                                                outermostInnerComputeLoop,
-                                                /*noAccumGuard=*/true);
+          collectDstLoadOrStore<memref::LoadOp>(
+              op, memrefLoad, copyInfos, dstStackAllocator.allocate(),
+              outermostInnerComputeLoop, noAccumGuardForLoads);
         }
       }
 
