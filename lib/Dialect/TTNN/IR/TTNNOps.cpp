@@ -3943,6 +3943,59 @@ verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
 }
 
 //===----------------------------------------------------------------------===//
+// ArgMaxOp
+//===----------------------------------------------------------------------===//
+
+// ArgMaxOp verification.
+::mlir::LogicalResult ArgMaxOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  int64_t inputRank = inputType.getRank();
+  std::optional<int32_t> dimOpt = getDim();
+  bool keepDim = getKeepDim();
+
+  if (dimOpt) {
+    int32_t dim = *dimOpt;
+    if (dim < -inputRank || dim >= inputRank) {
+      return emitOpError() << "dim attribute value " << dim
+                           << " is out of range for input tensor of rank "
+                           << inputRank << ", expected value in range ["
+                           << -inputRank << ", " << inputRank - 1 << "]";
+    }
+  }
+
+  // Compute expected output shape.
+  llvm::SmallVector<int64_t> expectedOutputShape;
+  if (dimOpt) {
+    int64_t normalizedDim = *dimOpt < 0 ? *dimOpt + inputRank : *dimOpt;
+    for (int64_t i = 0; i < inputRank; ++i) {
+      if (i == normalizedDim) {
+        if (keepDim) {
+          expectedOutputShape.push_back(1);
+        }
+      } else {
+        expectedOutputShape.push_back(inputType.getDimSize(i));
+      }
+    }
+  } else {
+    // No dim specified: reduce over all elements.
+    if (keepDim) {
+      expectedOutputShape.assign(inputRank, 1);
+    }
+  }
+
+  ::llvm::ArrayRef<int64_t> actualOutputShape =
+      getResult().getType().getShape();
+  if (!llvm::equal(actualOutputShape, expectedOutputShape)) {
+    return emitOpError() << "expected output shape ("
+                         << ttmlir::utils::join(expectedOutputShape, ", ")
+                         << "), got ("
+                         << ttmlir::utils::join(actualOutputShape, ", ") << ")";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // WriteTensorOp
 //===----------------------------------------------------------------------===//
 
