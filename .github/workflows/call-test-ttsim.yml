@@ -16,7 +16,7 @@ on:
         description: "TTSim release tag"
         required: false
         type: string
-        default: "v1.3.4"
+        default: "v1.4.4"
       timeout:
         description: "Timeout in minutes for the TTSim test job"
         required: false
