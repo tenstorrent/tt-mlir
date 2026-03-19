@@ -1223,21 +1223,12 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
     auto resultTensor = mlir::dyn_cast<mlir::RankedTensorType>(resultType);
 
     if (inputTensor && resultTensor) {
-      auto inputLayout =
-          mlir::dyn_cast_if_present<mlir::tt::ttcore::MetalLayoutAttr>(
-              inputTensor.getEncoding());
-      auto resultLayout =
-          mlir::dyn_cast_if_present<mlir::tt::ttcore::MetalLayoutAttr>(
-              resultTensor.getEncoding());
+      bool hasInputLayout = mlir::isa_and_nonnull<ttcore::MetalLayoutAttr>(
+          inputTensor.getEncoding());
+      bool hasResultLayout = mlir::isa_and_nonnull<ttcore::MetalLayoutAttr>(
+          resultTensor.getEncoding());
 
-      if (inputLayout && resultLayout) {
-        // Logical shapes may differ for TM views (reshape, permute, etc.)
-        // but the total logical volume must be preserved.
-        if (ttmlir::utils::volume<int64_t>(inputLayout.getLogicalShape()) !=
-            ttmlir::utils::volume<int64_t>(resultLayout.getLogicalShape())) {
-          return emitOpError("view must preserve logical volume");
-        }
-      } else if (!inputLayout && !resultLayout) {
+      if (!hasInputLayout && !hasResultLayout) {
         // Neither has layout: verify total element count matches.
         if (ttmlir::utils::volume<int64_t>(inputType.getShape()) !=
             ttmlir::utils::volume<int64_t>(resultType.getShape())) {
