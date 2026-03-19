@@ -4510,9 +4510,9 @@ llvm::Expected<OpConstraints> OpModel<UpdateCacheOp>::getOpConstraints(
   (void)updateIndexLayout;
 
   auto updateCacheOpQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(::ttnn::update_cache, device,
-                                               cacheSpec, inputSpec, updateIdx,
-                                               batchOffset, std::nullopt);
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::update_cache, device, cacheSpec, inputSpec, updateIdx,
+        batchOffset, /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpConstraints(cacheLayout.getContext(), deviceGrid,
@@ -4552,9 +4552,9 @@ llvm::Expected<size_t> OpModel<UpdateCacheOp>::getOpRuntime(
   (void)updateIndexLayout;
 
   auto updateCacheOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(::ttnn::update_cache, device,
-                                           cacheSpec, inputSpec, updateIdx,
-                                           batchOffset, std::nullopt);
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::update_cache, device, cacheSpec, inputSpec, updateIdx,
+        batchOffset, /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpRuntime(updateCacheOpQuery);
