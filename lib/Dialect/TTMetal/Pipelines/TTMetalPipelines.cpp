@@ -83,14 +83,14 @@ void createTTIRToTTMetalFrontendPipeline(
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(ttir::createPredicateTypeAlignment());
+  pm.addPass(ttir::createElementTypeNormalization(
+      ttir::ElementTypeNormalizationOptions()));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(ttir::createTTIRExplicateTMs());
   pm.addPass(ttir::createTTIREraseInverseOps());
   pm.addPass(ttir::createTTIRMoveReshapeToConstant());
   pm.addPass(ttir::createTTIRFoldConstantReshapeBroadcast());
-  pm.addPass(ttir::createPredicateTypeAlignment());
-  pm.addPass(ttir::createElementTypeNormalization(
-      ttir::ElementTypeNormalizationOptions()));
   pm.addPass(ttir::createTTIRReductionForceKeepDim());
   pm.addPass(ttir::createTTIRRankNormalization());
   pm.addPass(ttir::createTTIRDecomposeComplexReshape());
