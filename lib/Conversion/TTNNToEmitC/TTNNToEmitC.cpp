@@ -3608,6 +3608,45 @@ public:
 };
 } // namespace
 
+// RMSNormPreAllGatherOp conversion pattern
+//
+namespace {
+class RMSNormPreAllGatherOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::RMSNormPreAllGatherOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::RMSNormPreAllGatherOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RMSNormPreAllGatherOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::RMSNormPreAllGatherOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // Args must match tt-metal invoke parameter order:
+    // input, dtype, residual_input, compute_kernel_config,
+    // program_config, memory_config, use_2d_core_grid
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getResidual()),
+        emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getUse_2dCoreGrid()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // LayerNormOp conversion pattern
 //
 namespace {
@@ -5181,14 +5220,15 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Other ops
   //
-  patterns.add<
-      SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
-      DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-      CumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
-      BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-      LayerNormOpConversionPattern, LayerNormPreAllGatherOpConversionPattern,
-      LayerNormPostAllGatherOpConversionPattern, GroupNormOpConversionPattern>(
-      typeConverter, ctx);
+  patterns
+      .add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
+           DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
+           CumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
+           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+           RMSNormPreAllGatherOpConversionPattern, LayerNormOpConversionPattern,
+           LayerNormPreAllGatherOpConversionPattern,
+           LayerNormPostAllGatherOpConversionPattern,
+           GroupNormOpConversionPattern>(typeConverter, ctx);
 
   // CCL ops
   //

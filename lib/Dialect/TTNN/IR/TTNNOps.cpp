@@ -3044,6 +3044,47 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// RMSNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::RMSNormPreAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+
+  if (inputType.getRank() < 2) {
+    return emitOpError("input tensor must have rank greater than 1");
+  }
+
+  // output shape containing the partial stats must match
+  // input shape except last dimension
+  RankedTensorType outputType = getResult().getType();
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+
+  if (inputType.getRank() != outputType.getRank()) {
+    emitOpError("input rank must match the output rank");
+  }
+
+  for (auto idx = 0; idx < inputType.getRank() - 1; idx++) {
+    if (inputShape[idx] != outputShape[idx]) {
+      return emitOpError() << "output dimension " << idx << " ("
+                           << outputShape[idx]
+                           << ") must match input dimension ("
+                           << inputShape[idx] << ")";
+    }
+  }
+
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError(
+          "residual tensor shape must match the input tensor shape");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::LayerNormOp::verify() {
