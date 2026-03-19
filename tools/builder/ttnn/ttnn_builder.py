@@ -8544,6 +8544,102 @@ class TTNNBuilder(Builder):
             f"shard_dims={shard_dims}, composer_dims={composer_dims}"
         )
 
+    ############### ttnn.RMSNormPreAllGatherOp ###############
+
+    @tag(ttnn.RMSNormPreAllGatherOp)
+    def rms_norm_pre_all_gather(
+        self,
+        input: Operand,
+        residual: Optional[Operand] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.rms_norm_pre_all_gather)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_golden = self._get_golden_tensor(input)
+        residual_golden = (
+            self._get_golden_tensor(residual) if residual is not None else None
+        )
+        op_golden_function = get_golden_function(ttnn_op)
+
+        golden_output = op_golden_function(
+            input_golden,
+            residual_golden,
+            mlir_output_type,
+        )
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        output_dtype = self._get_data_type_attribute(input)
+
+        op = ttnn_op(
+            result,
+            input,
+            loc=loc,
+            residual=residual,
+            dtype=output_dtype,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.RMSNormPreAllGatherOp)
+    def rms_norm_pre_all_gather_parser(
+        self,
+        old_op: ttnn.RMSNormPreAllGatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(
+            TTNNBuilder.rms_norm_pre_all_gather_parser
+        )
+
+        in0 = global_dict[old_op.input]
+        residual = global_dict[old_op.residual] if old_op.residual is not None else None
+        result = old_op.result.type
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            loc=old_op.location,
+            residual=residual,
+            dtype=old_op.dtype,
+            memory_config=old_op.memory_config,
+            compute_config=old_op.compute_config,
+            program_config=old_op.program_config,
+            use_2d_core_grid=old_op.use_2d_core_grid,
+        )
+        new_op_result = new_op.result
+
+        input_golden = self._get_golden_tensor(in0)
+        residual_golden = (
+            self._get_golden_tensor(residual) if residual is not None else None
+        )
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input_golden,
+            residual_golden,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op, {old_op.result: new_op_result}
+
     ############### ttnn.LayerNormPreAllGatherOp ###############
 
     @tag(ttnn.LayerNormPreAllGatherOp)

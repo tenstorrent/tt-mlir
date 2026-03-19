@@ -3807,6 +3807,47 @@ public:
 };
 } // namespace
 
+// RMSNormPreAllGatherOp conversion pattern
+//
+namespace {
+class RMSNormPreAllGatherOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::RMSNormPreAllGatherOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.rms_norm_pre_all_gather";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::RMSNormPreAllGatherOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RMSNormPreAllGatherOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::RMSNormPreAllGatherOp>
+        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getResidual(), "residual_input_tensor"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(srcOp.getUse_2dCoreGrid(), "use_2d_core_grid"),
+    };
+
+    return success();
+  }
+};
+} // namespace
+
 // DistributedRMSNormOp conversion pattern
 //
 namespace {
@@ -4671,7 +4712,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns
       .add<BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-           DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
+           DistributedRMSNormOpConversionPattern,
+           RMSNormPreAllGatherOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,
            LayerNormPostAllGatherOpConversionPattern,
            GroupNormOpConversionPattern>(typeConverter, ctx, enableGoldenMode);

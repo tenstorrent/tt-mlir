@@ -6368,6 +6368,32 @@ def ttnn_linear_golden(
     return torch.add(output, bias_tensor).to(output_dtype)
 
 
+def ttnn_rms_norm_pre_all_gather_golden(
+    input: GoldenMapTensor,
+    residual: Optional[GoldenMapTensor],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    TILE_WIDTH = 32
+
+    input_float = input.float()
+    if residual is not None:
+        input_float = input_float + residual.float()
+
+    # Compute per-row partial statistics: E(x^2).
+    # Build output per-shard to preserve GoldenMapTensor structure.
+    def compute_stats(shard):
+        shard_float = shard.float()
+        ex2 = shard_float.square().mean(dim=-1, keepdim=True)
+        output_shape = list(shard_float.shape)
+        output_shape[-1] = TILE_WIDTH
+        output = torch.zeros(output_shape, dtype=torch.float32)
+        output[..., :1] = ex2
+        return output.to(output_dtype)
+
+    return GoldenMapTensor.apply_shardwise(input_float, compute_stats)
+
+
 def ttnn_layer_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -7128,6 +7154,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.GroupNormOp: ttnn_group_norm_golden,
     ttnn.RMSNormOp: rms_norm_golden,
     ttnn.PagedFlashMultiLatentAttentionDecodeOp: ttir_paged_flash_multi_latent_attention_decode_golden,
+    ttnn.RMSNormPreAllGatherOp: ttnn_rms_norm_pre_all_gather_golden,
     # Tensor manipulation
     ttnn.ConcatOp: ttnn_concat_golden,
     ttnn.RepeatOp: ttnn_repeat_golden,
