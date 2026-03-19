@@ -92,6 +92,9 @@ namespace prim {
 struct LayerNormShardedMultiCoreProgramConfig;
 } // namespace prim
 
+namespace experimental::prim {
+struct Conv3dConfig;
+} // namespace experimental::prim
 } // namespace ttnn
 
 namespace mlir {
@@ -140,6 +143,11 @@ struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
 template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
   inline static const std::string value = "ttnn.Conv2dSliceConfig";
+};
+
+template <>
+struct TypeName<::ttnn::experimental::prim::Conv3dConfig> {
+  inline static const std::string value = "ttnn.Conv3dConfig";
 };
 
 template <>
@@ -1560,6 +1568,69 @@ struct EmitPyTypeConverter<
   }
 };
 
+template <>
+struct EmitPyTypeConverter<::ttnn::experimental::prim::Conv3dConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto conv3dConfigAttr =
+            mlir::dyn_cast_if_present<ttnn::Conv3dConfigAttr>(attr)) {
+      return convert(conv3dConfigAttr);
+    }
+    // Ensure Conv3dConfig is always materialized so runtime receives a valid
+    // config object even when Conv3dConfigAttr is absent.
+    return convert(ttnn::Conv3dConfigAttr{});
+  }
+
+  static std::string convert(ttnn::Conv3dConfigAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    bool firstElement = true;
+    rso << TypeNameV<::ttnn::experimental::prim::Conv3dConfig> << "(";
+    if (attr) {
+      if (attr.getWeightsDtype()) {
+        rso << (firstElement ? "" : ", ") << "weights_dtype="
+            << EmitPyTypeConverter<::ttnn::DataType>::convert(
+                   *attr.getWeightsDtype());
+        firstElement = false;
+      }
+      if (attr.getTOutBlock()) {
+        rso << (firstElement ? "" : ", ")
+            << "T_out_block=" << *attr.getTOutBlock();
+        firstElement = false;
+      }
+      if (attr.getWOutBlock()) {
+        rso << (firstElement ? "" : ", ")
+            << "W_out_block=" << *attr.getWOutBlock();
+        firstElement = false;
+      }
+      if (attr.getHOutBlock()) {
+        rso << (firstElement ? "" : ", ")
+            << "H_out_block=" << *attr.getHOutBlock();
+        firstElement = false;
+      }
+      if (attr.getCOutBlock()) {
+        rso << (firstElement ? "" : ", ")
+            << "C_out_block=" << *attr.getCOutBlock();
+        firstElement = false;
+      }
+      if (attr.getCInBlock()) {
+        rso << (firstElement ? "" : ", ")
+            << "C_in_block=" << *attr.getCInBlock();
+        firstElement = false;
+      }
+      if (attr.getComputeWithStorageGridSize()) {
+        auto gridAttr = *attr.getComputeWithStorageGridSize();
+        rso << (firstElement ? "" : ", ")
+            << "compute_with_storage_grid_size=ttnn.CoreCoord("
+            << gridAttr.getShape()[0] << ", " << gridAttr.getShape()[1] << ")";
+      }
+    }
+
+    rso << ")";
+    return buf;
+  }
+};
+
 // MatmulMultiCoreReuseProgramConfig converter
 template <>
 struct EmitPyTypeConverter<
@@ -1968,6 +2039,11 @@ struct TTNNTarget<mlir::tt::ttnn::Conv2dConfigAttr> {
 template <>
 struct TTNNTarget<tt::ttnn::Conv2dSliceConfigAttr> {
   using type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig;
+};
+
+template <>
+struct TTNNTarget<mlir::tt::ttnn::Conv3dConfigAttr> {
+  using type = ::ttnn::experimental::prim::Conv3dConfig;
 };
 
 template <>
