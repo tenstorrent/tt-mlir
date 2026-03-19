@@ -23,7 +23,7 @@ namespace mlir::tt::d2m {
 namespace {
 
 // Helper function to check if an operand is remote (i.e., comes from a view op
-// such as view_layout).
+// such as view_layout or stream_layout).
 static bool isRemoteOperand(Value operand, Operation *op) {
   Operation *defOp = operand.getDefiningOp();
   if (!defOp) {

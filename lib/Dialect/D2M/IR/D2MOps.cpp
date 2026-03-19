@@ -1232,18 +1232,15 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
 
       if (inputLayout && resultLayout) {
         // Logical shapes may differ for TM views (reshape, permute, etc.)
-        // where the view intentionally changes the logical shape. We only
-        // require that the remapping is consistent with the device shapes.
+        // but the total logical volume must be preserved.
+        if (ttmlir::utils::volume<int64_t>(inputLayout.getLogicalShape()) !=
+            ttmlir::utils::volume<int64_t>(resultLayout.getLogicalShape())) {
+          return emitOpError("view must preserve logical volume");
+        }
       } else if (!inputLayout && !resultLayout) {
-        // Neither has layout: verify device tensor shapes match.
-        int64_t inputElements = 1, outputElements = 1;
-        for (auto d : inputType.getShape()) {
-          inputElements *= d;
-        }
-        for (auto d : resultType.getShape()) {
-          outputElements *= d;
-        }
-        if (inputElements != outputElements) {
+        // Neither has layout: verify total element count matches.
+        if (ttmlir::utils::volume<int64_t>(inputType.getShape()) !=
+            ttmlir::utils::volume<int64_t>(resultType.getShape())) {
           return emitOpError("view must preserve total number of elements");
         }
       }
@@ -1260,9 +1257,6 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
           inputTensor.getEncoding());
       auto resultLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
           resultTensor.getEncoding());
-      // Logical shapes may differ for TM views (reshape, permute, etc.)
-      // where the view intentionally changes the logical shape.
-
       if (inputLayout.getOobVal() != resultLayout.getOobVal()) {
         return emitOpError("view cannot change oob_val");
       }
