@@ -11,20 +11,18 @@ import pytest
 from utils import (
     all_close_check,
     memory_configs_equal,
-    get_expected_block_sharded_memory_config,
     create_dram_tensor,
 )
 from op_definitions import exp, cosh, add
 
 DRAM_INTERLEAVED_SHAPES = [
-    (32, 32),
+    (256, 256),
     (2048, 2048),
-    (1024, 32),
-    (32, 1024),
+    (1024, 256),
+    (256, 1024),
 ]
 
 
-@pytest.mark.skip(reason="Skipping mesh tensor eltwise tests. Issue #7161")
 @pytest.mark.parametrize("shape", DRAM_INTERLEAVED_SHAPES)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize(
@@ -59,12 +57,6 @@ def test_mesh_tensor_eltwise(
     dim_arg,
 ):
 
-    if (
-        mesh_mapper_func == ttnn.ShardTensor2dMesh
-        or mesh_mapper_func == ttnn.ShardTensorToMesh
-    ):
-        pytest.xfail("Memory config assert failing. See #7124.")
-
     if mesh_mapper_func == ttnn.ReplicateTensorToMesh:
         mesh_mapper = mesh_mapper_func(mesh_device=mesh_device)
     elif mesh_mapper_func == ttnn.ShardTensorToMesh:
@@ -75,15 +67,23 @@ def test_mesh_tensor_eltwise(
         )
 
     inputs = [
-        create_dram_tensor(mesh_device, shape, dtype, mesh_mapper=mesh_mapper)
+        create_dram_tensor(
+            mesh_device,
+            shape,
+            dtype,
+            mesh_mapper=mesh_mapper,
+        )
         for i in range(num_inputs)
     ]
+
+    output_memory_config = ttnn.DRAM_MEMORY_CONFIG
 
     # JIT path
     enable_cache = False
     op_jit = ttnn_jit.jit(
         debug=True,
         enable_cache=enable_cache,
+        memory_config=output_memory_config,
     )(op)
     interop_result = op_jit(*inputs)
 
@@ -95,10 +95,7 @@ def test_mesh_tensor_eltwise(
         interop_result = ttnn.exp(interop_result)
         golden_result = ttnn.exp(golden_result)
 
-    expected_memory_config = get_expected_block_sharded_memory_config(
-        golden_result.shape, mesh_device
-    )
-    assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
+    assert memory_configs_equal(interop_result.memory_config(), output_memory_config)
 
     # compare each device shard
     interop_result_shards = ttnn.get_device_tensors(interop_result.cpu())
@@ -107,5 +104,6 @@ def test_mesh_tensor_eltwise(
     for interop_result_shard, golden_result_shard in zip(
         interop_result_shards, golden_result_shards
     ):
+
         assert interop_result_shard.shape == golden_result_shard.shape
         assert all_close_check(interop_result_shard, golden_result_shard)
