@@ -204,16 +204,16 @@ getScratchAccessMapAndOperands(ScratchLoopInfo &info, MLIRContext *ctx) {
 ///   [arg10, (arg11+arg13)/4, arg12, (arg11+arg13)%4]
 /// instead of the wrong: [arg10, arg11/6, arg12, arg13].
 static std::pair<AffineMap, SmallVector<Value>>
-getConsumerScratchAccessMap(ScratchLoopInfo &producer, ScratchLoopInfo &consumer,
-                            MLIRContext *ctx) {
+getConsumerScratchAccessMap(ScratchLoopInfo &producer,
+                            ScratchLoopInfo &consumer, MLIRContext *ctx) {
   // Cross-step handling is needed when the first inner loop (column-batching
   // loop, allLoops[0]) has a different step between producer and consumer.
   // The scratchLoop itself typically has step=1 for both, so we must compare
   // allLoops[0] steps rather than scratchLoop steps.
-  bool needsCrossStep =
-      consumer.allLoops.size() >= 2 && !producer.allLoops.empty() &&
-      producer.allLoops.front().getStepAsInt() !=
-          consumer.allLoops.front().getStepAsInt();
+  bool needsCrossStep = consumer.allLoops.size() >= 2 &&
+                        !producer.allLoops.empty() &&
+                        producer.allLoops.front().getStepAsInt() !=
+                            consumer.allLoops.front().getStepAsInt();
 
   if (!needsCrossStep) {
     return getScratchAccessMapAndOperands(consumer, ctx);
@@ -240,10 +240,12 @@ getConsumerScratchAccessMap(ScratchLoopInfo &producer, ScratchLoopInfo &consumer
     AffineExpr dim = getAffineDimExpr(dimIdx++, ctx);
     int64_t lb = loop.getConstantLowerBound();
     int64_t step = loop.getStepAsInt();
-    if (lb != 0)
+    if (lb != 0) {
       dim = dim - lb;
-    if (step != 1)
+    }
+    if (step != 1) {
       dim = dim.floorDiv(step);
+    }
     return dim;
   };
 
@@ -256,23 +258,26 @@ getConsumerScratchAccessMap(ScratchLoopInfo &producer, ScratchLoopInfo &consumer
   AffineExpr d_outerCol = getAffineDimExpr(dimIdx++, ctx);
   {
     int64_t lb = consumer.allLoops.front().getConstantLowerBound();
-    if (lb != 0)
+    if (lb != 0) {
       d_outerCol = d_outerCol - lb;
+    }
     // Do NOT normalize by step — we need the raw batch-start value.
   }
 
   // Middle dimensions (allLoops[1..-2]): normalized pass-through (row loops).
   SmallVector<AffineExpr> middleExprs;
-  for (size_t i = 1; i + 1 < consumer.allLoops.size(); ++i)
+  for (size_t i = 1; i + 1 < consumer.allLoops.size(); ++i) {
     middleExprs.push_back(addLoop(consumer.allLoops[i]));
+  }
 
   // Inner col loop (allLoops[-1]): raw IV (offset within the col batch).
   operands.push_back(consumer.allLoops.back().getInductionVar());
   AffineExpr d_innerCol = getAffineDimExpr(dimIdx++, ctx);
   {
     int64_t lb = consumer.allLoops.back().getConstantLowerBound();
-    if (lb != 0)
+    if (lb != 0) {
       d_innerCol = d_innerCol - lb;
+    }
     // Do NOT normalize — inner col loop should have step=1.
   }
 
@@ -281,8 +286,9 @@ getConsumerScratchAccessMap(ScratchLoopInfo &producer, ScratchLoopInfo &consumer
 
   // Map to producer scratch layout using producer's column batch size.
   exprs.push_back(absCol.floorDiv(prodColStep));
-  for (auto me : middleExprs)
+  for (auto me : middleExprs) {
     exprs.push_back(me);
+  }
   exprs.push_back(absCol % prodColStep);
 
   return {AffineMap::get(dimIdx, 0, exprs, ctx), operands};
@@ -567,17 +573,18 @@ private:
       }
 
       // Only include if we found a producer and at least one consumer in a
-      // *subsequent* scratch_space_loop (i.e., consumer index > producer index).
-      // A consumer that appears before or at the same loop as the producer does
-      // not require cross-loop scratch spilling.
+      // *subsequent* scratch_space_loop (i.e., consumer index > producer
+      // index). A consumer that appears before or at the same loop as the
+      // producer does not require cross-loop scratch spilling.
       bool hasSubsequentExternalConsumer = false;
       if (allocInfo.producer) {
         size_t producerIdx =
             static_cast<size_t>(allocInfo.producer - scratchLoops.data());
         hasSubsequentExternalConsumer =
             llvm::any_of(allocInfo.consumers, [&](const ConsumerLoopLoads &c) {
-              if (c.loop == allocInfo.producer)
+              if (c.loop == allocInfo.producer) {
                 return false;
+              }
               size_t consIdx =
                   static_cast<size_t>(c.loop - scratchLoops.data());
               return consIdx > producerIdx;
