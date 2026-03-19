@@ -44,6 +44,7 @@ _current_device = None
 _current_device_target: Optional[str] = None
 _current_device_mesh_shape: Optional[Tuple[int, int]] = None
 _current_fabric_config: Optional[str] = None
+_pytestconfig = None
 
 
 def json_string_as_dict(json_string):
@@ -149,11 +150,37 @@ def clear_device_cache():
     so that the next test does not receive a stale (closed) handle and can
     open a new device (e.g. after compile with mock opmodel).
     """
-    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
+    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config, _pytestconfig
     _current_device = None
     _current_device_target = None
     _current_device_mesh_shape = None
     _current_fabric_config = None
+    # Note: _pytestconfig is not cleared here as it's session-scoped
+
+
+def device_reopener():
+    """Reopen the device with the same configuration after execution failure.
+
+    To avoid leaving the device in an undefined state after flatbuffer execution
+    failure, reopen the device with the same mesh shape, target, and fabric
+    config.
+    """
+    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config, _pytestconfig
+
+    # Store current config before clearing
+    target = _current_device_target
+    mesh_shape = _current_device_mesh_shape
+    fabric_config = _current_fabric_config
+
+    if target is None or mesh_shape is None or _pytestconfig is None:
+        raise RuntimeError("Cannot reopen device: no cached device configuration found")
+
+    clear_device_cache()
+
+    new_device = _get_device_for_target(
+        target, mesh_shape, _pytestconfig, fabric_config
+    )
+    return new_device
 
 
 def _get_current_environment():
@@ -209,6 +236,9 @@ def device(request, pytestconfig):
     runtime mode needs to be switched from the last test, i.e. the device must
     be reinitialized
     """
+    global _pytestconfig
+    _pytestconfig = pytestconfig
+
     # default target is ttnn elsewhere, if no "target" is supplied it will compile to ttnn
     target = "ttnn"
     mesh_shape = (1, 1)
@@ -849,7 +879,7 @@ def pytest_collection_modifyitems(config, items):
 
 
 def pytest_sessionfinish(session):
-    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
+    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config, _pytestconfig
     if _current_device is not None:
         print("\nClosing device for end of session")
         if _current_device_target == "emitpy":
@@ -864,6 +894,7 @@ def pytest_sessionfinish(session):
         _current_device_target = None
         _current_device_mesh_shape = None
         _current_fabric_config = None
+        _pytestconfig = None
 
         # Ensure DeviceGetter singleton is cleared after tests finish and after
         # any mesh device has been closed.
