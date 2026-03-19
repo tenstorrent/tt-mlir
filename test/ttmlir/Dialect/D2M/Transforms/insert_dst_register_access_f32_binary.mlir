@@ -97,18 +97,18 @@ func.func @f32_fused_binary_then_unary(
 // CHECK: affine.store {{.*}}, %[[DST]][{{.*}} + 1]
 // CHECK: } {d2m.dst_access_inserted, d2m.linalg_root}
 //
-// Linalg-root 2: tile_add reads slots 0,1 and writes slot 2;
-//                tile_recip reads and overwrites slot 2 in-place.
+// Linalg-root 2: tile_add reads slots 0,1 and writes slot 0;
+//                tile_recip reads and overwrites slot 0 in-place.
 // CHECK: %[[IN0_DST:.*]] = affine.load %[[DST]][{{.*}}]
 // CHECK: %[[IN1_DST:.*]] = affine.load %[[DST]][{{.*}} + 1]
 // CHECK: %[[ADD:.*]] = "d2m.tile_add"(%[[IN0_DST]], %[[IN1_DST]])
-// CHECK: affine.store %[[ADD]], %[[DST]][{{.*}} + 2]
-// CHECK: %[[ADD_DST:.*]] = affine.load %[[DST]][{{.*}} + 2]
+// CHECK: affine.store %[[ADD]], %[[DST]][{{.*}}]
+// CHECK: %[[ADD_DST:.*]] = affine.load %[[DST]][{{.*}}]
 // CHECK: %[[RECIP:.*]] = "d2m.tile_recip"(%[[ADD_DST]])
-// CHECK: affine.store %[[RECIP]], %[[DST]][{{.*}} + 2]
+// CHECK: affine.store %[[RECIP]], %[[DST]][{{.*}}]
 // CHECK: } {d2m.dst_access_inserted, d2m.linalg_root}
 //
-// Linalg-root 3: final result loaded from DST slot 2 and stored to L1.
-// CHECK: %[[RESULT:.*]] = affine.load %[[DST]][{{.*}} + 2]
+// Linalg-root 3: final result loaded from DST slot 0 and stored to L1.
+// CHECK: %[[RESULT:.*]] = affine.load %[[DST]][{{.*}}]
 // CHECK: affine.store %[[RESULT]], {{.*}} : memref<{{.*}}, #l1>
 // CHECK: } {d2m.dst_access_inserted, d2m.linalg_root}
