@@ -60,6 +60,41 @@ static Type getScalarElementType(MemRefType memrefType) {
   return elemType;
 }
 
+// Type-only overload for cases where no VGM tracing is needed (e.g. hoisted
+// CB allocs).  The memref layout must be a DeviceLayoutInterface and cannot
+// be InterleavedLayoutAttr (interleaved requires different grid handling).
+static ttnn::TTNNLayoutAttr
+getTTNNLayoutFromDeviceLayout(MLIRContext *ctx, MemRefType memrefType) {
+  auto bufferType = ttnn::BufferType::DRAM;
+  if (auto memSpace = mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
+          memrefType.getMemorySpace());
+      memSpace && memSpace.getValue() == ttcore::MemorySpace::DeviceL1) {
+    bufferType = ttnn::BufferType::L1;
+  }
+
+  auto deviceLayout = ttcore::getDeviceLayout(memrefType);
+  ArrayRef<int64_t> shardShape = deviceLayout.getShardShape(memrefType);
+
+  auto shardMemref =
+      MemRefType::get(shardShape, memrefType.getElementType(),
+                      AffineMap::getMultiDimIdentityMap(shardShape.size(), ctx),
+                      ttnn::BufferTypeAttr::get(ctx, bufferType));
+
+  ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(memrefType);
+  auto grid = ttcore::GridAttr::get(ctx, gridShape);
+  auto memLayoutEnum = ttnn::TensorMemoryLayout::BlockSharded;
+
+  constexpr size_t kRank = 2;
+  auto linearMap = AffineMap::getMultiDimIdentityMap(kRank, ctx);
+  auto memLayout = ttnn::TensorMemoryLayoutAttr::get(ctx, memLayoutEnum);
+
+  return {ttnn::TTNNLayoutAttr::get(
+      ctx, linearMap, grid, shardMemref, memLayout, /*tensorMesh=*/nullptr,
+      /*ignorePhysicalLayout=*/false, /*exactGrid=*/true)};
+}
+
+// Value overload that traces VGM attributes through the def chain for grid
+// derivation.
 static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
                                                           Value memrefValue) {
   MemRefType memrefType = mlir::cast<MemRefType>(memrefValue.getType());
@@ -113,6 +148,19 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
   return {ttnn::TTNNLayoutAttr::get(
       ctx, linearMap, grid, shardMemref, memLayout, /*tensorMesh=*/nullptr,
       /*ignorePhysicalLayout=*/false, /*exactGrid=*/true)};
+}
+
+// Type-only overload for cases where no VGM tracing is needed.
+static RankedTensorType convertMemrefToTTNNTensor(MLIRContext *ctx,
+                                                  MemRefType memrefType) {
+  TT_assertv(mlir::isa<ttcore::DeviceLayoutInterface>(memrefType.getLayout()),
+             "memref must have device layout");
+
+  auto ttnnLayoutAttr = getTTNNLayoutFromDeviceLayout(ctx, memrefType);
+
+  return RankedTensorType::get(getTensorShape(memrefType),
+                               getScalarElementType(memrefType),
+                               ttnnLayoutAttr);
 }
 
 static RankedTensorType convertMemrefToTTNNTensor(MLIRContext *ctx,
@@ -754,13 +802,8 @@ public:
                                            "could not find device attribute");
       }
 
-      // Build a temporary typed Value to feed convertMemrefToTTNNTensor.
-      // We use an unrealized_conversion_cast as a placeholder.
-      auto placeholder = rewriter.create<mlir::UnrealizedConversionCastOp>(
-          op.getLoc(), shardMemrefType, ValueRange{});
       auto convertedTensorType =
-          detail::convertMemrefToTTNNTensor(ctx, placeholder.getResult(0));
-      rewriter.eraseOp(placeholder);
+          detail::convertMemrefToTTNNTensor(ctx, shardMemrefType);
 
       auto convertedLayoutAttr =
           mlir::cast<ttnn::TTNNLayoutAttr>(convertedTensorType.getEncoding());

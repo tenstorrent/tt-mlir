@@ -1525,12 +1525,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
     auto shardShape = streamShape.drop_front(streamShape.size() / 2);
 
-    auto bufferLayout =
-        mlir::dyn_cast<ttcore::ShardLayoutAttr>(bufferType.getLayout());
-    if (!bufferLayout) {
-      return;
-    }
-    auto operandGrid = bufferLayout.getGridShape(bufferType);
+    auto computeGrid = genericOp.getGrid().getShape();
 
     for (Region &region : genericOp->getRegions()) {
       const auto operandIndex = operandCtx.operand->getOperandNumber();
@@ -1552,7 +1547,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       auto cbLayout = ttcore::CBLayoutAttr::get(
           genericOp.getContext(), shardShape,
           ttcore::getElementSizeBytes(operandType.getElementType()),
-          numStreamBuffers, operandGrid);
+          numStreamBuffers, computeGrid);
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPoint(oldAllocOp);
       auto newAllocOp = rewriter.create<memref::AllocOp>(
@@ -1645,18 +1640,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                     oldTensor.getDefiningOp())) {
               // Preserve memory space from the old memref type.
               auto oldMemRefType = mlir::cast<MemRefType>(oldTensor.getType());
-              // Extract the per-operand grid from bufferType.  This is the
-              // same grid that main uses for stream storage allocs
-              // (gridShapeRescaled from analyzeGenericOps).  Store it as-is
-              // in CBLayoutAttr — the serializer handles N-D grids
-              // via the existing ShardLayoutAttr conversion path.
-              auto bufferLayout =
-                  mlir::cast<ttcore::ShardLayoutAttr>(bufferType.getLayout());
-              auto operandGrid = bufferLayout.getGridShape(bufferType);
+              // Use the generic op's compute grid for the CB layout.
+              // CBs are allocated across all cores, so the compute grid
+              // is the most logically accurate grid to use here.
+              auto computeGrid = op.getGrid().getShape();
               auto cbLayout = ttcore::CBLayoutAttr::get(
                   streamType.getContext(), shardShape,
                   ttcore::getElementSizeBytes(streamType.getElementType()),
-                  numStreamBuffers, operandGrid);
+                  numStreamBuffers, computeGrid);
               auto newAllocOp = rewriter.create<memref::AllocOp>(
                   oldTensor.getLoc(),
                   MemRefType::get(shardShape, streamType.getElementType(),
