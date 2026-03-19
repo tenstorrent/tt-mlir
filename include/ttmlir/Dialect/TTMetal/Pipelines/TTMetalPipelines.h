@@ -49,6 +49,11 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Clamp DST's max physical size in tiles. 0 means unset."),
       llvm::cl::init(0)};
 
+  Option<bool> enableElementwiseFusion{
+      *this, "enable-elementwise-fusion",
+      llvm::cl::desc("Enable elementwise fusion of d2m.generic ops."),
+      llvm::cl::init(false)};
+
   ListOption<int64_t> matmulInterchange{
       *this, "matmul-interchange",
       llvm::cl::desc(
