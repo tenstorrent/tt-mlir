@@ -2297,6 +2297,8 @@ def index_golden(
     """
     import math
 
+    begin = begin if begin >= 0 else input_tensor.size(dim) + begin
+    end = end if end >= 0 else input_tensor.size(dim) + end
     num_indices = math.ceil((end - begin) / step)
     indices = []
     for i in range(num_indices):
@@ -3050,6 +3052,9 @@ def index_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     if end is None:
         end = input_tensor.size(dim)
 
+    size = input_tensor.size(dim)
+    begin = begin if begin >= 0 else size + begin
+    end = end if end >= 0 else size + end
     indices = torch.arange(begin, end, step, device=input_tensor.device)
     return torch.index_select(input_tensor, dim, indices)
 
