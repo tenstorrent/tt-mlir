@@ -8,9 +8,9 @@ module attributes {} {
   func.func public @argmax_2d(%arg0: tensor<64x64xf32>) -> tensor<64xi32> {
     // CHECK-LABEL: func.func public @argmax_2d(
     // CHECK: "ttnn.argmax"
-    // CHECK-SAME: {dim = 3 : i32, keep_dim = false, use_multicore = false}>
-    // CHECK-SAME: tensor<1x1x64x64xf32
-    // CHECK-SAME: -> tensor<1x1x64xui32
+    // CHECK-SAME: {dim = 1 : i32, keep_dim = false, use_multicore = false}>
+    // CHECK-SAME: tensor<64x64xf32
+    // CHECK-SAME: -> tensor<64xui32
     %1 = "ttir.argmax"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<64x64xf32>) -> tensor<64xi32>
     return %1 : tensor<64xi32>
   }
@@ -18,9 +18,9 @@ module attributes {} {
   func.func public @argmax_3d(%arg0: tensor<1x28x28xf32>) -> tensor<1x28xi32> {
     // CHECK-LABEL: func.func public @argmax_3d(
     // CHECK: "ttnn.argmax"
-    // CHECK-SAME: {dim = 3 : i32, keep_dim = false, use_multicore = false}>
-    // CHECK-SAME: tensor<1x1x28x28xf32
-    // CHECK-SAME: -> tensor<1x1x28xui32
+    // CHECK-SAME: {dim = 2 : i32, keep_dim = false, use_multicore = false}>
+    // CHECK-SAME: tensor<1x28x28xf32
+    // CHECK-SAME: -> tensor<1x28xui32
     %1 = "ttir.argmax"(%arg0) <{dim_arg = [2 : i32], keep_dim = false}> : (tensor<1x28x28xf32>) -> tensor<1x28xi32>
     return %1 : tensor<1x28xi32>
   }
