@@ -144,14 +144,25 @@ public:
 
     if (compositeAttrs) {
       if (auto attr = compositeAttrs.getAs<IntegerAttr>("k")) {
-        kAttr = IntegerAttr::get(
-            rewriter.getIntegerType(32),
-            static_cast<int32_t>(attr.getValue().getSExtValue()));
+        APInt kValue = attr.getValue();
+        if (!kValue.isIntN(32)) {
+          return rewriter.notifyMatchFailure(srcOp,
+                                             "k value is too large for ui32: " +
+                                                 Twine(kValue.getSExtValue()));
+        }
+        kAttr = IntegerAttr::get(rewriter.getIntegerType(32),
+                                 static_cast<int32_t>(kValue.getSExtValue()));
       }
       if (auto attr = compositeAttrs.getAs<IntegerAttr>("dim")) {
-        dimAttr = IntegerAttr::get(
-            rewriter.getIntegerType(32),
-            static_cast<int32_t>(attr.getValue().getSExtValue()));
+        APInt dimValue = attr.getValue();
+        if (!dimValue.isSignedIntN(32)) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "dim value is too large for si32: " +
+                         Twine(dimValue.getSExtValue()));
+        }
+        dimAttr =
+            IntegerAttr::get(rewriter.getIntegerType(32),
+                             static_cast<int32_t>(dimValue.getSExtValue()));
       }
       if (auto attr = compositeAttrs.getAs<BoolAttr>("largest")) {
         largestAttr = attr;
