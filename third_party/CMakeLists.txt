@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "30419c8ecbb1e5c654425a855bfd170350e6342f")
+set(TT_METAL_VERSION "a2a3cfb83cbfd43d6ec4f26f9bce6342266bdfaa")
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
