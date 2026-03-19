@@ -34,8 +34,8 @@ TraceData *TraceCache::get(const MainProgramKey &key,
 
 void TraceCache::insert(const MainProgramKey &key,
                         const CaptureExecuteProgramKey &captureExecuteKey,
-                        const TraceData &traceData) {
-  cache[key][captureExecuteKey] = traceData;
+                        TraceData traceData) {
+  cache[key][captureExecuteKey] = std::move(traceData);
 }
 
 void TraceCache::erase(const MainProgramKey &key) {
@@ -76,18 +76,22 @@ void TraceCache::erase(const MainProgramKey &key,
   outerIt->second.erase(captureExecuteKey);
 }
 
-void TraceCache::eraseWithoutRelease(
+TraceData TraceCache::extract(
     const MainProgramKey &key,
     const CaptureExecuteProgramKey &captureExecuteKey) {
   auto outerIt = cache.find(key);
-  if (outerIt == cache.end()) {
-    return;
-  }
+  LOG_ASSERT(outerIt != cache.end(), "extract: main program key not found");
 
-  outerIt->second.erase(captureExecuteKey);
+  auto innerIt = outerIt->second.find(captureExecuteKey);
+  LOG_ASSERT(innerIt != outerIt->second.end(),
+             "extract: capture-execute key not found");
+
+  TraceData data = std::move(innerIt->second);
+  outerIt->second.erase(innerIt);
   if (outerIt->second.empty()) {
     cache.erase(outerIt);
   }
+  return data;
 }
 
 uint64_t TraceCache::getDeviceGeneration() const { return deviceGeneration; }

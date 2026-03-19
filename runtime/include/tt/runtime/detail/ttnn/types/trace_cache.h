@@ -38,13 +38,15 @@ public:
                  const CaptureExecuteProgramKey &captureExecuteKey);
   void insert(const MainProgramKey &key,
               const CaptureExecuteProgramKey &captureExecuteKey,
-              const TraceData &traceData);
+              TraceData traceData);
   void erase(const MainProgramKey &key);
   void erase(const MainProgramKey &key,
              const CaptureExecuteProgramKey &captureExecuteKey);
-  // Remove trace data from cache without releasing the trace
-  void eraseWithoutRelease(const MainProgramKey &key,
-                           const CaptureExecuteProgramKey &captureExecuteKey);
+  // Move TraceData out of the cache and return it. The entry is removed.
+  // Asserts if the key doesn't exist. The trace is NOT released — caller
+  // is responsible.
+  TraceData extract(const MainProgramKey &key,
+                    const CaptureExecuteProgramKey &captureExecuteKey);
 
   // Device generation tracking for trace staleness detection.
   // Incremented when new device memory is allocated outside of trace lifecycle.

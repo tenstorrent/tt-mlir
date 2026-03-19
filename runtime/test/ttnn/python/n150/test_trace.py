@@ -68,6 +68,7 @@ def test_trace_matmul_multiply_no_consteval(
             assert debug_stats.get_stat("TraceCacheMiss") == 1
             assert debug_stats.get_stat("CapturedTrace") == 1
             assert debug_stats.get_stat("ExecutedTrace") == i
+            assert debug_stats.get_stat("TraceStaleRecapture") == 0
 
     ttrt.runtime.DebugStats.get().clear()
     helper.teardown()
@@ -137,6 +138,10 @@ def test_trace_memory_corruption_multi_graph(
                 device, victim_inputs, victim_golden
             )
 
+        # Pressure captured at gen=1, victim captured at gen=2.
+        # Pressure should recapture exactly once on first replay.
+        assert ttrt.runtime.DebugStats.get().get_stat("TraceStaleRecapture") == 1
+
     ttrt.runtime.DebugStats.get().clear()
     helper.teardown()
 
@@ -204,6 +209,10 @@ def test_trace_late_arriving_traced_graph(
                 device, victim_inputs, victim_golden
             )
 
+        # Pressure was fully captured before victim arrived.
+        # Victim's capture bumps generation, so pressure recaptures once.
+        assert ttrt.runtime.DebugStats.get().get_stat("TraceStaleRecapture") == 1
+
     ttrt.runtime.DebugStats.get().clear()
     helper.teardown()
 
@@ -249,6 +258,7 @@ def test_trace_matmul_multiply_with_consteval(
             assert debug_stats.get_stat("TraceCacheMiss") == 1
             assert debug_stats.get_stat("CapturedTrace") == 1
             assert debug_stats.get_stat("ExecutedTrace") == i
+            assert debug_stats.get_stat("TraceStaleRecapture") == 0
             assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
             assert debug_stats.get_stat("ConstEvalCacheHit") == i
 
@@ -270,6 +280,7 @@ def test_trace_matmul_multiply_with_consteval(
             assert debug_stats.get_stat("TraceCacheMiss") == 0
             assert debug_stats.get_stat("CapturedTrace") == 0
             assert debug_stats.get_stat("ExecutedTrace") == i + 1
+            assert debug_stats.get_stat("TraceStaleRecapture") == 0
             assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
             assert debug_stats.get_stat("ConstEvalCacheHit") == i
 
@@ -333,6 +344,7 @@ def test_mnist_linear_logits(helper: Helper, request, num_loops, trace_region_si
         assert debug_stats.get_stat("TraceCacheMiss") == 1
         assert debug_stats.get_stat("CapturedTrace") == 1
         assert debug_stats.get_stat("ExecutedTrace") == 0
+        assert debug_stats.get_stat("TraceStaleRecapture") == 0
 
         start_time = time.perf_counter() * 1000
         for i in range(num_loops - 1):
@@ -340,6 +352,7 @@ def test_mnist_linear_logits(helper: Helper, request, num_loops, trace_region_si
             assert debug_stats.get_stat("TraceCacheMiss") == 1
             assert debug_stats.get_stat("CapturedTrace") == 1
             assert debug_stats.get_stat("ExecutedTrace") == i + 1
+            assert debug_stats.get_stat("TraceStaleRecapture") == 0
         end_time = time.perf_counter() * 1000
         ttrt.runtime.memcpy(output_torch.data_ptr(), output)
 

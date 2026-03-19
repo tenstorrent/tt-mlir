@@ -170,6 +170,7 @@ static void captureTraceWithExistingSlots(
 
   // Copy current input data into the existing slots so the trace body
   // operates on fresh data at the warmup-allocated addresses.
+  // Uses the same version-based skip as executeTrace.
   for (size_t i = 0; i < op->inputs()->size(); i++) {
     const ::tt::target::ttnn::TensorRef *input = op->inputs()->Get(i);
     const ::tt::runtime::ttnn::TTNNTensorWrapper &inputTensorWrapper =
@@ -179,13 +180,12 @@ static void captureTraceWithExistingSlots(
         inputSlots[i].as<::tt::runtime::ttnn::TTNNTensorWrapper>(
             DeviceRuntime::TTNN);
 
-    // Skip copy if the slot IS the input (passthrough parameter — same buffer)
-    if (inputTensorWrapper.getTensor().buffer()->address() ==
-        slotWrapper.getTensor().buffer()->address()) {
+    if (inputTensorWrapper.getVersion() == slotWrapper.getVersion()) {
       continue;
     }
 
     copyTensor(input, inputTensorWrapper.getTensor(), slotWrapper.getTensor());
+    slotWrapper.syncVersion(inputTensorWrapper);
   }
 
   // Run trace body (warmup) — establishes program cache and memory layout
@@ -331,22 +331,14 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
               traceData->capturedAtGeneration, ", current gen ",
               traceCache->getDeviceGeneration(),
               "), invalidating and recapturing");
-    ::ttnn::operations::trace::release_trace(&meshDevice, traceData->traceId);
 
-    // Take input slots directly from TraceData for reuse during recapture
-    std::vector<::tt::runtime::Tensor> inputSlots =
-        std::move(traceData->inputTensors);
-    traceCache->eraseWithoutRelease(mainProgramKey, captureExecuteKey);
-
-    // Bump input slot versions to force fresh copies (addresses may have
-    // been corrupted by stale trace replays before this check)
-    for (auto &slot : inputSlots) {
-      slot.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
-          .updateVersion();
-    }
+    // Extract takes ownership — no dangling pointer risk
+    TraceData staleData =
+        traceCache->extract(mainProgramKey, captureExecuteKey);
+    ::ttnn::operations::trace::release_trace(&meshDevice, staleData.traceId);
 
     captureTraceWithExistingSlots(op, context, *traceCache,
-                                  std::move(inputSlots));
+                                  std::move(staleData.inputTensors));
 
     debug::Stats::get().incrementStat("TraceCacheMiss");
     debug::Stats::get().incrementStat("TraceStaleRecapture");
