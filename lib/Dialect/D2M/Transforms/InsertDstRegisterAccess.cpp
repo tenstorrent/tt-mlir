@@ -818,6 +818,8 @@ public:
       };
 
       // Collect CB->DST loads for this op's operands.
+      int numLoads = 0;
+      int firstInputDstSlice = -1;
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
         // Skip scalar operands - they don't need to be loaded from dst.
         if (computeOp.isScalarOperand(operandIdx)) {
@@ -827,8 +829,13 @@ public:
         auto potentialLoad = computeOp->getOperand(operandIdx)
                                  .getDefiningOp<affine::AffineLoadOp>();
         if (potentialLoad && notDstMemspace(potentialLoad)) {
+          int dstSlice = dstSliceAllocationState.allocate();
+          if (numLoads == 0) {
+            firstInputDstSlice = dstSlice;
+          }
+          ++numLoads;
           collectDstLoadOrStore<affine::AffineLoadOp>(
-              gOp, potentialLoad, copyInfos, dstSliceAllocationState.allocate(),
+              gOp, potentialLoad, copyInfos, dstSlice,
               outermostInnerComputeLoop);
         }
       }
@@ -860,6 +867,11 @@ public:
                 "would reference wrong tile, but those ops should be setting "
                 "output tile.");
             dstSlice = dstSliceAllocationState.getCurrSliceIndex();
+          } else if (numLoads >= 2) {
+            // SFPU binary/ternary ops: output overwrites first operand's slot
+            // to maximize DST utilization (same as scheduled path).
+            dstSlice = firstInputDstSlice;
+            dstSliceAllocationState.setStoreToDst();
           } else {
             dstSlice = dstSliceAllocationState.allocate();
             dstSliceAllocationState.setStoreToDst();
@@ -885,6 +897,10 @@ public:
                 "Only unary ops, tile matmul, reductions, and tile+scalar ops "
                 "supported for destination register in place.");
             dstSlice = dstSliceAllocationState.getCurrSliceIndex();
+          } else if (numLoads >= 2) {
+            // SFPU binary/ternary ops: output overwrites first operand's slot.
+            dstSlice = firstInputDstSlice;
+            dstSliceAllocationState.setStoreToDst();
           } else {
             dstSlice = dstSliceAllocationState.allocate();
             dstSliceAllocationState.setStoreToDst();
@@ -904,10 +920,16 @@ public:
 
           // If op stores to dst in place or has scalar rhs, we don't need to
           // allocate a new dst register, just use the current dst index.
-          int dstSlice =
-              (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1))
-                  ? dstSliceAllocationState.getCurrSliceIndex()
-                  : dstSliceAllocationState.allocate();
+          // For SFPU binary/ternary ops, output overwrites the first operand's
+          // slot to maximize DST utilization (same as scheduled path).
+          int dstSlice;
+          if (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1)) {
+            dstSlice = dstSliceAllocationState.getCurrSliceIndex();
+          } else if (numLoads >= 2) {
+            dstSlice = firstInputDstSlice;
+          } else {
+            dstSlice = dstSliceAllocationState.allocate();
+          }
 
           // Exception: the CB load of the load-bcast pair won't be captured by
           // the CB->DST load handling loop above.
