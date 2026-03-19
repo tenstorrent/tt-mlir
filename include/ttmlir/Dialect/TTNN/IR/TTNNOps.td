@@ -13,6 +13,7 @@ include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNTraits.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.td"
 
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
@@ -123,7 +124,7 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
 }
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_ElementwiseUnary] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -147,7 +148,7 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_DtypeOpInterface] # traits> {
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_DtypeOpInterface, TTNN_ElementwiseBinary] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -955,6 +956,8 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
   }];
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 def TTNN_ProdOp : TTNN_Op<"prod"> {
@@ -1117,8 +1120,8 @@ def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw", [TTNN_DtypeOpInterface, T
     let hasVerifier = 1;
 }
 
-def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum"> {
-  let summary = "Moreh cumulative sum op.";
+def TTNN_CumSumOp : TTNN_Op<"cumsum", [TTNN_DtypeOpInterface]> {
+  let summary = "Cumulative sum op.";
   let description = [{
     Computes the cumulative sum of elements of a tensor along specified dimension.
 
@@ -1136,7 +1139,8 @@ def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       I64Attr:$dim,
+                       I32Attr:$dim,
+                       OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);

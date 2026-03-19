@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -15,14 +16,17 @@ namespace mlir::tt {
 #define GEN_PASS_DEF_EMITPYCONSTEVALCACHING
 #include "ttmlir/Conversion/Passes.h.inc"
 
-// Post-conversion pass that wraps const-eval function calls and their dict
-// caching ops in an "if not dict:" guard. This ensures that cached results are
-// only computed on the first invocation.
+// Post-conversion pass that wraps const-eval function calls from the consteval
+// wrapper functions in an "if not dict:" guards. This ensures that cached
+// results are only computed on the first invocation.
 //
 namespace {
 
 using ttnn_to_emitpy::kConstEvaledAttr;
 using ttnn_to_emitpy::kNameAttr;
+
+constexpr const char *kCacheDictAttr = "cache_dict";
+constexpr const char *kWrapperAttr = "consteval_wrapper";
 
 class EmitPyConstEvalCaching
     : public impl::EmitPyConstEvalCachingBase<EmitPyConstEvalCaching> {
@@ -31,13 +35,11 @@ public:
       EmitPyConstEvalCaching>::EmitPyConstEvalCachingBase;
 
   // Collect all ops in the def-use chain.
-  // Forward pass: transitively collect users of each seed op's results.
-  // Backward pass: collect operand-defining ops, excluding the cache dict
-  // defining op which must remain outside the if-guard.
+  // Forward pass: transitively collect users of the given ops.
+  // Backward pass: collect operand-defining ops.
   // Returns the collected ops sorted by block position.
   llvm::SmallVector<Operation *>
-  collectDefUseChain(llvm::SetVector<Operation *> &ops, Block &block,
-                     Value cacheDict) {
+  collectDefUseChain(llvm::SetVector<Operation *> &ops, Block &block) {
     // Forward: collect transitive users.
     llvm::SmallVector<Operation *> worklist(ops.begin(), ops.end());
     while (!worklist.empty()) {
@@ -51,18 +53,14 @@ public:
       }
     }
 
-    // Backward: collect operand-defining ops. Skipping:
-    // - The cache dict defining op (GlobalStatementOp in no-split files case;
-    // otherwise, a cacheDict is a block arg).
-    // - Ops with users outside the collected set (shared between const-eval
-    //   and main paths, must stay in the parent block for dominance).
-    Operation *cacheDictDefOp = cacheDict.getDefiningOp();
+    // Backward: collect operand-defining ops. Skipping ops with users outside
+    // the collected set.
     worklist.assign(ops.begin(), ops.end());
     while (!worklist.empty()) {
       Operation *op = worklist.pop_back_val();
       for (auto operand : op->getOperands()) {
         auto *defOp = operand.getDefiningOp();
-        if (!defOp || defOp == cacheDictDefOp || defOp->getBlock() != &block) {
+        if (!defOp || defOp->getBlock() != &block) {
           continue;
         }
         if (llvm::any_of(defOp->getUsers(), [&](Operation *user) {
@@ -94,54 +92,60 @@ public:
 
       Block &body = funcOp.getBody().front();
 
-      // Identify the cache dictionary value.
-      // No-split files case: produced by a GlobalStatementOp with dict type
-      // at the top of the forward function body.
-      // Split files case: first argument of the wrapper function.
-      Value cacheDict = nullptr;
-
-      for (auto globalStmt : body.getOps<emitpy::GlobalStatementOp>()) {
-        if (isa<emitpy::DictType>(globalStmt.getResult().getType())) {
-          cacheDict = globalStmt.getResult();
-          // Set the name attribute of the callOp (this is the consteval wrapper
-          // function call) to the name of the cache dictionary for that
-          // function.
-          for (auto *user : cacheDict.getUsers()) {
-            if (auto callOp = dyn_cast<func::CallOp>(user)) {
-              callOp->setDiscardableAttr(
-                  kNameAttr, builder.getStringAttr(globalStmt.getName()));
+      // Set the `emitpy.name` attribute of the consteval wrapper function call
+      // in the forward function body.
+      if (ttmlir::utils::isForwardDeviceFunc(funcOp)) {
+        for (auto globalStmt : body.getOps<emitpy::GlobalStatementOp>()) {
+          if (globalStmt->hasAttr(kCacheDictAttr)) {
+            Value cacheDict = globalStmt.getResult();
+            for (auto *user : cacheDict.getUsers()) {
+              if (auto callOp = dyn_cast<func::CallOp>(user)) {
+                func::FuncOp callee = nullptr;
+                moduleOp.walk([&](func::FuncOp funcOp) {
+                  if (!funcOp.isDeclaration() &&
+                      funcOp.getName() == callOp.getCallee()) {
+                    callee = funcOp;
+                    return WalkResult::interrupt();
+                  }
+                  return WalkResult::advance();
+                });
+                if (callee && callee->hasAttr(kWrapperAttr)) {
+                  callOp->setDiscardableAttr(
+                      kNameAttr, builder.getStringAttr(globalStmt.getName()));
+                  return;
+                }
+              }
             }
+            globalStmt->removeDiscardableAttr(kCacheDictAttr);
           }
-          break;
         }
       }
 
-      if (!cacheDict && body.getNumArguments() > 0 &&
-          isa<emitpy::DictType>(body.getArgument(0).getType())) {
-        cacheDict = body.getArgument(0);
-      }
-
-      if (!cacheDict) {
+      if (!funcOp->hasAttr(kWrapperAttr)) {
         return;
       }
+
+      // Identify the cache dictionary value. It is the first argument of the
+      // consteval wrapper function.
+      Value cacheDict = funcOp.getArgument(0);
+      assert(cacheDict && "Cache dictionary not found as an argument of the "
+                          "consteval wrapper function");
 
       // Collect caching ops to put in the if body.
       llvm::SetVector<Operation *> opsToGuard;
       for (auto &op : body) {
         auto callOp = dyn_cast<emitpy::CallOpaqueOp>(&op);
-        if (!callOp || !callOp->hasAttr(kConstEvaledAttr)) {
-          continue;
+        if (callOp && callOp->hasAttr(kConstEvaledAttr)) {
+          opsToGuard.insert(callOp);
+          callOp->removeDiscardableAttr(kConstEvaledAttr);
         }
-        opsToGuard.insert(callOp);
-        callOp->removeDiscardableAttr(kConstEvaledAttr);
       }
 
-      if (opsToGuard.empty()) {
-        return;
-      }
+      assert(!opsToGuard.empty() && "No caching ops found in the consteval "
+                                    "wrapper function body");
 
       llvm::SmallVector<Operation *> opsToGuardChain =
-          collectDefUseChain(opsToGuard, body, cacheDict);
+          collectDefUseChain(opsToGuard, body);
 
       // Create if-guard and move the caching ops into the if body.
       builder.setInsertionPoint(opsToGuardChain.front());

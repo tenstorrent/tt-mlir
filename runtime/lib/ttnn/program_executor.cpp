@@ -67,7 +67,6 @@
 #include "operations/layout/typecast.h"
 #include "operations/matmul/matmul.h"
 #include "operations/mlir_native/func_call.h"
-#include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/batch_norm.h"
 #include "operations/normalization/distributed_rms_norm.h"
 #include "operations/normalization/group_norm.h"
@@ -78,6 +77,7 @@
 #include "operations/pool/upsample.h"
 #include "operations/rand/rand.h"
 #include "operations/reduction/argmax.h"
+#include "operations/reduction/cumsum.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "operations/reduction/topk.h"
@@ -268,8 +268,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::FuncCallOp: {
     return operations::mlir_native::run(op->type_as_FuncCallOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
-    return operations::moreh::run(op->type_as_MorehCumSumOp(), getContext());
+  case ::tt::target::ttnn::OpType::CumSumOp: {
+    return operations::reduction::cumsum::run(op->type_as_CumSumOp(),
+                                              getContext());
   }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
     return operations::reduction::run(op->type_as_ReductionArgMaxOp(),

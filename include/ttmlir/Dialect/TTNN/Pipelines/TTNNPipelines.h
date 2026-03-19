@@ -264,6 +264,11 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Enable implicit broadcast folding pass."),
       llvm::cl::init(true)};
 
+  Option<bool> dramSpaceSavingOptimizationEnabled{
+      *this, "enable-dram-space-saving-optimization-pass",
+      llvm::cl::desc("Enable DRAM space saving optimization pass."),
+      llvm::cl::init(false)};
+
   Option<bool> eraseInverseOpsEnabled{
       *this, "enable-erase-inverse-ops-pass",
       llvm::cl::desc("Enable erase inverse ops pass."), llvm::cl::init(true)};

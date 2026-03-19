@@ -693,6 +693,9 @@ struct EmitCTypeConverter<::ttnn::TensorMemoryLayout> {
     case ttnn::TensorMemoryLayout::WidthSharded:
       rso << "WIDTH_SHARDED";
       return buf;
+    case ttnn::TensorMemoryLayout::NDSharded:
+      rso << "ND_SHARDED";
+      return buf;
     }
 
     llvm_unreachable("Unknown ttnn::TensorMemoryLayout");

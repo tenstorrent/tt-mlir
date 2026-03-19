@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.cpp.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -3942,6 +3943,59 @@ verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
 }
 
 //===----------------------------------------------------------------------===//
+// ArgMaxOp
+//===----------------------------------------------------------------------===//
+
+// ArgMaxOp verification.
+::mlir::LogicalResult ArgMaxOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  int64_t inputRank = inputType.getRank();
+  std::optional<int32_t> dimOpt = getDim();
+  bool keepDim = getKeepDim();
+
+  if (dimOpt) {
+    int32_t dim = *dimOpt;
+    if (dim < -inputRank || dim >= inputRank) {
+      return emitOpError() << "dim attribute value " << dim
+                           << " is out of range for input tensor of rank "
+                           << inputRank << ", expected value in range ["
+                           << -inputRank << ", " << inputRank - 1 << "]";
+    }
+  }
+
+  // Compute expected output shape.
+  llvm::SmallVector<int64_t> expectedOutputShape;
+  if (dimOpt) {
+    int64_t normalizedDim = *dimOpt < 0 ? *dimOpt + inputRank : *dimOpt;
+    for (int64_t i = 0; i < inputRank; ++i) {
+      if (i == normalizedDim) {
+        if (keepDim) {
+          expectedOutputShape.push_back(1);
+        }
+      } else {
+        expectedOutputShape.push_back(inputType.getDimSize(i));
+      }
+    }
+  } else {
+    // No dim specified: reduce over all elements.
+    if (keepDim) {
+      expectedOutputShape.assign(inputRank, 1);
+    }
+  }
+
+  ::llvm::ArrayRef<int64_t> actualOutputShape =
+      getResult().getType().getShape();
+  if (!llvm::equal(actualOutputShape, expectedOutputShape)) {
+    return emitOpError() << "expected output shape ("
+                         << ttmlir::utils::join(expectedOutputShape, ", ")
+                         << "), got ("
+                         << ttmlir::utils::join(actualOutputShape, ", ") << ")";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // WriteTensorOp
 //===----------------------------------------------------------------------===//
 
@@ -4894,15 +4948,18 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    if (attentionMaskType.getShape()[0] != batchSize) {
-      return emitOpError(
-          "Attention mask batch size must match query batch size");
+    if (attentionMaskType.getShape()[0] != 1 &&
+        attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError("Attention mask batch size must be 1 (broadcast) or "
+                         "match query batch size");
     }
     if (attentionMaskType.getShape()[1] != 1) {
       return emitOpError("Attention mask dim 1 must be 1");
     }
-    if (attentionMaskType.getShape()[2] != nQueryHeads) {
-      return emitOpError("Attention mask num heads must match query num heads");
+    if (attentionMaskType.getShape()[2] != 1 &&
+        attentionMaskType.getShape()[2] != nQueryHeads) {
+      return emitOpError("Attention mask num heads must be 1 (broadcast) or "
+                         "match query num heads");
     }
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask sequence length must match key/value "
@@ -5083,12 +5140,15 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    if (attentionMaskType.getShape()[0] != batchSize) {
-      return emitOpError(
-          "Attention mask batch size must match query batch size");
+    if (attentionMaskType.getShape()[0] != 1 &&
+        attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError("Attention mask batch size must be 1 (broadcast) or "
+                         "match query batch size");
     }
-    if (attentionMaskType.getShape()[1] != 1) {
-      return emitOpError("Attention mask dim 1 must be 1");
+    if (attentionMaskType.getShape()[1] != 1 &&
+        attentionMaskType.getShape()[1] != nQueryHeads) {
+      return emitOpError("Attention mask dim 1 must be 1 (broadcast) or match "
+                         "query num heads");
     }
     if (attentionMaskType.getShape()[2] != seqLen) {
       return emitOpError(

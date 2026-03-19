@@ -54,6 +54,9 @@ struct StableHLOPipelineOptions
       llvm::cl::desc("Directory to dump variants into (default: current "
                      "directory)."),
       llvm::cl::init("")};
+  Option<bool> enableAggressiveSimplification{
+      *this, OptionNames::enableAggressiveSimplification,
+      llvm::cl::desc("Run StableHLO aggressive simplification pass.")};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{

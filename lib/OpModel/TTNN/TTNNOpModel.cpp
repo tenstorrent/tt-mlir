@@ -948,7 +948,7 @@ template struct UnaryEltwiseOpModel<ReciprocalOp>;
 template struct UnaryEltwiseOpModel<CbrtOp>;
 template struct UnaryEltwiseOpModel<BitwiseNotOp>;
 template struct UnaryEltwiseOpModel<SiluOp>;
-template struct UnaryEltwiseOpModel<MishOp>;
+template struct UnaryEltwiseWithFastApproxModeOpModel<MishOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp>;
@@ -2428,12 +2428,12 @@ llvm::Expected<size_t> OpModel<TransposeOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
-// MorehCumSumOp
+// CumSumOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<MorehCumSumOp>::getOpConstraints(
+llvm::Expected<OpConstraints> OpModel<CumSumOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, const int64_t dim,
-    TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr inputLayout, const int32_t dim,
+    std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2445,23 +2445,30 @@ llvm::Expected<OpConstraints> OpModel<MorehCumSumOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
+  if (dtype) {
+    ttnnDtype = conversion::getDataType(*dtype);
+  }
+
   // Create query closure
-  auto morehCumSumOpQuery = [=]() {
+  auto cumSumOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::moreh_cumsum, device, inputSpec, dim, std::nullopt,
+        ::ttnn::cumsum, device, inputSpec, dim, ttnnDtype, false, std::nullopt,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                     morehCumSumOpQuery);
+                                     cumSumOpQuery);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> OpModel<MorehCumSumOp>::getOpRuntime(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    const int64_t dim, TTNNLayoutAttr outputLayout) {
+llvm::Expected<size_t>
+OpModel<CumSumOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                TTNNLayoutAttr inputLayout, const int32_t dim,
+                                std::optional<ttcore::DataType> dtype,
+                                TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2473,14 +2480,19 @@ llvm::Expected<size_t> OpModel<MorehCumSumOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
+  if (dtype) {
+    ttnnDtype = conversion::getDataType(*dtype);
+  }
+
   // Create query closure
-  auto morehCumSumOpQuery = [=]() {
+  auto cumSumOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::moreh_cumsum, device, inputSpec, dim, std::nullopt,
+        ::ttnn::cumsum, device, inputSpec, dim, ttnnDtype, false, std::nullopt,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
-  return operation::getOpRuntime(morehCumSumOpQuery);
+  return operation::getOpRuntime(cumSumOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -3417,11 +3429,28 @@ llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  // tt-metal's nlp_concat_heads_decode infers on_subcoregrids from the input
+  // shard grid: if the CoreRangeSet has multiple ranges or doesn't start at
+  // (0,0), it sets on_subcoregrids=true and requires sub_core_grids.
+  // Compute sub_core_grids from the input layout so the subcoregrids path
+  // doesn't crash on a nullopt dereference in compute_output_specs.
+  std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
+  if (inputLayout.hasL1BufferType() && inputLayout.getMemLayout() &&
+      isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
+    auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
+    auto ranges = coreRangeSet.ranges();
+    if (ranges.size() != 1 ||
+        ranges[0].start_coord != ::tt::tt_metal::CoreCoord{0, 0}) {
+      subCoreGrids = coreRangeSet;
+    }
+  }
+
   // Create query closure
   auto nlpConcatHeadsDecodeOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::experimental::nlp_concat_heads_decode, device, inputSpec,
-        numHeads, detail::getNullableMemoryConfig(outputLayout));
+        numHeads, detail::getNullableMemoryConfig(outputLayout),
+        std::optional<::tt::tt_metal::Tensor>(std::nullopt), subCoreGrids);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -3445,11 +3474,25 @@ llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  // Pass sub_core_grids when the input shard grid would trigger subcoregrids
+  // (see getOpConstraints above for rationale).
+  std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
+  if (inputLayout.hasL1BufferType() && inputLayout.getMemLayout() &&
+      isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
+    auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
+    auto ranges = coreRangeSet.ranges();
+    if (ranges.size() != 1 ||
+        ranges[0].start_coord != ::tt::tt_metal::CoreCoord{0, 0}) {
+      subCoreGrids = coreRangeSet;
+    }
+  }
+
   // Create query closure
   auto nlpConcatHeadsDecodeOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::experimental::nlp_concat_heads_decode, device, inputSpec,
-        numHeads, detail::getNullableMemoryConfig(outputLayout));
+        numHeads, detail::getNullableMemoryConfig(outputLayout),
+        std::optional<::tt::tt_metal::Tensor>(std::nullopt), subCoreGrids);
   };
 
   return operation::getOpRuntime(nlpConcatHeadsDecodeOpQuery);

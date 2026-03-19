@@ -1,6 +1,6 @@
 if (TTMLIR_ENABLE_OPMODEL)
         add_definitions(-DTTMLIR_ENABLE_OPMODEL)
-        set(OPMODEL_SRCS Fusing/RoPEFusingPattern.cpp Fusing/TopKFusingPattern.cpp Fusing/FusionValidator.cpp)
+        set(OPMODEL_SRCS Fusing/RoPEFusingPattern.cpp Fusing/SDPAFusingPattern.cpp Fusing/TopKFusingPattern.cpp Fusing/FusionValidator.cpp)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
@@ -26,18 +26,18 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNRecoverStructure.cpp
         TTNNRecoverStructureUtils.cpp
         TTNNSetComputeKernelConfig.cpp
+        TTNNMemoryManagement.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
         TTNNTraceHoistTransform.cpp
         TTNNUniqueLocs.cpp
         TTNNWeightDtypeConversion.cpp
-        Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
+        Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
+        Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
         Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
         Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.cpp
-        Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
-        Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
         Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.cpp
         Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.cpp
@@ -46,6 +46,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
         Workarounds/Decomposition/ScatterOpRewritePattern.cpp
+        Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
         Workarounds/Decomposition/RMSNormConfigRewritePattern.cpp

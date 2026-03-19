@@ -570,4 +570,11 @@ def TTNNConfigureCCLOps : Pass<"ttnn-configure-ccl-ops", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
+  let summary = "Memory usage optimization pass.";
+  let description = [{
+    This pass moves slice ops and reorganizes repeat ops to reduce memory usage.
+  }];
+}
+
 #endif

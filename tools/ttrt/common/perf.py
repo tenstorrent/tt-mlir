@@ -141,6 +141,13 @@ class Perf:
             help="Enable benchmark mode with warmup and e2e time measurements (automatically enables program cache)",
         )
         Perf.register_arg(
+            name="--fabric-config",
+            type=str,
+            default="fabric_1d",
+            choices=None,
+            help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus_x, fabric_2d_torus_y, fabric_2d_torus_xy or custom (case-insensitive, default: fabric_1d)",
+        )
+        Perf.register_arg(
             name="binary",
             type=str,
             default="",
@@ -437,6 +444,11 @@ class Perf:
 
                     if self["--benchmark"]:
                         command_options += " --benchmark "
+
+                    if self["--fabric-config"] is not None:
+                        command_options += (
+                            f" --fabric-config {self['--fabric-config']} "
+                        )
 
                     if self["--ignore-version"]:
                         command_options += " --ignore-version "
