@@ -487,8 +487,8 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
 
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(op);
-    auto emptyOp = rewriter.create<ttnn::EmptyOp>(
-        loc, emptyTensorType, device,
+    auto emptyOp = ttnn::EmptyOp::create(
+        rewriter, loc, emptyTensorType, device,
         ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
         ttcore::DataTypeAttr::get(ctx, emptyLayoutAttr.getDataType()),
         ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()));
@@ -587,8 +587,8 @@ handleD2MResetGlobalSemaphore(d2m::ResetGlobalSemaphoreOp op,
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
-  rewriter.create<ttnn::ResetGlobalSemaphoreOp>(op.getLoc(), mappedSemaphore,
-                                                op.getValueAttr());
+  ttnn::ResetGlobalSemaphoreOp::create(rewriter, op.getLoc(), mappedSemaphore,
+                                       op.getValueAttr());
   return success();
 }
 
