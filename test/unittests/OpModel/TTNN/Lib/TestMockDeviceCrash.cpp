@@ -10,8 +10,10 @@
 // Tracked in https://github.com/tenstorrent/tt-metal/issues/39849
 //
 // Uses EXPECT_DEATH so this is an expected failure:
-//   - While #39849 is open: subprocess crashes -> EXPECT_DEATH passes -> CI green
-//   - When #39849 is fixed: subprocess doesn't crash -> EXPECT_DEATH fails -> CI red
+//   - While #39849 is open: subprocess crashes -> EXPECT_DEATH passes -> CI
+//   green
+//   - When #39849 is fixed: subprocess doesn't crash -> EXPECT_DEATH fails ->
+//   CI red
 //     This signals that the fix has landed and the TTMLIR_DISABLE_MOCK_DEVICE
 //     default can be flipped to OFF.
 // ============================================================================
@@ -62,8 +64,8 @@ TEST_F(MockDeviceCrashTest, ExpectCrashUntil39849IsFixed) {
 
   EXPECT_DEATH(
       {
-        auto result = OpModel<ReluOp>::getOpConstraints(
-            workerGrid, shape, layout, layout);
+        auto result = OpModel<ReluOp>::getOpConstraints(workerGrid, shape,
+                                                        layout, layout);
         if (result) {
           (void)result.get();
         } else {
