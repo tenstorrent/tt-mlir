@@ -162,7 +162,8 @@ ConcatOpPadDimRewritePattern::matchAndRewrite(ttnn::ConcatOp op,
           paddedOutputShape);
 
   // Create the new concat with padded inputs.
-  auto newConcatOp = rewriter.create<ttnn::ConcatOp>(
+  auto newConcatOp = ttnn::ConcatOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_padded_concat"),
       paddedOutputType, paddedInputs, op.getDimAttr(),
       op.getMemoryConfigAttr());
@@ -176,7 +177,8 @@ ConcatOpPadDimRewritePattern::matchAndRewrite(ttnn::ConcatOp op,
                             originalOutputShape.end());
   SmallVector<int32_t> steps(rank, 1);
 
-  auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
+  auto sliceOp = ttnn::SliceStaticOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_unpad_slice"),
       originalOutputType, newConcatOp.getResult(),
       rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),

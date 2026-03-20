@@ -99,7 +99,8 @@ LogicalResult ReshapeNarrowTiledRewritePattern::matchAndRewrite(
   RankedTensorType rmOutputType = utils::RankedTensorTypeFactory::create(
       rmInputResult.getType(), outputType.getShape());
 
-  auto reshapeOp = rewriter.create<ttnn::ReshapeOp>(
+  auto reshapeOp = ttnn::ReshapeOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshape_wa_rm"),
       rmOutputType, rmInputResult, op.getShapeAttr(),
       /*memory_config=*/nullptr);

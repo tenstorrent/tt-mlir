@@ -415,8 +415,8 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
 
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(op);
-    auto emptyOp = rewriter.create<ttnn::EmptyOp>(
-        loc, emptyTensorType, device,
+    auto emptyOp = ttnn::EmptyOp::create(
+        rewriter, loc, emptyTensorType, device,
         ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
         ttcore::DataTypeAttr::get(ctx, emptyLayoutAttr.getDataType()),
         ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()), memcfg);
@@ -476,9 +476,9 @@ static LogicalResult convertD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
-  auto emptyOp = rewriter.create<ttnn::EmptyOp>(op.getLoc(), tensorType, device,
-                                                shape, attrs->dtype,
-                                                attrs->layout, attrs->memcfg);
+  auto emptyOp =
+      ttnn::EmptyOp::create(rewriter, op.getLoc(), tensorType, device, shape,
+                            attrs->dtype, attrs->layout, attrs->memcfg);
   valueMapping[op.getResult()] = emptyOp.getResult();
   return success();
 }
@@ -498,9 +498,9 @@ static LogicalResult convertD2MFull(d2m::FullOp op, IRRewriter &rewriter,
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
-  auto fullOp = rewriter.create<ttnn::FullOp>(
-      op.getLoc(), tensorType, device, shape, op.getFillValueAttr(),
-      attrs->dtype, attrs->layout, attrs->memcfg);
+  auto fullOp = ttnn::FullOp::create(rewriter, op.getLoc(), tensorType, device,
+                                     shape, op.getFillValueAttr(), attrs->dtype,
+                                     attrs->layout, attrs->memcfg);
   valueMapping[op.getResult()] = fullOp.getResult();
   return success();
 }
@@ -522,8 +522,8 @@ handleD2MCreateGlobalSemaphore(d2m::CreateGlobalSemaphoreOp op,
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
-  auto ttnnOp = rewriter.create<ttnn::CreateGlobalSemaphoreOp>(
-      op.getLoc(), op.getValueAttr(), coreRange);
+  auto ttnnOp = ttnn::CreateGlobalSemaphoreOp::create(
+      rewriter, op.getLoc(), op.getValueAttr(), coreRange);
   valueMapping[op.getResult()] = ttnnOp.getResult();
   return success();
 }
@@ -543,8 +543,8 @@ handleD2MResetGlobalSemaphore(d2m::ResetGlobalSemaphoreOp op,
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
-  rewriter.create<ttnn::ResetGlobalSemaphoreOp>(op.getLoc(), mappedSemaphore,
-                                                op.getValueAttr());
+  ttnn::ResetGlobalSemaphoreOp::create(rewriter, op.getLoc(), mappedSemaphore,
+                                       op.getValueAttr());
   return success();
 }
 
