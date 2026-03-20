@@ -1667,12 +1667,17 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
     auto shardShape = streamShape.drop_front(streamShape.size() / 2);
 
-    auto bufferLayout =
-        mlir::dyn_cast<ttcore::ShardLayoutAttr>(bufferType.getLayout());
-    if (!bufferLayout) {
-      return;
+    // Use the generic's compute grid for the CB layout.  The grid rank must
+    // match the shard rank so that downstream [grid..shard..] + ShardLayoutAttr
+    // expansion (serializer, D2MToTTNN) produces a valid memref.  Collapse
+    // the compute grid to 2D when the shard rank is smaller.
+    SmallVector<int64_t> computeGrid;
+    auto rawGrid = genericOp.getGrid().getShape();
+    if (rawGrid.size() <= shardShape.size()) {
+      computeGrid.assign(rawGrid.begin(), rawGrid.end());
+    } else {
+      computeGrid = ttcore::collapseGridTo2D(rawGrid);
     }
-    auto operandGrid = bufferLayout.getGridShape(bufferType);
 
     for (Region &region : genericOp->getRegions()) {
       const auto operandIndex = operandCtx.operand->getOperandNumber();
@@ -1694,7 +1699,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       auto cbLayout = ttcore::CBLayoutAttr::get(
           genericOp.getContext(), shardShape,
           ttcore::getElementSizeBytes(operandType.getElementType()),
-          numStreamBuffers, operandGrid);
+          numStreamBuffers, computeGrid);
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPoint(oldAllocOp);
       auto newAllocOp = rewriter.create<memref::AllocOp>(
@@ -1787,18 +1792,21 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                     oldTensor.getDefiningOp())) {
               // Preserve memory space from the old memref type.
               auto oldMemRefType = mlir::cast<MemRefType>(oldTensor.getType());
-              // Extract the per-operand grid from bufferType.  This is the
-              // same grid that main uses for stream storage allocs
-              // (gridShapeRescaled from analyzeGenericOps).  Store it as-is
-              // in CBLayoutAttr — the serializer handles N-D grids
-              // via the existing ShardLayoutAttr conversion path.
-              auto bufferLayout =
-                  mlir::cast<ttcore::ShardLayoutAttr>(bufferType.getLayout());
-              auto operandGrid = bufferLayout.getGridShape(bufferType);
+              // Use the generic op's compute grid for the CB layout.
+              // CBs are allocated across all cores, so the compute grid
+              // is the most logically accurate grid to use here.  Collapse
+              // to match shard rank for valid [grid..shard..] expansion.
+              auto rawGrid = op.getGrid().getShape();
+              SmallVector<int64_t> computeGrid;
+              if (rawGrid.size() <= shardShape.size()) {
+                computeGrid.assign(rawGrid.begin(), rawGrid.end());
+              } else {
+                computeGrid = ttcore::collapseGridTo2D(rawGrid);
+              }
               auto cbLayout = ttcore::CBLayoutAttr::get(
                   streamType.getContext(), shardShape,
                   ttcore::getElementSizeBytes(streamType.getElementType()),
-                  numStreamBuffers, operandGrid);
+                  numStreamBuffers, computeGrid);
               auto newAllocOp = rewriter.create<memref::AllocOp>(
                   oldTensor.getLoc(),
                   MemRefType::get(shardShape, streamType.getElementType(),
