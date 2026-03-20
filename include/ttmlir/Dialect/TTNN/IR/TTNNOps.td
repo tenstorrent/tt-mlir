@@ -2742,6 +2742,29 @@ def TTNN_ScatterOp : TTNN_Op<"scatter">{
     }];
 }
 
+def TTNN_GatherOp : TTNN_Op<"gather", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Gather op.";
+    let description = [{
+      Gathers values from the input tensor along the given dimension using an
+      index tensor. This corresponds to torch.gather semantics and maps
+      directly to the tt-metal `ttnn::gather` device op.
+
+      Parameters:
+        - `input` (ttnn.Tensor): The source tensor to gather from.
+        - `index` (ttnn.Tensor): Indices specifying which values to gather.
+        - `dim` (int32_t): The dimension along which to gather.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$index,
+                         I32Attr:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
     let summary = "All gather op.";
     let description = [{
@@ -2807,6 +2830,28 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface]> {
     let hasVerifier = 1;
 
     let hasFolder = 1;
+}
+
+def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Asynchronous all reduce op.";
+    let description = [{
+        Asynchronous all-reduce collective communication operation. Performs a
+        reduction (e.g. sum) across all devices in a mesh and distributes the
+        result back to all devices, using async execution to overlap
+        communication with computation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTCore_ReduceTypeAttr:$reduce_type,
+                         UI32Attr:$cluster_axis,
+                         OptionalAttr<UI32Attr>:$sub_device_id,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
@@ -3446,6 +3491,41 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(getOperation());
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
+def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_latent_attention_decode", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
+  let summary = "Paged flash multi-latent attention decode operation.";
+  let description = [{
+    Paged flash Multi-Latent Attention (MLA) for the decode phase. Combines
+    flash attention with multi-latent attention and paged KV cache support,
+    optimized for single-token decode.
+
+    Key difference from PagedScaledDotProductAttentionDecode: the value tensor
+    is optional (may be null for latent-only MLA) and head_dim_v specifies the
+    value head dimension separately.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       Optional<AnyRankedTensor>:$value,
+                       UI32Attr:$head_dim_v,
+                       AnyRankedTensor:$page_table,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       Optional<AnyRankedTensor>:$cur_pos_tensor,
+                       Optional<AnyRankedTensor>:$attention_sink,
+                       OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedFlashMultiLatentAttentionDecodeOpOperandsWorkarounds(getOperation());
     }
   }];
 

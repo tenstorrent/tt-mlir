@@ -2981,3 +2981,208 @@ def test_presharded_arg(target, mesh_shape, request, device):
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         **get_request_kwargs(request),
     )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "input_shape,index_shape,dim",
+    [
+        ((32, 64), (32, 16), 1),
+        ((64, 32), (16, 32), 0),
+    ],
+    ids=["dim1", "dim0"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_gather_dim(
+    input_shape: Shape,
+    index_shape: Shape,
+    dim: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [input_shape, index_shape],
+            [torch.bfloat16, torch.uint32],
+        )
+        def gather_dim(in0: Operand, index: Operand, builder: TTIRBuilder):
+            # Override random index tensor with valid indices for torch.gather
+            # TTNN gather requires UINT32 or UINT16 index tensors
+            max_idx = input_shape[dim]
+            valid_index = torch.randint(0, max_idx, index_shape, dtype=torch.int32).to(
+                torch.uint32
+            )
+            builder.set_goldens({index: valid_index}, {})
+            return builder.gather_dim(in0, index, dim=dim)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        (64, 64),
+        (32, 64),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize(
+    "mesh_shape, cluster_axis",
+    [
+        ((1, 2), 1),
+        ((2, 4), 0),
+        ((2, 4), 1),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+def test_all_reduce_async(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    cluster_axis: int,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    rank_in = len(test_shape)
+    rank_mesh = len(mesh_shape)
+
+    if rank_mesh > rank_in:
+        raise ValueError(
+            f"Mesh shape {mesh_shape} has {rank_mesh} dimensions, but test shape "
+            f"{test_shape} only has {rank_in} dimensions. Cannot shard more "
+            f"dimensions than exist in the tensor."
+        )
+
+    # Take the last `rank_mesh` dims as sharded dims
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
+
+    full_input_shape = list(test_shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
+    def module(builder: TTIRBuilder):
+        @builder.func([full_input_shape], [dtype])
+        def all_reduce_async(in0: Operand, builder: TTIRBuilder):
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+            all_reduce_async0 = builder.all_reduce_async(
+                in_shard,
+                reduce_type=ReduceType.Sum.value,
+                cluster_axis=cluster_axis,
+            )
+
+            return builder.mesh_shard(
+                all_reduce_async0,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        mesh_name="mesh",
+        device=device,
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        **get_request_kwargs(request),
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "batch,n_heads,nkv,kv_lora_rank,d_rope,seq_len,block_size",
+    [
+        # Small MLA config from tt-metal unit tests (test_mla_decode.py Case B)
+        (2, 8, 1, 128, 64, 1024, 64),
+    ],
+    ids=["small_mla"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_paged_flash_multi_latent_attention_decode(
+    batch: int,
+    n_heads: int,
+    nkv: int,
+    kv_lora_rank: int,
+    d_rope: int,
+    seq_len: int,
+    block_size: int,
+    target: str,
+    request,
+    device,
+):
+    # MLA tensor layout from tt-metal (after permute to S,B,H,D):
+    #   Q: [1, batch, n_heads, kv_lora_rank + d_rope]
+    #   K (paged): [num_blocks, nkv, block_size, kv_lora_rank + d_rope]
+    #   V: None (derived from K[..., :kv_lora_rank])
+    #   head_dim_v: kv_lora_rank
+    #   scale: (kv_lora_rank + d_rope)**-0.5
+    head_dim = kv_lora_rank + d_rope
+    head_dim_v = kv_lora_rank
+    num_blocks = seq_len // block_size * batch
+    blocks_per_user = seq_len // block_size
+
+    query_shape = (1, batch, n_heads, head_dim)
+    key_shape = (num_blocks, nkv, block_size, head_dim)
+    page_table_shape = (batch, blocks_per_user)
+    cur_pos_shape = (batch,)
+
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [query_shape, key_shape, page_table_shape, cur_pos_shape],
+            [torch.bfloat16, torch.bfloat16, torch.int32, torch.int32],
+        )
+        def paged_flash_mla_decode(
+            query: Operand,
+            key: Operand,
+            page_table: Operand,
+            cur_pos: Operand,
+            builder: TTIRBuilder,
+        ):
+            # Generate valid page table indices and current position
+            valid_page_table = (
+                torch.arange(blocks_per_user, dtype=torch.int32)
+                .unsqueeze(0)
+                .expand(batch, -1)
+                .contiguous()
+            )
+            # Matches tt-metal: np.linspace(0, seq_len // 2, batch)
+            import numpy as np
+
+            valid_cur_pos = torch.tensor(
+                np.linspace(0, seq_len // 2, batch, dtype=np.int32).tolist(),
+                dtype=torch.int32,
+            )
+            builder.set_goldens(
+                {page_table: valid_page_table, cur_pos: valid_cur_pos}, {}
+            )
+
+            return builder.paged_flash_multi_latent_attention_decode(
+                query,
+                key,
+                value=None,
+                head_dim_v=head_dim_v,
+                page_table=page_table,
+                is_causal=True,
+                cur_pos_tensor=cur_pos,
+                scale=head_dim**-0.5,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )

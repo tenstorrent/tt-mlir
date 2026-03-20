@@ -867,28 +867,28 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     rso << TypeNameV<::ttnn::operations::reduction::ReduceType> << "::";
     switch (attr) {
     case ttcore::ReduceType::Sum:
-      rso << "SUM";
+      rso << "Sum";
       return buf;
     case ttcore::ReduceType::Mean:
-      rso << "MEAN";
+      rso << "Mean";
       return buf;
     case ttcore::ReduceType::Max:
-      rso << "MAX";
+      rso << "Max";
       return buf;
     case ttcore::ReduceType::Min:
-      rso << "MIN";
+      rso << "Min";
       return buf;
     case ttcore::ReduceType::Std:
-      rso << "STD";
+      rso << "Std";
       return buf;
     case ttcore::ReduceType::Var:
-      rso << "VAR";
+      rso << "Var";
       return buf;
     case ttcore::ReduceType::Prod:
-      rso << "PROD";
+      rso << "Prod";
       return buf;
     case ttcore::ReduceType::Invalid:
-      rso << "INVALID";
+      rso << "Invalid";
       return buf;
     }
 
