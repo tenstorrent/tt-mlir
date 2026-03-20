@@ -76,7 +76,57 @@ static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
               index(rewriter, loc, 1))};
 }
 
+static Value getCBForHoistedOperand(ConversionPatternRewriter &rewriter,
+                                    d2m::GetGlobalOperandOp globalOperand) {
+  auto cbForOperandAttr =
+      globalOperand->getAttrOfType<IntegerAttr>("d2m.cb_for_operand");
+  if (!cbForOperandAttr) {
+    return Value();
+  }
+
+  func::FuncOp func = globalOperand->getParentOfType<func::FuncOp>();
+  TT_assert(func);
+
+  for (d2m::GetCBOp getCBOp : func.getOps<d2m::GetCBOp>()) {
+    std::optional<int64_t> operandIndex = getCBOp.getOperandIndex();
+    if (!operandIndex || *operandIndex != cbForOperandAttr.getInt()) {
+      continue;
+    }
+    Value remappedCB = rewriter.getRemappedValue(getCBOp.getResult());
+    TT_assertv(remappedCB,
+               "Expected remapped d2m.get_cb for hoisted CB operand {}",
+               cbForOperandAttr.getInt());
+    return remappedCB;
+  }
+
+  TT_assertv(false, "Expected d2m.get_cb for hoisted CB operand {}",
+             cbForOperandAttr.getInt());
+  llvm_unreachable("Expected d2m.get_cb for hoisted CB operand");
+}
+
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
+  if (auto reserveOp = cb.getDefiningOp<d2m::ReserveOp>()) {
+    return rewriter.getRemappedValue(reserveOp.getCb());
+  }
+
+  if (auto waitOp = cb.getDefiningOp<d2m::WaitOp>()) {
+    return rewriter.getRemappedValue(waitOp.getCb());
+  }
+
+  if (auto collapseOp = cb.getDefiningOp<memref::CollapseShapeOp>()) {
+    return getCB(rewriter, collapseOp.getSrc());
+  }
+
+  if (auto expandOp = cb.getDefiningOp<memref::ExpandShapeOp>()) {
+    return getCB(rewriter, expandOp.getSrc());
+  }
+
+  if (auto globalOperand = cb.getDefiningOp<d2m::GetGlobalOperandOp>()) {
+    if (Value assocCB = getCBForHoistedOperand(rewriter, globalOperand)) {
+      return assocCB;
+    }
+  }
+
   if (memref::LoadOp loadOp =
           mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
       loadOp) {
@@ -139,7 +189,7 @@ static Value getInOrOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
     return WalkResult::advance();
   });
   assert(cb && "CB not found.");
-  return rewriter.getRemappedValue(cb);
+  return getCB(rewriter, cb);
 }
 
 // This is a workaround special case for getting an input CB. This whole
@@ -154,7 +204,28 @@ static Value getInCB(ConversionPatternRewriter &rewriter, Operation *op) {
 // routine should go away with issue:
 // https://github.com/tenstorrent/tt-mlir/issues/3602
 static Value getOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
-  // Search for a store to L1.
+  memref::StoreOp storeOp;
+  for (Value result : op->getResults()) {
+    for (Operation *user : result.getUsers()) {
+      auto maybeStore = mlir::dyn_cast<memref::StoreOp>(user);
+      if (!maybeStore || ttcore::getMemorySpace(maybeStore.getMemRef()) !=
+                             ttcore::MemorySpace::DeviceL1) {
+        continue;
+      }
+
+      if (!storeOp || (storeOp->getBlock() != op->getBlock() &&
+                       maybeStore->getBlock() == op->getBlock())) {
+        storeOp = maybeStore;
+      }
+    }
+  }
+
+  if (storeOp) {
+    return getCB(rewriter, storeOp.getMemRef());
+  }
+
+  // Fallback for older patterns that do not wire the result directly to the
+  // output L1 store.
   return getInOrOutCB<memref::StoreOp>(rewriter, op);
 }
 
@@ -423,7 +494,7 @@ public:
                                      memref::StoreOpAdaptor adaptor,
                                      ConversionPatternRewriter &rewriter) {
     auto dst = adaptor.getValue();
-    auto cb = adaptor.getMemref();
+    auto cb = getCB(rewriter, store.getMemRef());
     auto storeIdx =
         computeLinearIndex(store.getLoc(), store.getMemRefType().getShape(),
                            adaptor.getIndices(), rewriter);
@@ -1549,6 +1620,10 @@ static Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc, Value cb) {
   // 2. It can represent remote data, which we need to lower to a compile time
   // address (I32 type)
   // More information on ticket #3172
+  if (mlir::isa<IntegerType>(cb.getType())) {
+    return cb;
+  }
+
   return rewriter
       .create<UnrealizedConversionCastOp>(loc, rewriter.getI32Type(), cb)
       ->getResult(0);

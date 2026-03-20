@@ -4,15 +4,12 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
-#include "ttmlir/Asserts.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Utils.h"
-
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/IR/PatternMatch.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -22,15 +19,19 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Helper function to check if an operand is remote (i.e., comes from a view op
-// such as view_layout or stream_layout).
-static bool isRemoteOperand(Value operand, Operation *op) {
-  Operation *defOp = operand.getDefiningOp();
-  if (!defOp) {
-    return false;
+static LogicalResult verifyRemoteLoadStoreMemref(Operation *op,
+                                                 Value memrefOperand) {
+  GenericOp generic = op->getParentOfType<GenericOp>();
+  if (!generic) {
+    return op->emitError("must be nested in d2m.generic");
   }
-  // Remote operands are those that come from ops implementing ViewOpInterface
-  return mlir::isa<ViewOpInterface>(defOp);
+
+  if (!llvm::is_contained(generic.getInputsAndOutputs(), memrefOperand)) {
+    return op->emitError(
+        "must access a d2m.generic input/output operand as its memref operand");
+  }
+
+  return success();
 }
 
 // Helper function to find the ReserveOp that produces a given value,
@@ -60,141 +61,111 @@ static ReserveOp findReserveOp(Value value) {
   return nullptr;
 }
 
-// Recognize and simplify the load-store idiom where a remote_load and
-// remote_store share the same local buffer:
-//   %buffer = memref.alloc()
-//   %loaded = remote_load %buffer %input[indices]
-//   %result = remote_store %output[indices] %buffer
-// One of the operands is always a local CB, so this load-store pair can
-// always be simplified to either a load or a store to a local CB, eliminating
-// the other op and avoiding a redundant copy.
-static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
-                                   CBCache &cache, PortCounter &portCounters) {
-  SmallVector<std::pair<RemoteLoadOp, RemoteStoreOp>> loadStorePairsToSimplify;
-  moduleOp->walk([&](GenericOp generic) {
-    // Collect all candidate load-store pairs in the generic region
-    generic->walk([&](RemoteStoreOp storeOp) {
-      if (!storeOp.isImplicitForm()) {
-        return;
+// Replace only uses owned by operations in the given block. This avoids
+// rewriting enclosing d2m.generic operands to values defined inside the region.
+static void replaceUsesInBlock(Value from, Value to, Block *block,
+                               Operation *excludedUser = nullptr) {
+  auto isInBlockOrNestedRegion = [&](Operation *op) {
+    Block *ownerBlock = op->getBlock();
+    while (ownerBlock) {
+      if (ownerBlock == block) {
+        return true;
       }
-      Value localBuffer = storeOp.getLocalBuffer();
-      if (!localBuffer) {
-        return;
+      Operation *parentOp = ownerBlock->getParentOp();
+      if (!parentOp) {
+        return false;
       }
+      ownerBlock = parentOp->getBlock();
+    }
+    return false;
+  };
 
-      // Find a RemoteLoadOp that uses the same localBuffer
-      RemoteLoadOp matchingLoadOp = nullptr;
-      for (Operation *user : localBuffer.getUsers()) {
-        if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(user)) {
-          if (loadOp.isImplicitForm() &&
-              loadOp.getLocalBuffer() == localBuffer) {
-            matchingLoadOp = loadOp;
-            break;
-          }
-        }
-      }
-
-      if (!matchingLoadOp) {
-        return;
-      }
-
-      // Found a load-store pair sharing the same localBuffer
-      loadStorePairsToSimplify.push_back({matchingLoadOp, storeOp});
-    });
-  });
-
-  // Simplify each load-store pair
-  for (auto [loadOp, storeOp] : loadStorePairsToSimplify) {
-    Location loc = loadOp.getLoc();
-    GenericOp generic = loadOp->getParentOfType<GenericOp>();
-    if (!generic) {
+  SmallVector<OpOperand *> usesToReplace;
+  for (OpOperand &use : from.getUses()) {
+    Operation *owner = use.getOwner();
+    if (owner == excludedUser || !isInBlockOrNestedRegion(owner)) {
       continue;
     }
-
-    // Determine which operand is remote (has a view/stream layout)
-    // In dma-only form, one operand typically has a view transformation
-    Value loadMemref = loadOp.getMemref();
-    Value storeMemref = storeOp.getMemref();
-
-    // Find operand indices (verification guarantees these exist)
-    auto opOperands = generic->getOpOperands();
-    auto *loadOperandIt = llvm::find_if(opOperands, [&](OpOperand &opOperand) {
-      return opOperand.get() == loadMemref;
-    });
-    auto *storeOperandIt = llvm::find_if(opOperands, [&](OpOperand &opOperand) {
-      return opOperand.get() == storeMemref;
-    });
-    TT_assert((loadOperandIt != opOperands.end() &&
-               storeOperandIt != opOperands.end()));
-    TT_assert(generic.getNumRegions() == 1u);
-
-    // Get CB values for the input and output operands.
-    Value inputCB = findAssociatedCB(loadOp.getOperation(), loadMemref,
-                                     rewriter, cache, portCounters);
-    Value outputCB = findAssociatedCB(storeOp.getOperation(), storeMemref,
-                                      rewriter, cache, portCounters);
-    TT_assert((inputCB && outputCB));
-
-    rewriter.setInsertionPoint(loadOp);
-
-    // Case A: Load from remote (input has view layout) -> load into output CB
-    // Case B: Store to remote (output has view layout) -> store from input CB
-    bool isRemoteLoad = isRemoteOperand(loadMemref, loadOp.getOperation());
-    bool isRemoteStore = isRemoteOperand(storeMemref, storeOp.getOperation());
-
-    TT_assert(!(isRemoteLoad && isRemoteStore));
-    // When neither operand is remote (e.g., L1-to-L1 layout conversions in
-    // TTNN mode where operands come from TTNNMetalLayoutCastOp rather than
-    // ViewOpInterface), both the load and store are needed — skip
-    // simplification.
-    if (!isRemoteLoad && !isRemoteStore) {
-      continue;
-    }
-    if (!isRemoteStore) {
-      // Create the explicit CB form of remote_load (no localBuffer, has CB
-      // operand)
-      rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(),
-                                    outputCB, loadOp.getMcastStartIndex(),
-                                    loadOp.getMcastShape());
-    } else {
-      rewriter.create<RemoteStoreOp>(loc, storeMemref, loadOp.getIndices(),
-                                     inputCB);
-    }
-
-    // Get the shared localBuffer before erasing operations
-    Value localBuffer = loadOp.getLocalBuffer();
-    memref::AllocOp allocToErase = nullptr;
-    if (localBuffer) {
-      allocToErase = mlir::dyn_cast_if_present<memref::AllocOp>(
-          localBuffer.getDefiningOp());
-    }
-
-    // Erase the original load and store operations
-    rewriter.eraseOp(storeOp);
-    rewriter.eraseOp(loadOp);
-
-    // Erase the shared alloc if it's now unused
-    if (allocToErase && allocToErase->use_empty()) {
-      rewriter.eraseOp(allocToErase);
-    }
+    usesToReplace.push_back(&use);
+  }
+  for (OpOperand *use : usesToReplace) {
+    use->set(to);
   }
 }
 
+// Find the first remote_store in reserveOp's block that consumes the same CB
+// and appears after reserveOp.
+static RemoteStoreOp getFirstFollowingRemoteStoreForCb(ReserveOp reserveOp,
+                                                       Value cb) {
+  if (!reserveOp || !cb) {
+    return nullptr;
+  }
+
+  for (Operation *op = reserveOp->getNextNode(); op; op = op->getNextNode()) {
+    auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(op);
+    if (remoteStore && remoteStore.getCb() == cb) {
+      return remoteStore;
+    }
+  }
+
+  return nullptr;
+}
+
 // Structure to hold information needed for push/pop insertion
+struct PendingPopInfo {
+  Value cb;
+  Location loc;
+  Block *insertionBlock;
+};
+
 struct PushPopInfo {
-  SmallVector<std::pair<Value, Location>> cbsNeedingPop;
+  SmallVector<PendingPopInfo> popsNeedingInsertion;
   SmallVector<std::pair<ReserveOp, Value>> reserveOpsNeedingPush;
 };
 
+// Validate shared local-buffer forwarding legality between an implicit
+// remote_load and implicit remote_store users. If forwarding is legal, returns
+// the unique store user that can be folded into the forward-able pair path.
+static LogicalResult getLegalForwardableStore(RemoteLoadOp remoteLoad,
+                                              Value localBuffer,
+                                              RemoteStoreOp &forwardableStore) {
+  forwardableStore = nullptr;
+  if (!localBuffer) {
+    return success();
+  }
+
+  forwardableStore = utils::findForwardableStore(remoteLoad);
+  if (forwardableStore) {
+    if (remoteLoad.isMcast()) {
+      return remoteLoad.emitOpError(
+          "multicast d2m.remote_load cannot be forwarded to d2m.remote_store");
+    }
+    return success();
+  }
+
+  // findForwardableStore returned null. If any implicit store users of the
+  // local buffer exist, the pattern is illegal at this point in the pipeline.
+  for (Operation *user : localBuffer.getUsers()) {
+    auto storeUser = mlir::dyn_cast<RemoteStoreOp>(user);
+    if (!storeUser || !storeUser.isImplicitForm() ||
+        storeUser.getLocalBuffer() != localBuffer) {
+      continue;
+    }
+
+    return remoteLoad.emitOpError("local buffer shared between "
+                                  "d2m.remote_load and d2m.remote_store must "
+                                  "form an exclusive forward-able pair");
+  }
+
+  return success();
+}
+
 // Pass A: Convert all remote_load and remote_store into explicit CB form.
 // Returns information needed for push/pop insertion.
-static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
-                                           IRRewriter &rewriter, CBCache &cache,
-                                           PortCounter &portCounters) {
-  PushPopInfo info;
-
-  // Pre-process generics with load-store idiom
-  simplifyLoadStorePairs(moduleOp, rewriter, cache, portCounters);
+static LogicalResult convertToExplicitCBForm(ModuleOp moduleOp,
+                                             IRRewriter &rewriter,
+                                             PushPopInfo &info, CBCache &cache,
+                                             PortCounter &portCounters) {
 
   // Transform RemoteLoadOp (implicit form -> explicit CB form)
   SmallVector<RemoteLoadOp> remoteLoadsToConvert;
@@ -209,30 +180,57 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
   for (RemoteLoadOp remoteLoad : remoteLoadsToConvert) {
     Location loc = remoteLoad.getLoc();
     Value memref = remoteLoad.getMemref();
+
+    if (failed(
+            verifyRemoteLoadStoreMemref(remoteLoad.getOperation(), memref))) {
+      return failure();
+    }
+
     Value assocCb = remoteLoad.isImplicitForm()
                         ? findAssociatedCB(remoteLoad.getOperation(), memref,
                                            rewriter, cache, portCounters)
                         : remoteLoad.getCb();
 
     if (!assocCb) {
-      remoteLoad.emitWarning("could not find associated CB block argument, "
-                             "skipping conversion");
-      continue;
+      remoteLoad.emitError(
+          "could not find associated CB block argument for memref operand");
+      return failure();
     }
 
     // Get the local buffer (destination) from implicit form remote_load
     // Downstream operations may reference this buffer directly
     Value localBuffer = remoteLoad.getLocalBuffer();
-    // Only erase allocs that live inside the generic (local working buffers).
-    // Hoisted CB allocs live outside as additionalArgs and must not be erased.
-    GenericOp generic = remoteLoad->getParentOfType<GenericOp>();
     memref::AllocOp allocToErase = nullptr;
+    RemoteStoreOp forwardableStore = nullptr;
     if (localBuffer) {
       if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
               localBuffer.getDefiningOp())) {
-        if (generic && generic->isAncestor(allocOp)) {
-          allocToErase = allocOp;
+        allocToErase = allocOp;
+      }
+      if (failed(getLegalForwardableStore(remoteLoad, localBuffer,
+                                          forwardableStore))) {
+        return failure();
+      }
+    }
+
+    Value loadTargetCb = assocCb;
+    bool eraseForwardableStoreWithoutReplacement = false;
+    if (forwardableStore) {
+      Value storeMemref = forwardableStore.getMemref();
+      bool storeMemrefIsStreamBacked =
+          mlir::isa_and_nonnull<StreamLayoutOp>(storeMemref.getDefiningOp());
+      if (!storeMemrefIsStreamBacked) {
+        // If the forwardable store targets a local generic operand (no stream),
+        // load directly into that output operand's CB and drop the store.
+        loadTargetCb =
+            findAssociatedCB(forwardableStore.getOperation(), storeMemref,
+                             rewriter, cache, portCounters);
+        if (!loadTargetCb) {
+          forwardableStore.emitError(
+              "could not find associated CB for forwarded memref operand");
+          return failure();
         }
+        eraseForwardableStoreWithoutReplacement = true;
       }
     }
 
@@ -240,11 +238,44 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
 
     // Create the explicit CB form of remote_load (no localBuffer, no result,
     // has CB operand) d2m.remote_load %memref[indices] into %cb
-    rewriter.create<RemoteLoadOp>(loc, memref, remoteLoad.getIndices(), assocCb,
-                                  remoteLoad.getMcastStartIndex(),
-                                  remoteLoad.getMcastShape());
+    auto explicitRemoteLoad = rewriter.create<RemoteLoadOp>(
+        loc, memref, remoteLoad.getIndices(), loadTargetCb,
+        remoteLoad.getMcastStartIndex(), remoteLoad.getMcastShape());
 
-    // Create wait operation to produce the result value
+    // Forward-able pair:
+    //   remote_load %buf %in[...]
+    //   remote_store %out[...] %buf
+    // Lower both to the same CB without introducing reserve/push.
+    //
+    // When the store remains as an explicit remote_store that consumes the same
+    // CB as the load, wait/pop stay implicit in that store path and must not be
+    // materialized here. If the store folds away entirely (e.g. the forwarded
+    // destination is a local generic operand), the remote_load becomes the lone
+    // consumer and we must still materialize wait/pop.
+    if (forwardableStore) {
+      rewriter.setInsertionPointAfter(explicitRemoteLoad);
+      if (eraseForwardableStoreWithoutReplacement) {
+        auto waitOp = rewriter.create<WaitOp>(loc, loadTargetCb);
+        if (remoteLoad.getResult()) {
+          replaceUsesInBlock(remoteLoad.getResult(), waitOp.getResult(),
+                             remoteLoad->getBlock(), remoteLoad.getOperation());
+        }
+        info.popsNeedingInsertion.push_back(
+            {loadTargetCb, loc, remoteLoad->getBlock()});
+      } else {
+        rewriter.create<RemoteStoreOp>(
+            forwardableStore.getLoc(), forwardableStore.getMemref(),
+            forwardableStore.getIndices(), loadTargetCb);
+      }
+      rewriter.eraseOp(forwardableStore);
+      rewriter.eraseOp(remoteLoad);
+      if (allocToErase && allocToErase->use_empty()) {
+        rewriter.eraseOp(allocToErase);
+      }
+      continue;
+    }
+
+    // Create wait operation to produce the result value.
     // %in = d2m.wait %cb
     auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
 
@@ -275,29 +306,28 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
       }
     }
 
-    // Replace uses of the local buffer with the wait result.
-    // Only replace uses inside the generic's regions — the local buffer may
-    // be an additionalArg (hoisted CB alloc) whose operand on the generic op
-    // itself must not be touched.
+    // Replace all uses of the local buffer with the wait result
+    // This is important because downstream operations may reference the
+    // localBuffer directly (e.g., remote_store using the alloc result)
     if (localBuffer) {
-      rewriter.replaceUsesWithIf(
-          localBuffer, waitOp.getResult(), [&](OpOperand &use) {
-            return generic && generic->isProperAncestor(use.getOwner());
-          });
+      replaceUsesInBlock(localBuffer, waitOp.getResult(),
+                         remoteLoad->getBlock(), remoteLoad.getOperation());
     }
 
     // Replace all uses of remote_load result with wait result
     if (remoteLoad.getResult()) {
-      rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
+      replaceUsesInBlock(remoteLoad.getResult(), waitOp.getResult(),
+                         remoteLoad->getBlock(), remoteLoad.getOperation());
     }
 
     // Track CB that needs pop insertion (deferred to Pass B)
-    info.cbsNeedingPop.push_back({assocCb, loc});
+    info.popsNeedingInsertion.push_back({assocCb, loc, remoteLoad->getBlock()});
 
     // Erase the original remote_load operation
     rewriter.eraseOp(remoteLoad);
 
-    if (allocToErase) {
+    // Erase the memref.alloc if it was the local buffer source
+    if (allocToErase && allocToErase->use_empty()) {
       rewriter.eraseOp(allocToErase);
     }
   }
@@ -356,11 +386,12 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     rewriter.eraseOp(allocOp);
   }
 
-  // Transform RemoteStoreOp: convert implicit form to explicit CB form, and
-  // ensure explicit form stores (e.g., created by simplifyLoadStorePairs) get
-  // reserve/push inserted for CB synchronization.
+  // Transform RemoteStoreOp (implicit form -> explicit CB form)
   SmallVector<RemoteStoreOp> remoteStoresToConvert;
   moduleOp->walk([&](RemoteStoreOp remoteStore) {
+    if (!remoteStore.isImplicitForm()) {
+      return;
+    }
     remoteStoresToConvert.push_back(remoteStore);
   });
 
@@ -377,6 +408,11 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     Value localBuffer = remoteStore.getLocalBuffer();
     Value assocCb;
 
+    if (failed(
+            verifyRemoteLoadStoreMemref(remoteStore.getOperation(), memref))) {
+      return failure();
+    }
+
     if (remoteStore.isImplicitForm()) {
       // Implicit form: find the CB by tracing back from the local buffer.
       // First try to find a ReserveOp in the chain.
@@ -389,8 +425,6 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
         // WaitOp result. Extract the CB from the WaitOp.
         assocCb = waitOp.getCb();
       } else {
-        // The localBuffer may be a hoisted additionalArg (external alloc).
-        // Find the CB via the store's memref operand instead.
         assocCb = findAssociatedCB(remoteStore.getOperation(), memref, rewriter,
                                    cache, portCounters);
         if (!assocCb) {
@@ -408,24 +442,20 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
                                      assocCb);
 
       // Track the reserve op for push insertion (avoid duplicates).
+      // When the CB was found through a WaitOp (non-simplified load-store
+      // pair), there is no ReserveOp — the load already populated the CB.
+      // We only need a pop after consuming the data.
       if (reserveOp && cbsWithReserveOps.insert(assocCb).second) {
         info.reserveOpsNeedingPush.push_back({reserveOp, assocCb});
       } else if (!reserveOp && cbsWithReserveOps.insert(assocCb).second) {
-        // No existing reserve (e.g. hoisted additionalArg output).
-        // Create right after the get_cb so it dominates all uses.
         OpBuilder::InsertionGuard reserveGuard(rewriter);
         rewriter.setInsertionPointAfterValue(assocCb);
         auto newReserve = rewriter.create<ReserveOp>(loc, assocCb);
         info.reserveOpsNeedingPush.push_back({newReserve, assocCb});
-        // Replace uses of the old localBuffer with the reserve result
-        // inside the generic only.
         if (localBuffer) {
-          GenericOp storeGeneric = remoteStore->getParentOfType<GenericOp>();
-          rewriter.replaceUsesWithIf(
-              localBuffer, newReserve.getResult(), [&](OpOperand &use) {
-                return storeGeneric &&
-                       storeGeneric->isProperAncestor(use.getOwner());
-              });
+          replaceUsesInBlock(localBuffer, newReserve.getResult(),
+                             remoteStore->getBlock(),
+                             remoteStore.getOperation());
         }
       }
 
@@ -449,67 +479,48 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     }
   }
 
-  return info;
+  return success();
 }
 
 // Pass B: Insert push and pop operations
-static void insertPushAndPopOps(ModuleOp moduleOp, IRRewriter &rewriter,
-                                PushPopInfo &info) {
-  // Insert pop ops for remote_load conversions.
-  // Insert the pop in the same block as the corresponding WaitOp so that
-  // D2MCBOpRewriter::hasExplicitRelease (which only checks the same block)
-  // finds it and does not auto-insert a duplicate pop.
-  for (auto &[assocCb, loc] : info.cbsNeedingPop) {
-    // Find the WaitOp that uses this CB.
-    WaitOp waitOp = nullptr;
-    for (auto *user : assocCb.getUsers()) {
-      if (auto w = dyn_cast<WaitOp>(user)) {
-        waitOp = w;
-        break;
-      }
-    }
-    if (!waitOp) {
+static void insertPushAndPopOps(IRRewriter &rewriter, PushPopInfo &info) {
+  // Insert pop ops for remote_load conversions
+  for (const PendingPopInfo &pendingPop : info.popsNeedingInsertion) {
+    Block *insertionBlock = pendingPop.insertionBlock;
+    if (!insertionBlock) {
       continue;
     }
 
-    Block *waitBlock = waitOp->getBlock();
-    // Insert before the terminator (e.g., scf.yield) to avoid placing
-    // ops after it, which would violate block structure invariants.
-    if (waitBlock->mightHaveTerminator()) {
-      rewriter.setInsertionPoint(waitBlock->getTerminator());
+    if (!insertionBlock->empty() &&
+        insertionBlock->back().hasTrait<OpTrait::IsTerminator>()) {
+      rewriter.setInsertionPoint(&insertionBlock->back());
     } else {
-      rewriter.setInsertionPointToEnd(waitBlock);
+      rewriter.setInsertionPointToEnd(insertionBlock);
     }
-    rewriter.create<PopOp>(loc, assocCb);
+    rewriter.create<PopOp>(pendingPop.loc, pendingPop.cb);
   }
 
   // Insert push ops for each reserve op
   for (auto &[reserveOp, assocCb] : info.reserveOpsNeedingPush) {
     Location loc = reserveOp.getLoc();
-
-    GenericOp generic = reserveOp->getParentOfType<GenericOp>();
-    Region *genericRegion = nullptr;
-    if (generic.getNumRegions() == 1) {
-      genericRegion = &generic.getRegion(0);
-    } else {
-      genericRegion = ttmlir::utils::getRegionWithParentOfType<GenericOp>(
-          reserveOp.getOperation());
+    Block *insertionBlock = reserveOp->getBlock();
+    if (!insertionBlock) {
+      reserveOp.emitWarning("could not find block for push insertion");
+      continue;
     }
 
-    if (genericRegion && !genericRegion->empty()) {
-      Block *topLevelBlock = &genericRegion->front();
-      // Insert before the terminator (YieldOp)
-      if (!topLevelBlock->empty() &&
-          topLevelBlock->back().hasTrait<OpTrait::IsTerminator>()) {
-        rewriter.setInsertionPoint(&topLevelBlock->back());
-      } else {
-        rewriter.setInsertionPointToEnd(topLevelBlock);
-      }
-      rewriter.create<PushOp>(loc, assocCb);
+    // Push must be in the same region as reserve/compute and before the store
+    // that consumes this CB.
+    if (RemoteStoreOp store =
+            getFirstFollowingRemoteStoreForCb(reserveOp, assocCb)) {
+      rewriter.setInsertionPoint(store);
+    } else if (!insertionBlock->empty() &&
+               insertionBlock->back().hasTrait<OpTrait::IsTerminator>()) {
+      rewriter.setInsertionPoint(&insertionBlock->back());
     } else {
-      reserveOp.emitWarning(
-          "could not find top-level region block for push insertion");
+      rewriter.setInsertionPointToEnd(insertionBlock);
     }
+    rewriter.create<PushOp>(loc, assocCb);
   }
 }
 
@@ -524,15 +535,19 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
+    PushPopInfo info;
     CBCache cbCache;
     PortCounter portCounters;
 
     // Pass A: Convert all remote_load and remote_store into explicit CB form
-    PushPopInfo info =
-        convertToExplicitCBForm(moduleOp, rewriter, cbCache, portCounters);
+    if (failed(convertToExplicitCBForm(moduleOp, rewriter, info, cbCache,
+                                       portCounters))) {
+      signalPassFailure();
+      return;
+    }
 
     // Pass B: Insert push and pop operations
-    insertPushAndPopOps(moduleOp, rewriter, info);
+    insertPushAndPopOps(rewriter, info);
   }
 };
 } // namespace

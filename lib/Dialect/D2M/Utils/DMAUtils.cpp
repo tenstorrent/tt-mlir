@@ -5,8 +5,66 @@
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 namespace mlir::tt::d2m::utils {
+
+RemoteStoreOp findForwardableStore(RemoteLoadOp remoteLoad) {
+  Value localBuffer = remoteLoad.getLocalBuffer();
+  if (!localBuffer) {
+    return nullptr;
+  }
+  Value remoteLoadResult = remoteLoad.getResult();
+  if (remoteLoadResult && !remoteLoadResult.use_empty()) {
+    return nullptr;
+  }
+
+  int64_t userCount = 0;
+  int64_t implicitLoadUserCount = 0;
+  SmallVector<RemoteStoreOp> implicitStoreUsers;
+  Type localBufferType = localBuffer.getType();
+
+  for (Operation *user : localBuffer.getUsers()) {
+    // generic ops 'use' local buffers as they appear in the additionalArgs list
+    if (mlir::isa<GenericOp>(user)) {
+      continue;
+    }
+    ++userCount;
+
+    if (auto loadUser = mlir::dyn_cast<RemoteLoadOp>(user)) {
+      if (loadUser.isImplicitForm() &&
+          loadUser.getLocalBuffer() == localBuffer) {
+        ++implicitLoadUserCount;
+      }
+      continue;
+    }
+
+    auto storeUser = mlir::dyn_cast<RemoteStoreOp>(user);
+    if (!storeUser) {
+      continue;
+    }
+
+    if (!storeUser.isImplicitForm() ||
+        storeUser.getLocalBuffer() != localBuffer) {
+      continue;
+    }
+
+    if (storeUser.getLocalBuffer().getType() != localBufferType) {
+      continue;
+    }
+
+    implicitStoreUsers.push_back(storeUser);
+  }
+
+  bool isForwardablePair = implicitLoadUserCount == 1 &&
+                           implicitStoreUsers.size() == 1 && userCount == 2;
+  if (!isForwardablePair) {
+    return nullptr;
+  }
+  return implicitStoreUsers.front();
+}
 
 LogicalResult checkForIllegalSemaphoreOps(Block *block) {
   for (Operation &op : block->getOperations()) {

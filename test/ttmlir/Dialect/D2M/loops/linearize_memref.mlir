@@ -38,3 +38,24 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<163
   }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> ()
   return %alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
 }
+
+// CHECK-LABEL: func.func @linearize_after_remote_load
+// CHECK: %{{.*}} = d2m.remote_load %[[BUFFER:.*]] %arg0[%{{.*}}, %{{.*}}] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+// CHECK-NEXT: %[[COLLAPSE:.*]] = memref.collapse_shape %[[BUFFER]] {{.*}} : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into memref<8x!ttcore.tile<32x32, f32>, #l1>
+// CHECK: memref.load %[[COLLAPSE]][%{{.*}}] : memref<8x!ttcore.tile<32x32, f32>, #l1>
+func.func @linearize_after_remote_load(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>,
+                                       %arg1: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+  d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+      ins(%arg0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
+      outs(%arg1 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+  ^unified0:
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %sink = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %loaded = d2m.remote_load %buffer %arg0[%c0, %c0] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %tile = memref.load %buffer[%c0, %c1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    memref.store %tile, %sink[%c0, %c1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+  }
+  return
+}

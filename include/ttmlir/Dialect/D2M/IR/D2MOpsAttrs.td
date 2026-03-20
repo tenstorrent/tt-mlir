@@ -28,7 +28,7 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
     DefaultValuedParameter<"int32_t", "-1">:$nocIndex
   );
 
-  let assemblyFormat = [{ `<` $threadType (`,` $kernelSymbol^)? (`,` `noc` `=` $nocIndex^)? `>` }];
+  let assemblyFormat = [{ `<` $threadType (`,` `noc` `=` $nocIndex^)? (`,` $kernelSymbol^)? `>` }];
 
   let extraClassDeclaration = [{
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType) {

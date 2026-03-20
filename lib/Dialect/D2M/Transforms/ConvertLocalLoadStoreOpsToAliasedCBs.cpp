@@ -8,11 +8,12 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
-#include "ttmlir/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MCONVERTLOCALLOADSTOREOPSTOALIASEDCBS
@@ -20,17 +21,10 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Helper function to check if an operand is local (i.e., NOT a stream op
-// and NOT in a DMA-only generic op)
-static bool isLocalOperand(Value operand, Operation *op) {
+// Helper function to check if an operand is local (i.e., NOT a stream op).
+static bool isLocalOperand(Value operand) {
   // Check if operand comes from stream_layout op
   if (mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp())) {
-    return false;
-  }
-
-  // Check if the operation is inside a DMA-only generic op
-  GenericOp generic = op->getParentOfType<GenericOp>();
-  if (generic && generic.isDMAOnlyForm()) {
     return false;
   }
 
@@ -170,6 +164,44 @@ static memref::AllocOp findAllocOp(Value value) {
   return nullptr;
 }
 
+static void eraseAllocIfUnused(IRRewriter &rewriter, memref::AllocOp allocOp) {
+  if (allocOp && allocOp->use_empty()) {
+    rewriter.eraseOp(allocOp);
+  }
+}
+
+// Replace only uses owned by operations in the given block. This avoids
+// rewriting enclosing d2m.generic operands to values defined inside the region.
+static void replaceUsesInBlock(Value from, Value to, Block *block,
+                               Operation *excludedUser = nullptr) {
+  auto isInBlockOrNestedRegion = [&](Operation *op) {
+    Block *ownerBlock = op->getBlock();
+    while (ownerBlock) {
+      if (ownerBlock == block) {
+        return true;
+      }
+      Operation *parentOp = ownerBlock->getParentOp();
+      if (!parentOp) {
+        return false;
+      }
+      ownerBlock = parentOp->getBlock();
+    }
+    return false;
+  };
+
+  SmallVector<OpOperand *> usesToReplace;
+  for (OpOperand &use : from.getUses()) {
+    Operation *owner = use.getOwner();
+    if (owner == excludedUser || !isInBlockOrNestedRegion(owner)) {
+      continue;
+    }
+    usesToReplace.push_back(&use);
+  }
+  for (OpOperand *use : usesToReplace) {
+    use->set(to);
+  }
+}
+
 class D2MConvertLocalLoadStoreOpsToAliasedCBs
     : public impl::D2MConvertLocalLoadStoreOpsToAliasedCBsBase<
           D2MConvertLocalLoadStoreOpsToAliasedCBs> {
@@ -183,12 +215,26 @@ public:
     IRRewriter rewriter(&getContext());
     CBCache cbCache;
     PortCounter portCounters;
+    llvm::SmallPtrSet<Operation *, 8> forwardablePairStores;
+
+    // Precompute local-buffer forwarding pairs across all implicit
+    // remote_load ops. Pair stores must remain remote_store ops, even when the
+    // remote_load itself is not converted by this pass (e.g. streamed input).
+    moduleOp->walk([&](RemoteLoadOp remoteLoad) {
+      if (!remoteLoad.isImplicitForm()) {
+        return;
+      }
+      if (RemoteStoreOp forwardableStore =
+              utils::findForwardableStore(remoteLoad)) {
+        forwardablePairStores.insert(forwardableStore.getOperation());
+      }
+    });
 
     // Collect remote_load operations to convert
     SmallVector<RemoteLoadOp> remoteLoadsToConvert;
     moduleOp->walk([&](RemoteLoadOp remoteLoad) {
       Value memref = remoteLoad.getMemref();
-      if (isLocalOperand(memref, remoteLoad.getOperation())) {
+      if (isLocalOperand(memref)) {
         // Skip if multicast is present (shouldn't happen for local operands,
         // but verify)
         if (remoteLoad.isMcast()) {
@@ -232,33 +278,16 @@ public:
         continue;
       }
 
-      // Find the last use of the alloc result or remote_load result BEFORE we
-      // modify the IR
-      Block *block = allocOp->getBlock();
-      Operation *lastUseOfAlloc = findLastUse(allocOp.getResult(), block);
-      Operation *lastUseOfRemoteLoad =
-          findLastUse(remoteLoad.getResult(), block);
+      // Use only the remote_load block as the anchor scope.
+      Block *block = remoteLoad->getBlock();
+      Operation *lastUse = findLastUse(allocOp.getResult(), block);
+      TT_assertv(lastUse,
+                 "expected local buffer to have a use in "
+                 "the remote_load block: {0}",
+                 remoteLoad);
 
-      // Exclude the remote_load itself from being considered the last use
-      if (lastUseOfAlloc == remoteLoad.getOperation()) {
-        lastUseOfAlloc = nullptr;
-      }
-
-      // Determine the actual last use (the one that appears later in the
-      // block).
-      Operation *lastUse = nullptr;
-      if (lastUseOfAlloc && lastUseOfRemoteLoad) {
-        // Both have uses, find which one is later
-        lastUse = lastUseOfAlloc->isBeforeInBlock(lastUseOfRemoteLoad)
-                      ? lastUseOfRemoteLoad
-                      : lastUseOfAlloc;
-      } else {
-        lastUse = lastUseOfAlloc ? lastUseOfAlloc : lastUseOfRemoteLoad;
-      }
-
-      // Insert reserve, push, and wait where the alloc was, so they dominate
-      // all uses of the buffer (including view operations like collapse_shape
-      // that may occur before the remote_load)
+      // Insert reserve/push/wait exactly at the alloc position so wait
+      // dominates all alloc-derived users in this block.
       rewriter.setInsertionPoint(allocOp);
 
       // Create reserve, push, and wait operations
@@ -266,32 +295,28 @@ public:
       rewriter.create<PushOp>(loc, assocCb);
       auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
 
-      // Replace all uses of the alloc result and remote_load result with the
-      // wait result
-      rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
-      rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
+      // Rewrite local aliases produced by the implicit remote_load.
+      replaceUsesInBlock(allocOp.getResult(), waitOp.getResult(), block,
+                         remoteLoad.getOperation());
+      TT_assertv(remoteLoad->getUses().empty(),
+                 "expected converted remote_load result to have no users: {0}",
+                 remoteLoad);
 
-      // Erase the alloc operation
-      rewriter.eraseOp(allocOp);
-
-      // Insert pop after the last use
-      if (lastUse) {
-        rewriter.setInsertionPointAfter(lastUse);
-      } else {
-        // No uses found, insert pop immediately after wait
-        rewriter.setInsertionPointAfter(waitOp);
-      }
+      // Insert pop after the alias-aware last use in this block.
+      rewriter.setInsertionPointAfter(lastUse);
       rewriter.create<PopOp>(loc, assocCb);
 
       // Erase the original remote_load operation
       rewriter.eraseOp(remoteLoad);
+      eraseAllocIfUnused(rewriter, allocOp);
     }
 
     // Collect remote_store operations to convert
     SmallVector<RemoteStoreOp> remoteStoresToConvert;
     moduleOp->walk([&](RemoteStoreOp remoteStore) {
       Value memref = remoteStore.getMemref();
-      if (isLocalOperand(memref, remoteStore.getOperation())) {
+      if (isLocalOperand(memref) &&
+          !forwardablePairStores.contains(remoteStore.getOperation())) {
         remoteStoresToConvert.push_back(remoteStore);
       }
     });
@@ -328,11 +353,23 @@ public:
         continue;
       }
 
+      Region *remoteStoreRegion = remoteStore->getParentRegion();
+      TT_assertv(remoteStoreRegion != nullptr,
+                 "expected remote_store to have an enclosing region: {0}",
+                 remoteStore);
+
+      Operation *assocCbDefOp = assocCb.getDefiningOp();
+      TT_assertv(assocCbDefOp != nullptr,
+                 "expected assocCb to have a defining op: {0}", remoteStore);
+      auto assocGetCbOp = mlir::dyn_cast<GetCBOp>(assocCbDefOp);
+      TT_assertv(assocGetCbOp != nullptr,
+                 "expected assocCb to be defined by d2m.get_cb: {0}",
+                 remoteStore);
+
       // Replace memref.alloc with reserve
-      rewriter.setInsertionPoint(allocOp);
+      rewriter.setInsertionPointAfter(assocGetCbOp);
       auto reserveOp = rewriter.create<ReserveOp>(loc, assocCb);
       rewriter.replaceAllUsesWith(allocOp.getResult(), reserveOp.getResult());
-      rewriter.eraseOp(allocOp);
 
       // At remote_store location, insert: push, wait, pop
       rewriter.setInsertionPoint(remoteStore);
@@ -342,6 +379,7 @@ public:
 
       // Erase the original remote_store operation
       rewriter.eraseOp(remoteStore);
+      eraseAllocIfUnused(rewriter, allocOp);
     }
 
     // Convert get_scratch_from_cb operations to reserve ops.
