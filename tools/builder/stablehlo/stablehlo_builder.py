@@ -7202,6 +7202,91 @@ class StableHLOBuilder(Builder):
 
         return reduce_window_module, reduce_window_builder
 
+    def conv2d(
+        self,
+        in0: Operand,
+        weight: Operand,
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        dilation: Union[int, List[int]],
+        groups: int = 1,
+        batch_group_count: int = 1,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Convenience wrapper around ``stablehlo.convolution`` for 2D convolution in NCHW/OIHW layout.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor in NCHW format.
+        weight : Operand
+            Weight tensor in OIHW format.
+        stride : Union[int, List[int]]
+            Convolution stride. Integer applies to both spatial dimensions.
+        padding : Union[int, List[int]]
+            Padding. Integer applies symmetric padding, list supports [h, w] or [top, bottom, left, right].
+        dilation : Union[int, List[int]]
+            Kernel dilation. Integer applies to both spatial dimensions.
+        groups : int
+            Number of groups for grouped convolution.
+        batch_group_count : int
+            StableHLO batch_group_count attribute.
+        output_type : Optional[torch.dtype]
+            Optional output dtype.
+        loc : Optional[str]
+            Optional source location.
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes.
+        """
+
+        def _to_2d_list(value: Union[int, List[int]]) -> List[int]:
+            if isinstance(value, int):
+                return [value, value]
+            if len(value) == 1:
+                return [value[0], value[0]]
+            if len(value) == 2:
+                return [value[0], value[1]]
+            raise ValueError(f"Expected int or list of len 1/2, got {value}")
+
+        stride_2d = _to_2d_list(stride)
+        dilation_2d = _to_2d_list(dilation)
+
+        if isinstance(padding, int):
+            padding_4d = [padding, padding, padding, padding]
+        elif len(padding) == 2:
+            padding_4d = [padding[0], padding[0], padding[1], padding[1]]
+        elif len(padding) == 4:
+            # [top, bottom, left, right] -> [top, bottom, left, right]
+            padding_4d = list(padding)
+        else:
+            raise ValueError(f"Expected padding as int or list of len 2/4, got {padding}")
+
+        return self.convolution(
+            in0,
+            weight,
+            window_strides=stride_2d,
+            padding=padding_4d,
+            lhs_dilation=[1, 1],
+            rhs_dilation=dilation_2d,
+            input_batch_dimension=0,
+            input_feature_dimension=1,
+            input_spatial_dimensions=[2, 3],
+            kernel_output_feature_dimension=0,
+            kernel_input_feature_dimension=1,
+            kernel_spatial_dimensions=[2, 3],
+            output_batch_dimension=0,
+            output_feature_dimension=1,
+            output_spatial_dimensions=[2, 3],
+            feature_group_count=groups,
+            batch_group_count=batch_group_count,
+            output_type=output_type,
+            loc=loc,
+            unit_attrs=unit_attrs,
+        )
+
     ############### stablehlo.ConvolutionOp ###############
 
     @tag(stablehlo.ConvolutionOp)
