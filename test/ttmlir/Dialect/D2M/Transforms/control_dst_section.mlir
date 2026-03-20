@@ -121,6 +121,8 @@ func.func @single_dst_section_pack_tile_block() attributes {ttkernel.thread = #t
   // CHECK: ttkernel.pack_tile_block
   ttkernel.pack_tile_block(%c0, %cb, %c4) : (index, !ttkernel.cb<4, !ttcore.tile<32x32, f32>>, index) -> ()
   // CHECK: ttkernel.tile_regs_release
+  // CHECK-NOT: ttkernel.tile_regs_commit
+  // CHECK: return
   return
 }
 
@@ -145,5 +147,7 @@ func.func @mixed_pack_ops_in_dst_section() attributes {ttkernel.thread = #ttkern
   // CHECK: ttkernel.pack_tile_block
   ttkernel.pack_tile_block(%c0, %cb, %c4) : (index, !ttkernel.cb<4, !ttcore.tile<32x32, f32>>, index) -> ()
   // CHECK: ttkernel.tile_regs_release
+  // CHECK-NOT: ttkernel.tile_regs_commit
+  // CHECK: return
   return
 }
