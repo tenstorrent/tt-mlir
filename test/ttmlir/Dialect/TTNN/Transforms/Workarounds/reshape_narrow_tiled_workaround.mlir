@@ -50,7 +50,19 @@ module {
     return %0 : tensor<64x16xf32>
   }
 
-  // Test 4: Workaround should NOT apply - view reshape (last dim unchanged).
+  // Test 4: Workaround should NOT apply - RM fallback stick exceeds the
+  // usable-L1-derived guard even though the partial-tile DMA condition matches.
+  func.func @reshape_narrow_large_stick_skip(
+      %arg0: tensor<32x262144xbf16>
+  ) -> tensor<1048576x8xbf16> {
+    // CHECK-LABEL: func.func @reshape_narrow_large_stick_skip
+    // CHECK: "ttnn.reshape"
+    // CHECK-NOT: layout = #ttnn.layout<row_major>
+    %0 = "ttnn.reshape"(%arg0) <{shape = [1048576 : i32, 8 : i32]}> : (tensor<32x262144xbf16>) -> tensor<1048576x8xbf16>
+    return %0 : tensor<1048576x8xbf16>
+  }
+
+  // Test 5: Workaround should NOT apply - view reshape (last dim unchanged).
   // 1x32x8 -> 32x8: last dim stays 8 (same), second-to-last also same => view.
   func.func @reshape_narrow_view_skip(
       %arg0: tensor<1x32x8xbf16>

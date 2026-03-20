@@ -22,8 +22,11 @@ static constexpr int64_t kTileWidth = ttnn::TILE_WIDTH;
 // tiled reshape kernel. See tt_cluster.cpp min_dma_size_bytes.
 static constexpr unsigned kNocMinWriteBytes = 32;
 // The RM fallback allocates circular buffers proportional to the larger row-
-// major stick. Keep a safety margin relative to usable L1 so wide sticks do
-// not overflow per-core memory.
+// major stick. In reshape_rm_program_factory.cpp, cb_src0 is sized from
+// num_pages * max(old_stick_size, new_stick_size). This pass does not model
+// the exact per-core num_pages split, so keep a conservative safety margin
+// relative to usable L1. If reshape_rm CB sizing changes materially, revisit
+// this divisor.
 static constexpr uint64_t kMaxRMFallbackStickUsableL1Divisor = 4;
 
 LogicalResult ReshapeNarrowTiledRewritePattern::matchAndRewrite(
@@ -51,6 +54,7 @@ LogicalResult ReshapeNarrowTiledRewritePattern::matchAndRewrite(
     return failure();
   }
 
+  int64_t inputLastDim = inputType.getShape()[inputRank - 1];
   int64_t outputLastDim = outputType.getShape()[outputRank - 1];
   int64_t partialWidth = outputLastDim % kTileWidth;
 
@@ -76,7 +80,6 @@ LogicalResult ReshapeNarrowTiledRewritePattern::matchAndRewrite(
     return failure();
   }
 
-  int64_t inputLastDim = inputType.getShape()[inputRank - 1];
   uint64_t inputStickBytes =
       static_cast<uint64_t>(inputLastDim) * elementSizeBytes;
   uint64_t outputStickBytes =
