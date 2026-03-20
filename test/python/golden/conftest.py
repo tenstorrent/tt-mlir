@@ -799,7 +799,7 @@ def pytest_collection_modifyitems(config, items):
                 )
             )
 
-        def skip_exec_handler(item, platform_config, reason):
+        def skip_exec_handler(item):
             # Set skip_exec attribute on the item instead of marking as skipped
             item.skip_exec = True
             xfail_reason = f"Execution marked as skip"
