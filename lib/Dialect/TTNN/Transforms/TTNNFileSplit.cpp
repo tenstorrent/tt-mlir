@@ -78,9 +78,9 @@ private:
 
     // Create the file containers.
     builder.setInsertionPointToStart(&moduleOp.getBodyRegion().front());
-    auto mainFile = builder.create<FileOpTy>(moduleOp.getLoc(), kMainFileName);
+    auto mainFile = FileOpTy::create(builder, moduleOp.getLoc(), kMainFileName);
     auto constevalFile =
-        builder.create<FileOpTy>(moduleOp.getLoc(), kConstevalFileName);
+        FileOpTy::create(builder, moduleOp.getLoc(), kConstevalFileName);
 
     // Move const-eval functions to the consteval file. Clone
     // CPU-hoisted declarations into both files so that func.call ops
@@ -115,9 +115,9 @@ private:
     // so that func.call ops can resolve the symbols.
     builder.setInsertionPointToEnd(&mainFile.getBodyRegion().front());
     for (auto wrapperFunc : wrapperFuncs) {
-      auto privateDecl = builder.create<func::FuncOp>(
-          wrapperFunc.getLoc(), wrapperFunc.getName().str(),
-          wrapperFunc.getFunctionType());
+      auto privateDecl = func::FuncOp::create(builder, wrapperFunc.getLoc(),
+                                              wrapperFunc.getName().str(),
+                                              wrapperFunc.getFunctionType());
       privateDecl.setPrivate();
     }
 

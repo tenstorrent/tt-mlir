@@ -277,8 +277,8 @@ Value SDPAFusing::castToBF16IfNeeded(Value v, PatternRewriter &rewriter) {
 
   auto dataType = ttcore::DataType::BFloat16;
   auto castType = utils::RankedTensorTypeFactory::create(vType, dataType);
-  return rewriter.create<TypecastOp>(
-      v.getLoc(), castType, v,
+  return TypecastOp::create(
+      rewriter, v.getLoc(), castType, v,
       ttcore::DataTypeAttr::get(rewriter.getContext(), dataType));
 }
 
@@ -291,8 +291,8 @@ Value SDPAFusing::restoreElementTypeIfNeeded(Value v, Type elementType,
 
   auto dataType = ttcore::elementTypeToDataType(elementType);
   auto castType = utils::RankedTensorTypeFactory::create(vType, dataType);
-  return rewriter.create<TypecastOp>(
-      v.getLoc(), castType, v,
+  return TypecastOp::create(
+      rewriter, v.getLoc(), castType, v,
       ttcore::DataTypeAttr::get(rewriter.getContext(), dataType));
 }
 
@@ -444,12 +444,10 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
       newShape.append(maskType.getShape().begin(), maskType.getShape().end());
       auto newType = utils::RankedTensorTypeFactory::create(maskType, newShape);
       SmallVector<int32_t> shapeAttr(newShape.begin(), newShape.end());
-      c.mask =
-          rewriter
-              .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType, c.mask,
-                                 rewriter.getI32ArrayAttr(shapeAttr),
+      c.mask = ReshapeOp::create(rewriter, c.attentionMatmul.getLoc(), newType,
+                                 c.mask, rewriter.getI32ArrayAttr(shapeAttr),
                                  /*memory_config=*/MemoryConfigAttr())
-              .getResult();
+                   .getResult();
     }
 
     c.mask = restoreElementTypeIfNeeded(c.mask, preparedQElementType, rewriter);
@@ -642,9 +640,9 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
       return failure();
     }
 
-    auto decodeOp = rewriter.create<ScaledDotProductAttentionDecodeOp>(
-        c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
-        c.key, c.value,
+    auto decodeOp = ScaledDotProductAttentionDecodeOp::create(
+        rewriter, c.attentionMatmul.getLoc(), permutedQuery.getType(),
+        permutedQuery, c.key, c.value,
         /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
         /*cur_pos_tensor=*/Value(),
         /*attention_sink=*/Value(), scaleAttr,
@@ -676,9 +674,9 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
       return failure();
     }
 
-    auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
-        c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key, c.value,
-        c.mask,
+    auto sdpaOp = ScaledDotProductAttentionOp::create(
+        rewriter, c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key,
+        c.value, c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
         /*sliding_window_size=*/IntegerAttr(),
         /*memory_config=*/MemoryConfigAttr());

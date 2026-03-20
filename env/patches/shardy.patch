@@ -267,10 +267,10 @@ index 0000000..3b414d1
 +)
 diff --git a/shardy/dialect/sdy/transforms/export/CMakeLists.txt b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
 new file mode 100755
-index 0000000..f23330d
+index 0000000..22b7e5f
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,96 @@
 +# Shardy MLIR Transform Export Passes and Pipeline
 +
 +set(LLVM_TARGET_DEFINITIONS passes.td)
@@ -318,6 +318,8 @@ index 0000000..f23330d
 +  sharding_constraint_to_reshard.cc
 +  sink_data_flow_edges.cc
 +  update_non_divisible_input_output_shardings.cc
++  convert_global_to_local.cc
++  remove_sub_axes_in_input_output_shardings.cc
 +
 +  DEPENDS
 +  SdyExplicitReshardsUtil
@@ -635,103 +637,35 @@ index 0000000..dc33501
 +  SdyDialect
 +  SdyTransformsPropagationShardingProjection
 +)
-diff --git a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
-index a73917b..78cc827 100644
---- a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
-+++ b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
-@@ -346,6 +346,7 @@ void saveShardingOriginsOnModule(
- // the case for the target of the edge, because if the source appears multiple
- // times, then it's because it effects multiple other operands/results in the
- // op.
-+[[maybe_unused]]
- bool insertSeenValue(Operation* op, const PropagationEdge& edge,
-                      llvm::SmallDenseSet<Value>& seenValues) {
-   EdgeNode target = edge.target;
 diff --git a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-index ab93067..b181797 100644
+index e77a8ee..87820ca 100644
 --- a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
 +++ b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-@@ -187,12 +187,12 @@ void addGatherScatterFactors(
-
-   // We add factors for all collapsed slice dimensions.
-   for (int64_t collapsedSliceDim : collapsedSliceDims) {
--    // To keep the operand dim sharded for gather, we need an all-reduce on the
--    // result.
-+    // For gather: use kNeedReplication to all-gather operand before gather,
-+    // instead of kReduction which would insert all-reduce after gather.
-     addUnblockedFactorFn(
-         collapsedSliceDim, /*indicesDim=*/kNullDim,
-         /*slicesDim=*/kNullDim, inputType.getDimSize(collapsedSliceDim),
--        isScatter ? FactorType::kPassThrough : FactorType::kReduction);
-+        isScatter ? FactorType::kPassThrough : FactorType::kNeedReplication);
-   }
-
-   // Add a factor for the index-vector-dim, if it's present.
-@@ -303,6 +303,37 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
-         }
+@@ -545,6 +545,13 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
          return builder.build();
        })
-+      .Case<stablehlo::BatchNormInferenceOp>(
-+        [conservativePropagation](stablehlo::BatchNormInferenceOp bn) {
-+          auto inTy  = llvm::cast<mlir::RankedTensorType>(bn.getOperand().getType());
-+          auto outTy = llvm::cast<mlir::RankedTensorType>(bn.getResult().getType());
-+
-+          OpShardingRuleBuilder builder(bn);
-+
-+          const int64_t numOperands = static_cast<int64_t>(bn->getNumOperands());
-+          llvm::SmallVector<int64_t> opDims(numOperands, kNullDim);
-+
-+          for (auto [dU, dimSize] : llvm::enumerate(inTy.getShape())) {
-+            const int64_t d = static_cast<int64_t>(dU);
-+            std::fill(opDims.begin(), opDims.end(), kNullDim);
-+            opDims[0] = d;
-+            builder.addFactor(opDims, d, dimSize);
-+          }
-+
-+          const int64_t featAxis = static_cast<int64_t>(bn.getFeatureIndex());
-+          const int64_t C = outTy.getDimSize(featAxis);
-+
-+          for (int64_t paramIdx : {1LL, 2LL, 3LL, 4LL}) {
-+            std::fill(opDims.begin(), opDims.end(), kNullDim);
-+            opDims[paramIdx] = 0;
-+            auto factorType = conservativePropagation ? FactorType::kNeedReplication
-+                                                        : FactorType::kPassThrough;
-+            builder.addFactor(opDims, kNullDim, C,
-+                  factorType, true);
-+          }
-+
-+          return builder.build();
-+        })
-       .Case<stablehlo::BitcastConvertOp>(
-           [](stablehlo::BitcastConvertOp bitcastConvert) {
-             ArrayRef<int64_t> inShape =
-@@ -685,6 +716,12 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
-                   /*isBlocked=*/usedByRngBitGenerator)
-               .build();
-         }
-+        // Check if the custom call implements the ShardingRuleOpInterface.
+       .Case<stablehlo::CustomCallOp>([](stablehlo::CustomCallOp customCall) {
++        // Check for externally registered ShardingRuleOpInterface first.
 +        if (auto shardingRuleOp =
-+                  llvm::dyn_cast<ShardingRuleOpInterface>(customCall.getOperation())) {
-+          return shardingRuleOp.getShardingRule();
++                dyn_cast<ShardingRuleOpInterface>(customCall.getOperation())) {
++          if (auto rule = shardingRuleOp.getShardingRule()) {
++            return rule;
++          }
 +        }
-+
+         StringRef callTargetName = customCall.getCallTargetName();
          // TODO(b/327191011): output unregistered op stats instead.
-         static llvm::once_flag onceFlag;
-         emitOpWarningOnce(
-@@ -1093,6 +1130,16 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+         if (callTargetName == "sdy_testonly" ||
+@@ -1115,6 +1122,13 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
              return builder.build();
            })
        .Case<stablehlo::ScatterOp>([](stablehlo::ScatterOp scatter) {
-+        // Check if the scatter op implements the ShardingRuleOpInterface.
++        // Check for externally registered ShardingRuleOpInterface first.
 +        if (auto shardingRuleOp =
-+              llvm::dyn_cast<ShardingRuleOpInterface>(scatter.getOperation())) {
-+          // Try to get custom rule - if it returns non-null, use it.
-+          if (auto customRule = shardingRuleOp.getShardingRule()) {
-+            return customRule;
++                dyn_cast<ShardingRuleOpInterface>(scatter.getOperation())) {
++          if (auto rule = shardingRuleOp.getShardingRule()) {
++            return rule;
 +          }
-+          // If custom rule returns null, fall through to default.
 +        }
-+
          OpShardingRuleBuilder builder(scatter);
 
          // Since all inputs and results have compatible shapes, we can look at
@@ -1191,10 +1125,10 @@ index 0000000..30a5cf9
 +
 +#endif
 diff --git a/shardy/integrations/python/ir/sdy_module.cc b/shardy/integrations/python/ir/sdy_module.cc
-index da451fa..44c0ea2 100644
+index cd7fdc8..1b5aa5b 100644
 --- a/shardy/integrations/python/ir/sdy_module.cc
 +++ b/shardy/integrations/python/ir/sdy_module.cc
-@@ -109,7 +109,15 @@ NB_MODULE(_sdy, m) {
+@@ -110,7 +110,15 @@ NB_MODULE(_sdy, m) {
                               })
        .def_property_readonly("size", [](MlirAttribute self) {
          return sdyMeshAxisAttrGetSize(self);
@@ -1211,7 +1145,7 @@ index da451fa..44c0ea2 100644
 
    mlir::python::nanobind_adaptors::mlir_attribute_subclass(
        m, "MeshAttr", sdyAttributeIsAMeshAttr)
-@@ -133,7 +141,15 @@ NB_MODULE(_sdy, m) {
+@@ -134,7 +142,15 @@ NB_MODULE(_sdy, m) {
        .def_property_readonly("axes", [](MlirAttribute self) {
          return propertyVector<MlirAttribute>(self, sdyMeshAttrGetAxesSize,
                                               sdyMeshAttrGetAxesElem);
@@ -1228,7 +1162,7 @@ index da451fa..44c0ea2 100644
 
    mlir::python::nanobind_adaptors::mlir_attribute_subclass(
        m, "SubAxisInfoAttr", sdyAttributeIsASubAxisInfoAttr)
-@@ -150,7 +166,15 @@ NB_MODULE(_sdy, m) {
+@@ -151,7 +167,15 @@ NB_MODULE(_sdy, m) {
            [](MlirAttribute self) { return sdySubAxisInfoAttrGetPreSize(self); })
        .def_property_readonly("size", [](MlirAttribute self) {
          return sdySubAxisInfoAttrGetSize(self);
@@ -1245,7 +1179,7 @@ index da451fa..44c0ea2 100644
 
    mlir::python::nanobind_adaptors::mlir_attribute_subclass(
        m, "AxisRefAttr", sdyAttributeIsAnAxisRefAttr)
-@@ -175,7 +199,15 @@ NB_MODULE(_sdy, m) {
+@@ -176,7 +200,15 @@ NB_MODULE(_sdy, m) {
          MlirAttribute subAxisInfo = sdyAxisRefAttrGetSubAxisInfo(self);
          return subAxisInfo.ptr == nullptr ? std::nullopt
                                            : std::optional(subAxisInfo);
@@ -1262,7 +1196,7 @@ index da451fa..44c0ea2 100644
 
    mlir::python::nanobind_adaptors::mlir_attribute_subclass(
        m, "DimensionShardingAttr", sdyAttributeIsADimensionShardingAttr)
-@@ -205,7 +237,15 @@ NB_MODULE(_sdy, m) {
+@@ -206,7 +238,15 @@ NB_MODULE(_sdy, m) {
        .def_property_readonly("priority", [](MlirAttribute self) {
          int64_t priority = sdyDimensionShardingAttrGetPriority(self);
          return priority == -1 ? std::nullopt : std::optional(priority);
@@ -1279,7 +1213,7 @@ index da451fa..44c0ea2 100644
 
    mlir::python::nanobind_adaptors::mlir_attribute_subclass(
        m, "TensorShardingAttr", sdyAttributeIsATensorShardingAttr)
-@@ -251,7 +291,15 @@ NB_MODULE(_sdy, m) {
+@@ -252,7 +292,15 @@ NB_MODULE(_sdy, m) {
          return propertyVector<MlirAttribute>(
              self, sdyTensorShardingAttrGetUnreducedAxesSize,
              sdyTensorShardingAttrGetUnreducedAxesElem);
@@ -1296,7 +1230,7 @@ index da451fa..44c0ea2 100644
 
    mlir::python::nanobind_adaptors::mlir_attribute_subclass(
        m, "TensorShardingPerValueAttr",
-@@ -270,7 +318,15 @@ NB_MODULE(_sdy, m) {
+@@ -271,7 +319,15 @@ NB_MODULE(_sdy, m) {
          return propertyVector<MlirAttribute>(
              self, sdyTensorShardingPerValueAttrGetShardingsSize,
              sdyTensorShardingPerValueAttrGetShardingsElem);
@@ -1313,7 +1247,7 @@ index da451fa..44c0ea2 100644
 
    mlir::python::nanobind_adaptors::mlir_attribute_subclass(
        m, "DimMappingAttr", sdyAttributeIsADimMappingAttr)
-@@ -288,7 +344,15 @@ NB_MODULE(_sdy, m) {
+@@ -289,7 +345,15 @@ NB_MODULE(_sdy, m) {
          return propertyVector<intptr_t>(self,
                                          sdyDimMappingAttrGetFactorIndicesSize,
                                          sdyDimMappingAttrGetFactorIndicesElem);
@@ -1330,7 +1264,7 @@ index da451fa..44c0ea2 100644
 
    mlir::python::nanobind_adaptors::mlir_attribute_subclass(
        m, "TensorMappingAttr", sdyAttributeIsATensorMappingAttr)
-@@ -310,7 +374,15 @@ NB_MODULE(_sdy, m) {
+@@ -311,7 +375,15 @@ NB_MODULE(_sdy, m) {
                               })
        .def_property_readonly("rank", [](MlirAttribute self) {
          return sdyTensorMappingAttrGetRank(self);
@@ -1347,7 +1281,7 @@ index da451fa..44c0ea2 100644
 
    mlir::python::nanobind_adaptors::mlir_attribute_subclass(
        m, "OpShardingRuleAttr", sdyAttributeIsAOpShardingRuleAttr)
-@@ -394,6 +466,14 @@ NB_MODULE(_sdy, m) {
+@@ -395,6 +467,14 @@ NB_MODULE(_sdy, m) {
              return propertyVector<intptr_t>(
                  self, sdyOpShardingRuleAttrGetBlockedPropagationFactorsSize,
                  sdyOpShardingRuleAttrGetBlockedPropagationFactorsElem);
@@ -1362,7 +1296,7 @@ index da451fa..44c0ea2 100644
            });
 
    mlir::python::nanobind_adaptors::mlir_attribute_subclass(
-@@ -417,7 +497,67 @@ NB_MODULE(_sdy, m) {
+@@ -418,7 +498,67 @@ NB_MODULE(_sdy, m) {
             })
        .def("__len__", [](MlirAttribute& self) {
          return sdyManualAxesAttrGetAxesSize(self);

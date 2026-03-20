@@ -262,9 +262,9 @@ private:
           LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
       auto memoryConfigAttr = MemoryConfigAttr::get(layoutAttr, deviceGrid);
 
-      auto emptyOp = rewriter.create<EmptyOp>(
-          loc, tensorType, device, shapeAttr, dtypeAttr, tensorLayoutAttr,
-          memoryConfigAttr);
+      auto emptyOp =
+          EmptyOp::create(rewriter, loc, tensorType, device, shapeAttr,
+                          dtypeAttr, tensorLayoutAttr, memoryConfigAttr);
       outputBuffers.push_back(emptyOp.getResult());
       lastEmptyOp = emptyOp.getOperation();
     }
@@ -301,7 +301,7 @@ private:
     llvm::SmallVector<Value> returnValues;
     llvm::transform(outputs, std::back_inserter(returnValues),
                     [&](Value v) { return mapping.lookup(v); });
-    rewriter.create<func::ReturnOp>(loc, returnValues);
+    func::ReturnOp::create(rewriter, loc, returnValues);
 
     // Place subgraph after all its operands: after last input definer and after
     // the empty output buffers we just created (so output buffers dominate).
@@ -312,8 +312,8 @@ private:
     } else {
       rewriter.setInsertionPoint(firstOp);
     }
-    auto dispatchOp = rewriter.create<D2MSubgraphOp>(
-        loc, outputTypes, inputs.getArrayRef(), outputBuffers,
+    auto dispatchOp = D2MSubgraphOp::create(
+        rewriter, loc, outputTypes, inputs.getArrayRef(), outputBuffers,
         SymbolRefAttr::get(rewriter.getContext(), funcName));
 
     for (auto [origOutput, dispatchResult] :

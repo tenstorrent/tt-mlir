@@ -60,8 +60,8 @@ public:
     }
 
     builder.setInsertionPointToStart(&mainFile.getBodyRegion().front());
-    builder.create<emitpy::ImportOp>(
-        mainFile.getLoc(), builder.getStringAttr(kConstevalFileName),
+    emitpy::ImportOp::create(
+        builder, mainFile.getLoc(), builder.getStringAttr(kConstevalFileName),
         /*module_alias=*/nullptr,
         /*members_to_import=*/builder.getArrayAttr(memberNames),
         /*member_aliases=*/builder.getArrayAttr(emptyAliases),

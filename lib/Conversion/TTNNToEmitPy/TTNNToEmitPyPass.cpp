@@ -62,9 +62,9 @@ void enableTorchConversion(func::FuncOp funcOp) {
   for (BlockArgument arg : funcOp.getArguments()) {
     // Create ttnn.to_torch call.
     //
-    auto toTorchOp = builder.create<emitpy::CallOpaqueOp>(
-        funcOp.getLoc(), arg.getType(), "ttnn.to_torch", ValueRange{arg},
-        nullptr, nullptr);
+    auto toTorchOp = emitpy::CallOpaqueOp::create(
+        builder, funcOp.getLoc(), arg.getType(), "ttnn.to_torch",
+        ValueRange{arg}, nullptr, nullptr);
 
     // Replace all uses of the original argument with the to_torch result,
     // except for the to_torch op itself.
@@ -81,8 +81,8 @@ void enableTorchConversion(func::FuncOp funcOp) {
     for (Value returnValue : returnOp.getOperands()) {
       // Create ttnn.from_torch call.
       //
-      auto fromTorchOp = builder.create<emitpy::CallOpaqueOp>(
-          returnOp.getLoc(), returnValue.getType(), "ttnn.from_torch",
+      auto fromTorchOp = emitpy::CallOpaqueOp::create(
+          builder, returnOp.getLoc(), returnValue.getType(), "ttnn.from_torch",
           ValueRange{returnValue}, nullptr, nullptr);
 
       newReturnOperands.push_back(fromTorchOp.getResult(0));
@@ -124,10 +124,10 @@ struct ConvertTTNNToEmitPyPass
 
     // Include headers
     //
-    builder.create<emitpy::ImportOp>(module->getLoc(), "ttnn", nullptr, nullptr,
-                                     nullptr, nullptr);
-    builder.create<emitpy::ImportOp>(module->getLoc(), "utils", nullptr,
-                                     nullptr, nullptr, nullptr);
+    emitpy::ImportOp::create(builder, module->getLoc(), "ttnn", nullptr,
+                             nullptr, nullptr, nullptr);
+    emitpy::ImportOp::create(builder, module->getLoc(), "utils", nullptr,
+                             nullptr, nullptr, nullptr);
 
     // If we are in the module-export path (i.e., `target-module=true`),
     // const-eval functions must also take `device` as an explicit argument so

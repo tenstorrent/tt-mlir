@@ -32,8 +32,8 @@ LogicalResult ExplicateOperandBroadcastsRewritePattern::matchAndRewrite(
     auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
         operandShape, resultShape);
     auto shapeAttr = ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims);
-    auto repeatOp = rewriter.create<ttnn::RepeatOp>(
-        srcOp->getLoc(), newOutputType, operand, shapeAttr);
+    auto repeatOp = ttnn::RepeatOp::create(rewriter, srcOp->getLoc(),
+                                           newOutputType, operand, shapeAttr);
 
     rewriter.modifyOpInPlace(srcOp, [&]() { srcOp->setOperand(i, repeatOp); });
     hasChanged = true;

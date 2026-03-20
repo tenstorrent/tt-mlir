@@ -205,8 +205,8 @@ public:
   matchAndRewrite(ttkernel::StoreToL1Op op,
                   ttkernel::StoreToL1Op::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
-        op->getLoc(),
+    auto subscriptOp = emitc::SubscriptOp::create(
+        rewriter, op->getLoc(),
         emitc::LValueType::get(
             op.getContext(),
             mlir::cast<emitc::PointerType>(adaptor.getL1Ptr().getType())
@@ -216,8 +216,8 @@ public:
     // Cast rhs to volatile tt_l1_ptr uint32_t to match the pointed type.
     // This is because assignment requires the types to match. This compiles
     // in metal, but it looks ugly.
-    auto casted = rewriter.create<emitc::CastOp>(
-        op->getLoc(),
+    auto casted = emitc::CastOp::create(
+        rewriter, op->getLoc(),
         emitc::OpaqueType::get(op.getContext(), "volatile tt_l1_ptr uint32_t"),
         adaptor.getValue());
     rewriter.replaceOpWithNewOp<emitc::AssignOp>(op, subscriptOp, casted);
@@ -452,10 +452,12 @@ public:
     StringRef fmt = op.getFmt();
 
     auto stringlit = [&](StringRef str) {
-      return rewriter
-          .create<emitc::LiteralOp>(
-              op.getLoc(), rewriter.getType<emitc::OpaqueType>("const char[]"),
-              (Twine("\"") + str + "\"").str())
+      return emitc::LiteralOp::create(
+                 rewriter,
+
+                 op.getLoc(),
+                 rewriter.getType<emitc::OpaqueType>("const char[]"),
+                 (Twine("\"") + str + "\"").str())
           .getResult();
     };
 
@@ -476,12 +478,13 @@ public:
                         ttkernel::ThreadTypeAttr::name)
                     .getValue() == ttkernel::ThreadType::Compute) {
           auto cbPrinter =
-              rewriter
-                  .create<emitc::CallOpaqueOp>(
-                      op.getLoc(),
-                      rewriter.getType<emitc::OpaqueType>("ttmlir::CBPrinter"),
-                      "ttmlir::CBPrinter", nullptr, nullptr,
-                      ValueRange{*operandsIter++})
+              emitc::CallOpaqueOp::create(
+                  rewriter,
+
+                  op.getLoc(),
+                  rewriter.getType<emitc::OpaqueType>("ttmlir::CBPrinter"),
+                  "ttmlir::CBPrinter", nullptr, nullptr,
+                  ValueRange{*operandsIter++})
                   .getResult(0);
           vargs.push_back(cbPrinter);
         } else {
@@ -556,9 +559,9 @@ public:
                   ttkernel::InvokeSFPIOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     assert(op.getRegion().hasOneBlock());
-    rewriter.create<emitc::VerbatimOp>(op->getLoc(),
-                                       "experimental::invoke_sfpi([=]() {");
-    auto endScope = rewriter.create<emitc::VerbatimOp>(op->getLoc(), "});");
+    emitc::VerbatimOp::create(rewriter, op->getLoc(),
+                              "experimental::invoke_sfpi([=]() {");
+    auto endScope = emitc::VerbatimOp::create(rewriter, op->getLoc(), "});");
     rewriter.inlineBlockBefore(&op.getRegion().front(), endScope);
     rewriter.eraseOp(op);
     return success();
@@ -606,34 +609,35 @@ public:
       mlir::Type lvalueType = emitc::LValueType::get(opaqueStructType);
 
       // Declare the struct variable and then assign to its members
-      auto varOp = rewriter.create<emitc::VariableOp>(
-          op->getLoc(), lvalueType,
+      auto varOp = emitc::VariableOp::create(
+          rewriter, op->getLoc(), lvalueType,
           emitc::OpaqueAttr::get(op.getContext(), ""));
 
       // Create an lvalue for all struct field accesses
-      auto lvalueBankBaseAddr = rewriter.create<emitc::MemberOp>(
-          op->getLoc(),
+      auto lvalueBankBaseAddr = emitc::MemberOp::create(
+          rewriter, op->getLoc(),
           emitc::LValueType::get(adaptor.getBankBaseAddress().getType()),
           "bank_base_address", varOp);
-      auto lvaluePageSize = rewriter.create<emitc::MemberOp>(
-          op->getLoc(), emitc::LValueType::get(adaptor.getPageSize().getType()),
-          "page_size", varOp);
-      auto lvalueDataFormat = rewriter.create<emitc::MemberOp>(
-          op->getLoc(),
+      auto lvaluePageSize = emitc::MemberOp::create(
+          rewriter, op->getLoc(),
+          emitc::LValueType::get(adaptor.getPageSize().getType()), "page_size",
+          varOp);
+      auto lvalueDataFormat = emitc::MemberOp::create(
+          rewriter, op->getLoc(),
           emitc::LValueType::get(adaptor.getDataFormat().getType()),
           "data_format", varOp);
 
       // Assign corresponding values to the struct members
-      rewriter.create<emitc::AssignOp>(op->getLoc(), lvalueBankBaseAddr,
-                                       adaptor.getBankBaseAddress());
-      rewriter.create<emitc::AssignOp>(op->getLoc(), lvaluePageSize,
-                                       adaptor.getPageSize());
-      rewriter.create<emitc::AssignOp>(op->getLoc(), lvalueDataFormat,
-                                       adaptor.getDataFormat());
+      emitc::AssignOp::create(rewriter, op->getLoc(), lvalueBankBaseAddr,
+                              adaptor.getBankBaseAddress());
+      emitc::AssignOp::create(rewriter, op->getLoc(), lvaluePageSize,
+                              adaptor.getPageSize());
+      emitc::AssignOp::create(rewriter, op->getLoc(), lvalueDataFormat,
+                              adaptor.getDataFormat());
 
       // Load the value from the lvalue variable
-      auto loadOp =
-          rewriter.create<emitc::LoadOp>(op->getLoc(), opaqueStructType, varOp);
+      auto loadOp = emitc::LoadOp::create(rewriter, op->getLoc(),
+                                          opaqueStructType, varOp);
 
       // Replace the original operation with the loaded value so it can be used.
       rewriter.replaceOp(op, loadOp.getResult());
@@ -701,14 +705,14 @@ public:
     // crtaArg>();
     std::string code = "auto " + varName + " = TensorAccessorArgs<" + ctaArg +
                        ", " + crtaArg + ">();";
-    rewriter.create<emitc::VerbatimOp>(op.getLoc(), code);
+    emitc::VerbatimOp::create(rewriter, op.getLoc(), code);
 
     // Create literal to reference the variable (pattern from
     // TTKernelClassMethodRewriter).
     auto resultType =
         this->getTypeConverter()->convertType(op->getResultTypes()[0]);
     auto literalOp =
-        rewriter.create<emitc::LiteralOp>(op.getLoc(), resultType, varName);
+        emitc::LiteralOp::create(rewriter, op.getLoc(), resultType, varName);
 
     rewriter.replaceOp(op, literalOp.getResult());
     return success();
@@ -739,13 +743,13 @@ public:
       mlir::Type lvalueType = emitc::LValueType::get(opaqueStructType);
 
       // Declare the struct variable
-      auto varOp = rewriter.create<emitc::VariableOp>(
-          op->getLoc(), lvalueType,
+      auto varOp = emitc::VariableOp::create(
+          rewriter, op->getLoc(), lvalueType,
           emitc::OpaqueAttr::get(op.getContext(), ""));
 
       // Load the value from the lvalue variable
-      auto loadOp =
-          rewriter.create<emitc::LoadOp>(op->getLoc(), opaqueStructType, varOp);
+      auto loadOp = emitc::LoadOp::create(rewriter, op->getLoc(),
+                                          opaqueStructType, varOp);
 
       // Replace the original operation with the loaded value so it can be used.
       rewriter.replaceOp(op, loadOp.getResult());
@@ -834,12 +838,12 @@ public:
     }
     callStr += ");";
 
-    rewriter.create<emitc::VerbatimOp>(
-        op->getLoc(), rewriter.getStringAttr(callStr), operands);
+    emitc::VerbatimOp::create(rewriter, op->getLoc(),
+                              rewriter.getStringAttr(callStr), operands);
 
     // create a literal referencing the temp variable to be used later.
     auto literalOp =
-        rewriter.create<emitc::LiteralOp>(op->getLoc(), resultTypes, varName);
+        emitc::LiteralOp::create(rewriter, op->getLoc(), resultTypes, varName);
 
     rewriter.replaceOp(op, literalOp.getResult());
 
@@ -943,9 +947,9 @@ public:
     // Note that apparently "{{" produces "{" but "}" is not escaped in EmitC.
     std::string code =
         "{{ volatile int32_t __s = {}; " + getOpName(op).str() + "({}, __s); }";
-    rewriter.create<emitc::VerbatimOp>(op->getLoc(),
-                                       rewriter.getStringAttr(code),
-                                       ValueRange{scalarParam, dstIndex});
+    emitc::VerbatimOp::create(rewriter, op->getLoc(),
+                              rewriter.getStringAttr(code),
+                              ValueRange{scalarParam, dstIndex});
     rewriter.eraseOp(op);
 
     return success();
@@ -963,8 +967,8 @@ public:
   matchAndRewrite(ttkernel::PackReconfigL1AccOp op,
                   ttkernel::PackReconfigL1AccOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.create<emitc::VerbatimOp>(
-        op->getLoc(),
+    emitc::VerbatimOp::create(
+        rewriter, op->getLoc(),
         rewriter.getStringAttr("PACK((llk_pack_reconfig_l1_acc({})));"),
         ValueRange{adaptor.getL1AccEn()});
     rewriter.eraseOp(op);
