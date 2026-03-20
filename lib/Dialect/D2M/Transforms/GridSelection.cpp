@@ -425,6 +425,12 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
       continue;
     }
 
+    // Skip Spatial: it only lists the tensor on ins/outs. The real use is
+    // inside the nested d2m.generic, which we handle in the next block.
+    if (mlir::isa<d2m::SpatialOp>(user)) {
+      continue;
+    }
+
     // Find the parent GenericOp for this use.
     // The user might be the GenericOp itself (if it's an operand), or
     // it might be an operation nested within the GenericOp's regions.
