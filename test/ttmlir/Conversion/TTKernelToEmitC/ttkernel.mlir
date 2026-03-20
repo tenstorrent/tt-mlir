@@ -88,6 +88,34 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @pack_tile_block
+    func.func @pack_tile_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 2 : index
+      // CHECK: %[[NTILES:.*]] = "emitc.constant"
+      %ntiles = arith.constant 8 : index
+      // CHECK: emitc.call_opaque "pack_tile_block"(%[[DST_INDEX]], %[[OUT_CB]], %[[NTILES]])
+      "ttkernel.pack_tile_block"(%dst_index, %out_cb, %ntiles) : (index, !cb0_tiles, index) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @copy_block_matmul_partials
+    func.func @copy_block_matmul_partials() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[START_TILE:.*]] = "emitc.constant"
+      %start_tile = arith.constant 1 : index
+      // CHECK: %[[START_DST:.*]] = "emitc.constant"
+      %start_dst = arith.constant 3 : index
+      // CHECK: %[[NTILES:.*]] = "emitc.constant"
+      %ntiles = arith.constant 4 : index
+      // CHECK: emitc.call_opaque "copy_block_matmul_partials"(%[[CB]], %[[START_TILE]], %[[START_DST]], %[[NTILES]])
+      "ttkernel.copy_block_matmul_partials"(%cb, %start_tile, %start_dst, %ntiles) : (!cb0_tiles, index, index, index) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @copy_tile_init
     func.func @copy_tile_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"

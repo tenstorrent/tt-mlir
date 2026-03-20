@@ -122,6 +122,35 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
     }];
 }
 
+def TTKernel_PackTileBlockOp : TTKernel_Op<"pack_tile_block"> {
+    let summary = "PackTileBlock op.";
+    let description = [{
+      Copies a contiguous block of ntiles tiles from the DST register buffer,
+      starting at dst_index through dst_index + ntiles - 1, to a specified
+      output CB. Unlike pack_tile, which copies a single tile and supports
+      out-of-order packing, this copies tiles sequentially from contiguous DST
+      slots. The CB write pointer advances by ntiles after each call and resets
+      after cb_push_back.
+
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+
+      Operates in tandem with functions cb_reserve_back and cb_push_back.
+
+      A typical use case is packing an entire block of computed tiles from DST
+      to an output CB in one call, rather than issuing pack_tile for each tile
+      individually. The producer first reserves space via cb_reserve_back, then
+      calls pack_tile_block to copy all ntiles at once, and finally calls
+      cb_push_back to make the block visible to the consumer.
+    }];
+
+    let arguments = (ins IndexLike:$dst_index, TTKernel_CB:$out_cb, IndexLike:$ntiles);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $out_cb `,` $ntiles `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_PackReconfigL1AccOp : TTKernel_Op<"pack_reconfig_l1_acc"> {
     let summary = "Reconfigure packer to L1 accumulation mode.";
     let description = [{
@@ -167,6 +196,31 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
 
     let assemblyFormat = [{
       `(` $cb0 `,` $tile_index_cb `,` $tile_index_dst `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_CopyBlockMatmulPartialsOp : TTKernel_Op<"copy_block_matmul_partials"> {
+    let summary = "CopyBlockMatmulPartials op.";
+    let description = [{
+      Copies ntiles consecutive tiles from a specified circular buffer starting
+      at start_tile_index to consecutive DST register slots starting at
+      start_dst_index. The function employs the unpacker to first unpack into
+      SRC registers and then move into DST registers.
+
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+
+      A typical use case is reloading partial matmul results from a CB back
+      into DST for further accumulation. The consumer first calls cb_wait_front
+      to ensure tiles are available, then calls copy_block_matmul_partials to
+      load the block into DST, accumulates with subsequent matmul operations,
+      and finally packs the results back to a CB.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb, IndexLike:$start_tile_index, IndexLike:$start_dst_index, IndexLike:$ntiles);
+
+    let assemblyFormat = [{
+      `(` $cb `,` $start_tile_index `,` $start_dst_index `,` $ntiles `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

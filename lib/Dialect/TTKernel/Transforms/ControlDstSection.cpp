@@ -17,11 +17,12 @@ namespace mlir::tt::ttkernel {
 
 namespace {
 
-class TTKernelTileRegsRewriter : public OpRewritePattern<ttkernel::PackTileOp> {
+template <typename PackOp>
+class TTKernelTileRegsRewriter : public OpRewritePattern<PackOp> {
 public:
-  using OpRewritePattern<ttkernel::PackTileOp>::OpRewritePattern;
+  using OpRewritePattern<PackOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(ttkernel::PackTileOp op,
+  LogicalResult matchAndRewrite(PackOp op,
                                 PatternRewriter &rewriter) const final {
     Block *acquireBlock = findBlockContaining<ttkernel::TileRegsAcquireOp>(op);
     Operation *parent = parentOpAtBlock(op, acquireBlock);
@@ -77,7 +78,9 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTKernelTileRegsRewriter>(&getContext());
+    patterns.add<TTKernelTileRegsRewriter<ttkernel::PackTileOp>>(&getContext());
+    patterns.add<TTKernelTileRegsRewriter<ttkernel::PackTileBlockOp>>(
+        &getContext());
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
