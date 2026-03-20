@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -395,6 +395,8 @@ auto getOpSymbol() {
     return ::ttnn::sqrt;
   } else if constexpr (std::is_same_v<OpTy, SinOp>) {
     return ::ttnn::sin;
+  } else if constexpr (std::is_same_v<OpTy, AsinOp>) {
+    return ::ttnn::asin;
   } else if constexpr (std::is_same_v<OpTy, AbsOp>) {
     return ::ttnn::abs;
   } else if constexpr (std::is_same_v<OpTy, CeilOp>) {
@@ -429,6 +431,8 @@ auto getOpSymbol() {
     return ::ttnn::expm1;
   } else if constexpr (std::is_same_v<OpTy, CosOp>) {
     return ::ttnn::cos;
+  } else if constexpr (std::is_same_v<OpTy, AcosOp>) {
+    return ::ttnn::acos;
   } else if constexpr (std::is_same_v<OpTy, TanhOp>) {
     return ::ttnn::tanh;
   } else if constexpr (std::is_same_v<OpTy, LogOp>) {
@@ -944,6 +948,8 @@ template struct UnaryEltwiseOpModel<LogicalNotOp>;
 template struct UnaryEltwiseOpModel<NegOp>;
 template struct UnaryEltwiseOpModel<TanOp>;
 template struct UnaryEltwiseOpModel<AtanOp>;
+template struct UnaryEltwiseOpModel<AsinOp>;
+template struct UnaryEltwiseOpModel<AcosOp>;
 template struct UnaryEltwiseOpModel<ReciprocalOp>;
 template struct UnaryEltwiseOpModel<CbrtOp>;
 template struct UnaryEltwiseOpModel<BitwiseNotOp>;

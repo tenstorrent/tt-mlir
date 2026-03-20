@@ -219,9 +219,17 @@ const auto createSin = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<SinOp>(loc, type, ops).getOperation();
 };
+const auto createAsin = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<AsinOp>(loc, type, ops).getOperation();
+};
 const auto createCos = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<CosOp>(loc, type, ops).getOperation();
+};
+const auto createAcos = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<AcosOp>(loc, type, ops).getOperation();
 };
 const auto createExp = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
@@ -312,7 +320,9 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Hardsigmoid", createHardsigmoid, expected},
     {"Silu", createSilu, expected},
     {"Sin", createSin, expected},
+    {"Asin", createAsin, expected},
     {"Cos", createCos, expected},
+    {"Acos", createAcos, expected},
     {"Exp", createExp, expected},
     {"Tanh", createTanh, expected},
     {"Log", createLog, expected},
