@@ -2572,17 +2572,17 @@ private:
 
     RankedTensorType tensorA =
         mlir::cast<RankedTensorType>(adaptor.getA().getType());
-    auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
-        op.getLoc(), adaptor.getOutput().getType(),
+    auto linalgGeneric = mlir::linalg::GenericOp::create(
+        rewriter, op.getLoc(), adaptor.getOutput().getType(),
         SmallVector<Value>{adaptor.getA(), adaptor.getB()}, adaptor.getOutput(),
         getAffineMapsArray(rewriter, adaptor.getOperands().size(),
                            tensorA.getRank()),
         getIteratorTypesArray(rewriter, tensorA.getRank()),
         [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
             mlir::ValueRange bbArgs) {
-          mlir::Value mm = bbBuilder.create<d2m::TileMatmulOp>(
-              bbLoc, bbArgs.take_back(1).getTypes(), bbArgs);
-          bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, mm);
+          mlir::Value mm = d2m::TileMatmulOp::create(
+              bbBuilder, bbLoc, bbArgs.take_back(1).getTypes(), bbArgs);
+          mlir::linalg::YieldOp::create(bbBuilder, bbLoc, mm);
         });
 
     rewriter.replaceAllUsesExcept(adaptor.getOutput(),
