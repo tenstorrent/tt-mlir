@@ -210,7 +210,7 @@ static Value generateFullyIndexedDMAOps(
     OpBuilder &builder, Location loc, SmallVector<Value> gridIndices,
     ArrayRef<int64_t> shardShape, AffineMap remoteMemoryMap,
     AffineMap localMemoryMap, size_t coalescingFactor, size_t shardVolume,
-    CreateDMAOpFn createDMAOp) {
+    DMAType txType, CreateDMAOpFn createDMAOp) {
 
   if (coalescingFactor == shardVolume) {
     // Fully contiguous: single DMA operation.
@@ -234,7 +234,7 @@ static Value generateFullyIndexedDMAOps(
 
   // Strided/non-contiguous: generate loops with guarded DMAs.
   auto [lbs, ubs, steps] = getLoopBounds(builder, loc, shardShape);
-  auto nullDmaTx = builder.create<NullTxOp>(loc);
+  auto nullDmaTx = builder.create<NullTxOp>(loc, txType);
 
   scf::LoopNest loopNest = scf::buildLoopNest(
       builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
@@ -282,7 +282,7 @@ static Value generateFullyIndexedDMAOps(
         auto predicate = loopBuilder.create<arith::CmpIOp>(
             innerLoc, arith::CmpIPredicate::eq, moduloIterCount, zero);
 
-        auto nulltx = loopBuilder.create<NullTxOp>(innerLoc);
+        auto nulltx = loopBuilder.create<NullTxOp>(innerLoc, txType);
 
         // Build guarded DMA.
         auto ifExpr = loopBuilder.create<scf::IfOp>(
@@ -353,7 +353,7 @@ public:
 
     Value newTx = generateFullyIndexedDMAOps(
         rewriter, loc, gridIndices, shardShape, remoteMemoryMap, localMemoryMap,
-        coalescingFactor, shardVolume,
+        coalescingFactor, shardVolume, DMAType::Read,
         [&](OpBuilder &b, Location l, SmallVector<Value> &remoteIdx,
             SmallVector<Value> &localIdx, size_t cf) {
           return b.create<DMAReadOp>(l, remoteMemref, remoteIdx, localMemref,
@@ -440,7 +440,7 @@ public:
 
     Value newTx = generateFullyIndexedDMAOps(
         rewriter, loc, gridIndices, shardShape, remoteMemoryMap, localMemoryMap,
-        coalescingFactor, shardVolume,
+        coalescingFactor, shardVolume, DMAType::Write,
         [&](OpBuilder &b, Location l, SmallVector<Value> &remoteIdx,
             SmallVector<Value> &localIdx, size_t cf) {
           return b.create<DMAWriteOp>(l, localMemref, localIdx, dstMemref,
