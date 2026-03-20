@@ -19,6 +19,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/STLExtras.h"
@@ -795,6 +796,294 @@ static LogicalResult convertGenerics(ModuleOp module,
   return success();
 }
 
+// ===----------------------------------------------------------------------===//
+// Spatial: merge each region's ttnn.generic into one program. IOS is unified
+// in region order with findIOTensor dedupe (region-major layout). CB/kernel
+// attrs remap via SpatialRemapTable; program semaphore entries only get
+// core_ranges overlaid for the spatial grid.
+// ===----------------------------------------------------------------------===//
+
+static ttnn::CoreRangeSetAttr
+ttCoreRangeToTtnnCoreRangeSet(MLIRContext *ctx, ttcore::CoreRangeAttr cr) {
+  auto sc = cr.getStartCoord();
+  auto ec = cr.getEndCoord();
+  auto tts = ttnn::CoreCoordAttr::get(ctx, static_cast<uint64_t>(sc.getX()),
+                                      static_cast<uint64_t>(sc.getY()));
+  auto tte = ttnn::CoreCoordAttr::get(ctx, static_cast<uint64_t>(ec.getX()),
+                                      static_cast<uint64_t>(ec.getY()));
+  return ttnn::CoreRangeSetAttr::get(
+      ctx, llvm::ArrayRef{ttnn::CoreRangeAttr::get(ctx, tts, tte)});
+}
+
+// Built while lowering one d2m.spatial: each region contributes a ttnn.generic,
+// and the pass replaces the spatial with a single merged ttnn.generic. This
+// holds the unified IOS and additional tensor Values for that merged op
+// (IOS deduped via findIOTensor across regions) and maps each region generic's
+// local operand indices to merged indices so kernel and CB attributes can be
+// rewritten. One instance per d2m.spatial.
+class SpatialRemapTable {
+  using LocalKey = std::pair<ttnn::GenericOp, unsigned>;
+
+  SmallVector<Value> unifiedIO_;
+  SmallVector<Value> unifiedAdditionalArgs_;
+  DenseMap<Value, unsigned> tensorToUnifiedIdx_;
+  DenseMap<LocalKey, unsigned> ioMap_;
+  DenseMap<LocalKey, unsigned> additionalArgMap_;
+  unsigned nextAdditionalUnified_ = 0;
+
+public:
+  void addOperands(ttnn::GenericOp g, DenseMap<Value, Value> &valueMapping) {
+    for (const auto [i, opnd] : llvm::enumerate(g.getInputsAndOutputs())) {
+      unsigned uidx;
+      auto it = tensorToUnifiedIdx_.find(opnd);
+      if (it == tensorToUnifiedIdx_.end()) {
+        uidx = static_cast<unsigned>(unifiedIO_.size());
+        tensorToUnifiedIdx_.insert({opnd, uidx});
+        unifiedIO_.push_back(opnd);
+      } else {
+        uidx = it->second;
+      }
+      ioMap_.insert({{g, static_cast<unsigned>(i)}, uidx});
+    }
+    for (const auto [i, _] : llvm::enumerate(g.getAdditionalArgs())) {
+      additionalArgMap_.insert(
+          {{g, i}, nextAdditionalUnified_ + static_cast<unsigned>(i)});
+    }
+    nextAdditionalUnified_ += g.getAdditionalArgs().size();
+    for (Value a : g.getAdditionalArgs()) {
+      unifiedAdditionalArgs_.push_back(a);
+    }
+  }
+
+  ArrayRef<Value> getUnifiedIO() const { return unifiedIO_; }
+  ArrayRef<Value> getUnifiedAdditionalArgs() const {
+    return unifiedAdditionalArgs_;
+  }
+
+  std::optional<unsigned> lookupIO(ttnn::GenericOp g, unsigned localIdx) const {
+    auto it = ioMap_.find({g, localIdx});
+    if (it != ioMap_.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
+  std::optional<unsigned> lookupAdditional(ttnn::GenericOp g,
+                                           unsigned localIdx) const {
+    auto it = additionalArgMap_.find({g, localIdx});
+    if (it != additionalArgMap_.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
+  std::optional<unsigned> lookupFlatOperand(ttnn::GenericOp g,
+                                            unsigned localOperandIdx) const {
+    unsigned numIO = g.getInputsAndOutputs().size();
+    if (localOperandIdx < numIO) {
+      return lookupIO(g, localOperandIdx);
+    }
+    auto addIdx = lookupAdditional(g, localOperandIdx - numIO);
+    if (addIdx) {
+      return static_cast<unsigned>(unifiedIO_.size()) + *addIdx;
+    }
+    return std::nullopt;
+  }
+};
+
+static SmallVector<Attribute>
+remapSpatialKernelArgs(MLIRContext *ctx, ArrayRef<Attribute> args,
+                       ttnn::GenericOp generic,
+                       const SpatialRemapTable &remapTable) {
+  SmallVector<Attribute> out;
+  for (Attribute arg : args) {
+    Attribute mapped = arg;
+    if (auto addrOf = mlir::dyn_cast<ttnn::KernelArgAddressOfTensorAttr>(arg)) {
+      if (auto unified =
+              remapTable.lookupIO(generic, addrOf.getTensorIndex())) {
+        mapped = ttnn::KernelArgAddressOfTensorAttr::get(ctx, *unified);
+      }
+    } else if (auto globalSem =
+                   mlir::dyn_cast<ttnn::KernelArgGlobalSemaphoreAttr>(arg)) {
+      if (auto unified = remapTable.lookupAdditional(
+              generic, globalSem.getGlobalSemaphoreIndex())) {
+        mapped = ttnn::KernelArgGlobalSemaphoreAttr::get(ctx, *unified);
+      }
+    }
+    out.push_back(mapped);
+  }
+  return out;
+}
+
+static Attribute
+remapSpatialKernelDescriptor(MLIRContext *ctx, Attribute kernelAttr,
+                             ttnn::GenericOp generic,
+                             const SpatialRemapTable &remapTable,
+                             std::optional<ttnn::CoreRangeSetAttr> coreOv) {
+  if (auto compute = mlir::dyn_cast<ttnn::ComputeKernelAttr>(kernelAttr)) {
+    auto crt = remapSpatialKernelArgs(ctx, compute.getCommonRtArgs(), generic,
+                                      remapTable);
+    auto ct =
+        remapSpatialKernelArgs(ctx, compute.getCtArgs(), generic, remapTable);
+    ttnn::CoreRangeSetAttr crs = coreOv.value_or(compute.getCoreRanges());
+    return ttnn::ComputeKernelAttr::get(
+        ctx, compute.getSymbolRef(), crs, compute.getMathFidelity(),
+        compute.getFp32DestAccEn(), compute.getDstFullSyncEn(),
+        compute.getUnpackToDestModes(), compute.getBfp8PackPrecise(),
+        compute.getMathApproxMode(), crt, ct);
+  }
+  if (auto dm = mlir::dyn_cast<ttnn::DataMovementKernelAttr>(kernelAttr)) {
+    auto crt =
+        remapSpatialKernelArgs(ctx, dm.getCommonRtArgs(), generic, remapTable);
+    auto ct = remapSpatialKernelArgs(ctx, dm.getCtArgs(), generic, remapTable);
+    ttnn::CoreRangeSetAttr crs = coreOv.value_or(dm.getCoreRanges());
+    return ttnn::DataMovementKernelAttr::get(
+        ctx, dm.getSymbolRef(), crs, dm.getProcessor(), dm.getNocIndex(),
+        dm.getNocMode(), crt, ct);
+  }
+  if (auto read = mlir::dyn_cast<ttnn::ReadKernelAttr>(kernelAttr)) {
+    auto crt = remapSpatialKernelArgs(ctx, read.getCommonRtArgs(), generic,
+                                      remapTable);
+    auto ct =
+        remapSpatialKernelArgs(ctx, read.getCtArgs(), generic, remapTable);
+    ttnn::CoreRangeSetAttr crs = coreOv.value_or(read.getCoreRanges());
+    return ttnn::ReadKernelAttr::get(ctx, read.getSymbolRef(), crs, crt, ct);
+  }
+  if (auto write = mlir::dyn_cast<ttnn::WriteKernelAttr>(kernelAttr)) {
+    auto crt = remapSpatialKernelArgs(ctx, write.getCommonRtArgs(), generic,
+                                      remapTable);
+    auto ct =
+        remapSpatialKernelArgs(ctx, write.getCtArgs(), generic, remapTable);
+    ttnn::CoreRangeSetAttr crs = coreOv.value_or(write.getCoreRanges());
+    return ttnn::WriteKernelAttr::get(ctx, write.getSymbolRef(), crs, crt, ct);
+  }
+  return kernelAttr;
+}
+
+static ttnn::KernelCBAttr
+adjustSpatialCBDescriptor(MLIRContext *ctx, ttnn::KernelCBAttr cb,
+                          ttnn::GenericOp generic,
+                          const SpatialRemapTable &remapTable,
+                          std::optional<ttnn::CoreRangeSetAttr> coreOv) {
+  SmallVector<ttnn::KernelCBFormatAttr> formats;
+  formats.append(cb.getFormats().begin(), cb.getFormats().end());
+  ttnn::KernelCBGlobalBufferAddressOfTensorAttr bufferToUse = cb.getBuffer();
+  if (cb.getBuffer()) {
+    if (auto unified = remapTable.lookupFlatOperand(
+            generic, cb.getBuffer().getTensorOperandIndex())) {
+      bufferToUse =
+          ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, *unified);
+    }
+  }
+  ttnn::CoreRangeSetAttr crs = coreOv.value_or(cb.getCoreRanges());
+  return ttnn::KernelCBAttr::get(ctx, cb.getTotalSize(), crs, formats,
+                                 bufferToUse);
+}
+
+// Move every op except ttnn.generic out of each spatial region into the parent
+// block immediately before the spatial.
+static void hoistNonGenericOpsBeforeSpatial(d2m::SpatialOp spatialOp) {
+  SmallVector<Operation *> toHoist;
+  for (Region &region : spatialOp.getRegions()) {
+    for (Operation &op : region.front()) {
+      if (mlir::isa<ttnn::GenericOp>(&op)) {
+        continue;
+      }
+      if (op.mightHaveTrait<OpTrait::IsTerminator>()) {
+        continue;
+      }
+      toHoist.push_back(&op);
+    }
+  }
+  for (Operation *op : toHoist) {
+    op->moveBefore(spatialOp);
+  }
+}
+
+static LogicalResult
+convertSingleSpatial(d2m::SpatialOp spatialOp, IRRewriter &rewriter,
+                     DenseMap<Value, Value> &valueMapping) {
+  MLIRContext *ctx = rewriter.getContext();
+
+  // ttnn.generic has no op results; replaceOpWithNewOp does not wire spatial
+  // results. An earlier pipeline stage is expected to leave spatial with zero
+  // results (outs remain as operands only).
+  if (spatialOp.getNumResults() != 0) {
+    return spatialOp.emitOpError(
+        "expected no results on d2m.spatial before merge to ttnn.generic");
+  }
+
+  SmallVector<ttnn::GenericOp> regionGenerics;
+  SpatialRemapTable remapTable;
+
+  for (Region &region : spatialOp.getRegions()) {
+    auto generics = llvm::to_vector(region.front().getOps<ttnn::GenericOp>());
+    if (generics.size() != 1) {
+      return spatialOp.emitOpError(
+                 "each region must contain exactly one ttnn.generic, got ")
+             << generics.size();
+    }
+    ttnn::GenericOp g = generics.front();
+    if (llvm::isa<ttnn::MeshProgramDescriptorAttr>(g.getProgram())) {
+      return spatialOp.emitOpError(
+          "d2m.spatial with MeshProgramDescriptor not supported");
+    }
+    regionGenerics.push_back(g);
+    remapTable.addOperands(g, valueMapping);
+  }
+
+  ArrayRef<ttcore::CoreRangeAttr> spatialGridRanges =
+      spatialOp.getGridRanges().getCoreRanges();
+  SmallVector<Attribute> mergedKernels;
+  SmallVector<ttnn::KernelCBAttr> mergedCBs;
+  SmallVector<ttnn::KernelSemaphoreAttr> mergedSemaphores;
+  for (const auto [regionIdx, g] : llvm::enumerate(regionGenerics)) {
+    std::optional<ttnn::CoreRangeSetAttr> coreOv =
+        ttCoreRangeToTtnnCoreRangeSet(ctx, spatialGridRanges[regionIdx]);
+    auto program = llvm::cast<ttnn::ProgramAttr>(g.getProgram());
+    for (Attribute k : program.getKernels()) {
+      mergedKernels.push_back(
+          remapSpatialKernelDescriptor(ctx, k, g, remapTable, coreOv));
+    }
+    for (ttnn::KernelCBAttr cb : program.getCbs()) {
+      mergedCBs.push_back(
+          adjustSpatialCBDescriptor(ctx, cb, g, remapTable, coreOv));
+    }
+    for (ttnn::KernelSemaphoreAttr sem : program.getSemaphores()) {
+      ttnn::CoreRangeSetAttr crs = coreOv.value_or(sem.getCoreRanges());
+      mergedSemaphores.push_back(ttnn::KernelSemaphoreAttr::get(
+          ctx, sem.getId(), sem.getCoreType(), crs, sem.getInitialValue()));
+    }
+  }
+
+  ttnn::ProgramAttr mergedProgram =
+      ttnn::ProgramAttr::get(ctx, mergedKernels, mergedCBs, mergedSemaphores);
+
+  // Move every op except ttnn.generic out of each spatial region into the
+  // parent
+  hoistNonGenericOpsBeforeSpatial(spatialOp);
+
+  rewriter.setInsertionPoint(spatialOp);
+  rewriter.replaceOpWithNewOp<ttnn::GenericOp>(
+      spatialOp, remapTable.getUnifiedIO(),
+      remapTable.getUnifiedAdditionalArgs(), mergedProgram,
+      ttnn::MemoryConfigAttr());
+  return success();
+}
+
+static LogicalResult convertSpatials(ModuleOp module,
+                                     DenseMap<Value, Value> &valueMapping) {
+  IRRewriter rewriter(module.getContext());
+  SmallVector<d2m::SpatialOp> spatialOps;
+  module.walk([&](d2m::SpatialOp op) { spatialOps.push_back(op); });
+  for (d2m::SpatialOp op : spatialOps) {
+    if (failed(convertSingleSpatial(op, rewriter, valueMapping))) {
+      return failure();
+    }
+  }
+  return success();
+}
+
 static LogicalResult cleanupAndVerify(ModuleOp module,
                                       DenseMap<Value, Value> &valueMapping) {
   // Replace all mapped values' uses with their TTNN equivalents.
@@ -870,6 +1159,9 @@ LogicalResult runD2MToTTNNConversion(ModuleOp module,
     return failure();
   }
   if (failed(convertGenerics(module, valueMapping, mathFidelity))) {
+    return failure();
+  }
+  if (failed(convertSpatials(module, valueMapping))) {
     return failure();
   }
   if (failed(cleanupAndVerify(module, valueMapping))) {

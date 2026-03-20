@@ -296,6 +296,39 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
   ttir::createTTIRToLLVMCPUPipeline(pm, ttirToCPUOptions);
 }
 
+void createTTIRToTTMetalPipelineDebug(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  // Same as ttir-to-ttmetal-pipeline, but assumes IR inside the device module
+  // is already past ttir-to-d2m (D2M ops present). For debugging when feeding
+  // hand-crafted or partially lowered D2M IR.
+  pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
+  pm.addPass(ttir::createCPUHoistManuallyTaggedOpsTransform());
+
+  OpPassManager &devicePm =
+      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+  // Duplicated from createTTIRToTTMetalFrontendPipeline (post ttir-to-d2m).
+  devicePm.addPass(d2m::createD2MScalarizeConstTensors());
+  d2m::D2MGridSelectionOptions gridOptOptions;
+  {
+    gridOptOptions.overrideDeviceShape =
+        llvm::to_vector(options.overrideDeviceShape);
+    gridOptOptions.ttnnMode = options.ttnnMode;
+  }
+  devicePm.addPass(d2m::createD2MMaterializeViewReturns());
+  devicePm.addPass(d2m::createD2MGridSelection(gridOptOptions));
+  devicePm.addPass(createCanonicalizerPassWithOptions(options));
+  devicePm.addPass(d2m::createD2MLowerToLayout());
+  devicePm.addPass(d2m::createD2MMaterializeViewReturns());
+
+  createTTIRToTTMetalMiddleendPipeline(devicePm, options);
+  createTTIRToTTMetalBackendPipeline(devicePm, options);
+
+  ttir::TTIRToLLVMCPUPipelineOptions ttirToCPUOptions;
+  ttir::createTTIRToLLVMCPUPipeline(pm, ttirToCPUOptions);
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
@@ -304,6 +337,11 @@ void registerTTMetalPipelines() {
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-to-ttmetal-pipeline", "Pipeline lowering ttir to ttmetal.",
       tt::ttmetal::createTTIRToTTMetalPipeline);
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+      "ttir-to-ttmetal-pipeline-debug",
+      "Like ttir-to-ttmetal-pipeline but skips everything before d2m inside "
+      "the device module; input must already be past ttir-to-d2m.",
+      tt::ttmetal::createTTIRToTTMetalPipelineDebug);
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-to-ttmetal-fe-pipeline", "Frontend lowering passes.",
       tt::ttmetal::createTTIRToTTMetalFrontendPipeline);
