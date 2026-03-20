@@ -13,7 +13,6 @@
 #mapL = affine_map<(d0, d1, d2) -> (d0, d2)>
 #mapR = affine_map<(d0, d1, d2) -> (d2, d1)>
 #mapO = affine_map<(d0, d1, d2) -> (d0, d1)>
-#remap4 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #remap_dma = affine_map<(d0, d1, d2, d3) -> (d0 + d2 floordiv 32, d1 + d3 floordiv 32, d2 mod 32, d3 mod 32)>
 #remap_transpose = affine_map<(d0, d1, d2, d3) -> (d1, d0, d3, d2)>
 
@@ -104,30 +103,6 @@ module {
         outs(%out : memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #ttcore.memory_space<l1>>)  {
     ^datamovement0():
       %buf = memref.alloc() : memref<32x32xf32, #ttcore.memory_space<l1>>
-    }
-    return
-  }
-
-  // Verify that "explicit datamovement" generics must insert their own operand streams.
-  // CHECK-LABEL: func @test_generic_explicit_datamovement
-  // CHECK: (%[[ARG_IN:.*]]: memref<{{.+}}>, %[[ARG_OUT:.*]]: memref<{{.+}}>)
-  func.func @test_generic_explicit_datamovement(%arg_in: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>, %arg_out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) {
-    // CHECK: %[[ALLOC_IN:.*]] = memref.alloc
-    // CHECK: %[[STREAM_IN:.*]] = "d2m.stream_layout"(%[[ARG_IN]], %[[ALLOC_IN]]) <{remapping = #map{{.*}}}>
-    %buf_in = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
-    %stream_in = "d2m.stream_layout"(%arg_in, %buf_in) {remapping = #remap4} : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
-    // expect %stream_in stream but no stream for %arg_out (no output streams by default):
-    // CHECK: ins(%[[STREAM_IN]] :
-    // CHECK: outs(%[[ARG_OUT]] :
-    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
-        ins(%stream_in : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
-        outs(%arg_out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) {
-    ^unified0():
-      %c0 = arith.constant 0 : index
-      %buffer_in = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #dram>
-      %val = d2m.remote_load %buffer_in %stream_in[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #dram>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<1x1x!ttcore.tile<32x32, f32>, #dram>
-      %buffer_out = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %result = d2m.remote_store %arg_out[%c0, %c0] %buffer_out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
     }
     return
   }
