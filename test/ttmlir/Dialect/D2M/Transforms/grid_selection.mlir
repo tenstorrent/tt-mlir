@@ -136,3 +136,71 @@ module {
      return %output : tensor<40x40xbf16>
    }
  }
+
+// -----
+
+#layout_in_S = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#layout_out_S = #ttcore.metal_layout<logical_shape = 32x64, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+
+module  {
+  func.func @test_reblock_composite_view_small(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x64xf32> {
+    // CHECK-AFTER-LABEL: func.func @test_reblock_composite_view_small
+    %0 = d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout_in_S>
+    %1 = d2m.to_layout %arg0, %0 : tensor<32x32xf32> into tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout_in_S> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout_in_S>
+    %2 = d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout_in_S>
+    %3 = d2m.to_layout %arg1, %2 : tensor<32x32xf32> into tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout_in_S> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout_in_S>
+    // CHECK-AFTER: "d2m.composite_view"{{.+}} -> tensor<1x2x1x1x!ttcore.tile<32x32, f32>
+    %4 = "d2m.composite_view"(%1, %3) <{dim = 1 : si32}> : (tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout_in_S>, tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout_in_S>) -> tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout_out_S>
+    %5 = d2m.empty() : tensor<32x64xf32>
+    %6 = d2m.empty() : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout_out_S>
+    // CHECK-AFTER: d2m.generic {{.+}} grid = #ttcore.grid<1x2>
+    %7 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
+        ins(%4 : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout_out_S>)
+        outs(%6 : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout_out_S>)
+     {
+      %9 = tensor.empty() : tensor<1x2x!ttcore.tile<32x32, f32>>
+      %10 = tensor.empty() : tensor<1x2x!ttcore.tile<32x32, f32>>
+      %block0 = d2m.block_index(0) : index
+      %block1 = d2m.block_index(1) : index
+      %11 = d2m.remote_load %9 %4[%block0, %block1] : tensor<1x2x!ttcore.tile<32x32, f32>>, tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout_out_S> -> tensor<1x2x!ttcore.tile<32x32, f32>>
+      %12 = d2m.remote_store %6[%block0, %block1] %11 : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout_out_S>, tensor<1x2x!ttcore.tile<32x32, f32>> -> tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout_out_S>
+      d2m.yield %12 : (tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout_out_S>)
+    } : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout_out_S>
+    %8 = d2m.to_layout %7, %5 : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout_out_S> into tensor<32x64xf32> -> tensor<32x64xf32>
+    return %8 : tensor<32x64xf32>
+  }
+}
+
+// -----
+
+#layout_in_L = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#layout_out_L = #ttcore.metal_layout<logical_shape = 256x512, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+
+module  {
+  func.func @test_reblock_composite_view_large(%arg0: tensor<256x256xf32>, %arg1: tensor<256x256xf32>) -> tensor<256x512xf32> attributes {tt.function_type = "forward_device"} {
+    // CHECK-AFTER-LABEL: func.func @test_reblock_composite_view_large
+    %0 = d2m.empty() : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_in_L>
+    %1 = d2m.to_layout %arg0, %0 : tensor<256x256xf32> into tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_in_L> -> tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_in_L>
+    %2 = d2m.empty() : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_in_L>
+    %3 = d2m.to_layout %arg1, %2 : tensor<256x256xf32> into tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_in_L> -> tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_in_L>
+    // CHECK-AFTER: "d2m.composite_view"{{.+}} -> tensor<8x8x1x2x!ttcore.tile<32x32, f32>
+    %4 = "d2m.composite_view"(%1, %3) <{dim = 1 : si32}> : (tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_in_L>, tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_in_L>) -> tensor<1x1x8x16x!ttcore.tile<32x32, f32>, #layout_out_L>
+    %5 = d2m.empty() : tensor<256x512xf32>
+    %6 = d2m.empty() : tensor<1x1x8x16x!ttcore.tile<32x32, f32>, #layout_out_L>
+    // CHECK-AFTER: d2m.generic {{.+}} grid = #ttcore.grid<8x8>
+    %7 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
+        ins(%4 : tensor<1x1x8x16x!ttcore.tile<32x32, f32>, #layout_out_L>)
+        outs(%6 : tensor<1x1x8x16x!ttcore.tile<32x32, f32>, #layout_out_L>)
+     {
+      %9 = tensor.empty() : tensor<8x16x!ttcore.tile<32x32, f32>>
+      %10 = tensor.empty() : tensor<8x16x!ttcore.tile<32x32, f32>>
+      %block0 = d2m.block_index(0) : index
+      %block1 = d2m.block_index(1) : index
+      %11 = d2m.remote_load %9 %4[%block0, %block1] : tensor<8x16x!ttcore.tile<32x32, f32>>, tensor<1x1x8x16x!ttcore.tile<32x32, f32>, #layout_out_L> -> tensor<8x16x!ttcore.tile<32x32, f32>>
+      %12 = d2m.remote_store %6[%block0, %block1] %11 : tensor<1x1x8x16x!ttcore.tile<32x32, f32>, #layout_out_L>, tensor<8x16x!ttcore.tile<32x32, f32>> -> tensor<1x1x8x16x!ttcore.tile<32x32, f32>, #layout_out_L>
+      d2m.yield %12 : (tensor<1x1x8x16x!ttcore.tile<32x32, f32>, #layout_out_L>)
+    } : tensor<1x1x8x16x!ttcore.tile<32x32, f32>, #layout_out_L>
+    %8 = d2m.to_layout %7, %5 : tensor<1x1x8x16x!ttcore.tile<32x32, f32>, #layout_out_L> into tensor<256x512xf32> -> tensor<256x512xf32>
+    return %8 : tensor<256x512xf32>
+  }
+}
