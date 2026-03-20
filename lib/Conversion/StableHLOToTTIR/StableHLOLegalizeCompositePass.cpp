@@ -18,6 +18,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "stablehlo/dialect/StablehloOps.h"
 
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/StringRef.h"
 #include <shardy/dialect/sdy/ir/dialect.h>
 
 using namespace mlir;
@@ -75,6 +77,145 @@ public:
 
 private:
   std::string opName;
+};
+
+// Special handling for all tenstorrent.topk* composite ops.
+// Three different composite ops are supported:
+// - tenstorrent.topk: generated when both the values and indices are needed in
+// the graph.
+// - tenstorrent.topk_indices: generated when only the indices are needed in the
+// graph.
+// - tenstorrent.topk_values: generated when only the values are needed in the
+// graph.
+class TenstorrentTopKConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+public:
+  TenstorrentTopKConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!supportedOpNames.contains(srcOp.getName())) {
+      return failure();
+    }
+    if (adaptor.getOperands().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.topk composite op must have exactly one input operand.");
+    }
+
+    bool isTopKWithValues = srcOp.getName() == "tenstorrent.topk_values";
+    bool isTopKWithIndices = srcOp.getName() == "tenstorrent.topk_indices";
+    bool isTopKWithBoth = srcOp.getName() == "tenstorrent.topk";
+
+    if (isTopKWithBoth && srcOp->getNumResults() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.topk composite op must have exactly two results.");
+    }
+    if (isTopKWithValues && srcOp->getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.topk_values composite op must have exactly one result.");
+    }
+    if (isTopKWithIndices && srcOp->getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "tenstorrent.topk_indices composite "
+                                         "op must have exactly one result.");
+    }
+
+    SmallVector<RankedTensorType> resultTypes;
+    if (isTopKWithBoth) {
+      resultTypes = {
+          mlir::cast<RankedTensorType>(srcOp.getResult(0).getType()),
+          mlir::cast<RankedTensorType>(srcOp.getResult(1).getType())};
+    } else {
+      resultTypes = {
+          mlir::cast<RankedTensorType>(srcOp.getResult(0).getType())};
+    }
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+    IntegerAttr kAttr = IntegerAttr::get(rewriter.getIntegerType(32), 1);
+    IntegerAttr dimAttr = IntegerAttr::get(rewriter.getIntegerType(32), -1);
+    BoolAttr sortedAttr = BoolAttr::get(rewriter.getContext(), false);
+    BoolAttr largestAttr = BoolAttr::get(rewriter.getContext(), true);
+
+    if (compositeAttrs) {
+      if (auto attr = compositeAttrs.getAs<IntegerAttr>("k")) {
+        APInt kValue = attr.getValue();
+        if (!kValue.isIntN(32)) {
+          return rewriter.notifyMatchFailure(srcOp,
+                                             "k value is too large for ui32: " +
+                                                 Twine(kValue.getSExtValue()));
+        }
+        kAttr = IntegerAttr::get(rewriter.getIntegerType(32),
+                                 static_cast<int32_t>(kValue.getSExtValue()));
+      }
+      if (auto attr = compositeAttrs.getAs<IntegerAttr>("dim")) {
+        APInt dimValue = attr.getValue();
+        if (!dimValue.isSignedIntN(32)) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "dim value is too large for si32: " +
+                         Twine(dimValue.getSExtValue()));
+        }
+        dimAttr =
+            IntegerAttr::get(rewriter.getIntegerType(32),
+                             static_cast<int32_t>(dimValue.getSExtValue()));
+      }
+      if (auto attr = compositeAttrs.getAs<BoolAttr>("largest")) {
+        largestAttr = attr;
+      }
+      if (auto attr = compositeAttrs.getAs<BoolAttr>("sorted")) {
+        sortedAttr = attr;
+      }
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.topk composite op must have composite_attributes.");
+    }
+
+    auto inputType =
+        mlir::cast<RankedTensorType>(adaptor.getOperands()[0].getType());
+    RankedTensorType valuesType, indicesType;
+
+    if (isTopKWithBoth) {
+      valuesType = resultTypes[0];
+      indicesType = resultTypes[1];
+    } else if (isTopKWithValues) {
+      valuesType = resultTypes[0];
+      indicesType =
+          RankedTensorType::get(valuesType.getShape(), rewriter.getI32Type());
+    } else {
+      auto indicesResultType = resultTypes[0];
+      valuesType = RankedTensorType::get(indicesResultType.getShape(),
+                                         inputType.getElementType());
+      indicesType = indicesResultType;
+    }
+
+    auto input = adaptor.getOperands()[0];
+    auto topKOp = rewriter.create<ttir::TopKOp>(
+        srcOp.getLoc(), valuesType, indicesType, input, kAttr, dimAttr,
+        largestAttr, sortedAttr);
+
+    if (isTopKWithBoth) {
+      rewriter.replaceOp(srcOp, {topKOp.getValues(), topKOp.getIndices()});
+    } else if (isTopKWithValues) {
+      rewriter.replaceOp(srcOp, {topKOp.getValues()});
+    } else {
+      rewriter.replaceOp(srcOp, {topKOp.getIndices()});
+    }
+
+    return success();
+  }
+
+private:
+  llvm::SmallSet<llvm::StringRef, 3> supportedOpNames = {
+      "tenstorrent.topk",
+      "tenstorrent.topk_indices",
+      "tenstorrent.topk_values",
+  };
 };
 
 // Special handling for tenstorrent.uniform -> ttir.rand, as
@@ -506,6 +647,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
   patterns.add<TenstorrentGroupNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
+  patterns.add<TenstorrentTopKConversionPattern>(context);
   patterns.add<ShardyAllSliceToTTIRMeshPartitionConversionPattern>(context);
 }
 } // namespace mlir::tt
