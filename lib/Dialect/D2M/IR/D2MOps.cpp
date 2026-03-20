@@ -1223,28 +1223,15 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
     auto resultTensor = mlir::dyn_cast<mlir::RankedTensorType>(resultType);
 
     if (inputTensor && resultTensor) {
-      auto inputLayout =
-          mlir::dyn_cast_if_present<mlir::tt::ttcore::MetalLayoutAttr>(
-              inputTensor.getEncoding());
-      auto resultLayout =
-          mlir::dyn_cast_if_present<mlir::tt::ttcore::MetalLayoutAttr>(
-              resultTensor.getEncoding());
+      bool hasInputLayout = mlir::isa_and_nonnull<ttcore::MetalLayoutAttr>(
+          inputTensor.getEncoding());
+      bool hasResultLayout = mlir::isa_and_nonnull<ttcore::MetalLayoutAttr>(
+          resultTensor.getEncoding());
 
-      if (inputLayout && resultLayout) {
-        // Both have layouts: verify logical shapes match.
-        if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape()) {
-          return emitOpError("view must preserve logical shape");
-        }
-      } else if (!inputLayout && !resultLayout) {
-        // Neither has layout: verify device tensor shapes match.
-        int64_t inputElements = 1, outputElements = 1;
-        for (auto d : inputType.getShape()) {
-          inputElements *= d;
-        }
-        for (auto d : resultType.getShape()) {
-          outputElements *= d;
-        }
-        if (inputElements != outputElements) {
+      if (!hasInputLayout && !hasResultLayout) {
+        // Neither has layout: verify total element count matches.
+        if (ttmlir::utils::volume<int64_t>(inputType.getShape()) !=
+            ttmlir::utils::volume<int64_t>(resultType.getShape())) {
           return emitOpError("view must preserve total number of elements");
         }
       }
@@ -1261,10 +1248,6 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
           inputTensor.getEncoding());
       auto resultLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
           resultTensor.getEncoding());
-      if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape()) {
-        return emitOpError("view cannot change logical shape");
-      }
-
       if (inputLayout.getOobVal() != resultLayout.getOobVal()) {
         return emitOpError("view cannot change oob_val");
       }
@@ -1340,10 +1323,18 @@ d2m::ViewLayoutOp::getBufferType(
 }
 
 bool d2m::ViewLayoutOp::isReblockOnly() {
-  mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
-      mlir::cast<mlir::ShapedType>(getInput().getType()).getShape(),
-      mlir::cast<mlir::ShapedType>(getResult().getType()).getShape(),
-      getContext());
+  auto inputShape =
+      mlir::cast<mlir::ShapedType>(getInput().getType()).getShape();
+  auto resultShape =
+      mlir::cast<mlir::ShapedType>(getResult().getType()).getShape();
+  // A reblock map requires equal volumes; views that change the logical shape
+  // (TM views) are never reblock-only.
+  if (ttmlir::utils::volume<int64_t>(inputShape) !=
+      ttmlir::utils::volume<int64_t>(resultShape)) {
+    return false;
+  }
+  mlir::AffineMap reblockMap =
+      ttmlir::utils::calculateReblockMap(inputShape, resultShape, getContext());
   return getRemapping() == reblockMap;
 }
 
