@@ -24,6 +24,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <optional>
+
 namespace mlir::tt {
 
 namespace {
@@ -298,22 +300,25 @@ struct GenericOperandInfo {
   bool isOutput;
   OperandLocality locality;
   unsigned operandIdx;
+  std::optional<unsigned> globalCBTensorIndex;
 };
 
 static SmallVector<ttnn::KernelCBAttr>
-createCBDescriptors(Builder &builder,
-                    const SmallVector<GenericOperandInfo> &infos,
+createCBDescriptors(Builder &builder, ArrayRef<Value> cbs,
+                    ArrayRef<std::optional<unsigned>> cbTensorBindings,
                     const ttcore::DeviceAttr &device,
                     const ttnn::CoreRangeSetAttr &coreRangeSet) {
-  if (infos.empty()) {
+  if (cbs.empty()) {
     llvm_unreachable("Expected circular buffers.");
   }
+  TT_assertv(cbs.size() == cbTensorBindings.size(),
+             "CB tensor binding metadata must align with CB descriptors");
 
   MLIRContext *ctx = builder.getContext();
-  SmallVector<ttnn::KernelCBAttr> cbDescriptors(infos.size());
+  SmallVector<ttnn::KernelCBAttr> cbDescriptors(cbs.size());
 
-  for (auto [i, info] : llvm::enumerate(infos)) {
-    auto cbMemref = mlir::cast<MemRefType>(info.cbMemref.getType());
+  for (auto [i, cb] : llvm::enumerate(cbs)) {
+    auto cbMemref = mlir::cast<MemRefType>(cb.getType());
     TT_assertv(mlir::isa<ttcore::TileType>(cbMemref.getElementType()),
                "Only TileType supported.");
     ttcore::DataType dtype =
@@ -325,9 +330,11 @@ createCBDescriptors(Builder &builder,
         ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
 
     ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-    if (info.locality == OperandLocality::L1Local) {
+    if (cbTensorBindings[i] &&
+        ttcore::getMemorySpace(cbMemref) != ttcore::MemorySpace::DeviceDRAM) {
       globalCBIndexOfTensor =
-          ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
+          ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(
+              ctx, *cbTensorBindings[i]);
     }
 
     cbDescriptors[i] = ttnn::KernelCBAttr::get(
@@ -652,24 +659,55 @@ findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping,
 static Value findCBMemref(Value operand) {
   Operation *def = operand.getDefiningOp();
   if (!def) {
-    TT_assertv(isa<MemRefType>(operand.getType()),
+    TT_assertv(mlir::isa<MemRefType>(operand.getType()),
                "expected operand to be a memref");
     return operand;
   }
 
-  if (auto stream = dyn_cast<d2m::StreamLayoutOp>(def)) {
+  if (auto stream = mlir::dyn_cast<d2m::StreamLayoutOp>(def)) {
     return stream.getStorage();
   }
-  if (auto view = dyn_cast<d2m::ViewLayoutOp>(def)) {
-    if (auto stream =
-            dyn_cast<d2m::StreamLayoutOp>(view.getInput().getDefiningOp())) {
-      return stream.getStorage();
+  if (auto view = mlir::dyn_cast<d2m::ViewLayoutOp>(def)) {
+    if (mlir::isa_and_present<d2m::StreamLayoutOp>(
+            view.getInput().getDefiningOp())) {
+      // Preserve the streamed view memref here so CB size/page-size derive from
+      // the same descriptor shape the generic sees.
+      return view.getInput();
     }
   }
 
-  TT_assertv(isa<MemRefType>(operand.getType()),
+  TT_assertv(mlir::isa<MemRefType>(operand.getType()),
              "expected operand to be a memref");
   return operand;
+}
+
+static std::optional<unsigned> findCBTensorBinding(Value operand,
+                                                   unsigned operandIdx) {
+  Operation *def = operand.getDefiningOp();
+  if (!def) {
+    TT_assertv(mlir::isa<MemRefType>(operand.getType()),
+               "expected operand to be a memref");
+    return operandIdx;
+  }
+  if (mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(def)) {
+    return std::nullopt;
+  }
+  if (mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(def)) {
+    return operandIdx;
+  }
+  if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(def)) {
+    if (mlir::isa_and_present<d2m::StreamLayoutOp>(
+            view.getInput().getDefiningOp())) {
+      return std::nullopt;
+    }
+    return operandIdx;
+  }
+  if (mlir::dyn_cast_if_present<memref::AllocOp>(def)) {
+    return operandIdx;
+  }
+
+  llvm_unreachable("Expected stream_layout, view_layout, memref.alloc, or "
+                   "ttnn_metal_layout_cast as generic operand");
 }
 
 static SmallVector<GenericOperandInfo>
@@ -681,12 +719,16 @@ analyzeGenericOperands(d2m::GenericOp op,
   for (Value input : op.getInputs()) {
     auto [tensor, locality] = findIOTensor(input, valueMapping);
     infos.push_back({tensor, findCBMemref(input),
-                     /*isOutput=*/false, locality, idx++});
+                     /*isOutput=*/false, locality, idx,
+                     findCBTensorBinding(input, idx)});
+    ++idx;
   }
   for (Value output : op.getOutputs()) {
     auto [tensor, locality] = findIOTensor(output, valueMapping);
     infos.push_back({tensor, findCBMemref(output),
-                     /*isOutput=*/true, locality, idx++});
+                     /*isOutput=*/true, locality, idx,
+                     findCBTensorBinding(output, idx)});
+    ++idx;
   }
 
   for (auto &info : infos) {
@@ -728,6 +770,14 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
 
   SmallVector<GenericOperandInfo> infos =
       analyzeGenericOperands(op, valueMapping);
+  SmallVector<Value> cbs;
+  SmallVector<std::optional<unsigned>> cbTensorBindings;
+  cbs.reserve(infos.size() + op.getAdditionalArgs().size());
+  cbTensorBindings.reserve(infos.size() + op.getAdditionalArgs().size());
+  for (const GenericOperandInfo &info : infos) {
+    cbs.push_back(info.cbMemref);
+    cbTensorBindings.push_back(info.globalCBTensorIndex);
+  }
 
   SmallVector<Value> additionalArgs;
   for (Value arg : op.getAdditionalArgs()) {
@@ -737,23 +787,31 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
                            : IntegerAttr()) {
       unsigned targetIdx = static_cast<unsigned>(cbForOp.getInt());
       TT_assertv(targetIdx < infos.size(), "d2m.cb_for_operand out of range");
-      infos[targetIdx].cbMemref = arg;
-    } else if (isa<ttnn::GlobalSemaphoreType>(arg.getType()) ||
-               isa<RankedTensorType>(arg.getType())) {
-      Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
-      additionalArgs.push_back(mapped);
-    } else if (isa<d2m::GlobalSemaphoreType>(arg.getType())) {
-      Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
-      additionalArgs.push_back(mapped);
-    } else {
-      return op.emitOpError(
-                 "unexpected operand type in d2m.generic's additionalArgs: ")
-             << arg.getType();
+      cbs[targetIdx] = arg;
+      cbTensorBindings[targetIdx] = std::nullopt;
+      continue;
     }
+    if (mlir::isa<MemRefType>(arg.getType())) {
+      cbs.push_back(arg);
+      cbTensorBindings.push_back(std::nullopt);
+      continue;
+    }
+
+    Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
+    if (mlir::isa<ttnn::GlobalSemaphoreType>(mapped.getType()) ||
+        mlir::isa<RankedTensorType>(mapped.getType()) ||
+        mlir::isa<d2m::GlobalSemaphoreType>(mapped.getType())) {
+      additionalArgs.push_back(mapped);
+      continue;
+    }
+
+    return op.emitOpError(
+               "unexpected operand type in d2m.generic's additionalArgs: ")
+           << arg.getType();
   }
 
-  SmallVector<ttnn::KernelCBAttr> cbDescriptors =
-      createCBDescriptors(rewriter, infos, device, coreRangeSet);
+  SmallVector<ttnn::KernelCBAttr> cbDescriptors = createCBDescriptors(
+      rewriter, cbs, cbTensorBindings, device, coreRangeSet);
 
   SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
   SmallVector<mlir::Attribute> kernelDescriptors = createKernelDescriptors(
