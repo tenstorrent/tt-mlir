@@ -1745,7 +1745,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         bufferType.getElementType(), L1Attr, numStreamBuffers);
 
     auto bufferAllocOp =
-        rewriter.create<memref::AllocOp>(op.getLoc(), streamBufferType);
+        memref::AllocOp::create(rewriter, op.getLoc(), streamBufferType);
 
     if (req) {
       assignAddressAndAlignment(rewriter, bufferAllocOp, req->offset, info);
