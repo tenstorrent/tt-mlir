@@ -41,8 +41,8 @@ def test_reductions(device, shape, max_grid, dim, op, dtype, buffer_type):
     def reduction_func(input_tensor):
         return op(input_tensor, dim=dim, keepdim=True)
 
-    if op in [ttnn.mean, ttnn.min]:
-        pytest.skip(reason="Mean and Min are not currently supported in D2M")
+    if op == ttnn.min:
+        pytest.skip(reason="Min is not currently supported in D2M")
 
     shard_strategy = (
         ttnn.ShardStrategy.BLOCK if buffer_type == ttnn.BufferType.L1 else None

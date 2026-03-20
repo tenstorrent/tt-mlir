@@ -809,7 +809,8 @@ public:
             bool isUnaryOp = computeOp->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
             bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
-                               mlir::isa<d2m::TileReduceSumOp>(computeOp);
+                               mlir::isa<d2m::TileReduceSumOp>(computeOp) ||
+                               mlir::isa<d2m::TileReduceMeanOp>(computeOp);
             assert(
                 (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
                 "Only unary ops, tile matmul, reductions, and tile+scalar ops "
@@ -1623,7 +1624,8 @@ public:
             bool isUnaryOp = computeOp->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
             bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
-                               mlir::isa<d2m::TileReduceSumOp>(computeOp);
+                               mlir::isa<d2m::TileReduceSumOp>(computeOp) ||
+                               mlir::isa<d2m::TileReduceMeanOp>(computeOp);
             assert(
                 (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
                 "Only unary ops, tile matmul, reductions, and tile+scalar ops "
