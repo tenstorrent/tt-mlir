@@ -1,4 +1,5 @@
 // RUN: ttmlir-opt --stablehlo-complex-math-expander --stablehlo-complex-data-type-conversion %s
+// REQUIRES: stablehlo
 
 func.func @main(%arg0: tensor<16x8xcomplex<f32>>, %arg1: tensor<2x16x4x16xbf16>) -> tensor<2x16x4x16xbf16> {
   %0 = stablehlo.convert %arg1 : (tensor<2x16x4x16xbf16>) -> tensor<2x16x4x16xf32>

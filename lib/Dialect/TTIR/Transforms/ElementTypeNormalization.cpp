@@ -27,6 +27,12 @@ public:
             return type;
           }
 
+          // Preserve tensor<!ttcore.tile<…>>: lowering tile to scalar f32
+          // breaks L1 sharded layouts and runtime CB sizing.
+          if (mlir::isa<ttcore::TileType>(elementType)) {
+            return type;
+          }
+
           elementType =
               mlir::tt::ttcore::toTTMLIRSupportedDataType(elementType);
           if (!elementType) {

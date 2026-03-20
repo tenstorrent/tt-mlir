@@ -25,8 +25,9 @@ func.func @canonicalize_with_multiple_reserves(%arg0: tensor<1x1x1x1x!ttcore.til
   // CHECK-NEXT: %[[CB_OUT:.*]] = d2m.get_cb(1)
   // CHECK-NEXT: d2m.wait %[[CB_IN]]
   // CHECK-NEXT: %[[RESERVE:.*]] = d2m.reserve %[[CB_OUT]]
+  // CHECK-NEXT: %[[EMPTY:.*]] = d2m.empty()
   // CHECK-NEXT: %[[RESULT:.*]] = linalg.generic
-  // CHECK-SAME: outs(%[[RESERVE]] :
+  // CHECK-SAME: outs(%[[EMPTY]] :
   // CHECK: d2m.store %[[RESERVE]], %[[RESULT]]
   // CHECK: %[[WAIT:.*]] = d2m.wait %[[CB_OUT]]
   // CHECK: d2m.yield %[[WAIT]]
@@ -123,8 +124,9 @@ func.func @test_nested_in_loop(%arg0: tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #
     // CHECK-NEXT: %[[CB_OUT:.*]] = d2m.get_cb(1)
     // CHECK-NEXT: d2m.wait %[[CB_IN]]
     // CHECK-NEXT: %[[RESERVE:.*]] = d2m.reserve %[[CB_OUT]]
-    // CHECK-NEXT: linalg.generic
-    // CHECK-SAME: outs(%[[RESERVE]] :
+  // CHECK-NEXT: %[[EMPTY:.*]] = d2m.empty()
+  // CHECK-NEXT: linalg.generic
+  // CHECK-SAME: outs(%[[EMPTY]] :
     %2 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
         ins(%arg0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
         outs(%iter_arg : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)  {
@@ -183,8 +185,9 @@ func.func @canonicalize_dps_cross_block_dominance(%arg0: tensor<1x1x1x1x!ttcore.
     // Create a new block (then branch) to host the DPS op, ensuring cross-block dominance is required.
     %ctrue = arith.constant true
     scf.if %ctrue {
-      // CHECK: %[[GEN:.*]] = linalg.generic
-      // CHECK-SAME: outs(%[[RESERVE]] :
+      // CHECK: %[[EMPTY:.*]] = d2m.empty()
+      // CHECK-NEXT: %[[GEN:.*]] = linalg.generic
+      // CHECK-SAME: outs(%[[EMPTY]] :
       %gen = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]}
           ins(%in : tensor<1x1x!ttcore.tile<32x32, f32>>)
           outs(%temp : tensor<1x1x!ttcore.tile<32x32, f32>>) {

@@ -114,6 +114,23 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
   ];
 }
 
+def PredicateTypeAlignment : Pass<"ttir-predicate-type-alignment", "::mlir::ModuleOp"> {
+  let summary = "Align predicate-like tensor types before element-type narrowing.";
+  let description = [{
+    Aligns predicate-like results with data dtypes so downstream passes (e.g.
+    ttir-element-type-normalization) can map i1 to bf16 without mixed-type
+    elementwise edges. Rules:
+      - Unary tensor-manipulation ops (reshape, broadcast, etc.): result
+        element type follows the input (stops at typecast).
+      - Gather: result element type follows the data input.
+      - Elementwise binary (e.g. logical_and): if one operand is i1 and the
+        other is not, align to the non-i1 type via typecasts.
+      - Comparisons (eq, ne, gt, ge, lt, le), logical_not, reduce_or: result
+        element type matches input/lhs instead of i1.
+      - where: condition is typecast to the true/false value element type.
+  }];
+}
+
 def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp">
 {
   let summary = "Flatten sliding window ops.";

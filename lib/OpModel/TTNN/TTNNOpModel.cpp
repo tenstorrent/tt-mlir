@@ -4541,9 +4541,9 @@ llvm::Expected<OpConstraints> OpModel<UpdateCacheOp>::getOpConstraints(
   (void)updateIndexLayout;
 
   auto updateCacheOpQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(::ttnn::update_cache, device,
-                                               cacheSpec, inputSpec, updateIdx,
-                                               batchOffset);
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::update_cache, device, cacheSpec, inputSpec, updateIdx,
+        batchOffset, /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpConstraints(cacheLayout.getContext(), deviceGrid,
@@ -4583,9 +4583,9 @@ llvm::Expected<size_t> OpModel<UpdateCacheOp>::getOpRuntime(
   (void)updateIndexLayout;
 
   auto updateCacheOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(::ttnn::update_cache, device,
-                                           cacheSpec, inputSpec, updateIdx,
-                                           batchOffset);
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::update_cache, device, cacheSpec, inputSpec, updateIdx,
+        batchOffset, /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpRuntime(updateCacheOpQuery);
@@ -5154,6 +5154,7 @@ llvm::Expected<OpConstraints> OpModel<Conv3dOp>::getOpConstraints(
   auto conv3dOpQuery = [=, &specs]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::experimental::conv3d, device, specs.inputSpec, specs.weightSpec,
+        std::optional<::tt::tt_metal::distributed::MeshDevice *>(device),
         specs.biasSpec, specs.config, specs.dtype, specs.outputChannels,
         specs.kernelSize, specs.stride, specs.padding,
         std::array<uint32_t, 3>{1, 1, 1}, specs.paddingMode, specs.groups,
@@ -5199,6 +5200,7 @@ llvm::Expected<size_t> OpModel<Conv3dOp>::getOpRuntime(
   auto conv3dOpRuntime = [=, &specs]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::experimental::conv3d, device, specs.inputSpec, specs.weightSpec,
+        std::optional<::tt::tt_metal::distributed::MeshDevice *>(device),
         specs.biasSpec, specs.config, specs.dtype, specs.outputChannels,
         specs.kernelSize, specs.stride, specs.padding,
         std::array<uint32_t, 3>{1, 1, 1}, specs.paddingMode, specs.groups,
@@ -7050,7 +7052,8 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingBackwardOp>::getOpConstraints(
   auto embeddingBackwardOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::embedding_bw, device, inputSpec, weightSpec, inGradientSpec,
-        /*dtype*/ std::nullopt, detail::getNullableMemoryConfig(outputLayout));
+        /*dtype*/ std::nullopt, detail::getNullableMemoryConfig(outputLayout),
+        /*optional_output_tensor*/ std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -7094,7 +7097,8 @@ OpModel<mlir::tt::ttnn::EmbeddingBackwardOp>::getOpRuntime(
   auto embeddingBackwardOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::embedding_bw, device, inputSpec, weightSpec, inGradientSpec,
-        /*dtype*/ std::nullopt, detail::getNullableMemoryConfig(outputLayout));
+        /*dtype*/ std::nullopt, detail::getNullableMemoryConfig(outputLayout),
+        /*optional_output_tensor*/ std::nullopt);
   };
 
   return operation::getOpRuntime(embeddingBackwardOpQuery);
@@ -7155,7 +7159,7 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
   // ~~~~~~~~~~~~~~~~~~~~~ Note ~~~~~~~~~~~~~~~~~~~~~
   // The following default values are taken from Arrange's invoke function in
-  // tt-metal/ttnn/cpp/ttnn/operations/creation.hpp
+  // tt-metal/ttnn/cpp/ttnn/operations/creation/creation.hpp
   const ::tt::tt_metal::DataType defaultDtypeInMetal =
       ::tt::tt_metal::DataType::BFLOAT16;
   const ::ttnn::MemoryConfig defaultMemoryConfigInMetal =
