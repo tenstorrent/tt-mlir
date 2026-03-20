@@ -133,7 +133,7 @@ static RankedTensorType convertMemrefToTTNNTensor(MLIRContext *ctx,
 namespace {
 
 // Helper struct to extract and return both IO and CB from a d2m.generic
-// operand.
+// operand.  The CB field is only meaningful when no hoisted CB overrides it.
 struct IOAndCB {
   Value io;
   Value cb;
@@ -464,21 +464,9 @@ public:
             ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
             ttnn::CoreCoordAttr::get(ctx, endCoreRange[0], endCoreRange[1])));
 
-    llvm::SmallVector<Value> ios(ioSize);
-    llvm::SmallVector<Value> cbs(ioSize);
-    llvm::SmallVector<Value> adaptorInputsAndOutputs(
-        adaptor.getOperands().begin(), adaptor.getOperands().begin() +
-                                           adaptor.getInputs().size() +
-                                           adaptor.getOutputs().size());
-    for (auto [i, orig, converted] :
-         llvm::enumerate(op.getInputsAndOutputs(), adaptorInputsAndOutputs)) {
-      auto [io, cb] = extractIOAndCBFromGenericOperand(orig, converted);
-      ios[i] = io;
-      cbs[i] = cb;
-    }
-
-    // Process additionalArgs: semaphores/tensors go to the GenericOp,
-    // hoisted CB allocs override the corresponding CB descriptor.
+    // Scan additional args to build a map from I/O operand index
+    // to its hoisted CB, and collect other additional args separately.
+    DenseMap<unsigned, Value> hoistedCBMap;
     llvm::SmallVector<Value> additionalArgs;
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operand = adaptor.getOperands()[ioSize + i];
@@ -488,18 +476,17 @@ public:
       // *original* operand because MemrefAllocRewriter may have already
       // converted the alloc to a ttnn.empty (tensor type).  Use the
       // original memref for CB descriptor derivation.
-      if (auto cbForOp =
-              origOperand.getDefiningOp()
-                  ? origOperand.getDefiningOp()->getAttrOfType<IntegerAttr>(
-                        "d2m.cb_for_operand")
-                  : IntegerAttr()) {
-        unsigned idx = static_cast<unsigned>(cbForOp.getInt());
-        TT_assertv(idx < cbs.size(), "d2m.cb_for_operand out of range");
-        cbs[idx] = origOperand;
-        continue;
-      }
-      if (mlir::isa<MemRefType>(operand.getType())) {
-        cbs.push_back(operand);
+      if (mlir::isa<MemRefType>(origOperand.getType())) {
+        auto cbForOp =
+            origOperand.getDefiningOp()
+                ? origOperand.getDefiningOp()->getAttrOfType<IntegerAttr>(
+                      "d2m.cb_for_operand")
+                : IntegerAttr();
+        if (!cbForOp) {
+          op.emitOpError("memref additional arg missing d2m.cb_for_operand");
+          return failure();
+        }
+        hoistedCBMap[static_cast<unsigned>(cbForOp.getInt())] = origOperand;
       } else if (mlir::isa<ttnn::GlobalSemaphoreType>(operand.getType())) {
         additionalArgs.push_back(operand);
       } else if (mlir::isa<RankedTensorType>(operand.getType())) {
@@ -510,6 +497,23 @@ public:
             << operand.getType();
         return failure();
       }
+    }
+
+    // Process I/O operands, using hoisted CBs where available.
+    llvm::SmallVector<Value> ios(ioSize);
+    llvm::SmallVector<Value> cbs(ioSize);
+    llvm::SmallVector<Value> adaptorInputsAndOutputs(
+        adaptor.getOperands().begin(), adaptor.getOperands().begin() +
+                                           adaptor.getInputs().size() +
+                                           adaptor.getOutputs().size());
+    for (auto [i, orig, converted] :
+         llvm::enumerate(op.getInputsAndOutputs(), adaptorInputsAndOutputs)) {
+      auto [io, cb] = extractIOAndCBFromGenericOperand(orig, converted);
+      ios[i] = io;
+      // Use hoisted CB if one exists for this operand, otherwise use
+      // the CB derived from the operand itself.
+      auto it = hoistedCBMap.find(i);
+      cbs[i] = it != hoistedCBMap.end() ? it->second : cb;
     }
 
     // Create CB descriptors.

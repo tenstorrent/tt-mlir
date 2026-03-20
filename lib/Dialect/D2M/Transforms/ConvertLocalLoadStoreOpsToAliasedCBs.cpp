@@ -232,6 +232,12 @@ public:
         continue;
       }
 
+      // Skip allocs that were hoisted outside the generic by HoistCBAllocs.
+      // These are real CB buffers managed via the additional-args mechanism.
+      if (allocOp->getParentRegion() != remoteLoad->getParentRegion()) {
+        continue;
+      }
+
       // Find the last use of the alloc result or remote_load result BEFORE we
       // modify the IR
       Block *block = allocOp->getBlock();
@@ -325,6 +331,11 @@ public:
         remoteStore.emitWarning(
             "could not find memref.alloc for local buffer operand, skipping "
             "conversion");
+        continue;
+      }
+
+      // Skip allocs hoisted outside the generic by HoistCBAllocs.
+      if (allocOp->getParentRegion() != remoteStore->getParentRegion()) {
         continue;
       }
 
