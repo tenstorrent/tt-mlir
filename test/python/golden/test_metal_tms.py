@@ -108,7 +108,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(1, 32, 8, 128), [0, 2, 1, 3]],
         [(1, 32, 96, 128), [0, 2, 1, 3]],
         # 4d inner permutes (glm-358b)
-        [(1, 96, 32, 128), [0, 1, 3, 2]],
+        [(1, 96, 32, 64), [0, 1, 3, 2]],
         # 3d inner permutes (gpt_oss-120b)
         [(1, 128, 32), [0, 2, 1]],
         # 4d outer permutes (gpt_oss-120b)
