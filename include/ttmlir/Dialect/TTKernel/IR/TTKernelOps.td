@@ -195,8 +195,10 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
 def TTKernel_CopyBlockMatmulPartialsOp : TTKernel_Op<"copy_block_matmul_partials"> {
     let summary = "CopyBlockMatmulPartials op.";
     let description = [{
-      Copies a block of tiles from a specified circular buffer to the DST
-      register buffer. Used to reload partial matmul results for accumulation.
+      Copies ntiles tiles from a specified circular buffer starting at
+      start_tile_index to the DST register buffer starting at start_dst_index.
+      The function employs the unpacker to first unpack into SRC registers and
+      then move into DST registers.
 
       The DST register buffer must be in acquired state via *tile_regs_acquire* call.
       This call is blocking and is only available on the compute engine.

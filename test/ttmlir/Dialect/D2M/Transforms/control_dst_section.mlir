@@ -123,3 +123,27 @@ func.func @single_dst_section_pack_tile_block() attributes {ttkernel.thread = #t
   // CHECK: ttkernel.tile_regs_release
   return
 }
+
+// Verify that mixed pack_tile and pack_tile_block in the same DST section
+// each get their own commit/wait/release bracket.
+// CHECK-LABEL: func.func @mixed_pack_ops_in_dst_section
+func.func @mixed_pack_ops_in_dst_section() attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+  %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<4, !ttcore.tile<32x32, f32>>
+  %c0 = arith.constant 0 : index
+  %c4 = arith.constant 4 : index
+  // CHECK: ttkernel.tile_regs_acquire
+  // CHECK: ttkernel.copy_tile
+  ttkernel.tile_regs_acquire() : () -> ()
+  ttkernel.copy_tile(%cb, %c0, %c0) : (!ttkernel.cb<4, !ttcore.tile<32x32, f32>>, index, index) -> ()
+  // CHECK: ttkernel.tile_regs_commit
+  // CHECK: ttkernel.tile_regs_wait
+  // CHECK: ttkernel.pack_tile
+  ttkernel.pack_tile(%c0, %cb, %c0, true) : (index, !ttkernel.cb<4, !ttcore.tile<32x32, f32>>, index) -> ()
+  // CHECK: ttkernel.tile_regs_release
+  // CHECK: ttkernel.tile_regs_commit
+  // CHECK: ttkernel.tile_regs_wait
+  // CHECK: ttkernel.pack_tile_block
+  ttkernel.pack_tile_block(%c0, %cb, %c4) : (index, !ttkernel.cb<4, !ttcore.tile<32x32, f32>>, index) -> ()
+  // CHECK: ttkernel.tile_regs_release
+  return
+}
