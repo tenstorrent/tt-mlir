@@ -4511,6 +4511,48 @@ public:
 } // namespace
 
 namespace {
+class SliceWriteOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SliceWriteOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return mlir::tt::ttnn::SliceWriteOp::getOperationName().str();
+  }
+
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::slice_write";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SliceWriteOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SliceWriteOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SliceWriteOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // TODO(#slice_write): begins/ends are tensors in the IR but
+    // ttnn::experimental::slice_write expects SmallVector<uint32_t>.
+    // The EmitC-generated code will need a tensor-to-vector conversion
+    // helper at the call site for standalone C++ execution.
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getOperand()),
+        emitter.emit(srcOp.getBegins()),
+        emitter.emit(srcOp.getEnds()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class UpdateCacheOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::UpdateCacheOp> {
 public:
@@ -4963,6 +5005,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<AllToAllDispatchOpConversionPattern>(typeConverter, ctx);
   patterns.add<AllToAllCombineOpConversionPattern>(typeConverter, ctx);
   patterns.add<MoeExpertTokenRemapOpConversionPattern>(typeConverter, ctx);
+
+  // Slice write op
+  //
+  patterns.add<SliceWriteOpConversionPattern>(typeConverter, ctx);
 
   // KV Cache ops
   //

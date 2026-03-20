@@ -2465,6 +2465,57 @@ mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// SliceWriteOp
+//===----------------------------------------------------------------------===//
+
+// SliceWriteOp verification
+::mlir::LogicalResult mlir::tt::ttir::SliceWriteOp::verify() {
+  ::mlir::RankedTensorType operandType = getOperand().getType();
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType beginsType = getBegins().getType();
+  ::mlir::RankedTensorType endsType = getEnds().getType();
+  ::mlir::RankedTensorType resultType = getResult().getType();
+
+  // Result must match operand type.
+  if (operandType != resultType) {
+    return emitOpError("Result type must match operand type");
+  }
+
+  // Input and operand must have the same rank.
+  if (inputType.getRank() != operandType.getRank()) {
+    return emitOpError("Input and operand must have the same rank");
+  }
+
+  // Input and operand must have the same element type.
+  if (inputType.getElementType() != operandType.getElementType()) {
+    return emitOpError("Input and operand must have the same element type");
+  }
+
+  // Begins and ends must be 1D tensors.
+  if (beginsType.getRank() != 1 || endsType.getRank() != 1) {
+    return emitOpError("Begins and ends must be 1D tensors");
+  }
+
+  // Begins and ends must have elements equal to the operand rank.
+  int64_t rank = operandType.getRank();
+  if (beginsType.getDimSize(0) != rank || endsType.getDimSize(0) != rank) {
+    return emitOpError(
+        "Begins and ends must have the same number of elements as the "
+        "operand rank");
+  }
+
+  // Input shape must be <= operand shape in every dim.
+  for (int64_t i = 0; i < rank; ++i) {
+    if (inputType.getDimSize(i) > operandType.getDimSize(i)) {
+      return emitOpError("Input dimension " + std::to_string(i) +
+                         " exceeds operand dimension");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // IndexOp
 //===----------------------------------------------------------------------===//
 

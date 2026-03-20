@@ -2593,6 +2593,21 @@ createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
                                            paramsType, params);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SliceWriteOp>
+createSliceWriteOp(FlatbufferObjectCache &cache, SliceWriteOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto begins = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getBegins()));
+  auto ends = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getEnds()));
+
+  return ::tt::target::ttnn::CreateSliceWriteOp(*cache.fbb, operand, input,
+                                                begins, ends);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SortOp>
 createSortOp(FlatbufferObjectCache &cache, SortOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4178,6 +4193,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto sliceDynamicOp = dyn_cast<SliceDynamicOp>(op); sliceDynamicOp) {
     return createOperation(cache, createSliceOp(cache, sliceDynamicOp),
+                           debugString, locInfo);
+  }
+  if (auto sliceWriteOp = dyn_cast<SliceWriteOp>(op); sliceWriteOp) {
+    return createOperation(cache, createSliceWriteOp(cache, sliceWriteOp),
                            debugString, locInfo);
   }
   if (auto sortOp = dyn_cast<SortOp>(op); sortOp) {
