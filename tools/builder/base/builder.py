@@ -638,6 +638,19 @@ class Builder(metaclass=BuilderMeta):
 
         return input_goldens
 
+    def _apply_golden_sharding_to_arg(self, operand: Operand, golden: GoldenMapTensor):
+        if len(golden.shard_map) > 1:
+            local_shape = golden.shape
+            element_type = self._get_type(operand).element_type
+            local_shape_rtt = RankedTensorType.get(local_shape, element_type)
+            local_shape_attr = ttcore.ir.LocalShapeAttr.get(self._ctx, local_shape_rtt)
+            shard_status_attr = ttcore.ir.ShardStatusAttr.get(
+                self._ctx, ttcore.ir.ShardStatus.Presharded
+            )
+
+            self.set_arg_attribute(operand, "ttcore.shard_status", shard_status_attr)
+            self.set_arg_attribute(operand, "ttcore.local_shape", local_shape_attr)
+
     def _set_golden_tensor(
         self,
         operand: Operand,
