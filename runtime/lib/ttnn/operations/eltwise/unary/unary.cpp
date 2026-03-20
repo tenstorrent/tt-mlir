@@ -132,6 +132,10 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::cos);
     break;
   }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Acos: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::acos);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Floor: {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::floor);
     break;
@@ -187,6 +191,10 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sin: {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::sin);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Asin: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::asin);
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Reciprocal: {

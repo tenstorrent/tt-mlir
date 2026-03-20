@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -463,6 +463,22 @@ SinOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// AsinOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AsinOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  return detail::getUnaryOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+AsinOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+  return detail::getUnaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
 // AbsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -715,6 +731,22 @@ CosOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 CosOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                     const OpConfig &opConfig) {
+  return detail::getUnaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
+// AcosOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AcosOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  return detail::getUnaryOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+AcosOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
   return detail::getUnaryOpRuntime(*this, inputs, opConfig);
 }
 

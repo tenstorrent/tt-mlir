@@ -540,6 +540,70 @@ class TTNNBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    ############### ttnn.AcosOp ###############
+
+    @tag(ttnn.AcosOp)
+    def acos(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.acos)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.AcosOp)
+    def acos_parser(
+        self,
+        old_op: ttnn.AcosOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.acos_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
     ############### ttnn.ErfOp ###############
 
     @tag(ttnn.ErfOp)
@@ -1805,6 +1869,70 @@ class TTNNBuilder(Builder):
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttnn_op = self.get_opview_from_parser(TTNNBuilder.sin_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttnn.AsinOp ###############
+
+    @tag(ttnn.AsinOp)
+    def asin(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.asin)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.AsinOp)
+    def asin_parser(
+        self,
+        old_op: ttnn.AsinOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.asin_parser)
         in0 = global_dict[old_op.input]
         result = old_op.result.type
 

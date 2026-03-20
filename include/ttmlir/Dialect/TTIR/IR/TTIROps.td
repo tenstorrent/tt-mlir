@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -423,6 +423,35 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
       // Output tensor:
       // [[0.9601, 0.5403, -0.9553, -0.1365], ... ]
       ```
+    }];
+}
+
+def TTIR_AcosOp: TTIR_ElementwiseUnaryOp<"acos"> {
+    let summary = "Eltwise arccosine op.";
+    let description = [{
+      The `acos` operation computes the arccosine (inverse cosine) of each element in the input tensor.
+
+      For each element, it returns the angle in radians whose cosine is the input value. The operation
+      returns values in the range [0, π]. Inputs are expected to lie in [-1, 1].
+
+      Example:
+      ```mlir
+      // Compute arccosine of all elements in %input
+      %result = ttir.acos(%input) : (tensor<4xf32>) -> tensor<4xf32>
+      // Input tensor:
+      // [1.0, 0.5, 0.0, -1.0]
+      // Output tensor:
+      // [0.0, 1.047, 1.571, 3.142]  // values in radians
+
+      // Example with different values
+      %result = ttir.acos(%float_input) : (tensor<3xf32>) -> tensor<3xf32>
+      // Input tensor:
+      // [0.707, 0.0, -0.5]
+      // Output tensor:
+      // [0.785, 1.571, 2.094]  // acos(√2/2) = π/4, acos(0) = π/2, acos(-0.5) = 2π/3
+      ```
+
+      Mathematical definition: acos(x) = cos⁻¹(x), where the result is in the range [0, π]
     }];
 }
 
@@ -883,6 +912,36 @@ def TTIR_SinOp: TTIR_ElementwiseUnaryOp<"sin"> {
       ```
     }];
 }
+
+def TTIR_AsinOp: TTIR_ElementwiseUnaryOp<"asin"> {
+    let summary = "Eltwise arcsine op.";
+    let description = [{
+      The `asin` operation computes the arcsine (inverse sine) of each element in the input tensor.
+
+      For each element, it returns the angle in radians whose sine is the input value. The operation
+      returns values in the range [-π/2, π/2]. Inputs are expected to lie in [-1, 1].
+
+      Example:
+      ```mlir
+      // Compute arcsine of all elements in %input
+      %result = ttir.asin(%input) : (tensor<4xf32>) -> tensor<4xf32>
+      // Input tensor:
+      // [0.0, 0.5, 1.0, -1.0]
+      // Output tensor:
+      // [0.0, 0.524, 1.571, -1.571]  // values in radians
+
+      // Example with different values
+      %result = ttir.asin(%float_input) : (tensor<3xf32>) -> tensor<3xf32>
+      // Input tensor:
+      // [-0.5, 0.0, 0.707]
+      // Output tensor:
+      // [-0.524, 0.0, 0.785]  // asin(√2/2) = π/4
+      ```
+
+      Mathematical definition: asin(x) = sin⁻¹(x), where the result is in the range [-π/2, π/2]
+    }];
+}
+
 
 def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise square root.";

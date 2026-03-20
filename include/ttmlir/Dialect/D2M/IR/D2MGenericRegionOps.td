@@ -268,10 +268,30 @@ def D2M_TileCosOp : D2M_GenericRegionComputeUnaryDstOp<"tile_cos", D2M_TileCompu
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileAcosOp : D2M_GenericRegionComputeUnaryDstOp<"tile_acos", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Acos Op";
+    let description = [{
+        The `tile_acos` operation computes the arccosine of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileTanOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tan", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Tan Op";
     let description = [{
         The `tile_tan` operation computes the tangent function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileAtanOp : D2M_GenericRegionComputeUnaryDstOp<"tile_atan", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Atan Op";
+    let description = [{
+        The `tile_atan` operation computes the arctangent of each element in the input tile.
     }];
 
     let arguments = (ins TTCore_Tile:$input);
@@ -312,6 +332,16 @@ def D2M_TileSinOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sin", D2M_TileCompu
     let summary = "D2M Tile Sin Op";
     let description = [{
         The `tile_sin` operation computes the sine function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileAsinOp : D2M_GenericRegionComputeUnaryDstOp<"tile_asin", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Asin Op";
+    let description = [{
+        The `tile_asin` operation computes the arcsine of each element in the input tile.
     }];
 
     let arguments = (ins TTCore_Tile:$input);
