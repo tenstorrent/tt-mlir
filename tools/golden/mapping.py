@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Dict, Callable, Any, Optional, Union, List, Tuple, Iterable, Iterator
 import itertools
 import operator
+import re
 import einops
 import torch
 import torch.nn.functional
@@ -6441,6 +6442,117 @@ def ttnn_mish_golden(
     return torch.nn.functional.mish(input_tensor).to(output_dtype)
 
 
+def _parse_mapper_config_shard_dims(mapper_config) -> list:
+    """Extract shard dimensions from a MeshMapperConfig attribute.
+    Positive values are shard dims, -1 means replicate.
+
+    NOTE: This parses the string representation of the MLIR attribute via regex.
+    If the Python bindings ever expose structured access to placements, prefer
+    that over string parsing to avoid breakage from formatting changes.
+    """
+    config_str = str(mapper_config)
+    placements_match = re.search(r"placements\s*=\s*\[(.*?)\]", config_str)
+    if not placements_match:
+        return []
+    inner = placements_match.group(1)
+    shard_dims = []
+    for item in re.finditer(r"<([^>]+)>", inner):
+        placement = item.group(1).strip()
+        if placement.startswith("shard"):
+            dim = int(re.search(r"(\d+)", placement.split(",")[1]).group(1))
+            shard_dims.append(dim)
+        else:
+            shard_dims.append(-1)
+    return shard_dims
+
+
+def _parse_composer_config_dims(composer_config) -> list:
+    """Extract compose dimensions from a MeshComposerConfig attribute.
+
+    NOTE: This parses the string representation of the MLIR attribute via regex.
+    If the Python bindings ever expose structured access to dims, prefer
+    that over string parsing to avoid breakage from formatting changes.
+    """
+    config_str = str(composer_config)
+    dims_match = re.search(r"dims\s*=\s*\[(.*?)\]", config_str)
+    if dims_match:
+        dims_str = dims_match.group(1)
+        return [
+            int(d.strip().split(":")[0].strip())
+            for d in dims_str.split(",")
+            if d.strip()
+        ]
+    return []
+
+
+def ttnn_distribute_tensor_golden(
+    input: GoldenMapTensor,
+    mapper_config,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    mesh_shape = input.mesh_shape
+    shard_dims = _parse_mapper_config_shard_dims(mapper_config)
+    return apply_sharding(input, mesh_shape, shard_dims)
+
+
+def ttnn_aggregate_tensor_golden(
+    input: GoldenMapTensor,
+    composer_config,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    mesh_shape = input.mesh_shape
+    shard_dims = _parse_composer_config_dims(composer_config)
+    return apply_unsharding(input, mesh_shape, shard_dims)
+
+
+def ttnn_all_gather_golden(
+    input: GoldenMapTensor,
+    all_gather_dim_attr: IntegerAttr,
+    cluster_axis_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    all_gather_dim = unpack_mlir_attr(all_gather_dim_attr)
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    output_shards = [None] * len(input.shard_map)
+    grouped_shards = input.group_by_axis(cluster_axis)
+    for group in grouped_shards:
+        gathered_tensor = torch.cat(list(group.values()), dim=all_gather_dim)
+        for device_id in group.keys():
+            output_shards[device_id] = gathered_tensor.clone().to(output_dtype)
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
+################ TTNN Layout/Device Op Golden Functions ###############
+
+
+def ttnn_to_layout_golden(
+    input_tensor: GoldenMapTensor, output_ranked_tensor_type: RankedTensorType
+) -> GoldenMapTensor:
+    casted_type = ttcore.ir.TileType.maybe_downcast(
+        output_ranked_tensor_type.element_type
+    )
+
+    if casted_type:
+        output_dtype = mlir_datatype_to_torch_dtype(casted_type.data_type)
+    else:
+        output_dtype = mlir_type_to_torch_dtype(output_ranked_tensor_type.element_type)
+
+    output_tensor = input_tensor.clone()
+    return output_tensor.to(output_dtype)
+
+
+def ttnn_to_device_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    return input_tensor.clone()
+
+
+def ttnn_from_device_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    return input_tensor.clone()
+
+
 ################ Debug Op Golden Functions ###############
 
 
@@ -6764,6 +6876,14 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.RepeatInterleaveOp: ttnn_repeat_interleave_golden,
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
+    # Layout/Device operations
+    ttnn.ToLayoutOp: ttnn_to_layout_golden,
+    ttnn.ToDeviceOp: ttnn_to_device_golden,
+    ttnn.FromDeviceOp: ttnn_from_device_golden,
+    # CCL (Collective Communication Library) operations
+    ttnn.DistributeTensorOp: ttnn_distribute_tensor_golden,
+    ttnn.AggregateTensorOp: ttnn_aggregate_tensor_golden,
+    ttnn.AllGatherOp: ttnn_all_gather_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,
