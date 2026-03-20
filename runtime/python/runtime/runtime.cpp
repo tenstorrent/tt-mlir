@@ -13,6 +13,7 @@
 #include "tt/runtime/detail/python/nanobind_headers.h"
 
 namespace nb = nanobind;
+using namespace nb::literals;
 
 namespace tt::runtime::python {
 void registerRuntimeBindings(nb::module_ &m) {
@@ -622,7 +623,11 @@ void registerRuntimeBindings(nb::module_ &m) {
       "Load tensor from file");
 
   nb::class_<tt::runtime::debug::Env>(m, "DebugEnv")
-      .def_static("get", &tt::runtime::debug::Env::get)
+      .def_static(
+          "get", &tt::runtime::debug::Env::get, "dump_kernels"_a = false,
+          "load_kernels"_a = false, "use_loc_for_kernel_name"_a = false,
+          "kernel_source_dir"_a = "", "device_address_validation"_a = false,
+          "blocking_cq"_a = false)
       .def("__str__", [](const tt::runtime::debug::Env &env) {
         std::stringstream os;
         os << env;
@@ -630,7 +635,9 @@ void registerRuntimeBindings(nb::module_ &m) {
       });
 
   nb::class_<tt::runtime::perf::Env>(m, "PerfEnv")
-      .def_static("get", &tt::runtime::perf::Env::get, nb::rv_policy::reference)
+      .def_static("get", &tt::runtime::perf::Env::get, nb::rv_policy::reference,
+                  "dump_device_rate"_a = 1000, "enable_perf_trace"_a = false,
+                  "tracy_program_metadata"_a = "")
       .def("set_program_metadata", &tt::runtime::perf::Env::setProgramMetadata)
       .def("tracy_log_op_location", &tt::runtime::perf::Env::tracyLogOpLocation)
       .def("tracy_log_input_layout_conversion",

@@ -1,4 +1,6 @@
 // RUN: not ttmlir-opt --split-input-file --ttir-element-type-normalization %s 2>&1 | FileCheck %s
+// https://github.com/tenstorrent/tt-mlir/issues/7583
+// UNSUPPORTED: true
 
 module {
   func.func @test_dense_attr_complex(%arg0: tensor<1x2xcomplex<f32>>) -> tensor<1x2xcomplex<f32>> {

@@ -18,6 +18,7 @@ namespace {
 class ElementTypeConverter : public TypeConverter {
 public:
   ElementTypeConverter() {
+    addConversion([](Type type) -> std::optional<Type> { return type; });
     addConversion(
         [](mlir::RankedTensorType type) -> std::optional<RankedTensorType> {
           Type elementType = type.getElementType();
