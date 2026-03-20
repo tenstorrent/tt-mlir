@@ -39,6 +39,21 @@ struct StableHLOPipelineOptions
       *this, OptionNames::automaticArgAnalysis,
       llvm::cl::desc("Automatically determine argument shardings.")};
 
+  Option<bool> enableAutoSharding{
+      *this, OptionNames::enableAutoSharding,
+      llvm::cl::desc("Enable auto-sharding for optimal CCL cost."),
+      llvm::cl::init(false)};
+
+  Option<bool> dumpVariants{
+      *this, OptionNames::dumpVariants,
+      llvm::cl::desc("Dump each sharding variant IR to disk for inspection."),
+      llvm::cl::init(false)};
+
+  Option<std::string> dumpDir{
+      *this, OptionNames::dumpDir,
+      llvm::cl::desc("Directory to dump variants into (default: current "
+                     "directory)."),
+      llvm::cl::init("")};
   Option<bool> enableAggressiveSimplification{
       *this, OptionNames::enableAggressiveSimplification,
       llvm::cl::desc("Run StableHLO aggressive simplification pass.")};
