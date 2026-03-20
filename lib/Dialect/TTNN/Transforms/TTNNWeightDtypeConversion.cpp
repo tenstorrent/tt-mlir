@@ -18,6 +18,13 @@ namespace mlir::tt::ttnn {
 
 namespace {
 
+// Check if the given DataType is a legal per-arg weight dtype override.
+static bool isLegalWeightDtype(ttcore::DataType dtype) {
+  return dtype == ttcore::DataType::BFP_BFloat8 ||
+         dtype == ttcore::DataType::BFP_BFloat4 ||
+         dtype == ttcore::DataType::BFloat16;
+}
+
 // Resolve the effective dtype for a weight value. Checks per-arg
 // "ttcore.weight_dtype" string attributes on the function arguments the weight
 // traces to. Per-arg annotations take priority over the global fallback.
@@ -53,9 +60,20 @@ resolveWeightDtype(mlir::Value weight,
     if (auto dtypeStrAttr = funcOp.getArgAttrOfType<mlir::StringAttr>(
             blockArg.getArgNumber(), "ttcore.weight_dtype")) {
       auto perArgDtype = ttcore::DataTypeStringToEnum(dtypeStrAttr.getValue());
-      if (perArgDtype) {
-        return perArgDtype;
+      if (!perArgDtype) {
+        funcOp.emitWarning("ignoring unrecognized ttcore.weight_dtype \"")
+            << dtypeStrAttr.getValue() << "\" on argument "
+            << blockArg.getArgNumber();
+        continue;
       }
+      if (!isLegalWeightDtype(*perArgDtype)) {
+        funcOp.emitWarning("ignoring unsupported ttcore.weight_dtype \"")
+            << dtypeStrAttr.getValue() << "\" on argument "
+            << blockArg.getArgNumber()
+            << "; legal values are: bfp_bf8, bfp_bf4, bf16";
+        continue;
+      }
+      return perArgDtype;
     }
   }
 
