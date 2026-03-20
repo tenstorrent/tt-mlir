@@ -956,6 +956,8 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
   }];
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 def TTNN_ProdOp : TTNN_Op<"prod"> {

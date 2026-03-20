@@ -391,6 +391,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
+    if (failed(reblockGenerics(funcOp, analysis))) {
+      return failure();
+    }
+
     if (failed(insertOperandStreams(funcOp, analysis))) {
       return failure();
     }
@@ -1240,12 +1244,102 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return success();
   }
 
+  /// Rebuild generic ops using the planned block factors.
+  LogicalResult reblockGenerics(func::FuncOp funcOp,
+                                FuncAnalysisData &analysis) {
+    IRRewriter rewriter(funcOp->getContext());
+    llvm::MapVector<d2m::GenericOp, GenericOpContext> updatedGenerics;
+
+    for (auto &[genericOp, genericCtx] : analysis.generics) {
+      d2m::GenericOp oldGenericOp = genericOp;
+      // Skip generics whose execution shape is already final.
+      if (genericCtx.isDMAOnly || genericCtx.isExplicitDatamovement ||
+          oldGenericOp.getBlockFactorsValue() == genericCtx.reblockedFactors) {
+        updatedGenerics.insert({oldGenericOp, std::move(genericCtx)});
+        continue;
+      }
+
+      // Rebuild the generic so its types match allocator-chosen factors.
+      rewriter.setInsertionPoint(oldGenericOp);
+      FailureOr<d2m::ParallelizedGeneric> reblocked =
+          oldGenericOp.withParallelization(rewriter, std::nullopt,
+                                           genericCtx.reblockedFactors,
+                                           /*generateReturnView=*/true);
+      if (failed(reblocked)) {
+        oldGenericOp.emitOpError()
+            << "Allocator failed to rebuild generic op with updated block "
+               "factors";
+        return failure();
+      }
+
+      TT_assertv(oldGenericOp.getOutputs().size() == 1u,
+                 "Allocator reblocking expects a single output operand");
+      Operation *sequenceAnchor = reblocked->returnView.getOperation();
+      Value newOutput = reblocked->returnView.getResult();
+
+      // Move sequencing metadata to the new anchor op produced by the rewrite.
+      SequenceT sequencePosition = analysis.sequencing[oldGenericOp];
+      analysis.sequencing.positionMap[sequencePosition] = sequenceAnchor;
+      analysis.sequencing.operationMap.erase(oldGenericOp.getOperation());
+      analysis.sequencing.operationMap[sequenceAnchor] = sequencePosition;
+
+      // Redirect the single externally visible output to the rebuilt view.
+      if (oldGenericOp.getNumResults() > 0) {
+        TT_assert(oldGenericOp.getNumResults() == 1u);
+        oldGenericOp.getResult(0).replaceAllUsesWith(newOutput);
+      } else {
+        auto getContainingOpInBlock = [&](Operation *op) -> Operation * {
+          Operation *current = op;
+          while (current && current->getBlock() != sequenceAnchor->getBlock()) {
+            current = current->getParentOp();
+          }
+          return current;
+        };
+        // Update nested uses inside regions of later ops in the same block.
+        oldGenericOp.getOutputs().front().replaceUsesWithIf(
+            newOutput, [&](OpOperand &use) {
+              Operation *ownerInBlock = getContainingOpInBlock(use.getOwner());
+              return ownerInBlock &&
+                     ownerInBlock != oldGenericOp.getOperation() &&
+                     sequenceAnchor->isBeforeInBlock(ownerInBlock);
+            });
+      }
+
+      // Recompute operand def-chains against the rebuilt generic operands.
+      OperandContextList oldOperandContexts = genericCtx.operands;
+      GenericOpContext updatedCtx = std::move(genericCtx);
+      updatedCtx.operands.clear();
+      updatedCtx.operands.reserve(oldOperandContexts.size());
+
+      MutableArrayRef<OpOperand> newOperands =
+          reblocked->genericOp.getInputsAndOutputsMutable();
+      TT_assert(newOperands.size() == oldOperandContexts.size());
+      for (auto [operandIndex, operand] : llvm::enumerate(newOperands)) {
+        OperandContext operandCtx = oldOperandContexts[operandIndex];
+        operandCtx.operand = &operand;
+        operandCtx.defChain.clear();
+
+        MemRefType memrefType = nullptr;
+        std::tie(operandCtx.root, memrefType, operandCtx.hasStream) =
+            analyzeOperandDefChain(reblocked->genericOp, operand.get(),
+                                   operandCtx.defChain);
+        updatedCtx.operands.push_back(std::move(operandCtx));
+      }
+
+      // Replace the old generic entry in analysis with the rebuilt one.
+      updatedGenerics.insert({reblocked->genericOp, std::move(updatedCtx)});
+      rewriter.eraseOp(oldGenericOp);
+    }
+
+    analysis.generics = std::move(updatedGenerics);
+    return success();
+  }
+
   /// Sweep through all collected generic ops and make several in-place
   /// modifications:
   ///  - modify root alloc ops and any view layout ops to be in the final
   ///    memspace decided by the planner;
   ///  - insert stream layout ops together with their stream buffer allocs.
-  ///  - fix block factors
   ///
   LogicalResult insertOperandStreams(func::FuncOp funcOp,
                                      const FuncAnalysisData &analysis) {
@@ -1266,9 +1360,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         continue;
       }
 
-      // Map from operand index to pre-stream-insertion operand value.
-      // Used to update remote_load/store ops after stream insertion.
-      llvm::DenseMap<int32_t, Value> preStreamOperandValues;
+      // Map every pre-stream alias back to its operand index so nested
+      // remote ops can be retargeted even if they still reference an older
+      // def-chain value such as the root alloc.
+      llvm::DenseMap<Value, int32_t> preStreamOperandIndices;
 
       for (const OperandContext &operandCtx : genericCtx.operands) {
         const auto *memrefIt = analysis.memrefs.find(operandCtx.root);
@@ -1303,10 +1398,20 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
         if (inferStreamRequirement(genericOp, operandCtx, remappedMemSpace)) {
 
-          // Save the old operand value before stream insertion so we can map
-          // from it to the new stream value for updating remote_load/store ops.
-          preStreamOperandValues[operandCtx.operandIndex()] =
-              operandCtx.operand->get();
+          // Record all aliases along the operand def-chain.
+          // This is needed because a generic operand may have several aliases
+          // along the def-chain (e.g. views, root alloc, etc.) and after
+          // insertStream the operand slot points at the new stream value.
+          // Nested remote ops may still reference the old aliases.
+          preStreamOperandIndices[operandCtx.operand->get()] =
+              operandCtx.operandIndex();
+          preStreamOperandIndices[operandCtx.root] = operandCtx.operandIndex();
+          for (Operation *opOnChain : operandCtx.defChain) {
+            if (opOnChain->getNumResults() == 1) {
+              preStreamOperandIndices[opOnChain->getResult(0)] =
+                  operandCtx.operandIndex();
+            }
+          }
 
           // The above IR modifications may have changed memspace attributes
           // of ops in the operand's def chain; inserting a matching
@@ -1330,7 +1435,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
 
       // Fix up CB ops in the body:
-
       for (Region &region : genericOp->getRegions()) {
         TT_assert(region.hasOneBlock());
         Block &block = region.getBlocks().front();
@@ -1350,11 +1454,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
       // Post stream insertion and reblocking, remote_load
       // and remote_store ops must be updated to reference
-      // updated operands and CB result types. First build
-      // mappings from old to new operand values and CB
-      // result types.
-      llvm::DenseMap<Value, Value> operandReplaceMap;
-      llvm::DenseMap<Value, Type> operandCBTypeMap;
+      // updated operands and CB result types.
+      llvm::DenseMap<int32_t, Value> operandValueByIndex;
+      llvm::DenseMap<int32_t, Type> operandCBTypeByIndex;
 
       for (const OperandContext &operandCtx : genericCtx.operands) {
         const auto operandIndex = operandCtx.operand->getOperandNumber();
@@ -1379,13 +1481,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
         if (inferStreamRequirement(genericOp, operandCtx, operandMemSpace)) {
           if (!isOperandExemptFromStreaming(operandCtx, operandMemSpace)) {
-            auto preStreamIt =
-                preStreamOperandValues.find(operandCtx.operandIndex());
-            if (preStreamIt != preStreamOperandValues.end()) {
-              Value oldOperandValue = preStreamIt->second;
-              operandReplaceMap[oldOperandValue] = operandCtx.operand->get();
-              operandCBTypeMap[oldOperandValue] = cbUnderlyingType;
-            }
+            operandValueByIndex[operandCtx.operandIndex()] =
+                operandCtx.operand->get();
+            operandCBTypeByIndex[operandCtx.operandIndex()] = cbUnderlyingType;
           }
         }
       }
@@ -1402,6 +1500,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       };
 
       // Rewrite remote load/store ops result types and remote memrefs
+      const GenericOpContext *genericCtxPtr = &genericCtx;
       for (Region &region : genericOp->getRegions()) {
         TT_assert(region.hasOneBlock());
         Block &block = region.getBlocks().front();
@@ -1410,18 +1509,44 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           llvm::TypeSwitch<Operation *, void>(blockOp)
               .Case([&](d2m::RemoteLoadOp op) {
                 Value oldMemref = op.getMemref();
-
-                auto replaceIt = operandReplaceMap.find(oldMemref);
-                if (replaceIt != operandReplaceMap.end()) {
-                  op.setMemRef(replaceIt->second);
+                std::optional<int32_t> operandIndex;
+                // First try pre-stream operand indices to find the new stream
+                // value.
+                auto aliasIt = preStreamOperandIndices.find(oldMemref);
+                if (aliasIt != preStreamOperandIndices.end()) {
+                  operandIndex = aliasIt->second;
+                } else {
+                  // Try matching the current operand value directly.
+                  for (const OperandContext &operandCtx :
+                       genericCtxPtr->operands) {
+                    if (operandCtx.operand->get() == oldMemref) {
+                      operandIndex = operandCtx.operandIndex();
+                      break;
+                    }
+                  }
                 }
 
-                auto typeIt = operandCBTypeMap.find(oldMemref);
-                if (typeIt != operandCBTypeMap.end()) {
-                  Type newShardType = typeIt->second;
-                  op.getResult().setType(newShardType);
-                  updateLocalBufferType(op, newShardType);
-                } else if (op.isImplicitForm()) {
+                if (operandIndex) {
+                  // Rewrite the memref to the current operand value.
+                  if (auto valueIt = operandValueByIndex.find(*operandIndex);
+                      valueIt != operandValueByIndex.end()) {
+                    op.setMemRef(valueIt->second);
+                  }
+                }
+
+                if (operandIndex) {
+                  // Update the result type so the load result matches the
+                  // stream type now associated with the operand.
+                  auto typeIt = operandCBTypeByIndex.find(*operandIndex);
+                  if (typeIt != operandCBTypeByIndex.end()) {
+                    Type newShardType = typeIt->second;
+                    op.getResult().setType(newShardType);
+                    updateLocalBufferType(op, newShardType);
+                    return;
+                  }
+                }
+
+                if (op.isImplicitForm()) {
                   // Fallback: compute shard shape from device layout when not
                   // in the CB type map.
                   Value memref = op.getMemref();
@@ -1439,20 +1564,35 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 }
               })
               .Case([&](d2m::RemoteStoreOp op) {
-                auto it = operandReplaceMap.find(op.getMemref());
-                if (it != operandReplaceMap.end()) {
-                  op.setMemRef(it->second);
+                Value oldMemref = op.getMemref();
+                std::optional<int32_t> operandIndex;
+                // First try pre-stream operand indices to find the new value.
+                auto aliasIt = preStreamOperandIndices.find(oldMemref);
+                if (aliasIt != preStreamOperandIndices.end()) {
+                  operandIndex = aliasIt->second;
+                } else {
+                  // Try matching the current operand value directly.
+                  for (const OperandContext &operandCtx :
+                       genericCtxPtr->operands) {
+                    if (operandCtx.operand->get() == oldMemref) {
+                      operandIndex = operandCtx.operandIndex();
+                      break;
+                    }
+                  }
+                }
+
+                if (!operandIndex) {
+                  return;
+                }
+
+                // Rewrite the memref to the current operand value.
+                auto valueIt = operandValueByIndex.find(*operandIndex);
+                if (valueIt != operandValueByIndex.end()) {
+                  op.setMemRef(valueIt->second);
                 }
               });
         });
       }
-
-      // Fix up block factors:
-
-      const auto blockFactorsAttrName =
-          const_cast<GenericOp &>(genericOp).getBlockFactorsAttrName();
-      genericOp->setAttr(blockFactorsAttrName,
-                         rewriter.getI64ArrayAttr(genericCtx.reblockedFactors));
     }
 
     return success();

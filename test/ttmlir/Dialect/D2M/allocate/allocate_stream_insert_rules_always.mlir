@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=stream-insert-policy=always" -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=stream-insert-policy=always test-buffer-size-policy=max" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verify several supported use cases for operand stream insertion by d2m-allocate in stream-insert-policy=always mode.

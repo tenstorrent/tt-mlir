@@ -196,6 +196,7 @@ def run_op_test(
     pcc_threshold=0.99,
     math_fidelity=ttnn.MathFidelity.HiFi4,
     memory_config=None,
+    fallback=False,
 ):
     """
     Common test runner for JIT operations.
@@ -249,6 +250,7 @@ def run_op_test(
         enable_cache=enable_cache,
         math_fidelity=math_fidelity,
         memory_config=memory_config,
+        fallback=fallback,
     )(op)
 
     output_tensor = op_jit(*inputs)
@@ -256,17 +258,18 @@ def run_op_test(
 
     print("created inputs:\n", inputs)
     if not compile_only:
-        if memory_config is not None:
-            assert memory_configs_equal(output_tensor.memory_config(), memory_config)
-        else:
-            # ttnn-jit will by default set l1 block sharded output memory config
-            # get expected memory config to check for
-            expected_memory_config = get_expected_block_sharded_memory_config(
-                golden_tensor.shape, device
-            )
-            assert memory_configs_equal(
-                output_tensor.memory_config(), expected_memory_config
-            )
+        if not op_jit.fallback_used:
+            if memory_config is not None:
+                assert memory_configs_equal(
+                    output_tensor.memory_config(), memory_config
+                )
+            else:
+                expected_memory_config = get_expected_block_sharded_memory_config(
+                    golden_tensor.shape, device
+                )
+                assert memory_configs_equal(
+                    output_tensor.memory_config(), expected_memory_config
+                )
         print("--------------------------------")
         print("Output:")
         print(output_tensor)

@@ -560,7 +560,7 @@ def test_embedding_backward(
 
 
 @pytest.mark.parametrize("shape", [(32, 64)], ids=shape_str)
-@pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1)])
+@pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1), (0, -2, 32, 1)])
 def test_index(
     shape: Shape, dim: int, begin: int, end: int, step: int, request, device
 ):
