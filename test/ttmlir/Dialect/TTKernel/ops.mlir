@@ -75,6 +75,16 @@ func.func @test_pack_tile_block() -> () attributes {ttkernel.arg_spec = #ttkerne
   return
 }
 
+// CHECK-LABEL: func.func @test_copy_block_matmul_partials
+func.func @test_copy_block_matmul_partials() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>} {
+  %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<16, !ttcore.tile<32x32, f32>>
+  %c0 = arith.constant 0 : index
+  %c4 = arith.constant 4 : index
+  ttkernel.copy_block_matmul_partials(%cb, %c0, %c0, %c4) : (!ttkernel.cb<16, !ttcore.tile<32x32, f32>>, index, index, index) -> ()
+  // CHECK: ttkernel.copy_block_matmul_partials(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : (!ttkernel.cb<16, !ttcore.tile<32x32, f32>>, index, index, index) -> ()
+  return
+}
+
 // CHECK-LABEL: func.func @test_copy_dest_values_init
 func.func @test_copy_dest_values_init() -> () {
   // CHECK: ttkernel.copy_dest_values_init() : () -> ()

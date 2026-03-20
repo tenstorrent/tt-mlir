@@ -1129,6 +1129,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileBlockOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::CopyBlockMatmulPartialsOp>,
         TTKernelToEmitCPackReconfigL1AccToEmitCRewriter,
 
         // FPU Ops

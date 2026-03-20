@@ -192,6 +192,23 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
     }];
 }
 
+def TTKernel_CopyBlockMatmulPartialsOp : TTKernel_Op<"copy_block_matmul_partials"> {
+    let summary = "CopyBlockMatmulPartials op.";
+    let description = [{
+      Copies a block of tiles from a specified circular buffer to the DST
+      register buffer. Used to reload partial matmul results for accumulation.
+
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb, IndexLike:$start_tile_index, IndexLike:$start_dst_index, IndexLike:$ntiles);
+
+    let assemblyFormat = [{
+      `(` $cb `,` $start_tile_index `,` $start_dst_index `,` $ntiles `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_TypecastTileInitOp : TTKernel_InitOp<"typecast_tile_init"> {
     let summary = "Init function for typecast_tile operation. Refer to documentation for any init function.";
     let description = [{
