@@ -175,9 +175,9 @@ func.func @nested_dst_section_in_loop_pack_tile_block() attributes {ttkernel.thr
 }
 
 // Verify that copy_block_matmul_partials (CB -> DST) does NOT trigger
-// commit/wait/release insertion — only pack ops (DST -> CB) should.
-// CHECK-LABEL: func.func @copy_block_matmul_partials_no_dst_bracket
-func.func @copy_block_matmul_partials_no_dst_bracket() attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+// DST section insertion — only pack ops (DST -> CB) should.
+// CHECK-LABEL: func.func @copy_block_matmul_partials_no_dst_section
+func.func @copy_block_matmul_partials_no_dst_section() attributes {ttkernel.thread = #ttkernel.thread<compute>} {
   %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<4, !ttcore.tile<32x32, f32>>
   %c0 = arith.constant 0 : index
   %c4 = arith.constant 4 : index
@@ -192,8 +192,8 @@ func.func @copy_block_matmul_partials_no_dst_bracket() attributes {ttkernel.thre
   return
 }
 
-// Verify that mixed pack_tile and pack_tile_block in the same DST section
-// each get their own commit/wait/release bracket.
+// Verify that mixed pack_tile and pack_tile_block in the same acquired region
+// each get their own DST section.
 // CHECK-LABEL: func.func @mixed_pack_ops_in_dst_section
 func.func @mixed_pack_ops_in_dst_section() attributes {ttkernel.thread = #ttkernel.thread<compute>} {
   %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<4, !ttcore.tile<32x32, f32>>
