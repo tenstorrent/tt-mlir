@@ -7,6 +7,7 @@
 #include "shardy/dialect/sdy/transforms/propagation/user_priority_propagation.h"
 
 #include "mlir/Transforms/Passes.h"
+#include "stablehlo/transforms/optimization/Passes.h"
 
 namespace mlir::tt::stablehlo {
 //===----------------------------------------------------------------------===//
@@ -24,6 +25,11 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Convert any xla.sdy ops to sdy ops.
   pm.addPass(createConvertXlaSdyToSdyPass());
+
+  // Optionally run aggressive StableHLO simplification if enabled.
+  if (options.enableAggressiveSimplification) {
+    pm.addPass(mlir::stablehlo::createStablehloAggressiveSimplificationPass());
+  }
 
   // Apply StableHLO fusing pass.
   pm.addPass(mlir::tt::stablehlo::createStableHLOFusingPass());

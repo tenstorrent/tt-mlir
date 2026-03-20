@@ -49,7 +49,7 @@ jobs:
     outputs:
       skip_build: ${{ steps.skip_build.outputs.skip_build }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Ignore files
@@ -88,7 +88,7 @@ jobs:
       sh_builder: ${{ steps.decide-runner.outputs.sh_builder }}
       test_timeout: ${{ steps.generate-test-matrix.outputs.test_timeout }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 

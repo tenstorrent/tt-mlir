@@ -347,6 +347,7 @@ class EmitPy:
                         and not node.name.__contains__("_const_eval_")
                         # TODO(dmilinkovic): this is getting out of hand, issue #6386.
                         and not node.name.__contains__("hoisted_")
+                        and not node.name.startswith("consteval_")
                     ):
                         program_names.append(node.name)
 

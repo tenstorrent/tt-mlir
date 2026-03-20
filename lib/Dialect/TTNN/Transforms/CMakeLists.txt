@@ -26,18 +26,19 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNRecoverStructure.cpp
         TTNNRecoverStructureUtils.cpp
         TTNNSetComputeKernelConfig.cpp
+        TTNNMemoryManagement.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
         TTNNTraceHoistTransform.cpp
         TTNNUniqueLocs.cpp
         TTNNWeightDtypeConversion.cpp
-        Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
+        Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
+        Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
         Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
+        Workarounds/Decomposition/ConcatOpPadDimRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
         Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.cpp
-        Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
-        Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
         Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.cpp
         Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.cpp
@@ -57,6 +58,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/Conv3dPadOutputChannelsRewritePattern.cpp
         Workarounds/Decomposition/Conv3dDepthPaddingRewritePattern.cpp
         Workarounds/Decomposition/PadHighDimRewritePattern.cpp
+        Workarounds/Decomposition/ReshapeNarrowTiledRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS

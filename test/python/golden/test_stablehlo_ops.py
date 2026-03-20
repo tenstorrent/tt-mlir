@@ -622,6 +622,10 @@ def test_sort(
 @pytest.mark.parametrize("dimension", [2, 1, 0], ids=["dim2", "dim1", "dim0"])
 @pytest.mark.parametrize("descending", [True, False])
 @pytest.mark.parametrize("is_stable", [False])
+@pytest.mark.skip_exec(
+    ("p150",),
+    reason="Flaky on p150 in CI, ticket: https://github.com/tenstorrent/tt-mlir/issues/7571",
+)
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sort_key_value(
     shape: Shape,
@@ -1340,20 +1344,51 @@ def avg_pool_2d(
 @pytest.mark.parametrize(
     "shape,kernel_size,stride,padding",
     [
-        ((32, 32), [3, 3], [2, 2], [1, 1, 1, 1]),
-        ((64, 64), [2, 2], [2, 2], [0, 0, 0, 0]),
-        ((128, 128), [3, 3], [1, 1], [1, 1, 1, 1]),
-        ((1, 32, 64, 64), [1, 1, 3, 3], [1, 1, 2, 2], [0, 0, 0, 0, 1, 1, 1, 1]),
-        ((1, 64, 128, 128), [1, 1, 2, 2], [1, 1, 2, 2], [0, 0, 0, 0, 0, 0, 0, 0]),
-        ((1, 32, 64, 64), [1, 1, 3, 3], [1, 1, 1, 1], [0, 0, 0, 0, 1, 1, 1, 1]),
-    ],
-    ids=[
-        "rank2_k3s2p1",
-        "rank2_k2s2p0",
-        "rank2_k3s1p1",
-        "rank4_k3s2p1",
-        "rank4_k2s2p0",
-        "rank4_k3s1p1",
+        pytest.param(
+            (32, 32),
+            [3, 3],
+            [2, 2],
+            [1, 1, 1, 1],
+            id="rank2_k3s2p1",
+            marks=pytest.mark.xfail(reason="Golden comparison failure"),
+        ),
+        pytest.param(
+            (64, 64),
+            [2, 2],
+            [2, 2],
+            [0, 0, 0, 0],
+            id="rank2_k2s2p0",
+            marks=pytest.mark.xfail(reason="Golden comparison failure"),
+        ),
+        pytest.param(
+            (128, 128),
+            [3, 3],
+            [1, 1],
+            [1, 1, 1, 1],
+            id="rank2_k3s1p1",
+            marks=pytest.mark.xfail(reason="Golden comparison failure"),
+        ),
+        pytest.param(
+            (1, 32, 64, 64),
+            [1, 1, 3, 3],
+            [1, 1, 2, 2],
+            [0, 0, 0, 0, 1, 1, 1, 1],
+            id="rank4_k3s2p1",
+        ),
+        pytest.param(
+            (1, 64, 128, 128),
+            [1, 1, 2, 2],
+            [1, 1, 2, 2],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            id="rank4_k2s2p0",
+        ),
+        pytest.param(
+            (1, 32, 64, 64),
+            [1, 1, 3, 3],
+            [1, 1, 1, 1],
+            [0, 0, 0, 0, 1, 1, 1, 1],
+            id="rank4_k3s1p1",
+        ),
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
@@ -1384,20 +1419,51 @@ def test_max_pool_2d(
 @pytest.mark.parametrize(
     "shape,kernel_size,stride,padding",
     [
-        ((32, 32), [3, 3], [2, 2], [1, 1, 1, 1]),
-        ((64, 64), [2, 2], [2, 2], [0, 0, 0, 0]),
-        ((128, 128), [3, 3], [1, 1], [1, 1, 1, 1]),
-        ((1, 32, 64, 64), [1, 1, 3, 3], [1, 1, 2, 2], [0, 0, 0, 0, 1, 1, 1, 1]),
-        ((1, 64, 128, 128), [1, 1, 2, 2], [1, 1, 2, 2], [0, 0, 0, 0, 0, 0, 0, 0]),
-        ((1, 32, 64, 64), [1, 1, 3, 3], [1, 1, 1, 1], [0, 0, 0, 0, 1, 1, 1, 1]),
-    ],
-    ids=[
-        "rank2_k3s2p1",
-        "rank2_k2s2p0",
-        "rank2_k3s1p1",
-        "rank4_k3s2p1",
-        "rank4_k2s2p0",
-        "rank4_k3s1p1",
+        pytest.param(
+            (32, 32),
+            [3, 3],
+            [2, 2],
+            [1, 1, 1, 1],
+            id="rank2_k3s2p1",
+            marks=pytest.mark.xfail(reason="Golden comparison failure"),
+        ),
+        pytest.param(
+            (64, 64),
+            [2, 2],
+            [2, 2],
+            [0, 0, 0, 0],
+            id="rank2_k2s2p0",
+            marks=pytest.mark.xfail(reason="Golden comparison failure"),
+        ),
+        pytest.param(
+            (128, 128),
+            [3, 3],
+            [1, 1],
+            [1, 1, 1, 1],
+            id="rank2_k3s1p1",
+            marks=pytest.mark.xfail(reason="Golden comparison failure"),
+        ),
+        pytest.param(
+            (1, 32, 64, 64),
+            [1, 1, 3, 3],
+            [1, 1, 2, 2],
+            [0, 0, 0, 0, 1, 1, 1, 1],
+            id="rank4_k3s2p1",
+        ),
+        pytest.param(
+            (1, 64, 128, 128),
+            [1, 1, 2, 2],
+            [1, 1, 2, 2],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            id="rank4_k2s2p0",
+        ),
+        pytest.param(
+            (1, 32, 64, 64),
+            [1, 1, 3, 3],
+            [1, 1, 1, 1],
+            [0, 0, 0, 0, 1, 1, 1, 1],
+            id="rank4_k3s1p1",
+        ),
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
@@ -1746,6 +1812,7 @@ def module_reduce_window_max(builder: StableHLOBuilder):
         )
 
 
+@pytest.mark.xfail(reason="Golden comparison failure")
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",

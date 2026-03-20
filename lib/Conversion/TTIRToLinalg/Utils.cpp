@@ -179,4 +179,51 @@ Value createTosaMulShift(ConversionPatternRewriter &rewriter, Location loc) {
   return rewriter.create<tosa::ConstOp>(loc, type, attr);
 }
 
+int64_t calculateExtraPadding(int64_t dim, int64_t kernel, int64_t stride,
+                              int64_t padding1, int64_t padding2,
+                              int64_t dilation) {
+  if ((dim - 1 + padding1 + padding2 - (kernel - 1) * dilation) % stride != 0) {
+    return (stride -
+            (dim - 1 + padding1 + padding2 - (kernel - 1) * dilation) % stride);
+  }
+  return 0;
+}
+
+Value createTosaReshape(Value input, RankedTensorType targetType,
+                        ConversionPatternRewriter &rewriter, Location loc) {
+  ArrayRef<int64_t> newShape = targetType.getShape();
+  auto shapeType = tosa::shapeType::get(rewriter.getContext(), newShape.size());
+  auto shapeAttr = rewriter.getIndexTensorAttr(newShape);
+  auto shapeOp = rewriter.create<tosa::ConstShapeOp>(loc, shapeType, shapeAttr);
+  return rewriter
+      .create<tosa::ReshapeOp>(loc, targetType, input, shapeOp.getResult())
+      .getResult();
+}
+
+Value unflattenInput(Value input, ttir::FlattenedCompatInfoAttr flatInfo,
+                     ConversionPatternRewriter &rewriter, Location loc) {
+  auto inputType = cast<RankedTensorType>(input.getType());
+  auto unflattenedType =
+      RankedTensorType::get({flatInfo.getBatchSize(), flatInfo.getInputHeight(),
+                             flatInfo.getInputWidth(), inputType.getShape()[3]},
+                            inputType.getElementType());
+  return createTosaReshape(input, unflattenedType, rewriter, loc);
+}
+
+Value sliceResultToShape(Value result, RankedTensorType targetType,
+                         ConversionPatternRewriter &rewriter, Location loc) {
+  auto resultType = cast<RankedTensorType>(result.getType());
+  if (resultType.getShape() == targetType.getShape()) {
+    return result;
+  }
+  SmallVector<OpFoldResult> offsets, sizes, strides;
+  for (int64_t i = 0; i < targetType.getRank(); ++i) {
+    offsets.push_back(rewriter.getI64IntegerAttr(0));
+    sizes.push_back(rewriter.getI64IntegerAttr(targetType.getShape()[i]));
+    strides.push_back(rewriter.getI64IntegerAttr(1));
+  }
+  return rewriter.create<tensor::ExtractSliceOp>(loc, targetType, result,
+                                                 offsets, sizes, strides);
+}
+
 } // namespace mlir::tt::ttir_to_linalg
