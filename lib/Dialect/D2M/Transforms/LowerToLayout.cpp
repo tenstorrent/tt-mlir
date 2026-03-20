@@ -1017,7 +1017,11 @@ public:
           // shapes don't divide evenly into tiles. Decompose via scalar space:
           // untilize → map in scalar space → tilize back.
 
-          // Untilize to scalar space while preserving the current grid.
+          // Untilize to scalar space (preserve current layout properties).
+          // Do not reblock/collapse virtual-grid shape at this stage:
+          // format-conversion generic requires matching shard structure between
+          // input and output, and scalar-space mapping is handled in the next
+          // step.
           Type scalarType = getScalarType(currentInfo.type.getElementType());
           auto untilizedType = typeBuilder.modifyDeviceType(
               currentInfo.type, *currentInfo.layout, targetGridShape,
