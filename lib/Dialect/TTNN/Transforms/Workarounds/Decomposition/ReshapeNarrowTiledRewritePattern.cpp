@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReshapeNarrowTiledRewritePattern.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
@@ -20,6 +21,10 @@ static constexpr int64_t kTileWidth = ttnn::TILE_WIDTH;
 // NOC DMA minimum transfer size (bytes). Writes smaller than this hang the
 // tiled reshape kernel. See tt_cluster.cpp min_dma_size_bytes.
 static constexpr unsigned kNocMinWriteBytes = 32;
+// The RM fallback allocates circular buffers proportional to the larger row-
+// major stick. Keep a safety margin relative to usable L1 so wide sticks do
+// not overflow per-core memory.
+static constexpr uint64_t kMaxRMFallbackStickUsableL1Divisor = 4;
 
 LogicalResult ReshapeNarrowTiledRewritePattern::matchAndRewrite(
     ttnn::ReshapeOp op, PatternRewriter &rewriter) const {
@@ -71,10 +76,26 @@ LogicalResult ReshapeNarrowTiledRewritePattern::matchAndRewrite(
     return failure();
   }
 
+  int64_t inputLastDim = inputType.getShape()[inputRank - 1];
+  uint64_t inputStickBytes =
+      static_cast<uint64_t>(inputLastDim) * elementSizeBytes;
+  uint64_t outputStickBytes =
+      static_cast<uint64_t>(outputLastDim) * elementSizeBytes;
+  uint64_t maxRMFallbackStickBytes =
+      ttcore::getOpChipDescAttr(op).getUsableL1Size() /
+      kMaxRMFallbackStickUsableL1Divisor;
+
+  // Skip the workaround when the row-major fallback would need very large
+  // sticks. Those can exceed L1 in reshape_rm even when the tiled reshape is
+  // otherwise valid.
+  if (inputStickBytes > maxRMFallbackStickBytes ||
+      outputStickBytes > maxRMFallbackStickBytes) {
+    return failure();
+  }
+
   // Skip reshapes the runtime handles as views: when the last dim and the
   // second-to-last dim are unchanged (or both tile-aligned), the tiled
   // reshape kernel is never invoked.
-  int64_t inputLastDim = inputType.getShape()[inputRank - 1];
   if (inputLastDim == outputLastDim) {
     if (inputRank >= 2 && outputRank >= 2) {
       int64_t inputSecondLast = inputType.getShape()[inputRank - 2];
