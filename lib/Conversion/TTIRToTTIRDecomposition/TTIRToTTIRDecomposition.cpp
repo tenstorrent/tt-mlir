@@ -53,12 +53,26 @@ struct IndexToSliceConversionPattern
     }
 
     int64_t rank = inputType.getRank();
+    int64_t dim = op.getDim();
+    int32_t begin = adaptor.getBegin();
+    int32_t end = adaptor.getEnd();
+    int64_t dimSize = inputType.getDimSize(dim);
+
+    // Normalize negative bounds so downstream slice folding composes canonical
+    // coordinates instead of raw Python-style negative offsets.
+    if (begin < 0) {
+      begin += dimSize;
+    }
+    if (end < 0) {
+      end += dimSize;
+    }
+
     llvm::SmallVector<mlir::Attribute, 4> begins, ends, steps;
 
     for (int64_t i = 0; i < rank; ++i) {
-      if (i == op.getDim()) {
-        begins.push_back(rewriter.getI32IntegerAttr(adaptor.getBegin()));
-        ends.push_back(rewriter.getI32IntegerAttr(adaptor.getEnd()));
+      if (i == dim) {
+        begins.push_back(rewriter.getI32IntegerAttr(begin));
+        ends.push_back(rewriter.getI32IntegerAttr(end));
         steps.push_back(rewriter.getI32IntegerAttr(adaptor.getStep()));
       } else {
         begins.push_back(rewriter.getI32IntegerAttr(0));
