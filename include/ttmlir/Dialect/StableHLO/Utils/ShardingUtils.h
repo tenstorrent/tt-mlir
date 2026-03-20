@@ -30,6 +30,8 @@ inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
                         {4, 32},
                         {8, 4},
                         {8, 8},
+                        {8, 16},
+                        {32, 4},
                         {8, 16}}};
 
 // Check if the meshMap is valid.
