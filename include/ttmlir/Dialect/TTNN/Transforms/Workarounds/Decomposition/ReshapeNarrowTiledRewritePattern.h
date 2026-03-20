@@ -17,13 +17,13 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // L1-to-L1 segment copies (e.g. 4 bytes each for INT32).  On multi-device
 // meshes this can hang the device command queue.
 //
-// This pattern decomposes the problematic reshape into:
-//   1. ttnn.to_layout  TILE -> ROW_MAJOR   (untilize)
-//   2. ttnn.reshape    in ROW_MAJOR         (metadata / lightweight copy)
-//   3. ttnn.to_layout  ROW_MAJOR -> TILE    (tilize)
-//
-// The ROW_MAJOR reshape path is far better tested and avoids the tiled
-// reshape kernel entirely.
+// This pattern decomposes the problematic reshape into a pad+reshape+slice
+// sequence that stays entirely in tiled layout, avoiding the expensive
+// to_layout circular buffers that a tiled->RM->tiled round-trip would require:
+//   1. ttnn.reshape    flatten input to 1D [totalElements]
+//   2. ttnn.pad        [totalElements] -> [outerOutput * D'] (D' tile-aligned)
+//   3. ttnn.reshape    [outerOutput * D'] -> [..., D']
+//   4. ttnn.slice      [..., D'] -> [..., D]  (trim padding)
 class ReshapeNarrowTiledRewritePattern
     : public mlir::OpRewritePattern<ttnn::ReshapeOp> {
 public:
