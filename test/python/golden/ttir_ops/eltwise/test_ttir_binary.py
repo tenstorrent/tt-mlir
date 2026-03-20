@@ -766,11 +766,7 @@ hoisted_binary_ops_float_integer = [
     maximum,
     minimum,
     multiply,
-    # TODO(#6183): Re-enable when F32 untilize on-device precision loss is fixed
-    # F32 untilize on-device introduces precision loss that causes close values to become
-    # identical, breaking exact equality comparisons in CPU-hoisted ops.
-    # See: https://github.com/tenstorrent/tt-mlir/issues/6183
-    # eq,
+    eq,
     ne,
     gt,
     ge,
