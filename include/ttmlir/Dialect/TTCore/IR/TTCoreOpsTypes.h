@@ -375,6 +375,11 @@ inline uint64_t getElementSizeBytes(mlir::Type elementType) {
                   : elementType.getIntOrFloatBitWidth() / 8;
 }
 
+inline DataType getDataType(mlir::Type elementType) {
+  TileType tileType = mlir::dyn_cast<TileType>(elementType);
+  return tileType ? tileType.getDataType() : elementTypeToDataType(elementType);
+}
+
 inline MemorySpace getMemorySpace(MemorySpaceAttr memorySpaceAttr) {
   return memorySpaceAttr.getValue();
 }

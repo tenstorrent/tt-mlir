@@ -16,6 +16,7 @@
 #include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_pack_untilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_padding_llks_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_reg_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
 
@@ -246,6 +247,12 @@ void dprint(Arg &&arg, ArgV&&... argv) {
   }
 
   void emitExperimentalLLKs() {
+    if (hasCall("experimental::unpack_stall_on_pack")) {
+      auto experimentalRegAPILLKs = StringRef(
+          experimental_reg_api_generated, experimental_reg_api_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalRegAPILLKs);
+    }
+
     if (hasCall("experimental::tilize")) {
       auto experimentalTilizeLLKs =
           StringRef(experimental_tilize_llks_generated,

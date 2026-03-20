@@ -5,7 +5,7 @@
 
 module {
 
-// --- Test 1: Single scratch_allocate replaced by subview of get_scratch_from_cb result ---
+// --- Test 1: Single scratch_allocate replaced by subview of scratch CB ---
 
 // CHECK-LABEL: func.func @single_scratch_store_load
 func.func @single_scratch_store_load() {
@@ -26,9 +26,10 @@ func.func @single_scratch_store_load() {
     %alloc_cb1 = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     %alloc_cb2 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
-    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>,
+    // CHECK: d2m.get_cb(1)
+    // CHECK: %[[SCRATCH:.*]] = d2m.get_scratch_from_cb %{{.*}}
     // CHECK: %[[SV:.*]] = memref.subview %[[SCRATCH]][0, 0] [1, 1] [1, 1]
-    // CHECK-SAME: memref<1x8x!ttcore.tile<32x32, f32>, #l1> to memref<1x!ttcore.tile<32x32, f32>
+    // CHECK-SAME: to memref<1x!ttcore.tile<32x32, f32>
     %scratch_slot = d2m.scratch_allocate {slot = 0 : i64} : memref<1x!ttcore.tile<32x32, f32>, #l1>
     // Verify store and load are rewritten to use the subview.
     // CHECK: memref.load %[[SV]][%{{.*}}]
@@ -63,7 +64,8 @@ func.func @two_scratch_allocates() {
     %alloc_cb4 = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     %alloc_cb5 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
-    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>,
+    // CHECK: d2m.get_cb(1)
+    // CHECK: %[[SCRATCH:.*]] = d2m.get_scratch_from_cb %{{.*}}
 
     // Slot 0: 1 tile at offset 0.
     // CHECK: %[[SV0:.*]] = memref.subview %[[SCRATCH]][0, 0] [1, 1] [1, 1]
@@ -128,9 +130,10 @@ func.func @scratch_bf16() {
     %alloc_cb9 = memref.alloc() : memref<1x4x!ttcore.tile<32x32, bf16>, #l1>
     %alloc_cb10 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, bf16>, #l1>
     %c0 = arith.constant 0 : index
-    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x4x!ttcore.tile<32x32, bf16>,
+    // CHECK: d2m.get_cb(1)
+    // CHECK: %[[SCRATCH:.*]] = d2m.get_scratch_from_cb %{{.*}}
     // CHECK: memref.subview %[[SCRATCH]][0, 0] [1, 1] [1, 1]
-    // CHECK-SAME: memref<1x4x!ttcore.tile<32x32, bf16>, #l1> to memref<1x!ttcore.tile<32x32, bf16>
+    // CHECK-SAME: to memref<1x!ttcore.tile<32x32, bf16>
     %scratch_slot = d2m.scratch_allocate {slot = 0 : i64} : memref<1x!ttcore.tile<32x32, bf16>, #l1>
     %tile = memref.load %scratch_slot[%c0] : memref<1x!ttcore.tile<32x32, bf16>, #l1>
     memref.store %tile, %scratch_slot[%c0] : memref<1x!ttcore.tile<32x32, bf16>, #l1>
