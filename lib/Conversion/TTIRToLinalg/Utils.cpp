@@ -194,9 +194,10 @@ Value createTosaReshape(Value input, RankedTensorType targetType,
   ArrayRef<int64_t> newShape = targetType.getShape();
   auto shapeType = tosa::shapeType::get(rewriter.getContext(), newShape.size());
   auto shapeAttr = rewriter.getIndexTensorAttr(newShape);
-  auto shapeOp = rewriter.create<tosa::ConstShapeOp>(loc, shapeType, shapeAttr);
-  return rewriter
-      .create<tosa::ReshapeOp>(loc, targetType, input, shapeOp.getResult())
+  auto shapeOp =
+      tosa::ConstShapeOp::create(rewriter, loc, shapeType, shapeAttr);
+  return tosa::ReshapeOp::create(rewriter, loc, targetType, input,
+                                 shapeOp.getResult())
       .getResult();
 }
 
@@ -222,8 +223,8 @@ Value sliceResultToShape(Value result, RankedTensorType targetType,
     sizes.push_back(rewriter.getI64IntegerAttr(targetType.getShape()[i]));
     strides.push_back(rewriter.getI64IntegerAttr(1));
   }
-  return rewriter.create<tensor::ExtractSliceOp>(loc, targetType, result,
-                                                 offsets, sizes, strides);
+  return tensor::ExtractSliceOp::create(rewriter, loc, targetType, result,
+                                        offsets, sizes, strides);
 }
 
 int64_t normalizeDim(int64_t dim, int64_t rank) {
