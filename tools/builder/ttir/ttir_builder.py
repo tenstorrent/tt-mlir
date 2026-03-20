@@ -2560,6 +2560,28 @@ class TTIRBuilder(Builder):
 
         return cos_module, cos_builder
 
+    def acos(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.acos``.
+
+        *Elementwise arccosine operation.*
+
+        Computes the inverse cosine (arccosine) of each element in the input tensor.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with arccosine values
+        """
+        return self._op_proxy(ttir.AcosOp, [in0], unit_attrs)
+
     ############### ttir.SinOp ###############
 
     @tag(ttir.SinOp)
@@ -2665,6 +2687,28 @@ class TTIRBuilder(Builder):
                 ]
 
         return sin_module, sin_builder
+
+    def asin(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.asin``.
+
+        *Elementwise arcsine operation.*
+
+        Computes the inverse sine (arcsine) of each element in the input tensor.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with arcsine values
+        """
+        return self._op_proxy(ttir.AsinOp, [in0], unit_attrs)
 
     ############### ttir.SqrtOp ###############
 
