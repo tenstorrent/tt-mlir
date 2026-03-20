@@ -1320,9 +1320,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         operandCtx.defChain.clear();
 
         MemRefType memrefType = nullptr;
-        std::tie(operandCtx.root, memrefType, operandCtx.hasStream) =
-            analyzeOperandDefChain(reblocked->genericOp, operand.get(),
-                                   operandCtx.defChain);
+        std::tie(operandCtx.root, memrefType) = analyzeOperandDefChain(
+            reblocked->genericOp, operand.get(), operandCtx.defChain);
         updatedCtx.operands.push_back(std::move(operandCtx));
       }
 
