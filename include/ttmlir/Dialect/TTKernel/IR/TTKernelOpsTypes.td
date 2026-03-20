@@ -139,7 +139,7 @@ def TTKernel_ArgAttr : TTKernel_Attr<"Arg", "arg"> {
 
   let extraClassDeclaration = [{
     static ArgAttr get(::mlir::MLIRContext *context, ArgType argType, size_t index) {
-      return ArgAttr::get(context, argType, index, true);
+      return ArgAttr::get(context, argType, index, true, StringAttr::get(context, ""));
     }
 
     static ArgAttr get(::mlir::MLIRContext *context, ArgType argType, size_t index, bool isUniform) {

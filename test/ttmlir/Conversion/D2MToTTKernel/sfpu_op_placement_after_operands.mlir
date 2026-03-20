@@ -3,9 +3,9 @@
 #l1_ = #ttcore.memory_space<l1>
 
 func.func private @compute_kernel8() attributes {d2m.thread = #d2m.thread<compute>} {
-  %cb0 = d2m.get_cb(0) : !d2m.cb<memref<6x1x1x!ttcore.tile<32x32, f32>, #l1_>>
-  %cb1 = d2m.get_cb(1) : !d2m.cb<memref<6x1x1x!ttcore.tile<32x32, f32>, #l1_>>
-  %cb2 = d2m.get_cb(2) : !d2m.cb<memref<6x1x1x!ttcore.tile<32x32, f32>, #l1_>>
+  %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<6x1x1x!ttcore.tile<32x32, f32>, #l1_>>
+  %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<6x1x1x!ttcore.tile<32x32, f32>, #l1_>>
+  %cb2 = d2m.get_cb(2) operand_index = 2 : !d2m.cb<memref<6x1x1x!ttcore.tile<32x32, f32>, #l1_>>
   %arg0 = d2m.wait %cb0 : !d2m.cb<memref<6x1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<6x1x1x!ttcore.tile<32x32, f32>, #l1_>
   %arg1 = d2m.wait %cb1 : !d2m.cb<memref<6x1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<6x1x1x!ttcore.tile<32x32, f32>, #l1_>
   %arg2 = d2m.reserve %cb2 : !d2m.cb<memref<6x1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<6x1x1x!ttcore.tile<32x32, f32>, #l1_>
