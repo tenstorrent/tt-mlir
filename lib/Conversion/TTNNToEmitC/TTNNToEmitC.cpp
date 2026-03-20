@@ -1669,10 +1669,19 @@ public:
     auto outputDtype =
         dtypeAttr ? dtypeAttr.getValue() : ttcore::DataType::BFloat16;
 
+    // Emit SSA operands in ODS order (input, weight, bias, device) to
+    // maintain correct index mapping, then arrange args in the C++ API
+    // call order (input, weight, device, bias, ...).
+    auto inputAttr = emitter.emit(srcOp.getInput());
+    auto weightAttr = emitter.emit(srcOp.getWeight());
+    auto biasAttr = emitter.emit(srcOp.getBias());
+    auto deviceAttr = emitter.emit(srcOp.getDevice());
+
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getWeight()),
-        emitter.emit(srcOp.getBias()),
+        inputAttr,
+        weightAttr,
+        deviceAttr,
+        biasAttr,
         emitter.emitConv3dConfig(srcOp.getConv3dConfig()),
         emitter.emit(outputDtype),
         emitter.emit(srcOp.getOutChannels()),
