@@ -687,6 +687,12 @@ def execute_fb(
     -------
     Tuple[Dict[str, Dict], Dict[str, Dict]]
         golden_report, output_tensors
+
+    Notes
+    -----
+    If execution fails, the device will be automatically closed and reopened
+    using the device_reopener function from conftest.
+    This ensures device state is clean for the next test.
     """
     fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
     program_indices = range(fbb.get_num_programs())
@@ -798,6 +804,17 @@ def execute_fb(
             )
             tt_runtime.runtime.wait(runtime_outputs)
         except Exception as e:
+            try:
+                import sys
+
+                if "conftest" in sys.modules:
+                    device_reopener = sys.modules["conftest"].device_reopener
+                    print(f"Flatbuffer execution failed, close & reopen the device")
+                    tt_runtime.runtime.close_mesh_device(device)
+                    device = device_reopener()
+                    print(f"Device successfully reopened after execution failure")
+            except Exception as reopen_error:
+                print(f"Warning: Could not reopen device: {reopen_error}")
             raise TTBuilderRuntimeException(e)
         finally:
             tt_runtime.runtime.unregister_hooks()
