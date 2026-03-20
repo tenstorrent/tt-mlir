@@ -718,13 +718,12 @@ def _mark_item_for_skip(
     skip_handler_fn,
     negate_check=False,
 ):
+    matches = []
     for marker in item.iter_markers(name=marker_name):
         for platform_config in marker.args:
 
             # All of the operations we need to do on these are set membership based
             platform_config = set(platform_config)
-
-            reason = marker.kwargs.get("reason", "")
 
             # Verify this is a valid configuration
             if not platform_config <= ALL_CONFIGS:
@@ -733,16 +732,19 @@ def _mark_item_for_skip(
                     f"Invalid {marker_name}: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_CONFIGS}"
                 )
 
-            should_skip = platform_config <= set(
+            match = platform_config <= set(
                 [current_target, board_id, current_environment]
             )
+            matches.append(match)
 
-            # For only_config we want to skip if config is NOT in the allowed list
-            if negate_check:
-                should_skip = not should_skip
+    should_skip = any(matches)
 
-            if should_skip:
-                skip_handler_fn(item, platform_config, reason)
+    # For only_config we want to skip if config is NOT in the allowed list
+    if negate_check:
+        should_skip = not should_skip
+
+    if should_skip:
+        skip_handler_fn(item)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -783,24 +785,24 @@ def pytest_collection_modifyitems(config, items):
         current_environment = _get_current_environment()
         board_id = get_board_id(system_desc)
 
-        def skip_config_handler(item, platform_config, reason):
+        def skip_config_handler(item):
             item.add_marker(
                 pytest.mark.skip(
-                    reason=f"Operation not supported on following platform/target combination: {platform_config}. {reason}"
+                    reason="Test marked as skip for this platform/target combination"
                 )
             )
 
-        def only_config_handler(item, platform_config, reason):
+        def only_config_handler(item):
             item.add_marker(
                 pytest.mark.skip(
-                    reason=f"Test only runs on following platform/target combination: {platform_config}. {reason}"
+                    reason="Test marked as skip for this platform/target combination"
                 )
             )
 
         def skip_exec_handler(item, platform_config, reason):
             # Set skip_exec attribute on the item instead of marking as skipped
             item.skip_exec = True
-            xfail_reason = f"Execution skipped for platform/target combination: {platform_config}. {reason}"
+            xfail_reason = f"Execution marked as skip"
             item.skip_exec_reason = xfail_reason
             # Mark test as xfail so it's expected to fail
             item.add_marker(pytest.mark.xfail(reason=xfail_reason, strict=False))

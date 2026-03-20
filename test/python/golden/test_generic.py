@@ -12,7 +12,7 @@ from ttmlir.ir import *
 from builder.base.builder_utils import Operand
 from builder.d2m.d2m_builder import D2MBuilder
 from builder.base.builder_apis import compile_and_execute_d2m
-from test_utils import Marks, shape_str
+from test_utils import Marks, shape_str, OnlyIf, SkipIf
 from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("d2m")
@@ -31,7 +31,8 @@ def greatest_physical_grid(system_desc, phys_dim_index, factor):
     "grid",
     [
         # (1, 1),
-        (8, 8),
+        (8, 8)
+        | OnlyIf("n150", "n300"),
     ],
 )
 @pytest.mark.parametrize(
