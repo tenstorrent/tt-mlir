@@ -2204,7 +2204,10 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     int64_t regionShapeY = regionBox.end[0] - regionBox.start[0] + 1;
     int64_t regionShapeX = regionBox.end[1] - regionBox.start[1] + 1;
 
-    auto genericOps = llvm::to_vector(region.front().getOps<GenericOp>());
+    if (region.empty()) {
+      return emitOpError("each spatial region must not be empty");
+    }
+    auto genericOps = llvm::to_vector(region.getOps<GenericOp>());
     if (genericOps.size() != 1) {
       return emitOpError(
                  "each region must contain exactly one d2m.generic op, got ")
