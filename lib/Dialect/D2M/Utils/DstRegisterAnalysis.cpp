@@ -24,7 +24,8 @@ namespace {
 enum class DstExecutionClass { FPU, SFPU };
 
 static DstExecutionClass classifyComputeOp(Operation *op) {
-  if (mlir::isa<TileMatmulOp, TileReduceMaxOp, TileReduceSumOp>(op)) {
+  if (mlir::isa<TileMatmulOp, TileReduceMaxOp, TileReduceSumOp,
+                TileReduceMeanOp>(op)) {
     return DstExecutionClass::FPU;
   }
 

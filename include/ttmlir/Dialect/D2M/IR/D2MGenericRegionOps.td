@@ -635,6 +635,28 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max", D2M_Tile
   }];
 }
 
+def D2M_TileReduceMeanOp : D2M_GenericRegionComputeOp<"tile_reduce_mean", D2M_TileComputeOpTraitBundle> {
+  let summary = "D2M Tile Reduce Mean Op";
+  let description = [{
+        The `tile_reduce_mean` operation computes the mean of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- avg<dims>(A * B, C)
+    }];
+
+  let arguments = (ins TTCore_Tile:$a,
+                       TTCore_Tile:$b,
+                       TTCore_Tile:$c,
+                       D2M_ReduceDimAttr:$reduce_dim);
+  let results = (outs TTCore_Tile:$result);
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {2};
+    }
+    bool getDstRegInPlace() {
+      return true;
+    }
+  }];
+}
+
 // TODO(#5968): fusion w/ implicit bcast causes multiple failure scenarios.
 def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
   let summary = "D2M Tile Broadcast Op";
