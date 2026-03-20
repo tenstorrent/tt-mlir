@@ -267,7 +267,7 @@ index 0000000..3b414d1
 +)
 diff --git a/shardy/dialect/sdy/transforms/export/CMakeLists.txt b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
 new file mode 100755
-index 0000000..f23330d
+index 0000000..22b7e5f
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
 @@ -0,0 +1,96 @@
@@ -637,6 +637,38 @@ index 0000000..dc33501
 +  SdyDialect
 +  SdyTransformsPropagationShardingProjection
 +)
+diff --git a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
+index e77a8ee..87820ca 100644
+--- a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
++++ b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
+@@ -545,6 +545,13 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+         return builder.build();
+       })
+       .Case<stablehlo::CustomCallOp>([](stablehlo::CustomCallOp customCall) {
++        // Check for externally registered ShardingRuleOpInterface first.
++        if (auto shardingRuleOp =
++                dyn_cast<ShardingRuleOpInterface>(customCall.getOperation())) {
++          if (auto rule = shardingRuleOp.getShardingRule()) {
++            return rule;
++          }
++        }
+         StringRef callTargetName = customCall.getCallTargetName();
+         // TODO(b/327191011): output unregistered op stats instead.
+         if (callTargetName == "sdy_testonly" ||
+@@ -1115,6 +1122,13 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+             return builder.build();
+           })
+       .Case<stablehlo::ScatterOp>([](stablehlo::ScatterOp scatter) {
++        // Check for externally registered ShardingRuleOpInterface first.
++        if (auto shardingRuleOp =
++                dyn_cast<ShardingRuleOpInterface>(scatter.getOperation())) {
++          if (auto rule = shardingRuleOp.getShardingRule()) {
++            return rule;
++          }
++        }
+         OpShardingRuleBuilder builder(scatter);
+
+         // Since all inputs and results have compatible shapes, we can look at
 diff --git a/shardy/integrations/c/CMakeLists.txt b/shardy/integrations/c/CMakeLists.txt
 new file mode 100644
 index 0000000..fdd50c4
