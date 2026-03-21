@@ -737,6 +737,9 @@ def _mark_item_for_skip(
             )
             matches.append(match)
 
+    if len(matches) == 0:
+        return
+
     should_skip = any(matches)
 
     # For only_config we want to skip if config is NOT in the allowed list
