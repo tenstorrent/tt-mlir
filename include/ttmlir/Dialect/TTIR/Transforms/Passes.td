@@ -109,9 +109,6 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
     to a target that only supports a subset of the element types.
   }];
 
-  list<Option> options = [
-    Option<"enableBfp8Conversion", "enable-bfp8-conversion", "bool", "false", "When enabled this pass will convert all bfloat16 types into bfp8_b types.">,
-  ];
 }
 
 def PredicateTypeAlignment : Pass<"ttir-predicate-type-alignment", "::mlir::ModuleOp"> {
