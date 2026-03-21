@@ -109,7 +109,8 @@ ScaledDotProductAttentionPadTileDimsRewritePattern::matchAndRewrite(
   auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
       srcOp.getLoc(), resultType, paddedQuery, paddedKey, paddedValue,
       srcOp.getAttentionMask(), srcOp.getIsCausal(), srcOp.getScaleAttr(),
-      srcOp.getSlidingWindowSizeAttr(), srcOp.getMemoryConfigAttr());
+      srcOp.getSlidingWindowSizeAttr(), srcOp.getAttentionSink(),
+      srcOp.getMemoryConfigAttr());
 
   // Slice the result back to original head_dim
   Value result = sdpaOp.getResult();

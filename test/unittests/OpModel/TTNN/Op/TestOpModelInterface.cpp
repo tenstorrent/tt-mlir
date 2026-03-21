@@ -2162,6 +2162,7 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
       /*is_causal=*/false,
       /*scale=*/nullptr,
       /*sliding_window_size=*/nullptr,
+      /*attention_sink=*/Value(),
       /*memory_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttention.getOperation());
@@ -2190,6 +2191,88 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
     FAIL() << "Runtime test failed for ScaledDotProductAttentionOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, ScaledDotProductAttentionOpInterfaceWithAttentionSink) {
+  int64_t batchSize = 1;
+  int64_t numHeads = 1;
+  int64_t seqLen = 32;
+  int64_t kvLen = 128;
+  int64_t headSize = 32;
+  int64_t sinkLen = 1;
+
+  llvm::SmallVector<int64_t> queryShape{batchSize, numHeads, seqLen, headSize};
+  llvm::SmallVector<int64_t> keyValueShape{batchSize, numHeads, kvLen,
+                                           headSize};
+  llvm::SmallVector<int64_t> maskShape{batchSize, 1, seqLen, kvLen};
+  llvm::SmallVector<int64_t> sinkShape{batchSize, numHeads, seqLen, sinkLen};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto queryLayout =
+      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto keyValueLayout =
+      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto maskLayout =
+      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto sinkLayout =
+      TTNNLayoutAttr::get(&context, sinkShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto value = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto attentionMask = createEmptyTensor(maskShape, tiledElemType, maskLayout);
+  auto attentionSink = createEmptyTensor(sinkShape, tiledElemType, sinkLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto sdpAttention = builder.create<ScaledDotProductAttentionOp>(
+      builder.getUnknownLoc(), outputType, query, key, value,
+      /*attention_mask=*/attentionMask,
+      /*is_causal=*/false,
+      /*scale=*/nullptr,
+      /*sliding_window_size=*/nullptr,
+      /*attention_sink=*/attentionSink,
+      /*memory_config=*/nullptr);
+
+  OpModel backend = dyn_cast<OpModel>(sdpAttention.getOperation());
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(sdpAttention),
+                                                 OpConfig(queryLayout));
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(totalPeakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+
+    ASSERT_FALSE(outputLayouts.empty());
+    EXPECT_EQ(outputLayouts[0].getLayout(), Layout::Tile);
+    EXPECT_TRUE(outputLayouts[0].hasInterleavedDRAMTensorMemoryLayout());
+  } else {
+    FAIL() << "Missing L1 constraints for "
+              "ScaledDotProductAttentionOp with attention sink; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(sdpAttention.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for "
+              "ScaledDotProductAttentionOp with attention sink; Error="
            << llvm::toString(runtimeExp.takeError());
   }
 }
