@@ -2252,25 +2252,35 @@ ScaledDotProductAttentionOp::getOpConstraints(
   const auto queryShape = getQuery().getType().getShape();
   const auto keyShape = getKey().getType().getShape();
   const auto valueShape = getValue().getType().getShape();
+
+  size_t idx = 3;
   const std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape =
       getAttentionMask()
           ? std::make_optional(getAttentionMask().getType().getShape())
           : std::nullopt;
   const std::optional<TTNNLayoutAttr> attentionMaskLayout =
-      getAttentionMask() ? std::make_optional(inputs[3]) : std::nullopt;
+      getAttentionMask() ? std::make_optional(inputs[idx++]) : std::nullopt;
+  const std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape =
+      getAttentionSink()
+          ? std::make_optional(getAttentionSink().getType().getShape())
+          : std::nullopt;
+  const std::optional<TTNNLayoutAttr> attentionSinkLayout =
+      getAttentionSink() ? std::make_optional(inputs[idx++]) : std::nullopt;
+
   bool isCausal = getIsCausal();
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ScaledDotProductAttentionOp>::getOpConstraints, *this,
       deviceGrid, queryShape, inputs[0], keyShape, inputs[1], valueShape,
-      inputs[2], attentionMaskShape, attentionMaskLayout, isCausal, getScale(),
-      getSlidingWindowSize(), opConfig.outputLayout);
+      inputs[2], attentionMaskShape, attentionMaskLayout, attentionSinkShape,
+      attentionSinkLayout, isCausal, getScale(), getSlidingWindowSize(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t> ScaledDotProductAttentionOp::getOpRuntime(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
-         "ttnn::scaled_dot_product_attention can have 3 or 4 input tensors");
+  assert(inputs.size() >= 3 && inputs.size() <= 5 &&
+         "ttnn::scaled_dot_product_attention can have 3 to 5 input tensors");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -2280,19 +2290,29 @@ llvm::Expected<size_t> ScaledDotProductAttentionOp::getOpRuntime(
   const auto queryShape = getQuery().getType().getShape();
   const auto keyShape = getKey().getType().getShape();
   const auto valueShape = getValue().getType().getShape();
+
+  size_t idx = 3;
   const std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape =
       getAttentionMask()
           ? std::make_optional(getAttentionMask().getType().getShape())
           : std::nullopt;
   const std::optional<TTNNLayoutAttr> attentionMaskLayout =
-      getAttentionMask() ? std::make_optional(inputs[3]) : std::nullopt;
+      getAttentionMask() ? std::make_optional(inputs[idx++]) : std::nullopt;
+  const std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape =
+      getAttentionSink()
+          ? std::make_optional(getAttentionSink().getType().getShape())
+          : std::nullopt;
+  const std::optional<TTNNLayoutAttr> attentionSinkLayout =
+      getAttentionSink() ? std::make_optional(inputs[idx++]) : std::nullopt;
+
   bool isCausal = getIsCausal();
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ScaledDotProductAttentionOp>::getOpRuntime, *this,
       queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
-      attentionMaskShape, attentionMaskLayout, isCausal, getScale(),
-      getSlidingWindowSize(), opConfig.outputLayout);
+      attentionMaskShape, attentionMaskLayout, attentionSinkShape,
+      attentionSinkLayout, isCausal, getScale(), getSlidingWindowSize(),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
