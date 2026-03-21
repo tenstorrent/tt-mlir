@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
@@ -675,6 +676,23 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
   c.value = castToBF16IfNeeded(c.value, rewriter);
   if (c.mask) {
     c.mask = castToBF16IfNeeded(c.mask, rewriter);
+  }
+
+  // Workaround for https://github.com/tenstorrent/tt-metal/issues/40470:
+  // tt-metal's SDPA kernel computes exp((sink - max) * scale), applying scale
+  // to the attention sink. But the sink is already in scaled score space, so
+  // this double-scales it. Pre-multiply the sink by 1/scale to compensate.
+  if (c.attentionSink && scale != 0.0f && scale != 1.0f) {
+    auto sinkType = mlir::cast<RankedTensorType>(c.attentionSink.getType());
+    float invScale = 1.0f / scale;
+    auto deviceOp =
+        utils::getOrInsertDevice(rewriter, c.attentionMatmul.getOperation());
+    auto invScaleOp = rewriter.create<FullOp>(
+        c.attentionMatmul.getLoc(), sinkType,
+        rewriter.getF32FloatAttr(invScale), deviceOp.getResult());
+    c.attentionSink =
+        rewriter.create<MultiplyOp>(c.attentionMatmul.getLoc(), sinkType,
+                                    c.attentionSink, invScaleOp.getResult());
   }
 
   auto qType = mlir::cast<RankedTensorType>(c.query.getType());
