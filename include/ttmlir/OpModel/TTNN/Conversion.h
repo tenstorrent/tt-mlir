@@ -55,6 +55,8 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout);
 ::tt::tt_metal::MemoryConfig
 getMemoryConfig(const MemoryConfigAttr &memConfigAttr);
 
+::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout);
+
 ::tt::tt_metal::TensorLayout getTensorLayout(const TTNNLayoutAttr &layout);
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,

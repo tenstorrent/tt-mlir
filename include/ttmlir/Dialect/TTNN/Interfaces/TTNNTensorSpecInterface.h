@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_INTERFACES_TTNNTENSORSPECINTERFACE_H
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/ADT/TypeSwitch.h"
@@ -24,10 +25,24 @@ inline MemoryConfigAttr getMemoryConfigFromResult(mlir::Operation *op) {
   if (!output.getEncoding()) {
     return nullptr;
   }
+
   return llvm::TypeSwitch<mlir::Attribute, MemoryConfigAttr>(
              output.getEncoding())
-      .Case<TTNNLayoutAttr, TTNNNDLayoutAttr>(
-          [](auto layoutAttr) { return layoutAttr.getMemoryConfigAttr(); })
+      .Case<TTNNLayoutAttr>([&](TTNNLayoutAttr layoutAttr) {
+        // Look up the device to get the physical worker grid for shard spec
+        // computation. When no device is registered (e.g. cpu_module),
+        // return nullptr since memory config cannot be derived.
+        auto deviceOp = ttcore::lookupDeviceOp(op);
+        if (!deviceOp) {
+          return MemoryConfigAttr();
+        }
+
+        auto deviceGrid = deviceOp.getDeviceAttr().getWorkerGrid();
+        return layoutAttr.getMemoryConfigAttr(deviceGrid);
+      })
+      .Case<TTNNNDLayoutAttr>([](TTNNNDLayoutAttr layoutAttr) {
+        return layoutAttr.getMemoryConfigAttr();
+      })
       .Default([&](mlir::Attribute) { return MemoryConfigAttr(); });
 }
 

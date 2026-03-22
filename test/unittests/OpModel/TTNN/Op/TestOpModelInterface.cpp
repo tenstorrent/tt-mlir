@@ -2229,8 +2229,7 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterfaceWithAttentionSink) {
       /*is_causal=*/false,
       /*scale=*/nullptr,
       /*sliding_window_size=*/nullptr,
-      /*attention_sink=*/attentionSink,
-      /*memory_config=*/nullptr);
+      /*attention_sink=*/attentionSink);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttention.getOperation());
   auto constraintsExp = backend.getOpConstraints(getInputLayouts(sdpAttention),

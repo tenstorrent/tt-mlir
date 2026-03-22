@@ -384,10 +384,20 @@ getMemoryConfig(const MemoryConfigAttr &memConfigAttr) {
                                       shardSpec);
 }
 
+::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout) {
+  auto tensorMemoryLayout = getTensorMemoryLayout(
+      layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved));
+  auto bufferType = getBufferType(layout);
+
+  auto shardSpec = getShardSpec(layout);
+  return ::tt::tt_metal::MemoryConfig(tensorMemoryLayout, bufferType,
+                                      shardSpec);
+}
+
 ::tt::tt_metal::TensorLayout getTensorLayout(const TTNNLayoutAttr &layout) {
-  return ::tt::tt_metal::TensorLayout(
-      getDataType(layout.getDataType()), getPageLayout(layout),
-      getMemoryConfig(layout.getMemoryConfigAttr()));
+  return ::tt::tt_metal::TensorLayout(getDataType(layout.getDataType()),
+                                      getPageLayout(layout),
+                                      getMemoryConfig(layout));
 }
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,

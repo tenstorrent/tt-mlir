@@ -711,7 +711,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {permutedQuery.getType()}, permutedQuery, c.key, c.value,
             /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
-            /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr
+            /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
             /*program_config=*/SDPAProgramConfigAttr());
 
     if (!validationResult.isSuccess()) {

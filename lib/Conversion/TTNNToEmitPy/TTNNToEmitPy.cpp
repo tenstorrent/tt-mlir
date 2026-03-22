@@ -1616,8 +1616,7 @@ public:
             rewriter.getDenseI32ArrayAttr({1, 1, 1}), "dilation"),
         emitter.emit(srcOp.getPaddingMode(), "padding_mode"),
         emitter.emit(srcOp.getGroups(), "groups"),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 

@@ -1312,18 +1312,8 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
       return emitOpError("Data type mismatch between op and layoutAttr.");
     }
 
-    // MemoryConfig
-    // Compare internal attrs with output tensor attrs.
-    //
-    if (getMemoryConfigAttr().getBufferType().getValue() !=
-        layoutAttr.getBufferType()) {
-      return emitOpError("Buffer type mismatch between op and layoutAttr.");
-    }
-    if (getMemoryConfigAttr().getTensorMemoryLayout() !=
-        layoutAttr.getMemLayout()) {
-      return emitOpError(
-          "Tensor memory layout mismatch between op and layoutAttr.");
-    }
+    // Memory config is now derived directly from the output layout encoding,
+    // so there is no independent op attribute to cross-validate here.
 
     return success();
   };

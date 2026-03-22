@@ -176,18 +176,8 @@ private:
     auto outputLayoutAttr =
         mlir::cast<TTNNLayoutAttr>(op.getResult().getType().getEncoding());
 
-    assert(mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-               op.getOperation())
-               .getMemoryConfig()
-               .has_value());
-    MemoryConfigAttr outputMemoryConfig =
-        mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-            op.getOperation())
-            .getMemoryConfig()
-            .value();
-
     input.bufferType = inputLayoutAttr.getBufferType();
-    output.bufferType = outputMemoryConfig.getBufferType().getValue();
+    output.bufferType = outputLayoutAttr.getBufferType();
 
     input.layoutEnum = inputLayoutAttr.getLayout();
     output.layoutEnum = outputLayoutAttr.getLayout();
@@ -197,7 +187,7 @@ private:
     output.dataType = op.getDtype().value();
 
     input.tensorMemoryLayout = inputLayoutAttr.getMemLayout();
-    output.tensorMemoryLayout = outputMemoryConfig.getTensorMemoryLayout();
+    output.tensorMemoryLayout = outputLayoutAttr.getMemLayout();
 
     input.shardGrid = inputLayoutAttr.getGrid();
     output.shardGrid = outputLayoutAttr.getGrid();

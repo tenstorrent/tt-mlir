@@ -881,7 +881,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     BufferType getBufferType() const;
     ttcore::DataType getDataType() const;
     uint64_t getElementSizeBytes() const;
-    MemoryConfigAttr getMemoryConfigAttr() const;
+    MemoryConfigAttr getMemoryConfigAttr(ttcore::GridAttr deviceGrid) const;
     static llvm::SmallVector<int64_t> calculateLogicalShardShapeForSharding(ArrayRef<int64_t> tensorShape, mlir::AffineMap linear, ttcore::GridAttr grid);
     static llvm::SmallVector<int64_t> calculateLogicalShardShapeForL1Interleaved(ArrayRef<int64_t> tensorShape, Type elementType, mlir::AffineMap linear, ttcore::GridAttr grid);
     llvm::SmallVector<int64_t> getShardShape() const;
