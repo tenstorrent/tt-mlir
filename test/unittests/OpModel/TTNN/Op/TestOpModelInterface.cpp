@@ -2207,7 +2207,7 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterfaceWithAttentionSink) {
   llvm::SmallVector<int64_t> keyValueShape{batchSize, numHeads, kvLen,
                                            headSize};
   llvm::SmallVector<int64_t> maskShape{batchSize, 1, seqLen, kvLen};
-  llvm::SmallVector<int64_t> sinkShape{batchSize, numHeads, seqLen, sinkLen};
+  llvm::SmallVector<int64_t> sinkShape{batchSize, numHeads, sinkLen, sinkLen};
 
   auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
 
