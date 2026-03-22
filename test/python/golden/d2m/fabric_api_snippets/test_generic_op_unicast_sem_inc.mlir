@@ -13,12 +13,12 @@ module attributes {} {
     // distribute input tensor
     %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<64x128xbf16, #ttnn_layout_host_row_major>) -> tensor<64x128xbf16, #ttnn_layout_host_tile>
     %2 = "ttnn.distribute_tensor"(%1, %0) <{mapper_config = #ttnn.mesh_mapper_config<placements = [<shard, 0 : i64>, <shard, 1 : i64>]>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_host_tile_shard>
-    %3 = "ttnn.to_device"(%2, %0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> : (tensor<32x32xbf16, #ttnn_layout_host_tile_shard>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>
+    %3 = "ttnn.to_device"(%2, %0) : (tensor<32x32xbf16, #ttnn_layout_host_tile_shard>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>
 
     // preallocate and distribute output tensor
     %out1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<64x128xbf16, #ttnn_layout_host_row_major>) -> tensor<64x128xbf16, #ttnn_layout_host_tile>
     %out2 = "ttnn.distribute_tensor"(%out1, %0) <{mapper_config = #ttnn.mesh_mapper_config<placements = [<shard, 0 : i64>, <shard, 1 : i64>]>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_host_tile_shard>
-    %out3 = "ttnn.to_device"(%out2, %0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> : (tensor<32x32xbf16, #ttnn_layout_host_tile_shard>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>
+    %out3 = "ttnn.to_device"(%out2, %0) : (tensor<32x32xbf16, #ttnn_layout_host_tile_shard>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>
 
     %semaphore = "ttnn.create_global_semaphore"() <{initial_value = 10 : ui32, core_range = #ttnn.core_range<(0,0), (7,7)>}> : () -> !ttnn.global_semaphore
     "ttnn.reset_global_semaphore"(%semaphore) <{value = 0 : ui32}> : (!ttnn.global_semaphore) -> ()
@@ -53,7 +53,7 @@ module attributes {} {
     }> : (tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>, tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>, !ttnn.global_semaphore) -> ()
 
     // convert from block_sharded to interleaved before from_device or else aggregate_tensor will crash
-    %out4 = "ttnn.to_memory_config"(%out3) <{memory_config = #ttnn.memory_config<#l1, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>) -> tensor<32x32xbf16, #ttnn_layout_device_tile_interleaved>
+    %out4 = "ttnn.to_memory_config"(%out3) : (tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>) -> tensor<32x32xbf16, #ttnn_layout_device_tile_interleaved>
     %4 = "ttnn.from_device"(%out4) : (tensor<32x32xbf16, #ttnn_layout_device_tile_interleaved>) -> tensor<32x32xbf16, #ttnn_layout_host_tile_shard>
     %5 = "ttnn.aggregate_tensor"(%4, %0) <{composer_config = #ttnn.mesh_composer_config<dims = [0 : i64, 1 : i64]>}> : (tensor<32x32xbf16, #ttnn_layout_host_tile_shard>, !ttnn.device) -> tensor<64x128xbf16, #ttnn_layout_host_tile>
     %6 = "ttnn.to_layout"(%5) <{layout = #ttnn.layout<row_major>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_host_row_major>

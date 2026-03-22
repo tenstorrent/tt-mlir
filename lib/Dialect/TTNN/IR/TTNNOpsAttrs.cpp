@@ -262,9 +262,9 @@ mlir::Type TTNNLayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
 
-MemoryConfigAttr TTNNNDLayoutAttr::getMemoryConfigAttr() const {
+MemoryConfigAttr TTNNNDLayoutAttr::getMemoryConfigAttr(ttcore::GridAttr deviceGrid) const {
   std::optional<NDShardSpecAttr> ndShardSpec = std::nullopt;
-  if (isSharded() && getGrid().getShape().size() >= 2) {
+  if (isSharded() && deviceGrid.getShape().size() >= 2) {
     ndShardSpec = utils::createNDShardSpecIfNeeded(*this);
   }
 
@@ -1161,6 +1161,13 @@ deriveShardShape(ArrayRef<int64_t> physicalShape, Type elementType,
   default:
     llvm_unreachable("unexpected memory layout");
   }
+}
+
+MemoryConfigAttr TTNNNDLayoutAttr::getMemoryConfigAttr() const {
+  return MemoryConfigAttr::get(
+      getContext(), getMemLayout(),
+      mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()),
+      /*shardSpec=*/std::nullopt, utils::createNDShardSpecIfNeeded(*this));
 }
 
 // Helper to build a CoreRangeSet covering `numCores` L1 cores laid out
