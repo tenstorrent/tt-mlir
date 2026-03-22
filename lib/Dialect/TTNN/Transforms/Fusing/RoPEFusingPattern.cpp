@@ -653,6 +653,353 @@ mlir::LogicalResult createFusedRoPEOp(mlir::PatternRewriter &rewriter,
   return success();
 }
 
+// ---------------------------------------------------------------------------
+// Paired RoPE pattern matching
+// ---------------------------------------------------------------------------
+// Paired RoPE: concat(x1*cos - x2*sin, x2*cos + x1*sin)
+// where x1 = slice(x, :D/2), x2 = slice(x, D/2:)
+
+struct PairedRoPEComponents {
+  Value x1;                          // First half of x (after permute)
+  Value x2;                          // Second half of x (after permute)
+  Value cosHalf;                     // Half-width cos [1, 1, S, D/2]
+  Value sinHalf;                     // Half-width sin [1, 1, S, D/2]
+  Value xSource;                     // Common pre-slice source [1, S, H, D]
+  SubtractOp subOp;                  // x1*cos - x2*sin
+  AddOp addOp;                       // x2*cos + x1*sin
+  ConcatOp concatOp;                 // concat(sub, add)
+  SmallVector<MultiplyOp, 4> mulOps; // All 4 multiply ops
+  bool hasPermute = false;           // Whether x1/x2 go through permute
+  ArrayRef<int64_t> permutation;     // Permutation from source to BHSD
+};
+
+// Try to find a shared Value between two pairs of values.
+// Returns the shared value and the "other" values from each pair.
+static bool findSharedOperand(Value a0, Value a1, Value b0, Value b1,
+                              Value &shared, Value &otherA, Value &otherB) {
+  if (a0 == b0) {
+    shared = a0;
+    otherA = a1;
+    otherB = b1;
+    return true;
+  }
+  if (a0 == b1) {
+    shared = a0;
+    otherA = a1;
+    otherB = b0;
+    return true;
+  }
+  if (a1 == b0) {
+    shared = a1;
+    otherA = a0;
+    otherB = b1;
+    return true;
+  }
+  if (a1 == b1) {
+    shared = a1;
+    otherA = a0;
+    otherB = b0;
+    return true;
+  }
+  return false;
+}
+
+// Validate that two slice ops form complementary halves on the last dimension
+// of the same source tensor.
+static bool isComplementaryHalfSlices(SliceStaticOp slice1,
+                                      SliceStaticOp slice2) {
+  if (slice1.getInput() != slice2.getInput()) {
+    return false;
+  }
+
+  auto params1 = getSliceParams(slice1);
+  auto params2 = getSliceParams(slice2);
+  if (!params1 || !params2) {
+    return false;
+  }
+
+  auto dim1 = findSlicedDim(*params1);
+  auto dim2 = findSlicedDim(*params2);
+  if (!dim1 || !dim2 || *dim1 != *dim2) {
+    return false;
+  }
+
+  size_t dim = *dim1;
+  int64_t dimSize = params1->inputShape[dim];
+  if ((dimSize % 2) != 0 || params1->steps[dim] != 1 ||
+      params2->steps[dim] != 1) {
+    return false;
+  }
+
+  int64_t half = dimSize / 2;
+  bool oneIsFirst = (params1->begins[dim] == 0 && params1->ends[dim] == half);
+  bool twoIsSecond =
+      (params2->begins[dim] == half && params2->ends[dim] == dimSize);
+  if (oneIsFirst && twoIsSecond) {
+    return true;
+  }
+
+  bool twoIsFirst = (params2->begins[dim] == 0 && params2->ends[dim] == half);
+  bool oneIsSecond =
+      (params1->begins[dim] == half && params1->ends[dim] == dimSize);
+  return twoIsFirst && oneIsSecond;
+}
+
+// Walk a value back through a PermuteOp to reach its input.
+// Returns the permute's input and the permutation used, or nullptr if no
+// permute is found.
+static Value traceBackThroughPermute(Value v, ArrayRef<int64_t> &permutation) {
+  if (auto permuteOp = v.getDefiningOp<PermuteOp>()) {
+    permutation = permuteOp.getPermutation();
+    return permuteOp.getInput();
+  }
+  return nullptr;
+}
+
+bool matchPairedRope(ConcatOp concatOp, PairedRoPEComponents &c) {
+  if (concatOp.getNumOperands() != 2) {
+    return false;
+  }
+
+  Value op0 = skipTMs(concatOp.getOperand(0));
+  Value op1 = skipTMs(concatOp.getOperand(1));
+
+  // Identify SubtractOp and AddOp.
+  auto subOp = op0.getDefiningOp<SubtractOp>();
+  auto addOp = op1.getDefiningOp<AddOp>();
+  if (!subOp || !addOp) {
+    subOp = op1.getDefiningOp<SubtractOp>();
+    addOp = op0.getDefiningOp<AddOp>();
+    if (!subOp || !addOp) {
+      return false;
+    }
+  }
+
+  // Get the 4 multiply ops from sub(mul_a, mul_b) and add(mul_c, mul_d).
+  auto mulA = skipTMs(subOp.getLhs()).getDefiningOp<MultiplyOp>();
+  auto mulB = skipTMs(subOp.getRhs()).getDefiningOp<MultiplyOp>();
+  auto mulC = skipTMs(addOp.getLhs()).getDefiningOp<MultiplyOp>();
+  auto mulD = skipTMs(addOp.getRhs()).getDefiningOp<MultiplyOp>();
+  if (!mulA || !mulB || !mulC || !mulD) {
+    return false;
+  }
+
+  // Find cos: shared operand between mulA (x1*cos) and mulC (x2*cos).
+  Value cosVal, x1FromA, x2FromC;
+  if (!findSharedOperand(mulA.getLhs(), mulA.getRhs(), mulC.getLhs(),
+                         mulC.getRhs(), cosVal, x1FromA, x2FromC)) {
+    return false;
+  }
+
+  // Find sin: shared operand between mulB (x2*sin) and mulD (x1*sin).
+  Value sinVal, x2FromB, x1FromD;
+  if (!findSharedOperand(mulB.getLhs(), mulB.getRhs(), mulD.getLhs(),
+                         mulD.getRhs(), sinVal, x2FromB, x1FromD)) {
+    return false;
+  }
+
+  // Verify x1 consistency: x1 from cos branch == x1 from sin branch.
+  if (x1FromA != x1FromD) {
+    return false;
+  }
+  // Verify x2 consistency: x2 from cos branch == x2 from sin branch.
+  if (x2FromC != x2FromB) {
+    return false;
+  }
+
+  Value x1 = x1FromA;
+  Value x2 = x2FromC;
+
+  // Trace x1 and x2 back to their slice sources.
+  // Two cases:
+  //   (a) Prefill: x1 = permute(slice(source)), x2 = permute(slice(source))
+  //   (b) Decode (S=1): x1 = slice(source), x2 = slice(source) — no permute
+  ArrayRef<int64_t> perm1, perm2;
+  Value prePermX1 = traceBackThroughPermute(x1, perm1);
+  Value prePermX2 = traceBackThroughPermute(x2, perm2);
+
+  SliceStaticOp slice1, slice2;
+  bool hasPermute = (prePermX1 && prePermX2);
+
+  if (hasPermute) {
+    // Both must use the same permutation.
+    if (perm1 != perm2) {
+      return false;
+    }
+    slice1 = prePermX1.getDefiningOp<SliceStaticOp>();
+    slice2 = prePermX2.getDefiningOp<SliceStaticOp>();
+  } else {
+    // No permute — x1/x2 are directly slices (decode case).
+    slice1 = x1.getDefiningOp<SliceStaticOp>();
+    slice2 = x2.getDefiningOp<SliceStaticOp>();
+  }
+
+  if (!slice1 || !slice2) {
+    return false;
+  }
+
+  if (!isComplementaryHalfSlices(slice1, slice2)) {
+    return false;
+  }
+
+  // Determine which slice is first half and which is second half.
+  auto params1 = getSliceParams(slice1);
+  auto slicedDim = findSlicedDim(*params1);
+  int64_t half = params1->inputShape[*slicedDim] / 2;
+
+  // x1 must be the first half, x2 must be the second half.
+  // (sub = x1*cos - x2*sin requires this ordering)
+  if (params1->begins[*slicedDim] != 0) {
+    // slice1 is the second half, so x1FromA is actually x2. Swap.
+    std::swap(x1, x2);
+    std::swap(slice1, slice2);
+  }
+
+  // Verify the corrected ordering: slice1 is [0, half), slice2 is [half, D).
+  auto correctedParams1 = getSliceParams(slice1);
+  if (correctedParams1->begins[*slicedDim] != 0 ||
+      correctedParams1->ends[*slicedDim] != half) {
+    return false;
+  }
+
+  c.x1 = x1;
+  c.x2 = x2;
+  c.cosHalf = cosVal;
+  c.sinHalf = sinVal;
+  c.xSource = slice1.getInput(); // Common source [1, S, H, D] or [1, 1, H, D]
+  c.subOp = subOp;
+  c.addOp = addOp;
+  c.concatOp = concatOp;
+  c.mulOps = {mulA, mulB, mulC, mulD};
+  c.hasPermute = hasPermute;
+  c.permutation = hasPermute ? perm1 : ArrayRef<int64_t>();
+
+  return true;
+}
+
+DeviceComputeKernelConfigAttr
+buildPairedComputeConfig(mlir::MLIRContext *ctx,
+                         const PairedRoPEComponents &c) {
+  auto usesF32 = [](Operation *op) {
+    auto resultType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    return resultType.getElementType().isF32();
+  };
+  for (auto mul : c.mulOps) {
+    if (usesF32(mul)) {
+      return DeviceComputeKernelConfigAttr::get(ctx).withFp32DestAccEn(true);
+    }
+  }
+  if (usesF32(c.subOp) || usesF32(c.addOp)) {
+    return DeviceComputeKernelConfigAttr::get(ctx).withFp32DestAccEn(true);
+  }
+  return nullptr;
+}
+
+mlir::LogicalResult createFusedPairedRoPEOp(mlir::PatternRewriter &rewriter,
+                                            ConcatOp srcOp,
+                                            const PairedRoPEComponents &c) {
+  op_model::ScopedSingletonDeviceGuard deviceGuard(srcOp.getOperation());
+  auto loc = srcOp.getLoc();
+
+  // Get x in BHSD layout. Source is always [B, S, H, D], need [B, H, S, D].
+  // In prefill, x1/x2 go through permute [0,2,1,3] — reuse that permutation.
+  // In decode (S=1), the permute was optimized away — we must create one
+  // because RotaryEmbeddingOp hardcodes dim 2 as the sequence dimension.
+  SmallVector<int64_t, 4> permutation;
+  if (c.hasPermute) {
+    permutation.assign(c.permutation.begin(), c.permutation.end());
+  } else {
+    permutation = {0, 2, 1, 3};
+  }
+  auto xPermute = ttir_to_ttnn::utils::generatePermute(
+      mlir::cast<TypedValue<RankedTensorType>>(c.xSource),
+      llvm::ArrayRef(permutation), rewriter, loc);
+  Value xValue = xPermute.getResult();
+
+  // Create cos_full = concat(cosHalf, cosHalf, dim=last) → [1, 1, S, D]
+  auto cosHalfType = mlir::cast<RankedTensorType>(c.cosHalf.getType());
+  auto cosShape = llvm::to_vector(cosHalfType.getShape());
+  int64_t lastDim = cosShape.size() - 1;
+  cosShape[lastDim] *= 2;
+  auto cosFullType =
+      utils::RankedTensorTypeFactory::create(cosHalfType, cosShape);
+  auto cosFull = rewriter.create<ConcatOp>(
+      loc, cosFullType, ValueRange{c.cosHalf, c.cosHalf},
+      static_cast<int32_t>(lastDim), /*memory_config=*/MemoryConfigAttr());
+
+  // Create sin_full = concat(sinHalf, sinHalf, dim=last) → [1, 1, S, D]
+  auto sinHalfType = mlir::cast<RankedTensorType>(c.sinHalf.getType());
+  auto sinShape = llvm::to_vector(sinHalfType.getShape());
+  sinShape[lastDim] *= 2;
+  auto sinFullType =
+      utils::RankedTensorTypeFactory::create(sinHalfType, sinShape);
+  auto sinFull = rewriter.create<ConcatOp>(
+      loc, sinFullType, ValueRange{c.sinHalf, c.sinHalf},
+      static_cast<int32_t>(lastDim), /*memory_config=*/MemoryConfigAttr());
+
+  auto computeConfig = buildPairedComputeConfig(rewriter.getContext(), c);
+
+  auto ropeOp = rewriter.create<RotaryEmbeddingOp>(
+      loc, xValue.getType(), xValue, cosFull.getResult(), sinFull.getResult(),
+      /*token_index=*/nullptr,
+      /*memory_config=*/nullptr,
+      /*compute_config=*/computeConfig);
+
+  // Validate the fused op.
+  std::vector<TTNNLayoutAttr> inputLayouts =
+      utils::extractInputLayouts(ropeOp.getOperation());
+  auto resultType = mlir::cast<RankedTensorType>(ropeOp.getType());
+  OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+  auto validationResult = op_constraint_validation::validateOperation(
+      ropeOp.getOperation(), inputLayouts, config);
+
+  if (!validationResult.isSuccess()) {
+    auto workaround =
+        workarounds::decomposition::getWorkaroundedOp(ropeOp, rewriter);
+    if (workaround) {
+      auto paddedOp = workaround->first;
+      auto sliceOp = workaround->second;
+      inputLayouts = utils::extractInputLayouts(paddedOp.getOperation());
+      resultType = mlir::cast<RankedTensorType>(paddedOp.getType());
+      config = OpConfig(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+      validationResult = op_constraint_validation::validateOperation(
+          paddedOp.getOperation(), inputLayouts, config);
+      rewriter.eraseOp(sliceOp);
+      rewriter.eraseOp(paddedOp);
+    }
+
+    if (!validationResult.isSuccess()) {
+      rewriter.eraseOp(ropeOp);
+      rewriter.eraseOp(sinFull);
+      rewriter.eraseOp(cosFull);
+      rewriter.eraseOp(xPermute);
+      return failure();
+    }
+  }
+
+  Value result = ropeOp.getResult();
+
+  // If the fused op output shape differs from the original concat shape
+  // (decode case: RotaryEmbedding produces [B,H,S,D] but concat was [B,S,H,D]),
+  // insert an inverse permute to restore the original layout.
+  auto srcType = mlir::cast<RankedTensorType>(srcOp.getType());
+  auto ropeType = mlir::cast<RankedTensorType>(ropeOp.getType());
+  if (srcType.getShape() != ropeType.getShape()) {
+    // Compute inverse permutation.
+    SmallVector<int64_t, 4> inversePerm(permutation.size());
+    for (size_t i = 0; i < permutation.size(); ++i) {
+      inversePerm[permutation[i]] = static_cast<int64_t>(i);
+    }
+    auto outputPermute = ttir_to_ttnn::utils::generatePermute(
+        mlir::cast<TypedValue<RankedTensorType>>(result),
+        llvm::ArrayRef(inversePerm), rewriter, loc);
+    result = outputPermute.getResult();
+  }
+
+  rewriter.replaceOp(srcOp, result);
+  return success();
+}
+
 } // namespace
 
 // =============================================================================
@@ -768,6 +1115,23 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
   // The old RoPE op becomes dead and is cleaned up by the rewriter.
   rewriter.replaceOp(permuteOp, newRope.getResult());
   return success();
+}
+
+// =============================================================================
+// RoPEPairedFusing
+// =============================================================================
+
+mlir::LogicalResult
+RoPEPairedFusing::matchAndRewrite(ConcatOp srcOp,
+                                  mlir::PatternRewriter &rewriter) const {
+  PairedRoPEComponents c;
+  c.concatOp = srcOp;
+
+  if (!matchPairedRope(srcOp, c)) {
+    return failure();
+  }
+
+  return createFusedPairedRoPEOp(rewriter, srcOp, c);
 }
 
 } // namespace mlir::tt::ttnn::fusing
