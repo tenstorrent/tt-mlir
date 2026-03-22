@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-d2m-to-ttnn -o %t.mlir %s
+// RUN: ttmlir-opt --convert-d2m-to-ttnn --mlir-print-local-scope -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // L1 block-sharded, shape (2, 2, 256, 256), all CBs aliased. Exercises only --convert-d2m-to-ttnn on IR extracted from the JIT pipeline.
@@ -11,7 +11,7 @@
 // CHECK-NOT: d2m.empty
 
 // CHECK: "ttnn.get_device"
-// CHECK: %[[MUL_OUT:.*]] = "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (7,7)>{{.*}}shape = #ttnn.shape<1024x256>
+// CHECK: %[[MUL_OUT:.*]] = "ttnn.empty"{{.*}}shape = #ttnn.shape<1024x256>{{.*}}<8x8>{{.*}}<block_sharded>
 // CHECK: "ttnn.generic"(%arg1, %arg2, %[[MUL_OUT]])
 // CHECK-SAME: operandSegmentSizes = array<i32: 3, 0>
 // CHECK-SAME: symbol_ref = @datamovement_kernel0, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [], common_rt_args = [], rt_args = []
@@ -20,7 +20,7 @@
 // CHECK-SAME: <total_size = 8192, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 1, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<1>>
 // CHECK-SAME: <total_size = 8192, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 2, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<2>>
 // CHECK-SAME: semaphores = []>
-// CHECK: %[[ADD_OUT:.*]] = "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (7,7)>{{.*}}shape = #ttnn.shape<2x2x256x256>
+// CHECK: %[[ADD_OUT:.*]] = "ttnn.empty"{{.*}}shape = #ttnn.shape<2x2x256x256>{{.*}}<8x8>{{.*}}<block_sharded>
 // CHECK: "ttnn.generic"(%[[MUL_OUT]], %arg0, %[[ADD_OUT]])
 // CHECK-SAME: operandSegmentSizes = array<i32: 3, 0>
 // CHECK-SAME: symbol_ref = @datamovement_kernel2, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [], common_rt_args = [], rt_args = []

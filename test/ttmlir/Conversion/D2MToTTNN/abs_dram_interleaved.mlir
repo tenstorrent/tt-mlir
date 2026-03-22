@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-d2m-to-ttnn -o %t.mlir %s
+// RUN: ttmlir-opt --convert-d2m-to-ttnn --mlir-print-local-scope -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // DRAM interleaved, shape (64, 128), unary abs with streaming CBs. Exercises
@@ -12,7 +12,7 @@
 // CHECK-NOT: d2m.empty
 
 // CHECK: "ttnn.get_device"
-// CHECK: %[[OUT:.*]] = "ttnn.empty"{{.*}}<interleaved>{{.*}}shape = #ttnn.shape<64x128>
+// CHECK: %[[OUT:.*]] = "ttnn.empty"{{.*}}shape = #ttnn.shape<64x128>{{.*}}<interleaved>
 // CHECK: "ttnn.generic"(%arg0, %[[OUT]])
 // CHECK-SAME: operandSegmentSizes = array<i32: 2, 0>
 // CHECK-SAME: symbol_ref = @datamovement_kernel0, core_ranges = <[#ttnn.core_range<(0,0), (3,1)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [#ttnn.kernel_arg_address_of_tensor<0>], rt_args = []

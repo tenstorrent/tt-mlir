@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-d2m-to-ttnn -o %t.mlir %s
+// RUN: ttmlir-opt --convert-d2m-to-ttnn --mlir-print-local-scope -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // L1 width-sharded, shape (128, 2048), mixed streaming + aliased. Exercises only --convert-d2m-to-ttnn on IR extracted from the JIT pipeline.
@@ -11,7 +11,7 @@
 // CHECK-NOT: d2m.empty
 
 // CHECK: "ttnn.get_device"
-// CHECK: %[[MUL_OUT:.*]] = "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (7,3)>{{.*}}shape = #ttnn.shape<128x2048>
+// CHECK: %[[MUL_OUT:.*]] = "ttnn.empty"{{.*}}shape = #ttnn.shape<128x2048>{{.*}}<4x8>{{.*}}<block_sharded>
 // CHECK: "ttnn.generic"(%arg1, %arg2, %[[MUL_OUT]])
 // CHECK-SAME: operandSegmentSizes = array<i32: 3, 0>
 // CHECK-SAME: symbol_ref = @datamovement_kernel0, core_ranges = <[#ttnn.core_range<(0,0), (7,3)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [#ttnn.kernel_arg_address_of_tensor<0>], rt_args = []
@@ -21,7 +21,7 @@
 // CHECK-SAME: <total_size = 32768, core_ranges = <[#ttnn.core_range<(0,0), (7,3)>]>, formats = [<buffer_index = 1, dtype = bf16, page_size = 2048>]>
 // CHECK-SAME: <total_size = 16384, core_ranges = <[#ttnn.core_range<(0,0), (7,3)>]>, formats = [<buffer_index = 2, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<2>>
 // CHECK-SAME: semaphores = []>
-// CHECK: %[[ADD_OUT:.*]] = "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (7,3)>{{.*}}shape = #ttnn.shape<128x2048>
+// CHECK: %[[ADD_OUT:.*]] = "ttnn.empty"{{.*}}shape = #ttnn.shape<128x2048>{{.*}}<4x8>{{.*}}<block_sharded>
 // CHECK: "ttnn.generic"(%[[MUL_OUT]], %arg0, %[[ADD_OUT]])
 // CHECK-SAME: operandSegmentSizes = array<i32: 3, 0>
 // CHECK-SAME: symbol_ref = @datamovement_kernel3, core_ranges = <[#ttnn.core_range<(0,0), (7,3)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [#ttnn.kernel_arg_cb_buffer_index<1>], common_rt_args = [#ttnn.kernel_arg_address_of_tensor<1>], rt_args = []
