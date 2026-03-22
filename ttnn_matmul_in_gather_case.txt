@@ -1,0 +1,33 @@
+## When `ttnn.matmul` is inserted during Gather lowering
+
+A `ttnn.matmul` is inserted in exactly **one case** during Gather lowering:
+
+This happens inside `GatherToEmbeddingConversionPattern` when **`numIndexingDims > 1`** — i.e., the Gather's `start_index_map` references **more than one input dimension**.
+
+### Why matmul is needed
+
+The decomposition reshapes the input into a 2D tensor by **flattening all indexed dimensions into one**. For example, if the input is `[3, 5, 2, 4]` and you're indexing dims `[0, 1]`, it becomes `[15, 8]`. The start indices, which were `(i, j)` pairs, must now be converted into a single flat index: `5*i + j`.
+
+Since `ttnn::EmbeddingOp` only accepts a single integer index per lookup, the multi-dimensional indices need to be collapsed into one — and **matmul is the mechanism used** (because there's no integer arithmetic op available at this stage): `[i, j] @ [[5], [1]] = [5*i + j]`.
+
+The `flattenStartIndices` helper (line 491 of TTIRToTTIRDecomposition.cpp) does this in three steps:
+1. **Permute** the start indices so `indexVectorDim` is last
+2. **Typecast** to `f32` (matmul requires float operands — this is noted with a warning that results may be incorrect due to precision loss)
+3. **Matmul** the float indices against a constant stride vector `[[s0], [s1], ...]`
+
+The resulting `ttir::MatmulOp` then flows through the TTIRToTTNN pass and becomes a `ttnn::MatmulOp`.
+
+### The warning emitted
+
+The code explicitly emits a warning at this path (line 383):
+```
+"End results might be incorrect when indexing multiple dimensions of input because of typecast ops."
+```
+This is because the indices are integers cast to `f32` for the matmul, which can lose precision for large index values.
+
+### Summary
+
+| Condition | Matmul inserted? |
+|---|---|
+| `start_index_map.size() == 1` | No |
+| `start_index_map.size() > 1` (multi-dim indexing) | **Yes** — to flatten multi-dim indices into one |
