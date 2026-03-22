@@ -132,6 +132,52 @@ module {
     return %result : tensor<1x8x1x64xbf16>
   }
 
+  // Paired/complex RoPE decode form (S=1, no permute): concat(x1*cos - x2*sin, x2*cos + x1*sin)
+  // CHECK-LABEL: @rope_paired_decode
+  // CHECK: ttnn.rotary_embedding"
+  func.func @rope_paired_decode(%x_source: tensor<1x1x8x64xbf16>, %cos_half: tensor<1x1x1x32xbf16>, %sin_half: tensor<1x1x1x32xbf16>) -> tensor<1x1x8x64xbf16> {
+    %x1 = "ttir.slice_static"(%x_source) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [1:i32, 1:i32, 8:i32, 32:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x1x8x64xbf16>) -> tensor<1x1x8x32xbf16>
+    %x2 = "ttir.slice_static"(%x_source) <{begins = [0:i32, 0:i32, 0:i32, 32:i32], ends = [1:i32, 1:i32, 8:i32, 64:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x1x8x64xbf16>) -> tensor<1x1x8x32xbf16>
+
+    %m_a = "ttir.multiply"(%x1, %cos_half) : (tensor<1x1x8x32xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x1x8x32xbf16>
+    %m_b = "ttir.multiply"(%x2, %sin_half) : (tensor<1x1x8x32xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x1x8x32xbf16>
+    %sub = "ttir.subtract"(%m_a, %m_b) : (tensor<1x1x8x32xbf16>, tensor<1x1x8x32xbf16>) -> tensor<1x1x8x32xbf16>
+
+    %m_c = "ttir.multiply"(%x2, %cos_half) : (tensor<1x1x8x32xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x1x8x32xbf16>
+    %m_d = "ttir.multiply"(%x1, %sin_half) : (tensor<1x1x8x32xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x1x8x32xbf16>
+    %add = "ttir.add"(%m_c, %m_d) : (tensor<1x1x8x32xbf16>, tensor<1x1x8x32xbf16>) -> tensor<1x1x8x32xbf16>
+
+    %result = "ttir.concat"(%sub, %add) <{dim = 3 : si32}> : (tensor<1x1x8x32xbf16>, tensor<1x1x8x32xbf16>) -> tensor<1x1x8x64xbf16>
+    return %result : tensor<1x1x8x64xbf16>
+  }
+
+  // Paired/complex RoPE form: concat(x1*cos - x2*sin, x2*cos + x1*sin)
+  // where x1/x2 are halves of x, and cos/sin are half-width.
+  // CHECK-LABEL: @rope_paired_form
+  // CHECK: ttnn.rotary_embedding"
+  func.func @rope_paired_form(%x_source: tensor<1x128x8x64xbf16>, %cos_3d: tensor<1x128x32xbf16>, %sin_3d: tensor<1x128x32xbf16>) -> tensor<1x8x128x64xbf16> {
+    %x1_pre = "ttir.slice_static"(%x_source) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [1:i32, 128:i32, 8:i32, 32:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x128x8x64xbf16>) -> tensor<1x128x8x32xbf16>
+    %x1 = "ttir.permute"(%x1_pre) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x128x8x32xbf16>) -> tensor<1x8x128x32xbf16>
+    %x2_pre = "ttir.slice_static"(%x_source) <{begins = [0:i32, 0:i32, 0:i32, 32:i32], ends = [1:i32, 128:i32, 8:i32, 64:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x128x8x64xbf16>) -> tensor<1x128x8x32xbf16>
+    %x2 = "ttir.permute"(%x2_pre) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x128x8x32xbf16>) -> tensor<1x8x128x32xbf16>
+
+    %cos_4d = "ttir.reshape"(%cos_3d) <{shape = [1:i32, 128:i32, 1:i32, 32:i32]}> : (tensor<1x128x32xbf16>) -> tensor<1x128x1x32xbf16>
+    %cos = "ttir.permute"(%cos_4d) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x128x1x32xbf16>) -> tensor<1x1x128x32xbf16>
+    %sin_4d = "ttir.reshape"(%sin_3d) <{shape = [1:i32, 128:i32, 1:i32, 32:i32]}> : (tensor<1x128x32xbf16>) -> tensor<1x128x1x32xbf16>
+    %sin = "ttir.permute"(%sin_4d) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x128x1x32xbf16>) -> tensor<1x1x128x32xbf16>
+
+    %m_a = "ttir.multiply"(%x1, %cos) : (tensor<1x8x128x32xbf16>, tensor<1x1x128x32xbf16>) -> tensor<1x8x128x32xbf16>
+    %m_b = "ttir.multiply"(%x2, %sin) : (tensor<1x8x128x32xbf16>, tensor<1x1x128x32xbf16>) -> tensor<1x8x128x32xbf16>
+    %sub = "ttir.subtract"(%m_a, %m_b) : (tensor<1x8x128x32xbf16>, tensor<1x8x128x32xbf16>) -> tensor<1x8x128x32xbf16>
+
+    %m_c = "ttir.multiply"(%x2, %cos) : (tensor<1x8x128x32xbf16>, tensor<1x1x128x32xbf16>) -> tensor<1x8x128x32xbf16>
+    %m_d = "ttir.multiply"(%x1, %sin) : (tensor<1x8x128x32xbf16>, tensor<1x1x128x32xbf16>) -> tensor<1x8x128x32xbf16>
+    %add = "ttir.add"(%m_c, %m_d) : (tensor<1x8x128x32xbf16>, tensor<1x8x128x32xbf16>) -> tensor<1x8x128x32xbf16>
+
+    %result = "ttir.concat"(%sub, %add) <{dim = 3 : si32}> : (tensor<1x8x128x32xbf16>, tensor<1x8x128x32xbf16>) -> tensor<1x8x128x64xbf16>
+    return %result : tensor<1x8x128x64xbf16>
+  }
+
   // =========================================================================
   // Negative tests: patterns that look like RoPE but must NOT fuse.
   // =========================================================================

@@ -324,6 +324,7 @@ public:
       validationConfig.maxFallbackAttempts = maxFallbackAttempts;
 
       patterns.add<fusing::RoPEFusing>(&getContext());
+      patterns.add<fusing::RoPEPairedFusing>(&getContext());
       patterns.add<fusing::RoPEDecodeFusing>(&getContext());
       patterns.add<fusing::TopKFusing>(&getContext(), validationConfig);
       patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);

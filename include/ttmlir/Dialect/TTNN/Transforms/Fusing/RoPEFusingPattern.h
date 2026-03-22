@@ -39,6 +39,20 @@ public:
                   mlir::PatternRewriter &rewriter) const override;
 };
 
+// Fuses the paired/complex RoPE subgraph into a single RotaryEmbeddingOp.
+//
+// Matches:  concat(x1*cos - x2*sin, x2*cos + x1*sin)
+//   where x1 = slice(x, :D/2), x2 = slice(x, D/2:)
+// Produces: rotary_embedding(x, concat(cos, cos), concat(sin, sin))
+class RoPEPairedFusing : public mlir::OpRewritePattern<ConcatOp> {
+public:
+  using OpRewritePattern<ConcatOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(ConcatOp srcOp,
+                  mlir::PatternRewriter &rewriter) const override;
+};
+
 } // namespace mlir::tt::ttnn::fusing
 
 #endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_FUSING_ROPEFUSINGPATTERN_H
