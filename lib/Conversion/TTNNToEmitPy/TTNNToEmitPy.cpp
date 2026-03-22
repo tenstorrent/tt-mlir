@@ -1664,8 +1664,9 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getWeight(), "weight_tensor"),
-        emitter.emit(srcOp.getConv3dConfigAttr(), "config"),
+        emitter.emit(srcOp.getDevice(), "device"),
         emitter.emit(srcOp.getBias(), "bias_tensor"),
+        emitter.emit(srcOp.getConv3dConfigAttr(), "config"),
         emitter.emit(outputDtype, "dtype"),
         emitter.emit(srcOp.getOutChannels(), "output_channels"),
         emitter.emit<std::array<uint32_t, 3>>(srcOp.getKernelSizeAttr(),

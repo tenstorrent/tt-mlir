@@ -1619,10 +1619,12 @@ struct EmitPyTypeConverter<::ttnn::experimental::prim::Conv3dConfig> {
         firstElement = false;
       }
       if (attr.getComputeWithStorageGridSize()) {
+        // The grid shape is (x,y) in the Python API, but the CoreCoord is (y,
+        // x) in the C++ API.
         auto gridAttr = *attr.getComputeWithStorageGridSize();
         rso << (firstElement ? "" : ", ")
             << "compute_with_storage_grid_size=ttnn.CoreCoord("
-            << gridAttr.getShape()[0] << ", " << gridAttr.getShape()[1] << ")";
+            << gridAttr.getShape()[1] << ", " << gridAttr.getShape()[0] << ")";
       }
     }
 
