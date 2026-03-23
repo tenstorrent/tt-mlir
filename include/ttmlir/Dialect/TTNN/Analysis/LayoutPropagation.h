@@ -61,7 +61,7 @@ public:
   size_t getBeamWidth() const { return beamWidth; }
 
   /// Access the observer (always non-null; NullObject when tracing disabled).
-  LayoutPropagationObserver *getObserver() { return observer_.get(); }
+  LayoutPropagationObserver *getObserver() { return observer.get(); }
 
 private:
   func::FuncOp func;
@@ -81,7 +81,7 @@ private:
 
   /// Observer (NullObject pattern: always non-null, no-op when tracing
   /// disabled).
-  std::unique_ptr<LayoutPropagationObserver> observer_;
+  std::unique_ptr<LayoutPropagationObserver> observer;
 
   /// Process a single op. Returns top-K candidates sorted by score descending.
   llvm::SmallVector<BeamCandidate, 0> processOp(Operation *op);
@@ -167,15 +167,6 @@ private:
       TTNNLayoutAttr currentLayout, RankedTensorType tensorType,
       const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
       Operation *producerOp, size_t resultIdx, size_t maxCandidates);
-
-  /// Collect in-place (zero-result) ops for decision trace completeness.
-  void recordInplaceOps(size_t &opIndex);
-
-  /// Record final candidate choices via the observer.
-  void recordFinalChoices();
-
-  /// Walk tensor operands to emit edge records via the observer.
-  void recordEdges();
 
   /// Disable deallocate_activation for conv ops with multi-use inputs.
   void fixupConvDeallocate();
