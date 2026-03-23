@@ -724,6 +724,8 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       unsigned targetIdx = static_cast<unsigned>(cbForOp.getInt());
       TT_assertv(targetIdx < infos.size(), "d2m.cb_for_operand out of range");
       infos[targetIdx].cbMemref = arg;
+      // The CB has its own L1 allocation (not backed by the input tensor).
+      infos[targetIdx].locality = OperandLocality::L1Remote;
     } else if (isa<ttnn::GlobalSemaphoreType>(arg.getType()) ||
                isa<RankedTensorType>(arg.getType())) {
       Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;

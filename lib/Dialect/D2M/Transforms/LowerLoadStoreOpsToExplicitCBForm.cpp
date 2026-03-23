@@ -22,15 +22,25 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Helper function to check if an operand is remote (i.e., comes from a view op
-// such as view_layout).
+// Helper function to check if an operand is remote (i.e., implies data
+// movement). This includes view ops (view_layout) and buffers with
+// CBLayoutAttr (streaming circular buffers hoisted from the generic).
 static bool isRemoteOperand(Value operand, Operation *op) {
   Operation *defOp = operand.getDefiningOp();
   if (!defOp) {
     return false;
   }
-  // Remote operands are those that come from ops implementing ViewOpInterface
-  return mlir::isa<ViewOpInterface>(defOp);
+  if (mlir::isa<ViewOpInterface>(defOp)) {
+    return true;
+  }
+  // A buffer with CBLayoutAttr is a streaming CB that requires real
+  // data movement from an external shard.
+  if (auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType())) {
+    if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Helper function to find the ReserveOp that produces a given value,

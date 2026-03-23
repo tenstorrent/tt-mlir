@@ -199,16 +199,14 @@ public:
               "skipping conversion");
           return;
         }
-        // Skip remote_loads whose local buffer is a hoisted CB alloc
-        // (lives outside the generic as an additionalArg).  These
-        // remote_loads perform real data movement from the external shard
-        // into the CB and must be preserved.
+        // Skip remote_loads whose local buffer has CBLayoutAttr.
+        // These are streaming circular buffers (hoisted by HoistCBAllocs)
+        // that require real data movement and must not be converted to
+        // reserve/push/wait.
         Value localBuffer = remoteLoad.getLocalBuffer();
         if (localBuffer) {
-          memref::AllocOp localAlloc = findAllocOp(localBuffer);
-          if (localAlloc &&
-              localAlloc->getParentOfType<GenericOp>() == nullptr &&
-              remoteLoad->getParentOfType<GenericOp>() != nullptr) {
+          auto bufType = mlir::dyn_cast<MemRefType>(localBuffer.getType());
+          if (bufType && mlir::isa<ttcore::CBLayoutAttr>(bufType.getLayout())) {
             return;
           }
         }
