@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/test/ttnn/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-#include "tt/runtime/debug.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
@@ -58,8 +58,7 @@ float computePCC(const std::vector<float> &a, const std::vector<float> &b) {
   }
 
   double num = n * sumAB - sumA * sumB;
-  double den =
-      std::sqrt((n * sumA2 - sumA * sumA) * (n * sumB2 - sumB * sumB));
+  double den = std::sqrt((n * sumA2 - sumA * sumA) * (n * sumB2 - sumB * sumB));
   if (den < 1e-12) {
     return 1.0f;
   }
@@ -83,10 +82,11 @@ std::vector<float> bf16BytesToFloat(const std::vector<std::byte> &data) {
 enum class Op {
   NEW_TRACED,
   RUN_TRACED,
+  RUN_ALL_TRACED,
   NEW_REGULAR,
   RUN_REGULAR,
   ALLOC_TENSOR,
-  DROP_GRAPH
+  DROP_GRAPH,
 };
 
 // --- Test state ---
@@ -116,7 +116,9 @@ public:
     candidates.erase(
         std::remove_if(candidates.begin(), candidates.end(),
                        [this](Op op) {
-                         if (op == Op::RUN_TRACED && tracedGraphs_.empty()) {
+                         if ((op == Op::RUN_TRACED ||
+                              op == Op::RUN_ALL_TRACED) &&
+                             tracedGraphs_.empty()) {
                            return true;
                          }
                          if (op == Op::RUN_REGULAR && regularGraphs_.empty()) {
@@ -146,8 +148,8 @@ public:
   }
 
   std::string execute(Op op) {
-    std::string name =
-        opName(op) + "_" + std::to_string(counter_);
+    std::string name = opName(op) + "_" + std::to_string(counter_);
+    std::cerr << "Executing " << name << std::endl;
     counter_++;
 
     switch (op) {
@@ -156,6 +158,9 @@ public:
       break;
     case Op::RUN_TRACED:
       name = executeRunGraph(tracedGraphs_, /*isMatmul=*/true);
+      break;
+    case Op::RUN_ALL_TRACED:
+      name = executeAllGraphs(tracedGraphs_, /*isMatmul=*/true);
       break;
     case Op::NEW_REGULAR:
       executeNewGraph(name, regularPath_, regularGraphs_, /*isMatmul=*/false);
@@ -185,14 +190,12 @@ public:
       auto readBack = tt::runtime::getTensorDataBuffer(hostTensors[0]);
       ASSERT_EQ(readBack.size(), alloc.expectedData.size())
           << "Size mismatch for tensor " << name;
-      ASSERT_EQ(
-          std::memcmp(readBack.data(), alloc.expectedData.data(),
-                      readBack.size()),
-          0)
+      ASSERT_EQ(std::memcmp(readBack.data(), alloc.expectedData.data(),
+                            readBack.size()),
+                0)
           << "Tensor " << name << " corrupted at step " << counter_;
     }
   }
-
 
 private:
   static constexpr uint32_t kDim = 256;
@@ -213,6 +216,8 @@ private:
       return "new_traced";
     case Op::RUN_TRACED:
       return "run_traced";
+    case Op::RUN_ALL_TRACED:
+      return "run_all_traced";
     case Op::NEW_REGULAR:
       return "new_regular";
     case Op::RUN_REGULAR:
@@ -237,7 +242,7 @@ private:
 
   // Compute matmul golden (256x256 @ 256x256) in float
   std::vector<float> computeMatmulGolden(const std::vector<uint16_t> &a,
-                                          const std::vector<uint16_t> &b) {
+                                         const std::vector<uint16_t> &b) {
     std::vector<float> result(kNumElements, 0.0f);
     for (uint32_t i = 0; i < kDim; i++) {
       for (uint32_t k = 0; k < kDim; k++) {
@@ -252,7 +257,7 @@ private:
 
   // Compute add golden (256x256 + 256x256) in float
   std::vector<float> computeAddGolden(const std::vector<uint16_t> &a,
-                                       const std::vector<uint16_t> &b) {
+                                      const std::vector<uint16_t> &b) {
     std::vector<float> result(kNumElements);
     for (size_t i = 0; i < kNumElements; i++) {
       result[i] = bf16ToFloat(a[i]) + bf16ToFloat(b[i]);
@@ -263,9 +268,9 @@ private:
   tt::runtime::Tensor createInputTensor(const std::vector<uint16_t> &data) {
     std::vector<uint32_t> shape = {kDim, kDim};
     std::vector<uint32_t> stride = tt::runtime::utils::calculateStride(shape);
-    return tt::runtime::createOwnedHostTensor(
-        data.data(), shape, stride, sizeof(uint16_t),
-        tt::target::DataType::BFloat16);
+    return tt::runtime::createOwnedHostTensor(data.data(), shape, stride,
+                                              sizeof(uint16_t),
+                                              tt::target::DataType::BFloat16);
   }
 
   void executeNewGraph(const std::string &name, const std::string &binaryPath,
@@ -280,10 +285,8 @@ private:
     auto hostA = createInputTensor(inputDataA);
     auto hostB = createInputTensor(inputDataB);
 
-    tt::runtime::Layout layoutA =
-        tt::runtime::getLayout(binary, 0, 0);
-    tt::runtime::Layout layoutB =
-        tt::runtime::getLayout(binary, 0, 1);
+    tt::runtime::Layout layoutA = tt::runtime::getLayout(binary, 0, 0);
+    tt::runtime::Layout layoutB = tt::runtime::getLayout(binary, 0, 1);
 
     auto deviceA = tt::runtime::toLayout(hostA, device_, layoutA, true);
     auto deviceB = tt::runtime::toLayout(hostB, device_, layoutB, true);
@@ -298,10 +301,10 @@ private:
     verifyOutput(outputs[0], golden, name);
 
     graphMap.emplace(name, GraphState{
-        .binary = binary,
-        .inputs = std::move(inputs),
-        .goldenOutput = std::move(golden),
-    });
+                               .binary = binary,
+                               .inputs = std::move(inputs),
+                               .goldenOutput = std::move(golden),
+                           });
   }
 
   std::string executeRunGraph(std::map<std::string, GraphState> &graphMap,
@@ -312,13 +315,27 @@ private:
     const std::string &name = it->first;
     auto &state = it->second;
 
-    auto outputs =
-        tt::runtime::submit(device_, state.binary, 0, state.inputs);
+    auto outputs = tt::runtime::submit(device_, state.binary, 0, state.inputs);
     EXPECT_FALSE(outputs.empty()) << "submit returned no outputs for " << name;
     if (!outputs.empty()) {
       verifyOutput(outputs[0], state.goldenOutput, name);
     }
     return name;
+  }
+
+  std::string executeAllGraphs(std::map<std::string, GraphState> &graphMap,
+                               bool isMatmul) {
+    for (auto &[name, state] : graphMap) {
+
+      auto outputs =
+          tt::runtime::submit(device_, state.binary, 0, state.inputs);
+      EXPECT_FALSE(outputs.empty())
+          << "submit returned no outputs for " << name;
+      if (!outputs.empty()) {
+        verifyOutput(outputs[0], state.goldenOutput, name);
+      }
+    }
+    return "all_graphs";
   }
 
   void executeAllocTensor(const std::string &name) {
@@ -368,8 +385,7 @@ private:
   }
 
   void verifyOutput(const tt::runtime::Tensor &output,
-                    const std::vector<float> &golden,
-                    const std::string &name) {
+                    const std::vector<float> &golden, const std::string &name) {
     auto hostTensors =
         tt::runtime::toHost(output, /*untilize=*/true, /*blocking=*/true);
     ASSERT_FALSE(hostTensors.empty())
@@ -379,7 +395,7 @@ private:
 
     float pcc = computePCC(outputFloats, golden);
     ASSERT_GE(pcc, 0.99f) << "Output PCC check failed for " << name
-                           << ": pcc=" << pcc << " at step " << counter_;
+                          << ": pcc=" << pcc << " at step " << counter_;
   }
 };
 
@@ -430,10 +446,9 @@ TEST_P(TraceStressTest, RandomOps) {
   }
 
   const char *home = std::getenv("TT_MLIR_HOME");
-  ASSERT_NE(home, nullptr)
-      << "TT_MLIR_HOME environment variable must be set";
-  std::string base = std::string(home) +
-                     "/build/test/ttmlir/Runtime/TTNN/n150/trace/Output/";
+  ASSERT_NE(home, nullptr) << "TT_MLIR_HOME environment variable must be set";
+  std::string base =
+      std::string(home) + "/build/test/ttmlir/Runtime/TTNN/n150/trace/Output/";
   std::string tracedPath = base + "single_matmul.mlir.tmp.ttnn";
   std::string regularPath = base + "single_add_no_trace.mlir.tmp.ttnn";
 
@@ -450,26 +465,38 @@ INSTANTIATE_TEST_SUITE_P(
     TraceStress, TraceStressTest,
     ::testing::Values(
         StressParams{"traced_only",
-                     {Op::NEW_TRACED, Op::RUN_TRACED},
-                     42, 200, false},
+                     {Op::NEW_TRACED, Op::RUN_TRACED, Op::RUN_ALL_TRACED},
+                     42,
+                     200,
+                     false},
         StressParams{"traced_with_drops",
                      {Op::NEW_TRACED, Op::RUN_TRACED, Op::DROP_GRAPH},
-                     42, 200, false},
-        StressParams{"traced_and_regular",
-                     {Op::NEW_TRACED, Op::RUN_TRACED, Op::NEW_REGULAR,
-                      Op::RUN_REGULAR},
-                     42, 200, false},
+                     42,
+                     200,
+                     false},
+        StressParams{
+            "traced_and_regular",
+            {Op::NEW_TRACED, Op::RUN_TRACED, Op::NEW_REGULAR, Op::RUN_REGULAR},
+            42,
+            200,
+            false},
         StressParams{"traced_regular_drops",
                      {Op::NEW_TRACED, Op::RUN_TRACED, Op::NEW_REGULAR,
                       Op::RUN_REGULAR, Op::DROP_GRAPH},
-                     42, 200, false},
+                     42,
+                     200,
+                     false},
         StressParams{"traced_and_alloc",
                      {Op::NEW_TRACED, Op::RUN_TRACED, Op::ALLOC_TENSOR},
-                     42, 200, true},
+                     42,
+                     200,
+                     true},
         StressParams{"kitchen_sink",
                      {Op::NEW_TRACED, Op::RUN_TRACED, Op::NEW_REGULAR,
                       Op::RUN_REGULAR, Op::ALLOC_TENSOR, Op::DROP_GRAPH},
-                     42, 200, true}),
+                     42,
+                     200,
+                     true}),
     [](const ::testing::TestParamInfo<StressParams> &info) {
       return info.param.name;
     });
