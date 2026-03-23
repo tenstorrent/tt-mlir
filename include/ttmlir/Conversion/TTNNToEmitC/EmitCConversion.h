@@ -51,6 +51,7 @@ struct ShardSpec;
 struct CoreRangeSet;
 struct CoreRange;
 struct CoreCoord;
+struct CoreGrid;
 
 struct DataType;
 struct TensorMemoryLayout;
@@ -269,6 +270,11 @@ struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
 template <>
 struct TypeName<::ttnn::CoreCoord> {
   inline static const std::string value = "::ttnn::CoreCoord";
+};
+
+template <>
+struct TypeName<::ttnn::CoreGrid> {
+  inline static const std::string value = "::ttnn::CoreGrid";
 };
 
 template <>
@@ -502,6 +508,34 @@ struct EmitCTypeConverter<::ttnn::CoreCoord> {
 };
 
 template <>
+struct EmitCTypeConverter<::ttnn::CoreGrid> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto coreCoordAttr =
+            mlir::dyn_cast_if_present<ttnn::CoreCoordAttr>(attr)) {
+      return convert(coreCoordAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::CoreCoordAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::CoreGrid>;
+    rso << "{";
+    rso << EmitCTypeConverter<size_t>::convert(attr.getX()) << ", ";
+    rso << EmitCTypeConverter<size_t>::convert(attr.getY());
+    rso << "}";
+
+    return buf;
+  }
+};
+
+template <>
 struct EmitCTypeConverter<::ttnn::CoreRange> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto coreRangeAttr =
@@ -658,6 +692,9 @@ struct EmitCTypeConverter<::ttnn::TensorMemoryLayout> {
       return buf;
     case ttnn::TensorMemoryLayout::WidthSharded:
       rso << "WIDTH_SHARDED";
+      return buf;
+    case ttnn::TensorMemoryLayout::NDSharded:
+      rso << "ND_SHARDED";
       return buf;
     }
 
@@ -1810,6 +1847,11 @@ struct TTNNTarget<tt::ttcore::TopologyAttr> {
   using type = ::mlir::tt::ttcore::Topology;
 };
 
+template <>
+struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
+  using type = ::ttnn::WormholeComputeKernelConfig;
+};
+
 template <typename T>
 struct IsMLIRType {
   static constexpr bool value = std::is_convertible_v<T, mlir::Attribute> ||
@@ -2272,6 +2314,14 @@ public:
                                              deviceAttr.getWorkerGrid()));
 
     return emit(memoryConfigAttr);
+  }
+
+  ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
+    auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    return ttcore::DataTypeAttr::get(resultLayoutAttr.getContext(),
+                                     resultLayoutAttr.getDataType());
   }
 
   // Creates MeshShape code from integer attributes.

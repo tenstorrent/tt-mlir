@@ -458,27 +458,21 @@ protected:
                        mlir::Location loc, mlir::TypeRange inputs,
                        mlir::TypeRange outputs, d2m::GenericOp generic,
                        bool enableMulticastInference) {
-    auto fn = [&](Type t) {
-      mlir::RankedTensorType tensorType = mlir::cast<mlir::RankedTensorType>(t);
+    // Compute shard shapes from operand layouts.
+    auto getShardType = [](Type t) -> RankedTensorType {
+      auto tensorType = mlir::cast<mlir::RankedTensorType>(t);
       ttcore::MetalLayoutAttr layout =
           mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
       auto shardShape = layout.getShardShape(tensorType);
-      block->addArgument(d2m::CBType::get(mlir::RankedTensorType::get(
-                             shardShape, tensorType.getElementType())),
-                         loc);
+      return mlir::RankedTensorType::get(shardShape,
+                                         tensorType.getElementType());
     };
-
-    llvm::for_each(mlir::TypeRange(inputs), fn);
-    llvm::for_each(mlir::TypeRange(outputs), fn);
 
     SmallVector<Value> operands;
 
-    // Process input operands - create remote_load operations using result
-    // form.
+    // Process input operands - create tensor.empty + remote_load operations.
     for (size_t i = 0; i < inputs.size(); ++i) {
-      BlockArgument cbArg = block->getArgument(i);
-      auto cbType = mlir::cast<d2m::CBType>(cbArg.getType());
-      Type shardType = cbType.getUnderlying();
+      RankedTensorType shardType = getShardType(inputs[i]);
 
       // Get the indexing map for this operand
       AffineMap indexingMap = generic.getIndexingMap(i);
@@ -498,9 +492,8 @@ protected:
       }
 
       // Create a buffer for the load result
-      auto tensorType = mlir::cast<RankedTensorType>(shardType);
       auto bufferOp = builder.create<tensor::EmptyOp>(
-          loc, tensorType.getShape(), tensorType.getElementType());
+          loc, shardType.getShape(), shardType.getElementType());
       Value buffer = bufferOp.getResult();
 
       Value loadResult;
@@ -530,16 +523,12 @@ protected:
       operands.push_back(loadResult);
     }
 
-    // Process output operands - create tensor.empty operations
+    // Process output operands - create tensor.empty operations.
     for (size_t i = 0; i < outputs.size(); ++i) {
-      auto cbArg = block->getArgument(inputs.size() + i);
-      auto cbType = mlir::cast<d2m::CBType>(cbArg.getType());
-      auto shardType = cbType.getUnderlying();
+      RankedTensorType shardType = getShardType(outputs[i]);
 
-      // Create tensor.empty with identical result type
-      auto tensorType = mlir::cast<RankedTensorType>(shardType);
       auto emptyOp = builder.create<tensor::EmptyOp>(
-          loc, tensorType.getShape(), tensorType.getElementType());
+          loc, shardType.getShape(), shardType.getElementType());
 
       operands.push_back(emptyOp.getResult());
     }
@@ -1582,13 +1571,13 @@ public:
     auto viewType = mlir::RankedTensorType::get(
         permuted.physicalShape, inputTensorType.getElementType(), resultLayout);
 
-    // For inner permute, we need a streamLayout to do reblocking.
-    auto storage = rewriter.create<d2m::EmptyOp>(
-        loc, permuted.physicalShape, inputTensorType.getElementType(),
-        resultLayout);
-    auto stream = rewriter.create<d2m::StreamLayoutOp>(
-        loc, viewType, inputs[0], permuted.transposeMap, storage);
-    inputs[0] = stream.getResult();
+    // For inner permute, we need a view to express the reblocking.
+    // The allocator will later decide whether to insert a stream_layout
+    // with a proper CB allocation for the consuming GenericOp.
+    auto view = rewriter.create<d2m::ViewLayoutOp>(loc, viewType, inputs[0],
+                                                   permuted.transposeMap,
+                                                   /*reinterpretLayout=*/false);
+    inputs[0] = view.getResult();
     unsigned logicalRank = deviceRank / 2;
     // For inner permute, we alse need a GenericOp to transpose each individual
     // tile.
@@ -1606,34 +1595,22 @@ public:
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
               logicalRank, mlir::utils::IteratorType::parallel);
 
-          // Get CB types and shard shapes
-          auto cbInputType = mlir::cast<d2m::CBType>(blockArgs[0].getType());
-          auto cbOutputType = mlir::cast<d2m::CBType>(blockArgs[1].getType());
-          auto inputShardType = cbInputType.getUnderlying();
-          auto outputShardType = cbOutputType.getUnderlying();
+          // blockArgs are tensor.empty results with shard shapes.
+          auto inputShardType = blockArgs[0].getType();
 
-          // Create remote_load for input
+          // Create remote_load for input using the tensor.empty as buffer.
           AffineMap inputIndexingMap = identityMap;
           SmallVector<Value> inputIndices =
               d2m::utils::buildGridIndices(builder, bodyLoc, inputIndexingMap);
-          // Create a buffer for the load result
-          auto inputTensorType = mlir::cast<RankedTensorType>(inputShardType);
-          auto inputBufferOp = builder.create<tensor::EmptyOp>(
-              bodyLoc, inputTensorType.getShape(),
-              inputTensorType.getElementType());
-          Value inputBuffer = inputBufferOp.getResult();
+          Value inputBuffer = blockArgs[0];
           Value input = builder
                             .create<d2m::RemoteLoadOp>(
                                 bodyLoc, inputShardType, inputBuffer,
                                 inputOperand, inputIndices)
                             .getResult();
 
-          // Create tensor.empty for output
-          auto outputTensorType = mlir::cast<RankedTensorType>(outputShardType);
-          auto emptyOp = builder.create<tensor::EmptyOp>(
-              bodyLoc, outputTensorType.getShape(),
-              outputTensorType.getElementType());
-          Value output = emptyOp.getResult();
+          // Use the output tensor.empty directly.
+          Value output = blockArgs[1];
 
           auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
               bodyLoc, output.getType(), input, output,
@@ -2034,6 +2011,87 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   }
 };
 
+namespace {
+class D2MMatmulBlockToLinalgGeneric final
+    : public mlir::OpConversionPattern<d2m::TileMatmulBlockOp>,
+      D2MNamedRewriterCommon {
+public:
+  D2MMatmulBlockToLinalgGeneric(const TypeConverter &typeConverter,
+                                mlir::MLIRContext *ctx,
+                                ttcore::MemorySpace defaultInputMemSpace,
+                                ttcore::MemorySpace defaultOutputMemSpace,
+                                bool ttnnMode, bool collapseTensors,
+                                bool enableMulticastInference)
+      : OpConversionPattern<d2m::TileMatmulBlockOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+
+private:
+  LogicalResult
+  matchAndRewrite(d2m::TileMatmulBlockOp op,
+                  typename d2m::TileMatmulBlockOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    if (llvm::any_of(adaptor.getOperands(), [](Value operand) {
+          RankedTensorType type =
+              mlir::cast<RankedTensorType>(operand.getType());
+          return !mlir::isa<ttcore::TileType>(type.getElementType());
+        })) {
+      return llvm::failure();
+    }
+
+    RankedTensorType tensorA =
+        mlir::cast<RankedTensorType>(adaptor.getA().getType());
+    auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+        op.getLoc(), adaptor.getOutput().getType(),
+        SmallVector<Value>{adaptor.getA(), adaptor.getB()}, adaptor.getOutput(),
+        getAffineMapsArray(rewriter, adaptor.getOperands().size(),
+                           tensorA.getRank()),
+        getIteratorTypesArray(rewriter, tensorA.getRank()),
+        [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+            mlir::ValueRange bbArgs) {
+          mlir::Value mm = bbBuilder.create<d2m::TileMatmulOp>(
+              bbLoc, bbArgs.take_back(1).getTypes(), bbArgs);
+          bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, mm);
+        });
+
+    rewriter.replaceAllUsesExcept(adaptor.getOutput(),
+                                  linalgGeneric.getResult(0), linalgGeneric);
+    rewriter.eraseOp(op);
+
+    return llvm::success();
+  }
+
+  static SmallVector<mlir::AffineMap>
+  getAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
+                     std::size_t rank) {
+    assert(arity == 3 && "expected 3 operands");
+    // TODO(#2592) for handling higher ranks if it's needed.
+    assert(rank == 2 && "expected a rank 2 operation");
+    mlir::MLIRContext *ctx = builder.getContext();
+
+    return SmallVector<mlir::AffineMap>{makeAffineMap(ctx, {0, 2}),
+                                        makeAffineMap(ctx, {2, 1}),
+                                        makeAffineMap(ctx, {0, 1})};
+  }
+
+  static SmallVector<mlir::utils::IteratorType>
+  getIteratorTypesArray(mlir::OpBuilder &builder, std::size_t rank) {
+    assert(rank == 2 && "expected a rank 2 operation");
+    return SmallVector<mlir::utils::IteratorType>{
+        mlir::utils::IteratorType::parallel,
+        mlir::utils::IteratorType::parallel,
+        mlir::utils::IteratorType::reduction,
+    };
+  }
+
+  static mlir::AffineMap makeAffineMap(mlir::MLIRContext *ctx,
+                                       std::array<unsigned, 2> targets) {
+    return mlir::AffineMap::getMultiDimMapWithTargets(3, targets, ctx);
+  }
+};
+} // namespace
+
 struct TensorManipulationInfo {
   AffineMap map;
   bool canBeTilized;
@@ -2083,12 +2141,12 @@ public:
     auto newOutTy = RankedTensorType::get(outTy.getShape(),
                                           outTy.getElementType(), newLayout);
 
-    auto storage =
-        rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType(),
-                                      /*virtualGridInverseMapping=*/nullptr,
-                                      /*virtualGridForwardMapping=*/nullptr);
-    auto view = rewriter.create<d2m::StreamLayoutOp>(
-        op.getLoc(), newOutTy, inputs[0], deviceMap, storage.getResult());
+    // Express the data rearrangement as a view. The allocator will later
+    // decide whether to insert a stream_layout with a proper CB allocation
+    // for any GenericOp that consumes this view.
+    auto view = rewriter.create<d2m::ViewLayoutOp>(op.getLoc(), newOutTy,
+                                                   inputs[0], deviceMap,
+                                                   /*reinterpretLayout=*/false);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
                                           op->getResult(0).getType()));
@@ -2398,6 +2456,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MTensorManipulationOpRewriter<ttir::ConcatenateHeadsOp, concatenateHeadsLogicalInfo>,
     // Permute (handles transpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter,
+    D2MMatmulBlockToLinalgGeneric,
     D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
 
@@ -2475,6 +2534,8 @@ public:
 
     // Keep some TTIR ops legal if they don't have D2M equivalents.
     target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
+
+    target.addIllegalOp<mlir::tt::d2m::TileMatmulBlockOp>();
 
     // Tensor empty is used within GenericOp regions to create local scratch
     // buffers for remote_load and remote_store ops.

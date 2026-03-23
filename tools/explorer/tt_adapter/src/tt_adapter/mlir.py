@@ -26,7 +26,7 @@ def parse_loc_string(loc_str):
         )
         # raise IndexError("Invalid LOC type in perf_trace: %s, expected string", type(loc_str))
         return None
-    match = re.match(r'^loc\("([^"]+)"', loc_str)
+    match = re.match(r'^loc\("?([^")]+)"?\)', loc_str)
     if not match:
         logging.error("Failed to match location string: %s", loc_str)
         return None

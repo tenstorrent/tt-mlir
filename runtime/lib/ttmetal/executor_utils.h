@@ -7,18 +7,21 @@
 
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
+#include "tt/runtime/types.h"
+#include "tt/runtime/utils.h"
+#include "ttmlir/Target/TTMetal/Target.h"
+#include "ttmlir/Target/TTMetal/types_generated.h"
 
 #include "tt-metalium/allocator.hpp"
-
-#include <filesystem>
-#include <functional>
-#include <variant>
+#include "tt-metalium/distributed.hpp"
 
 namespace tt::runtime::ttmetal {
 
 namespace target = ::tt::target;
 namespace tt_metal = ::tt::tt_metal;
+namespace distributed = ::tt::tt_metal::distributed;
 
 class DeviceAddressValidator {
 public:
@@ -101,9 +104,9 @@ private:
 // Needed to construct ShardedBufferConfig
 #pragma clang diagnostic ignored "-Wc++20-designator"
 
-inline std::shared_ptr<tt_metal::distributed::MeshBuffer>
+inline std::shared_ptr<distributed::MeshBuffer>
 createMeshBufferForShardedMetalBuffer(
-    tt_metal::distributed::MeshDevice *meshDevice, uint64_t refAddress,
+    distributed::MeshDevice *meshDevice, uint64_t refAddress,
     const target::metal::ShardedBufferConfig *shardedBufferConfig,
     target::BufferType bufferType,
     const DeviceAddressValidator &deviceAddressValidator) {
@@ -148,42 +151,41 @@ createMeshBufferForShardedMetalBuffer(
   tt_metal::BufferShardingArgs bufferShardingArgs(
       metalShardSpecBuffer, tt_metal::TensorMemoryLayout::BLOCK_SHARDED);
 
-  auto localBufferConfig = tt_metal::distributed::DeviceLocalBufferConfig{
+  auto localBufferConfig = distributed::DeviceLocalBufferConfig{
       .page_size = shardedBufferConfig->page_size(),
       .buffer_type = metalBufferType,
       .sharding_args = std::move(bufferShardingArgs),
       .bottom_up = std::nullopt,
       .sub_device_id = std::nullopt};
 
-  auto distributedBufferConfig = tt::tt_metal::distributed::ShardedBufferConfig{
+  auto distributedBufferConfig = distributed::ShardedBufferConfig{
       .global_size = distributedBufferSizeBytes,
       .global_buffer_shape = distributedBufferShape,
       .shard_shape = localShardShape,
       .shard_orientation = tt_metal::ShardOrientation::ROW_MAJOR};
 
-  return tt_metal::distributed::MeshBuffer::create(
+  return distributed::MeshBuffer::create(
       distributedBufferConfig, localBufferConfig, meshDevice, address);
 }
 
-inline std::shared_ptr<tt_metal::distributed::MeshBuffer>
+inline std::shared_ptr<distributed::MeshBuffer>
 createMeshBufferForInterleavedMetalBuffer(
-    tt_metal::distributed::MeshDevice *meshDevice, uint64_t refAddress,
+    distributed::MeshDevice *meshDevice, uint64_t refAddress,
     const target::metal::InterleavedBufferConfig *interleavedBufferConfig,
     const DeviceAddressValidator &deviceAddressValidator) {
 
-  auto metalInterleavedBufferConfig =
-      tt::tt_metal::distributed::ShardedBufferConfig{
-          .global_size = interleavedBufferConfig->size(),
-          .global_buffer_shape = tt_metal::Shape2D{1, 1},
-          .shard_shape = tt_metal::Shape2D{1, 1},
-          .shard_orientation = tt_metal::ShardOrientation::ROW_MAJOR};
+  auto metalInterleavedBufferConfig = distributed::ShardedBufferConfig{
+      .global_size = interleavedBufferConfig->size(),
+      .global_buffer_shape = tt_metal::Shape2D{1, 1},
+      .shard_shape = tt_metal::Shape2D{1, 1},
+      .shard_orientation = tt_metal::ShardOrientation::ROW_MAJOR};
 
   // NOTE: constructing BufferShardingArgs with std::nullopt defaults to
   // interleaved layout.
   tt_metal::BufferShardingArgs bufferShardingArgs(std::nullopt);
   LOG_ASSERT(bufferShardingArgs.buffer_layout() ==
              tt_metal::TensorMemoryLayout::INTERLEAVED);
-  auto localBufferConfig = tt_metal::distributed::DeviceLocalBufferConfig{
+  auto localBufferConfig = distributed::DeviceLocalBufferConfig{
       .page_size = interleavedBufferConfig->page_size(),
       .buffer_type = tt_metal::BufferType::DRAM,
       .sharding_args = std::move(bufferShardingArgs),
@@ -191,13 +193,12 @@ createMeshBufferForInterleavedMetalBuffer(
 
   uint32_t address =
       deviceAddressValidator(refAddress, target::BufferType::DRAM);
-  return tt_metal::distributed::MeshBuffer::create(
+  return distributed::MeshBuffer::create(
       metalInterleavedBufferConfig, localBufferConfig, meshDevice, address);
 }
 
-inline std::shared_ptr<tt_metal::distributed::MeshBuffer>
-createMeshBufferFromBufferRef(
-    tt_metal::distributed::MeshDevice *meshDevice,
+inline std::shared_ptr<distributed::MeshBuffer> createMeshBufferFromBufferRef(
+    distributed::MeshDevice *meshDevice,
     const target::metal::BufferRef *bufferRef,
     const DeviceAddressValidator &deviceAddressValidator) {
 
@@ -236,57 +237,6 @@ createMeshBufferFromBufferRef(
 }
 #pragma clang diagnostic pop
 
-inline std::string kernelConfigTypeString(
-    const std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig>
-        &kernelConfig) {
-  // return a string representation of the kernel config type
-  if (const auto *dataMovementConfig =
-          std::get_if<tt_metal::DataMovementConfig>(&kernelConfig)) {
-    std::string dataMovementCore = "";
-    switch (dataMovementConfig->processor) {
-    case (tt_metal::DataMovementProcessor::RISCV_0):
-      dataMovementCore = "brisc";
-      break;
-    case (tt_metal::DataMovementProcessor::RISCV_1):
-      dataMovementCore = "ncrisc";
-      break;
-    // Handle RISCV_2 to RISCV_7 for Quasar Data Movement Processors
-    // Quasar RISCV_0/RISCV_1 map to dm0, dm1 on quasar.
-    // TODO @jameszianxu Case this string generation based on processor type.
-    case (tt_metal::DataMovementProcessor::RISCV_2):
-      return "quasar_dm2";
-    case (tt_metal::DataMovementProcessor::RISCV_3):
-      return "quasar_dm3";
-    case (tt_metal::DataMovementProcessor::RISCV_4):
-      return "quasar_dm4";
-    case (tt_metal::DataMovementProcessor::RISCV_5):
-      return "quasar_dm5";
-    case (tt_metal::DataMovementProcessor::RISCV_6):
-      return "quasar_dm6";
-    case (tt_metal::DataMovementProcessor::RISCV_7):
-      return "quasar_dm7";
-    }
-
-    return dataMovementCore + "_noc" + std::to_string(dataMovementConfig->noc);
-  } else if (std::holds_alternative<tt_metal::ComputeConfig>(kernelConfig)) {
-    return "trisc";
-  }
-  return "unknown";
-}
-
-inline std::string parseLocFromDebugInfo(const char *programDebugInfo) {
-  if (!programDebugInfo) {
-    static int gUnknownId = 0;
-    return std::string("%unknown") + std::to_string(gUnknownId++);
-  }
-  std::string debugInfo(programDebugInfo);
-  std::size_t pos = debugInfo.find_first_of(' ');
-  if (pos == std::string::npos) {
-    return debugInfo;
-  }
-  return debugInfo.substr(0, pos);
-}
-
 // Produces string representation of tt::tt_metal::CoreRangeSet that is suitable
 // for embedding in file name. Encode core range set so that ranges are
 // separated by double underscore '__'. Range is represented with start and end
@@ -304,34 +254,6 @@ coreRangeToString(const tt::tt_metal::CoreRangeSet &coreRanges) {
   return result;
 }
 
-inline std::string createKernelFilePath(
-    const char *currentProgramName, const char *kernelDebugInfo,
-    const char *kernelLoc, const tt::tt_metal::CoreRangeSet &coreRangeSet,
-    const std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig>
-        &kernelConfig,
-    std::filesystem::path prefix = {}, const char *extention = ".cpp") {
-  if (prefix.empty()) {
-    prefix = "/tmp";
-  }
-  if (!std::filesystem::exists(prefix)) {
-    std::filesystem::create_directory(prefix);
-  }
-  std::filesystem::path path(prefix);
-  if (debug::Env::get().useLocForKernelName && kernelLoc) {
-    path /= kernelLoc;
-  } else {
-    path /= "ttmlir_";
-    path += currentProgramName;
-    path += "_";
-    path += kernelDebugInfo;
-    path += "_";
-    path += kernelConfigTypeString(kernelConfig);
-    path += coreRangeToString(coreRangeSet);
-  }
-  path += extention;
-  return path;
-}
-
 inline void writeFile(const std::string &fileName, const std::string &source) {
   if (debug::Env::get().loadKernels) {
     std::ifstream file(fileName);
@@ -343,225 +265,10 @@ inline void writeFile(const std::string &fileName, const std::string &source) {
   file.close();
 }
 
-inline tt_metal::KernelHandle createKernel(
-    tt_metal::Program &program, const std::string &kernelSource,
-    const tt::tt_metal::CoreRangeSet &coreRangeSet,
-    const std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig>
-        &kernelConfig,
-    const char *currentProgramName, const char *programDebugInfo,
-    const char *kernelDebugInfo, const char *kernelLoc) {
-  LOG_TRACE(logger::LogRuntimeTTMetalKernel,
-            "Creating kernel: ", kernelDebugInfo);
-  LOG_TRACE(logger::LogRuntimeTTMetalKernelSource, "Kernel source:\n",
-            kernelSource);
-  const bool kernelFromFile =
-      debug::Env::get().dumpKernels || debug::Env::get().loadKernels;
-  std::string fileName;
-  if (kernelFromFile) {
-    fileName = createKernelFilePath(currentProgramName, kernelDebugInfo,
-                                    kernelLoc, coreRangeSet, kernelConfig,
-                                    debug::Env::get().kernelSourceDir);
-    writeFile(fileName, kernelSource);
-  }
-  return kernelFromFile
-             ? CreateKernel(program, fileName, coreRangeSet, kernelConfig)
-             : CreateKernelFromString(program, kernelSource, coreRangeSet,
-                                      kernelConfig);
-}
-
-// Convert from Flatbuffer CoreType to soc_descriptor CoreType.
-inline CoreType toCoreType(target::metal::CoreType coreType) {
-  switch (coreType) {
-  case target::metal::CoreType::WORKER:
-    return CoreType::WORKER;
-  case target::metal::CoreType::ETH:
-    return CoreType::ETH;
-  }
-  LOG_FATAL("Unsupported core type");
-}
-
-template <bool isCompileTime>
-std::vector<std::uint32_t> processKernelArgs(
-    const flatbuffers::Vector<flatbuffers::Offset<target::metal::KernelArg>>
-        *args,
-    const flatbuffers::Vector<target::metal::ArgRef> *argRefsType,
-    const flatbuffers::Vector<flatbuffers::Offset<void>> *argRefs,
-    const std::unordered_map<std::uint32_t,
-                             std::shared_ptr<tt_metal::distributed::MeshBuffer>>
-        &meshBuffers,
-    const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
-        &global_semaphores_cache,
-    const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
-        *cbs,
-    const DeviceAddressValidator &deviceAddressValidator,
-    std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn) {
-  std::vector<std::uint32_t> argsVec;
-  if (args == nullptr || args->size() == 0) {
-    return argsVec;
-  }
-  argsVec.reserve(args->size());
-  for (const auto *kernelArg : *args) {
-    switch (kernelArg->arg_type()) {
-    case target::metal::KernelArgType::KernelArgCBPort: {
-      const auto *arg = kernelArg->arg_as_KernelArgCBPort();
-      LOG_ASSERT(arg->operand_idx() < cbs->size(), "invalid operand ",
-                 arg->operand_idx());
-      argsVec.push_back(cbs->Get(arg->operand_idx())->port());
-      break;
-    }
-    case target::metal::KernelArgType::KernelArgBufferAddress: {
-      const auto *arg = kernelArg->arg_as_KernelArgBufferAddress();
-      LOG_ASSERT(argRefsType->Get(arg->operand_idx()) ==
-                 target::metal::ArgRef::BufferRef);
-      const target::metal::BufferRef *buffer =
-          reinterpret_cast<const target::metal::BufferRef *>(
-              argRefs->Get(arg->operand_idx()));
-      LOG_ASSERT(meshBuffers.find(buffer->global_id()) != meshBuffers.end(),
-                 "Buffer id referenced by rt args is no longer alive or was "
-                 "never created ",
-                 logger::Buffer(buffer->global_id()));
-
-      const target::metal::BufferDesc *bufferDesc = buffer->desc();
-      LOG_ASSERT(bufferDesc->buffer_detail_type() ==
-                 target::metal::BufferDetail::MetalBuffer);
-      const target::metal::MetalBuffer *metalBuffer =
-          bufferDesc->buffer_detail_as_MetalBuffer();
-      argsVec.push_back(deviceAddressValidator(buffer->address(),
-                                               metalBuffer->buffer_type()));
-      break;
-    }
-    case target::metal::KernelArgType::KernelArgSemaphore: {
-      LOG_ASSERT(createSemaphoreFn, "createSemaphoreFn is not set");
-      const auto *arg = kernelArg->arg_as_KernelArgSemaphore();
-      argsVec.push_back(createSemaphoreFn(arg->initial_value()));
-      break;
-    }
-    case target::metal::KernelArgType::KernelArgNamedArgument: {
-      const auto *arg = kernelArg->arg_as_KernelArgNamedArgument();
-      argsVec.push_back(arg->value());
-      break;
-    }
-    case target::metal::KernelArgType::KernelArgGlobalSemaphore: {
-      const auto *arg = kernelArg->arg_as_KernelArgGlobalSemaphore();
-      LOG_ASSERT(argRefsType->Get(arg->operand_idx()) ==
-                 target::metal::ArgRef::GlobalSemaphoreRef);
-      const tt::target::metal::GlobalSemaphoreRef *global_semaphore_operand =
-          reinterpret_cast<const target::metal::GlobalSemaphoreRef *>(
-              argRefs->Get(arg->operand_idx()));
-      LOG_ASSERT(
-          global_semaphores_cache.find(global_semaphore_operand->global_id()) !=
-              global_semaphores_cache.end(),
-          "Global semaphore id referenced by rt args is no longer alive or was "
-          "never created ",
-          logger::Buffer(global_semaphore_operand->global_id()));
-
-      argsVec.push_back(deviceAddressValidator(
-          global_semaphores_cache.at(global_semaphore_operand->global_id())
-              .address(),
-          target::BufferType::L1));
-      break;
-    }
-    case target::metal::KernelArgType::NONE:
-      LOG_FATAL("Unsupported runtime arg type");
-    }
-    LOG_TRACE(logger::LogRuntimeTTMetalKernelArg,
-              isCompileTime ? "Compile" : "Runtime", " arg[",
-              argsVec.size() - 1, "] = ", argsVec.back(), " [",
-              target::metal::EnumNameKernelArgType(kernelArg->arg_type()), "]");
-  }
-
-  return argsVec;
-}
-
-template <typename... Args>
-std::vector<std::uint32_t> processRuntimeArgs(Args... args) {
-  return processKernelArgs<false>(args...);
-}
-
-template <typename... Args>
-std::vector<std::uint32_t> processCompileArgs(Args... args) {
-  return processKernelArgs<true>(args...);
-}
-
-inline std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig>
-createKernelConfig(
-    const target::metal::KernelConfig *kernelConfig,
-    const flatbuffers::Vector<target::metal::ArgRef> *argRefsType,
-    const flatbuffers::Vector<flatbuffers::Offset<void>> *argRefs,
-    const std::unordered_map<std::uint32_t,
-                             std::shared_ptr<tt_metal::distributed::MeshBuffer>>
-        &meshBuffers,
-    const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
-        &global_semaphores_cache,
-    const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
-        *cbs,
-    const DeviceAddressValidator &deviceAddressValidator,
-    std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn) {
-  std::vector<uint32_t> compileArgs = processCompileArgs(
-      kernelConfig->args()->ct_args(), argRefsType, argRefs, meshBuffers,
-      global_semaphores_cache, cbs, deviceAddressValidator, createSemaphoreFn);
-  switch (kernelConfig->type_type()) {
-  case target::metal::KernelConfigType::NocConfig: {
-    switch (kernelConfig->type_as_NocConfig()->noc_index()) {
-    case tt::target::NocIndex::Noc0: {
-      return tt_metal::ReaderDataMovementConfig(compileArgs);
-    }
-    case tt::target::NocIndex::Noc1: {
-      return tt_metal::WriterDataMovementConfig(compileArgs);
-    }
-    }
-  }
-  case target::metal::KernelConfigType::EthernetConfig: {
-    // EthernetConfig has been removed from Metal public API (commit cfc4c40).
-    // Ethernet functionality should now use fabric APIs instead.
-    LOG_FATAL("EthernetConfig is no longer supported. Use fabric APIs for "
-              "ethernet functionality.");
-  }
-  case target::metal::KernelConfigType::ComputeConfig: {
-    const auto *fbComputeConfig = kernelConfig->type_as_ComputeConfig();
-    tt_metal::ComputeConfig computeConfig;
-    computeConfig.compile_args = compileArgs;
-    switch (fbComputeConfig->math_fidelity()) {
-    case tt::target::MathFidelity::HiFi4: {
-      computeConfig.math_fidelity = MathFidelity::HiFi4;
-      break;
-    }
-    case tt::target::MathFidelity::HiFi3: {
-      computeConfig.math_fidelity = MathFidelity::HiFi3;
-      break;
-    }
-    case tt::target::MathFidelity::HiFi2: {
-      computeConfig.math_fidelity = MathFidelity::HiFi2;
-      break;
-    }
-    case tt::target::MathFidelity::LoFi: {
-      computeConfig.math_fidelity = MathFidelity::LoFi;
-      break;
-    }
-    }
-
-    computeConfig.fp32_dest_acc_en = fbComputeConfig->fp32_dest_acc_en();
-    computeConfig.dst_full_sync_en = fbComputeConfig->dst_full_sync_en();
-    computeConfig.math_approx_mode = fbComputeConfig->math_approx_mode();
-
-    computeConfig.unpack_to_dest_mode =
-        common::toUnpackToDestModes(fbComputeConfig->unpack_to_dest_mode());
-
-    return computeConfig;
-  }
-
-  case target::metal::KernelConfigType::NONE: {
-    break;
-  }
-  }
-  LOG_FATAL("Unsupported kernel source type");
-}
-
 inline tt_metal::CircularBufferConfig createCircularBufferConfig(
     const target::metal::CBRef *cbRef,
-    const std::unordered_map<std::uint32_t,
-                             std::shared_ptr<tt_metal::distributed::MeshBuffer>>
-        &meshBuffers) {
+    const std::unordered_map<
+        std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers) {
   const auto *bufferDesc = cbRef->buffer_ref()->desc();
   LOG_ASSERT(cbRef->buffer_ref());
   LOG_ASSERT(bufferDesc->buffer_detail_type() ==
@@ -586,9 +293,8 @@ inline tt_metal::CircularBufferConfig createCircularBufferConfig(
 }
 
 inline void writeHostTensorToMeshBuffer(
-    tt_metal::distributed::MeshCommandQueue *mcq, const Tensor &input,
-    std::shared_ptr<tt_metal::distributed::MeshBuffer> meshBuffer,
-    bool blockingCQ) {
+    distributed::MeshCommandQueue *mcq, const Tensor &input,
+    std::shared_ptr<distributed::MeshBuffer> meshBuffer, bool blockingCQ) {
   std::visit(
       utils::overloaded{
           [&](const TensorDesc &) {
@@ -611,9 +317,9 @@ inline void writeHostTensorToMeshBuffer(
 }
 
 inline void readHostTensorFromMeshBuffer(
-    tt_metal::distributed::MeshCommandQueue *mcq,
-    std::shared_ptr<tt_metal::distributed::MeshBuffer> meshBuffer,
-    Tensor &output, bool blockingCQ) {
+    distributed::MeshCommandQueue *mcq,
+    std::shared_ptr<distributed::MeshBuffer> meshBuffer, Tensor &output,
+    bool blockingCQ) {
   std::visit(
       utils::overloaded{
           [&](const TensorDesc &) {
@@ -636,8 +342,7 @@ inline void readHostTensorFromMeshBuffer(
 }
 
 inline void checkHostTensorSizeMatchWithMeshBufferSize(
-    const Tensor &tensor,
-    std::shared_ptr<tt_metal::distributed::MeshBuffer> meshBuffer) {
+    const Tensor &tensor, std::shared_ptr<distributed::MeshBuffer> meshBuffer) {
   std::visit(
       utils::overloaded{
           [&](const TensorDesc &tensorDesc) {
@@ -650,7 +355,7 @@ inline void checkHostTensorSizeMatchWithMeshBufferSize(
           [&](const DistributedHostBuffer &distributedHostBuffer) {
             // SPMD assumes that all buffers have the identical size, so we can
             // just check the first buffer size.
-            const tt_metal::distributed::MeshCoordinate coord = {0, 0};
+            const distributed::MeshCoordinate coord = {0, 0};
             auto hostBuffer = distributedHostBuffer->get_shard(coord);
             tt_metal::Buffer *buffer = meshBuffer->get_device_buffer(coord);
             LOG_ASSERT(buffer->size() == hostBuffer->view_bytes().size_bytes());

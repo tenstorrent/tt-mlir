@@ -11,4 +11,9 @@ add_mlir_dialect_library(MLIRTTIRHoistCPUOps
         MLIRTTIROpsIncGen
         MLIRTTIRPassesIncGen
         MLIRTTCoreOpsIncGen
+
+        LINK_LIBS PUBLIC
+        TTMLIRTTIRToTTIRDecomposition
+        TTMLIRTTIRToLinalg
+        MLIRPass
 )

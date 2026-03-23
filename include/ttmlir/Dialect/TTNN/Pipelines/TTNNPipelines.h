@@ -264,6 +264,11 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Enable implicit broadcast folding pass."),
       llvm::cl::init(true)};
 
+  Option<bool> dramSpaceSavingOptimizationEnabled{
+      *this, "enable-dram-space-saving-optimization-pass",
+      llvm::cl::desc("Enable DRAM space saving optimization pass."),
+      llvm::cl::init(false)};
+
   Option<bool> eraseInverseOpsEnabled{
       *this, "enable-erase-inverse-ops-pass",
       llvm::cl::desc("Enable erase inverse ops pass."), llvm::cl::init(true)};
@@ -293,7 +298,7 @@ struct TTIRToTTNNDevicePipelineOptions
       *this, "enable-permute-matmul-fusion",
       llvm::cl::desc(
           "Fuse permute ops into matmul/linear transpose attributes."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
@@ -330,7 +335,7 @@ struct TTIRToTTNNDevicePipelineOptions
   Option<bool> enableCPUHoistedConstEval{
       *this, "enable-cpu-hoisted-const-eval",
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // Force const-eval function inputs to system memory.
   Option<bool> enableConstEvalInputsToSystemMemory{
@@ -526,6 +531,10 @@ struct TTNNToEmitPyDevicePipelineOptions
           "original IR/code. Highly experimental; please file issues at "
           "https://github.com/tenstorrent/tt-mlir/issues"),
       llvm::cl::init(false)};
+
+  Option<bool> splitFiles{*this, "split-files",
+                          llvm::cl::desc("Enables TTNNFileSplit pass"),
+                          llvm::cl::init(true)};
 };
 
 // TTIR to TTNN backend pipeline options.

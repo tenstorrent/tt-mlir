@@ -12,6 +12,7 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
 
 #include <dlfcn.h>
@@ -53,17 +54,6 @@ bool TTAlchemist::generatePython(const std::string &input_file,
     return false;
   }
 
-  // Convert MLIR module to Python
-  //
-  std::string pythonCode;
-  llvm::raw_string_ostream pythonStream(pythonCode);
-  if (mlir::failed(
-          mlir::tt::emitpy::translateToPython(*module, pythonStream))) {
-    std::cout << "Failed to translate MLIR module to Python" << std::endl;
-    return false;
-  }
-  pythonStream.flush();
-
   // Create output directory if it doesn't exist
   //
   fs::path outputPath(output_dir);
@@ -103,21 +93,58 @@ bool TTAlchemist::generatePython(const std::string &input_file,
     return false;
   }
 
-  // Create main.py with the generated Python code
+  // Check if the module has file ops (split-files mode).
+  bool hasSplitFiles = false;
+  module->walk(
+      [&hasSplitFiles](mlir::tt::emitpy::FileOp) { hasSplitFiles = true; });
+
+  // Generate main.py
   //
-  fs::path pythonFilePath = outputPath / "main.py";
-  std::ofstream pythonFile(pythonFilePath);
-  if (!pythonFile.is_open()) {
-    std::cout << "Failed to create Python file: " << pythonFilePath
-              << std::endl;
+  std::string mainCode;
+  llvm::raw_string_ostream mainStream(mainCode);
+  std::optional<std::string> mainFileId =
+      hasSplitFiles ? std::optional<std::string>("main") : std::nullopt;
+  if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, mainStream,
+                                                       mainFileId))) {
+    std::cout << "Failed to translate MLIR module to main.py" << std::endl;
     return false;
   }
+  mainStream.flush();
 
-  pythonFile << pythonCode;
+  fs::path mainFilePath = outputPath / "main.py";
+  std::ofstream mainFile(mainFilePath);
+  if (!mainFile.is_open()) {
+    std::cout << "Failed to create Python file: " << mainFilePath << std::endl;
+    return false;
+  }
+  mainFile << mainCode;
+  mainFile.close();
+  utils::formatCode(mainFilePath, utils::CodeGenerationTarget::Python);
 
-  pythonFile.close();
+  // Generate consteval.py only when files were split.
+  if (hasSplitFiles) {
+    std::string constevalCode;
+    llvm::raw_string_ostream constevalStream(constevalCode);
+    std::optional<std::string> constevalFileId("consteval");
+    if (mlir::failed(mlir::tt::emitpy::translateToPython(
+            *module, constevalStream, constevalFileId))) {
+      std::cout << "Failed to translate MLIR module to consteval.py"
+                << std::endl;
+      return false;
+    }
+    constevalStream.flush();
 
-  utils::formatCode(pythonFilePath, utils::CodeGenerationTarget::Python);
+    fs::path constevalFilePath = outputPath / "consteval.py";
+    std::ofstream constevalFile(constevalFilePath);
+    if (!constevalFile.is_open()) {
+      std::cout << "Failed to create Python file: " << constevalFilePath
+                << std::endl;
+      return false;
+    }
+    constevalFile << constevalCode;
+    constevalFile.close();
+    utils::formatCode(constevalFilePath, utils::CodeGenerationTarget::Python);
+  }
 
   return true;
 }

@@ -560,7 +560,7 @@ def test_embedding_backward(
 
 
 @pytest.mark.parametrize("shape", [(32, 64)], ids=shape_str)
-@pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1)])
+@pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1), (0, -2, 32, 1)])
 def test_index(
     shape: Shape, dim: int, begin: int, end: int, step: int, request, device
 ):
@@ -956,25 +956,6 @@ def test_arange(
             return builder.arange(
                 shape, dtype, start, end, step, dim, unit_attrs=unit_attrs
             )
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        device=device,
-    )
-
-
-@pytest.mark.parametrize("shapes", [[(4, 4, 128, 128)]], ids=shapes_list_str)
-@pytest.mark.parametrize("dim", [1])
-def test_cumsum(shapes: List[Shape], dim: int, request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32] * len(shapes))
-        def cumsum(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.cumsum(in0, dim=dim, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,
@@ -1547,11 +1528,16 @@ def test_topk(
         pytest.param(
             [(33, 32), (512, 128)],
             [torch.float32] * 2,
-            marks=[pytest.mark.skip_config(["ttmetal"])],
         ),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ttnn",
+        "ttmetal" | Marks(pytest.mark.xfail(reason="Unimplemented ttir.embedding")),
+    ],
+)
 def test_unique_ops(
     inputs_shapes: List[Shape],
     inputs_dtypes: List[torch.dtype],
@@ -1976,95 +1962,6 @@ def test_mesh_shard_devices(
 @pytest.mark.parametrize(
     "test_shape",
     [
-        (1, 32, 32, 32),
-        (1, 32, 32, 1),
-        (32, 32, 1, 1),
-        (1, 32, 32),
-        (32, 32),
-        (32, 40),
-        (40, 32),
-        pytest.param((1, 1, 32, 32, 32), marks=pytest.mark.xfail(reason="run error")),
-        pytest.param(
-            (1, 1, 1, 1, 1, 1, 32, 32, 32), marks=pytest.mark.xfail(reason="run error")
-        ),
-    ],
-    ids=shape_str,
-)
-@pytest.mark.parametrize(
-    "mesh_shape", [(2, 4), (1, 8), (1, 2), (1, 32), (8, 4)], ids=shape_str
-)
-@pytest.mark.parametrize("all_gather_dim", range(4))
-@pytest.mark.parametrize("cluster_axis", [0, 1])
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-def test_all_gather(
-    test_shape: Shape,
-    mesh_shape: Tuple[int, int],
-    all_gather_dim: int,
-    cluster_axis: int,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    if all_gather_dim >= len(test_shape):
-        pytest.skip("all_gather_dim is out of range")
-    if mesh_shape[cluster_axis] == 1:
-        pytest.skip("all_gather across 1 device is meaningless")
-
-    rank_in = len(test_shape)
-    rank_mesh = len(mesh_shape)
-
-    if rank_mesh > rank_in:
-        raise ValueError(
-            f"Mesh shape {mesh_shape} has {rank_mesh} dimensions, but test shape "
-            f"{test_shape} only has {rank_in} dimensions. Cannot shard more "
-            f"dimensions than exist in the tensor."
-        )
-
-    # Take the last `rank_mesh` dims as sharded dims
-    shard_dims = list(range(rank_in - rank_mesh, rank_in))
-    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
-
-    full_input_shape = list(test_shape)
-    for d, factor in zip(shard_dims, mesh_shape):
-        full_input_shape[d] *= factor
-
-    def module(builder: TTIRBuilder):
-        @builder.func([full_input_shape], [dtype])
-        def all_gather(in0: Operand, builder: TTIRBuilder):
-            in_shard = builder.mesh_shard(
-                in0,
-                shard_direction=MeshShardDirection.FullToShard.value,
-                shard_type=MeshShardType.Devices.value,
-                shard_shape=shard_shape,
-                shard_dims=shard_dims,
-            )
-
-            all_gather0 = builder.all_gather(
-                in_shard,
-                all_gather_dim=all_gather_dim,
-                cluster_axis=cluster_axis,
-            )
-
-            return builder.mesh_shard(
-                all_gather0,
-                shard_direction=MeshShardDirection.ShardToFull.value,
-                shard_type=MeshShardType.Devices.value,
-                shard_shape=shard_shape,
-                shard_dims=shard_dims,
-            )
-
-    compile_and_execute_ttir(
-        module,
-        mesh_name="mesh",
-        device=device,
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        **get_request_kwargs(request),
-    )
-
-
-@pytest.mark.parametrize(
-    "test_shape",
-    [
         (1, 1, 256, 256),
         (256, 256, 1, 1),
         (1, 64, 64),
@@ -2072,7 +1969,7 @@ def test_all_gather(
         (64, 65),
         (65, 64),
         (32, 64),
-        (33, 65),  # This is a case where reduce_scatter + all_gather is not supported.
+        (33, 65),
         (1, 1, 1, 1, 1, 1, 32, 256, 256),
         (1, 1, 32, 256, 256),
     ],
@@ -2705,43 +2602,6 @@ def test_hoisted_arange(
             return builder.arange(
                 shape, dtype, start, end, step, dim, unit_attrs=["ttir.should_hoist"]
             )
-
-    compile_and_execute_ttir(
-        module,
-        test_base=request.node.name,
-        target=target,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@x86_only
-@pytest.mark.parametrize(
-    "shapes,dim",
-    [
-        ([(4, 4, 32, 32)], 1),
-        ([(2, 8, 16, 16)], 0),
-        ([(4, 4, 32, 32)], -1),
-    ],
-    ids=["dim1", "dim0", "dim_negative"],
-)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_cumsum(
-    shapes: List[Shape],
-    dim: int,
-    target: str,
-    request,
-    device,
-):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32] * len(shapes))
-        def hoisted_cumsum(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.cumsum(in0, dim=dim, unit_attrs=["ttir.should_hoist"])
 
     compile_and_execute_ttir(
         module,

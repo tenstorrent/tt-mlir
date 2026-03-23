@@ -50,7 +50,7 @@ jobs:
         - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
           fetch-depth: 0
 
@@ -116,9 +116,15 @@ jobs:
         fi
 
     - name: Set up tt-triage
+      continue-on-error: true
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
-        TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+        TT_METAL_VERSION_REF=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+        TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-metal/commits/$TT_METAL_VERSION_REF --jq '.sha')
+        echo "tt-metal version ref: $TT_METAL_VERSION_REF"
+        echo "tt-metal version (resolved SHA): $TT_METAL_VERSION"
 
         mkdir -p tt-triage
         curl -L "https://github.com/tenstorrent/tt-metal/archive/${TT_METAL_VERSION}.tar.gz" \
@@ -129,7 +135,7 @@ jobs:
               tt-metal-${TT_METAL_VERSION}/tt_metal
 
         echo "TT_METAL_OPERATION_TIMEOUT_SECONDS=${{ vars.TT_METAL_OPERATION_TIMEOUT_SECONDS || 300 }}" >> $GITHUB_ENV
-        echo "TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE=python $(pwd)/tt-triage/tools/tt-triage.py 1>&2" >> $GITHUB_ENV
+        echo "TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE=python -vvv $(pwd)/tt-triage/tools/tt-triage.py 1>&2" >> $GITHUB_ENV
 
     - name: Run Lit Tests
       shell: bash
@@ -157,6 +163,8 @@ jobs:
         TTRT_LOGGER_LEVEL: "WARNING"
         LOGURU_LEVEL: "ERROR"
         TT_METAL_LOGGER_LEVEL: "FATAL"
+        TT_METAL_INSPECTOR: "0"
+        TT_METAL_INSPECTOR_RPC: "0"
       run: |
         # Run Tests
         source env/activate
@@ -176,6 +184,8 @@ jobs:
         export IMAGE_NAME="${{ matrix.build.image }}"
         export RUN_ID="${{ github.run_id }}"
         export PATH="$WORK_DIR/.github/test_scripts:$PATH"
+        export UPLOAD_LIST="$WORK_DIR/_test_upload.json"
+        echo "[" > $UPLOAD_LIST
 
         echo "Running tests on ${{ matrix.build.runs-on }} with image ${{ matrix.build.image }}"
         cat << 'EOF' > _test_to_run.json
@@ -184,6 +194,15 @@ jobs:
         cat _test_to_run.json
 
         python .github/scripts/python/run_tests_from_json.py "${{ matrix.build.runs-on }}" "${{ matrix.build.image }}" "${{ steps.fetch-job-id.outputs.job_id }}"
+        echo "{}]" >> $UPLOAD_LIST
+
+    - name: Upload test artifacts
+      if: success() || failure()
+      uses: nsumrakTT/upload-multiple-artifacts@main
+      with:
+        continue-on-error: 'true'
+        config: _test_upload.json
+        compression-level: 0
 
     - name: Process Test Summary
       if: success() || failure()
@@ -238,7 +257,7 @@ jobs:
     outputs:
       failed-test-summary: ${{ steps.test-summary.outputs.failed-test-summary }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Process test summary
         id: test-summary
         continue-on-error: true

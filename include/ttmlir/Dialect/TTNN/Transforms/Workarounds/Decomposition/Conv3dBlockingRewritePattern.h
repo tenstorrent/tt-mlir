@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_DECOMPOSITION_CONV3DBLOCKINGREWRITEPATTERN_H
 #define TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_DECOMPOSITION_CONV3DBLOCKINGREWRITEPATTERN_H
 
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -39,7 +40,13 @@ public:
 
     uint32_t in_channels = srcOp.getInChannels();
     uint32_t c_in_block = utils::calculateOptimalCInBlock(in_channels);
-    conv3dConfig = createConv3dConfig(rewriter, c_in_block);
+
+    // Get the device worker grid so it's baked into the config for both
+    // the runtime (flatbuffer) and codegen paths.
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp.getOperation());
+    ttcore::GridAttr gridAttr = deviceAttr.getWorkerGrid();
+
+    conv3dConfig = createConv3dConfig(rewriter, c_in_block, gridAttr);
 
     rewriter.modifyOpInPlace(
         srcOp, [&]() { srcOp.setConv3dConfigAttr(*conv3dConfig); });
@@ -49,12 +56,12 @@ public:
 
 private:
   std::optional<Conv3dConfigAttr>
-  createConv3dConfig(mlir::PatternRewriter &rewriter,
-                     uint32_t c_in_block) const {
+  createConv3dConfig(mlir::PatternRewriter &rewriter, uint32_t c_in_block,
+                     std::optional<ttcore::GridAttr> gridAttr) const {
     return Conv3dConfigAttr::get(rewriter.getContext(),
                                  ttcore::DataType::BFloat16, 1, 1, 1,
                                  32, // TILE_WIDTH
-                                 c_in_block, std::nullopt);
+                                 c_in_block, gridAttr);
   }
 };
 

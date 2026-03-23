@@ -83,6 +83,9 @@ void createTTIRToTTMetalFrontendPipeline(
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(ttir::createPredicateTypeAlignment());
+  pm.addPass(ttir::createElementTypeNormalization(
+      ttir::ElementTypeNormalizationOptions()));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(ttir::createTTIRExplicateTMs());
   pm.addPass(ttir::createTTIREraseInverseOps());
@@ -219,6 +222,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   // remote loads and stores to explicit CB form split the
   // unified thread into separate compute and datamovement
   // threads.
+  pm.addPass(d2m::createD2MHoistCBAllocs());
   pm.addPass(d2m::createD2MConvertLocalLoadStoreOpsToAliasedCBs());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToExplicitCBForm());
   pm.addPass(d2m::createD2MSplitUnifiedThread());

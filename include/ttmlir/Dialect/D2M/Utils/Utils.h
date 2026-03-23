@@ -24,10 +24,14 @@ constexpr llvm::StringLiteral kVirtualGridInverseMappingAttr =
 constexpr llvm::StringLiteral kVirtualGridForwardMappingAttr =
     "d2m.virtualGridForwardMapping";
 
-// Return a new RankedTensorType by reblocking its device shape to match a new
-// grid shape.
-RankedTensorType reblockTensor(RankedTensorType oldTensor,
-                               ArrayRef<int64_t> newGridShape);
+// Return a new shaped type by reblocking its device shape to match a new grid
+// shape.
+ShapedType reblockShapedType(ShapedType oldType,
+                             ArrayRef<int64_t> newGridShape);
+
+// Clone a local shard type using the shard shape implied by a reference
+// operand's device layout.
+Type cloneWithShardShape(Value referenceOperand, Type typeToRetype);
 
 // Get square target grid shape.
 llvm::SmallVector<int64_t>
@@ -48,6 +52,13 @@ Type getRegionLargestDstElemTypeOrNull(Region &region);
 std::optional<SmallVector<int64_t>>
 computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
                       mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes);
+
+// Derive generic block factors from operand grid shapes and indexing maps,
+// mirroring GenericOp::build's reverse-flattened affine composition.
+SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
+    mlir::ArrayRef<mlir::AffineMap> indexingMaps,
+    mlir::ArrayRef<mlir::SmallVector<int64_t>> operandGridShapes,
+    mlir::ArrayRef<int64_t> outputGridShape);
 
 // Build grid dimension indices from an indexing map. For each result in the
 // indexing map, translates arbitrary affine expressions into arith dialect

@@ -35,6 +35,7 @@ keep_dim_options = [
 
 
 dim_arg_options = [
+    [0],
     [2],
     [1, 2],
     None,
@@ -60,33 +61,6 @@ def test_reduction_ops(
     if target == "emitc":
         pytest.skip(
             "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
-    if (
-        reduction_op_name == "max"
-        or reduction_op_name == "min"
-        or reduction_op_name == "mean"
-        or reduction_op_name == "sum"
-    ) and dim_arg is None:
-        request.node.add_marker(
-            pytest.xfail(
-                reason="Fails Golden, see issue https://github.com/tenstorrent/tt-metal/issues/32274"
-            )
-        )
-
-    # FP32 prod reduction fails due to tt-metal untilize NaN handling.
-    # See: https://github.com/tenstorrent/tt-metal/pull/33904
-    if reduction_op_name == "prod" and dtype == torch.float32 and target == "ttnn":
-        pytest.xfail(
-            "FP32 prod reduction fails due to tt-metal untilize NaN handling. "
-            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
-        )
-
-    if reduction_op_name == "prod" and dim_arg is None and keep_dim is True:
-        request.node.add_marker(
-            pytest.xfail(
-                reason="Fails in ttnn runtime, see issue https://github.com/tenstorrent/tt-metal/issues/32279"
-            )
         )
 
     def module(builder: TTIRBuilder):
@@ -178,4 +152,68 @@ def test_reduction_cpu_hoisted_ops(
         **get_request_kwargs(request),
         device=device,
         target=target,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes, dim",
+    [
+        pytest.param([(4, 4, 128, 128)], 1, id="rank4_dim1"),
+        pytest.param([(4, 4, 128, 128)], 2, id="rank4_dim2"),
+        pytest.param([(128,)], 0, id="rank1_dim0"),
+        pytest.param([(4, 128)], 0, id="rank2_dim0"),
+        pytest.param([(4, 4, 128)], 1, id="rank3_dim1"),
+        pytest.param([(4, 4, 128)], 2, id="rank3_dim2"),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_cumsum(shapes: List[Shape], dim: int, request, target, device):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def cumsum(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.cumsum(in0, dim=dim, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        ([(4, 4, 32, 32)], 1),
+        ([(2, 8, 16, 16)], 0),
+        ([(4, 4, 32, 32)], -1),
+    ],
+    ids=["dim1", "dim0", "dim_negative"],
+)
+def test_hoisted_cumsum(
+    shapes: List[Shape],
+    dim: int,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def hoisted_cumsum(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.cumsum(in0, dim=dim, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )

@@ -18,12 +18,19 @@ namespace {
 class ElementTypeConverter : public TypeConverter {
 public:
   ElementTypeConverter() {
+    addConversion([](Type type) -> std::optional<Type> { return type; });
     addConversion(
         [](mlir::RankedTensorType type) -> std::optional<RankedTensorType> {
           Type elementType = type.getElementType();
 
           // Skip quantized types - don't modify them.
           if (mlir::isa<quant::QuantizedType>(elementType)) {
+            return type;
+          }
+
+          // Preserve tensor<!ttcore.tile<…>>: lowering tile to scalar f32
+          // breaks L1 sharded layouts and runtime CB sizing.
+          if (mlir::isa<ttcore::TileType>(elementType)) {
             return type;
           }
 

@@ -509,6 +509,18 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
     return mlir::tt::ttcore::DataType::BFloat16;
   }
 
+  // Comparison ops do not yet support UINT8 data type.
+  // Comparison use subtractions, which requires signed data type.
+  // https://github.com/tenstorrent/tt-metal/issues/36217
+  // https://github.com/tenstorrent/tt-metal/issues/40286
+  if (isa<ttnn::NotEqualOp, ttnn::EqualOp, ttnn::GreaterThanOp,
+          ttnn::GreaterEqualOp, ttnn::LessThanOp, ttnn::LessEqualOp>(op)) {
+    if (dType == mlir::tt::ttcore::DataType::UInt8) {
+      return mlir::tt::ttcore::DataType::Int32;
+    }
+    return {};
+  }
+
   // All remaining binary ops.
   // Tracked in :
   // https://github.com/issues/created?issue=tenstorrent%7Ctt-metal%7C25112
@@ -632,6 +644,45 @@ TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(operandWorkaround)
       .addOutputOperandWorkaround(operandWorkaround);
+}
+
+// Factory method to create a set of workarounds for GroupNorm op operands.
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/37551
+// TTNN group_norm requires:
+//   - input: BFloat16 data type
+//   - weight (gamma): ROW_MAJOR layout, BFloat16 data type
+//   - bias (beta): ROW_MAJOR layout, BFloat16 data type
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createGroupNormOpOperandsWorkarounds(
+    Operation *op) {
+  auto groupNormOp = cast<ttnn::GroupNormOp>(op);
+
+  TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds weightBiasWorkaround;
+  weightBiasWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  weightBiasWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds outputWorkaround;
+  outputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  auto workarounds =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(inputWorkaround)
+          .addOutputOperandWorkaround(outputWorkaround);
+
+  if (groupNormOp.getInputMask()) {
+    workarounds.addInputOperandWorkaround(TTNNOperandWorkarounds());
+  }
+  if (groupNormOp.getWeight()) {
+    workarounds.addInputOperandWorkaround(weightBiasWorkaround);
+  }
+  if (groupNormOp.getBias()) {
+    workarounds.addInputOperandWorkaround(weightBiasWorkaround);
+  }
+
+  return workarounds;
 }
 
 // Factory method to create a set of workarounds for ArgMax op operands.

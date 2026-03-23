@@ -26,7 +26,7 @@ jobs:
       image: ${{ inputs.docker-image }}
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
           fetch-depth: 0
 
@@ -54,6 +54,7 @@ jobs:
         -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
         -DTTMLIR_ENABLE_STABLEHLO=ON \
         -DTTMLIR_ENABLE_OPMODEL=ON \
+        -DTT_USE_SYSTEM_SFPI=ON \
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Lint

@@ -128,7 +128,7 @@ template <>
 struct OpModel<SiluOp> : UnaryEltwiseOpModel<SiluOp> {};
 
 template <>
-struct OpModel<MishOp> : UnaryEltwiseOpModel<MishOp> {};
+struct OpModel<MishOp> : UnaryEltwiseWithFastApproxModeOpModel<MishOp> {};
 
 template <>
 struct OpModel<RsqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp> {};
@@ -638,21 +638,20 @@ struct OpModel<TransposeOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// MorehCumSumOp
+// CumSumOp
 //===----------------------------------------------------------------------===//
 
 template <>
-struct OpModel<MorehCumSumOp> {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(ttcore::GridAttr deviceGrid,
-                   llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, const int64_t dim,
-                   TTNNLayoutAttr outputLayout);
+struct OpModel<CumSumOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, const int32_t dim,
+      std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                             TTNNLayoutAttr inputLayout,
-                                             const int64_t dim,
-                                             TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               const int32_t dim, std::optional<ttcore::DataType> dtype,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1513,6 +1512,37 @@ struct OpModel<LayerNormOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// GroupNormOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<GroupNormOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
+                   std::optional<TTNNLayoutAttr> inputMaskLayout,
+                   std::optional<llvm::ArrayRef<int64_t>> weightShape,
+                   std::optional<TTNNLayoutAttr> weightLayout,
+                   std::optional<llvm::ArrayRef<int64_t>> biasShape,
+                   std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
+                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+                   std::optional<CoreCoordAttr> coreGrid = std::nullopt);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
+               std::optional<TTNNLayoutAttr> inputMaskLayout,
+               std::optional<llvm::ArrayRef<int64_t>> weightShape,
+               std::optional<TTNNLayoutAttr> weightLayout,
+               std::optional<llvm::ArrayRef<int64_t>> biasShape,
+               std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
+               llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+               std::optional<CoreCoordAttr> coreGrid = std::nullopt);
+};
+
+//===----------------------------------------------------------------------===//
 // ClampScalarOp
 //===----------------------------------------------------------------------===//
 
@@ -1759,6 +1789,23 @@ struct OpModel<TopKOp> {
                                              TTNNLayoutAttr inputLayout, int k,
                                              int dim, bool largest, bool sorted,
                                              TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// MeshPartitionOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<MeshPartitionOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, int32_t dim,
+      std::optional<uint32_t> clusterAxis, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               int32_t dim, std::optional<uint32_t> clusterAxis,
+               TTNNLayoutAttr outputLayout);
 };
 
 } // namespace mlir::tt::ttnn::op_model

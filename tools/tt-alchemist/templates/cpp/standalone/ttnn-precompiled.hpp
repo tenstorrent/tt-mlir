@@ -15,7 +15,7 @@
 #include "ttnn/operations/conv/conv_transpose2d/conv_transpose2d.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/core/core.hpp"
-#include "ttnn/operations/creation.hpp"
+#include "ttnn/operations/creation/creation.hpp"
 #include "ttnn/operations/data_movement/concat/concat.hpp"
 #include "ttnn/operations/data_movement/pad/pad.hpp"
 #include "ttnn/operations/data_movement/permute/permute.hpp"
@@ -76,8 +76,8 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static constexpr std::size_t l1SmallSize = 1 << 15;     // 32kB
-  static constexpr std::size_t traceRegionSize = 1 << 20; // 1MB
+  static constexpr std::size_t l1SmallSize = 1 << 15; // 32kB
+  static constexpr std::size_t traceRegionSize = 0;
 
   static ttnn::MeshDevice *getInstance() {
     // If we have an external device, use it.

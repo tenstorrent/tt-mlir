@@ -35,6 +35,7 @@ struct ShardSpec;
 struct CoreRangeSet;
 struct CoreRange;
 struct CoreCoord;
+struct CoreGrid;
 
 struct DataType;
 struct TensorMemoryLayout;
@@ -91,11 +92,17 @@ namespace prim {
 struct LayerNormShardedMultiCoreProgramConfig;
 } // namespace prim
 
+namespace experimental::prim {
+struct Conv3dConfig;
+} // namespace experimental::prim
 } // namespace ttnn
 
 namespace mlir {
 namespace tt {
 namespace ttnn_to_emitpy {
+
+constexpr const char *kNameAttr = "emitpy.name";
+constexpr const char *kConstEvaledAttr = "emitpy.const_evaled";
 
 template <typename T, typename Enable = void>
 struct TypeName;
@@ -136,6 +143,11 @@ struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
 template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
   inline static const std::string value = "ttnn.Conv2dSliceConfig";
+};
+
+template <>
+struct TypeName<::ttnn::experimental::prim::Conv3dConfig> {
+  inline static const std::string value = "ttnn.Conv3dConfig";
 };
 
 template <>
@@ -212,6 +224,11 @@ struct TypeName<std::set<T>> {
 template <>
 struct TypeName<::ttnn::CoreCoord> {
   inline static const std::string value = "ttnn.CoreCoord";
+};
+
+template <>
+struct TypeName<::ttnn::CoreGrid> {
+  inline static const std::string value = "ttnn.CoreGrid";
 };
 
 template <>
@@ -535,6 +552,34 @@ struct EmitPyTypeConverter<::ttnn::CoreCoord> {
 };
 
 template <>
+struct EmitPyTypeConverter<::ttnn::CoreGrid> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto coreCoordAttr =
+            mlir::dyn_cast_if_present<ttnn::CoreCoordAttr>(attr)) {
+      return convert(coreCoordAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::CoreCoordAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::CoreGrid>;
+    rso << "(x=";
+    rso << EmitPyTypeConverter<size_t>::convert(attr.getX()) << ", y=";
+    rso << EmitPyTypeConverter<size_t>::convert(attr.getY());
+    rso << ")";
+
+    return buf;
+  }
+};
+
+template <>
 struct EmitPyTypeConverter<::ttnn::CoreRange> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto coreRangeAttr =
@@ -601,6 +646,14 @@ struct EmitPyTypeConverter<::ttnn::DataType> {
       return convert(dataTypeAttr);
     }
     return {};
+  }
+
+  static std::string convert(ttcore::DataTypeAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    return convert(attr.getValue());
   }
 
   static std::string convert(ttcore::DataType attr) {
@@ -684,6 +737,9 @@ struct EmitPyTypeConverter<::ttnn::TensorMemoryLayout> {
       break;
     case ttnn::TensorMemoryLayout::WidthSharded:
       rso << "WIDTH_SHARDED";
+      break;
+    case ttnn::TensorMemoryLayout::NDSharded:
+      rso << "ND_SHARDED";
       break;
     }
 
@@ -1512,6 +1568,71 @@ struct EmitPyTypeConverter<
   }
 };
 
+template <>
+struct EmitPyTypeConverter<::ttnn::experimental::prim::Conv3dConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto conv3dConfigAttr =
+            mlir::dyn_cast_if_present<ttnn::Conv3dConfigAttr>(attr)) {
+      return convert(conv3dConfigAttr);
+    }
+    // Ensure Conv3dConfig is always materialized so runtime receives a valid
+    // config object even when Conv3dConfigAttr is absent.
+    return convert(ttnn::Conv3dConfigAttr{});
+  }
+
+  static std::string convert(ttnn::Conv3dConfigAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    bool firstElement = true;
+    rso << TypeNameV<::ttnn::experimental::prim::Conv3dConfig> << "(";
+    if (attr) {
+      if (attr.getWeightsDtype()) {
+        rso << (firstElement ? "" : ", ") << "weights_dtype="
+            << EmitPyTypeConverter<::ttnn::DataType>::convert(
+                   *attr.getWeightsDtype());
+        firstElement = false;
+      }
+      if (attr.getTOutBlock()) {
+        rso << (firstElement ? "" : ", ")
+            << "T_out_block=" << *attr.getTOutBlock();
+        firstElement = false;
+      }
+      if (attr.getWOutBlock()) {
+        rso << (firstElement ? "" : ", ")
+            << "W_out_block=" << *attr.getWOutBlock();
+        firstElement = false;
+      }
+      if (attr.getHOutBlock()) {
+        rso << (firstElement ? "" : ", ")
+            << "H_out_block=" << *attr.getHOutBlock();
+        firstElement = false;
+      }
+      if (attr.getCOutBlock()) {
+        rso << (firstElement ? "" : ", ")
+            << "C_out_block=" << *attr.getCOutBlock();
+        firstElement = false;
+      }
+      if (attr.getCInBlock()) {
+        rso << (firstElement ? "" : ", ")
+            << "C_in_block=" << *attr.getCInBlock();
+        firstElement = false;
+      }
+      if (attr.getComputeWithStorageGridSize()) {
+        // The grid shape is (x,y) in the Python API, but the CoreCoord is (y,
+        // x) in the C++ API.
+        auto gridAttr = *attr.getComputeWithStorageGridSize();
+        rso << (firstElement ? "" : ", ")
+            << "compute_with_storage_grid_size=ttnn.CoreCoord("
+            << gridAttr.getShape()[1] << ", " << gridAttr.getShape()[0] << ")";
+      }
+    }
+
+    rso << ")";
+    return buf;
+  }
+};
+
 // MatmulMultiCoreReuseProgramConfig converter
 template <>
 struct EmitPyTypeConverter<
@@ -1923,6 +2044,11 @@ struct TTNNTarget<tt::ttnn::Conv2dSliceConfigAttr> {
 };
 
 template <>
+struct TTNNTarget<mlir::tt::ttnn::Conv3dConfigAttr> {
+  using type = ::ttnn::experimental::prim::Conv3dConfig;
+};
+
+template <>
 struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
   using type = ::ttnn::WormholeComputeKernelConfig;
 };
@@ -2201,6 +2327,14 @@ public:
             layoutAttr, deviceOp.getDeviceAttr().getWorkerGrid()));
 
     return memoryConfigAttr;
+  }
+
+  ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
+    auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    return ttcore::DataTypeAttr::get(resultLayoutAttr.getContext(),
+                                     resultLayoutAttr.getDataType());
   }
 
   template <typename OpConversionPatternTy>

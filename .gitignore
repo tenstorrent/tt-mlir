@@ -5,7 +5,7 @@ third_party/ttnn-python
 .DS_STORE
 .vscode/*
 .cache
-.claude/*
+.claude/settings.local.json
 *pycache*
 *.egg-info
 cluster_descriptor.yaml

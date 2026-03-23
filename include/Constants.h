@@ -13,6 +13,9 @@ namespace tt::constants {
 // This reserves a region of L1 memory for L1_SMALL buffers used by convs.
 constexpr static std::size_t L1_SMALL_SIZE = 1 << 16;
 
+// Use dynamic trace region (size = 0).
+static constexpr size_t opModelDefaultTraceRegionSize = 0;
+
 } // namespace tt::constants
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_CONSTANTS_H

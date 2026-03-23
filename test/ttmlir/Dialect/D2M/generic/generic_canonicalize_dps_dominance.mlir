@@ -21,18 +21,22 @@ func.func @canonicalize_with_multiple_reserves(%arg0: tensor<1x1x1x1x!ttcore.til
   %0 = d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
 
   // CHECK: d2m.generic
-  // CHECK: ^compute0(%[[CB_IN:.*]]: !d2m.cb<{{.*}}>, %[[CB_OUT:.*]]: !d2m.cb<{{.*}}>):
+  // CHECK: %[[CB_IN:.*]] = d2m.get_cb(0)
+  // CHECK-NEXT: %[[CB_OUT:.*]] = d2m.get_cb(1)
   // CHECK-NEXT: d2m.wait %[[CB_IN]]
   // CHECK-NEXT: %[[RESERVE:.*]] = d2m.reserve %[[CB_OUT]]
+  // CHECK-NEXT: %[[EMPTY:.*]] = d2m.empty()
   // CHECK-NEXT: %[[RESULT:.*]] = linalg.generic
-  // CHECK-SAME: outs(%[[RESERVE]] :
+  // CHECK-SAME: outs(%[[EMPTY]] :
   // CHECK: d2m.store %[[RESERVE]], %[[RESULT]]
   // CHECK: %[[WAIT:.*]] = d2m.wait %[[CB_OUT]]
   // CHECK: d2m.yield %[[WAIT]]
   %1 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
       ins(%arg0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
       outs(%0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)  {
-  ^compute0(%cb_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
+  ^compute0:
+    %cb_in = d2m.get_cb(0) : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>
+    %cb_out = d2m.get_cb(1) : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>
     %in = d2m.wait %cb_in : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %out1 = d2m.reserve %cb_out : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %temp = d2m.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
@@ -64,7 +68,8 @@ func.func @no_canonicalization_without_dominating_op(%arg0: tensor<1x1x1x1x!ttco
   %0 = d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
 
   // CHECK: d2m.generic
-  // CHECK: ^compute0(%[[CB_IN:.*]]: !d2m.cb<{{.*}}>, %[[CB_OUT:.*]]: !d2m.cb<{{.*}}>):
+  // CHECK: %[[CB_IN:.*]] = d2m.get_cb(0)
+  // CHECK-NEXT: %[[CB_OUT:.*]] = d2m.get_cb(1)
   // CHECK-NEXT: d2m.wait %[[CB_IN]]
   // CHECK-NEXT: %[[EMPTY:.*]] = d2m.empty()
   // CHECK-NEXT: %[[RESULT:.*]] = linalg.generic
@@ -75,7 +80,9 @@ func.func @no_canonicalization_without_dominating_op(%arg0: tensor<1x1x1x1x!ttco
   %1 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
       ins(%arg0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
       outs(%0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)  {
-  ^compute0(%cb_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
+  ^compute0:
+    %cb_in = d2m.get_cb(0) : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>
+    %cb_out = d2m.get_cb(1) : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>
     %in = d2m.wait %cb_in : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %temp = d2m.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
     %result = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]}
@@ -113,15 +120,19 @@ func.func @test_nested_in_loop(%arg0: tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #
   %1 = scf.for %i = %c0 to %c2 step %c1 iter_args(%iter_arg = %0) -> (tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>) {
     // d2m.generic nested inside scf.for - exercises parent chain walk
     // CHECK: d2m.generic
-    // CHECK: ^compute0(%[[CB_IN:.*]]: !d2m.cb<{{.*}}>, %[[CB_OUT:.*]]: !d2m.cb<{{.*}}>):
+    // CHECK: %[[CB_IN:.*]] = d2m.get_cb(0)
+    // CHECK-NEXT: %[[CB_OUT:.*]] = d2m.get_cb(1)
     // CHECK-NEXT: d2m.wait %[[CB_IN]]
     // CHECK-NEXT: %[[RESERVE:.*]] = d2m.reserve %[[CB_OUT]]
-    // CHECK-NEXT: linalg.generic
-    // CHECK-SAME: outs(%[[RESERVE]] :
+  // CHECK-NEXT: %[[EMPTY:.*]] = d2m.empty()
+  // CHECK-NEXT: linalg.generic
+  // CHECK-SAME: outs(%[[EMPTY]] :
     %2 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
         ins(%arg0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
         outs(%iter_arg : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)  {
-    ^compute0(%cb_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
+    ^compute0:
+      %cb_in = d2m.get_cb(0) : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>
+      %cb_out = d2m.get_cb(1) : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>
       %in = d2m.wait %cb_in : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
       %reserve = d2m.reserve %cb_out : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
       %temp = d2m.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
@@ -156,14 +167,17 @@ func.func @canonicalize_dps_cross_block_dominance(%arg0: tensor<1x1x1x1x!ttcore.
   %empty = d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
 
   // CHECK: d2m.generic
-  // CHECK: ^compute0(%[[CB_IN:.*]]: !d2m.cb<{{.*}}>, %[[CB_OUT:.*]]: !d2m.cb<{{.*}}>):
+  // CHECK: %[[CB_IN:.*]] = d2m.get_cb(0)
+  // CHECK-NEXT: %[[CB_OUT:.*]] = d2m.get_cb(1)
   // Entry block: create wait/reserve before branching
   // CHECK-NEXT: d2m.wait %[[CB_IN]]
   // CHECK-NEXT: %[[RESERVE:.*]] = d2m.reserve %[[CB_OUT]]
   %result = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
       ins(%arg0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
       outs(%empty : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)  {
-  ^compute0(%cb_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
+  ^compute0:
+    %cb_in = d2m.get_cb(0) : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>
+    %cb_out = d2m.get_cb(1) : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>
     %in = d2m.wait %cb_in : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %reserve = d2m.reserve %cb_out : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %temp = d2m.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
@@ -171,8 +185,9 @@ func.func @canonicalize_dps_cross_block_dominance(%arg0: tensor<1x1x1x1x!ttcore.
     // Create a new block (then branch) to host the DPS op, ensuring cross-block dominance is required.
     %ctrue = arith.constant true
     scf.if %ctrue {
-      // CHECK: %[[GEN:.*]] = linalg.generic
-      // CHECK-SAME: outs(%[[RESERVE]] :
+      // CHECK: %[[EMPTY:.*]] = d2m.empty()
+      // CHECK-NEXT: %[[GEN:.*]] = linalg.generic
+      // CHECK-SAME: outs(%[[EMPTY]] :
       %gen = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]}
           ins(%in : tensor<1x1x!ttcore.tile<32x32, f32>>)
           outs(%temp : tensor<1x1x!ttcore.tile<32x32, f32>>) {

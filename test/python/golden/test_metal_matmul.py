@@ -244,7 +244,6 @@ def test_matmul_ttnn_shapes_double_buffered(
     )
 
 
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -255,7 +254,7 @@ def test_matmul_ttnn_shapes_double_buffered(
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_matmul_1d_shapes(
     shape: tuple[int, ...],
@@ -264,6 +263,9 @@ def test_matmul_1d_shapes(
     request,
     device,
 ):
+    if dtype == torch.float32 and shape in ((32768, 32, 32), (32, 32, 32768)):
+        pytest.xfail(reason="Too large for f32.")
+
     lhs = (
         shape[0],
         shape[1],

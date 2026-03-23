@@ -46,6 +46,8 @@ def test_to_layout(
     )
 
     def module(builder: D2MBuilder):
+        golden = torch.randn(shape)
+
         @builder.func([shape], [torch.float32])
         def to_layout(
             in0: Operand,
@@ -70,6 +72,7 @@ def test_to_layout(
                 unit_attrs=unit_attrs,
                 loc="from_device",
             )
+            builder.set_goldens({in0: golden}, {from_device: golden})
             return from_device
 
     compile_and_execute_d2m(
@@ -100,6 +103,8 @@ def test_view_materialization_on_return(
     shape = (64, 64)
 
     def module(builder: D2MBuilder):
+        golden = torch.randn(shape)
+
         @builder.func([shape], [torch.float32])
         def view_return_test(
             in0: Operand,
@@ -132,6 +137,9 @@ def test_view_materialization_on_return(
                 unit_attrs=unit_attrs,
                 loc="from_device",
             )
+
+            builder.set_goldens({in0: golden}, {from_device: golden})
+
             return from_device
 
     compile_and_execute_d2m(
@@ -179,6 +187,8 @@ def test_chained_view_composition(
     shape = (128, 128)
 
     def module(builder: D2MBuilder):
+        golden = torch.randn(shape)
+
         @builder.func([shape], [torch.float32])
         def chained_views(
             in0: Operand,
@@ -219,6 +229,9 @@ def test_chained_view_composition(
                 unit_attrs=unit_attrs,
                 loc="from_device",
             )
+
+            builder.set_goldens({in0: golden}, {from_device: golden})
+
             return from_device
 
     compile_and_execute_d2m(
@@ -256,6 +269,8 @@ def test_view_with_padding(
     """
 
     def module(builder: D2MBuilder):
+        golden = torch.randn(shape)
+
         @builder.func([shape], [torch.float32])
         def view_with_padding(
             in0: Operand,
@@ -287,6 +302,9 @@ def test_view_with_padding(
                 unit_attrs=unit_attrs,
                 loc="from_device",
             )
+
+            builder.set_goldens({in0: golden}, {from_device: golden})
+
             return from_device
 
     compile_and_execute_d2m(
@@ -323,6 +341,8 @@ def test_multiple_grid_reblocks(
     shape = (128, 128)
 
     def module(builder: D2MBuilder):
+        golden = torch.randn(shape)
+
         @builder.func([shape], [torch.float32])
         def multiple_reblocks(
             in0: Operand,
@@ -354,6 +374,9 @@ def test_multiple_grid_reblocks(
                 unit_attrs=unit_attrs,
                 loc="from_device",
             )
+
+            builder.set_goldens({in0: golden}, {from_device: golden})
+
             return from_device
 
     compile_and_execute_d2m(
@@ -390,6 +413,8 @@ def test_tiled_grid_reblocking(
     shape = (256, 256)
 
     def module(builder: D2MBuilder):
+        golden = torch.randn(shape)
+
         @builder.func([shape], [torch.float32])
         def tiled_reblock(
             in0: Operand,
@@ -443,6 +468,9 @@ def test_tiled_grid_reblocking(
                 unit_attrs=unit_attrs,
                 loc="from_device",
             )
+
+            builder.set_goldens({in0: golden}, {from_device: golden})
+
             return from_device
 
     compile_and_execute_d2m(
