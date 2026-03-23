@@ -15,13 +15,16 @@ from __future__ import annotations
 from typing import Dict, Callable, Any, Optional, Union, List, Tuple, Iterable, Iterator
 import itertools
 import operator
-import re
 import einops
 import torch
 import torch.nn.functional
 from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore, sdy, debug
 from ttmlir.ir import *
 from ttmlir.passes import DataType
+from builder.base.builder_utils import (
+    parse_quantized_type,
+    normalize_quantized_dimension,
+)
 
 
 class GoldenMapTensor:
@@ -272,9 +275,11 @@ class GoldenMapTensor:
 
             def func(*a, **kw):
                 a = tuple(
-                    x.float()
-                    if isinstance(x, torch.Tensor) and x.dtype == torch.bfloat16
-                    else x
+                    (
+                        x.float()
+                        if isinstance(x, torch.Tensor) and x.dtype == torch.bfloat16
+                        else x
+                    )
                     for x in a
                 )
                 result = _orig_func(*a, **kw)
@@ -1837,6 +1842,50 @@ def requantize_golden(
     return torch.quantize_per_tensor(
         torch.dequantize(input_tensor), scale, zero_point, dtype
     )
+
+
+def stablehlo_uniform_quantize_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    quantized_type = parse_quantized_type(output_type_mlir)
+    if quantized_type is None:
+        raise TypeError(f"Expected quantized MLIR type, got: {output_type_mlir}")
+    source_tensor = (
+        torch.dequantize(input_tensor)
+        if getattr(input_tensor, "is_quantized", False)
+        else input_tensor
+    )
+
+    quantized_dimension = quantized_type["quantized_dimension"]
+    if quantized_dimension is None:
+        return torch.quantize_per_tensor(
+            source_tensor,
+            quantized_type["scales"][0],
+            quantized_type["zero_points"][0],
+            quantized_type["storage_dtype"],
+        )
+
+    quantized_dimension = normalize_quantized_dimension(
+        quantized_dimension, source_tensor.dim()
+    )
+    return torch.quantize_per_channel(
+        source_tensor,
+        torch.tensor(quantized_type["scales"], dtype=torch.float32),
+        torch.tensor(quantized_type["zero_points"], dtype=torch.int64),
+        quantized_dimension,
+        quantized_type["storage_dtype"],
+    )
+
+
+def stablehlo_uniform_dequantize_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    if not getattr(input_tensor, "is_quantized", False):
+        raise ValueError(
+            "stablehlo_uniform_dequantize_golden expects a quantized input tensor"
+        )
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.dequantize(input_tensor).to(output_dtype)
 
 
 def logical_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
@@ -6797,6 +6846,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.CollectivePermuteOp: stablehlo_collective_permute_golden,
     stablehlo.AllToAllOp: stablehlo_all_to_all_golden,
     stablehlo.CollectiveBroadcastOp: stablehlo_collective_broadcast_golden,
+    # Quantization operations
+    stablehlo.UniformQuantizeOp: stablehlo_uniform_quantize_golden,
+    stablehlo.UniformDequantizeOp: stablehlo_uniform_dequantize_golden,
     # ----- SDY OPS -----
     sdy.ShardingConstraintOp: sdy_sharding_constraint_golden,
     sdy.ReshardOp: sdy_reshard_golden,

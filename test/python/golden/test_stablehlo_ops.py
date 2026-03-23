@@ -5,12 +5,19 @@
 import pytest
 import torch
 from conftest import get_request_kwargs
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional
 from collections import OrderedDict
 
-from builder.base.builder_utils import Operand, Shape
+from ttmlir.ir import Context, Location, Module
+from ttmlir.dialects import func
+from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_apis import compile_and_execute_shlo
+from golden.mapping import (
+    GoldenMapTensor,
+    stablehlo_uniform_dequantize_golden,
+    stablehlo_uniform_quantize_golden,
+)
 from test_utils import shape_str, Marks
 
 pytestmark = pytest.mark.frontend("shlo")
@@ -2073,6 +2080,203 @@ def test_convolution_groups_dilation(
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
     )
+
+
+# ----- Quantization Operations Tests -----
+
+QINT32_PER_TENSOR = TypeInfo(torch.qint32, 0.1, 0)
+
+
+def module_uniform_quantize(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def uniform_quantize(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.uniform_quantize(
+            in0,
+            output_type=QINT32_PER_TENSOR,
+            unit_attrs=unit_attrs,
+        )
+
+
+def module_uniform_dequantize(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [QINT32_PER_TENSOR])
+    def uniform_dequantize(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.uniform_dequantize(
+            in0,
+            output_type=torch.float32,
+            unit_attrs=unit_attrs,
+        )
+
+
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        pytest.param(
+            module_uniform_quantize,
+            id="uniform_quantize",
+            marks=pytest.mark.xfail(
+                reason="Quantization ops not yet fully supported on TTNN backend"
+            ),
+        ),
+        pytest.param(
+            module_uniform_dequantize,
+            id="uniform_dequantize",
+            marks=pytest.mark.xfail(
+                reason="Quantization ops not yet fully supported on TTNN backend"
+            ),
+        ),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_quantization_ops(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+    )
+
+
+def _get_single_non_return_op(module: Module):
+    for func_op in module.body.operations:
+        if not isinstance(func_op, func.FuncOp):
+            continue
+        for block in func_op.body:
+            for op in block.operations:
+                if not isinstance(op, func.ReturnOp):
+                    return op
+    raise AssertionError("Expected a single non-return operation")
+
+
+def test_uniform_quantize_golden_supports_per_axis_qint32():
+    mlir_text = """
+    func.func @main(%arg0: tensor<2x3xf32>) -> tensor<2x3x!quant.uniform<i32:f32:1, {5.000000e-01:0,1.000000e+00:1,2.000000e+00:2}>> {
+      %0 = stablehlo.uniform_quantize %arg0 : (tensor<2x3xf32>) -> tensor<2x3x!quant.uniform<i32:f32:1, {5.000000e-01:0,1.000000e+00:1,2.000000e+00:2}>>
+      return %0 : tensor<2x3x!quant.uniform<i32:f32:1, {5.000000e-01:0,1.000000e+00:1,2.000000e+00:2}>>
+    }
+    """
+
+    with Context() as ctx, Location.unknown():
+        module = Module.parse(mlir_text, ctx)
+        quantize_op = _get_single_non_return_op(module)
+        output_type = quantize_op.result.type.element_type
+        input_tensor = torch.tensor(
+            [[0.0, 1.0, 4.0], [0.5, -1.0, 2.0]], dtype=torch.float32
+        )
+        expected = torch.quantize_per_channel(
+            input_tensor,
+            torch.tensor([0.5, 1.0, 2.0], dtype=torch.float32),
+            torch.tensor([0, 1, 2], dtype=torch.int64),
+            1,
+            torch.qint32,
+        )
+
+        actual = stablehlo_uniform_quantize_golden(
+            GoldenMapTensor({0: input_tensor}, mesh_shape=(1, 1)),
+            output_type,
+        ).shard_map[0]
+
+        assert actual.is_quantized
+        assert actual.qscheme() == expected.qscheme()
+        torch.testing.assert_close(
+            actual.q_per_channel_scales(), expected.q_per_channel_scales()
+        )
+        torch.testing.assert_close(
+            actual.q_per_channel_zero_points(), expected.q_per_channel_zero_points()
+        )
+        assert actual.q_per_channel_axis() == expected.q_per_channel_axis()
+        torch.testing.assert_close(actual.int_repr(), expected.int_repr())
+
+
+def test_uniform_dequantize_golden_uses_quantization_parameters():
+    mlir_text = """
+    func.func @main(%arg0: tensor<2x2x!quant.uniform<i32:f32, 2.500000e-01:3>>) -> tensor<2x2xf32> {
+      %0 = stablehlo.uniform_dequantize %arg0 : (tensor<2x2x!quant.uniform<i32:f32, 2.500000e-01:3>>) -> tensor<2x2xf32>
+      return %0 : tensor<2x2xf32>
+    }
+    """
+
+    with Context() as ctx, Location.unknown():
+        module = Module.parse(mlir_text, ctx)
+        dequantize_op = _get_single_non_return_op(module)
+        output_type = dequantize_op.result.type.element_type
+        quantized_input = torch.quantize_per_tensor(
+            torch.tensor([[1.0, -0.5], [0.0, 2.5]], dtype=torch.float32),
+            0.25,
+            3,
+            torch.qint32,
+        )
+
+        actual = stablehlo_uniform_dequantize_golden(
+            GoldenMapTensor({0: quantized_input}, mesh_shape=(1, 1)),
+            output_type,
+        ).shard_map[0]
+
+        torch.testing.assert_close(
+            actual, torch.dequantize(quantized_input).to(torch.float32)
+        )
+
+
+def test_quantized_input_generation_validates_axis_bounds():
+    mlir_text = """
+    func.func private @main(%arg0: tensor<2x3x!quant.uniform<i32:f32:2, {5.000000e-01:0,1.000000e+00:1,2.000000e+00:2}>>)
+    """
+
+    with Context() as ctx, Location.unknown():
+        module = Module.parse(mlir_text, ctx)
+        func_op = next(
+            op for op in module.body.operations if isinstance(op, func.FuncOp)
+        )
+        builder = StableHLOBuilder(ctx, Location.unknown())
+
+        with pytest.raises(
+            ValueError, match=r"Per-axis quantized type dimension.*axis 2.*rank 2"
+        ):
+            builder.generate_golden_tensors(func_op)
+
+
+@pytest.mark.parametrize(
+    "mlir_text,op_name",
+    [
+        (
+            """
+            func.func @main(%arg0: tensor<2x3xf32>) -> tensor<2x3x!quant.uniform<i32:f32:1, {5.000000e-01:0,1.000000e+00:1,2.000000e+00:2}>> {
+              %0 = stablehlo.uniform_quantize %arg0 : (tensor<2x3xf32>) -> tensor<2x3x!quant.uniform<i32:f32:1, {5.000000e-01:0,1.000000e+00:1,2.000000e+00:2}>>
+              return %0 : tensor<2x3x!quant.uniform<i32:f32:1, {5.000000e-01:0,1.000000e+00:1,2.000000e+00:2}>>
+            }
+            """,
+            "stablehlo.uniform_quantize",
+        ),
+        (
+            """
+            func.func @main(%arg0: tensor<2x2x!quant.uniform<i32:f32, 2.500000e-01:3>>) -> tensor<2x2xf32> {
+              %0 = stablehlo.uniform_dequantize %arg0 : (tensor<2x2x!quant.uniform<i32:f32, 2.500000e-01:3>>) -> tensor<2x2xf32>
+              return %0 : tensor<2x2xf32>
+            }
+            """,
+            "stablehlo.uniform_dequantize",
+        ),
+    ],
+)
+def test_uniform_quantization_parse_and_split_roundtrip(mlir_text: str, op_name: str):
+    with Context() as ctx, Location.unknown():
+        module, builder = StableHLOBuilder.from_module(ctx, mlir_text)
+        assert op_name in str(module)
+
+        split_modules = StableHLOBuilder.split_module(module, builder)
+        assert len(split_modules) == 1
+        assert op_name in str(split_modules[0][0])
 
 
 @pytest.mark.parametrize("shape", [(128,)], ids=shape_str)

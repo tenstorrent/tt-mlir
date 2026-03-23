@@ -7,7 +7,6 @@ import inspect
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 import torch
 from enum import Enum, auto
-import re
 import os
 from collections import OrderedDict
 
@@ -22,6 +21,8 @@ from builder.base.builder_utils import (
     tag,
     parse,
     split,
+    parse_quantized_type,
+    normalize_quantized_dimension,
 )
 
 
@@ -366,12 +367,16 @@ class Builder(metaclass=BuilderMeta):
                 return DataType.Float16
             case torch.bfloat16:
                 return DataType.BFloat16
+            case torch.quint8:
+                return DataType.UInt8
             case torch.uint8:
                 return DataType.UInt8
             case torch.uint16:
                 return DataType.UInt16
             case torch.uint32:
                 return DataType.UInt32
+            case torch.qint8:
+                return DataType.Int8
             case torch.int32 | torch.qint32:
                 return DataType.Int32
             case torch.int64:
@@ -464,6 +469,50 @@ class Builder(metaclass=BuilderMeta):
             case _:
                 raise TypeError(f"Invalid Type {dtype}")
 
+    def _parse_quantized_type(self, mlir_type: Type) -> Optional[Dict[str, Any]]:
+        return parse_quantized_type(mlir_type)
+
+    def _generate_quantized_tensor_from_mlir_type(
+        self, shape: Shape, mlir_type: Type
+    ) -> torch.Tensor:
+        quantized_type = self._parse_quantized_type(mlir_type)
+        if quantized_type is None:
+            raise TypeError(f"Expected quantized MLIR type, got: {mlir_type}")
+
+        float_tensor = torch.randn(shape, dtype=quantized_type["expressed_dtype"])
+        quantized_dimension = quantized_type["quantized_dimension"]
+        if quantized_dimension is None:
+            return torch.quantize_per_tensor(
+                float_tensor,
+                quantized_type["scales"][0],
+                quantized_type["zero_points"][0],
+                quantized_type["storage_dtype"],
+            )
+
+        quantized_dimension = normalize_quantized_dimension(
+            quantized_dimension, len(shape)
+        )
+        if shape[quantized_dimension] != len(quantized_type["scales"]):
+            raise ValueError(
+                "Per-axis quantized type scale count must match the quantized dimension "
+                f"size. Expected {shape[quantized_dimension]}, "
+                f"got {len(quantized_type['scales'])}."
+            )
+
+        return torch.quantize_per_channel(
+            float_tensor,
+            torch.tensor(quantized_type["scales"], dtype=torch.float32),
+            torch.tensor(quantized_type["zero_points"], dtype=torch.int64),
+            quantized_dimension,
+            quantized_type["storage_dtype"],
+        )
+
+    def _get_expressed_type_from_quantized_type(self, mlir_type: Type) -> Type:
+        quantized_type = self._parse_quantized_type(mlir_type)
+        if quantized_type is None:
+            raise TypeError(f"Expected quantized MLIR type, got: {mlir_type}")
+        return self._get_type_from_torch_dtype(quantized_type["expressed_dtype"])
+
     def _get_torch_dtype_from_type(self, mlir_type: Type) -> torch.dtype:
         """Convert MLIR Type to torch.dtype.
         Parameters
@@ -476,6 +525,9 @@ class Builder(metaclass=BuilderMeta):
             Corresponding torch dtype
         """
         type_str = str(mlir_type)
+        quantized_type = self._parse_quantized_type(mlir_type)
+        if quantized_type is not None:
+            return quantized_type["storage_dtype"]
 
         if isinstance(mlir_type, BF16Type) or type_str == "bf16":
             return torch.bfloat16
@@ -940,6 +992,10 @@ class Builder(metaclass=BuilderMeta):
         return golden_inputs
 
     def generate_random_tensor(self, shape: Shape, dtype: Type) -> torch.Tensor:
+        quantized_type = self._parse_quantized_type(dtype)
+        if quantized_type is not None:
+            return self._generate_quantized_tensor_from_mlir_type(shape, dtype)
+
         torch_dtype = self._get_torch_dtype_from_type(dtype)
 
         if torch_dtype.is_floating_point or torch_dtype.is_complex:
@@ -1070,9 +1126,9 @@ class Builder(metaclass=BuilderMeta):
             ):
                 golden_dict[operand] = torch_golden_dictionary
 
-            input_goldens: Dict[
-                Operand, GoldenMapTensor
-            ] = self._create_builder_golden_from_torch_tensor(golden_dict)
+            input_goldens: Dict[Operand, GoldenMapTensor] = (
+                self._create_builder_golden_from_torch_tensor(golden_dict)
+            )
             self._set_goldens(input_goldens)
             ordered_inputs.extend(inputs)
 
