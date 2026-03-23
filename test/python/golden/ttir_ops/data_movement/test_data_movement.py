@@ -371,6 +371,11 @@ def test_cpu_hoistable_reshape_op(
         ((4, 5, 32, 64), [1, 2, 0, 0], [3, 4, 32, 64], [1, 1, 1, 1]),
         ((8, 6, 64, 32), [2, 1, 0, 0], [6, 5, 64, 32], [1, 1, 1, 1]),
         ((2, 4, 3, 32, 64), [0, 1, 1, 0, 0], [2, 3, 2, 32, 64], [1, 1, 1, 1, 1]),
+        # Simple 1D
+        ((64,), [0], [32], None),
+        # Strided 1D
+        ((70,), [3], [62], [7]),
+        ((2048,), [0], [2048], [3]),
         # Simple 2D
         ((64, 64), [0, 0], [32, 32], None),
         # Crop 2D
@@ -379,7 +384,17 @@ def test_cpu_hoistable_reshape_op(
         ((192, 64), [2, 0], [192, 64], [3, 1]),
         ((64, 192), [0, 2], [64, 192], [1, 3]),
         # Sample large 2D tensors
-        ((32, 131072), [0, 3], [32, 128 * 991], [2, 991]),
+        pytest.param(
+            (32, 131072),
+            [0, 3],
+            [32, 128 * 991],
+            [2, 991],
+            marks=pytest.mark.skip_config(
+                ["ttmetal", "p150"],
+                ["ttmetal", "p300"],
+                reason="L1 memory usage exceeds capacity #7559",
+            ),
+        ),
         ((131072, 32), [5, 1], [128 * 997, 32], [997, 2]),
         ((1024, 1024), [3, 2], [64 * 11, 64 * 13], [11, 13]),
         # Simple 3D
@@ -410,31 +425,24 @@ def test_cpu_hoistable_reshape_op(
         ((3, 20, 14, 64, 64), [1, 5, 6, 31, 32], [2, 6, 7, 32, 33], None),
     ],
 )
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_slice(
     shape: Shape,
     begins: List[int],
     ends: List[int],
     step: List[int],
+    dtype: torch.dtype,
     target: str,
     request,
     device,
 ):
     def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
+        @builder.func([shape], [dtype])
         def slice_wrapper(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
             return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
-
-    # NoC alignment is at least 16B => must align to 4 floats.
-    special_dma = (begins[-1] % 4 != 0) or (step is not None and step[-1] != 1)
-    if target == "ttmetal" and special_dma:
-        request.node.add_marker(
-            pytest.mark.xfail(
-                reason="Unaligned and/or strided DMA in the last dim #6475", run=True
-            )
-        )
 
     compile_and_execute_ttir(
         module,
