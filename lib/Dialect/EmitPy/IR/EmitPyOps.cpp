@@ -872,21 +872,19 @@ void AssignOp::getEffects(
 }
 
 LogicalResult AssignOp::verify() {
-  // Check if the target is a subscript operation
-  Operation *definingOp = getTarget().getDefiningOp();
-  if (definingOp && isa_and_nonnull<SubscriptOp>(definingOp)) {
-    // Allow subscript assignment inside an expression block
-    if (!isa_and_nonnull<ExpressionOp>(getOperation()->getParentOp())) {
-      return emitOpError()
-             << "subscript assignment (e.g., dict[key] = value) must be "
-                "wrapped in emitpy.expression. "
-             << "Example: emitpy.expression(%dict, %key, %value) : "
-                "(!emitpy.dict, index, T) -> !emitpy.opaque<\"None\"> { "
-                "^bb0(%d: !emitpy.dict, %k: index, %v: T): "
-                "%sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> T; "
-                "emitpy.assign %sub = %v : (T, T); "
-                "%none = emitpy.constant ... : !emitpy.opaque<\"None\">; "
-                "emitpy.yield %none : !emitpy.opaque<\"None\"> }";
+  auto targetType = getTarget().getType();
+  auto valueType = getValue().getType();
+  if (targetType != valueType) {
+    return emitOpError() << "target type (" << targetType
+                         << ") does not match value type (" << valueType << ")";
+  }
+
+  if (auto opaqueTargetType = dyn_cast<emitpy::OpaqueType>(targetType)) {
+    auto opaqueValueType = dyn_cast<emitpy::OpaqueType>(valueType);
+    if (opaqueTargetType.getValue() != opaqueValueType.getValue()) {
+      return emitOpError() << "target type (" << opaqueTargetType
+                           << ") does not match value type (" << opaqueValueType
+                           << ")";
     }
   }
 
@@ -978,53 +976,20 @@ LogicalResult ExpressionOp::verify() {
     return emitOpError("requires yielded type to match return type");
   }
 
-  // Check if this is a subscript assignment pattern
-  bool isSubscriptAssignment = false;
-
   for (Operation &op : region.front().without_terminator()) {
-    if (auto assignOp = dyn_cast<AssignOp>(&op)) {
-      if (auto subscriptOp = dyn_cast_or_null<SubscriptOp>(
-              assignOp.getTarget().getDefiningOp())) {
-        isSubscriptAssignment = true;
-        break;
-      }
+    auto expressionInterface = dyn_cast<PyExpressionInterface>(op);
+    // Ensure each operation implements the expression interface
+    if (!expressionInterface) {
+      return emitOpError("contains an unsupported operation");
     }
-  }
-
-  // For subscript assignment pattern, verify it contains exactly the expected
-  // ops: one SubscriptOp, one AssignOp targeting it, and one constant for the
-  // yield. The translator only emits the AssignOp, so any other operations
-  // would be silently dropped.
-  if (isSubscriptAssignment) {
-    unsigned nonTerminatorCount = 0;
-    for (Operation &op : region.front().without_terminator()) {
-      ++nonTerminatorCount;
-      if (!isa<SubscriptOp, AssignOp, ConstantOp>(op)) {
-        return emitOpError("subscript assignment expression must only contain "
-                           "subscript, assign, and constant operations");
-      }
+    // Ensure each operation has exactly one result
+    if (op.getNumResults() != 1) {
+      return emitOpError("requires exactly one result for each operation");
     }
-    if (nonTerminatorCount != 3) {
-      return emitOpError(
-          "subscript assignment expression must contain exactly three "
-          "operations (subscript, assign, constant) before the yield");
-    }
-  } else {
-    for (Operation &op : region.front().without_terminator()) {
-      auto expressionInterface = dyn_cast<PyExpressionInterface>(op);
-      // Ensure each operation implements the expression interface
-      if (!expressionInterface) {
-        return emitOpError("contains an unsupported operation");
-      }
-      // Ensure each operation has exactly one result
-      if (op.getNumResults() != 1) {
-        return emitOpError("requires exactly one result for each operation");
-      }
-      Value result = op.getResult(0);
-      // Ensure each operation's result is used at least once
-      if (result.use_empty()) {
-        return emitOpError("contains an unused operation");
-      }
+    Value result = op.getResult(0);
+    // Ensure each operation's result is used at least once
+    if (result.use_empty()) {
+      return emitOpError("contains an unused operation");
     }
   }
 

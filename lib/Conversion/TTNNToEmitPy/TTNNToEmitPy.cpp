@@ -2862,12 +2862,11 @@ static Value emitDictKey(ConversionPatternRewriter &rewriter, Location loc,
 //   [ttnn.Tensor]
 //
 // Then lowers to:
-//   emitpy.expression(%dict, %key, %val) -> !emitpy.opaque<"None"> {
-//     %sub = emitpy.subscript %dict[%key]
-//     emitpy.assign %sub = %val
-//     %none = emitpy.constant "None" : !emitpy.opaque<"None">
-//     emitpy.yield %none
+//   %sub = emitpy.expression(%dict, %key) {
+//     %s = emitpy.subscript %dict[%key]
+//     emitpy.yield %s
 //   }
+//   emitpy.assign %sub = %val
 //
 namespace {
 class TTCoreSetKeyValueOpConversionPattern
@@ -2880,42 +2879,36 @@ public:
   matchAndRewrite(mlir::tt::ttcore::SetKeyValueOp setKVOp,
                   mlir::tt::ttcore::SetKeyValueOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto *ctx = rewriter.getContext();
     Location loc = setKVOp.getLoc();
     Value key = emitDictKey(rewriter, loc, setKVOp.getKey());
 
-    auto dummyExpressionResultType = emitpy::OpaqueType::get(ctx, "None");
-
     // Pack values to set into a list.
-    auto tensorListType = emitpy::OpaqueType::get(ctx, "[ttnn.Tensor]");
+    auto tensorListType =
+        emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
     auto tensorListOp = rewriter.create<emitpy::CallOpaqueOp>(
         loc, tensorListType, ttnn_to_emitpy::kCreateListFunctionName,
         adaptor.getValues());
     auto value = tensorListOp.getResult(0);
 
-    SmallVector<Value> exprOperands = {adaptor.getDict(), key, value};
-    SmallVector<Type> exprOperandTypes = {adaptor.getDict().getType(),
-                                          key.getType(), value.getType()};
-    auto exprOp = rewriter.create<emitpy::ExpressionOp>(
-        loc, dummyExpressionResultType, exprOperands);
-    Block *expressionBodyBlock = rewriter.createBlock(&exprOp.getBody());
-    for (Type type : exprOperandTypes) {
-      expressionBodyBlock->addArgument(type, loc);
-    }
+    // Build an expression that computes the subscript lvalue.
+    SmallVector<Value> exprOperands = {adaptor.getDict(), key};
+    auto exprOp = rewriter.create<emitpy::ExpressionOp>(loc, value.getType(),
+                                                        exprOperands);
+    Block *body = rewriter.createBlock(&exprOp.getBody());
+    body->addArguments(adaptor.getDict().getType(), adaptor.getDict().getLoc());
+    body->addArguments(key.getType(), key.getLoc());
 
-    rewriter.setInsertionPointToStart(expressionBodyBlock);
-    auto dictArg = expressionBodyBlock->getArgument(0);
-    auto keyArg = expressionBodyBlock->getArgument(1);
-    auto valArg = expressionBodyBlock->getArgument(2);
+    rewriter.setInsertionPointToStart(body);
+    auto dictArg = body->getArgument(0);
+    auto keyArg = body->getArgument(1);
 
-    auto subOp = rewriter.create<emitpy::SubscriptOp>(loc, valArg.getType(),
+    auto subOp = rewriter.create<emitpy::SubscriptOp>(loc, value.getType(),
                                                       dictArg, keyArg);
-    rewriter.create<emitpy::AssignOp>(loc, subOp.getResult(), valArg);
+    rewriter.create<emitpy::YieldOp>(loc, subOp.getResult());
 
-    auto dummyExpressionResultValue = rewriter.create<emitpy::ConstantOp>(
-        loc, dummyExpressionResultType, emitpy::OpaqueAttr::get(ctx, "None"));
-    rewriter.create<emitpy::YieldOp>(loc,
-                                     dummyExpressionResultValue.getResult());
+    // Place the assign outside the expression.
+    rewriter.setInsertionPointAfter(exprOp);
+    rewriter.create<emitpy::AssignOp>(loc, exprOp.getResult(), value);
 
     rewriter.eraseOp(setKVOp);
     return success();
