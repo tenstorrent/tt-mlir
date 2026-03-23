@@ -549,6 +549,7 @@ public:
 
       // Process loops marked by LinalgToAffine pass.
       // Walk both affine.for and scf.for loops with d2m.linalg_root attribute.
+      bool foundLinalgRootLoop = false;
       block.walk([&](Operation *op) {
         Operation *loopOp = nullptr;
         Region *loopRegion = nullptr;
@@ -564,6 +565,8 @@ public:
         }
 
         if (loopOp && loopRegion) {
+          foundLinalgRootLoop = true;
+
           // Skip if already processed (prevents double processing in greedy
           // rewriter).
           if (loopOp->hasAttr("d2m.dst_access_inserted")) {
@@ -584,6 +587,16 @@ public:
 
         return WalkResult::advance();
       });
+
+      // Fallback: if the region has compute ops but no d2m.linalg_root loop,
+      // the loop was canonicalized away (e.g. single-iteration scf.for from
+      // DecomposeArange). Process the region directly with a null loop pointer.
+      if (!foundLinalgRootLoop && opTypes.hasComputeOps &&
+          !hasAcquireDstOp(*genericRegion)) {
+        modified |=
+            insertDstRegisterAccess(rewriter, gOp, *genericRegion, dstCapacity,
+                                    /*outermostInnerComputeLoop=*/nullptr);
+      }
     }
     return success(modified);
   }
@@ -621,8 +634,16 @@ public:
     // isScheduled = false:
     //     - goes through bump allocator, handles matmuls and reductions
     //     - creates 3 loop nests: (1) load (2) compute (3) store
-    bool isScheduled = outermostInnerComputeLoop->hasAttr("d2m.scheduled");
-    outermostInnerComputeLoop->removeAttr("d2m.scheduled");
+    // When outermostInnerComputeLoop is null the d2m.linalg_root scf.for was
+    // canonicalized away (trip count == 1) before this pass ran. The ops are
+    // flat in the block and were originally on the scheduled eltwise path, so
+    // treat them accordingly.
+    bool isScheduled = outermostInnerComputeLoop
+                           ? outermostInnerComputeLoop->hasAttr("d2m.scheduled")
+                           : true;
+    if (outermostInnerComputeLoop) {
+      outermostInnerComputeLoop->removeAttr("d2m.scheduled");
+    }
 
     Location loc = gOp.getLoc();
 
@@ -642,7 +663,9 @@ public:
     // For affine.for loops (including scheduled ones): insert before the loop
     // to maintain compatibility with linalg.generic bodies that can't access
     // values defined inside loop bodies.
-    bool isScfForLoop = isa<scf::ForOp>(outermostInnerComputeLoop);
+    // When outermostInnerComputeLoop is null (loop was canonicalized away),
+    // insertInsideLoop=false so acquire is placed before the compute ops.
+    bool isScfForLoop = isa_and_nonnull<scf::ForOp>(outermostInnerComputeLoop);
     AcquireDstOp acquireDst =
         insertAcquireDst(rewriter, loc, region, copyInfos,
                          outermostInnerComputeLoop, dstCapacity,

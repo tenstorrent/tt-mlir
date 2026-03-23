@@ -1529,7 +1529,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         Value operandAlloc =
             d2m::GenericOp::getOperandAlloc(region, allocIndex);
         TT_assertv(operandAlloc,
-                  "non-DMA-only generic must have per-operand alloc");
+                   "non-DMA-only generic must have per-operand alloc");
         Type cbUnderlyingType = operandAlloc.getType();
         // Unwrap CBType to get the underlying memref/tensor type.
         if (auto cbType = mlir::dyn_cast<d2m::CBType>(cbUnderlyingType)) {
