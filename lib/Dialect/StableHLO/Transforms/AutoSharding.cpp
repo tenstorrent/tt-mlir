@@ -25,7 +25,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <limits>
+#include <cmath>
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_AUTOSHARDINGPASS
@@ -635,7 +635,7 @@ private:
     MLIRContext *context = rootModule.getContext();
     ShardingCostModel costModel;
 
-    double bestCost = std::numeric_limits<double>::max();
+    double bestCost = INFINITY;
     size_t bestIdx = 0;
     bool anySucceeded = false;
 
@@ -686,19 +686,18 @@ private:
         dumpModuleToFile(clonedModule, cclPath);
       }
 
-      ShardingResult sr = costModel.evaluate(
-          clonedModule, analysis.configs[i], analysis.originalFuncOp,
-          analysis.meshAxisSize);
+      ShardingResult sr =
+          costModel.evaluate(clonedModule, analysis.configs[i],
+                             analysis.originalFuncOp, analysis.meshAxisSize);
       llvm::errs() << "AutoSharding: config " << i << " "
                    << formatConfig(analysis.configs[i])
                    << " comm=" << sr.communicationCost
-                   << " benefit=" << sr.memoryBenefit
-                   << " net=" << sr.netCost << "\n";
+                   << " benefit=" << sr.memoryBenefit << " net=" << sr.netCost
+                   << "\n";
 
       if (collectResults) {
         results.push_back({i, formatConfig(analysis.configs[i]), true,
-                           sr.netCost, sr.communicationCost,
-                           sr.memoryBenefit});
+                           sr.netCost, sr.communicationCost, sr.memoryBenefit});
       }
       anySucceeded = true;
       if (sr.netCost < bestCost) {

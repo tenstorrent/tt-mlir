@@ -59,10 +59,6 @@ struct StableHLOPipelineOptions
                      "directory)."),
       llvm::cl::init("")};
 
-  Option<bool> enableAggressiveSimplification{
-      *this, OptionNames::enableAggressiveSimplification,
-      llvm::cl::desc("Run StableHLO aggressive simplification pass.")};
-
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
           *this, ttcore::OptionNames::argumentTypes,

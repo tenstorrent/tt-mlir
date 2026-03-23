@@ -136,9 +136,7 @@ def preprocess_mlir(input_path: str, output_path: Path) -> None:
 
 def run_cmd(cmd: list[str], label: str, log_path: Path | None = None) -> bool:
     print(f"  [{label}] {' '.join(cmd)}")
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, errors="replace"
-    )
+    result = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
     if log_path:
         with open(log_path, "w") as f:
             f.write(f"=== COMMAND ===\n{' '.join(cmd)}\n\n")
@@ -179,9 +177,7 @@ def run_auto_sharding(
     print(f"  Dump dir: {dump_dir}")
     print(f"{'='*60}")
 
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, errors="replace"
-    )
+    result = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
     with open(log_path, "w") as f:
         f.write(f"=== COMMAND ===\n{' '.join(cmd)}\n\n")
         f.write(f"=== STDOUT ===\n{result.stdout}\n\n")
