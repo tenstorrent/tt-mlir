@@ -26,6 +26,13 @@ public:
       PermuteOp, ReduceOpType, commuteDirection>::TTIRCommuteOpRewritePattern;
 
   // Commute upwards: reduce(D, kd) → permute(P) ⟹ permute(P') → reduce(D', kd)
+  // Example:
+  // %0 = reduce(%arg0) {keep_dim = true, dim_arg = [2: i32, 3: i32]}
+  // %1 = permute(%0) <{permutation = array<i64: 0, 2, 3, 1>}>
+  //
+  // This method will transform this into:
+  // %0 = permute(%arg0) <{permutation = array<i64: 0, 2, 3, 1>}>
+  // %1 = reduce(%0) {keep_dim = true, dim_arg = [1: i32, 2: i32]}
   //
   // When keep_dim=true, P' = P and D' = P_inv(D) (rank is preserved).
   // When keep_dim=false, P operates on a lower rank than the reduce input.
@@ -64,6 +71,13 @@ public:
 
   // Commute downwards: permute(P) → reduce(D, kd) ⟹ reduce(D', kd) →
   // permute(P')
+  // Example:
+  // %0 = permute(%arg0) <{permutation = array<i64: 0, 3, 1, 2>}>
+  // %1 = reduce(%0) {keep_dim = true, dim_arg = [2: i32, 3: i32]}
+  //
+  // This method will transform this into:
+  // %0 = reduce(%arg0) {keep_dim = true, dim_arg = [1: i32, 2: i32]}
+  // %1 = permute(%0) <{permutation = array<i64: 0, 3, 1, 2>}>
   //
   // D' = P(D) in both cases.
   // When keep_dim=true, P' = P (rank is preserved).
@@ -220,7 +234,7 @@ private:
   }
 
   bool isCommuteUpwardsViable(ReduceOpType op, PermuteOp) const override {
-    return op.getDimArg().has_value();
+    return true;
   }
 
   bool isCommuteUpwardsFavorable(ReduceOpType op, PermuteOp) const override {
@@ -231,7 +245,7 @@ private:
   }
 
   bool isCommuteDownwardsViable(ReduceOpType op, PermuteOp) const override {
-    return op.getDimArg().has_value();
+    return true;
   }
 
   bool isCommuteDownwardsFavorable(ReduceOpType op,

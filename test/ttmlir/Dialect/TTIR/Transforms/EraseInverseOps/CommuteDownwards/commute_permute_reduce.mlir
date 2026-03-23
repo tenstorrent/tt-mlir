@@ -26,6 +26,7 @@ module {
         // CHECK: %[[REDUCE:[0-9]+]] = "ttir.mean"(%arg0
         // CHECK-SAME: dim_arg = [2 : i32]
         // CHECK: %[[PERMUTE:[0-9]+]] = "ttir.permute"(%[[REDUCE]]
+        // CHECK-SAME: permutation = array<i64: 0, 2, 1>
         // CHECK: return %[[PERMUTE]]
         %1 = "ttir.permute"(%arg0) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<2x3x4x5xbf16>) -> tensor<2x4x5x3xbf16>
         %3 = "ttir.mean"(%1) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<2x4x5x3xbf16>) -> tensor<2x5x3xbf16>
