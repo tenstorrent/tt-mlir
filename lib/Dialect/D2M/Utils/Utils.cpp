@@ -441,10 +441,6 @@ std::optional<AffineMap> getAssociatedRemapping(Value val) {
     AffineMap map = viewOp.getRemapping();
     return map;
   }
-  if (auto streamOp = val.getDefiningOp<StreamLayoutOp>()) {
-    AffineMap map = streamOp.getRemapping();
-    return map;
-  }
   return std::nullopt;
 }
 

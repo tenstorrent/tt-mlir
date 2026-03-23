@@ -403,52 +403,11 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   let summary = "Create streams required by generic ops.";
   let description = [{
     This pass handles several related tasks:
-      - allocating data streams (stream_layouts) and their associated buffers as required by generic
-        op operands;
-      - allocating memory addresses/alignments for buffers supporting such streams as well as
+      - replacing in-generic allocs with CBLayoutAttr-tagged allocs for operands
+        that require streaming (circular buffer allocation);
+      - allocating memory addresses/alignments for buffers as well as
         other memref allocs needed by data movement/compute kernel functions;
       - inserting dealloc instructions at the appropriate end-of-scope positions.
-
-    Converts:
-    ```mlir
-    %alloc = memref.alloc() : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-    %alloc_0 = memref.alloc() : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-    %alloc_1 = memref.alloc() : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-    d2m.generic {block_factors = [1, 1, 6], grid = #ttcore.grid<6x6>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
-        ins(%alloc, %alloc_0 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>)
-        outs(%alloc_1 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>)  {
-    ^compute0(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<1x1x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<1x1x!ttcore.tile<32x32, f32>, #l1>):
-      linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "reduction"]} ins(%cb0, %cb1 : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) outs(%cb2 : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
-      ^bb0(%in: !ttcore.tile<32x32, f32>, %in_4: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
-        %0 = "d2m.tile_matmul"(%in, %in_4, %out) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-        linalg.yield %0 : !ttcore.tile<32x32, f32>
-      }
-    }
-    ```
-
-    Into:
-    ```mlir
-    %alloc = memref.alloc() {address = 5120 : i64, alignment = 32 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #dram>
-    %alloc_0 = memref.alloc() {address = 1024 : i64, alignment = 32 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #dram>
-    %alloc_1 = memref.alloc() {address = 17408 : i64, alignment = 16 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-    %alloc_2 = memref.alloc() {address = 9216 : i64, alignment = 16 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>
-    %stream = "d2m.stream_layout"(%alloc, %alloc_2) : (memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #dram>, memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>) -> memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>
-    %alloc_3 = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>
-    %stream_4 = "d2m.stream_layout"(%alloc_0, %alloc_3) : (memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #dram>, memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>) -> memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>
-    d2m.generic {block_factors = [1, 1, 6], grid = #ttcore.grid<6x6>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
-        ins(%stream, %stream_4 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>, memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
-        outs(%alloc_1 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>)  {
-    ^compute0(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<1x1x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<1x1x!ttcore.tile<32x32, f32>, #l1>):
-      linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "reduction"]} ins(%cb0, %cb1 : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) outs(%cb2 : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
-      ^bb0(%in: !ttcore.tile<32x32, f32>, %in_7: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
-        %0 = "d2m.tile_matmul"(%in, %in_7, %out) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-        linalg.yield %0 : !ttcore.tile<32x32, f32>
-      }
-    }
-    memref.dealloc %alloc_3 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>
-    memref.dealloc %alloc_0 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #dram>
-    memref.dealloc %alloc_2 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>
-    ```
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
   let options = D2MStreamingOptions # [
@@ -473,18 +432,6 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
           "std::string", /*default=*/"\"max\"",
           "Set policy for sizing stream buffers ('min', 'max').">,
   ];
-}
-
-def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
-  let summary = "Always insert streams for D2M generic ops.";
-  let description = [{
-    This pass is only available for D2M/TTNN integration (i.e.: when ttnn-mode is on). This pass will aggressively
-    insert a stream for all inputs/outputs of the TTIR generic op.
-
-    Example:
-  }];
-  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
-  let options = D2MStreamingOptions;
 }
 
 def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
@@ -547,7 +494,7 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
   let summary = "Materialize unmaterialized views before return operations";
   let description = [{
     This pass detects when a return value is an unmaterialized tensor view
-    (produced by view operations like d2m.view_layout or d2m.stream_layout)
+    (produced by view operations like d2m.view_layout)
     and emits a d2m.generic op to consume and materialize the view before
     returning it.
 

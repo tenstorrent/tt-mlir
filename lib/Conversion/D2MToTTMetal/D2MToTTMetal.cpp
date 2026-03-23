@@ -135,15 +135,9 @@ public:
     for (unsigned i = 0; i < op.getInputsAndOutputs().size(); ++i) {
       auto operand = adaptor.getOperands()[i];
 
-      if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
+      if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
               operand.getDefiningOp());
-          stream) {
-        args.push_back(stream.getInput());
-        remappedBuffers.push_back(rewriter.getRemappedValue(stream.getInput()));
-        cbs.push_back(rewriter.getRemappedValue(stream.getInput()));
-      } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
-                     operand.getDefiningOp());
-                 view) {
+          view) {
         args.push_back(view.getInput());
         remappedBuffers.push_back(rewriter.getRemappedValue(view.getInput()));
         cbs.push_back(view.getInput());
@@ -210,10 +204,6 @@ public:
   matchAndRewrite(memref::AllocOp op, memref::AllocOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto address = op->getAttrOfType<IntegerAttr>("address");
-
-    // Stream buffer allocs have no address and are used only as storage
-    // operands for d2m.stream_layout ops. They remain as memref.alloc in the
-    // target dialect and do not need a ttmetal.create_buffer.
     if (!address) {
       return failure();
     }

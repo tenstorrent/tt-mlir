@@ -235,9 +235,9 @@ def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayo
   let summary = "View layout attribute in TT dialect";
   let description = [{
     Placeholder attr to indicate a view layout of a memref buffer.  Actual affine map
-    is encoded on the view_layout/stream_layout op itself.
+    is encoded on the view_layout op itself.
 
-    Only the view_layout or stream_layout ops should return memref's with this attribute.
+    Only the view_layout op should return memref's with this attribute.
     The view layout attribute is necessary for two reasons:
       - It provides a way to reblock the data view into a different shape (via affine map).
         Usually this would be some subblock of the original backing memory to chunk the data

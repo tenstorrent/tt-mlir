@@ -24,9 +24,6 @@ namespace {
 // that implies data movement, and NOT in a DMA-only generic op).
 // Reinterpret view_layout ops are local (just type casts).
 static bool isLocalOperand(Value operand, Operation *op) {
-  if (auto streamOp = operand.getDefiningOp<StreamLayoutOp>()) {
-    return false;
-  }
   if (auto viewOp = operand.getDefiningOp<ViewLayoutOp>()) {
     // Reinterpret views are local (just type casts), but non-reinterpret
     // views imply data rearrangement and are non-local.

@@ -71,7 +71,6 @@ struct ConvertD2MToTTKernel
 
     target.addLegalOp<d2m::ToDeviceOp>();
     target.addLegalOp<d2m::ToHostOp>();
-    target.addLegalOp<d2m::StreamLayoutOp>();
     target.addLegalOp<d2m::ViewLayoutOp>();
     target.addLegalOp<d2m::GenericOp>();
     target.addLegalOp<d2m::EmptyOp>();

@@ -629,10 +629,6 @@ findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping,
   }
 
   auto *def = operand.getDefiningOp();
-  if (auto stream = dyn_cast<d2m::StreamLayoutOp>(def)) {
-    return findIOTensor(stream.getInput(), valueMapping,
-                        OperandLocality::L1Remote);
-  }
   if (auto view = dyn_cast<d2m::ViewLayoutOp>(def)) {
     return findIOTensor(view.getInput(), valueMapping,
                         OperandLocality::L1Remote);
@@ -655,16 +651,6 @@ static Value findCBMemref(Value operand) {
     TT_assertv(isa<MemRefType>(operand.getType()),
                "expected operand to be a memref");
     return operand;
-  }
-
-  if (auto stream = dyn_cast<d2m::StreamLayoutOp>(def)) {
-    return stream.getStorage();
-  }
-  if (auto view = dyn_cast<d2m::ViewLayoutOp>(def)) {
-    if (auto stream =
-            dyn_cast<d2m::StreamLayoutOp>(view.getInput().getDefiningOp())) {
-      return stream.getStorage();
-    }
   }
 
   TT_assertv(isa<MemRefType>(operand.getType()),
@@ -821,8 +807,8 @@ static LogicalResult cleanupAndVerify(ModuleOp module,
   // already erased. External uses are resolved by the remapping.
   SmallVector<Operation *> opsToErase;
   module.walk([&](Operation *op) {
-    if (isa<ttir::TTNNMetalLayoutCastOp, d2m::StreamLayoutOp, d2m::ViewLayoutOp,
-            d2m::EmptyOp, d2m::FullOp, d2m::ResetGlobalSemaphoreOp,
+    if (isa<ttir::TTNNMetalLayoutCastOp, d2m::ViewLayoutOp, d2m::EmptyOp,
+            d2m::FullOp, d2m::ResetGlobalSemaphoreOp,
             d2m::CreateGlobalSemaphoreOp, memref::DeallocOp, memref::AllocOp>(
             op)) {
       opsToErase.push_back(op);

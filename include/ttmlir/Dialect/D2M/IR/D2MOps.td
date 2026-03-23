@@ -208,32 +208,6 @@ def D2M_ToHostOp
   let hasVerifier = 1;
 }
 
-def D2M_StreamLayoutOp
-    : D2M_Op<
-          "stream_layout",
-          [Pure, D2M_ViewOpInterface,
-           DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
-           DeclareOpInterfaceMethods<BufferizableOpInterface,
-                                     ["bufferizesToMemoryRead",
-                                      "bufferizesToMemoryWrite", "bufferize",
-                                      "getAliasingValues", "getBufferType"]>]> {
-  let hasCanonicalizer = 1;
-  let summary = "Stream layout (D2M)";
-  let description = [{
-    Represent a streaming relationship between a source tensor/memref and a
-    storage buffer, producing a view result.
-
-    The `remapping` attr describes the exact remapping this op represents.
-  }];
-
-  let arguments = (ins AnyRankedTensorOrMemRef:$input,
-                       AffineMapAttr:$remapping,
-                       AnyRankedTensorOrMemRef:$storage);
-  let results = (outs AnyRankedTensorOrMemRef:$result);
-
-  let hasVerifier = 1;
-}
-
 def D2M_GenericOp
     : D2M_Op<
           "generic",

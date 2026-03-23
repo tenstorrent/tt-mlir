@@ -35,9 +35,6 @@ mlir::tt::d2m::applyViews(mlir::Operation *op) {
   mlir::AffineMap map;
   if (auto viewLayoutOp = mlir::dyn_cast<mlir::tt::d2m::ViewLayoutOp>(op)) {
     map = viewLayoutOp.getRemapping();
-  } else if (auto streamLayoutOp =
-                 mlir::dyn_cast<mlir::tt::d2m::StreamLayoutOp>(op)) {
-    map = streamLayoutOp.getRemapping();
   } else {
     // Fallback to identity if no remapping is present.
     map = mlir::AffineMap::getMultiDimIdentityMap(resultMemref.getRank(),
