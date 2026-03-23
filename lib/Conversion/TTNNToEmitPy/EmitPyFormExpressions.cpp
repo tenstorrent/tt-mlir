@@ -54,6 +54,43 @@ class EmitPyFormExpressions
 public:
   using impl::EmitPyFormExpressionsBase<
       EmitPyFormExpressions>::EmitPyFormExpressionsBase;
+  void foldSubscriptPattern(func::FuncOp funcOp) {
+    SmallVector<emitpy::SubscriptOp> candidates;
+    funcOp.walk([&](emitpy::SubscriptOp subscriptOp) {
+      if (isa<emitpy::ExpressionOp>(subscriptOp->getParentOp())) {
+        return;
+      }
+      if (isa<emitpy::LiteralOp>(subscriptOp.getIndex().getDefiningOp())) {
+        candidates.push_back(subscriptOp);
+      }
+    });
+
+    OpBuilder builder(&getContext());
+    for (auto subscriptOp : candidates) {
+      auto loc = subscriptOp.getLoc();
+      auto literalOp =
+          cast<emitpy::LiteralOp>(subscriptOp.getIndex().getDefiningOp());
+
+      builder.setInsertionPoint(literalOp);
+      auto exprOp = builder.create<emitpy::ExpressionOp>(
+          loc, subscriptOp.getResult().getType(),
+          ValueRange{subscriptOp.getContainer()});
+
+      auto *body = &exprOp.getBody().emplaceBlock();
+      auto containerArg =
+          body->addArgument(subscriptOp.getContainer().getType(),
+                            subscriptOp.getContainer().getLoc());
+
+      subscriptOp.replaceAllUsesWith(exprOp.getResult());
+
+      literalOp->moveBefore(body, body->end());
+      subscriptOp->moveBefore(body, body->end());
+      subscriptOp.getContainerMutable().assign(containerArg);
+
+      builder.setInsertionPointToEnd(body);
+      builder.create<emitpy::YieldOp>(loc, subscriptOp.getResult());
+    }
+  }
 
   // Collect all ops from the get dict value chain into one
   // expression op.
@@ -80,7 +117,7 @@ public:
     });
 
     OpBuilder builder(&getContext());
-    for (auto &subscriptOp : candidates) {
+    for (auto subscriptOp : candidates) {
       auto loc = subscriptOp.getLoc();
       auto constantOp =
           cast<emitpy::ConstantOp>(subscriptOp.getIndex().getDefiningOp());
@@ -112,15 +149,15 @@ public:
       if (!isCreateListCall(listOp) || !hasSingleUse(listOp)) {
         return;
       }
-      auto *user = *listOp->getResult(0).getUsers().begin();
+      /* auto *user = *listOp->getResult(0).getUsers().begin();
       if (!isa<emitpy::CallOpaqueOp, emitpy::AssignOp>(user)) {
         return;
-      }
+      } */
       createListOp.push_back(listOp);
     });
 
     OpBuilder builder(&getContext());
-    for (auto &listOp : createListOp) {
+    for (auto listOp : createListOp) {
       auto loc = listOp.getLoc();
       ValueRange args = listOp.getOperands();
 
@@ -203,7 +240,7 @@ public:
       // Add new block arguments for external operands. Build a value map
       // from external operands to block arguments for rewiring.
       DenseMap<Value, Value> extOperandsToBlockArgsMap;
-      for (auto &extOperand : externalOperands) {
+      for (auto extOperand : externalOperands) {
         extOperandsToBlockArgsMap[extOperand] =
             exprBody->addArgument(extOperand.getType(), loc);
       }
@@ -248,10 +285,9 @@ public:
       if (ttmlir::utils::isForwardDeviceFunc(funcOp)) {
         foldDictGetPattern(funcOp);
       }
-      if (funcOp->hasAttr(kWrapperAttr)) {
-        foldListIntoCallPattern(funcOp);
-        absorbOperandsIntoExpressions(funcOp);
-      }
+      foldSubscriptPattern(funcOp);
+      foldListIntoCallPattern(funcOp);
+      absorbOperandsIntoExpressions(funcOp);
     });
   }
 };
