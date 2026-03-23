@@ -2612,7 +2612,7 @@ def upsample2d_golden(
 
 
 def ttir_fill_cache_golden(
-    cache_tensor: GoldenMapTensor, input_tensor: GoldenMapTensor, batch_offset: int
+    cache_tensor: GoldenMapTensor, input_tensor: GoldenMapTensor, batch_offset: IntegerAttr
 ) -> GoldenMapTensor:
     """
     Custom golden function for fill_cache operation.
