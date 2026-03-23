@@ -1498,6 +1498,30 @@ createOp(FlatbufferObjectCache &cache, DistributedRMSNormOp op) {
       topology, computeConfig.value_or(0), stats, programConfig, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormPreAllGatherOp>
+createOp(FlatbufferObjectCache &cache, LayerNormPreAllGatherOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto recipTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getRecipTensor()));
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateLayerNormPreAllGatherOp(
+      *cache.fbb, input, recipTensor, dtype, computeConfig.value_or(0),
+      memoryConfig, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::LayerNormOp>
 createOp(FlatbufferObjectCache &cache, LayerNormOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -4255,6 +4279,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto layerNormOp = dyn_cast<LayerNormOp>(op); layerNormOp) {
     return createOperation(cache, createOp(cache, layerNormOp), debugString,
                            locInfo);
+  }
+  if (auto layerNormPreAllGatherOp =
+          dyn_cast<LayerNormPreAllGatherOp>(op);
+      layerNormPreAllGatherOp) {
+    return createOperation(cache,
+                           createOp(cache, layerNormPreAllGatherOp),
+                           debugString, locInfo);
   }
   if (auto groupNormOp = dyn_cast<GroupNormOp>(op); groupNormOp) {
     return createOperation(cache, createOp(cache, groupNormOp), debugString,

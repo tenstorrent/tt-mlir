@@ -4661,6 +4661,45 @@ class TTNNBuilder(Builder):
                 golden_kwargs=golden_kwargs,
             )
 
+    def layernorm_pre_allgather(
+        self,
+        input_tensor: Operand,
+        recip_tensor: Operand,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.layernorm_pre_allgather``.
+
+        *Pre-allgather layer normalization statistics op.*
+
+        Computes per-row Welford statistics (sum(x) and sum(x²)) over the
+        last dimension of the input tensor as the first step of a distributed
+        LayerNorm.  The output last dimension is 2 * TILE_WIDTH (64).
+
+        Parameters
+        ----------
+        input_tensor : Operand
+            Input tensor to compute statistics on
+        recip_tensor : Operand
+            Reciprocals lookup table tensor for the Welford algorithm
+
+        Returns
+        -------
+        OpView
+            A tensor with shape matching input except last dim = 64
+        """
+        # Output shape: same as input but last dim becomes 64 (2 * TILE_WIDTH)
+        input_shape = list(input_tensor.type.shape)
+        output_shape = input_shape[:-1] + [64]
+
+        return self._op_proxy(
+            ttnn.LayerNormPreAllGatherOp,
+            [input_tensor, recip_tensor],
+            output_shape=output_shape,
+            output_type=input_tensor.type.element_type,
+            unit_attrs=unit_attrs,
+        )
+
     # ----- Parse ttnn module ----
 
     @staticmethod

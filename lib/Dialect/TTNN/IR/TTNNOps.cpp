@@ -2966,6 +2966,37 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::LayerNormPreAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  // Input and output must have the same rank.
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError("output rank must match input rank");
+  }
+
+  // All dimensions except the last must match.
+  for (int64_t i = 0; i < inputType.getRank() - 1; ++i) {
+    if (inputType.getShape()[i] != outputType.getShape()[i]) {
+      return emitOpError("output shape must match input shape except for the "
+                         "last dimension");
+    }
+  }
+
+  // Output last dimension must be 2 * TILE_WIDTH (64) for Welford statistics.
+  constexpr int64_t kExpectedLastDim = 64;
+  if (outputType.getShape().back() != kExpectedLastDim) {
+    return emitOpError("output last dimension must be 64 (2 * TILE_WIDTH) "
+                       "for Welford statistics, got ")
+           << outputType.getShape().back();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::DistributedRMSNormOp::verify() {

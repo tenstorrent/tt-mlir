@@ -6334,6 +6334,33 @@ def ttnn_layer_norm_golden(
     ).to(output_dtype)
 
 
+def ttnn_layernorm_pre_allgather_golden(
+    input: GoldenMapTensor,
+    recip_tensor: GoldenMapTensor,
+) -> GoldenMapTensor:
+    """
+    Golden function for layernorm_pre_allgather.
+
+    Computes per-row Welford statistics: sum(x) and sum(x²) over the last
+    dimension.  The output has the same shape as the input except the last
+    dimension is replaced by 64 (2 * TILE_WIDTH=32).  The first 32 columns
+    hold sum(x) (broadcast) and the next 32 columns hold sum(x²) (broadcast).
+    """
+    TILE_WIDTH = 32
+    input_float = input.float()
+
+    # sum(x) and sum(x²) over last dimension, keep dims for broadcast
+    sum_x = torch.sum(input_float, dim=-1, keepdim=True)
+    sum_x2 = torch.sum(torch.mul(input_float, input_float), dim=-1, keepdim=True)
+
+    # Broadcast each to TILE_WIDTH columns and concatenate
+    broadcast_shape = list(input_float.shape[:-1]) + [TILE_WIDTH]
+    sum_x_tile = torch.broadcast_to(sum_x, broadcast_shape)
+    sum_x2_tile = torch.broadcast_to(sum_x2, broadcast_shape)
+
+    return torch.cat([sum_x_tile, sum_x2_tile], dim=-1).to(input.dtype)
+
+
 def ttnn_group_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -6758,6 +6785,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.LayerNormOp: ttnn_layer_norm_golden,
     ttnn.GroupNormOp: ttnn_group_norm_golden,
     ttnn.RMSNormOp: rms_norm_golden,
+    ttnn.LayerNormPreAllGatherOp: ttnn_layernorm_pre_allgather_golden,
     # Tensor manipulation
     ttnn.ConcatOp: ttnn_concat_golden,
     ttnn.RepeatOp: ttnn_repeat_golden,

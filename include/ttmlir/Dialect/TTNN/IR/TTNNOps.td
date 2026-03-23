@@ -2337,6 +2337,43 @@ def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     let hasVerifier = 1;
 }
 
+def TTNN_LayerNormPreAllGatherOp : TTNN_Op<"layernorm_pre_allgather",
+    [TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Pre-allgather layer normalization statistics op.";
+    let description = [{
+      Computes per-row Welford statistics (sum(x) and sum(x²)) over the last
+      dimension of the input tensor as the first step of a distributed LayerNorm.
+
+      The output is a tensor with the same shape as the input except the last
+      dimension is replaced by 2 * TILE_WIDTH (64), containing the partial
+      statistics that should be all-gathered across devices before the
+      post-allgather normalization step.
+
+      Inputs:
+        - input: Input tensor. Must be non-sharded, tile layout, interleaved
+            memory. Supported dtypes: BF16, BFP8_B, FP32.
+        - recip_tensor: Reciprocals lookup table tensor used by the Welford
+            algorithm.
+
+      Attributes:
+        - dtype: Output data type. Defaults to BFloat16 if not specified.
+        - compute_config: Optional device compute kernel configuration.
+        - memory_config: Optional output memory configuration.
+
+      Maps to ttnn::experimental::dit_layernorm_pre_allgather at runtime.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$recip_tensor,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
     let summary = "Layer normalization op.";
     let description = [{

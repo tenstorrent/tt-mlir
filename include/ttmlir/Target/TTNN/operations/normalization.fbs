@@ -71,6 +71,15 @@ table DistributedRMSNormOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table LayerNormPreAllGatherOp {
+  input: tt.target.ttnn.TensorRef;
+  recip_tensor: tt.target.ttnn.TensorRef;
+  dtype: tt.target.DataType = null;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table LayerNormOp {
   input: tt.target.ttnn.TensorRef;
   weight: tt.target.ttnn.TensorRef;

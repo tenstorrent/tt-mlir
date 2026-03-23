@@ -1212,6 +1212,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_LayerNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::LayerNormPreAllGatherOp: {
+    tensorRef = opContext.type_as_LayerNormPreAllGatherOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::GroupNormOp: {
     tensorRef = opContext.type_as_GroupNormOp()->out();
     break;
@@ -1653,6 +1657,12 @@ getOpInputRefs(OpContext opContextHandle,
     if (opContext.type_as_LayerNormOp()->bias()) {
       tensorRefs.push_back(opContext.type_as_LayerNormOp()->bias());
     }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LayerNormPreAllGatherOp: {
+    tensorRefs = {
+        opContext.type_as_LayerNormPreAllGatherOp()->input(),
+        opContext.type_as_LayerNormPreAllGatherOp()->recip_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::GroupNormOp: {

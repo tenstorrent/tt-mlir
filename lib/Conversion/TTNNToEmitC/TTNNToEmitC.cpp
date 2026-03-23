@@ -3516,6 +3516,49 @@ public:
 };
 } // namespace
 
+// LayerNormPreAllGatherOp conversion pattern
+//
+namespace {
+class LayerNormPreAllGatherOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::LayerNormPreAllGatherOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormPreAllGatherOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormPreAllGatherOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::LayerNormPreAllGatherOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getRecipTensor()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(std::nullopt) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::dit_layernorm_pre_allgather";
+  }
+
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.layernorm_pre_allgather";
+  }
+};
+} // namespace
+
 // GroupNormOp conversion pattern
 //
 namespace {
@@ -4946,8 +4989,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
                CumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
                BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-               LayerNormOpConversionPattern, GroupNormOpConversionPattern>(
-      typeConverter, ctx);
+               LayerNormOpConversionPattern,
+               LayerNormPreAllGatherOpConversionPattern,
+               GroupNormOpConversionPattern>(typeConverter, ctx);
 
   // CCL ops
   //
