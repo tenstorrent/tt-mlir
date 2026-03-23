@@ -1049,13 +1049,31 @@ def test_stablehlo_multi_return_support(
         module_and_bool,
         module_or_bool,
         module_xor_bool,
-        module_shift_left,
-        module_shift_right_logical,
     ],
 )
 def test_logical_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    compile_and_execute_shlo(
+        test_fn,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pcc=-1.0,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [module_shift_left, module_shift_right_logical],
+)
+def test_integer_shift_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    """Shift ops use integer tensors; keep separate from bool logical tests."""
     compile_and_execute_shlo(
         test_fn,
         **get_request_kwargs(request),
