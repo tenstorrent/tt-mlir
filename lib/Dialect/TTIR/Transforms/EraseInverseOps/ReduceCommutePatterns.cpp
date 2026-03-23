@@ -10,6 +10,8 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttir {
@@ -172,6 +174,326 @@ private:
     return true;
   }
 };
+
+// ---------------------------------------------------------------------------
+// Reshape ↔ Reduce commutation
+//
+// A reshape is a reinterpretation of a flat memory layout.  A reduce dimension
+// survives the reshape iff some dimension in the other shape has the same
+// (stride, size) pair.  This lets us map reduce dims through arbitrary
+// reshapes without special-casing keepDim.
+// ---------------------------------------------------------------------------
+
+// Find the dimension in targetShape that has the same stride and size as `dim`
+// in sourceShape.  Both shapes must have the same total volume.  Returns -1 on
+// failure.
+static int64_t findMappedDim(ArrayRef<int64_t> sourceShape,
+                              ArrayRef<int64_t> targetShape, int64_t dim) {
+  if (dim < 0) {
+    dim += sourceShape.size();
+  }
+
+  int64_t size = sourceShape[dim];
+  int64_t stride = 1;
+  for (size_t i = dim + 1; i < sourceShape.size(); ++i) {
+    stride *= sourceShape[i];
+  }
+
+  int64_t targetStride = 1;
+  for (int64_t i = targetShape.size() - 1; i >= 0; --i) {
+    if (targetStride == stride && targetShape[i] == size) {
+      return i;
+    }
+    targetStride *= targetShape[i];
+  }
+  return -1;
+}
+
+// Map every reduce dimension from sourceShape → targetShape (same volume).
+// Returns the mapped dims, or an empty vector when any dim fails to map.
+static SmallVector<int64_t>
+mapAllReduceDims(ArrayRef<int64_t> sourceShape, ArrayRef<int64_t> targetShape,
+                 ArrayAttr dimArg) {
+  SmallVector<int64_t> mapped;
+  llvm::DenseSet<int64_t> used;
+  for (Attribute attr : dimArg.getValue()) {
+    int64_t dim = cast<IntegerAttr>(attr).getInt();
+    if (dim < 0) {
+      dim += sourceShape.size();
+    }
+    int64_t m = findMappedDim(sourceShape, targetShape, dim);
+    if (m == -1 || used.contains(m)) {
+      return {};
+    }
+    mapped.push_back(m);
+    used.insert(m);
+  }
+  return mapped;
+}
+
+// For the upwards commute with keepDim = false we need to *reinsert* the
+// removed reduce dims into outputShape to obtain the intermediate shape.
+//
+// For each reduce dim d in inputShape with actual stride S(d), we find the
+// position j in the (evolving) intermediate shape where
+//   product(intermediate[j:]) == S(d)
+// and insert inputShape[d] there.  Processing dims right-to-left avoids
+// positional bookkeeping for earlier insertions.
+//
+// Returns {intermediateShape, newReduceDims} or empty vectors on failure.
+static std::pair<SmallVector<int64_t>, SmallVector<int64_t>>
+buildIntermediateShapeForUpwards(ArrayRef<int64_t> inputShape,
+                                 ArrayRef<int64_t> outputShape,
+                                 ArrayAttr dimArg) {
+  struct DimInfo {
+    int64_t inputPos, argIndex, size, stride;
+  };
+
+  SmallVector<DimInfo> dims;
+  for (auto [i, attr] : llvm::enumerate(dimArg.getValue())) {
+    int64_t d = cast<IntegerAttr>(attr).getInt();
+    if (d < 0) {
+      d += inputShape.size();
+    }
+    int64_t stride = 1;
+    for (size_t j = d + 1; j < inputShape.size(); ++j) {
+      stride *= inputShape[j];
+    }
+    dims.push_back({d, static_cast<int64_t>(i), inputShape[d], stride});
+  }
+
+  // Rightmost first – insertions to the right never shift later lookups.
+  llvm::sort(dims, [](const DimInfo &a, const DimInfo &b) {
+    return a.inputPos > b.inputPos;
+  });
+
+  SmallVector<int64_t> intermediate(outputShape);
+  llvm::DenseMap<int64_t, int64_t> argIndexToNewDim;
+
+  for (const auto &info : dims) {
+    int64_t insertPos = -1;
+    if (info.stride == 1) {
+      insertPos = static_cast<int64_t>(intermediate.size());
+    } else {
+      int64_t product = 1;
+      for (int64_t i = static_cast<int64_t>(intermediate.size()) - 1; i >= 0;
+           --i) {
+        product *= intermediate[i];
+        if (product == info.stride) {
+          insertPos = i;
+          break;
+        }
+      }
+    }
+
+    if (insertPos == -1) {
+      return {{}, {}};
+    }
+
+    for (auto &[_, pos] : argIndexToNewDim) {
+      if (pos >= insertPos) {
+        ++pos;
+      }
+    }
+    intermediate.insert(intermediate.begin() + insertPos, info.size);
+    argIndexToNewDim[info.argIndex] = insertPos;
+  }
+
+  SmallVector<int64_t> newDims;
+  for (int64_t i = 0; i < static_cast<int64_t>(dimArg.size()); ++i) {
+    newDims.push_back(argIndexToNewDim[i]);
+  }
+  return {intermediate, newDims};
+}
+
+template <typename ReduceOpType, CommuteDirection commuteDirection>
+class TTIRCommuteReshapeThroughReduce
+    : public TTIRCommuteOpRewritePattern<ReshapeOp, ReduceOpType,
+                                         commuteDirection> {
+public:
+  using TTIRCommuteOpRewritePattern<
+      ReshapeOp, ReduceOpType, commuteDirection>::TTIRCommuteOpRewritePattern;
+
+  // reshape → reduce  ⟹  reduce → reshape
+  void
+  performCommuteDownwardsRewrite(ReduceOpType op, ReshapeOp reshapeOperand,
+                                 PatternRewriter &rewriter) const override {
+    auto inputType =
+        cast<RankedTensorType>(reshapeOperand.getInput().getType());
+    auto reshapedShape =
+        cast<RankedTensorType>(reshapeOperand.getResult().getType()).getShape();
+
+    auto newDims =
+        mapAllReduceDims(reshapedShape, inputType.getShape(), *op.getDimArg());
+    assert(!newDims.empty());
+
+    auto reducedShape =
+        applyReduce(inputType.getShape(), newDims, op.getKeepDim());
+    auto reducedType = RankedTensorType::get(
+        reducedShape, op.getType().getElementType(), op.getType().getEncoding());
+
+    auto newReduce = rewriter.create<ReduceOpType>(
+        op->getLoc(), reducedType, reshapeOperand.getInput(),
+        op.getKeepDimAttr(), makeDimAttr(rewriter, op->getContext(), newDims));
+
+    auto outputShape = op.getType().getShape();
+    auto newReshape = rewriter.create<ReshapeOp>(
+        reshapeOperand->getLoc(), op.getType(), newReduce.getResult(),
+        rewriter.getI32ArrayAttr(
+            SmallVector<int32_t>(outputShape.begin(), outputShape.end())));
+
+    rewriter.replaceOp(op, newReshape.getResult());
+  }
+
+  // reduce → reshape  ⟹  reshape → reduce
+  void performCommuteUpwardsRewrite(ReduceOpType op, ReshapeOp reshapeUser,
+                                    PatternRewriter &rewriter) const override {
+    auto inputType = cast<RankedTensorType>(op.getInput().getType());
+    auto outputType =
+        cast<RankedTensorType>(reshapeUser.getResult().getType());
+
+    SmallVector<int64_t> intermediateShape;
+    SmallVector<int64_t> newDims;
+
+    if (op.getKeepDim()) {
+      // Reduce dims are size-1 in the reduce output; stride-match them through
+      // the reshape, then expand back to original sizes.
+      auto reducedShape =
+          cast<RankedTensorType>(op.getResult().getType()).getShape();
+      newDims =
+          mapAllReduceDims(reducedShape, outputType.getShape(), *op.getDimArg());
+      assert(!newDims.empty());
+
+      intermediateShape.assign(outputType.getShape().begin(),
+                               outputType.getShape().end());
+      for (auto [i, attr] : llvm::enumerate(op.getDimArg()->getValue())) {
+        int64_t origDim = cast<IntegerAttr>(attr).getInt();
+        if (origDim < 0) {
+          origDim += inputType.getShape().size();
+        }
+        intermediateShape[newDims[i]] = inputType.getShape()[origDim];
+      }
+    } else {
+      // Dims were removed – reinsert them to recover the intermediate shape.
+      std::tie(intermediateShape, newDims) = buildIntermediateShapeForUpwards(
+          inputType.getShape(), outputType.getShape(), *op.getDimArg());
+      assert(!intermediateShape.empty());
+    }
+
+    auto intermediateType = RankedTensorType::get(
+        intermediateShape, inputType.getElementType(),
+        outputType.getEncoding());
+    auto newReshape = rewriter.create<ReshapeOp>(
+        reshapeUser->getLoc(), intermediateType, op.getInput(),
+        rewriter.getI32ArrayAttr(SmallVector<int32_t>(
+            intermediateShape.begin(), intermediateShape.end())));
+
+    auto newReduce = rewriter.create<ReduceOpType>(
+        op->getLoc(), outputType, newReshape.getResult(), op.getKeepDimAttr(),
+        makeDimAttr(rewriter, op->getContext(), newDims));
+
+    SmallVector<Operation *> users(op->getUsers());
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(reshapeUser, user);
+                        }) &&
+           "isCommuteUpwardsFavorable should have ensured all users are "
+           "identical TMs");
+
+    for (auto *user : users) {
+      rewriter.replaceOp(user, newReduce.getResult());
+    }
+  }
+
+private:
+  // Apply a reduce to a shape: set dims to 1 (keepDim) or remove them.
+  static SmallVector<int64_t> applyReduce(ArrayRef<int64_t> shape,
+                                           ArrayRef<int64_t> reduceDims,
+                                           bool keepDim) {
+    llvm::DenseSet<int64_t> dimSet(reduceDims.begin(), reduceDims.end());
+    SmallVector<int64_t> result;
+    for (size_t i = 0; i < shape.size(); ++i) {
+      if (dimSet.contains(static_cast<int64_t>(i))) {
+        if (keepDim) {
+          result.push_back(1);
+        }
+      } else {
+        result.push_back(shape[i]);
+      }
+    }
+    return result;
+  }
+
+  static ArrayAttr makeDimAttr(PatternRewriter &rewriter, MLIRContext *ctx,
+                                ArrayRef<int64_t> dims) {
+    SmallVector<Attribute> attrs;
+    for (int64_t d : dims) {
+      attrs.push_back(rewriter.getI32IntegerAttr(d));
+    }
+    return ArrayAttr::get(ctx, attrs);
+  }
+
+  bool canMapDimsDownwards(ReduceOpType op,
+                            ReshapeOp reshapeOperand) const {
+    auto inputShape =
+        cast<RankedTensorType>(reshapeOperand.getInput().getType()).getShape();
+    auto reshapedShape =
+        cast<RankedTensorType>(reshapeOperand.getResult().getType()).getShape();
+    return !mapAllReduceDims(reshapedShape, inputShape, *op.getDimArg())
+                .empty();
+  }
+
+  bool canMapDimsUpwards(ReduceOpType op, ReshapeOp reshapeUser) const {
+    auto inputShape =
+        cast<RankedTensorType>(op.getInput().getType()).getShape();
+    auto outputShape =
+        cast<RankedTensorType>(reshapeUser.getResult().getType()).getShape();
+
+    if (op.getKeepDim()) {
+      auto reducedShape =
+          cast<RankedTensorType>(op.getResult().getType()).getShape();
+      return !mapAllReduceDims(reducedShape, outputShape, *op.getDimArg())
+                  .empty();
+    }
+    auto [intermediate, dims] = buildIntermediateShapeForUpwards(
+        inputShape, outputShape, *op.getDimArg());
+    return !intermediate.empty();
+  }
+
+  bool isCommuteDownwardsViable(ReduceOpType, ReshapeOp) const override {
+    return true;
+  }
+
+  bool isCommuteDownwardsFavorable(ReduceOpType op,
+                                    ReshapeOp reshapeOperand) const override {
+    if (!canMapDimsDownwards(op, reshapeOperand)) {
+      return false;
+    }
+
+    for (auto operandValue : op->getOperands()) {
+      if (checkIdenticalTms(operandValue.getDefiningOp(), reshapeOperand) ||
+          ttcore::valueTracesToConstantArgs(operandValue)) {
+        continue;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  bool isCommuteUpwardsViable(ReduceOpType, ReshapeOp) const override {
+    return true;
+  }
+
+  bool isCommuteUpwardsFavorable(ReduceOpType op,
+                                  ReshapeOp reshapeUser) const override {
+    if (!canMapDimsUpwards(op, reshapeUser)) {
+      return false;
+    }
+
+    SmallVector<Operation *> users(op->getUsers());
+    return !users.empty() && checkAllUsersAreIdenticalTms(users);
+  }
+};
 } // namespace
 
 template <CommuteDirection commuteDirection>
@@ -184,7 +506,15 @@ void populateReduceCommutePatterns(MLIRContext *ctx,
                TTIRCommutePermuteThroughReduce<ProdOp, commuteDirection>,
                TTIRCommutePermuteThroughReduce<ReduceAndOp, commuteDirection>,
                TTIRCommutePermuteThroughReduce<ReduceOrOp, commuteDirection>,
-               TTIRCommutePermuteThroughReduce<ArgMaxOp, commuteDirection>>(
+               TTIRCommutePermuteThroughReduce<ArgMaxOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<SumOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<MeanOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<MaxOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<MinOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<ProdOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<ReduceAndOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<ReduceOrOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<ArgMaxOp, commuteDirection>>(
       ctx);
 }
 
