@@ -4732,16 +4732,18 @@ class TTNNBuilder(Builder):
         self,
         loc: Optional[str] = None,
     ) -> OpResult:
-        with self._ctx, self._loc:
-            mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
-                self._ctx, self._mesh_shape[0], self._mesh_shape[1]
-            )
-            if loc is None:
-                loc = self._get_location()
-            else:
-                loc = Location.name(loc)
-            device_op = ttnn.GetDeviceOp(mesh_shape=mesh_shape_attr, loc=loc)
-            return device_op.device
+        mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
+            self._ctx, self._mesh_shape[0], self._mesh_shape[1]
+        )
+        mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(self._ctx, 0, 0)
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+        device_op = ttnn.GetDeviceOp(
+            mesh_shape=mesh_shape_attr, mesh_offset=mesh_offset_attr, loc=loc
+        )
+        return device_op.device
 
     @parse(ttnn.GetDeviceOp)
     def get_device_parser(
@@ -4751,7 +4753,8 @@ class TTNNBuilder(Builder):
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttnn_op = self.get_opview_from_parser(TTNNBuilder.get_device_parser)
         mesh_shape_attr = old_op.mesh_shape
-        new_op = ttnn_op(mesh_shape=mesh_shape_attr)
+        mesh_offset_attr = old_op.mesh_offset
+        new_op = ttnn_op(mesh_shape=mesh_shape_attr, mesh_offset=mesh_offset_attr)
         return new_op, {old_op.device: new_op.device}
 
     ############### ttnn.ToLayoutOp ###############
@@ -4763,28 +4766,25 @@ class TTNNBuilder(Builder):
         layout,
         loc: Optional[str] = None,
     ) -> OpResult:
-        with self._ctx, self._loc:
-            shape = input.type.shape
-            element_type = input.type.element_type
-            if layout == ttnn.Layout.Tile:
-                output_type = self._create_host_ttnn_tensor(shape, element_type)
-            else:
-                output_type = self._create_host_row_major_ttnn_tensor(
-                    shape, element_type
-                )
-            if loc is None:
-                loc = self._get_location()
-            else:
-                loc = Location.name(loc)
-            layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
-            op = ttnn.ToLayoutOp(output_type, input, layout=layout_attr, loc=loc)
-            input_golden = self._get_golden_tensor(input)
-            op_golden_function = get_golden_function(
-                self.get_opview_from_method(TTNNBuilder.to_layout)
-            )
-            golden_output = op_golden_function(input_golden, output_type)
-            self._set_golden_tensor(op.result, golden_output)
-            return op.result
+        shape = input.type.shape
+        element_type = input.type.element_type
+        if layout == ttnn.Layout.Tile:
+            output_type = self._create_host_ttnn_tensor(shape, element_type)
+        else:
+            output_type = self._create_host_row_major_ttnn_tensor(shape, element_type)
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
+        op = ttnn.ToLayoutOp(output_type, input, layout=layout_attr, loc=loc)
+        input_golden = self._get_golden_tensor(input)
+        op_golden_function = get_golden_function(
+            self.get_opview_from_method(TTNNBuilder.to_layout)
+        )
+        golden_output = op_golden_function(input_golden, output_type)
+        self._set_golden_tensor(op.result, golden_output)
+        return op.result
 
     @parse(ttnn.ToLayoutOp)
     def to_layout_parser(
@@ -4948,7 +4948,6 @@ class TTNNBuilder(Builder):
         input: Operand,
         device: Operand,
         shard_dims: List[int],
-        shard_shape: List[int],
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
@@ -5040,7 +5039,6 @@ class TTNNBuilder(Builder):
         input: Operand,
         device: Operand,
         shard_dims: List[int],
-        shard_shape: List[int],
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,

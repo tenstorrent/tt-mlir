@@ -13,7 +13,7 @@ from ttmlir.dialects import ttnn
 from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import compile_and_execute_ttnn
-from test_utils import shape_str, shapes_list_str, make_shard_shape
+from test_utils import shape_str, shapes_list_str
 
 pytestmark = pytest.mark.frontend("ttnn")
 
@@ -275,7 +275,6 @@ def test_all_gather(
             )
 
     shard_dims = list(range(rank_in - rank_mesh, rank_in))
-    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
 
     full_input_shape = list(test_shape)
     for d, factor in zip(shard_dims, mesh_shape):
@@ -290,7 +289,6 @@ def test_all_gather(
                 in0,
                 device=device,
                 shard_dims=shard_dims,
-                shard_shape=shard_shape,
             )
             tilized = builder.to_layout(distributed, layout=ttnn.Layout.Tile)
             on_device = builder.to_device(tilized, device=device)
@@ -307,7 +305,6 @@ def test_all_gather(
                 untilized,
                 device=device,
                 shard_dims=shard_dims,
-                shard_shape=shard_shape,
             )
 
     compile_and_execute_ttnn(
