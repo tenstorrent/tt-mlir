@@ -1655,16 +1655,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             if (auto oldAllocOp = mlir::dyn_cast<memref::AllocOp>(
                     oldTensor.getDefiningOp())) {
               auto oldMemRefType = mlir::cast<MemRefType>(oldTensor.getType());
-              // Extract the per-operand grid from bufferType and store it
-              // in CBLayoutAttr — the serializer handles N-D grids
-              // via the existing ShardLayoutAttr conversion path.
-              auto bufferLayout =
-                  mlir::cast<ttcore::ShardLayoutAttr>(bufferType.getLayout());
-              auto operandGrid = bufferLayout.getGridShape(bufferType);
               auto cbLayout = ttcore::CBLayoutAttr::get(
                   bufferType.getContext(), shardShape,
-                  ttcore::getElementSizeBytes(elementType), numStreamBuffers,
-                  operandGrid);
+                  ttcore::getElementSizeBytes(elementType), numStreamBuffers);
               auto newAllocOp = rewriter.create<memref::AllocOp>(
                   oldTensor.getLoc(),
                   MemRefType::get(shardShape, elementType, cbLayout,

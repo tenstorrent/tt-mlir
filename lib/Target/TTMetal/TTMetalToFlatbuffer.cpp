@@ -560,15 +560,14 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
       virtualGridInverseMapping = mapAttr.getValue();
     }
 
-    // Hoisted CB buffers carry CBLayoutAttr (shard-only shape).
-    // Reconstruct a full [grid..shard..] + ShardLayoutAttr memref type so
-    // we fall through to the existing memrefTypeToFlatbuffer path, which
-    // already handles N-D grids, CB configs, and worker grid overrides.
+    // Hoisted CB buffers carry CBLayoutAttr (per-core local shape).
+    // Reconstruct a full [1x1 grid + shard] + ShardLayoutAttr memref type
+    // so we fall through to the existing memrefTypeToFlatbuffer path.
+    // CBs are always core-local (1x1 grid).
     if (auto cbLayout =
             mlir::dyn_cast<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
-      auto gridShape = cbLayout.getGridShape();
       auto shardShape = memrefType.getShape();
-      SmallVector<int64_t> fullShape(gridShape.begin(), gridShape.end());
+      SmallVector<int64_t> fullShape(shardShape.size(), 1);
       fullShape.append(shardShape.begin(), shardShape.end());
       auto shardLayoutAttr = ttcore::ShardLayoutAttr::get(
           shardShape, memrefType.getElementType(), cbLayout.getBuffers());

@@ -52,9 +52,7 @@ private:
     for (auto [allocOp, operandIdx] : allocsToHoist) {
       auto allocType = allocOp.getType();
 
-      // The CBLayoutAttr already carries the per-operand grid shape
-      // (from bufferType in insertStream).  No grid derivation needed
-      // here — just move the alloc outside.
+      // Move the CB alloc outside the generic as an additionalArg.
 
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPoint(genericOp);

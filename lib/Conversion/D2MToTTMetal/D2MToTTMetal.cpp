@@ -217,10 +217,9 @@ public:
     auto fwd = op->getAttrOfType<AffineMapAttr>(
         d2m::utils::kVirtualGridForwardMappingAttr);
 
-    // Hoisted CB allocs carry CBLayoutAttr (shard-only).  The attr's
-    // gridShape field has the resolved physical grid.  Keep the original
-    // type on CreateBufferOp so the dialect conversion framework doesn't
-    // see a type mismatch.  The serializer reads gridShape from the attr.
+    // Hoisted CB allocs carry CBLayoutAttr (per-core local shape).
+    // Keep the original type on CreateBufferOp so the dialect conversion
+    // framework doesn't see a type mismatch.
     if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
       auto cbForOperandAttr =
           op->getAttrOfType<IntegerAttr>("d2m.cb_for_operand");
