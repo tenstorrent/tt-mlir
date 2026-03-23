@@ -2669,6 +2669,50 @@ def update_cache_golden(
     return result
 
 
+def slice_write_golden(
+    operand_tensor: GoldenMapTensor,
+    input_tensor: GoldenMapTensor,
+    starts_tensor: GoldenMapTensor,
+    **kwargs,
+) -> GoldenMapTensor:
+    """
+    Golden function for slice_write operation.
+
+    Writes `input_tensor` into a contiguous slice of `operand_tensor`
+    starting at indices given by `starts_tensor`.
+
+    Parameters
+    ----------
+    operand_tensor : GoldenMapTensor
+        Destination tensor to be updated.
+    input_tensor : GoldenMapTensor
+        Values to write into the destination.
+    starts_tensor : GoldenMapTensor
+        1D tensor of start indices, one per dimension.
+
+    Returns
+    -------
+    GoldenMapTensor
+        Updated tensor with the same shape as operand_tensor.
+    """
+    result = operand_tensor.clone()
+
+    for device_id, shard in result.shard_map.items():
+        input_shard = input_tensor.shard_at(device_id)
+        starts_shard = starts_tensor.shard_at(device_id)
+
+        rank = len(shard.shape)
+        starts = [int(starts_shard[d]) for d in range(rank)]
+
+        # Build slices for the destination region.
+        slices = tuple(
+            slice(starts[d], starts[d] + input_shard.shape[d]) for d in range(rank)
+        )
+        shard[slices] = input_shard
+
+    return result
+
+
 def get_dimension_size_golden(
     input_tensor: GoldenMapTensor, **kwargs
 ) -> GoldenMapTensor:
@@ -6606,6 +6650,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Cache operations
     ttir.FillCacheOp: fill_cache_golden,
     ttir.UpdateCacheOp: update_cache_golden,
+    ttir.SliceWriteOp: slice_write_golden,
     # CCL (Collective Communication Library) operations
     ttir.MeshShardOp: ttir_mesh_shard_golden,
     ttir.AllGatherOp: ttir_all_gather_golden,

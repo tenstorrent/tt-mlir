@@ -323,6 +323,30 @@ TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
       .addOutputOperandWorkaround(inputWorkaround);
 }
 
+// Factory method to create workarounds for slice_write op operands.
+// ttnn::experimental::slice_write requires bfloat16 data type, row-major
+// layout, and interleaved memory for the operand (destination) tensor.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSliceWriteOpOperandsWorkarounds(
+    ttnn::SliceWriteOp op) {
+  TTNNOperandWorkarounds operandWorkaround;
+  operandWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  operandWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  operandWorkaround.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr::get(
+      op.getContext(), TensorMemoryLayout::Interleaved);
+
+  TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  TTNNOperandWorkarounds startsWorkaround;
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addInputOperandWorkaround(inputWorkaround)
+      .addInputOperandWorkaround(startsWorkaround);
+}
+
 // ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN
 // tensors. Tensor is expected to be on host in ROW_MAJOR layout. This
 // workaround is used to guarantee those invariants.

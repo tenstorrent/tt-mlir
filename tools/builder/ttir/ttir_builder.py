@@ -10988,6 +10988,48 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def slice_write(
+        self,
+        operand: Operand,
+        input: Operand,
+        starts: Operand,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.slice_write``.
+
+        Writes the ``input`` tensor into a contiguous slice of the ``operand``
+        tensor at the given start indices. The extent of the written region is
+        determined by the shape of ``input``.
+
+        Parameters
+        ----------
+        operand : Operand
+            Destination tensor to be updated.
+        input : Operand
+            Tensor containing the values to write.
+        starts : Operand
+            1D tensor of start indices, one per dimension.
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes.
+
+        Returns
+        -------
+        (*OpView*)
+            The updated tensor (same shape as operand).
+        """
+        return self._op_proxy(
+            ttir.SliceWriteOp,
+            [operand, input, starts],
+            organize_ttir_args=lambda i, o: (o, i[0], i[1], i[2]),
+            organize_golden_args=lambda i: (
+                self._get_golden_tensor(i[0]),
+                self._get_golden_tensor(i[1]),
+                self._get_golden_tensor(i[2]),
+            ),
+            unit_attrs=unit_attrs,
+        )
+
     @tag(ttir.Conv2dOp)
     def conv2d(
         self,

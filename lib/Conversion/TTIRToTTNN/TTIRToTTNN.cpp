@@ -829,6 +829,36 @@ public:
 } // namespace
 
 namespace {
+class SliceWriteOpConversionPattern
+    : public OpConversionPattern<ttir::SliceWriteOp> {
+public:
+  using OpConversionPattern<ttir::SliceWriteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SliceWriteOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // The TTIR version of this op is pure. In TTNN this op is in-place.
+    // We need to replace uses of the result of the TTIR op with uses
+    // of the operand argument.
+    std::vector<mlir::Operation *> users(op.getOperand().getUsers().begin(),
+                                         op.getOperand().getUsers().end());
+    if (users.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "SliceWriteOp operand must have exactly one user");
+    }
+
+    rewriter.create<ttnn::SliceWriteOp>(op.getLoc(), adaptor.getOperand(),
+                                        adaptor.getInput(),
+                                        adaptor.getStarts());
+
+    rewriter.replaceOp(op, adaptor.getOperand());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ElementwiseUnaryWithFloatParameterOpConversionPattern
@@ -3616,6 +3646,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PagedFillCacheOpConversionPattern,
            PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
+           SliceWriteOpConversionPattern,
            ScatterOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,

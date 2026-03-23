@@ -2981,3 +2981,41 @@ def test_presharded_arg(target, mesh_shape, request, device):
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         **get_request_kwargs(request),
     )
+
+
+@pytest.mark.parametrize(
+    "operand_shape,input_shape,starts_shape",
+    [
+        ((128, 128), (64, 64), (2,)),
+        ((256, 256), (128, 128), (2,)),
+    ],
+    ids=["128x128_64x64", "256x256_128x128"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_slice_write(
+    operand_shape: Shape,
+    input_shape: Shape,
+    starts_shape: Shape,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [operand_shape, input_shape, starts_shape],
+            [torch.bfloat16, torch.bfloat16, torch.int32],
+        )
+        def slice_write(
+            operand: Operand,
+            input: Operand,
+            starts: Operand,
+            builder: TTIRBuilder,
+        ):
+            return builder.slice_write(operand, input, starts)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )

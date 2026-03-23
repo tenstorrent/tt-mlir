@@ -1460,6 +1460,28 @@ def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
     let hasVerifier = 1;
 }
 
+def TTNN_SliceWriteOp: TTNN_InplaceOp<"slice_write"> {
+    let summary = "Write a tensor into a slice of another tensor.";
+    let description = [{
+      Writes the `input` tensor into a contiguous slice of the `operand` tensor
+      at the given start indices. The extent of the written region is determined
+      by the shape of `input`. Maps to ttnn::experimental::slice_write.
+    }];
+
+    let arguments = (ins Arg<AnyRankedTensor, "operand tensor", [MemWrite]>:$operand,
+                         AnyRankedTensor:$input,
+                         AnyRankedTensor:$starts);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSliceWriteOpOperandsWorkarounds(*this);
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_LinearOp : TTNN_Op<"linear", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Linear transformation of inputs.";
 

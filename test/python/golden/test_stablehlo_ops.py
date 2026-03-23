@@ -1148,6 +1148,46 @@ def test_dynamic_slice(
     )
 
 
+@pytest.mark.parametrize(
+    "base_shape,update_shape,start_indices_val",
+    [
+        ((128, 128), (64, 64), [0, 0]),
+        ((128, 128), (64, 64), [32, 32]),
+        ((256, 256), (128, 128), [64, 64]),
+    ],
+    ids=[
+        "dus_128x128_origin",
+        "dus_128x128_offset",
+        "dus_256x256_large",
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_dynamic_update_slice(
+    base_shape: Shape,
+    update_shape: Shape,
+    start_indices_val: List[int],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([base_shape, update_shape], [dtype, dtype])
+        def dynamic_update_slice(
+            base: Operand, update: Operand, builder: StableHLOBuilder
+        ):
+            builder.set_graph_level_check(True)
+            return builder.dynamic_update_slice(base, update, start_indices_val)
+
+    compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 # Bitwise operations tests (integer tensors)
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])

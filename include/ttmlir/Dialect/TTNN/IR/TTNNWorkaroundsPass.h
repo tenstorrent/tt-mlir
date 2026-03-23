@@ -20,6 +20,7 @@ namespace mlir::tt::ttnn {
 class SortOp;
 class SliceDynamicOp;
 class SliceStaticOp;
+class SliceWriteOp;
 class RotaryEmbeddingOp;
 class Conv3dOp;
 } // namespace mlir::tt::ttnn
@@ -266,6 +267,10 @@ public:
   // Create workarounds for dynamic slice op operands.
   static TTNNOperandsWorkarounds
   createSliceDynamicOpOperandsWorkarounds(ttnn::SliceDynamicOp op);
+
+  // Create workarounds for slice write op operands.
+  static TTNNOperandsWorkarounds
+  createSliceWriteOpOperandsWorkarounds(ttnn::SliceWriteOp op);
 
   // Workaround for tensor creation that is modeled as ConstantOp in TTNN
   // dialect.

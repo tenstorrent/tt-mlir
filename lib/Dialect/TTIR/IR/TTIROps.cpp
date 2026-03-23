@@ -2465,6 +2465,62 @@ mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// SliceWriteOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::SliceWriteOp::verify() {
+  ::mlir::RankedTensorType operandType = getOperand().getType();
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType startsType = getStarts().getType();
+  ::mlir::RankedTensorType resultType = getType();
+
+  // Verify operand and input have the same rank.
+  if (operandType.getRank() != inputType.getRank()) {
+    return emitOpError(
+        "Operand and input tensors must have the same rank. Got operand rank " +
+        std::to_string(operandType.getRank()) + ", input rank " +
+        std::to_string(inputType.getRank()));
+  }
+
+  // Verify that the result has the same type as the operand.
+  if (operandType != resultType) {
+    return emitOpError("Result type must match operand type");
+  }
+
+  // Verify starts is a 1D tensor.
+  if (startsType.getRank() != 1) {
+    return emitOpError("Starts must be a 1D tensor");
+  }
+
+  // Verify starts length matches operand rank.
+  if (startsType.getShape()[0] != operandType.getRank()) {
+    return emitOpError(
+        "Starts must have the same number of elements as the operand rank. "
+        "Got starts size " +
+        std::to_string(startsType.getShape()[0]) + ", operand rank " +
+        std::to_string(operandType.getRank()));
+  }
+
+  // Verify that input dimensions fit within operand dimensions.
+  for (int64_t i = 0; i < operandType.getRank(); ++i) {
+    if (inputType.getShape()[i] > operandType.getShape()[i]) {
+      return emitOpError("Input dimension " + std::to_string(i) + " (size " +
+                         std::to_string(inputType.getShape()[i]) +
+                         ") exceeds operand dimension (size " +
+                         std::to_string(operandType.getShape()[i]) + ")");
+    }
+  }
+
+  // Verify element types match.
+  if (operandType.getElementType() != inputType.getElementType()) {
+    return emitOpError(
+        "Operand and input tensors must have the same element type");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // IndexOp
 //===----------------------------------------------------------------------===//
 

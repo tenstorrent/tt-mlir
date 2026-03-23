@@ -1674,6 +1674,19 @@ createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
                                                op.getBatchOffset());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SliceWriteOp>
+createOp(FlatbufferObjectCache &cache, SliceWriteOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto starts = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getStarts()));
+
+  return ::tt::target::ttnn::CreateSliceWriteOp(*cache.fbb, operand, input,
+                                                starts);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::ConstantOp>
 createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
   auto output =
@@ -4225,6 +4238,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       pagedFillCacheOp) {
     return createOperation(cache, createOp(cache, pagedFillCacheOp),
                            debugString, locInfo);
+  }
+  if (auto sliceWriteOp = dyn_cast<SliceWriteOp>(op); sliceWriteOp) {
+    return createOperation(cache, createOp(cache, sliceWriteOp), debugString,
+                           locInfo);
   }
   if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
     return createOperation(cache, createOp(cache, permuteOp), debugString,

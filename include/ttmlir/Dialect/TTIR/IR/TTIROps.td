@@ -4254,6 +4254,46 @@ def TTIR_SliceDynamicOp: TTIR_NamedOp<"slice_dynamic"> {
     let hasVerifier = 1;
 }
 
+def TTIR_SliceWriteOp: TTIR_NamedOp<"slice_write"> {
+    let summary = "Write a tensor into a slice of another tensor.";
+    let description = [{
+      The `slice_write` operation writes the `input` tensor into a contiguous
+      slice of the `operand` tensor at dynamic start indices. The region written
+      has the same shape as `input`. This is the inverse of `slice_dynamic`.
+
+      Example:
+      ```mlir
+      %operand = ... : tensor<1x197x768xf32>
+      %input   = ... : tensor<1x1x768xf32>
+      %starts  = ... : tensor<3xi32>  // e.g. [0, 5, 0]
+      %result  = ttir.slice_write(%operand, %input, %starts)
+          : (tensor<1x197x768xf32>, tensor<1x1x768xf32>, tensor<3xi32>)
+            -> tensor<1x197x768xf32>
+      // operand[0:1, 5:6, 0:768] is replaced with input
+      ```
+
+      Inputs:
+      - `operand` (Tensor): The destination tensor to be updated.
+      - `input` (Tensor): The tensor containing the values to write.
+      - `starts` (Tensor): 1D tensor of start indices, one per dimension.
+
+      Output:
+      - `result` (Tensor): The updated tensor (same shape as `operand`).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$operand,
+                         AnyRankedTensor:$input,
+                         AnyRankedTensor:$starts);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+        MutableOperandRange getDpsInitsMutable() { return getOperandMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_IndexSelectOp: TTIR_NamedOp<"index_select"> {
     let summary = "Tensor selection operation.";
     let description = [{

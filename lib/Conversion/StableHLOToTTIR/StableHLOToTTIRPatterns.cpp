@@ -4338,6 +4338,59 @@ public:
 } // namespace
 
 namespace {
+class StableHLOToTTIRDynamicUpdateSliceOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::DynamicUpdateSliceOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::DynamicUpdateSliceOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::DynamicUpdateSliceOp srcOp,
+                  mlir::stablehlo::DynamicUpdateSliceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Reshape each scalar start index to a 1D tensor and concat them.
+    ValueRange startIndicesRange = adaptor.getStartIndices();
+    SmallVector<Value> startIndicesValues1D;
+    auto startIndexElementType =
+        mlir::cast<RankedTensorType>(startIndicesRange[0].getType())
+            .getElementType();
+    auto singleElementTensorType =
+        RankedTensorType::get({1}, startIndexElementType);
+
+    for (Value startIndex : startIndicesRange) {
+      auto reshapedIndex = rewriter.create<ttir::ReshapeOp>(
+          srcOp.getLoc(),
+          RankedTensorType::get(singleElementTensorType.getShape(),
+                                startIndexElementType,
+                                singleElementTensorType.getEncoding()),
+          startIndex, rewriter.getI32ArrayAttr({1}));
+      startIndicesValues1D.push_back(reshapedIndex);
+    }
+
+    // Create a single 1D tensor from start indices using concat.
+    auto startIndicesTensorType = RankedTensorType::get(
+        {static_cast<int64_t>(startIndicesValues1D.size())},
+        startIndexElementType);
+    auto startIndicesTensor = rewriter.create<mlir::tt::ttir::ConcatOp>(
+        srcOp.getLoc(),
+        RankedTensorType::get(startIndicesTensorType.getShape(),
+                              startIndexElementType,
+                              startIndicesTensorType.getEncoding()),
+        startIndicesValues1D, /*dim=*/0);
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::SliceWriteOp>(
+        srcOp, outputType, adaptor.getOperand(), adaptor.getUpdate(),
+        startIndicesTensor);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIROpClampOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ClampOp> {
 
@@ -6822,6 +6875,14 @@ static void addDynamicSliceOpConversionPattern(MLIRContext *ctx,
                                                                ctx);
 }
 
+static void
+addDynamicUpdateSliceOpConversionPattern(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRDynamicUpdateSliceOpConversionPattern>(
+      typeConverter, ctx);
+}
+
 static void addClampOpConversionPattern(MLIRContext *ctx,
                                         RewritePatternSet &patterns,
                                         TypeConverter &typeConverter) {
@@ -7397,6 +7458,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addLogicalAndBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
   addSliceOpConversionPattern(ctx, patterns, typeConverter);
   addDynamicSliceOpConversionPattern(ctx, patterns, typeConverter);
+  addDynamicUpdateSliceOpConversionPattern(ctx, patterns, typeConverter);
   addClampOpConversionPattern(ctx, patterns, typeConverter);
   addGatherOpConversionPattern(ctx, patterns, typeConverter);
   addIotaOpConversionPattern(ctx, patterns, typeConverter);

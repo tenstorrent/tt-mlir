@@ -1152,6 +1152,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_SliceOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::SliceWriteOp: {
+    tensorRef = opContext.type_as_SliceWriteOp()->operand();
+    break;
+  }
   case ::tt::target::ttnn::OpType::RepeatOp: {
     tensorRef = opContext.type_as_RepeatOp()->out();
     break;
@@ -1556,6 +1560,12 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::SliceOp: {
     tensorRefs = {opContext.type_as_SliceOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SliceWriteOp: {
+    tensorRefs = {opContext.type_as_SliceWriteOp()->operand(),
+                  opContext.type_as_SliceWriteOp()->input(),
+                  opContext.type_as_SliceWriteOp()->starts()};
     break;
   }
   case ::tt::target::ttnn::OpType::RepeatOp: {
