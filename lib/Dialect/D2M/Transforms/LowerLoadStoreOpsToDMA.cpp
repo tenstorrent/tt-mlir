@@ -162,7 +162,9 @@ public:
           // Signal receivers that sender is finished.
           builder.create<SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
                                          remoteLoad.getMcastStartIndex(),
-                                         remoteLoad.getMcastShape());
+                                         remoteLoad.getMcastShape(),
+                                         /*startDevice=*/ValueRange(),
+                                         /*endDevice=*/ValueRange());
 
           builder.create<scf::YieldOp>(loc);
         },
@@ -285,6 +287,13 @@ public:
     Value localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
     Value dmaTx = rewriter.create<DMAWriteOp>(
         loc, localMemref, remoteMemref, gridIndices, startDevice, endDevice);
+
+    if (remoteStore.getSemaphore()) {
+      auto incr = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+      rewriter.create<SemaphoreIncOp>(loc, remoteStore.getSemaphore(), incr,
+                                      remoteStore.getSemaphoreIndices(),
+                                      startDevice, endDevice);
+    }
 
     rewriter.eraseOp(remoteStore);
 

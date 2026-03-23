@@ -107,23 +107,23 @@ FORCE_INLINE uint32_t get_device_id_from_logical_mesh_position(
 
 FORCE_INLINE void
 setup_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
-  DPRINT << "setup_fabric_connections" << ENDL();
+  // DPRINT << "setup_fabric_connections" << ENDL();
   uint32_t num_topology_args =
       get_arg_val<uint32_t>(fabric_setup_args_start_idx);
   uint32_t num_fabric_connection_args =
       get_arg_val<uint32_t>(fabric_setup_args_start_idx + num_topology_args);
   uint32_t num_send_dir = get_arg_val<uint32_t>(fabric_setup_args_start_idx +
                                                 num_topology_args + 1);
-  DPRINT << "num_topology_args: " << num_topology_args << ENDL();
-  DPRINT << "num_fabric_connection_args: " << num_fabric_connection_args
-         << ENDL();
-  DPRINT << "num_send_dir: " << num_send_dir << ENDL();
+  // DPRINT << "num_topology_args: " << num_topology_args << ENDL();
+  // DPRINT << "num_fabric_connection_args: " << num_fabric_connection_args
+  //        << ENDL();
+  // DPRINT << "num_send_dir: " << num_send_dir << ENDL();
 
   if (!fabric_connection_manager.initialized) {
     // set up topology
     size_t topology_arg_idx = fabric_setup_args_start_idx + 1;
     fabric_connection_manager.topology_info.build_from_args(topology_arg_idx);
-    DPRINT << "build_from_args done" << ENDL();
+    // DPRINT << "build_from_args done" << ENDL();
 
     // set up routing plane connection manager
     size_t fabric_connection_arg_idx =
@@ -139,22 +139,22 @@ setup_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
         PacketHeaderPool::allocate_header_n(num_send_dir);
     WAYPOINT("DA19");
     ASSERT(fabric_connection_manager.route_id != -1);
-    DPRINT << "allocate_header_n done" << ENDL();
+    // DPRINT << "allocate_header_n done" << ENDL();
   }
   fabric_connection_manager.initialized = true;
-  DPRINT << "setup_fabric_connections done" << ENDL();
+  // DPRINT << "setup_fabric_connections done" << ENDL();
 }
 
 // teardown fabric connections (packet header pool and topology don't need
 // teardown)
 FORCE_INLINE void
 close_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
-  DPRINT << "close start" << ENDL();
+  // DPRINT << "close start" << ENDL();
   WAYPOINT("ABC3");
   if (fabric_connection_manager.initialized) {
     fabric_connection_manager.fabric_connections.close();
   }
-  DPRINT << "close done" << ENDL();
+  // DPRINT << "close done" << ENDL();
   WAYPOINT("ABC4");
 }
 
@@ -229,7 +229,7 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
     uint16_t dst_dev_id_start, uint16_t dst_dev_id_end, uint64_t dest_addr,
     uint32_t src_addr, uint32_t len_bytes) {
   WAYPOINT("ABC1");
-  DPRINT << "mcast start" << ENDL();
+  DPRINT << "mcast write start" << ENDL();
   tt_l1_ptr routing_l1_info_t *routing_table =
       reinterpret_cast<tt_l1_ptr routing_l1_info_t *>(
           MEM_TENSIX_ROUTING_TABLE_BASE);
@@ -289,7 +289,7 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
     }
   }
   WAYPOINT("ABC2");
-  DPRINT << "mcast done" << ENDL();
+  DPRINT << "mcast write done" << ENDL();
 }
 
 FORCE_INLINE void fabric_semaphore_increment_helper(
@@ -334,6 +334,64 @@ fabric_sem_inc(FabricConnectionManager &fabric_connection_manager,
 #endif
 
   fabric_semaphore_increment_helper(connection, packet_header, dest_addr, incr);
+}
+
+// Conditions:
+// - dest_start_logical_index <= dest_end_logical_index in all dimensions
+// - there is at least one destination (not including sender)
+FORCE_INLINE void
+fabric_mcast_sem_inc(FabricConnectionManager &fabric_connection_manager,
+                     uint16_t dst_mesh_id, uint16_t dst_dev_id_start,
+                     uint16_t dst_dev_id_end, uint64_t dest_addr,
+                     uint32_t incr) {
+  WAYPOINT("ABC1");
+  DPRINT << "mcast start" << ENDL();
+  tt_l1_ptr routing_l1_info_t *routing_table =
+      reinterpret_cast<tt_l1_ptr routing_l1_info_t *>(
+          MEM_TENSIX_ROUTING_TABLE_BASE);
+  uint16_t my_device_id = routing_table->my_device_id;
+  uint16_t my_mesh_id = routing_table->my_mesh_id;
+  WAYPOINT("DA22");
+  ASSERT(my_mesh_id == dst_mesh_id); // we dont support inter-mesh routing yet
+
+  // Get routing info and set up headers for each directions
+  auto mcast_params =
+      get_mcast_params(fabric_connection_manager.get_topology(), my_device_id,
+                       dst_dev_id_start, dst_dev_id_end);
+  for (uint32_t i = 0; i < MAX_SEND_DIR; i++) {
+    if (mcast_params.params_per_direction[i].active) {
+      auto [connection, packet_header] =
+          fabric_connection_manager.get_connection_and_packet_header(i);
+#ifdef FABRIC_2D
+      // Note: inter-mesh routing not supported so device id and mesh id params
+      // below aren't used
+      fabric_set_mcast_route(
+          static_cast<volatile tt_l1_ptr HybridMeshPacketHeader *>(
+              packet_header),
+          my_device_id, my_mesh_id,
+          mcast_params.params_per_direction[i].e_num_hops,
+          mcast_params.params_per_direction[i].w_num_hops,
+          mcast_params.params_per_direction[i].n_num_hops,
+          mcast_params.params_per_direction[i].s_num_hops);
+#else // 1D fabric
+      static_cast<volatile tt_l1_ptr LowLatencyPacketHeader *>(packet_header)
+          ->to_chip_multicast(
+              mcast_params.params_per_direction[i].mcast_command_header);
+#endif
+    }
+  }
+
+  for (uint32_t i = 0; i < MAX_SEND_DIR; i++) {
+    if (mcast_params.params_per_direction[i].active) {
+      auto [connection, packet_header] =
+          fabric_connection_manager.get_connection_and_packet_header(i);
+      fabric_semaphore_increment_helper(connection, packet_header, dest_addr,
+                                        incr);
+    }
+  }
+
+  WAYPOINT("ABC2");
+  DPRINT << "mcast done" << ENDL();
 }
 
 } // namespace experimental

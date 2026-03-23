@@ -3078,7 +3078,7 @@ def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
     }];
 }
 
-def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"noc_semaphore_wait"> {
+def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"experimental::semaphore_wait"> {
     let summary = "NocSemaphoreWait";
     let description = [{
       A blocking call that waits until the value of a local L1 memory address on
@@ -3094,7 +3094,7 @@ def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"noc_semaphore_wait"> {
     }];
 }
 
-def TTKernel_NocSemaphoreWaitMinOp : TTKernel_Op<"noc_semaphore_wait_min"> {
+def TTKernel_NocSemaphoreWaitMinOp : TTKernel_Op<"experimental::semaphore_wait_min"> {
     let summary = "NocSemaphoreWaitMin";
     let description = [{
       A blocking call that waits until the value of a local L1 memory address on
@@ -3413,7 +3413,6 @@ def TTKernel_FabricMulticastWriteOp : TTKernel_Op<"experimental::fabric_mcast_fa
 }
 
 def TTKernel_FabricSemIncOp : TTKernel_Op<"experimental::fabric_sem_inc"> {
-
   let summary = "FabricSemIncOp";
   let description = [{
     FabricSemIncOp. This operation increments a semaphore on a remote device.
@@ -3424,6 +3423,20 @@ def TTKernel_FabricSemIncOp : TTKernel_Op<"experimental::fabric_sem_inc"> {
 
   let assemblyFormat = [{
     `(` $fabric_connection_manager `,` $dst_mesh_id `,` $dst_dev_id `,` $semaphore_addr `,` $incr `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_FabricMulticastSemIncOp : TTKernel_Op<"experimental::fabric_mcast_sem_inc"> {
+  let summary = "FabricMulticastSemIncOp";
+  let description = [{
+    FabricMulticastSemIncOp. This operation increments a semaphore on a range of remote devices.
+  }];
+
+  let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager, I16:$dst_mesh_id, I16:$dst_dev_id_start, I16:$dst_dev_id_end, TTKernel_NocAddr:$semaphore_addr, IndexLike:$incr);
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $fabric_connection_manager `,` $dst_mesh_id `,` $dst_dev_id_start `,` $dst_dev_id_end `,` $semaphore_addr `,` $incr `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
