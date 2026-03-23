@@ -297,12 +297,32 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return (testBufferSizePolicy == "min");
   }
 
+  bool useMaxBufferSizePolicy() const {
+    return (testBufferSizePolicy == "max");
+  }
+
+  bool useAutoBufferSizePolicy() const {
+    return (testBufferSizePolicy == "auto");
+  }
+
+  bool hasValidBufferSizePolicy() const {
+    return useAutoBufferSizePolicy() || useMinBufferSizePolicy() ||
+           useMaxBufferSizePolicy();
+  }
+
   void runOnOperation() override {
     TT_ALLOC_DEBUG("configured with options: {}", to_string(*this));
 
     // Set some instance state:
 
     ModuleOp moduleOp = getOperation();
+
+    if (!hasValidBufferSizePolicy()) {
+      moduleOp.emitOpError()
+          << "invalid test-buffer-size-policy '" << testBufferSizePolicy
+          << "' (expected one of: auto, min, max)";
+      return signalPassFailure();
+    }
 
     memSpaces = [this, moduleOp]() {
       ttcore::SystemDescAttr systemDesc =
@@ -744,16 +764,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
       const std::size_t rank = genericOp.getNumDims();
 
-      const SmallVector<SmallVector<int64_t>> gridShapes =
-          genericOp.getInputOutputOperandGridShapes();
-      const SmallVector<SmallVector<int64_t>> shardShapes =
-          genericOp.getInputOutputOperandShardShapes();
-
       std::tie(gridExtents, shardExtents) = getGridAndShardExtents(genericOp);
       std::tie(inputTileFactors, outputTileFactors) =
           getOperandTileShapes(genericOp);
 
       SmallVector<int64_t> blockFactors = genericOp.getBlockFactorsValue();
+      const SmallVector<int64_t> originalBlockFactors = blockFactors;
 
       TT_ALLOC_DEBUG(
           "analyzing {}: grid {}, block factors {}, full factors {}, grid "
@@ -766,35 +782,19 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           asSeq(getShardBlockFactors(genericOp)),
           getParticipatingDimMask(genericOp));
 
-      // WIP: There is a set of valid stream buffer sizes and selecting them
-      // optimally is one of the goals of this pass. Eventually, this decision
-      // will involve integration with the `GenericOpBufferAnalysis` API. In the
-      // interim, however, we implement a simple binary choice policy, "keep
-      // incoming shapes or pick a small-ish buffer" chosen by the
-      // `testBufferSizePolicy` test pass option. Choices made by the policy
-      // will be captured in new block factors `genericCtx.reblockedFactors` and
-      // grid/shard dim extents in `grid/shardExtents`.
-      {
-        SmallVector<int64_t> rescaling(rank, 1);
-        if (useMinBufferSizePolicy()) {
-          const llvm::BitVector participationMask =
-              getParticipatingDimMask(genericOp);
-          const SmallVector<int64_t> shardFactors =
-              getShardBlockFactors(genericOp);
-          for (auto d = participationMask.find_first_unset(); d >= 0;
-               d = participationMask.find_next_unset(d)) {
-            rescaling[d] = shardFactors[d];
-          }
-        }
+      // Select execution blocking for would-be operand streams.
+      // `max` preserves the original blocking,
+      // `min` shrinks all non-participating dims
+      // `auto` considers legal divisors of the reduction shard factor and
+      // rejects candidates that shrink tuned-input shards below 4 tiles.
+      blockFactors =
+          chooseReblockedFactors(genericOp, indexingMaps, iteratorTypes,
+                                 gridExtents, shardExtents, device);
 
-        for (std::size_t d = 0; d < rank; ++d) {
-          gridExtents[d] *= rescaling[d];
-          shardExtents[d] /= rescaling[d];
-
-          blockFactors[d] *= rescaling[d];
-        }
-        TT_ALLOC_DEBUG("rescaling {}, new block factors {}", asSeq(rescaling),
-                       asSeq(blockFactors));
+      for (std::size_t d = 0; d < rank; ++d) {
+        const int64_t rescaling = blockFactors[d] / originalBlockFactors[d];
+        gridExtents[d] *= rescaling;
+        shardExtents[d] /= rescaling;
       }
       genericCtx.reblockedFactors = blockFactors;
       TT_debug((gridExtents.size() == rank and shardExtents.size() == rank));
@@ -917,6 +917,161 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
   }
 
+  static std::optional<std::size_t>
+  getSingleAutoReblockDim(ArrayRef<ttcore::IteratorType> iteratorTypes) {
+    std::optional<std::size_t> candidateDim;
+    for (auto [dim, iteratorType] : llvm::enumerate(iteratorTypes)) {
+      if (iteratorType != ttcore::IteratorType::Reduction) {
+        continue;
+      }
+      if (candidateDim.has_value()) {
+        return std::nullopt;
+      }
+      candidateDim = dim;
+    }
+    return candidateDim;
+  }
+
+  static int64_t getTileVolume(ArrayRef<int64_t> shape) {
+    return std::accumulate(shape.begin(), shape.end(), int64_t{1},
+                           std::multiplies<int64_t>());
+  }
+
+  std::optional<uint64_t> estimateAutoReblockStreamBytes(
+      d2m::GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
+      ArrayRef<int64_t> candidateGridExtents,
+      ArrayRef<int64_t> candidateShardExtents, std::size_t candidateDim,
+      ttcore::DeviceAttr device) const {
+    uint64_t totalBytes = 0;
+    bool sawCandidateInput = false;
+
+    for (auto [operandIndex, operand] :
+         llvm::enumerate(genericOp.getInputsAndOutputs())) {
+      if (genericOp.isOutputOperandIdx(operandIndex) ||
+          genericOp.isScratchInput(operandIndex)) {
+        continue;
+      }
+
+      const AffineMap indexingMap = indexingMaps[operandIndex];
+      if (!indexingMap.isFunctionOfDim(candidateDim)) {
+        continue;
+      }
+
+      auto operandType = mlir::dyn_cast<MemRefType>(operand.getType());
+      if (!operandType ||
+          !mlir::isa<ttcore::TileType>(operandType.getElementType())) {
+        return std::nullopt;
+      }
+
+      sawCandidateInput = true;
+      const AffineMap canonicalMap = canonicalizeBroadcasts(indexingMap);
+      const SmallVector<int64_t> gridShapeRescaled =
+          canonicalMap.compose(candidateGridExtents);
+      const SmallVector<int64_t> shardShapeRescaled =
+          canonicalMap.compose(candidateShardExtents);
+
+      if (getTileVolume(shardShapeRescaled) < 4) {
+        return std::nullopt;
+      }
+
+      const MemRefType bufferType = getStreamBufferType(
+          gridShapeRescaled, shardShapeRescaled, operandType.getElementType(),
+          L1Attr, numStreamBuffers);
+      totalBytes += getStreamBufferSizeBytes(bufferType, device);
+    }
+
+    if (!sawCandidateInput) {
+      return std::nullopt;
+    }
+
+    return totalBytes;
+  }
+
+  SmallVector<int64_t> chooseReblockedFactors(
+      d2m::GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
+      ArrayRef<ttcore::IteratorType> iteratorTypes,
+      ArrayRef<int64_t> gridExtents, ArrayRef<int64_t> shardExtents,
+      ttcore::DeviceAttr device) const {
+    SmallVector<int64_t> blockFactors = genericOp.getBlockFactorsValue();
+
+    if (useMaxBufferSizePolicy()) {
+      return blockFactors;
+    }
+
+    const std::size_t rank = genericOp.getNumDims();
+    SmallVector<int64_t> rescaling(rank, 1);
+    if (useMinBufferSizePolicy()) {
+      const llvm::BitVector participationMask =
+          getParticipatingDimMask(genericOp);
+      const SmallVector<int64_t> shardFactors = getShardBlockFactors(genericOp);
+      for (auto d = participationMask.find_first_unset(); d >= 0;
+           d = participationMask.find_next_unset(d)) {
+        rescaling[d] = shardFactors[d];
+      }
+
+      for (std::size_t d = 0; d < rank; ++d) {
+        blockFactors[d] *= rescaling[d];
+      }
+      TT_ALLOC_DEBUG("rescaling {}, new block factors {}", asSeq(rescaling),
+                     asSeq(blockFactors));
+      return blockFactors;
+    }
+
+    TT_assert(useAutoBufferSizePolicy());
+
+    const std::optional<std::size_t> candidateDim =
+        getSingleAutoReblockDim(iteratorTypes);
+    if (!candidateDim.has_value()) {
+      return blockFactors;
+    }
+
+    const SmallVector<int64_t> shardFactors = getShardBlockFactors(genericOp);
+    if (shardFactors[*candidateDim] <= 1) {
+      return blockFactors;
+    }
+
+    const auto baseBytes =
+        estimateAutoReblockStreamBytes(genericOp, indexingMaps, gridExtents,
+                                       shardExtents, *candidateDim, device);
+    if (!baseBytes.has_value()) {
+      return blockFactors;
+    }
+
+    int64_t bestScale = 1;
+    uint64_t bestBytes = *baseBytes;
+    for (int64_t scale = shardFactors[*candidateDim]; scale >= 2; --scale) {
+      if (shardFactors[*candidateDim] % scale != 0) {
+        continue;
+      }
+
+      SmallVector<int64_t> candidateGridExtents(gridExtents.begin(),
+                                                gridExtents.end());
+      SmallVector<int64_t> candidateShardExtents(shardExtents.begin(),
+                                                 shardExtents.end());
+      candidateGridExtents[*candidateDim] *= scale;
+      candidateShardExtents[*candidateDim] /= scale;
+
+      const auto candidateBytes = estimateAutoReblockStreamBytes(
+          genericOp, indexingMaps, candidateGridExtents, candidateShardExtents,
+          *candidateDim, device);
+      if (!candidateBytes.has_value()) {
+        continue;
+      }
+
+      if (*candidateBytes < bestBytes ||
+          (*candidateBytes == bestBytes && scale > bestScale)) {
+        bestBytes = *candidateBytes;
+        bestScale = scale;
+      }
+    }
+
+    blockFactors[*candidateDim] *= bestScale;
+    TT_ALLOC_DEBUG("auto-selected scale {} on dim {}, new block factors {}, "
+                   "estimated stream bytes {}",
+                   bestScale, *candidateDim, asSeq(blockFactors), bestBytes);
+    return blockFactors;
+  }
+
   /// Populate `analysis.generics`:
   ///
   /// - Collect `d2m.generic`s present in `funcOp` into `analysis.generics`.
@@ -929,8 +1084,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   ///     the allocation size and shard shape for the in-generic CB alloc.
   ///
   /// Note that each decision to spill a memref alloc is binary while the stream
-  /// buffer sizing decision is in theory k-ary. As work-in-progress, the latter
-  /// decision is currently clamped to binary based on `testBufferSizePolicy`.
+  /// buffer sizing decision is in theory k-ary. `testBufferSizePolicy`
+  /// selects between the `min` / `max` / `auto` policies.
   ///
   LogicalResult analyzeGenericOps(func::FuncOp funcOp,
                                   FuncAnalysisData &analysis) {
