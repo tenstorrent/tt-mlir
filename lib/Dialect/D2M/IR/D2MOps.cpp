@@ -515,6 +515,18 @@ struct ToLayoutFoldOOBUndefPattern : public OpRewritePattern<ToLayoutOp> {
       return failure();
     }
 
+    // Don't fold when the input is undef but the output requires a specific
+    // reduction identity (neginf/inf).  Undef padding is typically zero,
+    // which is NOT the correct identity for max (neginf) or min (inf)
+    // reductions.  Folding here would let the reduction read zero-valued
+    // padding instead of the required identity, corrupting the result for
+    // tensors whose logical shape is not tile-aligned.
+    if (inputLayout.getOobVal() == ttcore::OOBVal::Undef &&
+        (outputLayout.getOobVal() == ttcore::OOBVal::NegInf ||
+         outputLayout.getOobVal() == ttcore::OOBVal::Inf)) {
+      return failure();
+    }
+
     // Layouts match except OOB — the to_layout is a no-op.
     rewriter.replaceOp(op, op.getInput());
     return success();

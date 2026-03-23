@@ -77,6 +77,7 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::RequantizeOp>();
       target.addIllegalOp<ttir::DequantizeOp>();
       target.addIllegalOp<ttir::ReverseOp>();
+      target.addIllegalOp<ttir::MinOp>();
 
       // Conv2d and ConvTranspose2d are legal only if already in NHWC format.
       // Non-NHWC ops will be decomposed with permutes to NHWC.

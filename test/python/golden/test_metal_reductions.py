@@ -49,6 +49,10 @@ def create_reductions_constrained_inputs(
                 return builder.max(
                     in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
                 )
+            elif reduce_type == "min":
+                return builder.min(
+                    in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
+                )
 
     return module
 
@@ -196,6 +200,37 @@ def test_max(
     )
 
 
+@pytest.mark.parametrize("m", [4, 8, 16])
+@pytest.mark.parametrize("n", [2, 4, 8])
+@pytest.mark.parametrize("dim_arg", [[0], [1]])
+@pytest.mark.parametrize("keep_dim", [True, False])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_min(
+    m: int,
+    n: int,
+    dim_arg: List[int],
+    keep_dim: bool,
+    target: str,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    tile_size = 32
+    shape = (
+        m * tile_size,
+        n * tile_size,
+    )
+
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(shape, "min", dim_arg, keep_dim, dtype),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=_max_atol(dtype),
+    )
+
+
 # Unaligned shapes: dimensions that are NOT multiples of the tile size (32).
 # These exercise the OOB padding fill values — sum needs zero-fill and max
 # needs neg-inf fill so that padded elements don't corrupt the reduction.
@@ -246,6 +281,32 @@ def test_max_unaligned(
 ):
     compile_and_execute_ttir(
         create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim, dtype),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=_max_atol(dtype),
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [(100, 50), (37, 61), (50, 100), (129, 65)],
+)
+@pytest.mark.parametrize("dim_arg", [[0], [1]])
+@pytest.mark.parametrize("keep_dim", [True, False])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_min_unaligned(
+    shape: tuple,
+    dim_arg: List[int],
+    keep_dim: bool,
+    target: str,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(shape, "min", dim_arg, keep_dim, dtype),
         target=target,
         **get_request_kwargs(request),
         device=device,
