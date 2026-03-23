@@ -4,6 +4,7 @@
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
+#include "ttmlir-c/TTAttrs.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/CAPI/AffineMap.h"
@@ -271,6 +272,29 @@ void populateTTModule(nb::module_ &m) {
                   })
       .def_prop_ro("y", &tt::ttcore::CoreCoordAttr::getY)
       .def_prop_ro("x", &tt::ttcore::CoreCoordAttr::getX);
+
+  tt_attribute_class<tt::ttcore::CoreRangeAttr>(m, "CoreRangeAttr")
+      .def_static("get",
+                  [](MlirContext ctx, MlirAttribute startCoord,
+                     MlirAttribute endCoord) {
+                    return wrap(ttmlirTTCoreCoreRangeAttrGet(ctx, startCoord,
+                                                            endCoord));
+                  })
+      .def_prop_ro("start_coord",
+                   &tt::ttcore::CoreRangeAttr::getStartCoord)
+      .def_prop_ro("end_coord", &tt::ttcore::CoreRangeAttr::getEndCoord);
+
+  tt_attribute_class<tt::ttcore::CoreRangeSetAttr>(m, "CoreRangeSetAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::vector<MlirAttribute> coreRanges) {
+            return wrap(ttmlirTTCoreCoreRangeSetAttrGet(
+                ctx, coreRanges.data(), coreRanges.size()));
+          })
+      .def_prop_ro("core_ranges",
+                   [](tt::ttcore::CoreRangeSetAttr self) {
+                     return self.getCoreRanges().vec();
+                   });
 
   tt_attribute_class<tt::ttcore::ChipCoordAttr>(m, "ChipCoordAttr")
       .def_static("get",

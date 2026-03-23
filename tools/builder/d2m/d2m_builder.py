@@ -409,6 +409,65 @@ class D2MBuilder(Builder):
 
         return _decorator
 
+    def spatial(self, core_ranges, regions):
+        """
+        Create a d2m.spatial op.
+
+        Args:
+            core_ranges: List of (start_y, start_x, end_y, end_x) tuples
+                defining disjoint core ranges, one per region.
+            regions: List of (callable, inputs_list, outputs_list) tuples.
+                Each callable has signature fn(builder, *inputs, *outputs)
+                and must construct a d2m.generic inside, returning the result.
+
+        Returns:
+            List of result values (one per output across all regions),
+            or a single result if there is only one output.
+        """
+        assert len(core_ranges) == len(regions), (
+            f"Number of core_ranges ({len(core_ranges)}) must match "
+            f"number of regions ({len(regions)})"
+        )
+
+        with self._ctx, self._loc:
+            ctx = self._ctx
+
+            # Build CoreRangeSetAttr
+            cr_attrs = []
+            for sy, sx, ey, ex in core_ranges:
+                start = ttcore.ir.CoreCoordAttr.get(ctx, sy, sx)
+                end = ttcore.ir.CoreCoordAttr.get(ctx, ey, ex)
+                cr_attrs.append(ttcore.ir.CoreRangeAttr.get(ctx, start, end))
+            grid_ranges = ttcore.ir.CoreRangeSetAttr.get(ctx, cr_attrs)
+
+            # Collect all inputs and outputs across regions
+            all_inputs = []
+            all_outputs = []
+            for _fn, inputs, outputs in regions:
+                all_inputs.extend(inputs)
+                all_outputs.extend(outputs)
+
+            result_types = [o.type for o in all_outputs]
+
+            spatial_op = d2m.SpatialOp(
+                result_types,
+                all_inputs,
+                all_outputs,
+                grid_ranges,
+                num_regions=len(regions),
+            )
+
+            # Populate each region
+            for i, (region_fn, inputs, outputs) in enumerate(regions):
+                region = spatial_op.regions[i]
+                region.blocks.append()
+                block = region.blocks[0]
+                with InsertionPoint(block):
+                    region_fn(self, *inputs, *outputs)
+
+            results = list(spatial_op.results)
+            return results if len(results) > 1 else results[0]
+
     def remote_load(
         self, src, indices, mcast_start_index=None, mcast_shape=None, mcast_dims=None
     ):

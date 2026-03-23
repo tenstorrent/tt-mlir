@@ -174,3 +174,21 @@ MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx, int64_t y, int64_t x) {
 MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx, int64_t y, int64_t x) {
   return wrap(CoreCoordAttr::get(unwrap(ctx), y, x));
 }
+
+MlirAttribute ttmlirTTCoreCoreRangeAttrGet(MlirContext ctx,
+                                           MlirAttribute startCoord,
+                                           MlirAttribute endCoord) {
+  return wrap(CoreRangeAttr::get(
+      unwrap(ctx), mlir::cast<CoreCoordAttr>(unwrap(startCoord)),
+      mlir::cast<CoreCoordAttr>(unwrap(endCoord))));
+}
+
+MlirAttribute ttmlirTTCoreCoreRangeSetAttrGet(MlirContext ctx,
+                                              MlirAttribute const *coreRanges,
+                                              size_t numCoreRanges) {
+  llvm::SmallVector<CoreRangeAttr> ranges;
+  for (size_t i = 0; i < numCoreRanges; ++i) {
+    ranges.push_back(mlir::cast<CoreRangeAttr>(unwrap(coreRanges[i])));
+  }
+  return wrap(CoreRangeSetAttr::get(unwrap(ctx), ranges));
+}

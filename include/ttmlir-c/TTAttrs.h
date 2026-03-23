@@ -77,6 +77,15 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx,
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx,
                                                           int64_t y, int64_t x);
 
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTCoreCoreRangeAttrGet(MlirContext ctx, MlirAttribute startCoord,
+                             MlirAttribute endCoord);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTCoreCoreRangeSetAttrGet(MlirContext ctx,
+                                MlirAttribute const *coreRanges,
+                                size_t numCoreRanges);
+
 #ifdef __cplusplus
 }
 #endif
