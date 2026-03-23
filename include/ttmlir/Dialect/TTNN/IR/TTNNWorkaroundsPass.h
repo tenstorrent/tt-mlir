@@ -302,6 +302,10 @@ public:
   static TTNNOperandsWorkarounds
   createGroupNormOpOperandsWorkarounds(mlir::Operation *op);
 
+  // Create workarounds for unary bitwise op (bitwise_not) operands.
+  static TTNNOperandsWorkarounds
+  createUnaryBitwiseOpOperandsWorkarounds(mlir::Operation *op);
+
   // Create workarounds for ArgMax op operands.
   static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();
 

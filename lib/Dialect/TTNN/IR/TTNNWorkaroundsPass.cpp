@@ -522,6 +522,12 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
     return mlir::tt::ttcore::DataType::Float32;
   }
 
+  // UInt8 arithmetic ops (add, subtract, multiply, etc.) produce incorrect
+  // results on Tenstorrent hardware. Cast to Int32 for correct behavior.
+  if (dType == mlir::tt::ttcore::DataType::UInt8) {
+    return mlir::tt::ttcore::DataType::Int32;
+  }
+
   return {};
 }
 
@@ -671,6 +677,47 @@ TTNNOperandsWorkaroundsFactory::createGroupNormOpOperandsWorkarounds(
   }
 
   return workarounds;
+}
+
+// Helper function to determine if data type workaround is required for a unary
+// bitwise op. Set the workaround data type based on the unary bitwise op.
+static std::optional<mlir::tt::ttcore::DataType>
+unaryBitwiseOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
+  mlir::tt::ttcore::DataType dType =
+      mlir::tt::ttcore::elementTypeToDataType(elementType);
+
+  // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/31373
+  if (isa<ttnn::BitwiseNotOp>(op)) {
+    if (dType == mlir::tt::ttcore::DataType::UInt8 ||
+        dType == mlir::tt::ttcore::DataType::UInt16 ||
+        dType == mlir::tt::ttcore::DataType::UInt32) {
+      return mlir::tt::ttcore::DataType::Int32;
+    }
+  }
+  return {};
+}
+
+// Factory method to create a set of workarounds for unary bitwise operation
+// (BitwiseNotOp) operands.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createUnaryBitwiseOpOperandsWorkarounds(
+    mlir::Operation *op) {
+  assert(op->getNumOperands() == 1 && "expected unary op");
+  auto inputType =
+      mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
+
+  TTNNOperandWorkarounds operandWorkaround;
+  if (auto dtype =
+          unaryBitwiseOpDTypeWorkaround(op, inputType.getElementType())) {
+    operandWorkaround.tensorDataTypeWorkaround = *dtype;
+  }
+  if (!mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding()).isTiled()) {
+    operandWorkaround.tensorLayoutWorkaround = Layout::Tile;
+  }
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
 }
 
 // Factory method to create a set of workarounds for ArgMax op operands.
