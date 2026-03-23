@@ -1,0 +1,241 @@
+flowchart TB
+    subgraph CLI["main() — CLI Entry Point"]
+        direction TB
+        ARGS["parse_arguments()<br/>--input-file, --output-dir,<br/>--main-function, --flatbuffer-path,<br/>--load-inputs-from-disk, --skip-op-pattern,<br/>--dump-ttir, --dump-ttnn, ..."]
+        VALIDATE["Validate input file exists<br/>Create output directory"]
+        SKIP_FN["create_skip_op_function(pattern)<br/>→ should_skip_op callable"]
+        ARGS --> VALIDATE --> SKIP_FN
+    end
+
+    subgraph PIPELINE["chisel_pipeline(ttir_path)"]
+        direction TB
+        P1["Create MLIR Context()"]
+        P2["Module.parseFile(ttir_path)<br/>→ parse TTIR from disk"]
+        P3["Module.parse(str(ttir_module), ctx)<br/>→ reparse to reset locations<br/>so line:col = op definition site"]
+        P4["run_ttir_to_ttnn(str(ttir_module), ctx)"]
+
+        subgraph PASSES["PassManager — ttir-to-ttnn-backend-pipeline"]
+            direction TB
+            PM1["enable-erase-inverse-ops-pass: false<br/>(preserves tensor shapes for comparison)"]
+            PM2["enable-const-eval: false<br/>(easier tensor comparison)"]
+            PM3["system-desc-path:<br/>ttrt-artifacts/system_desc.ttsys"]
+            PM4["PassManager.parse(..., context=ctx)"]
+            PM5["pm.run(module.operation)"]
+            PM1 --- PM2 --- PM3
+            PM3 --> PM4 --> PM5
+        end
+
+        P5["Optional: dump chisel_ttir.mlir"]
+        P6["Optional: dump chisel_ttnn.mlir"]
+        P7(["Return (ttir_module, ttnn_module)"])
+
+        P1 --> P2 --> P3 --> P4
+        P4 --> PASSES
+        PASSES --> P5 --> P6 --> P7
+    end
+
+    FB["ttnn_to_flatbuffer_file(ttnn_module,<br/>flatbuffer_path, {}, {})<br/>→ serialize TTNN to flatbuffer binary"]
+
+    subgraph CTX_INIT["ChiselContext.__init__()"]
+        direction TB
+
+        subgraph MLIR_SETUP["MLIR Context & Module Loading"]
+            direction TB
+            M1["Context() + load_all_available_dialects()"]
+            M2["IRModule(ttnn_module, DEVICE)<br/>- _add_function() via DFS walk<br/>- _extract_function_ops()<br/>- AsmState(func) for fast name lookup<br/>- _generate_last_loc_line()"]
+            M3["IRModule(ttir_module, GOLDEN)<br/>- same initialization as DEVICE"]
+            M1 --> M2 & M3
+        end
+
+        subgraph REG_INIT["Registry.__init__(golden_module, device_module, should_skip_op)"]
+            direction TB
+
+            subgraph REG_DS["Data Structures Created"]
+                direction TB
+                R_DS1["tensors: defaultdict(dict)<br/>Dict[ (line,col) → Dict[ExecutionType → OpResult|BlockArgument] ]<br/>Maps each MLIR location to its tensor for GOLDEN and DEVICE"]
+                R_DS2["tensor_to_location: Dict[ExecutionType → Dict[str → (line,col)]]<br/>Reverse lookup: tensor name → source location, per exec type<br/>Initialized: {GOLDEN: {}, DEVICE: {}}"]
+                R_DS3["op_groups: Dict[ (line,col) → OpGroup ]<br/>Groups of correlated ops keyed by MLIR source location<br/>Initially empty, populated by load_all_ops()"]
+                R_DS4["modules: Dict[ExecutionType → IRModule]<br/>{GOLDEN: golden_module, DEVICE: device_module}"]
+                R_DS5["module_iters: Dict[ExecutionType → iter]<br/>iter(enumerate(module.get_function_ops()))<br/>Stateful iterators for walking ops in order"]
+                R_DS6["last_loaded_loc: Dict[ExecutionType → set]<br/>{GOLDEN: set(), DEVICE: set()}<br/>Tracks which locations have been loaded"]
+                R_DS7["should_skip: Callable[[Operation] → bool]<br/>User-provided skip predicate<br/>(matches --skip-op-pattern against op ASM)"]
+            end
+
+            subgraph REG_ARGS["Register Function Input Arguments"]
+                direction TB
+                RA1["For each execution_type (GOLDEN, DEVICE):"]
+                RA2["For each arg in module.get_function_inputs():"]
+                RA3["add_tensor(arg, execution_type)"]
+
+                subgraph ADD_TENSOR["add_tensor(tensor: OpResult|BlockArgument, kind)"]
+                    direction TB
+                    AT1["location_hash = hash_location(tensor.location)<br/>→ (start_line, start_col) from MLIR Location"]
+                    AT2["tensor_to_location[kind][tensor.get_name(asm_state)]<br/>= location_hash<br/>→ maps e.g. '%arg0' → (3, 5)"]
+                    AT3["tensors[location_hash][kind] = tensor<br/>→ maps e.g. (3,5) → {GOLDEN: BlockArgument, DEVICE: BlockArgument}"]
+                    AT1 --> AT2 --> AT3
+                end
+
+                RA1 --> RA2 --> RA3 --> ADD_TENSOR
+            end
+
+            REG_DS --> REG_ARGS
+        end
+
+        subgraph LOAD_OPS_DETAIL["registry.load_all_ops() — called after inputs loaded"]
+            direction TB
+
+            subgraph LOAD_PHASE["Phase 1: Load ops from both modules"]
+                direction TB
+                LO1["For execution_type in [GOLDEN, DEVICE]:"]
+                LO2["For (index, op) in module_iters[execution_type]:"]
+
+                subgraph ADD_OP["_add_op(op, execution_type, should_skip)"]
+                    direction TB
+                    AO1["location_hash = hash_location(op.location)<br/>→ (line, col) from MLIR source"]
+                    AO2{"location_hash<br/>in op_groups?"}
+                    AO3["Create new OpGroup(location_hash)<br/>ops = {GOLDEN: [], DEVICE: []}"]
+                    AO4["op_groups[location_hash].add_op(op, execution_type)<br/>→ appends op to the correct list"]
+                    AO5{"should_skip<br/>== True?"}
+                    AO6["op_groups[location_hash].skip_group = True<br/>→ marks entire group for skipping"]
+                    AO1 --> AO2
+                    AO2 -->|No| AO3 --> AO4
+                    AO2 -->|Yes| AO4
+                    AO4 --> AO5
+                    AO5 -->|Yes| AO6
+                    AO5 -->|No| LO_TENSOR
+                end
+
+                subgraph LO_TENSOR["Track op output tensors"]
+                    direction TB
+                    LOT1["For each output in get_op_outputs(op):"]
+                    LOT2["add_tensor(output, execution_type)<br/>→ updates tensors[] and tensor_to_location[]"]
+                    LOT1 --> LOT2
+                end
+
+                LO1 --> LO2 --> ADD_OP
+            end
+
+            subgraph MERGE["Phase 2: _merge_empty_golden_groups()"]
+                direction TB
+                MG0["Purpose: Handle op fusion — when TTNN fuses<br/>multiple TTIR ops into one, some OpGroups<br/>end up with GOLDEN ops but no DEVICE ops"]
+                MG1["sorted_ids = sorted(op_groups.keys())<br/>→ sort by (line, col) = source order"]
+                MG2["Walk sorted groups with index"]
+                MG3{"Group has<br/>DEVICE ops?"}
+                MG4["Skip — group is complete"]
+                MG5{"Next group has<br/>GOLDEN ops?"}
+                MG6["Skip — cannot merge into empty next"]
+                MG7["Prepend current GOLDEN ops<br/>into next group's GOLDEN list:<br/>next.ops[GOLDEN] = curr.ops[GOLDEN]<br/>+ next.ops[GOLDEN]"]
+                MG8["Delete current group from op_groups<br/>Remove from sorted_ids"]
+
+                MG0 --> MG1 --> MG2 --> MG3
+                MG3 -->|"Yes (has DEVICE)"| MG4
+                MG3 -->|"No (GOLDEN only)"| MG5
+                MG5 -->|No| MG6
+                MG5 -->|Yes| MG7 --> MG8
+            end
+
+            LOAD_PHASE --> MERGE
+        end
+
+        subgraph POOLS["Tensor Pools"]
+            direction TB
+            TP1["Golden TensorPool<br/>(caching → output_dir/golden/)<br/>dict: name → TensorValue"]
+            TP2["Device TensorPool<br/>(caching → output_dir/device/)<br/>dict: name → TensorValue"]
+        end
+
+        subgraph EXEC_INIT["Executor & Reporting"]
+            direction TB
+            EX1["GoldenExecutor(registry, golden_pool)<br/>- op_locations = sorted location keys<br/>- loc_iter = iter(op_locations)<br/>- golden_op_iter = iter(golden_ops)"]
+            EX2["ReportWriter(report_path,<br/>{GOLDEN: asm_state, DEVICE: asm_state})"]
+        end
+
+        subgraph TTRT_SETUP["TTRT Runtime Setup (setup_ttrt)"]
+            direction TB
+            T1["RtApi.initialize_apis()"]
+            T2["RtApi.Run(args={<br/>  binary: flatbuffer_path,<br/>  --program-index: N,<br/>  --init: randn,<br/>  --disable-ttrt-callbacks: True<br/>})"]
+            T1 --> T2
+        end
+
+        S1["Track current_device_op = None"]
+        S2["Extract arg_names from<br/>device function inputs"]
+
+        MLIR_SETUP --> REG_INIT
+        REG_INIT --> POOLS
+        POOLS --> EXEC_INIT
+        EXEC_INIT --> S1 --> S2 --> TTRT_SETUP
+        TTRT_SETUP ~~~ LOAD_OPS_DETAIL
+    end
+
+    BIND["bind_callbacks()<br/>DebugHooks.get(preop, postop)<br/>→ registers pre/post hooks with TTRT"]
+
+    subgraph INPUTS["Load or Generate Inputs"]
+        direction TB
+        I1{"--load-inputs-from-disk?"}
+
+        subgraph DISK_LOAD["load_inputs_from_disk()"]
+            direction TB
+            D1["discover_input_tensor_paths(tensor_folder)<br/>→ sorted *.pt files by numeric stem"]
+            D2["For each (path, func_arg):"]
+            D3["torch.load(path) → tensor"]
+            D4["Create TensorValue(name, tensor, GOLDEN)<br/>set_execution_data() → golden pool"]
+            D5["Create TensorValue(name, tensor, DEVICE)<br/>set_execution_data() → device pool"]
+            D1 --> D2 --> D3 --> D4 & D5
+        end
+
+        subgraph RANDOM["generate_random_inputs()"]
+            direction TB
+            RN1["Scan device ops for ttnn.embedding<br/>→ get embedding_size for int range"]
+            RN2["For each function input arg:"]
+            RN3["Extract shape, dtype from arg.type"]
+            RN4{"dtype is<br/>floating point?"}
+            RN5["torch.randn(shape, dtype)"]
+            RN6{"embedding<br/>found?"}
+            RN7["torch.randint(0, embedding_size, shape)"]
+            RN8["torch.randint(min, max, shape)"]
+            RN9["Store in both device + golden pools<br/>with set_execution_data()"]
+            RN1 --> RN2 --> RN3 --> RN4
+            RN4 -->|Yes| RN5
+            RN4 -->|No| RN6
+            RN6 -->|Yes| RN7
+            RN6 -->|No| RN8
+            RN5 & RN7 & RN8 --> RN9
+        end
+
+        I1 -->|Yes| DISK_LOAD
+        I1 -->|No| RANDOM
+    end
+
+    RUN(["chisel_context.run()<br/>→ RtApi executes flatbuffer<br/>→ preop/postop fire per op"])
+
+    CLI --> PIPELINE
+    PIPELINE --> FB
+    FB --> CTX_INIT
+    CTX_INIT --> BIND
+    BIND --> INPUTS
+    INPUTS --> LOAD_OPS_DETAIL
+    LOAD_OPS_DETAIL --> RUN
+
+    %% Styles
+    style CLI fill:#e1f5fe,stroke:#0288d1
+    style PIPELINE fill:#e8f5e9,stroke:#2e7d32
+    style PASSES fill:#c8e6c9,stroke:#388e3c
+    style FB fill:#fff3e0,stroke:#f57c00,color:#000
+    style CTX_INIT fill:#f3e5f5,stroke:#7b1fa2
+    style MLIR_SETUP fill:#ede7f6,stroke:#5e35b1
+    style REG_INIT fill:#fff9c4,stroke:#f9a825
+    style REG_DS fill:#fff8e1,stroke:#fbc02d
+    style REG_ARGS fill:#fff8e1,stroke:#fbc02d
+    style ADD_TENSOR fill:#fffde7,stroke:#f9a825
+    style LOAD_OPS_DETAIL fill:#fff9c4,stroke:#f9a825
+    style LOAD_PHASE fill:#fff8e1,stroke:#fbc02d
+    style ADD_OP fill:#fffde7,stroke:#f9a825
+    style LO_TENSOR fill:#fffde7,stroke:#f9a825
+    style MERGE fill:#fff8e1,stroke:#fbc02d
+    style POOLS fill:#e0f2f1,stroke:#00897b
+    style EXEC_INIT fill:#fce4ec,stroke:#c62828
+    style TTRT_SETUP fill:#ffebee,stroke:#b71c1c
+    style BIND fill:#e8eaf6,stroke:#3949ab,color:#000
+    style INPUTS fill:#f1f8e9,stroke:#558b2f
+    style DISK_LOAD fill:#dcedc8,stroke:#689f38
+    style RANDOM fill:#dcedc8,stroke:#689f38
+    style RUN fill:#fce4ec,stroke:#c62828,color:#000

@@ -1,0 +1,183 @@
+flowchart TB
+    START([TTRT Runtime starts<br/>RtApi.Run with DebugHooks])
+
+    START --> LOOP_START
+
+    subgraph LOOP["For each device op in flatbuffer"]
+        direction TB
+        LOOP_START[/"Next device op"/]
+
+        subgraph PREOP["preop(binary, programContext, opContext)"]
+            direction TB
+            P1["Extract debug_str via<br/>get_op_debug_str(opContext)"]
+            P2["Parse op_location via<br/>parse_op_location(get_op_loc_info)"]
+            P3["Get input_refs via<br/>get_op_input_refs(opContext, programCtx)"]
+            P4{"input_refs<br/>empty?"}
+            P5["Registry.find_op(location,<br/>debug_str, DEVICE)"]
+            P6{"Op found?"}
+
+            subgraph INPUT_LOOP["Process each (mlir_tensor, tensor_ref)"]
+                direction TB
+                IL1{"Tensor in<br/>device pool?"}
+
+                subgraph EXISTING["Existing tensor path"]
+                    direction TB
+                    E1{"tensor_ref<br/>already set?"}
+                    E2["Set tensor_ref on TensorValue"]
+                    E3["function_argument_bridge()"]
+                    E4{"bridge<br/>type?"}
+                    E5["HOST: Push host data<br/>→ device memory<br/>(update_tensor_in_pool)"]
+                    E6["DEVICE: Pull device data<br/>→ golden pool<br/>(retrieve + create TensorValue)"]
+                end
+
+                subgraph NEW["New tensor path"]
+                    direction TB
+                    N1["retrieve_tensor_from_pool<br/>(programCtx, ref)"]
+                    N2["get_torch_tensor(rt_tensor)<br/>→ torch.Tensor"]
+                    N3["Store TensorValue(name,<br/>data, DEVICE, ref)<br/>in device pool"]
+                end
+            end
+
+            P1 --> P2 --> P3 --> P4
+            P4 -->|Yes| SKIP_PRE([Return early])
+            P4 -->|No| P5
+            P5 --> P6
+            P6 -->|None| SKIP_PRE
+            P6 -->|Found| INPUT_LOOP
+
+            IL1 -->|Yes| EXISTING
+            IL1 -->|No| NEW
+            E1 -->|Yes| SKIP_INPUT([Skip tensor])
+            E1 -->|No| E2 --> E3 --> E4
+            E4 -->|host| E5
+            E4 -->|device| E6
+            N1 --> N2 --> N3
+        end
+
+        LOOP_START --> PREOP
+
+        HW["Device op executes<br/>on TT hardware"]
+
+        PREOP --> HW
+
+        subgraph POSTOP["postop(binary, programContext, opContext)"]
+            direction TB
+            Q1["Parse debug_str + op_location"]
+            Q2{"current_device_op<br/>is None?"}
+            Q3{"Op has<br/>outputs?"}
+            Q4["output_name = get_op_outputs(op)[0]"]
+            Q5["output_ref = get_op_output_ref(opCtx, programCtx)"]
+            Q6{"output_ref<br/>is None?"}
+            Q7["retrieve_tensor_from_pool<br/>(programCtx, output_ref)"]
+            Q8["get_torch_tensor → torch.Tensor"]
+            Q9["Store TensorValue(output_name,<br/>data, DEVICE, ref)<br/>in device pool"]
+            Q10{"Registry<br/>.should_compare?<br/>(is last op in group)"}
+
+            Q1 --> Q2
+            Q2 -->|Yes| SKIP_POST([Return early])
+            Q2 -->|No| Q3
+            Q3 -->|No outputs| SKIP_POST
+            Q3 -->|Has outputs| Q4
+            Q4 --> Q5
+            Q5 --> Q6
+            Q6 -->|Yes| SKIP_POST
+            Q6 -->|No| Q7
+            Q7 --> Q8 --> Q9 --> Q10
+            Q10 -->|No| DONE_POST([Done - next op])
+        end
+
+        HW --> POSTOP
+
+        subgraph GOLDEN_EXEC["GoldenExecutor.execute_golden(location)"]
+            direction TB
+            G1["Find target_index from<br/>golden_module.last_loc_line[location]"]
+
+            subgraph GOLDEN_LOOP["Iterate golden ops up to target_index"]
+                direction TB
+                G2[/"Next golden op"/]
+                G3{"op type?"}
+                G4["ttir.empty → skip"]
+                G5["func.return → return<br/>input from pool"]
+                G6["get_golden_function(type(op))<br/>from GOLDEN_MAPPINGS"]
+                G7["Retrieve input tensors<br/>from golden pool"]
+
+                G8{"Special<br/>handling?"}
+                G9["dot_general:<br/>torch.tensordot or<br/>batched golden_fn"]
+                G10["broadcast:<br/>get target shape<br/>from output type"]
+                G11["pad: extract<br/>padding + value attrs"]
+                G12["permute: extract<br/>permutation attr"]
+                G13["Standard:<br/>golden_fn(*inputs)"]
+
+                G14["Store result in golden pool<br/>as TensorValue(execution_data)"]
+
+                G2 --> G3
+                G3 -->|ttir.empty| G4
+                G3 -->|func.return| G5
+                G3 -->|other| G6
+                G6 --> G7 --> G8
+                G8 -->|dot_general| G9
+                G8 -->|broadcast| G10
+                G8 -->|pad| G11
+                G8 -->|permute| G12
+                G8 -->|standard| G13
+                G9 & G10 & G11 & G12 & G13 --> G14
+            end
+
+            G1 --> GOLDEN_LOOP
+        end
+
+        Q10 -->|"Yes"| GOLDEN_EXEC
+
+        SKIP_CHECK{"skip_group<br/>flag set?"}
+
+        GOLDEN_EXEC --> SKIP_CHECK
+
+        subgraph SKIP_GROUP["skip_group(location, programCtx)"]
+            direction TB
+            S1["Get device inputs for group"]
+            S2["Find corresponding golden<br/>tensors via Registry"]
+            S3["Copy device input data<br/>→ golden execution_data"]
+            S4["Execute golden ops<br/>with skip_op=True"]
+            S5["Push golden output<br/>→ device memory<br/>(update_tensor_in_pool)"]
+            S1 --> S2 --> S3 --> S4 --> S5
+        end
+
+        SKIP_CHECK -->|Yes| SKIP_GROUP
+        SKIP_CHECK -->|No| COMPARE
+
+        subgraph COMPARE["compare_outputs(op_location)"]
+            direction TB
+            C1["Registry.get_group_output<br/>(location, DEVICE)"]
+            C2["Registry.get_group_output<br/>(location, GOLDEN)"]
+            C3["Retrieve torch tensors<br/>from both pools"]
+            C4["_to_common_shape()<br/>squeeze → broadcast<br/>→ permute → flatten"]
+            C5["compute_pcc()<br/>Pearson Correlation"]
+            C6["compute_abs_err()<br/>max|device - golden|"]
+            C7["compute_rel_err()<br/>max|(d-g) / (g+ε)|"]
+            C8["ReportWriter.write_row()<br/>→ CSV row"]
+
+            C1 --> C3
+            C2 --> C3
+            C3 --> C4
+            C4 --> C5 & C6 & C7
+            C5 & C6 & C7 --> C8
+        end
+
+        SKIP_GROUP --> COMPARE
+    end
+
+    COMPARE --> LOOP_START
+    DONE_POST --> LOOP_START
+
+    %% Styles
+    style START fill:#e1f5fe,stroke:#0288d1,color:#000
+    style HW fill:#fce4ec,stroke:#c62828,color:#000
+    style PREOP fill:#e3f2fd,stroke:#1565c0
+    style POSTOP fill:#fff3e0,stroke:#e65100
+    style GOLDEN_EXEC fill:#e8f5e9,stroke:#2e7d32
+    style GOLDEN_LOOP fill:#c8e6c9,stroke:#388e3c
+    style SKIP_GROUP fill:#fff9c4,stroke:#f9a825
+    style COMPARE fill:#f3e5f5,stroke:#7b1fa2
+    style INPUT_LOOP fill:#e8eaf6,stroke:#3949ab
+    style EXISTING fill:#e0f2f1,stroke:#00897b
+    style NEW fill:#fce4ec,stroke:#e53935
