@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttir {
@@ -168,12 +169,9 @@ private:
                                          int64_t fullRank) const {
     llvm::SmallDenseSet<int64_t> reducedSet(reducedDims.begin(),
                                             reducedDims.end());
-    SmallVector<int64_t> surviving;
-    for (int64_t i = 0; i < fullRank; i++) {
-      if (!reducedSet.count(i)) {
-        surviving.push_back(i);
-      }
-    }
+    auto surviving = llvm::to_vector(llvm::make_filter_range(
+        llvm::seq<int64_t>(0, fullRank),
+        [&](int64_t i) { return !reducedSet.count(i); }));
 
     SmallVector<int64_t> result(fullRank);
     for (int64_t d : reducedDims) {
