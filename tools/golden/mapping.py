@@ -2623,7 +2623,7 @@ def ttir_fill_cache_golden(
         Cache tensor to fill
     input_tensor : GoldenMapTensor
         Input tensor data
-    batch_offset : int
+    batch_offset : IntegerAttr
         Offset in the batch dimension
 
     Returns
