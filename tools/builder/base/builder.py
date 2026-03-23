@@ -335,12 +335,16 @@ class Builder(metaclass=BuilderMeta):
                 return DataType.Float16
             case torch.bfloat16:
                 return DataType.BFloat16
+            case torch.quint8:
+                return DataType.UInt8
             case torch.uint8:
                 return DataType.UInt8
             case torch.uint16:
                 return DataType.UInt16
             case torch.uint32:
                 return DataType.UInt32
+            case torch.qint8:
+                return DataType.Int8
             case torch.int32 | torch.qint32:
                 return DataType.Int32
             case torch.int64:
@@ -433,6 +437,125 @@ class Builder(metaclass=BuilderMeta):
             case _:
                 raise TypeError(f"Invalid Type {dtype}")
 
+    def _parse_quantized_type(self, mlir_type: Type) -> Optional[Dict[str, Any]]:
+        type_str = str(mlir_type).strip()
+        match = re.fullmatch(
+            r"!quant\.uniform<(?P<storage>[^:>]+):(?P<expressed>[^,:>]+)"
+            r"(?::(?P<axis>-?\d+))?, (?P<params>\{.*\}|[^>]+)>",
+            type_str,
+        )
+        if match is None:
+            return None
+
+        def _torch_dtype_from_token(token: str) -> torch.dtype:
+            match token.strip():
+                case "bf16":
+                    return torch.bfloat16
+                case "f16":
+                    return torch.float16
+                case "f32":
+                    return torch.float32
+                case "f64":
+                    return torch.float64
+                case "i8":
+                    return torch.int8
+                case "i16":
+                    return torch.int16
+                case "i32":
+                    return torch.int32
+                case "i64":
+                    return torch.int64
+                case "ui8":
+                    return torch.uint8
+                case "ui16":
+                    return torch.uint16
+                case "ui32":
+                    return torch.uint32
+                case "ui64":
+                    return torch.uint64
+                case _:
+                    raise TypeError(f"Unsupported MLIR type token: {token}")
+
+        def _torch_quant_dtype_from_storage(storage: str) -> torch.dtype:
+            storage = storage.strip()
+            match storage:
+                case "i8":
+                    return torch.qint8
+                case "ui8":
+                    return torch.quint8
+                case "i32":
+                    return torch.qint32
+                case _:
+                    raise TypeError(
+                        f"Unsupported quantized storage type for golden generation: {storage}"
+                    )
+
+        params = match.group("params").strip()
+        if params.startswith("{"):
+            param_entries = [
+                entry.strip() for entry in params[1:-1].split(",") if entry
+            ]
+        else:
+            param_entries = [params]
+
+        scales = []
+        zero_points = []
+        for entry in param_entries:
+            scale_text, zero_point_text = (
+                entry.split(":", 1) if ":" in entry else (entry, None)
+            )
+            scales.append(float(scale_text))
+            zero_points.append(0 if zero_point_text is None else int(zero_point_text))
+
+        quantized_dimension = match.group("axis")
+        return {
+            "storage_dtype": _torch_quant_dtype_from_storage(match.group("storage")),
+            "expressed_dtype": _torch_dtype_from_token(match.group("expressed")),
+            "quantized_dimension": (
+                None if quantized_dimension is None else int(quantized_dimension)
+            ),
+            "scales": scales,
+            "zero_points": zero_points,
+        }
+
+    def _generate_quantized_tensor_from_mlir_type(
+        self, shape: Shape, mlir_type: Type
+    ) -> torch.Tensor:
+        quantized_type = self._parse_quantized_type(mlir_type)
+        if quantized_type is None:
+            raise TypeError(f"Expected quantized MLIR type, got: {mlir_type}")
+
+        float_tensor = torch.randn(shape, dtype=quantized_type["expressed_dtype"])
+        quantized_dimension = quantized_type["quantized_dimension"]
+        if quantized_dimension is None:
+            return torch.quantize_per_tensor(
+                float_tensor,
+                quantized_type["scales"][0],
+                quantized_type["zero_points"][0],
+                quantized_type["storage_dtype"],
+            )
+
+        if shape[quantized_dimension] != len(quantized_type["scales"]):
+            raise ValueError(
+                "Per-axis quantized type scale count must match the quantized dimension "
+                f"size. Expected {shape[quantized_dimension]}, "
+                f"got {len(quantized_type['scales'])}."
+            )
+
+        return torch.quantize_per_channel(
+            float_tensor,
+            torch.tensor(quantized_type["scales"], dtype=torch.float32),
+            torch.tensor(quantized_type["zero_points"], dtype=torch.int64),
+            quantized_dimension,
+            quantized_type["storage_dtype"],
+        )
+
+    def _get_expressed_type_from_quantized_type(self, mlir_type: Type) -> Type:
+        quantized_type = self._parse_quantized_type(mlir_type)
+        if quantized_type is None:
+            raise TypeError(f"Expected quantized MLIR type, got: {mlir_type}")
+        return self._get_type_from_torch_dtype(quantized_type["expressed_dtype"])
+
     def _get_torch_dtype_from_type(self, mlir_type: Type) -> torch.dtype:
         """Convert MLIR Type to torch.dtype.
         Parameters
@@ -445,6 +568,9 @@ class Builder(metaclass=BuilderMeta):
             Corresponding torch dtype
         """
         type_str = str(mlir_type)
+        quantized_type = self._parse_quantized_type(mlir_type)
+        if quantized_type is not None:
+            return quantized_type["storage_dtype"]
 
         if isinstance(mlir_type, BF16Type) or type_str == "bf16":
             return torch.bfloat16
@@ -888,6 +1014,14 @@ class Builder(metaclass=BuilderMeta):
         else:
             for ttype in fn_input_types:
                 shape = ttype.shape
+                quantized_type = self._parse_quantized_type(ttype.element_type)
+                if quantized_type is not None:
+                    parsed_func_golden_inputs.append(
+                        self._generate_quantized_tensor_from_mlir_type(
+                            shape, ttype.element_type
+                        )
+                    )
+                    continue
                 dtype = self._get_torch_dtype_from_type(ttype.element_type)
 
                 if dtype.is_floating_point or dtype.is_complex:
@@ -918,9 +1052,9 @@ class Builder(metaclass=BuilderMeta):
             for operand, torch_golden in zip(inputs, parsed_func_golden_inputs):
                 golden_dict[operand] = torch_golden
 
-            input_goldens: Dict[
-                Operand, GoldenMapTensor
-            ] = self._create_builder_golden_from_torch_tensor(golden_dict)
+            input_goldens: Dict[Operand, GoldenMapTensor] = (
+                self._create_builder_golden_from_torch_tensor(golden_dict)
+            )
             self._set_goldens(input_goldens)
             ordered_inputs.extend(inputs)
 

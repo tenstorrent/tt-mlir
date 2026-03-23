@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Dict, Callable, Any, Optional, Union, List, Tuple, Iterable, Iterator
 import itertools
 import operator
+import re
 import einops
 import torch
 import torch.nn.functional
@@ -1173,29 +1174,89 @@ def requantize_golden(
     )
 
 
+def _parse_quantized_type_for_golden(quantized_type: Type) -> Dict[str, Any]:
+    type_str = str(quantized_type).strip()
+    match = re.fullmatch(
+        r"!quant\.uniform<(?P<storage>[^:>]+):(?P<expressed>[^,:>]+)"
+        r"(?::(?P<axis>-?\d+))?, (?P<params>\{.*\}|[^>]+)>",
+        type_str,
+    )
+    if match is None:
+        raise TypeError(f"Expected quantized MLIR type, got: {quantized_type}")
+
+    storage_type = match.group("storage").strip()
+    if storage_type == "i8":
+        storage_dtype = torch.qint8
+    elif storage_type == "ui8":
+        storage_dtype = torch.quint8
+    elif storage_type == "i32":
+        storage_dtype = torch.qint32
+    else:
+        raise TypeError(
+            f"Unsupported quantized storage type for golden generation: {storage_type}"
+        )
+
+    params = match.group("params").strip()
+    if params.startswith("{"):
+        param_entries = [entry.strip() for entry in params[1:-1].split(",") if entry]
+    else:
+        param_entries = [params]
+
+    scales = []
+    zero_points = []
+    for entry in param_entries:
+        scale_text, zero_point_text = (
+            entry.split(":", 1) if ":" in entry else (entry, None)
+        )
+        scales.append(float(scale_text))
+        zero_points.append(0 if zero_point_text is None else int(zero_point_text))
+
+    quantized_dimension = match.group("axis")
+    return {
+        "storage_dtype": storage_dtype,
+        "quantized_dimension": (
+            None if quantized_dimension is None else int(quantized_dimension)
+        ),
+        "scales": scales,
+        "zero_points": zero_points,
+    }
+
+
 def stablehlo_uniform_quantize_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
-    # output_type_mlir is the element type (quantized type) passed from builder
-    if hasattr(output_type_mlir, "scale") and hasattr(output_type_mlir, "zero_point"):
-        scale = output_type_mlir.scale
-        zero_point = output_type_mlir.zero_point
-        storage_type = output_type_mlir.storage_type
-        if "i8" in str(storage_type):
-            dtype = torch.qint8
-        else:
-            dtype = torch.quint8
-    else:
-        scale = 1.0
-        zero_point = 0
-        dtype = torch.qint8
+    quantized_type = _parse_quantized_type_for_golden(output_type_mlir)
+    source_tensor = (
+        torch.dequantize(input_tensor)
+        if getattr(input_tensor, "is_quantized", False)
+        else input_tensor
+    )
 
-    return torch.quantize_per_tensor(input_tensor, scale, zero_point, dtype).int_repr()
+    quantized_dimension = quantized_type["quantized_dimension"]
+    if quantized_dimension is None:
+        return torch.quantize_per_tensor(
+            source_tensor,
+            quantized_type["scales"][0],
+            quantized_type["zero_points"][0],
+            quantized_type["storage_dtype"],
+        )
+
+    return torch.quantize_per_channel(
+        source_tensor,
+        torch.tensor(quantized_type["scales"], dtype=torch.float32),
+        torch.tensor(quantized_type["zero_points"], dtype=torch.int64),
+        quantized_dimension,
+        quantized_type["storage_dtype"],
+    )
 
 
 def stablehlo_uniform_dequantize_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
+    if not getattr(input_tensor, "is_quantized", False):
+        raise ValueError(
+            "stablehlo_uniform_dequantize_golden expects a quantized input tensor"
+        )
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.dequantize(input_tensor).to(output_dtype)
 

@@ -78,6 +78,41 @@ class StableHLOBuilder(Builder):
     def _get_mesh(self, mesh_name: str = "mesh") -> sdy.Mesh:
         return self.mesh(mesh_name, self._get_mesh_attr(mesh_name))
 
+    def _resolve_element_type(
+        self, output_type: Union[torch.dtype, TypeInfo, Type]
+    ) -> Type:
+        if isinstance(output_type, Type):
+            return output_type
+        return self._get_type_from_torch_dtype(output_type)
+
+    def _get_uniform_quantize_result_type(
+        self, in0: Operand, output_type: Union[torch.dtype, TypeInfo, Type]
+    ) -> RankedTensorType:
+        element_type = self._resolve_element_type(output_type)
+        if self._parse_quantized_type(element_type) is None:
+            raise ValueError(
+                "uniform_quantize requires a quantized output_type. "
+                "Pass a TypeInfo(torch.qint32/qint8/quint8, scale, zero_point) "
+                "or an explicit MLIR quantized type."
+            )
+        return self._create_ranked_tensor_type(in0.type.shape, element_type)
+
+    def _get_uniform_dequantize_result_type(
+        self,
+        in0: Operand,
+        output_type: Optional[Union[torch.dtype, TypeInfo, Type]],
+    ) -> RankedTensorType:
+        if output_type is None:
+            element_type = self._get_expressed_type_from_quantized_type(
+                self.get_type(in0)
+            )
+        else:
+            element_type = self._resolve_element_type(output_type)
+
+        if self._parse_quantized_type(element_type) is not None:
+            raise ValueError("uniform_dequantize requires a non-quantized output_type.")
+        return self._create_ranked_tensor_type(in0.type.shape, element_type)
+
     def _get_output_shape_and_type(
         self,
         organize_golden_args: Callable,
@@ -7102,7 +7137,7 @@ class StableHLOBuilder(Builder):
     def uniform_quantize(
         self,
         in0: Operand,
-        output_type: Optional[torch.dtype] = None,
+        output_type: Union[torch.dtype, TypeInfo, Type],
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
         sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
@@ -7114,12 +7149,10 @@ class StableHLOBuilder(Builder):
         else:
             loc = Location.name(loc)
 
-        if output_type is None:
-            mlir_output_type = self.get_type(in0)
-        else:
-            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        result = self._get_uniform_quantize_result_type(in0, output_type)
 
         op = stablehlo_op(
+            result,
             in0,
             loc=loc,
         )
@@ -7135,7 +7168,7 @@ class StableHLOBuilder(Builder):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(input0, mlir_output_type.element_type)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -7152,6 +7185,7 @@ class StableHLOBuilder(Builder):
         operand = global_dict[old_op.operand]
 
         new_op = stablehlo_op(
+            old_op.result.type,
             operand,
             loc=old_op.location,
         )
@@ -7194,7 +7228,9 @@ class StableHLOBuilder(Builder):
                 def decorated_func(*inputs):
                     operand = inputs[0]
 
-                    new_op = stablehlo_op(operand, loc=old_op.location)
+                    new_op = stablehlo_op(
+                        old_op.result.type, operand, loc=old_op.location
+                    )
                     new_op_result = new_op.result
 
                     if not self._disable_golden_check:
@@ -7226,7 +7262,7 @@ class StableHLOBuilder(Builder):
     def uniform_dequantize(
         self,
         in0: Operand,
-        output_type: Optional[torch.dtype] = None,
+        output_type: Optional[Union[torch.dtype, TypeInfo, Type]] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
         sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
@@ -7238,12 +7274,10 @@ class StableHLOBuilder(Builder):
         else:
             loc = Location.name(loc)
 
-        if output_type is None:
-            mlir_output_type = self.get_type(in0)
-        else:
-            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        result = self._get_uniform_dequantize_result_type(in0, output_type)
 
         op = stablehlo_op(
+            result,
             in0,
             loc=loc,
         )
@@ -7259,7 +7293,7 @@ class StableHLOBuilder(Builder):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(input0, mlir_output_type.element_type)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -7276,6 +7310,7 @@ class StableHLOBuilder(Builder):
         operand = global_dict[old_op.operand]
 
         new_op = stablehlo_op(
+            old_op.result.type,
             operand,
             loc=old_op.location,
         )
@@ -7318,7 +7353,9 @@ class StableHLOBuilder(Builder):
                 def decorated_func(*inputs):
                     operand = inputs[0]
 
-                    new_op = stablehlo_op(operand, loc=old_op.location)
+                    new_op = stablehlo_op(
+                        old_op.result.type, operand, loc=old_op.location
+                    )
                     new_op_result = new_op.result
 
                     if not self._disable_golden_check:
