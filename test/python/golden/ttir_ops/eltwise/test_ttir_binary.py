@@ -642,8 +642,9 @@ binary_comparison_ops = [
         torch.int32 | SkipIf("sim"),
         torch.int64 | SkipIf("sim"),
         torch.bool | SkipIf("sim"),
+        torch.uint8 | SkipIf("ttmetal"),
     ],
-    ids=["f32", "bf16", "i32", "i64", "i1"],
+    ids=["f32", "bf16", "i32", "i64", "i1", "u8"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_comparison_ops)
