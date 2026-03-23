@@ -36,6 +36,15 @@
 namespace mlir::tt::ttnn::op_model {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
+
+// Macro to wrap overloaded functions for use with query_op_constraints/runtime.
+// Creates a generic lambda that forwards arguments, letting the compiler
+// resolve the correct overload based on the actual argument types.
+#define OP_WRAPPER(fn)                                                         \
+  [](auto &&...args) -> decltype(fn(std::forward<decltype(args)>(args)...)) {  \
+    return fn(std::forward<decltype(args)>(args)...);                          \
+  }
+
 namespace operation {
 
 /// RAII helper to preserve and restore the program cache state.
@@ -386,129 +395,129 @@ getRawDataFromElementsAttr<bfloat16>(mlir::ElementsAttr attr) {
 template <typename OpTy>
 auto getOpSymbol() {
   if constexpr (std::is_same_v<OpTy, ReluOp>) {
-    return ::ttnn::relu;
+    return OP_WRAPPER(::ttnn::relu);
   } else if constexpr (std::is_same_v<OpTy, Relu6Op>) {
-    return ::ttnn::relu6;
+    return OP_WRAPPER(::ttnn::relu6);
   } else if constexpr (std::is_same_v<OpTy, HardsigmoidOp>) {
-    return ::ttnn::hardsigmoid;
+    return OP_WRAPPER(::ttnn::hardsigmoid);
   } else if constexpr (std::is_same_v<OpTy, SqrtOp>) {
-    return ::ttnn::sqrt;
+    return OP_WRAPPER(::ttnn::sqrt);
   } else if constexpr (std::is_same_v<OpTy, SinOp>) {
-    return ::ttnn::sin;
+    return OP_WRAPPER(::ttnn::sin);
   } else if constexpr (std::is_same_v<OpTy, AbsOp>) {
-    return ::ttnn::abs;
+    return OP_WRAPPER(::ttnn::abs);
   } else if constexpr (std::is_same_v<OpTy, CeilOp>) {
-    return ::ttnn::ceil;
+    return OP_WRAPPER(::ttnn::ceil);
   } else if constexpr (std::is_same_v<OpTy, SignOp>) {
-    return ::ttnn::sign;
+    return OP_WRAPPER(::ttnn::sign);
   } else if constexpr (std::is_same_v<OpTy, FloorOp>) {
-    return ::ttnn::floor;
+    return OP_WRAPPER(::ttnn::floor);
   } else if constexpr (std::is_same_v<OpTy, IsFiniteOp>) {
-    return ::ttnn::isfinite;
+    return OP_WRAPPER(::ttnn::isfinite);
   } else if constexpr (std::is_same_v<OpTy, ExpOp>) {
-    return ::ttnn::exp;
+    return OP_WRAPPER(::ttnn::exp);
   } else if constexpr (std::is_same_v<OpTy, ErfOp>) {
-    return ::ttnn::erf;
+    return OP_WRAPPER(::ttnn::erf);
   } else if constexpr (std::is_same_v<OpTy, ErfcOp>) {
-    return ::ttnn::erfc;
+    return OP_WRAPPER(::ttnn::erfc);
   } else if constexpr (std::is_same_v<OpTy, GeluOp>) {
-    return ::ttnn::gelu;
+    return OP_WRAPPER(::ttnn::gelu);
   } else if constexpr (std::is_same_v<OpTy, RsqrtOp>) {
-    return ::ttnn::rsqrt;
+    return OP_WRAPPER(::ttnn::rsqrt);
   } else if constexpr (std::is_same_v<OpTy, LogicalNotOp>) {
-    return ::ttnn::logical_not;
+    return OP_WRAPPER(::ttnn::logical_not);
   } else if constexpr (std::is_same_v<OpTy, NegOp>) {
-    return ::ttnn::neg;
+    return OP_WRAPPER(::ttnn::neg);
   } else if constexpr (std::is_same_v<OpTy, TanOp>) {
-    return ::ttnn::tan;
+    return OP_WRAPPER(::ttnn::tan);
   } else if constexpr (std::is_same_v<OpTy, AtanOp>) {
-    return ::ttnn::atan;
+    return OP_WRAPPER(::ttnn::atan);
   } else if constexpr (std::is_same_v<OpTy, Log1pOp>) {
-    return ::ttnn::log1p;
+    return OP_WRAPPER(::ttnn::log1p);
   } else if constexpr (std::is_same_v<OpTy, Expm1Op>) {
-    return ::ttnn::expm1;
+    return OP_WRAPPER(::ttnn::expm1);
   } else if constexpr (std::is_same_v<OpTy, CosOp>) {
-    return ::ttnn::cos;
+    return OP_WRAPPER(::ttnn::cos);
   } else if constexpr (std::is_same_v<OpTy, TanhOp>) {
-    return ::ttnn::tanh;
+    return OP_WRAPPER(::ttnn::tanh);
   } else if constexpr (std::is_same_v<OpTy, LogOp>) {
-    return ::ttnn::log;
+    return OP_WRAPPER(::ttnn::log);
   } else if constexpr (std::is_same_v<OpTy, ReciprocalOp>) {
-    return ::ttnn::reciprocal;
+    return OP_WRAPPER(::ttnn::reciprocal);
   } else if constexpr (std::is_same_v<OpTy, CbrtOp>) {
-    return ::ttnn::cbrt;
+    return OP_WRAPPER(::ttnn::cbrt);
   } else if constexpr (std::is_same_v<OpTy, BitwiseNotOp>) {
-    return ::ttnn::bitwise_not;
+    return OP_WRAPPER(::ttnn::bitwise_not);
   } else if constexpr (std::is_same_v<OpTy, AddOp>) {
-    return ::ttnn::add;
+    return OP_WRAPPER(::ttnn::add);
   } else if constexpr (std::is_same_v<OpTy, MultiplyOp>) {
-    return ::ttnn::multiply;
+    return OP_WRAPPER(::ttnn::multiply);
   } else if constexpr (std::is_same_v<OpTy, SubtractOp>) {
-    return ::ttnn::subtract;
+    return OP_WRAPPER(::ttnn::subtract);
   } else if constexpr (std::is_same_v<OpTy, LogicalRightShiftOp>) {
-    return ::ttnn::logical_right_shift;
+    return OP_WRAPPER(::ttnn::logical_right_shift);
   } else if constexpr (std::is_same_v<OpTy, LogicalLeftShiftOp>) {
-    return ::ttnn::logical_left_shift;
+    return OP_WRAPPER(::ttnn::logical_left_shift);
   } else if constexpr (std::is_same_v<OpTy, DivideOp>) {
-    return ::ttnn::divide;
+    return OP_WRAPPER(::ttnn::divide);
   } else if constexpr (std::is_same_v<OpTy, EqualOp>) {
-    return ::ttnn::eq;
+    return OP_WRAPPER(::ttnn::eq);
   } else if constexpr (std::is_same_v<OpTy, NotEqualOp>) {
-    return ::ttnn::ne;
+    return OP_WRAPPER(::ttnn::ne);
   } else if constexpr (std::is_same_v<OpTy, GreaterEqualOp>) {
-    return ::ttnn::ge;
+    return OP_WRAPPER(::ttnn::ge);
   } else if constexpr (std::is_same_v<OpTy, GreaterThanOp>) {
-    return ::ttnn::gt;
+    return OP_WRAPPER(::ttnn::gt);
   } else if constexpr (std::is_same_v<OpTy, LessEqualOp>) {
-    return ::ttnn::le;
+    return OP_WRAPPER(::ttnn::le);
   } else if constexpr (std::is_same_v<OpTy, LessThanOp>) {
-    return ::ttnn::lt;
+    return OP_WRAPPER(::ttnn::lt);
   } else if constexpr (std::is_same_v<OpTy, LogicalAndOp>) {
-    return ::ttnn::logical_and;
+    return OP_WRAPPER(::ttnn::logical_and);
   } else if constexpr (std::is_same_v<OpTy, LogicalOrOp>) {
-    return ::ttnn::logical_or;
+    return OP_WRAPPER(::ttnn::logical_or);
   } else if constexpr (std::is_same_v<OpTy, LogicalXorOp>) {
-    return ::ttnn::logical_xor;
+    return OP_WRAPPER(::ttnn::logical_xor);
   } else if constexpr (std::is_same_v<OpTy, MaximumOp>) {
-    return ::ttnn::maximum;
+    return OP_WRAPPER(::ttnn::maximum);
   } else if constexpr (std::is_same_v<OpTy, MinimumOp>) {
-    return ::ttnn::minimum;
+    return OP_WRAPPER(::ttnn::minimum);
   } else if constexpr (std::is_same_v<OpTy, BitwiseAndOp>) {
-    return ::ttnn::bitwise_and;
+    return OP_WRAPPER(::ttnn::bitwise_and);
   } else if constexpr (std::is_same_v<OpTy, BitwiseOrOp>) {
-    return ::ttnn::bitwise_or;
+    return OP_WRAPPER(::ttnn::bitwise_or);
   } else if constexpr (std::is_same_v<OpTy, BitwiseXorOp>) {
-    return ::ttnn::bitwise_xor;
+    return OP_WRAPPER(::ttnn::bitwise_xor);
   } else if constexpr (std::is_same_v<OpTy, RemainderOp>) {
-    return ::ttnn::remainder;
+    return OP_WRAPPER(::ttnn::remainder);
   } else if constexpr (std::is_same_v<OpTy, Atan2Op>) {
-    return ::ttnn::atan2;
+    return OP_WRAPPER(::ttnn::atan2);
   } else if constexpr (std::is_same_v<OpTy, PowTensorOp>) {
-    return ::ttnn::pow;
+    return OP_WRAPPER(::ttnn::pow);
   } else if constexpr (std::is_same_v<OpTy, WhereOp>) {
-    return ::ttnn::where;
+    return OP_WRAPPER(::ttnn::where);
   } else if constexpr (std::is_same_v<OpTy, MeanOp>) {
-    return ::ttnn::mean;
+    return OP_WRAPPER(::ttnn::mean);
   } else if constexpr (std::is_same_v<OpTy, MaxOp>) {
-    return ::ttnn::max;
+    return OP_WRAPPER(::ttnn::max);
   } else if constexpr (std::is_same_v<OpTy, MinOp>) {
-    return ::ttnn::min;
+    return OP_WRAPPER(::ttnn::min);
   } else if constexpr (std::is_same_v<OpTy, SumOp>) {
-    return ::ttnn::sum;
+    return OP_WRAPPER(::ttnn::sum);
   } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::ZerosOp>) {
-    return ::ttnn::zeros;
+    return OP_WRAPPER(::ttnn::zeros);
   } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::OnesOp>) {
-    return ::ttnn::ones;
+    return OP_WRAPPER(::ttnn::ones);
   } else if constexpr (std::is_same_v<OpTy, QuantizeOp>) {
-    return ::ttnn::quantize;
+    return OP_WRAPPER(::ttnn::quantize);
   } else if constexpr (std::is_same_v<OpTy, DequantizeOp>) {
-    return ::ttnn::dequantize;
+    return OP_WRAPPER(::ttnn::dequantize);
   } else if constexpr (std::is_same_v<OpTy, GlobalAvgPool2dOp>) {
-    return ::ttnn::global_avg_pool2d;
+    return OP_WRAPPER(::ttnn::global_avg_pool2d);
   } else if constexpr (std::is_same_v<OpTy, SiluOp>) {
-    return ::ttnn::silu;
+    return OP_WRAPPER(::ttnn::silu);
   } else if constexpr (std::is_same_v<OpTy, MishOp>) {
-    return ::ttnn::mish;
+    return OP_WRAPPER(::ttnn::mish);
   } else {
     static_assert(ttmlir::utils::always_false(),
                   "add mapping from TTNN dialect to TTNN lib op");
@@ -977,12 +986,12 @@ llvm::Expected<OpConstraints> OpModel<SigmoidOp>::getOpConstraints(
   // Add default parameters
   int32_t vectorMode =
       static_cast<int32_t>(::ttnn::operations::unary::VecMode::RC);
-  auto sigmoidMode = ::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE;
+  auto sigmoidMode = ::ttnn::operations::unary::SigmoidMode::ACCURATE;
 
   // Create query closure
   auto query = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::sigmoid, device, inputSpec, vectorMode, sigmoidMode,
+        OP_WRAPPER(::ttnn::sigmoid), device, inputSpec, vectorMode, sigmoidMode,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -1011,12 +1020,12 @@ OpModel<SigmoidOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   // Add default parameters
   int32_t vectorMode =
       static_cast<int32_t>(::ttnn::operations::unary::VecMode::RC);
-  auto sigmoidMode = ::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE;
+  auto sigmoidMode = ::ttnn::operations::unary::SigmoidMode::ACCURATE;
 
   // Create query closure
   auto query = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::sigmoid, device, inputSpec, vectorMode, sigmoidMode,
+        OP_WRAPPER(::ttnn::sigmoid), device, inputSpec, vectorMode, sigmoidMode,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -1047,8 +1056,8 @@ llvm::Expected<OpConstraints> OpModel<LeakyReluOp>::getOpConstraints(
   // Create query closure
   auto leakyReluOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::leaky_relu, device, inputSpec, slope.convertToFloat(),
-        detail::getNullableMemoryConfig(outputLayout));
+        OP_WRAPPER(::ttnn::leaky_relu), device, inputSpec,
+        slope.convertToFloat(), detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -1075,8 +1084,8 @@ llvm::Expected<size_t> OpModel<LeakyReluOp>::getOpRuntime(
   // Create query closure
   auto leakyReluOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::leaky_relu, device, inputSpec, slope.convertToFloat(),
-        detail::getNullableMemoryConfig(outputLayout));
+        OP_WRAPPER(::ttnn::leaky_relu), device, inputSpec,
+        slope.convertToFloat(), detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpRuntime(leakyReluOpQuery);
@@ -1309,9 +1318,9 @@ llvm::Expected<OpConstraints> OpModel<GeluBackwardOp>::getOpConstraints(
 
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(::ttnn::experimental::gelu_bw,
-                                               device, inputSpecA, inputSpecB,
-                                               approximate, outputMemoryConfig);
+    return ::ttnn::graph::query_op_constraints(
+        OP_WRAPPER(::ttnn::experimental::gelu_bw), device, inputSpecA,
+        inputSpecB, approximate, outputMemoryConfig);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -1348,9 +1357,9 @@ llvm::Expected<size_t> OpModel<GeluBackwardOp>::getOpRuntime(
 
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(::ttnn::experimental::gelu_bw,
-                                           device, inputSpecA, inputSpecB,
-                                           approximate, outputMemoryConfig);
+    return ::ttnn::graph::query_op_runtime(
+        OP_WRAPPER(::ttnn::experimental::gelu_bw), device, inputSpecA,
+        inputSpecB, approximate, outputMemoryConfig);
   };
 
   return operation::getOpRuntime(query);
@@ -1876,7 +1885,8 @@ llvm::Expected<OpConstraints> OpModel<ReshapeOp>::getOpConstraints(
   // Create query closure
   auto reshapeOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::reshape, device, inputSpec, conversion::getShape(outputShape),
+        OP_WRAPPER(::ttnn::reshape), device, inputSpec,
+        conversion::getShape(outputShape),
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -1904,7 +1914,8 @@ llvm::Expected<size_t> OpModel<ReshapeOp>::getOpRuntime(
   // Create query closure
   auto reshapeOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::reshape, device, inputSpec, conversion::getShape(outputShape),
+        OP_WRAPPER(::ttnn::reshape), device, inputSpec,
+        conversion::getShape(outputShape),
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -1948,8 +1959,8 @@ llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
   // Create query closure
   auto sliceOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::slice, device, inputSpec, beginsSpan, endsSpan, stepSpan,
-        detail::getNullableMemoryConfig(outputLayout), std::nullopt,
+        OP_WRAPPER(::ttnn::slice), device, inputSpec, beginsSpan, endsSpan,
+        stepSpan, detail::getNullableMemoryConfig(outputLayout), std::nullopt,
         std::nullopt);
   };
 
@@ -1990,8 +2001,8 @@ llvm::Expected<size_t> OpModel<SliceStaticOp>::getOpRuntime(
   // Create query closure
   auto sliceOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::slice, device, inputSpec, beginsSpan, endsSpan, stepSpan,
-        detail::getNullableMemoryConfig(outputLayout), std::nullopt,
+        OP_WRAPPER(::ttnn::slice), device, inputSpec, beginsSpan, endsSpan,
+        stepSpan, detail::getNullableMemoryConfig(outputLayout), std::nullopt,
         std::nullopt);
   };
 
@@ -2042,8 +2053,9 @@ llvm::Expected<OpConstraints> OpModel<SliceDynamicOp>::getOpConstraints(
   // Create query closure to make a call to the static version of the op:
   auto sliceOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::slice, device, inputSpec, beginsVec, endsVec, stepVec,
-        detail::getNullableMemoryConfig(outputLayout), outputSpec, padValue);
+        OP_WRAPPER(::ttnn::slice), device, inputSpec, beginsVec, endsVec,
+        stepVec, detail::getNullableMemoryConfig(outputLayout), outputSpec,
+        padValue);
   };
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
                                      sliceOpQuery);
@@ -2091,8 +2103,9 @@ llvm::Expected<size_t> OpModel<SliceDynamicOp>::getOpRuntime(
   // Create query closure to make a call to the static version of the op:
   auto sliceOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::slice, device, inputSpec, beginsVec, endsVec, stepVec,
-        detail::getNullableMemoryConfig(outputLayout), outputSpec, padValue);
+        OP_WRAPPER(::ttnn::slice), device, inputSpec, beginsVec, endsVec,
+        stepVec, detail::getNullableMemoryConfig(outputLayout), outputSpec,
+        padValue);
   };
 
   return operation::getOpRuntime(sliceOpQuery);
@@ -2323,7 +2336,7 @@ llvm::Expected<OpConstraints> OpModel<ConcatOp>::getOpConstraints(
   // Create query closure
   auto concatOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::concat, device, inputSpecs, dim,
+        OP_WRAPPER(::ttnn::concat), device, inputSpecs, dim,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -2358,7 +2371,7 @@ llvm::Expected<size_t> OpModel<ConcatOp>::getOpRuntime(
   // Create query closure
   auto concatOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::concat, device, inputSpecs, dim,
+        OP_WRAPPER(::ttnn::concat), device, inputSpecs, dim,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -2389,7 +2402,8 @@ llvm::Expected<OpConstraints> OpModel<TransposeOp>::getOpConstraints(
   // Create query closure
   auto transposeOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::transpose, device, inputSpec, dim0, dim1,
+        OP_WRAPPER(::ttnn::transpose), device, inputSpec,
+        static_cast<int64_t>(dim0), static_cast<int64_t>(dim1),
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -2417,7 +2431,8 @@ llvm::Expected<size_t> OpModel<TransposeOp>::getOpRuntime(
   // Create query closure
   auto transposeOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::transpose, device, inputSpec, dim0, dim1,
+        OP_WRAPPER(::ttnn::transpose), device, inputSpec,
+        static_cast<int64_t>(dim0), static_cast<int64_t>(dim1),
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -2914,8 +2929,8 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
 
   auto scaledDotProductAttentionOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
-        keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
+        OP_WRAPPER(::ttnn::transformer::scaled_dot_product_attention), device,
+        querySpec, keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
         slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt, attentionSinkSpec);
@@ -2974,8 +2989,8 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
 
   auto scaledDotProductAttentionOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
-        keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
+        OP_WRAPPER(::ttnn::transformer::scaled_dot_product_attention), device,
+        querySpec, keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
         slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt, attentionSinkSpec);
@@ -3027,8 +3042,8 @@ llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints(
 
   auto rotaryEmbeddingLlamaOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::experimental::rotary_embedding_llama, device, inputSpec,
-        cosSpec, sinSpec, transMatSpec, isDecodeMode,
+        OP_WRAPPER(::ttnn::experimental::rotary_embedding_llama), device,
+        inputSpec, cosSpec, sinSpec, transMatSpec, isDecodeMode,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -3075,8 +3090,8 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
   // Create query closure
   auto rotaryEmbeddingLlamaOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::experimental::rotary_embedding_llama, device, inputSpec,
-        cosSpec, sinSpec, transMatSpec, isDecodeMode,
+        OP_WRAPPER(::ttnn::experimental::rotary_embedding_llama), device,
+        inputSpec, cosSpec, sinSpec, transMatSpec, isDecodeMode,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -3123,8 +3138,9 @@ llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingOp>::getOpConstraints(
 
   auto rotaryEmbeddingOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::experimental::rotary_embedding, device, inputSpec, cosSpec,
-        sinSpec, tokenIndex, detail::getNullableMemoryConfig(outputLayout));
+        OP_WRAPPER(::ttnn::experimental::rotary_embedding), device, inputSpec,
+        cosSpec, sinSpec, tokenIndex,
+        detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -3167,8 +3183,9 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingOp>::getOpRuntime(
   // Create query closure
   auto rotaryEmbeddingOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::experimental::rotary_embedding, device, inputSpec, cosSpec,
-        sinSpec, tokenIndex, detail::getNullableMemoryConfig(outputLayout));
+        OP_WRAPPER(::ttnn::experimental::rotary_embedding), device, inputSpec,
+        cosSpec, sinSpec, tokenIndex,
+        detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpRuntime(rotaryEmbeddingOpQuery);
@@ -3309,8 +3326,8 @@ OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
   // Create query closure
   auto splitQueryKeyValueAndSplitHeadsOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::transformer::split_query_key_value_and_split_heads, device,
-        inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
+        OP_WRAPPER(::ttnn::transformer::split_query_key_value_and_split_heads),
+        device, inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -3351,8 +3368,8 @@ llvm::Expected<size_t> OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime(
   // Create query closure
   auto splitQueryKeyValueAndSplitHeadsOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::transformer::split_query_key_value_and_split_heads, device,
-        inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
+        OP_WRAPPER(::ttnn::transformer::split_query_key_value_and_split_heads),
+        device, inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -3601,8 +3618,9 @@ llvm::Expected<OpConstraints> OpModel<RepeatOp>::getOpConstraints(
 
   // Create query closure
   auto repeatOpQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        ::ttnn::repeat, device, inputSpec, repeatVec, outputMemoryConfig);
+    return ::ttnn::graph::query_op_constraints(OP_WRAPPER(::ttnn::repeat),
+                                               device, inputSpec, repeatVec,
+                                               outputMemoryConfig);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -3639,8 +3657,9 @@ llvm::Expected<size_t> OpModel<RepeatOp>::getOpRuntime(
 
   // Create query closure
   auto repeatOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(::ttnn::repeat, device, inputSpec,
-                                           repeatVec, outputMemoryConfig);
+    return ::ttnn::graph::query_op_runtime(OP_WRAPPER(::ttnn::repeat), device,
+                                           inputSpec, repeatVec,
+                                           outputMemoryConfig);
   };
 
   return operation::getOpRuntime(repeatOpQuery);
@@ -3702,8 +3721,9 @@ llvm::Expected<OpConstraints> OpModel<PadOp>::getOpConstraints(
   // Create query closure
   auto padOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::pad, device, inputSpec, paddingSpec, padValue.convertToFloat(),
-        multicore, detail::getNullableMemoryConfig(outputLayout));
+        OP_WRAPPER(::ttnn::pad), device, inputSpec, paddingSpec,
+        padValue.convertToFloat(), multicore,
+        detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -3734,8 +3754,9 @@ llvm::Expected<size_t> OpModel<PadOp>::getOpRuntime(
   // Create query closure
   auto padOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::pad, device, inputSpec, paddingSpec, padValue.convertToFloat(),
-        multicore, detail::getNullableMemoryConfig(outputLayout));
+        OP_WRAPPER(::ttnn::pad), device, inputSpec, paddingSpec,
+        padValue.convertToFloat(), multicore,
+        detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpRuntime(padOpQuery);
@@ -3765,7 +3786,7 @@ llvm::Expected<OpConstraints> OpModel<SortOp>::getOpConstraints(
   // Create query closure
   auto sortOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::sort, device, inputSpec, dim, descending, stable,
+        OP_WRAPPER(::ttnn::sort), device, inputSpec, dim, descending, stable,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -3793,8 +3814,8 @@ llvm::Expected<size_t> OpModel<SortOp>::getOpRuntime(
   // Create query closure
   auto sortOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::sort, device, inputSpec, dim, descending, stable,
-        detail::getNullableMemoryConfig(outputLayout));
+        OP_WRAPPER(::ttnn::sort), device, inputSpec, static_cast<int8_t>(dim),
+        descending, stable, detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpRuntime(sortOpQuery);
@@ -4087,8 +4108,9 @@ llvm::Expected<OpConstraints> OpModel<RequantizeOp>::getOpConstraints(
 
   auto requantizeOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::requantize, device, inputSpec, inScaleSpec, inZeroPointSpec,
-        outScaleSpec, outZeroPointSpec, axis, outputDType, outputMemoryConfig);
+        OP_WRAPPER(::ttnn::requantize), device, inputSpec, inScaleSpec,
+        inZeroPointSpec, outScaleSpec, outZeroPointSpec, axis, outputDType,
+        outputMemoryConfig);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -4160,8 +4182,9 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
   // Create query closure
   auto requantizeOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::requantize, device, inputSpec, inScaleSpec, inZeroPointSpec,
-        outScaleSpec, outZeroPointSpec, axis, outputDType, outputMemoryConfig);
+        OP_WRAPPER(::ttnn::requantize), device, inputSpec, inScaleSpec,
+        inZeroPointSpec, outScaleSpec, outZeroPointSpec, axis, outputDType,
+        outputMemoryConfig);
   };
 
   return operation::getOpRuntime(requantizeOpQuery);
@@ -6608,8 +6631,9 @@ llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
   auto maxVariant = clampAttrToVariant(max);
 
   auto clampScalarQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        ::ttnn::clamp, device, inputSpec, minVariant, maxVariant, memConfig);
+    return ::ttnn::graph::query_op_constraints(OP_WRAPPER(::ttnn::clamp),
+                                               device, inputSpec, minVariant,
+                                               maxVariant, memConfig);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6639,8 +6663,9 @@ llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
   auto maxVariant = clampAttrToVariant(max);
 
   auto clampScalarQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(::ttnn::clamp, device, inputSpec,
-                                           minVariant, maxVariant, memConfig);
+    return ::ttnn::graph::query_op_runtime(OP_WRAPPER(::ttnn::clamp), device,
+                                           inputSpec, minVariant, maxVariant,
+                                           memConfig);
   };
 
   return operation::getOpRuntime(clampScalarQuery);
@@ -6684,7 +6709,7 @@ llvm::Expected<OpConstraints> OpModel<ClampTensorOp>::getOpConstraints(
   // Create query closure
   auto clampTensorQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::clamp, device, inputSpec, minSpec, maxSpec,
+        OP_WRAPPER(::ttnn::clamp), device, inputSpec, minSpec, maxSpec,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -6727,7 +6752,7 @@ llvm::Expected<size_t> OpModel<ClampTensorOp>::getOpRuntime(
   // Create query closure
   auto clampTensorQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::clamp, device, inputSpec, minSpec, maxSpec,
+        OP_WRAPPER(::ttnn::clamp), device, inputSpec, minSpec, maxSpec,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -6764,7 +6789,7 @@ llvm::Expected<OpConstraints> OpModel<PermuteOp>::getOpConstraints(
   // Create query closure
   auto permuteQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::permute, device, inputSpec, dims,
+        OP_WRAPPER(::ttnn::permute), device, inputSpec, dims,
         detail::getNullableMemoryConfig(outputLayout), defaultedPadValue);
   };
 
@@ -6800,7 +6825,7 @@ llvm::Expected<size_t> OpModel<PermuteOp>::getOpRuntime(
   // Create query closure
   auto permuteQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::permute, device, inputSpec, dims,
+        OP_WRAPPER(::ttnn::permute), device, inputSpec, dims,
         detail::getNullableMemoryConfig(outputLayout), defaultedPadValue);
   };
 
@@ -7525,8 +7550,8 @@ OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints(
   // Create query closure
   auto assignOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::assign, device, inputSpec, metalMemConfig, metalOutputDtype,
-        std::nullopt /*optionalOutputTensor*/);
+        OP_WRAPPER(::ttnn::assign), device, inputSpec, metalMemConfig,
+        metalOutputDtype, std::nullopt /*optionalOutputTensor*/);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -7565,8 +7590,8 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime(
   // Create query closure
   auto assignOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::assign, device, inputSpec, metalMemConfig, metalOutputDtype,
-        std::nullopt /*optionalOutputTensor*/);
+        OP_WRAPPER(::ttnn::assign), device, inputSpec, metalMemConfig,
+        metalOutputDtype, std::nullopt /*optionalOutputTensor*/);
   };
 
   return operation::getOpRuntime(assignOpQuery);
