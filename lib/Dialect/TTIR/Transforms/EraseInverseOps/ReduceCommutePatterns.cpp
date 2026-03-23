@@ -114,23 +114,27 @@ private:
     return rewriter.create<PermuteOp>(loc, outputType, input, permutation);
   }
 
-  ArrayAttr permuteDims(ArrayAttr dimArg, ArrayRef<int64_t> permutation,
+  ArrayAttr permuteDims(std::optional<ArrayAttr> dimArg,
+                        ArrayRef<int64_t> permutation,
                         PatternRewriter &rewriter) const {
-    SmallVector<Attribute> permutedDims;
-    for (Attribute dimAttr : dimArg.getValue()) {
-      int64_t dim = cast<IntegerAttr>(dimAttr).getInt();
-      if (dim < 0) {
-        dim += permutation.size();
-      }
-      int64_t permutedDim = permutation[dim];
-      permutedDims.push_back(rewriter.getI32IntegerAttr(permutedDim));
-    }
-    return ArrayAttr::get(dimArg.getContext(), permutedDims);
+    int64_t rank = permutation.size();
+    ArrayAttr dims = dimArg.value_or(rewriter.getI32ArrayAttr(
+        llvm::to_vector(llvm::seq<int32_t>(0, static_cast<int32_t>(rank)))));
+    auto permutedDims = llvm::to_vector(
+        llvm::map_range(dims.getValue(), [&](Attribute attr) -> Attribute {
+          int64_t d = cast<IntegerAttr>(attr).getInt();
+          d = d < 0 ? d + rank : d;
+          return rewriter.getI32IntegerAttr(permutation[d]);
+        }));
+    return ArrayAttr::get(rewriter.getContext(), permutedDims);
   }
 
   // Extract the reduce dimensions as normalized (non-negative) int64 values.
   SmallVector<int64_t> getReduceDimValues(ReduceOpType op) const {
     int64_t rank = op.getInput().getType().getRank();
+    if (!op.getDimArg()) {
+      return llvm::to_vector(llvm::seq<int64_t>(0, rank));
+    }
     return llvm::to_vector(llvm::map_range(
         op.getDimArg()->getValue(), [rank](Attribute attr) -> int64_t {
           int64_t d = cast<IntegerAttr>(attr).getInt();
@@ -208,7 +212,7 @@ private:
     auto dimPermutation = inverseDimPermute ? inversePermutation : permutation;
 
     ArrayAttr newDimArgAttrs =
-        permuteDims(*op.getDimArg(), dimPermutation, rewriter);
+        permuteDims(op.getDimArg(), dimPermutation, rewriter);
 
     auto inputShape = cast<RankedTensorType>(newInput.getType()).getShape();
     llvm::SmallDenseSet<int64_t> reducedDimSet;
