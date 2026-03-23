@@ -199,6 +199,19 @@ public:
               "skipping conversion");
           return;
         }
+        // Skip remote_loads whose local buffer is a hoisted CB alloc
+        // (lives outside the generic as an additionalArg).  These
+        // remote_loads perform real data movement from the external shard
+        // into the CB and must be preserved.
+        Value localBuffer = remoteLoad.getLocalBuffer();
+        if (localBuffer) {
+          memref::AllocOp localAlloc = findAllocOp(localBuffer);
+          if (localAlloc &&
+              localAlloc->getParentOfType<GenericOp>() == nullptr &&
+              remoteLoad->getParentOfType<GenericOp>() != nullptr) {
+            return;
+          }
+        }
         remoteLoadsToConvert.push_back(remoteLoad);
       }
     });
@@ -258,35 +271,31 @@ public:
         lastUse = lastUseOfAlloc ? lastUseOfAlloc : lastUseOfRemoteLoad;
       }
 
-      // Insert reserve, push, and wait where the alloc was, so they dominate
-      // all uses of the buffer (including view operations like collapse_shape
-      // that may occur before the remote_load)
-      rewriter.setInsertionPoint(allocOp);
+      {
+        // Insert reserve, push, and wait where the alloc was, so they
+        // dominate all uses of the buffer (including view operations like
+        // collapse_shape that may occur before the remote_load).
+        rewriter.setInsertionPoint(allocOp);
 
-      // Create reserve, push, and wait operations
-      rewriter.create<ReserveOp>(loc, assocCb);
-      rewriter.create<PushOp>(loc, assocCb);
-      auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
+        rewriter.create<ReserveOp>(loc, assocCb);
+        rewriter.create<PushOp>(loc, assocCb);
+        auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
 
-      // Replace all uses of the alloc result and remote_load result with the
-      // wait result
-      rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
-      rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
+        rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
+        rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
+        rewriter.eraseOp(allocOp);
 
-      // Erase the alloc operation
-      rewriter.eraseOp(allocOp);
+        // Insert pop after the last use
+        if (lastUse) {
+          rewriter.setInsertionPointAfter(lastUse);
+        } else {
+          rewriter.setInsertionPointAfter(waitOp);
+        }
+        rewriter.create<PopOp>(loc, assocCb);
 
-      // Insert pop after the last use
-      if (lastUse) {
-        rewriter.setInsertionPointAfter(lastUse);
-      } else {
-        // No uses found, insert pop immediately after wait
-        rewriter.setInsertionPointAfter(waitOp);
+        // Erase the original remote_load operation
+        rewriter.eraseOp(remoteLoad);
       }
-      rewriter.create<PopOp>(loc, assocCb);
-
-      // Erase the original remote_load operation
-      rewriter.eraseOp(remoteLoad);
     }
 
     // Collect remote_store operations to convert
