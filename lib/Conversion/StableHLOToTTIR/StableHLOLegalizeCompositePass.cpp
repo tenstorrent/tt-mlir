@@ -16,11 +16,11 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "stablehlo/dialect/StablehloOps.h"
-
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringRef.h"
-#include <shardy/dialect/sdy/ir/dialect.h>
+
+#include "shardy/dialect/sdy/ir/dialect.h"
+#include "stablehlo/dialect/StablehloOps.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -102,8 +102,8 @@ public:
     }
     if (adaptor.getOperands().size() != 1) {
       return rewriter.notifyMatchFailure(
-          srcOp,
-          "tenstorrent.topk composite op must have exactly one input operand.");
+          srcOp, srcOp.getName() +
+                     " composite op must have exactly one input operand.");
     }
 
     bool isTopKWithValues = srcOp.getName() == "tenstorrent.topk_values";
@@ -126,7 +126,7 @@ public:
                                          "op must have exactly one result.");
     }
 
-    SmallVector<RankedTensorType> resultTypes;
+    SmallVector<RankedTensorType, 2> resultTypes;
     if (isTopKWithBoth) {
       resultTypes = {
           mlir::cast<RankedTensorType>(srcOp.getResult(0).getType()),
@@ -144,25 +144,20 @@ public:
 
     if (compositeAttrs) {
       if (auto attr = compositeAttrs.getAs<IntegerAttr>("k")) {
-        APInt kValue = attr.getValue();
-        if (!kValue.isIntN(32)) {
-          return rewriter.notifyMatchFailure(srcOp,
-                                             "k value is too large for ui32: " +
-                                                 Twine(kValue.getSExtValue()));
+        int64_t val = attr.getInt();
+        if (!llvm::isInt<32>(val)) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "k value is too large for i32: " + Twine(val));
         }
-        kAttr = IntegerAttr::get(rewriter.getIntegerType(32),
-                                 static_cast<int32_t>(kValue.getSExtValue()));
+        kAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(val));
       }
       if (auto attr = compositeAttrs.getAs<IntegerAttr>("dim")) {
-        APInt dimValue = attr.getValue();
-        if (!dimValue.isSignedIntN(32)) {
+        int64_t val = attr.getInt();
+        if (!llvm::isInt<32>(val)) {
           return rewriter.notifyMatchFailure(
-              srcOp, "dim value is too large for si32: " +
-                         Twine(dimValue.getSExtValue()));
+              srcOp, "dim value is too large for i32: " + Twine(val));
         }
-        dimAttr =
-            IntegerAttr::get(rewriter.getIntegerType(32),
-                             static_cast<int32_t>(dimValue.getSExtValue()));
+        dimAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(val));
       }
       if (auto attr = compositeAttrs.getAs<BoolAttr>("largest")) {
         largestAttr = attr;
