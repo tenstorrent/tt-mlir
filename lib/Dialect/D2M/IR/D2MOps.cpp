@@ -3350,6 +3350,7 @@ bool d2m::SpatialOp::bufferizesToMemoryWrite(
 }
 
 mlir::LogicalResult d2m::SpatialOp::bufferize(
+    // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
@@ -3381,7 +3382,6 @@ mlir::LogicalResult d2m::SpatialOp::bufferize(
     }
     bufferOutputs.push_back(*maybeValue);
   }
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   auto bufferSpatial = rewriter.create<d2m::SpatialOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGridRanges(),
       getNumRegions());
