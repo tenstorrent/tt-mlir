@@ -6261,7 +6261,9 @@ protected:
         OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
             CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
             valueShape, valueLayout, attentionMaskShape, attentionMaskLayout,
-            isCausal, scale, slidingWindowSize, outputLayout);
+            /*attentionSinkShape=*/std::nullopt,
+            /*attentionSinkLayout=*/std::nullopt, isCausal, scale,
+            slidingWindowSize, outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
