@@ -53,6 +53,11 @@ struct SumL1MemoryTracker {
   /// actually allocating. Returns nullopt if no contiguous block fits.
   std::optional<uint64_t> wouldAllocateAt(uint64_t l1SizePerCore) const;
 
+  /// Rebuild the address simulation (freeList, tensorAddresses) from
+  /// the current tensorSizes map, allocating in the given schedule order.
+  /// Does NOT change tensorSizes or currentOccupied — only addresses.
+  void rebuildAddresses(llvm::ArrayRef<Value> allocationOrder);
+
 private:
   uint64_t currentOccupied = 0;
   llvm::DenseMap<Value, uint64_t> tensorSizes;
@@ -70,6 +75,9 @@ private:
 
   // Allocated tensor addresses: Value -> (start, alignedSize).
   llvm::DenseMap<Value, std::pair<uint64_t, uint64_t>> tensorAddresses;
+
+  /// Allocate an address block for a tensor (top-down first-fit, aligned).
+  void allocateAddressBlock(Value result, uint64_t l1SizePerCore);
 };
 
 /// L1SpillManagement enforces L1 budget constraints using Belady's optimal
@@ -123,6 +131,10 @@ private:
   std::priority_queue<LiveEntry, std::vector<LiveEntry>, LiveEntryCompare>
       liveSet;
   llvm::DenseSet<Value> liveValues;
+
+  /// Values in the order they were added to the tracker (schedule order).
+  /// Used to rebuild addresses after eviction.
+  llvm::SmallVector<Value> allocationOrder;
 
   /// Extract OpConfig from op's current IR state (result type + op-specific
   /// attrs like Conv2dConfig, MatmulProgramConfig).
@@ -186,9 +198,15 @@ private:
   bool wouldCBsOverlapTensors(Operation *op, int64_t pos, uint64_t cbPeakUsage,
                               uint64_t speculativeOutputAddr);
 
-  /// Fragmentation recovery: evict tensors in the CB danger zone, re-validate,
-  /// or demote output to DRAM. Returns L1 bytes to add to live set (0 if
-  /// demoted). After eviction, re-checks both output fit and CB overlap.
+  /// Output cannot fit contiguously in the free list. Evict using Belady's
+  /// algorithm until the output fits, then re-validate. Returns L1 bytes to
+  /// add to live set (0 if demoted to DRAM).
+  uint64_t handleNoFit(Operation *op, int64_t pos, const ScheduleData &data,
+                       uint64_t opL1Usage, uint64_t outputL1Size);
+
+  /// CB fragmentation recovery: evict tensors in the CB danger zone,
+  /// re-validate, or demote output to DRAM. Returns L1 bytes to add to live
+  /// set (0 if demoted).
   uint64_t handleFragmentation(Operation *op, int64_t pos,
                                const ScheduleData &data, uint64_t opL1Usage,
                                uint64_t cbPeakUsage, uint64_t outputL1Size);
@@ -209,6 +227,18 @@ private:
   /// set, and revalidates downstream consumers.
   void evictTensorsBelow(uint64_t threshold, int64_t pos,
                          const ScheduleData &data);
+
+  /// Evict tensors using Belady's algorithm until shouldStop() returns true
+  /// or the live set is empty. Returns true if shouldStop was satisfied.
+  /// After each eviction, rebuilds address simulation and inserts reshards
+  /// for already-processed consumers.
+  bool evictUntil(int64_t pos, const ScheduleData &data,
+                  std::function<bool()> shouldStop);
+
+  /// Insert a ToMemoryConfigOp before an already-processed consumer to
+  /// convert the DRAM spill output back to the consumer's expected L1 layout.
+  void insertReshardForConsumer(Operation *consumer, unsigned operandIdx,
+                                TTNNLayoutAttr originalL1Layout);
 
   /// After demoting an op's output to DRAM, re-query op_model for the DRAM
   /// config's cbPeakUsage and evict any live tensors that fall within the

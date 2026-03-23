@@ -33,6 +33,11 @@ namespace mlir::tt::ttnn {
 // buffers at runtime.
 static constexpr double kCBFragCushionFraction = 0.10;
 
+// Feature toggle: L1 interleaved demotion in OOM Stage 1.
+// Disabled to measure performance impact across model suite.
+// TODO(rpavlovic): Re-enable or remove based on perf comparison results.
+static constexpr bool kEnableL1InterleavedDemotion = false;
+
 //===----------------------------------------------------------------------===//
 // SumL1MemoryTracker
 //===----------------------------------------------------------------------===//
@@ -66,14 +71,8 @@ void SumL1MemoryTracker::init(uint64_t l1BudgetPerCore) {
   tensorAddresses.clear();
 }
 
-void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore) {
-  tensorSizes[result] = l1SizePerCore;
-  currentOccupied += l1SizePerCore;
-
-  // Address simulation: top-down allocation with 32-byte alignment.
-  if (l1SizePerCore == 0 || l1Budget == 0) {
-    return;
-  }
+void SumL1MemoryTracker::allocateAddressBlock(Value result,
+                                              uint64_t l1SizePerCore) {
   uint64_t alignedSize =
       (l1SizePerCore + kL1Alignment - 1) & ~(kL1Alignment - 1);
 
@@ -97,6 +96,36 @@ void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore) {
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Address simulator: no fit for {} bytes (aligned {})",
                l1SizePerCore, alignedSize);
+}
+
+void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore) {
+  tensorSizes[result] = l1SizePerCore;
+  currentOccupied += l1SizePerCore;
+
+  // Address simulation: top-down allocation with 32-byte alignment.
+  if (l1SizePerCore == 0 || l1Budget == 0) {
+    return;
+  }
+  allocateAddressBlock(result, l1SizePerCore);
+}
+
+void SumL1MemoryTracker::rebuildAddresses(
+    llvm::ArrayRef<Value> allocationOrder) {
+  freeList.clear();
+  freeList.push_back({0, l1Budget});
+  tensorAddresses.clear();
+
+  for (Value val : allocationOrder) {
+    auto it = tensorSizes.find(val);
+    if (it == tensorSizes.end()) {
+      continue;
+    }
+    uint64_t l1Size = it->second;
+    if (l1Size == 0) {
+      continue;
+    }
+    allocateAddressBlock(val, l1Size);
+  }
 }
 
 void SumL1MemoryTracker::removeTensor(Value result) {
@@ -528,7 +557,8 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
   // Stage 1: Demote current op to L1 interleaved.
   // Skip for matmul/linear (see getOutputHints) and for DRAM-output ops
   // (opL1Usage == 0) where promoting output to L1 is not intended.
-  if (opL1Usage > 0 && !isa<MatmulOp, LinearOp>(op)) {
+  if (kEnableL1InterleavedDemotion && opL1Usage > 0 &&
+      !isa<MatmulOp, LinearOp>(op)) {
     OpConfig l1InterleavedConfig = makeL1InterleavedConfig(op);
     auto demoteResult =
         memoryTracker.validate(op, inputLayouts, l1InterleavedConfig);
@@ -547,28 +577,15 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
   }
 
   // Stage 2: Evict from live set (Belady: farthest last-use first).
+  // Uses evictUntil which inserts reshards for already-processed consumers
+  // instead of cascade revalidation, preserving downstream sharded layouts.
   auto result = memoryTracker.validate(op, inputLayouts, config);
-  while (!result.isSuccess() && !liveValues.empty()) {
-    Value victim = evictFarthestUse();
-    if (!victim) {
-      break;
-    }
-
-    Operation *victimOp = victim.getDefiningOp();
-    uint64_t freedBytes = memoryTracker.getTensorSize(victim);
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    EVICT: {0} (L1: {1} bytes)", ttmlir::opToString(victimOp),
-                 freedBytes);
-    observer_->onEviction(victimOp, pos, freedBytes);
-
-    spillToDram(victim);
-    memoryTracker.removeTensor(victim);
-
-    revalidateConsumers(victimOp, pos, data.positionMap);
-
-    // Re-extract input layouts (victim may have been input to current op).
-    inputLayouts = utils::extractInputLayouts(op);
-    result = memoryTracker.validate(op, inputLayouts, config);
+  if (!result.isSuccess()) {
+    evictUntil(pos, data, [&]() {
+      inputLayouts = utils::extractInputLayouts(op);
+      result = memoryTracker.validate(op, inputLayouts, config);
+      return result.isSuccess();
+    });
   }
 
   if (result.isSuccess()) {
@@ -596,6 +613,117 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
 }
 
 //===----------------------------------------------------------------------===//
+// evictUntil
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+bool L1SpillManagement<MemoryTracker>::evictUntil(
+    int64_t pos, const ScheduleData &data, std::function<bool()> shouldStop) {
+  while (!shouldStop() && !liveValues.empty()) {
+    Value victim = evictFarthestUse();
+    if (!victim) {
+      break;
+    }
+
+    Operation *victimOp = victim.getDefiningOp();
+    uint64_t freedBytes = memoryTracker.getTensorSize(victim);
+
+    // Save original L1 layout before spilling.
+    auto tensorType = mlir::cast<RankedTensorType>(victim.getType());
+    TTNNLayoutAttr originalL1Layout =
+        mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    EVICT: {0} (L1: {1} bytes)", ttmlir::opToString(victimOp),
+                 freedBytes);
+    observer_->onEviction(victimOp, pos, freedBytes);
+
+    spillToDram(victim);
+    memoryTracker.removeTensor(victim);
+
+    // Remove from allocation order and rebuild address simulation.
+    auto *orderIt = llvm::find(allocationOrder, victim);
+    if (orderIt != allocationOrder.end()) {
+      allocationOrder.erase(orderIt);
+    }
+    memoryTracker.rebuildAddresses(allocationOrder);
+
+    // Insert reshards for already-processed consumers instead of cascade
+    // revalidation. This preserves downstream ops' sharded layouts.
+    if (originalL1Layout.hasL1BufferType()) {
+      for (Operation *consumer : collectDownstreamConsumers(victimOp)) {
+        auto posIt = data.positionMap.find(consumer);
+        if (posIt == data.positionMap.end() || posIt->second >= pos) {
+          continue;
+        }
+        if (!mlir::dyn_cast<OpModel>(consumer)) {
+          continue;
+        }
+        if (isa<ToLayoutOp>(consumer)) {
+          continue;
+        }
+        for (unsigned i = 0; i < consumer->getNumOperands(); ++i) {
+          Value operand = consumer->getOperand(i);
+          Operation *defOp = operand.getDefiningOp();
+          if (isa_and_nonnull<ToMemoryConfigOp>(defOp) &&
+              defOp->getOperand(0) == victim) {
+            insertReshardForConsumer(consumer, i, originalL1Layout);
+          }
+        }
+      }
+    }
+  }
+  return shouldStop();
+}
+
+//===----------------------------------------------------------------------===//
+// handleNoFit
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
+                                                       int64_t pos,
+                                                       const ScheduleData &data,
+                                                       uint64_t opL1Usage,
+                                                       uint64_t outputL1Size) {
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "    NO_FIT: output {0} bytes can't fit contiguously, evicting",
+               outputL1Size);
+
+  bool resolved = evictUntil(pos, data, [&]() {
+    return memoryTracker.wouldAllocateAt(outputL1Size).has_value();
+  });
+  if (!resolved) {
+    demoteToDram(op);
+    evictForDramCBGrowth(op, pos, data);
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    NO_FIT: eviction exhausted, demoting to DRAM");
+    return 0;
+  }
+
+  // Re-validate after eviction freed space.
+  auto freshInputLayouts = utils::extractInputLayouts(op);
+  auto freshConfig = extractOpConfigFromIR(op);
+  auto freshResult = memoryTracker.validate(op, freshInputLayouts, freshConfig);
+  if (freshResult.isSuccess()) {
+    applyOutputConfig(op, freshResult);
+    uint64_t freshL1 =
+        freshResult.outputL1Usage > 0 ? freshResult.outputL1Usage : opL1Usage;
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    NO_FIT resolved: L1 now {0}/{1}",
+                 memoryTracker.getOccupiedL1(), l1BudgetPerCore);
+    return freshL1;
+  }
+
+  demoteToDram(op);
+  evictForDramCBGrowth(op, pos, data);
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "    NO_FIT: validation failed after eviction, demoting to "
+               "DRAM");
+  return 0;
+}
+
+//===----------------------------------------------------------------------===//
 // handleFragmentation
 //===----------------------------------------------------------------------===//
 
@@ -603,23 +731,20 @@ template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
     Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
     uint64_t cbPeakUsage, uint64_t outputL1Size) {
-  // No CB info → can only be here due to output-cannot-fit. Can't do targeted
-  // eviction without knowing which tensors to free. Demote directly.
-  if (cbPeakUsage == 0) {
-    demoteToDram(op);
-    evictForDramCBGrowth(op, pos, data);
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    FRAG_DEMOTE (no-fit, no CB info): output to DRAM");
-    return 0;
-  }
-
   // Add the same safety cushion as wouldCBsOverlapTensors to account for
   // unmodeled runtime fragmentation from transient internal op allocations.
   uint64_t cushionedCBUsage = cbPeakUsage + cbFragCushion;
 
-  // Evict tensors in the CB danger zone (including cushion): those with
-  // simulated address below the cushioned CB region.
-  evictTensorsBelow(cushionedCBUsage, pos, data);
+  // Evict tensors using Belady's algorithm until CB overlap resolves.
+  evictUntil(pos, data, [&]() {
+    auto specAddr = memoryTracker.wouldAllocateAt(outputL1Size);
+    if (!specAddr) {
+      return false;
+    }
+    uint64_t effLowest =
+        std::min(*specAddr, memoryTracker.getLowestOccupiedAddress());
+    return cushionedCBUsage <= effLowest;
+  });
 
   // After eviction, re-check both conditions with the updated free list.
   auto freshOutputAddr = memoryTracker.wouldAllocateAt(outputL1Size);
@@ -788,6 +913,7 @@ void L1SpillManagement<MemoryTracker>::run() {
         memoryTracker.addTensor(val, perResultL1);
         liveValues.insert(val);
         liveSet.push({resultLastUse, val});
+        allocationOrder.push_back(val);
       }
     };
 
@@ -819,16 +945,17 @@ void L1SpillManagement<MemoryTracker>::run() {
                    "cbPeakUsage={1}, outputL1={2} bytes",
                    ttmlir::opToString(op), result.cbPeakUsage, l1Size);
 
-      // Fragmentation check: can the output fit contiguously, and would CBs
-      // overlap any tensor (including the speculative output placement)?
+      // Can the output fit contiguously in the free list?
       auto speculativeOutputAddr = memoryTracker.wouldAllocateAt(l1Size);
-      bool outputCannotFit = !speculativeOutputAddr;
-      bool cbOverlapsTensors =
-          !outputCannotFit &&
-          wouldCBsOverlapTensors(op, pos, result.cbPeakUsage,
-                                 *speculativeOutputAddr);
+      if (!speculativeOutputAddr) {
+        l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
+        speculativeOutputAddr = memoryTracker.wouldAllocateAt(l1Size);
+      }
 
-      if (outputCannotFit || cbOverlapsTensors) {
+      // CB fragmentation check: would CBs overlap any tensor?
+      if (l1Size > 0 && speculativeOutputAddr &&
+          wouldCBsOverlapTensors(op, pos, result.cbPeakUsage,
+                                 *speculativeOutputAddr)) {
         l1Size = handleFragmentation(op, pos, data, opL1Usage,
                                      result.cbPeakUsage, l1Size);
       }
@@ -848,12 +975,14 @@ void L1SpillManagement<MemoryTracker>::run() {
       continue;
     }
 
-    // Backend constraint error: demote directly to DRAM.
+    // Backend constraint error: ops like SDPA have hard input-layout
+    // constraints (e.g. mask must be DRAM) that the L1 spill management
+    // sweep can violate when upstream evictions change input buffer types.
+    // Gracefully spill to DRAM rather than crashing.
     if (result.isMetalBackendError()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                   "    WARNING: Backend constraint error at pos {0} for {1}: "
-                   "{2}. Demoting to DRAM (may indicate a layout propagation "
-                   "bug).",
+                   "    BACKEND_ERROR at pos {0} for {1}: {2}. "
+                   "Spilling to DRAM.",
                    pos, ttmlir::opToString(op), result.errorMessage);
       for (auto r : tensorResults) {
         spillToDram(r);
@@ -983,6 +1112,8 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(
     evictedOps.push_back(victimOp);
   }
   liveValues.clear();
+  allocationOrder.clear();
+  memoryTracker.rebuildAddresses(allocationOrder);
 
   // Revalidate consumers after all evictions to avoid revalidating against
   // transient intermediate IR states.
@@ -1015,6 +1146,11 @@ void L1SpillManagement<MemoryTracker>::evictTensorsBelow(
     spillToDram(victim);
     memoryTracker.removeTensor(victim);
     liveValues.erase(victim);
+    auto *orderIt = llvm::find(allocationOrder, victim);
+    if (orderIt != allocationOrder.end()) {
+      allocationOrder.erase(orderIt);
+    }
+    memoryTracker.rebuildAddresses(allocationOrder);
     if (victimOp) {
       revalidateConsumers(victimOp, pos, data.positionMap);
     }
@@ -1104,6 +1240,48 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Value result) {
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Inserted spill-to-DRAM op: {0}", ttmlir::opToString(spillOp));
+}
+
+//===----------------------------------------------------------------------===//
+// insertReshardForConsumer
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::insertReshardForConsumer(
+    Operation *consumer, unsigned operandIdx, TTNNLayoutAttr originalL1Layout) {
+  Value spillOutput = consumer->getOperand(operandIdx);
+  auto spillTensorType = mlir::cast<RankedTensorType>(spillOutput.getType());
+  auto spillLayout = mlir::cast<TTNNLayoutAttr>(spillTensorType.getEncoding());
+
+  // Skip if operand is already in L1 (e.g., reshard already inserted).
+  if (spillLayout.hasL1BufferType()) {
+    return;
+  }
+
+  // Build target tensor type with original L1 layout.
+  RankedTensorType reshardType =
+      utils::RankedTensorTypeFactory::create(spillTensorType, originalL1Layout);
+
+  // Build MemoryConfigAttr for the reshard target.
+  MemoryConfigAttr memConfig = MemoryConfigAttr::get(
+      consumer->getContext(), originalL1Layout.getMemLayout(),
+      BufferTypeAttr::get(consumer->getContext(),
+                          originalL1Layout.getBufferType()),
+      utils::createShardSpecIfNeeded(originalL1Layout, deviceGrid));
+
+  // Insert ToMemoryConfigOp before consumer.
+  OpBuilder builder(consumer);
+  Location loc =
+      ttmlir::utils::appendLocationSuffix(consumer->getLoc(), "_reshard");
+
+  auto reshardOp = builder.create<ToMemoryConfigOp>(loc, reshardType,
+                                                    spillOutput, memConfig);
+  consumer->setOperand(operandIdx, reshardOp->getResult(0));
+
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+               "Inserted reshard op: {0} before {1}",
+               ttmlir::opToString(reshardOp.getOperation()),
+               ttmlir::opToString(consumer));
 }
 
 //===----------------------------------------------------------------------===//
