@@ -55,8 +55,8 @@ void createStableHLOPipeline(OpPassManager &pm,
   // costs across all candidate shardings.
   if (options.enableAutoSharding) {
     AutoShardingPassOptions searchOptions;
-    searchOptions.dumpVariants = options.dumpVariants;
-    searchOptions.dumpDir = options.dumpDir;
+    searchOptions.dumpVariants = options.autoShardingDumpVariants;
+    searchOptions.dumpDir = options.autoShardingDumpDir;
     pm.addPass(createAutoShardingPass(searchOptions));
   }
 
