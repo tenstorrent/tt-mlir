@@ -901,19 +901,20 @@ mlir::LogicalResult createFusedPairedRoPEOp(mlir::PatternRewriter &rewriter,
   op_model::ScopedSingletonDeviceGuard deviceGuard(srcOp.getOperation());
   auto loc = srcOp.getLoc();
 
-  // Get x in BHSD layout. Two cases:
-  //   (a) With permute: create permute(source) to go from [B,S,H,D] to BHSD
-  //   (b) Without permute (decode, S=1): source is already [B,S,H,D] = BHSD
-  Value xValue;
-  PermuteOp xPermute = nullptr;
+  // Get x in BHSD layout. Source is always [B, S, H, D], need [B, H, S, D].
+  // In prefill, x1/x2 go through permute [0,2,1,3] — reuse that permutation.
+  // In decode (S=1), the permute was optimized away — we must create one
+  // because RotaryEmbeddingOp hardcodes dim 2 as the sequence dimension.
+  SmallVector<int64_t, 4> permutation;
   if (c.hasPermute) {
-    xPermute = ttir_to_ttnn::utils::generatePermute(
-        mlir::cast<TypedValue<RankedTensorType>>(c.xSource), c.permutation,
-        rewriter, loc);
-    xValue = xPermute.getResult();
+    permutation.assign(c.permutation.begin(), c.permutation.end());
   } else {
-    xValue = c.xSource;
+    permutation = {0, 2, 1, 3};
   }
+  auto xPermute = ttir_to_ttnn::utils::generatePermute(
+      mlir::cast<TypedValue<RankedTensorType>>(c.xSource),
+      llvm::ArrayRef(permutation), rewriter, loc);
+  Value xValue = xPermute.getResult();
 
   // Create cos_full = concat(cosHalf, cosHalf, dim=last) → [1, 1, S, D]
   auto cosHalfType = mlir::cast<RankedTensorType>(c.cosHalf.getType());
@@ -971,14 +972,31 @@ mlir::LogicalResult createFusedPairedRoPEOp(mlir::PatternRewriter &rewriter,
       rewriter.eraseOp(ropeOp);
       rewriter.eraseOp(sinFull);
       rewriter.eraseOp(cosFull);
-      if (xPermute) {
-        rewriter.eraseOp(xPermute);
-      }
+      rewriter.eraseOp(xPermute);
       return failure();
     }
   }
 
-  rewriter.replaceOp(srcOp, ropeOp.getResult());
+  Value result = ropeOp.getResult();
+
+  // If the fused op output shape differs from the original concat shape
+  // (decode case: RotaryEmbedding produces [B,H,S,D] but concat was [B,S,H,D]),
+  // insert an inverse permute to restore the original layout.
+  auto srcType = mlir::cast<RankedTensorType>(srcOp.getType());
+  auto ropeType = mlir::cast<RankedTensorType>(ropeOp.getType());
+  if (srcType.getShape() != ropeType.getShape()) {
+    // Compute inverse permutation.
+    SmallVector<int64_t, 4> inversePerm(permutation.size());
+    for (size_t i = 0; i < permutation.size(); ++i) {
+      inversePerm[permutation[i]] = static_cast<int64_t>(i);
+    }
+    auto outputPermute = ttir_to_ttnn::utils::generatePermute(
+        mlir::cast<TypedValue<RankedTensorType>>(result),
+        llvm::ArrayRef(inversePerm), rewriter, loc);
+    result = outputPermute.getResult();
+  }
+
+  rewriter.replaceOp(srcOp, result);
   return success();
 }
 
