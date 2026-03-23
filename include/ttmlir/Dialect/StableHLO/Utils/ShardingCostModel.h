@@ -63,8 +63,7 @@ public:
 private:
   Options options;
 
-  double evaluateCommunicationCost(ModuleOp module,
-                                   int64_t maxElements) const;
+  double evaluateCommunicationCost(ModuleOp module, int64_t maxElements) const;
 
   double evaluateMemoryBenefit(const ShardingConfig &config,
                                func::FuncOp funcOp, int64_t meshAxisSize,
