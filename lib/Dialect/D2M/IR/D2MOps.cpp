@@ -3354,11 +3354,12 @@ mlir::LogicalResult d2m::SpatialOp::bufferize(
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
 
-  if (getNumResults() == 0) {
-    return failure();
+  for (mlir::OpResult result : getResults()) {
+    if (!mlir::isa<mlir::RankedTensorType>(result.getType())) {
+      return failure();
+    }
   }
-
-  if (!mlir::isa<mlir::RankedTensorType>(getResult(0).getType())) {
+  if (getNumResults() != 0 && getNumResults() != getOutputs().size()) {
     return failure();
   }
   mlir::SmallVector<mlir::Value> bufferInputs;
@@ -3392,8 +3393,12 @@ mlir::LogicalResult d2m::SpatialOp::bufferize(
   // One-shot bufferization uses BottomUp: inner GenericOps are bufferized
   // first, so region bodies already use buffer SSA. We only replace the
   // boundary (operands/results) with buffers and move the body.
-  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
-                                                     bufferOutputs);
+  if (getNumResults() == 0) {
+    mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, {});
+  } else {
+    mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                       bufferOutputs);
+  }
   return success();
 }
 
