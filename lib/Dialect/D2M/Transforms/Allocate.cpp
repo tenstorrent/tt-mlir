@@ -1919,6 +1919,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   bool inferStreamRequirement(d2m::GenericOp genericOp,
                               const OperandContext &operandCtx,
                               MemorySpace memspace) const {
+    if (operandCtx.hasStream) {
+      return false;
+    }
+
     if (useAlwaysStreamPolicy()) {
       return true;
     }
