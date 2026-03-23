@@ -799,15 +799,9 @@ def execute_fb(
                     o_dict["desc"]["layout"]["memory_desc"]["data_type"]
                 ),
             )
-            torch_tensor = torch.zeros(
-                runtime_outputs[i].get_shape(),
-                dtype=runtime_str_dtype_to_torch_dtype(
-                    o_dict["desc"]["layout"]["memory_desc"]["data_type"]
-                ),
-            )
             num_shards = tt_runtime.runtime.get_num_shards(runtime_outputs[i])
             outputs_torch.append(
-                {shard_id: torch_tensor for shard_id in range(num_shards)}
+                {shard_id: torch_tensor.clone() for shard_id in range(num_shards)}
             )
 
         outputs = []
@@ -826,7 +820,7 @@ def execute_fb(
             if disable_golden:
                 continue
 
-            output_device_tensors = outputs
+            output_device_tensors = [outputs[i]]
             if fbb.file_identifier != "TTM0":
                 output_device_tensors = tt_runtime.runtime.get_device_tensors(
                     outputs[i]
@@ -847,14 +841,18 @@ def execute_fb(
 
                 if len(data_buffer) == 0:
                     output_shard_torch = torch.empty(
-                        outputs[i].get_shape(),
-                        dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
+                        output_device_tensors[device_id].get_shape(),
+                        dtype=runtime_dtype_to_torch_dtype(
+                            output_device_tensors[device_id].get_dtype()
+                        ),
                     )
                 else:
                     output_shard_torch = torch.frombuffer(
                         data_buffer,
-                        dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
-                    ).reshape(outputs[i].get_shape())
+                        dtype=runtime_dtype_to_torch_dtype(
+                            output_device_tensors[device_id].get_dtype()
+                        ),
+                    ).reshape(output_device_tensors[device_id].get_shape())
 
                 golden_shard_torch = golden_outputs_torch[i][device_id]
                 results = check_outputs(
