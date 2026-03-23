@@ -1953,7 +1953,7 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
             ->asSharedPtr<::tt::runtime::ttnn::TraceCache>(
                 DeviceRuntime::TTNN);
     if (traceCache) {
-      traceCache->incrementDeviceGeneration();
+      traceCache->incrementGeneration();
     }
   }
 

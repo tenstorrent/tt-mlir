@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
+#include <optional>
 
 namespace tt::runtime::ttnn {
 
@@ -55,47 +56,36 @@ void TraceCache::erase(const MainProgramKey &key) {
   cache.erase(outerIt);
 }
 
-void TraceCache::erase(const MainProgramKey &key,
-                       const CaptureExecuteProgramKey &captureExecuteKey) {
+std::optional<TraceData>
+TraceCache::erase(const MainProgramKey &key,
+                  const CaptureExecuteProgramKey &captureExecuteKey) {
   auto outerIt = cache.find(key);
   if (outerIt == cache.end()) {
-    return;
+    return std::nullopt;
   }
 
   auto innerIt = outerIt->second.find(captureExecuteKey);
   if (innerIt == outerIt->second.end()) {
-    return;
+    return std::nullopt;
   }
+
+  // Move the trace data out so that we can return it after releasing the trace
+  // on the device.
+  auto traceData = std::move(innerIt->second);
 
   std::shared_ptr<::ttnn::MeshDevice> lockedDevice = meshDevice.lock();
   if (lockedDevice && lockedDevice->is_initialized()) {
     ::ttnn::operations::trace::release_trace(lockedDevice.get(),
-                                             innerIt->second.traceId);
+                                             traceData.traceId);
   }
 
   outerIt->second.erase(captureExecuteKey);
+
+  return traceData;
 }
 
-TraceData TraceCache::extract(
-    const MainProgramKey &key,
-    const CaptureExecuteProgramKey &captureExecuteKey) {
-  auto outerIt = cache.find(key);
-  LOG_ASSERT(outerIt != cache.end(), "extract: main program key not found");
+uint64_t TraceCache::getGenerationId() const { return generation_id; }
 
-  auto innerIt = outerIt->second.find(captureExecuteKey);
-  LOG_ASSERT(innerIt != outerIt->second.end(),
-             "extract: capture-execute key not found");
-
-  TraceData data = std::move(innerIt->second);
-  outerIt->second.erase(innerIt);
-  if (outerIt->second.empty()) {
-    cache.erase(outerIt);
-  }
-  return data;
-}
-
-uint64_t TraceCache::getDeviceGeneration() const { return deviceGeneration; }
-
-void TraceCache::incrementDeviceGeneration() { deviceGeneration++; }
+void TraceCache::incrementGeneration() { generation_id++; }
 
 } // namespace tt::runtime::ttnn
