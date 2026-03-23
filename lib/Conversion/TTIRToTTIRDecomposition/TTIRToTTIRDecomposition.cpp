@@ -309,6 +309,7 @@ struct GatherToEmbeddingConversionPattern
                   ConversionPatternRewriter &rewriter) const override {
     // GatherOp can be used to implement embedding lookup, check for that case.
     LogicalResult err = checkBasicLegality(op, rewriter);
+    llvm::outs() << "[HET DEBUG] check basic legality\n";
     if (not err.succeeded()) {
       return err;
     }
@@ -365,6 +366,7 @@ struct GatherToEmbeddingConversionPattern
       }
     }
     auto numIndexingDims = startIndexMap.size();
+    llvm::outs() << "[HET DEBUG] numIndexingDims: " << numIndexingDims << "\n";
 
     auto inputPermuted = permuteInput(
         rewriter,
@@ -385,6 +387,8 @@ struct GatherToEmbeddingConversionPattern
       startIndices =
           flattenStartIndices(rewriter, inputPermuted.getType().getShape(), op);
     } else if (originalStartIndexMap.size() != numIndexingDims) {
+      llvm::outs() << "[HET DEBUG] originalStartIndexMap.size() != numIndexingDims.\n";
+      llvm::outs() << "originalStartIndexMap.size() = " << originalStartIndexMap.size() << "\n";
       startIndices = sliceStartIndices(
           rewriter,
           ttmlir::utils::appendLocationSuffix(op->getLoc(),
