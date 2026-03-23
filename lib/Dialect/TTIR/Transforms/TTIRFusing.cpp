@@ -3464,6 +3464,215 @@ public:
 
 } // namespace
 
+// Fuse slice+reshape pattern from a fused QKV tensor into
+// NLPCreateQKVHeadsDecodeOp for decode (seq_len=1) attention.
+//
+// Matches:
+//   %fused = reshape -> [B, 1, hidden]           (3D fused QKV)
+//   %q_slice = slice(%fused)[0:q_end]            -> [B, 1, q_hidden]
+//   %q = reshape(%q_slice)                       -> [B, num_heads, head_dim]
+//   %k_slice = slice(%fused)[q_end:k_end]        -> [B, 1, kv_hidden]
+//   %k = reshape(%k_slice)                       -> [B, num_kv_heads, head_dim]
+//   %v_slice = slice(%fused)[k_end:hidden]       -> [B, 1, kv_hidden]
+//   %v = reshape(%v_slice)                       -> [1, B, num_kv_heads,
+//   head_dim]
+//
+class NLPCreateQKVHeadsDecodeFusionPattern
+    : public mlir::OpRewritePattern<ReshapeOp> {
+  using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ReshapeOp reshapeOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // The reshape output must be 3D: [B, S, hidden] with S==1.
+    RankedTensorType reshapeType = reshapeOp.getType();
+    ArrayRef<int64_t> reshapeShape = reshapeType.getShape();
+    if (reshapeShape.size() != 3 || reshapeShape[1] != 1) {
+      return failure();
+    }
+
+    int64_t batchSize = reshapeShape[0];
+    int64_t hiddenSize = reshapeShape[2];
+
+    // Collect exactly 3 slice_static users.
+    SmallVector<SliceStaticOp, 3> sliceOps;
+    for (auto *user : reshapeOp.getResult().getUsers()) {
+      auto sliceOp = dyn_cast<SliceStaticOp>(user);
+      if (!sliceOp) {
+        return failure();
+      }
+      sliceOps.push_back(sliceOp);
+    }
+    if (sliceOps.size() != 3) {
+      return failure();
+    }
+
+    // Helper to extract int from I32ArrayAttr element.
+    auto getI32 = [](ArrayRef<Attribute> arr, size_t i) -> int32_t {
+      return mlir::cast<IntegerAttr>(arr[i]).getInt();
+    };
+
+    // Sort slices by their begin on the last dimension.
+    llvm::sort(sliceOps, [&](SliceStaticOp a, SliceStaticOp b) {
+      auto aBegins = a.getBegins().getValue();
+      auto bBegins = b.getBegins().getValue();
+      return getI32(aBegins, aBegins.size() - 1) <
+             getI32(bBegins, bBegins.size() - 1);
+    });
+
+    // Validate each slice: must slice only the last dim (first dims full
+    // range), step=1, and they must partition the last dim contiguously.
+    int64_t expectedBegin = 0;
+    SmallVector<int64_t, 3> sliceSizes;
+    for (auto sliceOp : sliceOps) {
+      auto begins = sliceOp.getBegins().getValue();
+      auto ends = sliceOp.getEnds().getValue();
+      auto steps = sliceOp.getStep().getValue();
+      size_t rank = begins.size();
+      if (rank != 3) {
+        return failure();
+      }
+
+      // First dims must be full range.
+      for (size_t i = 0; i < rank - 1; ++i) {
+        if (getI32(begins, i) != 0 || getI32(ends, i) != reshapeShape[i] ||
+            getI32(steps, i) != 1) {
+          return failure();
+        }
+      }
+
+      // Last dim must be contiguous with previous slice.
+      int64_t lastBegin = getI32(begins, rank - 1);
+      int64_t lastEnd = getI32(ends, rank - 1);
+      int64_t lastStep = getI32(steps, rank - 1);
+      if (lastBegin != expectedBegin || lastStep != 1) {
+        return failure();
+      }
+      sliceSizes.push_back(lastEnd - lastBegin);
+      expectedBegin = lastEnd;
+    }
+    if (expectedBegin != hiddenSize) {
+      return failure();
+    }
+
+    // K and V hidden sizes must be equal.
+    int64_t qHidden = sliceSizes[0];
+    int64_t kHidden = sliceSizes[1];
+    int64_t vHidden = sliceSizes[2];
+    if (kHidden != vHidden) {
+      return failure();
+    }
+
+    // Each slice must have exactly 1 user which is a reshape.
+    SmallVector<ReshapeOp, 3> headReshapes;
+    for (auto sliceOp : sliceOps) {
+      auto users = sliceOp.getResult().getUsers();
+      if (llvm::range_size(users) != 1) {
+        return failure();
+      }
+      auto headReshape = dyn_cast<ReshapeOp>(*users.begin());
+      if (!headReshape) {
+        return failure();
+      }
+      headReshapes.push_back(headReshape);
+    }
+
+    // Derive num_heads, num_kv_heads, head_dim from reshape output shapes.
+    ArrayRef<int64_t> qReshapeShape = headReshapes[0].getType().getShape();
+    ArrayRef<int64_t> kReshapeShape = headReshapes[1].getType().getShape();
+
+    // Q reshape can be 3D [B, num_heads, head_dim] or 4D.
+    // K reshape can be 3D [B, num_kv_heads, head_dim] or 4D.
+    int64_t numHeads = 0;
+    int64_t numKVHeads = 0;
+    int64_t headDim = 0;
+
+    if (qReshapeShape.size() == 3) {
+      numHeads = qReshapeShape[1];
+      headDim = qReshapeShape[2];
+    } else if (qReshapeShape.size() == 4) {
+      numHeads = qReshapeShape[2];
+      headDim = qReshapeShape[3];
+    } else {
+      return failure();
+    }
+
+    if (kReshapeShape.size() == 3) {
+      numKVHeads = kReshapeShape[1];
+    } else if (kReshapeShape.size() == 4) {
+      numKVHeads = kReshapeShape[2];
+    } else {
+      return failure();
+    }
+
+    // Verify consistency.
+    if (numHeads * headDim != qHidden || numKVHeads * headDim != kHidden ||
+        headDim == 0) {
+      return failure();
+    }
+
+    // Build the fused op.
+    Location loc = reshapeOp.getLoc();
+    Type elemType = reshapeType.getElementType();
+
+    // Reshape 3D [B, 1, hidden] -> 4D [1, 1, B, hidden].
+    auto input4DType =
+        RankedTensorType::get({1, 1, batchSize, hiddenSize}, elemType);
+    SmallVector<int32_t> input4DShapeI32 = {1, 1,
+                                            static_cast<int32_t>(batchSize),
+                                            static_cast<int32_t>(hiddenSize)};
+    auto input4D =
+        rewriter.create<ReshapeOp>(loc, input4DType, reshapeOp.getResult(),
+                                   rewriter.getI32ArrayAttr(input4DShapeI32));
+
+    // Output types for the fused op: all 4D [1, B, num_heads, head_dim].
+    auto queryType =
+        RankedTensorType::get({1, batchSize, numHeads, headDim}, elemType);
+    auto kvType =
+        RankedTensorType::get({1, batchSize, numKVHeads, headDim}, elemType);
+
+    // Create the fused op.
+    auto fusedOp = rewriter.create<NLPCreateQKVHeadsDecodeOp>(
+        loc, ArrayRef<Type>{queryType, kvType, kvType}, input4D.getResult(),
+        /*batch_offset=*/Value(), rewriter.getUI32IntegerAttr(numHeads),
+        rewriter.getUI32IntegerAttr(numKVHeads),
+        /*overlap_qk_coregrid=*/nullptr,
+        /*slice_size=*/nullptr);
+
+    // Reshape fused op outputs to match the original downstream shapes.
+    auto createOutputReshape = [&](Value fusedResult,
+                                   ArrayRef<int64_t> targetShape) -> Value {
+      auto targetType = RankedTensorType::get(targetShape, elemType);
+      if (fusedResult.getType() == targetType) {
+        return fusedResult;
+      }
+      SmallVector<int32_t> shapeI32(targetShape.begin(), targetShape.end());
+      return rewriter.create<ReshapeOp>(loc, targetType, fusedResult,
+                                        rewriter.getI32ArrayAttr(shapeI32));
+    };
+
+    Value newQ = createOutputReshape(fusedOp.getQuery(), qReshapeShape);
+    Value newK = createOutputReshape(fusedOp.getKey(), kReshapeShape);
+    Value newV = createOutputReshape(fusedOp.getValue(),
+                                     headReshapes[2].getType().getShape());
+
+    // Replace uses and erase old ops.
+    rewriter.replaceOp(headReshapes[0], newQ);
+    rewriter.replaceOp(headReshapes[1], newK);
+    rewriter.replaceOp(headReshapes[2], newV);
+
+    // The slice ops should now be dead (no users).
+    for (auto sliceOp : sliceOps) {
+      if (sliceOp.use_empty()) {
+        rewriter.eraseOp(sliceOp);
+      }
+    }
+
+    return success();
+  }
+};
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -3509,6 +3718,7 @@ public:
         patterns.add<PermuteMatmulFusionPattern<LinearOp>>(&getContext());
       }
       patterns.add<RepVGGConvSumFusionPattern>(&getContext());
+      patterns.add<NLPCreateQKVHeadsDecodeFusionPattern>(&getContext());
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<MatmulOp>>(
           &getContext());

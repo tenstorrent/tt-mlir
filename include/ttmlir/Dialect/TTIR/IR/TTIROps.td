@@ -5855,6 +5855,42 @@ def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_value_
     let hasVerifier = 1;
 }
 
+def TTIR_NLPCreateQKVHeadsDecodeOp: TTIR_NamedOp<"nlp_create_qkv_heads_decode"> {
+    let summary = "Decode-mode QKV head splitting for NLP attention.";
+    let description = [{
+      Splits a fused QKV tensor of shape [1, S=1, B, head_dim * (num_heads + 2*num_kv_heads)]
+      into separate Q, K, V head tensors.
+
+      Output Q has shape [1, B, num_heads, head_dim].
+      Output K and V have shape [1, B, num_kv_heads, head_dim].
+
+      This is a decode-specific operation where S=1.
+
+      Optional batch_offset and slice_size allow fused batch slicing: if provided,
+      the batch dimension of QKV outputs will be slice_size instead of B.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$batch_offset,
+                         UI32Attr:$num_heads,
+                         OptionalAttr<UI32Attr>:$num_kv_heads,
+                         OptionalAttr<BoolAttr>:$overlap_qk_coregrid,
+                         OptionalAttr<UI32Attr>:$slice_size);
+
+    let results = (outs AnyRankedTensor:$query,
+                        AnyRankedTensor:$key,
+                        AnyRankedTensor:$value);
+
+    let extraClassDeclaration = [{
+        MutableOperandRange getDpsInitsMutable() {
+            unsigned startIdx = getBatchOffset() ? 2 : 1;
+            return MutableOperandRange(*this, startIdx, 3);
+        }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_TopKOp : TTIR_NamedOp<"topk"> {
   let summary = "Top-K selection operation.";
   let description = [{

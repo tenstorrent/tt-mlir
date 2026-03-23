@@ -2534,6 +2534,96 @@ private:
 } // namespace
 
 namespace {
+struct NLPCreateQKVHeadsDecodeDecompositionPattern
+    : public OpConversionPattern<ttir::NLPCreateQKVHeadsDecodeOp> {
+  using OpConversionPattern<
+      ttir::NLPCreateQKVHeadsDecodeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::NLPCreateQKVHeadsDecodeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value input = adaptor.getInput(); // [1, 1, B, hidden]
+
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto inputShape = inputType.getShape();
+    Type elementType = inputType.getElementType();
+
+    uint32_t numHeads = adaptor.getNumHeads();
+    uint32_t numKVHeads =
+        adaptor.getNumKvHeads() ? *adaptor.getNumKvHeads() : numHeads;
+    int64_t batchSize = inputShape[2];
+    int64_t hidden = inputShape[3];
+    int64_t headDim = hidden / (numHeads + 2 * numKVHeads);
+
+    int64_t qHidden = numHeads * headDim;
+    int64_t kvHidden = numKVHeads * headDim;
+
+    // Slice Q: [1, 1, B, 0:qHidden]
+    Value slicedQ = createSlice(
+        rewriter, loc, input,
+        RankedTensorType::get({1, 1, batchSize, qHidden}, elementType),
+        {0, 0, 0, 0}, {1, 1, batchSize, qHidden});
+
+    // Slice K: [1, 1, B, qHidden:qHidden+kvHidden]
+    Value slicedK = createSlice(
+        rewriter, loc, input,
+        RankedTensorType::get({1, 1, batchSize, kvHidden}, elementType),
+        {0, 0, 0, qHidden}, {1, 1, batchSize, qHidden + kvHidden});
+
+    // Slice V: [1, 1, B, qHidden+kvHidden:hidden]
+    Value slicedV = createSlice(
+        rewriter, loc, input,
+        RankedTensorType::get({1, 1, batchSize, kvHidden}, elementType),
+        {0, 0, 0, qHidden + kvHidden}, {1, 1, batchSize, hidden});
+
+    // Reshape to output shapes: [1, B, num_heads, head_dim] etc.
+    Value query = createReshape(
+        rewriter, loc, slicedQ,
+        RankedTensorType::get(
+            {1, batchSize, static_cast<int64_t>(numHeads), headDim},
+            elementType));
+    Value key = createReshape(
+        rewriter, loc, slicedK,
+        RankedTensorType::get(
+            {1, batchSize, static_cast<int64_t>(numKVHeads), headDim},
+            elementType));
+    Value value = createReshape(
+        rewriter, loc, slicedV,
+        RankedTensorType::get(
+            {1, batchSize, static_cast<int64_t>(numKVHeads), headDim},
+            elementType));
+
+    rewriter.replaceOp(op, {query, key, value});
+    return success();
+  }
+
+private:
+  Value createSlice(ConversionPatternRewriter &rewriter, Location loc,
+                    Value input, RankedTensorType resultType,
+                    ArrayRef<int64_t> begins, ArrayRef<int64_t> ends) const {
+    llvm::SmallVector<mlir::Attribute> beginsAttr, endsAttr, stepsAttr;
+    for (size_t i = 0; i < begins.size(); ++i) {
+      beginsAttr.push_back(rewriter.getI32IntegerAttr(begins[i]));
+      endsAttr.push_back(rewriter.getI32IntegerAttr(ends[i]));
+      stepsAttr.push_back(rewriter.getI32IntegerAttr(1));
+    }
+    return rewriter.create<ttir::SliceStaticOp>(
+        loc, resultType, input, rewriter.getArrayAttr(beginsAttr),
+        rewriter.getArrayAttr(endsAttr), rewriter.getArrayAttr(stepsAttr));
+  }
+
+  Value createReshape(ConversionPatternRewriter &rewriter, Location loc,
+                      Value input, RankedTensorType resultType) const {
+    auto newShape = resultType.getShape();
+    llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+    return rewriter.create<ttir::ReshapeOp>(
+        loc, resultType, input, rewriter.getI32ArrayAttr(newShapeI32));
+  }
+};
+} // namespace
+
+namespace {
 struct NegativePadOpDecompositionPattern
     : public OpConversionPattern<ttir::PadOp> {
   using OpConversionPattern<ttir::PadOp>::OpConversionPattern;
@@ -2631,6 +2721,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ArgMaxPattern>(typeConverter, ctx);
   patterns.add<SplitQueryKeyValueAndSplitHeadsDecompositionPattern>(
       typeConverter, ctx);
+  patterns.add<NLPCreateQKVHeadsDecodeDecompositionPattern>(typeConverter, ctx);
   patterns.add<NegativePadOpDecompositionPattern>(typeConverter, ctx);
 
   // Configure which ReductionPattern to add base on the configuration
