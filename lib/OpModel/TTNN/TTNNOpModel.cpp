@@ -2874,7 +2874,9 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
     TTNNLayoutAttr keyLayout, llvm::ArrayRef<int64_t> valueShape,
     TTNNLayoutAttr valueLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
-    std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+    std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
     std::optional<llvm::APFloat> scale,
     std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -2903,6 +2905,9 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
   std::optional<::ttnn::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
+  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+      detail::convertToOptionalTensorSpec(device, attentionSinkShape,
+                                          attentionSinkLayout);
 
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
@@ -2913,7 +2918,7 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
         keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
         slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt);
+        /*compute_kernel_config=*/std::nullopt, attentionSinkSpec);
   };
 
   return operation::getOpConstraints(queryLayout.getContext(), deviceGrid,
@@ -2928,7 +2933,9 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
     llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
-    std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+    std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
     std::optional<llvm::APFloat> scale,
     std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout) {
 
@@ -2958,6 +2965,9 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
   std::optional<::ttnn::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
+  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+      detail::convertToOptionalTensorSpec(device, attentionSinkShape,
+                                          attentionSinkLayout);
 
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
@@ -2968,7 +2978,7 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
         keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
         slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt);
+        /*compute_kernel_config=*/std::nullopt, attentionSinkSpec);
   };
 
   return operation::getOpRuntime(scaledDotProductAttentionOpQuery);

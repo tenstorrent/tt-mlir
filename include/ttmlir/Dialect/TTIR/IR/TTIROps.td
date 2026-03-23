@@ -5744,7 +5744,7 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
 }
 
 
-def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention"> {
+def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention", [AttrSizedOperandSegments]> {
   let summary = "Scaled dot product attention operation.";
   let description = [{
     Scaled dot product attention.
@@ -5770,7 +5770,8 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
                        Optional<AnyRankedTensor>:$attention_mask,
                        DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                        OptionalAttr<F32Attr>:$scale,
-                       OptionalAttr<UI32Attr>:$sliding_window_size);
+                       OptionalAttr<UI32Attr>:$sliding_window_size,
+                       Optional<AnyRankedTensor>:$attention_sink);
 
   let results = (outs AnyRankedTensor:$result);
 

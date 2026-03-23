@@ -3331,7 +3331,7 @@ private:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
         adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
-        adaptor.getSlidingWindowSizeAttr(),
+        adaptor.getSlidingWindowSizeAttr(), adaptor.getAttentionSink(),
         /*memory_config=*/nullptr);
 
     return success();
