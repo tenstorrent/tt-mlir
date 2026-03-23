@@ -4776,8 +4776,8 @@ public:
       auto transposedInType = RankedTensorType::get(
           transposedInShape, inType.getElementType(), inType.getEncoding());
 
-      auto preTranspose = rewriter.create<ttir::PermuteOp>(
-          loc, transposedInType, op.getInput(), hwTransposeIdx);
+      auto preTranspose = ttir::PermuteOp::create(
+          rewriter, loc, transposedInType, op.getInput(), hwTransposeIdx);
 
       // Transpose the slice spec.
       std::swap(begins[rank - 1], begins[rank - 2]);
@@ -4789,13 +4789,14 @@ public:
       auto transposedOutType = RankedTensorType::get(
           transposedOutShape, outType.getElementType(), outType.getEncoding());
 
-      auto transposedSliceOp = rewriter.create<ttir::SliceStaticOp>(
-          loc, transposedOutType, preTranspose.getResult(),
+      auto transposedSliceOp = ttir::SliceStaticOp::create(
+          rewriter, loc, transposedOutType, preTranspose.getResult(),
           rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
           rewriter.getI32ArrayAttr(step));
 
-      auto postTranspose = rewriter.create<ttir::PermuteOp>(
-          loc, outType, transposedSliceOp.getResult(), hwTransposeIdx);
+      auto postTranspose = ttir::PermuteOp::create(
+          rewriter, loc, outType, transposedSliceOp.getResult(),
+          hwTransposeIdx);
 
       rewriter.replaceOp(op, postTranspose.getResult());
     } else {
@@ -4818,8 +4819,8 @@ public:
       auto cropWidthOutType = RankedTensorType::get(
           cropWidthOutShape, outType.getElementType(), outType.getEncoding());
 
-      auto cropWidthSliceOp = rewriter.create<ttir::SliceStaticOp>(
-          loc, cropWidthOutType, op.getInput(),
+      auto cropWidthSliceOp = ttir::SliceStaticOp::create(
+          rewriter, loc, cropWidthOutType, op.getInput(),
           rewriter.getI32ArrayAttr(cropWidthBegins),
           rewriter.getI32ArrayAttr(cropWidthEnds),
           rewriter.getI32ArrayAttr(cropWidthStep));
@@ -4830,9 +4831,9 @@ public:
           transposedCropWidthShape, outType.getElementType(),
           outType.getEncoding());
 
-      auto preTranspose = rewriter.create<ttir::PermuteOp>(
-          loc, transposedCropWidthType, cropWidthSliceOp.getResult(),
-          hwTransposeIdx);
+      auto preTranspose =
+          ttir::PermuteOp::create(rewriter, loc, transposedCropWidthType,
+                                  cropWidthSliceOp.getResult(), hwTransposeIdx);
 
       // Construct the height only slice spec.
       SmallVector<int32_t> heightSliceBegins(rank, 0);
@@ -4857,14 +4858,14 @@ public:
       auto transposedOutType = RankedTensorType::get(
           transposedOutShape, outType.getElementType(), outType.getEncoding());
 
-      auto heightSliceOp = rewriter.create<ttir::SliceStaticOp>(
-          loc, transposedOutType, preTranspose.getResult(),
+      auto heightSliceOp = ttir::SliceStaticOp::create(
+          rewriter, loc, transposedOutType, preTranspose.getResult(),
           rewriter.getI32ArrayAttr(heightSliceBegins),
           rewriter.getI32ArrayAttr(heightSliceEnds),
           rewriter.getI32ArrayAttr(heightSliceStep));
 
-      auto postTranspose = rewriter.create<ttir::PermuteOp>(
-          loc, outType, heightSliceOp.getResult(), hwTransposeIdx);
+      auto postTranspose = ttir::PermuteOp::create(
+          rewriter, loc, outType, heightSliceOp.getResult(), hwTransposeIdx);
 
       rewriter.replaceOp(op, postTranspose.getResult());
     }
