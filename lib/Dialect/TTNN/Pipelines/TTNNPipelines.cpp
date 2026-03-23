@@ -339,6 +339,16 @@ void createTTIRToTTNNDevicePipeline(
       devicePm.addPass(tt::ttnn::createTTNND2MFusing());
     }
 
+    // Const-eval pass which should pick up any const-evalable ops created in
+    // TTNN workarounds, weight dtype conversion, or any TTNN pass after the
+    // first const-eval pass.
+    //
+    // Without this pass, optimizer might L1-shard certain ops which would get
+    // const-evaled in the later const-eval pass.
+    if (options.enableConstEval) {
+      devicePm.addPass(transforms::createConstEvalHoistTransform());
+    }
+
     createTTNNPipelineAnalysisPasses(devicePm, options);
 
     if (options.enableD2MFusing) {
