@@ -931,11 +931,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return tuningDim;
   }
 
-  static int64_t getTileVolume(ArrayRef<int64_t> shape) {
-    return std::accumulate(shape.begin(), shape.end(), int64_t{1},
-                           std::multiplies<int64_t>());
-  }
-
   /// Estimates the total stream buffer bytes for a candidate grid and shard
   /// extents.
   std::optional<uint64_t> estimateStreamBytesForCandidate(
@@ -971,7 +966,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       const SmallVector<int64_t> shardShapeRescaled =
           canonicalMap.compose(candidateShardExtents);
 
-      if (getTileVolume(shardShapeRescaled) < 4) {
+      if (ttmlir::utils::volume<int64_t>(shardShapeRescaled) < 4) {
         return std::nullopt;
       }
 
