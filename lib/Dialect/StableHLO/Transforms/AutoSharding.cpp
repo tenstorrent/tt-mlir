@@ -387,6 +387,7 @@ static void stripMarkArgumentCalls(ModuleOp module) {
 // normally runs after AutoSharding in the stablehlo-pipeline).
 static void addRemainingStableHLOPasses(OpPassManager &pm) {
   pm.addPass(createDecoupleConstFanoutPass());
+  pm.addPass(createDecomposeCustomCallTuplesPass());
   pm.addPass(createFlattenCompositePass());
   pm.addPass(createRegisterCustomShardingRulePass());
 
@@ -406,6 +407,7 @@ static void addRemainingStableHLOPasses(OpPassManager &pm) {
   pm.nest<func::FuncOp>().addPass(mlir::sdy::createReshardToCollectivesPass());
 
   pm.addPass(createShardyCCLCanonicalizationPass());
+  pm.addPass(createAnnotateLocalShapesPass());
   pm.addPass(createUpdateGlobalToLocalShapesPass());
   pm.addPass(createReoutlineCompositePass());
   pm.addPass(mlir::sdy::createCloseShardingsPass());
@@ -771,9 +773,12 @@ private:
     fos << "Tier 2 constraint candidates: " << analysis.candidates.size()
         << "\n";
     fos << "Total configs evaluated: " << analysis.configs.size() << "\n";
-    fos << "Cost model: per-CCL latency + volume-weighted bandwidth, "
+    fos << "Cost model: per-CCL latency + volume-weighted bandwidth + "
+        << "critical-path penalty + output-gather cost, "
         << "parameter multiplier="
-        << llvm::format("%.1f", costOpts.parameterMultiplier) << "\n\n";
+        << llvm::format("%.1f", costOpts.parameterMultiplier)
+        << " compute-benefit-weight="
+        << llvm::format("%.1f", costOpts.computeBenefitWeight) << "\n\n";
 
     fos << "Config  Sharding" << std::string(50, ' ')
         << "Status  Comm      Benefit   Net\n";

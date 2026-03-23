@@ -4,7 +4,12 @@
 
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingCostModel.h"
 
+#include "shardy/dialect/sdy/ir/dialect.h"
+#include "stablehlo/dialect/StablehloOps.h"
+
 #include "mlir/IR/BuiltinTypes.h"
+
+#include "llvm/ADT/STLExtras.h"
 
 namespace mlir::tt::stablehlo {
 
@@ -19,8 +24,11 @@ ShardingResult ShardingCostModel::evaluate(ModuleOp module,
                                            int64_t meshAxisSize) const {
   int64_t maxElements = computeMaxElements(originalFuncOp);
   double commCost = evaluateCommunicationCost(module, maxElements);
+  commCost += evaluateOutputShardingCost(module, maxElements);
   double memBenefit =
       evaluateMemoryBenefit(config, originalFuncOp, meshAxisSize, maxElements);
+  memBenefit +=
+      evaluateComputeBenefit(module, originalFuncOp, maxElements);
   return {commCost, memBenefit, commCost - memBenefit};
 }
 
@@ -34,53 +42,88 @@ int64_t ShardingCostModel::computeMaxElements(func::FuncOp funcOp) {
   return maxElements;
 }
 
+// Check if a CCL op feeds directly into a heavy compute op (dot_general)
+// without other intervening operations. CCLs on the critical path before
+// matmuls serialize communication and compute — these deserve a penalty.
+static bool isCCLBeforeCompute(Operation *cclOp) {
+  if (cclOp->getNumResults() == 0) {
+    return false;
+  }
+  Value result = cclOp->getResult(0);
+  for (OpOperand &use : result.getUses()) {
+    Operation *user = use.getOwner();
+    if (isa<mlir::stablehlo::DotGeneralOp>(user)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static double getCCLWeight(StringRef opName, StringRef compositeName = "") {
+  if (opName == "stablehlo.all_gather") {
+    return 1.0;
+  }
+  if (opName == "stablehlo.reduce_scatter" ||
+      opName == "stablehlo.all_reduce" || opName == "stablehlo.all_to_all") {
+    return 1.5;
+  }
+  if (opName == "stablehlo.collective_permute") {
+    return 1.0;
+  }
+  if (!compositeName.empty()) {
+    if (compositeName == "sdy.all_slice") {
+      return 0.5;
+    }
+    if (compositeName == "sdy.all_gather") {
+      return 1.0;
+    }
+    if (compositeName == "sdy.reduce_scatter" ||
+        compositeName == "sdy.all_reduce") {
+      return 1.5;
+    }
+  }
+  return 0.0;
+}
+
 // Evaluate cost of a lowered StableHLO module by counting and weighting CCL
 // ops. Each CCL op incurs a fixed latency overhead (setup, synchronization)
 // plus a bandwidth cost proportional to the volume of data communicated.
+// CCLs that feed directly into heavy compute (dot_general) get a position
+// penalty since they serialize communication and compute.
 double ShardingCostModel::evaluateCommunicationCost(ModuleOp module,
                                                     int64_t maxElements) const {
   double totalCost = 0.0;
+  constexpr double kCriticalPathPenalty = 0.5;
 
   module.walk([&](Operation *op) {
     StringRef opName = op->getName().getStringRef();
-    double opWeight = 0.0;
-
-    if (opName == "stablehlo.all_gather") {
-      opWeight = 1.0;
-    } else if (opName == "stablehlo.reduce_scatter") {
-      opWeight = 1.5;
-    } else if (opName == "stablehlo.all_reduce") {
-      opWeight = 1.5;
-    } else if (opName == "stablehlo.all_to_all") {
-      opWeight = 1.5;
-    } else if (opName == "stablehlo.collective_permute") {
-      opWeight = 1.0;
-    } else if (opName == "stablehlo.composite") {
+    StringRef compositeName;
+    if (opName == "stablehlo.composite") {
       if (auto nameAttr = op->getAttrOfType<StringAttr>("name")) {
-        StringRef compositeName = nameAttr.getValue();
-        if (compositeName == "sdy.all_slice") {
-          opWeight = 0.5;
-        } else if (compositeName == "sdy.all_gather") {
-          opWeight = 1.0;
-        } else if (compositeName == "sdy.reduce_scatter") {
-          opWeight = 1.5;
-        } else if (compositeName == "sdy.all_reduce") {
-          opWeight = 1.5;
-        }
+        compositeName = nameAttr.getValue();
       }
     }
 
-    if (opWeight > 0.0 && maxElements > 0) {
-      int64_t commElements = 1;
-      if (op->getNumOperands() > 0) {
-        if (auto tt = dyn_cast<RankedTensorType>(op->getOperand(0).getType())) {
-          commElements = tt.getNumElements();
-        }
-      }
-      double volumeFactor =
-          static_cast<double>(commElements) / static_cast<double>(maxElements);
-      totalCost += options.baseCCLLatency + opWeight * volumeFactor;
+    double opWeight = getCCLWeight(opName, compositeName);
+    if (opWeight <= 0.0 || maxElements <= 0) {
+      return;
     }
+
+    int64_t commElements = 1;
+    if (op->getNumOperands() > 0) {
+      if (auto tt = dyn_cast<RankedTensorType>(op->getOperand(0).getType())) {
+        commElements = tt.getNumElements();
+      }
+    }
+    double volumeFactor =
+        static_cast<double>(commElements) / static_cast<double>(maxElements);
+    double cost = options.baseCCLLatency + opWeight * volumeFactor;
+
+    if (isCCLBeforeCompute(op)) {
+      cost += kCriticalPathPenalty;
+    }
+
+    totalCost += cost;
   });
 
   return totalCost;
@@ -126,6 +169,106 @@ double ShardingCostModel::evaluateMemoryBenefit(const ShardingConfig &config,
   }
 
   return benefit;
+}
+
+// Estimate compute benefit from sharding by comparing total dot_general FLOPs
+// between the sharded module and the original (unsharded) module.
+// Sharding reduces tensor dimensions, producing smaller matmuls. The benefit
+// is proportional to the FLOPs reduction normalized by the original FLOPs.
+double ShardingCostModel::evaluateComputeBenefit(
+    ModuleOp module, func::FuncOp originalFuncOp,
+    int64_t maxElements) const {
+  if (options.computeBenefitWeight <= 0.0) {
+    return 0.0;
+  }
+
+  // Sum FLOPs from dot_general ops in the sharded module.
+  // For a dot_general: FLOPs ≈ 2 * product_of_output_dims *
+  // product_of_contracting_dims.
+  auto sumDotFlops = [](Operation *rootOp) -> double {
+    double totalFlops = 0.0;
+    rootOp->walk([&](mlir::stablehlo::DotGeneralOp dotOp) {
+      auto resultType = dyn_cast<RankedTensorType>(dotOp.getResult().getType());
+      if (!resultType) {
+        return;
+      }
+      int64_t resultElements = resultType.getNumElements();
+
+      auto dotDimNumbers = dotOp.getDotDimensionNumbers();
+      int64_t contractingSize = 1;
+      auto lhsType = dyn_cast<RankedTensorType>(dotOp.getLhs().getType());
+      if (lhsType) {
+        for (int64_t dim : dotDimNumbers.getLhsContractingDimensions()) {
+          if (dim < lhsType.getRank()) {
+            contractingSize *= lhsType.getDimSize(dim);
+          }
+        }
+      }
+      totalFlops += 2.0 * static_cast<double>(resultElements) *
+                    static_cast<double>(contractingSize);
+    });
+    return totalFlops;
+  };
+
+  double shardedFlops = sumDotFlops(module);
+  double originalFlops = sumDotFlops(originalFuncOp);
+
+  if (originalFlops <= 0.0) {
+    return 0.0;
+  }
+
+  double flopsSaved = originalFlops - shardedFlops;
+  if (flopsSaved <= 0.0) {
+    return 0.0;
+  }
+
+  double maxElementsDbl = static_cast<double>(maxElements);
+  double normalizedSavings = flopsSaved / originalFlops;
+  return options.computeBenefitWeight * normalizedSavings *
+         (originalFlops / (maxElementsDbl * maxElementsDbl));
+}
+
+// Estimate cost of sharded function outputs that need gathering.
+// If the manual_computation's out_shardings have any sharded dimension,
+// the output needs an implicit gather at the function boundary.
+double ShardingCostModel::evaluateOutputShardingCost(
+    ModuleOp module, int64_t maxElements) const {
+  if (options.outputGatherCostWeight <= 0.0) {
+    return 0.0;
+  }
+
+  double totalCost = 0.0;
+
+  module.walk([&](mlir::sdy::ManualComputationOp manualOp) {
+    auto outShardingAttrs =
+        manualOp.getOutShardings().getShardings();
+    for (auto [i, sharding] : llvm::enumerate(outShardingAttrs)) {
+      bool hasShardedDim = false;
+      for (auto dimSharding : sharding.getDimShardings()) {
+        if (!dimSharding.getAxes().empty()) {
+          hasShardedDim = true;
+          break;
+        }
+      }
+      if (!hasShardedDim) {
+        continue;
+      }
+
+      if (i < manualOp.getNumResults()) {
+        if (auto tt = dyn_cast<RankedTensorType>(
+                manualOp.getResult(i).getType())) {
+          int64_t numElements = tt.getNumElements();
+          double volumeFactor = static_cast<double>(numElements) /
+                                static_cast<double>(maxElements);
+          totalCost +=
+              options.outputGatherCostWeight *
+              (options.baseCCLLatency + 1.0 * volumeFactor);
+        }
+      }
+    }
+  });
+
+  return totalCost;
 }
 
 } // namespace mlir::tt::stablehlo

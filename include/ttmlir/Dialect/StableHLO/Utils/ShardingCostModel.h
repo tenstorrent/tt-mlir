@@ -41,6 +41,10 @@ struct ShardingResult {
 struct ShardingCostModelOptions {
   double baseCCLLatency = 1.0;
   double parameterMultiplier = 3.0;
+  // Weight for compute savings from sharding (FLOPs reduction).
+  double computeBenefitWeight = 1.0;
+  // Cost penalty for sharded function outputs that need gathering.
+  double outputGatherCostWeight = 1.0;
 };
 
 // Cost model for evaluating sharding configurations by estimating communication
@@ -68,6 +72,12 @@ private:
   double evaluateMemoryBenefit(const ShardingConfig &config,
                                func::FuncOp funcOp, int64_t meshAxisSize,
                                int64_t maxElements) const;
+
+  double evaluateComputeBenefit(ModuleOp module, func::FuncOp originalFuncOp,
+                                int64_t maxElements) const;
+
+  double evaluateOutputShardingCost(ModuleOp module,
+                                    int64_t maxElements) const;
 };
 
 } // namespace mlir::tt::stablehlo

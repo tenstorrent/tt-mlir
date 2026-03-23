@@ -54,12 +54,14 @@ TTCORE_ATTR_RE = re.compile(
 TTCORE_SHARD_STATUS_RE = re.compile(
     r"ttcore\.shard_status = #ttcore\.shard_status<[^>]*>"
 )
+TTCORE_LOCAL_SHAPE_RE = re.compile(
+    r"ttcore\.local_shape = #ttcore<local_shape local_shape = tensor<[^>]*>>"
+)
 MARK_ARG_RE = re.compile(
     r"\s+(%\S+) = stablehlo\.custom_call @tt\.mark_argument\((%\S+)\)"
 )
 
 FUNC_START_RE = re.compile(r"^\s*func\.func\b")
-FUNC_END_RE = re.compile(r"^\s*\}(?:\s*loc\(|\s*$)")
 
 
 def _strip_mark_args_in_block(lines: list[str]) -> list[str]:
@@ -108,22 +110,31 @@ def preprocess_mlir(input_path: str, output_path: Path) -> None:
     content = re.sub(r"\s*\{" + TTCORE_SHARD_STATUS_RE.pattern + r"\}", "", content)
     content = re.sub(TTCORE_SHARD_STATUS_RE.pattern + r"\s*,\s*", "", content)
 
+    # --- ttcore.local_shape ---
+    content = re.sub(r",\s*" + TTCORE_LOCAL_SHAPE_RE.pattern, "", content)
+    content = re.sub(r"\s*\{" + TTCORE_LOCAL_SHAPE_RE.pattern + r"\}", "", content)
+    content = re.sub(TTCORE_LOCAL_SHAPE_RE.pattern + r"\s*,\s*", "", content)
+
     # --- tt.mark_argument custom calls (scoped per function) ---
+    # Track brace depth so nested regions (e.g. reducer bodies) don't
+    # prematurely end the function block.
     lines = content.split("\n")
     out_lines: list[str] = []
     func_buf: list[str] | None = None
+    brace_depth = 0
 
     for line in lines:
-        if FUNC_START_RE.match(line):
-            if func_buf is not None:
-                out_lines.extend(_strip_mark_args_in_block(func_buf))
+        if func_buf is None and FUNC_START_RE.match(line):
             func_buf = [line]
+            brace_depth = line.count("{") - line.count("}")
             continue
         if func_buf is not None:
             func_buf.append(line)
-            if FUNC_END_RE.match(line):
+            brace_depth += line.count("{") - line.count("}")
+            if brace_depth <= 0:
                 out_lines.extend(_strip_mark_args_in_block(func_buf))
                 func_buf = None
+                brace_depth = 0
             continue
         out_lines.append(line)
 
@@ -192,16 +203,29 @@ def run_auto_sharding(
         print(f"  See log: {log_path}")
         return None
 
-    winners = sorted(
+    # Prefer the CCL file (already lowered with manual_computation + CCLs)
+    # over the hints file. The CCL file's sdy.manual_computation triggers
+    # the "solved graph" path in the full stablehlo-pipeline, which correctly
+    # preserves shardings. The hints file's open shardings can be overridden
+    # by early pipeline passes (AnalyzeMesh, etc.).
+    ccl_files = sorted(
+        glob.glob(str(dump_dir / "**/winner_stablehlo_with_ccls.mlir"), recursive=True)
+    )
+    if ccl_files:
+        winner = ccl_files[-1]
+        print(f"  Winner (CCL): {winner}")
+        return winner
+
+    hints_files = sorted(
         glob.glob(str(dump_dir / "**/winner_stablehlo_with_hints.mlir"), recursive=True)
     )
-    if not winners:
-        print("  ERROR: no winner_stablehlo_with_hints.mlir found after auto-sharding")
-        return None
+    if hints_files:
+        winner = hints_files[-1]
+        print(f"  Winner (hints, CCL not available): {winner}")
+        return winner
 
-    winner = winners[-1]
-    print(f"  Winner: {winner}")
-    return winner
+    print("  ERROR: no winner MLIR found after auto-sharding")
+    return None
 
 
 def lower_to_flatbuffer(
