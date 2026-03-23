@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingCostModel.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 
 #include "stablehlo/dialect/StablehloOps.h"
@@ -24,7 +25,6 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <chrono>
 #include <limits>
 
 namespace mlir::tt::stablehlo {
@@ -33,21 +33,9 @@ namespace mlir::tt::stablehlo {
 
 namespace {
 
-// Tier 2: intermediate op result eligible for sdy.sharding_constraint.
-struct ConstraintCandidate {
-  size_t opIndex;
-  int64_t rank;
-};
-
-struct ShardingConfig {
-  // Tier 1: per-arg per-dim sharding (true = sharded on the axis).
-  llvm::SmallVector<llvm::SmallVector<bool>> argDimSharded;
-
-  // Tier 2: per-constraint-candidate target sharding.
-  // std::nullopt = no constraint at this point.
-  // SmallVector<bool> = insert sdy.sharding_constraint with this target.
-  llvm::SmallVector<std::optional<llvm::SmallVector<bool>>> constraintTargets;
-};
+//===----------------------------------------------------------------------===//
+// Helper data structures.
+//===----------------------------------------------------------------------===//
 
 struct MeshInfo {
   llvm::StringRef meshName;
@@ -80,6 +68,10 @@ static std::optional<MeshInfo> extractMeshInfo(ModuleOp &module) {
   }
   return info;
 }
+
+//===----------------------------------------------------------------------===//
+// Configuration enumeration.
+//===----------------------------------------------------------------------===//
 
 // Collect tensor-typed op results in the function body that are eligible for
 // sdy.sharding_constraint insertion. Skips terminators and non-tensor results.
@@ -252,6 +244,10 @@ static llvm::SmallVector<ShardingConfig> expandWithConstraints(
   return combined;
 }
 
+//===----------------------------------------------------------------------===//
+// Sharding application.
+//===----------------------------------------------------------------------===//
+
 // Apply Tier 1 arg shardings and Tier 2 sharding constraints to a module.
 static void
 applyShardingHints(ModuleOp module, const ShardingConfig &config,
@@ -359,6 +355,34 @@ applyShardingHints(ModuleOp module, const ShardingConfig &config,
   }
 }
 
+// Remove stablehlo.custom_call @tt.mark_argument ops from a module.
+// These tt-xla-specific identity ops block Shardy from propagating shardings
+// through the graph, preventing CCL insertion during cost evaluation.
+// Each call is replaced by forwarding its input directly to all users.
+static void stripMarkArgumentCalls(ModuleOp module) {
+  SmallVector<mlir::stablehlo::CustomCallOp> toErase;
+  module.walk([&](mlir::stablehlo::CustomCallOp callOp) {
+    if (callOp.getCallTargetName() != "tt.mark_argument") {
+      return;
+    }
+    if (callOp.getNumOperands() != 1 || callOp.getNumResults() != 1) {
+      return;
+    }
+    if (callOp.getOperand(0).getType() != callOp.getResult(0).getType()) {
+      return;
+    }
+    callOp.getResult(0).replaceAllUsesWith(callOp.getOperand(0));
+    toErase.push_back(callOp);
+  });
+  for (auto callOp : toErase) {
+    callOp->erase();
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// Pipeline and I/O helpers.
+//===----------------------------------------------------------------------===//
+
 // Build a sub-pipeline with the remaining StableHLO passes (everything that
 // normally runs after AutoSharding in the stablehlo-pipeline).
 static void addRemainingStableHLOPasses(OpPassManager &pm) {
@@ -386,136 +410,6 @@ static void addRemainingStableHLOPasses(OpPassManager &pm) {
   pm.addPass(createReoutlineCompositePass());
   pm.addPass(mlir::sdy::createCloseShardingsPass());
   pm.addPass(mlir::createCanonicalizerPass());
-}
-
-// Remove stablehlo.custom_call @tt.mark_argument ops from a module.
-// These tt-xla-specific identity ops block Shardy from propagating shardings
-// through the graph, preventing CCL insertion during cost evaluation.
-// Each call is replaced by forwarding its input directly to all users.
-static void stripMarkArgumentCalls(ModuleOp module) {
-  SmallVector<mlir::stablehlo::CustomCallOp> toErase;
-  module.walk([&](mlir::stablehlo::CustomCallOp callOp) {
-    if (callOp.getCallTargetName() != "tt.mark_argument") {
-      return;
-    }
-    if (callOp.getNumOperands() != 1 || callOp.getNumResults() != 1) {
-      return;
-    }
-    if (callOp.getOperand(0).getType() != callOp.getResult(0).getType()) {
-      return;
-    }
-    callOp.getResult(0).replaceAllUsesWith(callOp.getOperand(0));
-    toErase.push_back(callOp);
-  });
-  for (auto callOp : toErase) {
-    callOp->erase();
-  }
-}
-
-// Evaluate cost of a lowered StableHLO module by counting and weighting CCL
-// ops. Each CCL op incurs a fixed latency overhead (setup, synchronization)
-// plus a bandwidth cost proportional to the volume of data communicated.
-static double evaluateCost(ModuleOp module, int64_t maxElements) {
-  constexpr double baseCCLLatency = 1.0;
-  double totalCost = 0.0;
-
-  module.walk([&](Operation *op) {
-    StringRef opName = op->getName().getStringRef();
-    double opWeight = 0.0;
-
-    if (opName == "stablehlo.all_gather") {
-      opWeight = 1.0;
-    } else if (opName == "stablehlo.reduce_scatter") {
-      opWeight = 1.5;
-    } else if (opName == "stablehlo.all_reduce") {
-      opWeight = 1.5;
-    } else if (opName == "stablehlo.all_to_all") {
-      opWeight = 1.5;
-    } else if (opName == "stablehlo.collective_permute") {
-      opWeight = 1.0;
-    } else if (opName == "stablehlo.composite") {
-      if (auto nameAttr = op->getAttrOfType<StringAttr>("name")) {
-        StringRef compositeName = nameAttr.getValue();
-        if (compositeName == "sdy.all_slice") {
-          opWeight = 0.5;
-        } else if (compositeName == "sdy.all_gather") {
-          opWeight = 1.0;
-        } else if (compositeName == "sdy.reduce_scatter") {
-          opWeight = 1.5;
-        } else if (compositeName == "sdy.all_reduce") {
-          opWeight = 1.5;
-        }
-      }
-    }
-
-    if (opWeight > 0.0 && maxElements > 0) {
-      int64_t commElements = 1;
-      if (op->getNumOperands() > 0) {
-        if (auto tt = dyn_cast<RankedTensorType>(op->getOperand(0).getType())) {
-          commElements = tt.getNumElements();
-        }
-      }
-      double volumeFactor =
-          static_cast<double>(commElements) / static_cast<double>(maxElements);
-      totalCost += baseCCLLatency + opWeight * volumeFactor;
-    }
-  });
-
-  return totalCost;
-}
-
-// Compute maxElements across all function arguments (used to normalize both
-// communication cost and memory benefit on the same scale).
-static int64_t computeMaxElements(func::FuncOp funcOp) {
-  int64_t maxElements = 1;
-  for (auto arg : funcOp.getArguments()) {
-    if (auto tt = dyn_cast<RankedTensorType>(arg.getType())) {
-      maxElements = std::max(maxElements, tt.getNumElements());
-    }
-  }
-  return maxElements;
-}
-
-// Compute the memory benefit of a sharding config. Sharding large argument
-// tensors across the mesh saves memory proportional to the element count.
-// Benefit is normalized relative to the largest argument.
-//
-// Weight/parameter tensors (heuristic: rank <= 2 with > 1024 elements) get a
-// higher multiplier because they are persistent on device and dominate peak
-// memory in large models. Activations (rank > 2, typically with a batch dim)
-// are transient and less valuable to shard for memory.
-static double computeMemoryBenefit(const ShardingConfig &config,
-                                   func::FuncOp funcOp, int64_t meshAxisSize,
-                                   int64_t maxElements,
-                                   double parameterMultiplier) {
-  if (meshAxisSize <= 1) {
-    return 0.0;
-  }
-
-  double benefit = 0.0;
-  double fractionSaved = 1.0 - 1.0 / static_cast<double>(meshAxisSize);
-
-  for (size_t argIdx = 0; argIdx < config.argDimSharded.size(); ++argIdx) {
-    bool isSharded =
-        llvm::any_of(config.argDimSharded[argIdx], [](bool s) { return s; });
-    if (!isSharded) {
-      continue;
-    }
-
-    auto tensorType =
-        cast<RankedTensorType>(funcOp.getArgument(argIdx).getType());
-    int64_t numElements = tensorType.getNumElements();
-
-    double typeMultiplier = 1.0;
-    if (tensorType.getRank() <= 2 && numElements > 1024) {
-      typeMultiplier = parameterMultiplier;
-    }
-
-    benefit += typeMultiplier *
-               (static_cast<double>(numElements) / maxElements) * fractionSaved;
-  }
-
-  return benefit;
 }
 
 static std::string formatConfig(const ShardingConfig &config) {
@@ -606,6 +500,10 @@ static bool dumpModuleToFile(ModuleOp module, StringRef filePath) {
   return true;
 }
 
+//===----------------------------------------------------------------------===//
+// AutoShardingPass implementation.
+//===----------------------------------------------------------------------===//
+
 class AutoShardingPass : public impl::AutoShardingPassBase<AutoShardingPass> {
 public:
   using impl::AutoShardingPassBase<AutoShardingPass>::AutoShardingPassBase;
@@ -618,100 +516,146 @@ public:
     auto restoreGuard = llvm::make_scope_exit(
         [context] { context->enterMultiThreadedExecution(); });
 
+    auto analysisOpt = analyzeModule(rootModule);
+    if (!analysisOpt) {
+      return;
+    }
+    auto &analysis = *analysisOpt;
+
+    auto searchResult = evaluateConfigs(rootModule, analysis);
+    if (!searchResult) {
+      rootModule.emitError(
+          "AutoSharding: all sharding configurations failed to lower");
+      signalPassFailure();
+      return;
+    }
+
+    applyBestConfig(rootModule, analysis, *searchResult);
+  }
+
+private:
+  struct AnalysisResult {
+    MeshInfo meshInfo;
+    std::string shardAxisName;
+    int64_t meshAxisSize;
+    func::FuncOp originalFuncOp;
+    llvm::SmallVector<ShardingConfig> configs;
+    llvm::SmallVector<ShardingConfig> tier1Configs;
+    llvm::SmallVector<ConstraintCandidate> candidates;
+    std::string dumpRoot;
+  };
+
+  struct VariantResult {
+    size_t idx;
+    std::string label;
+    bool succeeded;
+    double cost;
+    double commCost;
+    double memBenefit;
+  };
+
+  struct SearchResult {
+    size_t bestIdx;
+    double bestCost;
+    llvm::SmallVector<VariantResult> results;
+  };
+
+  std::optional<AnalysisResult> analyzeModule(ModuleOp rootModule) {
     auto meshInfoOpt = extractMeshInfo(rootModule);
     if (!meshInfoOpt) {
       rootModule.emitWarning("AutoSharding: no mesh found in module, skipping");
-      return;
+      return std::nullopt;
     }
-    const MeshInfo &meshInfo = *meshInfoOpt;
 
-    auto shardableAxes = meshInfo.getShardableAxes();
+    AnalysisResult analysis;
+    analysis.meshInfo = *meshInfoOpt;
+
+    auto shardableAxes = analysis.meshInfo.getShardableAxes();
     if (shardableAxes.empty()) {
       llvm::errs() << "AutoSharding: no shardable axes (all size 1), "
                    << "applying all-replicated config\n";
-      return;
+      return std::nullopt;
     }
 
-    StringRef shardAxisName = shardableAxes[0];
-    int64_t meshAxisSize = 1;
-    for (const auto &[name, size] : meshInfo.axes) {
-      if (name == shardAxisName) {
-        meshAxisSize = size;
+    analysis.shardAxisName = shardableAxes[0];
+    analysis.meshAxisSize = 1;
+    for (const auto &[name, size] : analysis.meshInfo.axes) {
+      if (name == analysis.shardAxisName) {
+        analysis.meshAxisSize = size;
         break;
       }
     }
-    llvm::errs() << "AutoSharding: mesh='" << meshInfo.meshName
-                 << "', sharding axis='" << shardAxisName
-                 << "' (size=" << meshAxisSize << ")\n";
+    llvm::errs() << "AutoSharding: mesh='" << analysis.meshInfo.meshName
+                 << "', sharding axis='" << analysis.shardAxisName
+                 << "' (size=" << analysis.meshAxisSize << ")\n";
 
     auto funcOps = rootModule.getOps<func::FuncOp>();
     if (funcOps.empty()) {
       rootModule.emitWarning("AutoSharding: no FuncOp found, skipping");
-      return;
+      return std::nullopt;
     }
-    func::FuncOp originalFuncOp = *funcOps.begin();
+    analysis.originalFuncOp = *funcOps.begin();
 
     // 1. Enumerate Tier 1 configs (arg-level shardings).
-    auto tier1Configs = enumerateTier1Configs(rootModule);
-    if (tier1Configs.empty()) {
+    analysis.tier1Configs = enumerateTier1Configs(rootModule);
+    if (analysis.tier1Configs.empty()) {
       rootModule.emitWarning("AutoSharding: no configs enumerated, skipping");
-      return;
+      return std::nullopt;
     }
-    llvm::errs() << "AutoSharding: " << tier1Configs.size()
+    llvm::errs() << "AutoSharding: " << analysis.tier1Configs.size()
                  << " Tier 1 configs\n";
 
     // 2. Collect Tier 2 constraint candidates (intermediate op results).
-    auto candidates =
+    analysis.candidates =
         collectConstraintCandidates(rootModule, maxConstraintCandidates);
-    llvm::errs() << "AutoSharding: " << candidates.size()
+    llvm::errs() << "AutoSharding: " << analysis.candidates.size()
                  << " Tier 2 constraint candidate(s)\n";
 
     // 3. Cross-product Tier 1 with Tier 2 constraint options.
-    auto configs = expandWithConstraints(tier1Configs, candidates);
+    analysis.configs =
+        expandWithConstraints(analysis.tier1Configs, analysis.candidates);
 
-    llvm::errs() << "AutoSharding: evaluating " << configs.size()
+    llvm::errs() << "AutoSharding: evaluating " << analysis.configs.size()
                  << " total configurations (Tier 1 x Tier 2)\n";
 
     // Set up dump directory for summary and (optionally) per-variant MLIR.
-    std::string dumpRoot;
     if (!dumpDir.empty()) {
-      dumpRoot = createDumpRoot(dumpDir);
-      if (!dumpRoot.empty()) {
-        llvm::errs() << "AutoSharding: dumping to " << dumpRoot << "\n";
+      analysis.dumpRoot = createDumpRoot(dumpDir);
+      if (!analysis.dumpRoot.empty()) {
+        llvm::errs() << "AutoSharding: dumping to " << analysis.dumpRoot
+                     << "\n";
       }
     }
 
-    int64_t maxElements = computeMaxElements(originalFuncOp);
-    constexpr double parameterMultiplier = 3.0;
+    return analysis;
+  }
+
+  std::optional<SearchResult> evaluateConfigs(ModuleOp rootModule,
+                                              const AnalysisResult &analysis) {
+    MLIRContext *context = rootModule.getContext();
+    ShardingCostModel costModel;
 
     double bestCost = std::numeric_limits<double>::max();
     size_t bestIdx = 0;
     bool anySucceeded = false;
 
-    struct VariantResult {
-      size_t idx;
-      std::string label;
-      bool succeeded;
-      double cost;
-      double commCost;
-      double memBenefit;
-    };
     llvm::SmallVector<VariantResult> results;
-    bool collectResults = !dumpRoot.empty();
+    bool collectResults = !analysis.dumpRoot.empty();
 
-    for (size_t i = 0; i < configs.size(); ++i) {
+    for (size_t i = 0; i < analysis.configs.size(); ++i) {
       ModuleOp clonedModule = cast<ModuleOp>(rootModule->clone());
       auto cleanup =
           llvm::make_scope_exit([&clonedModule] { clonedModule->erase(); });
 
       stripMarkArgumentCalls(clonedModule);
-      applyShardingHints(clonedModule, configs[i], meshInfo.meshName,
-                         shardAxisName, candidates);
+      applyShardingHints(clonedModule, analysis.configs[i],
+                         analysis.meshInfo.meshName, analysis.shardAxisName,
+                         analysis.candidates);
 
       std::string variantDir;
       if (dumpVariants && collectResults) {
-        std::string varName = configDirName(i, configs[i]);
-        llvm::SmallString<256> vdir(dumpRoot);
+        std::string varName = configDirName(i, analysis.configs[i]);
+        llvm::SmallString<256> vdir(analysis.dumpRoot);
         llvm::sys::path::append(vdir, varName);
         llvm::sys::fs::create_directories(vdir);
         variantDir = vdir.str().str();
@@ -727,10 +671,11 @@ public:
 
       if (failed(pm.run(clonedModule))) {
         llvm::errs() << "AutoSharding: config " << i << " "
-                     << formatConfig(configs[i]) << " failed to lower\n";
+                     << formatConfig(analysis.configs[i])
+                     << " failed to lower\n";
         if (collectResults) {
           results.push_back(
-              {i, formatConfig(configs[i]), false, 0.0, 0.0, 0.0});
+              {i, formatConfig(analysis.configs[i]), false, 0.0, 0.0, 0.0});
         }
         continue;
       }
@@ -741,42 +686,48 @@ public:
         dumpModuleToFile(clonedModule, cclPath);
       }
 
-      double commCost = evaluateCost(clonedModule, maxElements);
-      double memBenefit =
-          computeMemoryBenefit(configs[i], originalFuncOp, meshAxisSize,
-                               maxElements, parameterMultiplier);
-      double cost = commCost - memBenefit;
+      ShardingResult sr = costModel.evaluate(
+          clonedModule, analysis.configs[i], analysis.originalFuncOp,
+          analysis.meshAxisSize);
       llvm::errs() << "AutoSharding: config " << i << " "
-                   << formatConfig(configs[i]) << " comm=" << commCost
-                   << " benefit=" << memBenefit << " net=" << cost << "\n";
+                   << formatConfig(analysis.configs[i])
+                   << " comm=" << sr.communicationCost
+                   << " benefit=" << sr.memoryBenefit
+                   << " net=" << sr.netCost << "\n";
 
       if (collectResults) {
-        results.push_back(
-            {i, formatConfig(configs[i]), true, cost, commCost, memBenefit});
+        results.push_back({i, formatConfig(analysis.configs[i]), true,
+                           sr.netCost, sr.communicationCost,
+                           sr.memoryBenefit});
       }
       anySucceeded = true;
-      if (cost < bestCost) {
-        bestCost = cost;
+      if (sr.netCost < bestCost) {
+        bestCost = sr.netCost;
         bestIdx = i;
       }
     }
 
     if (!anySucceeded) {
-      rootModule.emitError(
-          "AutoSharding: all sharding configurations failed to lower");
-      signalPassFailure();
-      return;
+      return std::nullopt;
     }
 
-    llvm::errs() << "AutoSharding: selected config " << bestIdx << " "
-                 << formatConfig(configs[bestIdx])
-                 << " with net cost=" << bestCost << "\n";
-    applyShardingHints(rootModule, configs[bestIdx], meshInfo.meshName,
-                       shardAxisName, candidates);
+    return SearchResult{bestIdx, bestCost, std::move(results)};
+  }
+
+  void applyBestConfig(ModuleOp rootModule, const AnalysisResult &analysis,
+                       const SearchResult &search) {
+    MLIRContext *context = rootModule.getContext();
+
+    llvm::errs() << "AutoSharding: selected config " << search.bestIdx << " "
+                 << formatConfig(analysis.configs[search.bestIdx])
+                 << " with net cost=" << search.bestCost << "\n";
+    applyShardingHints(rootModule, analysis.configs[search.bestIdx],
+                       analysis.meshInfo.meshName, analysis.shardAxisName,
+                       analysis.candidates);
 
     // Save the winning config's MLIR graphs.
-    if (!dumpRoot.empty()) {
-      llvm::SmallString<256> winnerHintsPath(dumpRoot);
+    if (!analysis.dumpRoot.empty()) {
+      llvm::SmallString<256> winnerHintsPath(analysis.dumpRoot);
       llvm::sys::path::append(winnerHintsPath,
                               "winner_stablehlo_with_hints.mlir");
       dumpModuleToFile(rootModule, winnerHintsPath);
@@ -787,7 +738,7 @@ public:
                            PassManager::Nesting::Implicit);
       addRemainingStableHLOPasses(winnerPM);
       if (succeeded(winnerPM.run(winnerModule))) {
-        llvm::SmallString<256> winnerCCLPath(dumpRoot);
+        llvm::SmallString<256> winnerCCLPath(analysis.dumpRoot);
         llvm::sys::path::append(winnerCCLPath,
                                 "winner_stablehlo_with_ccls.mlir");
         dumpModuleToFile(winnerModule, winnerCCLPath);
@@ -796,52 +747,62 @@ public:
     }
 
     // Write summary file.
-    if (!dumpRoot.empty()) {
-      llvm::SmallString<256> summaryPath(dumpRoot);
-      llvm::sys::path::append(summaryPath, "summary.txt");
-      std::error_code ec;
-      llvm::raw_fd_ostream fos(summaryPath, ec);
-      if (!ec) {
-        fos << "Auto Sharding Summary\n";
-        fos << "=======================\n";
-        fos << "Mesh: " << meshInfo.meshName << "\n";
-        fos << "Sharding axis: " << shardAxisName << "\n";
-        fos << "Tier 1 configs: " << tier1Configs.size() << "\n";
-        fos << "Tier 2 constraint candidates: " << candidates.size() << "\n";
-        fos << "Total configs evaluated: " << configs.size() << "\n";
-        fos << "Cost model: per-CCL latency + volume-weighted bandwidth, "
-            << "parameter multiplier="
-            << llvm::format("%.1f", parameterMultiplier) << "\n\n";
-
-        fos << "Config  Sharding" << std::string(50, ' ')
-            << "Status  Comm      Benefit   Net\n";
-        fos << std::string(110, '-') << "\n";
-        for (const auto &r : results) {
-          fos << llvm::format("%-8zu", r.idx);
-
-          fos << r.label;
-          if (r.label.size() < 58) {
-            fos.indent(58 - r.label.size());
-          }
-
-          if (r.succeeded) {
-            fos << "OK      " << llvm::format("%-10.3f", r.commCost)
-                << llvm::format("%-10.3f", r.memBenefit)
-                << llvm::format("%.3f", r.cost);
-          } else {
-            fos << "FAILED  -";
-          }
-          if (r.succeeded && r.idx == bestIdx) {
-            fos << "  <-- WINNER";
-          }
-          fos << "\n";
-        }
-
-        fos << "\nSelected: config " << bestIdx << " "
-            << formatConfig(configs[bestIdx])
-            << " with net cost=" << llvm::format("%.3f", bestCost) << "\n";
-      }
+    if (!analysis.dumpRoot.empty()) {
+      writeSummary(analysis, search);
     }
+  }
+
+  void writeSummary(const AnalysisResult &analysis,
+                    const SearchResult &search) {
+    llvm::SmallString<256> summaryPath(analysis.dumpRoot);
+    llvm::sys::path::append(summaryPath, "summary.txt");
+    std::error_code ec;
+    llvm::raw_fd_ostream fos(summaryPath, ec);
+    if (ec) {
+      return;
+    }
+
+    ShardingCostModel::Options costOpts;
+
+    fos << "Auto Sharding Summary\n";
+    fos << "=======================\n";
+    fos << "Mesh: " << analysis.meshInfo.meshName << "\n";
+    fos << "Sharding axis: " << analysis.shardAxisName << "\n";
+    fos << "Tier 1 configs: " << analysis.tier1Configs.size() << "\n";
+    fos << "Tier 2 constraint candidates: " << analysis.candidates.size()
+        << "\n";
+    fos << "Total configs evaluated: " << analysis.configs.size() << "\n";
+    fos << "Cost model: per-CCL latency + volume-weighted bandwidth, "
+        << "parameter multiplier="
+        << llvm::format("%.1f", costOpts.parameterMultiplier) << "\n\n";
+
+    fos << "Config  Sharding" << std::string(50, ' ')
+        << "Status  Comm      Benefit   Net\n";
+    fos << std::string(110, '-') << "\n";
+    for (const auto &r : search.results) {
+      fos << llvm::format("%-8zu", r.idx);
+
+      fos << r.label;
+      if (r.label.size() < 58) {
+        fos.indent(58 - r.label.size());
+      }
+
+      if (r.succeeded) {
+        fos << "OK      " << llvm::format("%-10.3f", r.commCost)
+            << llvm::format("%-10.3f", r.memBenefit)
+            << llvm::format("%.3f", r.cost);
+      } else {
+        fos << "FAILED  -";
+      }
+      if (r.succeeded && r.idx == search.bestIdx) {
+        fos << "  <-- WINNER";
+      }
+      fos << "\n";
+    }
+
+    fos << "\nSelected: config " << search.bestIdx << " "
+        << formatConfig(analysis.configs[search.bestIdx])
+        << " with net cost=" << llvm::format("%.3f", search.bestCost) << "\n";
   }
 };
 
