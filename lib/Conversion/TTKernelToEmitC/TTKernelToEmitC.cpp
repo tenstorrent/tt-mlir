@@ -456,23 +456,6 @@ public:
 } // namespace
 
 namespace {
-class TTKernelToEmitCCBPortRewriter
-    : public OpConversionPattern<ttkernel::CBPortOp> {
-public:
-  using OpConversionPattern<ttkernel::CBPortOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttkernel::CBPortOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
-        op, getTypeConverter()->convertType(op.getResult().getType()),
-        (Twine("static_cast<::tt::CB>(") + Twine(op.getPort()) + ")").str());
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 class TTKernelToEmitCDPrintRewriter
     : public OpConversionPattern<ttkernel::DPrintOp> {
 public:
@@ -1098,8 +1081,7 @@ public:
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
     patterns.add<
-        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCCBPortRewriter,
-        TTKernelToEmitCDPrintRewriter,
+        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
@@ -1142,7 +1124,9 @@ public:
         // Datamovement
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::CopyBlockMatmulPartialsOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileBlockOp>,
         TTKernelToEmitCPackReconfigL1AccToEmitCRewriter,
 
         // FPU Ops

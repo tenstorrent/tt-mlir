@@ -331,6 +331,9 @@ void MCQExecutor::execute(
 void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
                           const char *loc, const char *debugInfo) {
   ZoneScopedN("EnqueueProgramCommand");
+  LOG_TRACE(logger::LogRuntimeTTMetalCommand, "Executing program: ", loc, "\n",
+            debugInfo);
+
   auto meshWorkload = distributed::MeshWorkload();
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
   for (auto deviceCoord : deviceRange) {

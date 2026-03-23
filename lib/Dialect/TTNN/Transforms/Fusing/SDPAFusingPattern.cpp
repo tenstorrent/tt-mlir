@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
@@ -33,6 +34,7 @@ static constexpr std::array<int64_t, 4> kUnTransposeKeyPermutation = {0, 1, 3,
 
 struct SDPAFusing::SDPAComponents {
   Value query, key, value, mask;
+  Value attentionSink;
   std::optional<float> scale;
   MatmulOp attentionMatmul;
   SoftmaxOp softmax;
@@ -93,7 +95,7 @@ bool SDPAFusing::isKeyTransposed(Value key, Value query, Value value) const {
 // ============================================================================
 
 std::optional<float> SDPAFusing::extractConstant(Value v) const {
-  v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
 
   if (auto fullOp = v.getDefiningOp<FullOp>()) {
     if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
@@ -135,8 +137,7 @@ std::pair<Value, std::optional<float>>
 SDPAFusing::extractTensorWithScale(Value v) const {
   std::optional<float> scale;
 
-  Value skipped =
-      ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  Value skipped = ttmlir::utils::lookThrough<TypecastOp>(v);
   if (auto mulOp = skipped.getDefiningOp<MultiplyOp>()) {
     if (auto s = extractConstant(mulOp.getRhs())) {
       scale = s;
@@ -178,16 +179,39 @@ bool SDPAFusing::extractQKWithScales(Value a, Value b,
 // ============================================================================
 
 bool SDPAFusing::matchSoftmaxPath(Value v, SDPAComponents &c) const {
-  v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
 
-  if (auto whereOp = v.getDefiningOp<WhereOp>()) {
-    Value softmaxCandidate =
-        ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(
-            whereOp.getThird());
-    if (auto softmax = softmaxCandidate.getDefiningOp<SoftmaxOp>()) {
-      c.softmax = softmax;
-      return true;
+  // Peel optional slice_static. Some frontends pad the softmax input with
+  // extra columns via concat for numeric stability (preventing NaN when all
+  // attention scores are masked to -inf), then slice off the padding after
+  // softmax. The hardware SDPA op handles this internally, so we look through
+  // the slice here and the corresponding concat in matchScoreComputation.
+  //
+  // Verify the slice trims only the last dimension (starts at 0 with step 1
+  // and produces a smaller extent than the input).
+  if (auto sliceOp = v.getDefiningOp<SliceStaticOp>()) {
+    auto inputType = mlir::cast<RankedTensorType>(sliceOp.getInput().getType());
+    int64_t lastDim = inputType.getRank() - 1;
+
+    auto getI32 = [](ArrayAttr attr, int64_t idx) -> int32_t {
+      return mlir::cast<IntegerAttr>(attr[idx]).getInt();
+    };
+
+    bool isLastDimTrim =
+        getI32(sliceOp.getBegins(), lastDim) == 0 &&
+        getI32(sliceOp.getStep(), lastDim) == 1 &&
+        getI32(sliceOp.getEnds(), lastDim) < inputType.getShape()[lastDim];
+    if (isLastDimTrim) {
+      v = ttmlir::utils::lookThrough<TypecastOp>(sliceOp.getInput());
     }
+  }
+
+  // Peel optional where. Some frontends wrap softmax output with
+  // where(cond, zeros, softmax) to replace NaN rows with zeros when all
+  // attention scores in a row are masked to -inf. The third operand carries
+  // the actual softmax result.
+  if (auto whereOp = v.getDefiningOp<WhereOp>()) {
+    v = ttmlir::utils::lookThrough<TypecastOp>(whereOp.getThird());
   }
 
   if (auto softmax = v.getDefiningOp<SoftmaxOp>()) {
@@ -199,7 +223,25 @@ bool SDPAFusing::matchSoftmaxPath(Value v, SDPAComponents &c) const {
 }
 
 bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c) const {
-  v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
+
+  // Peel optional concat — the other half of the softmax padding pattern
+  // described in matchSoftmaxPath. The concat appends extra columns to the
+  // score tensor before softmax; we skip it to reach the actual scores.
+  // Save the padding tensor as the attention sink for the SDPA decode op.
+  //
+  // Verify the concat is on the last dimension with exactly two inputs.
+  if (auto concatOp = v.getDefiningOp<ConcatOp>()) {
+    auto resultType =
+        mlir::cast<RankedTensorType>(concatOp.getResult().getType());
+    int64_t lastDim = resultType.getRank() - 1;
+
+    if (concatOp.getInputs().size() == 2 && concatOp.getDim() == lastDim) {
+      v = ttmlir::utils::lookThrough<TypecastOp>(concatOp.getInputs()[0]);
+      c.attentionSink =
+          ttmlir::utils::lookThrough<TypecastOp>(concatOp.getInputs()[1]);
+    }
+  }
 
   if (auto linearOp = v.getDefiningOp<LinearOp>()) {
     c.scoreOp = linearOp;
@@ -228,17 +270,15 @@ bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c) const {
 }
 
 bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
-  v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
 
   if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
     if (auto scale = extractConstant(mulOp.getRhs())) {
       c.scale = scale;
-      v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(
-          mulOp.getLhs());
+      v = ttmlir::utils::lookThrough<TypecastOp>(mulOp.getLhs());
     } else if (auto scale = extractConstant(mulOp.getLhs())) {
       c.scale = scale;
-      v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(
-          mulOp.getRhs());
+      v = ttmlir::utils::lookThrough<TypecastOp>(mulOp.getRhs());
     }
   }
 
@@ -246,8 +286,7 @@ bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
     if (auto divisor = extractConstant(divOp.getRhs())) {
       if (*divisor != 0.0f) {
         c.scale = 1.0f / *divisor;
-        v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp,
-                                       TypecastOp>(divOp.getLhs());
+        v = ttmlir::utils::lookThrough<TypecastOp>(divOp.getLhs());
       }
     }
   }
@@ -388,23 +427,6 @@ std::pair<Value, Type> SDPAFusing::analyzeV(Value v) const {
   return {v, targetDtype};
 }
 
-Value SDPAFusing::prepareMask(Value v) const {
-  while (Operation *defOp = v.getDefiningOp()) {
-    if (isa<TypecastOp>(defOp)) {
-      v = defOp->getOperand(0);
-      continue;
-    }
-
-    if (auto repeatOp = dyn_cast<RepeatOp>(defOp)) {
-      v = repeatOp.getInput();
-      continue;
-    }
-
-    break;
-  }
-  return v;
-}
-
 void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
                                       PatternRewriter &rewriter) const {
   auto [preparedQ, preparedQElementType] = analyzeQ(c.query);
@@ -433,7 +455,7 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
   c.value = restoreElementTypeIfNeeded(c.value, preparedVElementType, rewriter);
 
   if (c.mask) {
-    c.mask = prepareMask(c.mask);
+    c.mask = ttmlir::utils::lookThrough<TypecastOp, RepeatOp>(c.mask);
 
     // tt-metal requires the attention mask to be a 4D tensor. TTIR fusing can
     // produce lower-rank masks when it folds matmul+add into linear and drops
@@ -453,6 +475,53 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
     }
 
     c.mask = restoreElementTypeIfNeeded(c.mask, preparedQElementType, rewriter);
+  }
+
+  if (c.attentionSink) {
+    c.attentionSink =
+        ttmlir::utils::lookThrough<TypecastOp, RepeatOp>(c.attentionSink);
+
+    // If the sink still has a batch dimension > 1, it may come from a
+    // load_cached op where the repeat is baked inside the const_eval function.
+    // Look inside the const_eval, strip the repeat from its return value, and
+    // update the load_cached result type to match.
+    auto sinkType = mlir::cast<RankedTensorType>(c.attentionSink.getType());
+    if (sinkType.getRank() >= 1 && sinkType.getShape()[0] > 1) {
+      if (auto loadCached =
+              c.attentionSink.getDefiningOp<ttcore::LoadCachedOp>()) {
+        auto funcOp = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+            loadCached, loadCached.getCalleeAttr());
+        if (funcOp) {
+          unsigned resultIdx =
+              mlir::cast<OpResult>(c.attentionSink).getResultNumber();
+          auto &block = funcOp.getBody().front();
+          auto returnOp = cast<func::ReturnOp>(block.getTerminator());
+          Value innerV = returnOp.getOperand(resultIdx);
+
+          // Walk back through repeat inside the const_eval body.
+          Value stripped =
+              ttmlir::utils::lookThrough<TypecastOp, RepeatOp>(innerV);
+          if (stripped != innerV) {
+            // Update the const_eval function: return the pre-repeat value.
+            returnOp.setOperand(resultIdx, stripped);
+
+            auto strippedType =
+                mlir::cast<RankedTensorType>(stripped.getType());
+
+            // Update function signature return type.
+            auto funcType = funcOp.getFunctionType();
+            SmallVector<Type> newResultTypes(funcType.getResults());
+            newResultTypes[resultIdx] = strippedType;
+            funcOp.setType(FunctionType::get(
+                funcOp.getContext(), funcType.getInputs(), newResultTypes));
+
+            // Update load_cached result type.
+            loadCached.getResult(resultIdx).setType(strippedType);
+            c.attentionSink = loadCached.getResult(resultIdx);
+          }
+        }
+      }
+    }
   }
 }
 
@@ -551,10 +620,6 @@ bool SDPAFusing::validateSemantics(const SDPAComponents &c) const {
     }
   }
 
-  if (c.scale.has_value() && (*c.scale <= 0.0f || *c.scale > 1.0f)) {
-    return false;
-  }
-
   return true;
 }
 
@@ -613,6 +678,23 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
     c.mask = castToBF16IfNeeded(c.mask, rewriter);
   }
 
+  // Workaround for https://github.com/tenstorrent/tt-metal/issues/40470:
+  // tt-metal's SDPA kernel computes exp((sink - max) * scale), applying scale
+  // to the attention sink. But the sink is already in scaled score space, so
+  // this double-scales it. Pre-multiply the sink by 1/scale to compensate.
+  if (c.attentionSink && scale != 0.0f && scale != 1.0f) {
+    auto sinkType = mlir::cast<RankedTensorType>(c.attentionSink.getType());
+    float invScale = 1.0f / scale;
+    auto deviceOp =
+        utils::getOrInsertDevice(rewriter, c.attentionMatmul.getOperation());
+    auto invScaleOp = rewriter.create<FullOp>(
+        c.attentionMatmul.getLoc(), sinkType,
+        rewriter.getF32FloatAttr(invScale), deviceOp.getResult());
+    c.attentionSink =
+        rewriter.create<MultiplyOp>(c.attentionMatmul.getLoc(), sinkType,
+                                    c.attentionSink, invScaleOp.getResult());
+  }
+
   auto qType = mlir::cast<RankedTensorType>(c.query.getType());
   auto qShape = qType.getShape();
 
@@ -630,8 +712,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {permutedQuery.getType()}, permutedQuery, c.key, c.value,
             /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
-            /*cur_pos_tensor=*/Value(),
-            /*attention_sink=*/Value(), scaleAttr,
+            /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
             /*memory_config=*/MemoryConfigAttr(),
             /*program_config=*/SDPAProgramConfigAttr());
 
@@ -646,8 +727,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
         c.key, c.value,
         /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
-        /*cur_pos_tensor=*/Value(),
-        /*attention_sink=*/Value(), scaleAttr,
+        /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
         /*memory_config=*/MemoryConfigAttr(),
         /*program_config=*/SDPAProgramConfigAttr());
 
@@ -666,7 +746,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {c.query.getType()}, c.query, c.key, c.value, c.mask,
             /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-            /*sliding_window_size=*/IntegerAttr(),
+            /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
             /*memory_config=*/MemoryConfigAttr());
 
     if (!validationResult.isSuccess()) {
@@ -680,7 +760,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key, c.value,
         c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-        /*sliding_window_size=*/IntegerAttr(),
+        /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
         /*memory_config=*/MemoryConfigAttr());
 
     Value finalResult = restoreElementTypeIfNeeded(
