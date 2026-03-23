@@ -35,9 +35,8 @@ module attributes {ttcore.system_desc = #system_desc} {
 
     // Matmul generic with reduction dimension - triggers stream insertion
     // After d2m-allocate:
-    // 1. CB allocs are created: stream_layout(%view_5, ...) and stream_layout(%view_6, ...)
-    // 2. Generic op inputs are updated to reference streams instead of views
-    // 3. remote_load ops are updated to reference streams (this is what this test verifies)
+    // 1. CB allocs with CBLayoutAttr are created inside the generic
+    // 2. remote_load ops are updated to reference the correct operands (this is what this test verifies)
     //
     %view_out = d2m.view_layout %alloc_4 remapping = #remap4 : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> -> memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
     d2m.generic {block_factors = [1, 1, 64], grid = #ttcore.grid<1x64, (d0, d1) -> (0, 0, d0 * 8 + d1)>, indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>], threads = [#d2m.thread<unified>]}

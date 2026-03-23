@@ -434,7 +434,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
 
     TT_assertv(useGeneric,
                "ToLayout result must be used by a single GenericOp or a "
-               "single StreamLayout/ViewLayout that feeds a single GenericOp");
+               "single ViewLayout that feeds a single GenericOp");
 
     if (!parentGeneric) {
       parentGeneric = useGeneric;
@@ -1051,7 +1051,7 @@ updateViewLayoutOps(ArrayRef<ViewLayoutUpdateInfo> viewLayoutsToUpdate,
 }
 
 // Phase 5: Recreate the d2m.generic with updated operands.
-// After updating ToLayout and StreamLayout ops, the generic's operands have
+// After updating ToLayout and ViewLayout ops, the generic's operands have
 // new types with the selected grids. The generic grid is still anchored by the
 // output operand's chosen grid, but we must re-materialize the generic attrs
 // from the selected operand grids after those rewrites so the rebuilt op stays

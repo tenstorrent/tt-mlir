@@ -6,7 +6,6 @@
 
 // CHECK-NOT: memref.alloc
 // CHECK-NOT: memref.dealloc
-// CHECK-NOT: d2m.stream_layout
 // CHECK-NOT: d2m.view_layout
 // CHECK-NOT: d2m.generic
 // CHECK-NOT: d2m.empty

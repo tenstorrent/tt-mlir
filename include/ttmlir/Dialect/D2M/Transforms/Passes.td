@@ -408,6 +408,38 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
       - allocating memory addresses/alignments for buffers as well as
         other memref allocs needed by data movement/compute kernel functions;
       - inserting dealloc instructions at the appropriate end-of-scope positions.
+
+    Converts:
+    ```mlir
+    %alloc = memref.alloc() : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    %alloc_0 = memref.alloc() : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    %alloc_1 = memref.alloc() : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    d2m.generic {block_factors = [1, 1, 6], grid = #ttcore.grid<6x6>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
+        ins(%alloc, %alloc_0 : memref<...>, memref<...>)
+        outs(%alloc_1 : memref<...>)  {
+      %cb0 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %cb1 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %cb2 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      "d2m.tile_matmul_block"(%cb0, %cb1, %cb2) : (...) -> ()
+    }
+    ```
+
+    Into:
+    ```mlir
+    %alloc = memref.alloc() {address = 5120 : i64, alignment = 32 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>
+    %alloc_0 = memref.alloc() {address = 1024 : i64, alignment = 32 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>
+    %alloc_1 = memref.alloc() {address = 17408 : i64, alignment = 16 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    d2m.generic {block_factors = [1, 1, 6], grid = #ttcore.grid<6x6>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
+        ins(%alloc, %alloc_0 : memref<...>, memref<...>)
+        outs(%alloc_1 : memref<...>)  {
+      %cb0 = memref.alloc() {address = 9216 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2, grid = [6x6]>, #l1>
+      %cb1 = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2, grid = [6x6]>, #l1>
+      %cb2 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      "d2m.tile_matmul_block"(%cb0, %cb1, %cb2) : (...) -> ()
+    }
+    memref.dealloc %alloc_0 : memref<...>
+    memref.dealloc %alloc : memref<...>
+    ```
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
   let options = D2MStreamingOptions # [

@@ -14,7 +14,7 @@ module {
 
   // verify that:
   // - memref addresses get assigned
-  // - stream_layouts are emitted and used as generic operands
+  // - CB allocs with CBLayoutAttr are created inside the generic
 
   func.func @reduce_C(%arg0: memref<1x1x64x96xf32, #ttcore.shard<384x4, 1>, #l1_>) ->memref<2x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_> {
     %0 = memref.get_global @__constant_32x32xf32 : memref<32x32xf32>

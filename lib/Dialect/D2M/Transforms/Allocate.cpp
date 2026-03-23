@@ -194,14 +194,8 @@ struct OperandContext {
   // `true` is if this corresponds to a generic op output.
   bool isOutput = false;
   // To be able to plan possible pressure on L1, this precomputes
-  // the type of the stream buffer this operand would have.
+  // the type of the circular buffer this operand would have.
   MemRefType bufferType;
-
-  // Fields used to link this Value to a `Planner` decision variable.
-
-  // Needed to retrieve `Planner::Request::offset` for this operand stream's
-  // storage buffer, both `Scratch` and `Spill` alternatives.
-  SpaceSpecific<int32_t> reqIndex = {-1, -1};
 };
 
 // A map linking `OperandContext`s with their originating `Value`s (defined
@@ -991,9 +985,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   ///     generic op streaming but will still need a valid L1/DRAM memory
   ///     address assigned.
   ///
-  /// Note: Streaming is represented by in-generic CB allocs with CBLayoutAttr.
-  /// No external stream buffer allocs are created.
-  ///
   LogicalResult prepareMemoryPlanner(func::FuncOp funcOp,
                                      FuncAnalysisData &analysis) {
     [[maybe_unused]] AsOperandPrinter asOperand{funcOp};
@@ -1022,92 +1013,87 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
 
       TT_debug(memrefCtx.varIndex < 0);
-      memrefCtx.varIndex = problem.def([&, &memref = memref,
-                                        &memrefCtx = memrefCtx](
-                                           Planner::VariableBuilder &b) {
-        // If `memref` is being defined inside `funcOp` and is initially
-        // placed in L1, it will require scratch memory to hold its tensor
-        // data.
-        if (memref.getDefiningOp<memref::AllocOp>() &&
-            memspace == MemorySpace::DeviceL1) {
-          memrefCtx.reqIndex =
-              b.request(PlannerSpace::Scratch,
-                        memrefCtx.allocSize[ordinal(asPlannerSpace(memspace))],
-                        memrefCtx.live.first, memrefCtx.live.last);
-        }
-
-        // This decision variable must be bound to its incoming memspace
-        // in any of these cases:
-        //  - if it is placed in DRAM *explicitly*;
-        //  - if the incoming IR indicates that this alloc should be pinned
-        //    to its current memspace in any other explicit way (aggregated
-        //    into `isMemspaceBound`);
-        //  - if it is the output of a generic op and the enabled pass
-        //    options do not allow output spilling;
-        //  - (edge case) if it has zero generic op users;
-        const bool bound =
-            (memspace == MemorySpace::DeviceDRAM) ||
-            memrefCtx.isMemspaceBound ||
-            (memrefCtx.usedForOutput && !allowL1OutputSpilling) ||
-            memrefCtx.genericUsers.empty();
-        const bool forceSpillToDram = forceSpillToDramIfLegal && !bound;
-        if (bound) {
-          b.bind(asPlannerSpace(memspace));
-        } else if (forceSpillToDram) {
-          b.bind(PlannerSpace::Spill);
-        }
-
-        // For each possible variable placement, add mem requests for L1
-        // stream buffers if the variable must be streamed when it backs a
-        // generic op operand.
-        for (PlannerSpace placement = PlannerSpace::begin;
-             placement < PlannerSpace::end; ++placement) {
-
-          const MemorySpace placementMemspace = asMemorySpace(placement);
-          if (bound && placementMemspace != memspace) {
-            // A bound variable only needs its domain populated for its
-            // fixed (incoming) memspace.
-            continue;
-          }
-          if (forceSpillToDram && placement != PlannerSpace::Spill) {
-            // Forced-to-spill variables only populate the DRAM domain.
-            continue;
-          }
-
-          for (d2m::GenericOp user : memrefCtx.genericUsers) {
-            GenericOpContext &genericCtx = analysis.generics[user];
-
-            // Generics in "explicit datamovement" form manage their own
-            // streams; the planner does not insert streams for them.
-            if (genericCtx.isExplicitDatamovement) {
-              continue;
+      memrefCtx.varIndex =
+          problem.def([&, &memref = memref,
+                       &memrefCtx = memrefCtx](Planner::VariableBuilder &b) {
+            // If `memref` is being defined inside `funcOp` and is initially
+            // placed in L1, it will require scratch memory to hold its tensor
+            // data.
+            if (memref.getDefiningOp<memref::AllocOp>() &&
+                memspace == MemorySpace::DeviceL1) {
+              memrefCtx.reqIndex = b.request(
+                  PlannerSpace::Scratch,
+                  memrefCtx.allocSize[ordinal(asPlannerSpace(memspace))],
+                  memrefCtx.live.first, memrefCtx.live.last);
             }
 
-            // A given user can have multiple uses of `memref` at
-            // different operand positions; each position will have its own
-            // stream.
-            for (OperandContext &operandCtx : genericCtx.operands) {
-              if (operandCtx.primaryRoot != memref) {
+            // This decision variable must be bound to its incoming memspace
+            // in any of these cases:
+            //  - if it is placed in DRAM *explicitly*;
+            //  - if the incoming IR indicates that this alloc should be pinned
+            //    to its current memspace in any other explicit way (aggregated
+            //    into `isMemspaceBound`);
+            //  - if it is the output of a generic op and the enabled pass
+            //    options do not allow output spilling;
+            //  - (edge case) if it has zero generic op users;
+            const bool bound =
+                (memspace == MemorySpace::DeviceDRAM) ||
+                memrefCtx.isMemspaceBound ||
+                (memrefCtx.usedForOutput && !allowL1OutputSpilling) ||
+                memrefCtx.genericUsers.empty();
+            const bool forceSpillToDram = forceSpillToDramIfLegal && !bound;
+            if (bound) {
+              b.bind(asPlannerSpace(memspace));
+            } else if (forceSpillToDram) {
+              b.bind(PlannerSpace::Spill);
+            }
+
+            // For each possible variable placement, add mem requests for L1
+            // stream buffers if the variable must be streamed when it backs a
+            // generic op operand.
+            for (PlannerSpace placement = PlannerSpace::begin;
+                 placement < PlannerSpace::end; ++placement) {
+
+              const MemorySpace placementMemspace = asMemorySpace(placement);
+              if (bound && placementMemspace != memspace) {
+                // A bound variable only needs its domain populated for its
+                // fixed (incoming) memspace.
+                continue;
+              }
+              if (forceSpillToDram && placement != PlannerSpace::Spill) {
+                // Forced-to-spill variables only populate the DRAM domain.
                 continue;
               }
 
-              // The goal is to have streams for all operands (other than
-              // exempt outputs) that don't have them already.
-              // DRAM outputs always need streams to write data back from
-              // L1 circular buffers to DRAM.
+              for (d2m::GenericOp user : memrefCtx.genericUsers) {
+                GenericOpContext &genericCtx = analysis.generics[user];
 
-              if (isOperandExemptFromStreaming(operandCtx, memspace)) {
-                continue;
-              }
+                // Generics in "explicit datamovement" form manage their own
+                // streams; the planner does not insert streams for them.
+                if (genericCtx.isExplicitDatamovement) {
+                  continue;
+                }
 
-              if (inferStreamRequirement(user, operandCtx, placementMemspace)) {
-                // Streaming is represented by the in-generic CB alloc
-                // (with CBLayoutAttr).  No external planner request needed.
+                // A given user can have multiple uses of `memref` at
+                // different operand positions; each position will have its own
+                // stream.
+                for (OperandContext &operandCtx : genericCtx.operands) {
+                  if (operandCtx.primaryRoot != memref) {
+                    continue;
+                  }
+
+                  // The goal is to have streams for all operands (other than
+                  // exempt outputs) that don't have them already.
+                  // DRAM outputs always need streams to write data back from
+                  // L1 circular buffers to DRAM.
+
+                  if (isOperandExemptFromStreaming(operandCtx, memspace)) {
+                    continue;
+                  }
+                }
               }
             }
-          }
-        }
-      });
+          });
     }
 
     TT_ALLOC_TRACE("L1 planner problem:\n{}", problem);
@@ -1326,7 +1312,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// modifications:
   ///  - modify root alloc ops and any view layout ops to be in the final
   ///    memspace decided by the planner;
-  ///  - insert stream layout ops together with their stream buffer allocs.
+  ///  - create local CB allocs inside the generic for streamed operands.
   ///
   LogicalResult insertOperandStreams(func::FuncOp funcOp,
                                      const FuncAnalysisData &analysis) {
@@ -1417,7 +1403,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           auto &operand = *operandCtx.operand;
 
           if (failed(insertStream(
-                  rewriter, operand, genericOp, /*req=*/nullptr, operandCtx,
+                  rewriter, operand, genericOp, operandCtx,
                   (finalRemappedMemSpace == MemorySpace::DeviceDRAM ? DRAMAttr
                                                                     : L1Attr),
                   L1memInfo, analysis.sequencing))) {
@@ -1624,7 +1610,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   }
 
   LogicalResult insertStream(RewriterBase &rewriter, OpOperand &operand,
-                             d2m::GenericOp op, const Planner::Request *req,
+                             d2m::GenericOp op,
                              const OperandContext &operandCtx,
                              ttcore::MemorySpaceAttr remappedMemspace,
                              const MemorySpaceInfo &info,

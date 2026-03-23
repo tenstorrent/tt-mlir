@@ -175,7 +175,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     return
   }
 
-  // Test DMA-only form where remote_load uses ViewLayoutOp (not StreamLayoutOp)
+  // Test DMA-only form where remote_load uses ViewLayoutOp
   // In DMA-only form, only ViewLayoutOp operands are considered remote
   // CHECK-LABEL: func.func @test_dma_only_form_no_consumers
   // CHECK: %[[CB0:.*]] = d2m.get_cb(0)
