@@ -2228,6 +2228,24 @@ def test_uniform_dequantize_golden_uses_quantization_parameters():
         )
 
 
+def test_quantized_input_generation_validates_axis_bounds():
+    mlir_text = """
+    func.func private @main(%arg0: tensor<2x3x!quant.uniform<i32:f32:2, {5.000000e-01:0,1.000000e+00:1,2.000000e+00:2}>>)
+    """
+
+    with Context() as ctx, Location.unknown():
+        module = Module.parse(mlir_text, ctx)
+        func_op = next(
+            op for op in module.body.operations if isinstance(op, func.FuncOp)
+        )
+        builder = StableHLOBuilder(ctx, Location.unknown())
+
+        with pytest.raises(
+            ValueError, match=r"Per-axis quantized type dimension.*axis 2.*rank 2"
+        ):
+            builder.generate_golden_tensors(func_op)
+
+
 @pytest.mark.parametrize(
     "mlir_text,op_name",
     [

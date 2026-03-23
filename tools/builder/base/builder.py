@@ -7,7 +7,6 @@ import inspect
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 import torch
 from enum import Enum, auto
-import re
 import os
 from collections import OrderedDict
 
@@ -22,6 +21,8 @@ from builder.base.builder_utils import (
     tag,
     parse,
     split,
+    parse_quantized_type,
+    normalize_quantized_dimension,
 )
 
 
@@ -469,85 +470,7 @@ class Builder(metaclass=BuilderMeta):
                 raise TypeError(f"Invalid Type {dtype}")
 
     def _parse_quantized_type(self, mlir_type: Type) -> Optional[Dict[str, Any]]:
-        type_str = str(mlir_type).strip()
-        match = re.fullmatch(
-            r"!quant\.uniform<(?P<storage>[^:>]+):(?P<expressed>[^,:>]+)"
-            r"(?::(?P<axis>-?\d+))?, (?P<params>\{.*\}|[^>]+)>",
-            type_str,
-        )
-        if match is None:
-            return None
-
-        def _torch_dtype_from_token(token: str) -> torch.dtype:
-            match token.strip():
-                case "bf16":
-                    return torch.bfloat16
-                case "f16":
-                    return torch.float16
-                case "f32":
-                    return torch.float32
-                case "f64":
-                    return torch.float64
-                case "i8":
-                    return torch.int8
-                case "i16":
-                    return torch.int16
-                case "i32":
-                    return torch.int32
-                case "i64":
-                    return torch.int64
-                case "ui8":
-                    return torch.uint8
-                case "ui16":
-                    return torch.uint16
-                case "ui32":
-                    return torch.uint32
-                case "ui64":
-                    return torch.uint64
-                case _:
-                    raise TypeError(f"Unsupported MLIR type token: {token}")
-
-        def _torch_quant_dtype_from_storage(storage: str) -> torch.dtype:
-            storage = storage.strip()
-            match storage:
-                case "i8":
-                    return torch.qint8
-                case "ui8":
-                    return torch.quint8
-                case "i32":
-                    return torch.qint32
-                case _:
-                    raise TypeError(
-                        f"Unsupported quantized storage type for golden generation: {storage}"
-                    )
-
-        params = match.group("params").strip()
-        if params.startswith("{"):
-            param_entries = [
-                entry.strip() for entry in params[1:-1].split(",") if entry
-            ]
-        else:
-            param_entries = [params]
-
-        scales = []
-        zero_points = []
-        for entry in param_entries:
-            scale_text, zero_point_text = (
-                entry.split(":", 1) if ":" in entry else (entry, None)
-            )
-            scales.append(float(scale_text))
-            zero_points.append(0 if zero_point_text is None else int(zero_point_text))
-
-        quantized_dimension = match.group("axis")
-        return {
-            "storage_dtype": _torch_quant_dtype_from_storage(match.group("storage")),
-            "expressed_dtype": _torch_dtype_from_token(match.group("expressed")),
-            "quantized_dimension": (
-                None if quantized_dimension is None else int(quantized_dimension)
-            ),
-            "scales": scales,
-            "zero_points": zero_points,
-        }
+        return parse_quantized_type(mlir_type)
 
     def _generate_quantized_tensor_from_mlir_type(
         self, shape: Shape, mlir_type: Type
@@ -566,6 +489,9 @@ class Builder(metaclass=BuilderMeta):
                 quantized_type["storage_dtype"],
             )
 
+        quantized_dimension = normalize_quantized_dimension(
+            quantized_dimension, len(shape)
+        )
         if shape[quantized_dimension] != len(quantized_type["scales"]):
             raise ValueError(
                 "Per-axis quantized type scale count must match the quantized dimension "
