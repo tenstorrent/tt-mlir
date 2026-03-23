@@ -2663,6 +2663,8 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
     patterns.add<ReductionOrPattern>(typeConverter, ctx);
     break;
   case DecompMode::TTNN:
+    patterns.add<ReductionOrTTNNPattern>(typeConverter, ctx);
+    break;
   case DecompMode::TTMetal:
     patterns.add<ReductionOrTTNNPattern>(typeConverter, ctx);
     patterns.add<MinOpDecompositionPattern>(typeConverter, ctx);

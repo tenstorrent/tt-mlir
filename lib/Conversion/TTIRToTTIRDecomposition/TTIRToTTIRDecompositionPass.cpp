@@ -77,7 +77,6 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::RequantizeOp>();
       target.addIllegalOp<ttir::DequantizeOp>();
       target.addIllegalOp<ttir::ReverseOp>();
-      target.addIllegalOp<ttir::MinOp>();
 
       // Conv2d and ConvTranspose2d are legal only if already in NHWC format.
       // Non-NHWC ops will be decomposed with permutes to NHWC.
@@ -85,6 +84,11 @@ struct TTIRToTTIRDecompositionPass
           [](ttir::Conv2dOp op) { return op.isNHWC(); });
       target.addDynamicallyLegalOp<ttir::ConvTranspose2dOp>(
           [](ttir::ConvTranspose2dOp op) { return op.isNHWC(); });
+      if (decompConfig == DecompMode::TTMetal) {
+        // TTMetal decomposes min(x) into neg(max(neg(x))) because there is no
+        // hardware reduce_min.  TTNN has native ttnn.min support.
+        target.addIllegalOp<ttir::MinOp>();
+      }
       break;
     }
 
