@@ -1,0 +1,85 @@
+graph TB
+    subgraph Input
+        TTIR_FILE["TTIR MLIR File<br/>(golden reference)"]
+        SYS_DESC["System Descriptor<br/>(ttrt-artifacts/system_desc.ttsys)"]
+        TENSORS["Input Tensors<br/>(random or from disk *.pt)"]
+    end
+
+    subgraph Compilation ["Compilation Phase (chisel_pipeline)"]
+        PARSE["Parse TTIR File<br/>(load all dialects)"]
+        COMPILE["PassManager:<br/>ttir-to-ttnn-backend-pipeline"]
+        TTIR_MOD["IRModule (Golden/TTIR)"]
+        TTNN_MOD["IRModule (Device/TTNN)"]
+        FB["ttnn_to_flatbuffer_file()<br/>→ Flatbuffer Binary"]
+    end
+
+    subgraph Context ["ChiselContext Initialization"]
+        REG["Registry<br/>(groups ops by MLIR location)"]
+        G_POOL["Golden TensorPool<br/>(CPU tensors)"]
+        D_POOL["Device TensorPool<br/>(device tensors)"]
+        EXEC["GoldenExecutor<br/>(CPU/PyTorch)"]
+    end
+
+    subgraph Execution ["Execution Loop (TTRT Runtime)"]
+        direction TB
+        TTRT["RtApi.Run()<br/>executes flatbuffer on device"]
+
+        subgraph Callbacks ["Debug Hook Callbacks (per device op)"]
+            direction TB
+            PREOP["preop() callback<br/>- Parse op location<br/>- Lookup OpGroup in Registry<br/>- Capture device input tensors"]
+            DEV_EXEC["Device Op Executes<br/>(on TT hardware)"]
+            POSTOP["postop() callback<br/>- Capture device output tensors<br/>- Run golden ops to same location<br/>- Compare outputs"]
+        end
+    end
+
+    subgraph Golden ["Golden Execution (GoldenExecutor)"]
+        GOLD_LOOKUP["Lookup golden function<br/>from GOLDEN_MAPPINGS"]
+        GOLD_RUN["Execute on CPU<br/>via PyTorch"]
+        GOLD_STORE["Store result in<br/>Golden TensorPool"]
+    end
+
+    subgraph Comparison ["Comparison & Reporting"]
+        METRICS["Compute Metrics:<br/>• PCC (Pearson Correlation)<br/>• Absolute Error<br/>• Relative Error"]
+        REPORT["ReportWriter → CSV<br/>(location, ops, tensors, metrics)"]
+    end
+
+    %% Flow
+    TTIR_FILE --> PARSE
+    SYS_DESC --> COMPILE
+    PARSE --> COMPILE
+    COMPILE --> TTIR_MOD
+    COMPILE --> TTNN_MOD
+    TTNN_MOD --> FB
+
+    TTIR_MOD --> REG
+    TTNN_MOD --> REG
+    TENSORS --> G_POOL
+    TENSORS --> D_POOL
+
+    REG --> EXEC
+    G_POOL --> EXEC
+    D_POOL --> TTRT
+
+    FB --> TTRT
+    TTRT --> PREOP
+    PREOP --> DEV_EXEC
+    DEV_EXEC --> POSTOP
+
+    POSTOP -->|"triggers"| GOLD_LOOKUP
+    GOLD_LOOKUP --> GOLD_RUN
+    GOLD_RUN --> GOLD_STORE
+
+    POSTOP -->|"device output"| METRICS
+    GOLD_STORE -->|"golden output"| METRICS
+    METRICS --> REPORT
+
+    %% Styles
+    style TTIR_FILE fill:#e1f5fe,stroke:#0288d1
+    style SYS_DESC fill:#e1f5fe,stroke:#0288d1
+    style TENSORS fill:#e1f5fe,stroke:#0288d1
+    style FB fill:#fff3e0,stroke:#f57c00
+    style TTRT fill:#fce4ec,stroke:#c62828
+    style GOLD_RUN fill:#e8f5e9,stroke:#2e7d32
+    style METRICS fill:#f3e5f5,stroke:#7b1fa2
+    style REPORT fill:#f3e5f5,stroke:#7b1fa2
+    style REG fill:#fff9c4,stroke:#f9a825
