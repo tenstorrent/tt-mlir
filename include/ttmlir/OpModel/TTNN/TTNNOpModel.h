@@ -750,7 +750,9 @@ struct OpModel<ScaledDotProductAttentionOp> {
       TTNNLayoutAttr keyLayout, llvm::ArrayRef<int64_t> valueShape,
       TTNNLayoutAttr valueLayout,
       std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
-      std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+      std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
       std::optional<llvm::APFloat> scale,
       std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout);
 
@@ -759,7 +761,9 @@ struct OpModel<ScaledDotProductAttentionOp> {
                llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
                llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
                std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
-               std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
+               std::optional<TTNNLayoutAttr> attentionMaskLayout,
+               std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+               std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
                std::optional<llvm::APFloat> scale,
                std::optional<uint32_t> slidingWindowSize,
                TTNNLayoutAttr outputLayout);

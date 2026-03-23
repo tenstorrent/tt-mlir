@@ -3452,7 +3452,7 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
   let hasVerifier = 1;
 }
 
-def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
     let summary = "Scaled dot product attention operation.";
     let description = [{
       Scaled dot product attention.
@@ -3480,6 +3480,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
                          DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                          OptionalAttr<F32Attr>:$scale,
                          OptionalAttr<UI32Attr>:$sliding_window_size,
+                         Optional<AnyRankedTensor>:$attention_sink,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);

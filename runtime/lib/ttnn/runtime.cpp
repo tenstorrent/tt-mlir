@@ -1829,7 +1829,8 @@ getOpInputRefs(OpContext opContextHandle,
         opContext.type_as_ScaledDotProductAttentionOp()->query(),
         opContext.type_as_ScaledDotProductAttentionOp()->key(),
         opContext.type_as_ScaledDotProductAttentionOp()->value(),
-        opContext.type_as_ScaledDotProductAttentionOp()->attention_mask()};
+        opContext.type_as_ScaledDotProductAttentionOp()->attention_mask(),
+        opContext.type_as_ScaledDotProductAttentionOp()->attention_sink()};
     break;
   }
   case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
