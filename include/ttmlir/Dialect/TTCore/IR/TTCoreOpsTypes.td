@@ -771,6 +771,8 @@ def TTCore_CoreRangeAttr: TTCore_Attr<"CoreRange", "core_range"> {
     - `end_coord`: Upper-right corner of the core range
 
     Constraints:
+    - `start_coord` and `end_coord` must use non-negative core indices (lowering
+      uses unsigned TTNN core coordinates; negative values can wrap).
     - The condition `start_coord` <= `end_coord` must be satisfied
 
     Example:

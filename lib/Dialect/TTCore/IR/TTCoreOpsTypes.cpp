@@ -1807,6 +1807,15 @@ bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     mlir::tt::ttcore::CoreCoordAttr startCoord,
     mlir::tt::ttcore::CoreCoordAttr endCoord) {
+  if (startCoord.getX() < 0 || startCoord.getY() < 0) {
+    return emitError() << "start coordinates " << startCoord
+                       << " must be non-negative";
+  }
+  if (endCoord.getX() < 0 || endCoord.getY() < 0) {
+    return emitError() << "end coordinates " << endCoord
+                       << " must be non-negative";
+  }
+
   if (startCoord.getX() > endCoord.getX() ||
       startCoord.getY() > endCoord.getY()) {
     return emitError() << "Start coordinates " << startCoord
