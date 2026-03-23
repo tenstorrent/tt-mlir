@@ -2331,6 +2331,30 @@ public:
     return toLayoutResult;
   }
 
+  Value createGlobalSemaphore(mlir::Location loc,
+                              mlir::ConversionPatternRewriter &rewriter,
+                              llvm::SmallVector<int64_t> workerGridShape,
+                              uint32_t initialValue) const {
+    Type elementType = mlir::IntegerType::get(rewriter.getContext(), 32,
+                                              mlir::IntegerType::Unsigned);
+    ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), workerGridShape, ttcore::OOBVal::Undef,
+        memorySpaces[0], ttcore::TensorMemoryLayout::Sharded,
+        ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
+            rewriter.getContext(), workerGridShape.size()),
+        {1, 1});
+    llvm::SmallVector<int64_t> deviceShape =
+        layout.getDeviceShape(workerGridShape, {});
+    auto emptyOp =
+        rewriter.create<d2m::EmptyOp>(loc, deviceShape, elementType, layout);
+    auto createGlobalSemaphoreOp =
+        rewriter.create<d2m::CreateGlobalSemaphoreOp>(
+            loc, d2m::GlobalSemaphoreType::get(rewriter.getContext()),
+            emptyOp.getResult(),
+            rewriter.getIntegerAttr(elementType, initialValue));
+    return createGlobalSemaphoreOp.getResult();
+  }
+
   LogicalResult
   matchAndRewrite(ttir::AllGatherOp op, ttir::AllGatherOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -2357,6 +2381,12 @@ public:
     int num_cores =
         topology == ttcore::Topology::Ring ? num_links * 2 : num_links * 1;
     int num_devices = meshShape[clusterAxis];
+
+    // Create global semaphores for synchronization
+    Value startSemaphore =
+        createGlobalSemaphore(loc, rewriter, workerGridShape, 0);
+    Value endSemaphore =
+        createGlobalSemaphore(loc, rewriter, workerGridShape, 0);
 
     // create input and output
     auto origOutputs =
@@ -2443,7 +2473,7 @@ public:
         ttcore::RoutingMode::UnidirRingTorus, num_links);
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, TypeRange(outputStreamResult), inputStreamResult,
-        outputStreamResult, /*additionalArgs=*/ValueRange(),
+        outputStreamResult, ValueRange({startSemaphore, endSemaphore}),
         ttcore::GridAttr::get(rewriter.getContext(), genericGridShape),
         rewriter.getI64ArrayAttr(emptyBlockFactors),
         rewriter.getAffineMapArrayAttr(emptyIndexingMaps),
@@ -2461,6 +2491,25 @@ public:
 
       // Populate 'block'.
       {
+        SmallVector<Value> startDevice = {
+            rewriter.create<d2m::MeshPositionOp>(loc, 1 - clusterAxis),
+            rewriter.create<arith::ConstantIndexOp>(loc, 0)};
+        SmallVector<Value> endDevice = {
+            rewriter.create<d2m::MeshPositionOp>(loc, 1 - clusterAxis),
+            rewriter.create<arith::ConstantIndexOp>(
+                loc, meshShape[clusterAxis] - 1)};
+
+        SmallVector<Value> coreIndices;
+        for (uint32_t i = 0; i < inputRank; i++) {
+          coreIndices.push_back(rewriter.create<d2m::CoreIndexOp>(loc, i));
+        }
+
+        // Synchronize: fabric semaphore increment mcast to all devices in
+        // cluster axis then wait till value is (num devices - 1)
+        rewriter.create<d2m::DeviceSynchronizeOp>(loc, startSemaphore,
+                                                  startDevice, endDevice,
+                                                  num_devices - 1, coreIndices);
+
         SmallVector<Value> inputIndices;
         for (uint32_t i = 0; i < inputRank; i++) {
           if (i == workerCoreSplitDim) {
@@ -2477,14 +2526,6 @@ public:
             TypeRange(outputStreamResult), generic, {inputIndices},
             mcastGridDims);
         Value loadResult = blockArgsVec[0];
-
-        SmallVector<Value> startDevice = {
-            rewriter.create<d2m::MeshPositionOp>(loc, 1 - clusterAxis),
-            rewriter.create<arith::ConstantIndexOp>(loc, 0)};
-        SmallVector<Value> endDevice = {
-            rewriter.create<d2m::MeshPositionOp>(loc, 1 - clusterAxis),
-            rewriter.create<arith::ConstantIndexOp>(
-                loc, meshShape[clusterAxis] - 1)};
 
         // Create affine map to translate input indices to output indices
         mlir::SmallVector<mlir::AffineExpr> results;
@@ -2505,17 +2546,23 @@ public:
                                                       rewriter.getContext());
         auto meshPosition =
             rewriter.create<d2m::MeshPositionOp>(loc, clusterAxis);
-        inputIndices.insert(inputIndices.begin(), meshPosition);
+        SmallVector<Value> inputIndicesWithMeshPosition = inputIndices;
+        inputIndicesWithMeshPosition.insert(
+            inputIndicesWithMeshPosition.begin(), meshPosition);
         SmallVector<Value> outputIndices = ttmlir::utils::fullyApplyAffineMap(
-            rewriter, loc, outputIndexingMap, inputIndices);
+            rewriter, loc, outputIndexingMap, inputIndicesWithMeshPosition);
 
         SmallVector<Value> storeResults;
         auto remoteStoreOp = rewriter.create<d2m::RemoteStoreOp>(
             loc, outputStreamResult.getType(), outputStreamResult,
-            outputIndices, loadResult, startDevice, endDevice);
+            outputIndices, loadResult, startDevice, endDevice, endSemaphore,
+            inputIndices);
         Value storeResult = remoteStoreOp.getResult();
-
         storeResults.push_back(storeResult);
+
+        rewriter.create<d2m::SemaphoreWaitOp>(
+            loc, endSemaphore,
+            rewriter.create<arith::ConstantIndexOp>(loc, num_devices - 1));
 
         rewriter.create<d2m::YieldOp>(loc, storeResults);
       }

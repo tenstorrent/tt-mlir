@@ -2332,7 +2332,38 @@ public:
     Value value = op.getValue();
     Value semaphoreAddr = adaptor.getSemaphore();
 
-    if (op.getDstCoreIndex().empty()) {
+    if (op.getStartDevice().size() > 0) {
+      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+          rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
+          op.getDstCoreIndex());
+      auto incr = i32(rewriter, op->getLoc(), 1);
+      auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
+          op.getLoc(), virtX, virtY, semaphoreAddr);
+      auto meshId = i16(rewriter, op->getLoc(), 0);
+      auto fcm = getFabricConnectionManager(op);
+
+      // fabric unicast
+      if (op.getEndDevice().size() == 0) {
+        auto deviceId =
+            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+                op.getLoc(), fcm, op.getStartDevice());
+        rewriter.replaceOpWithNewOp<ttkernel::FabricSemIncOp>(
+            op, fcm, meshId, deviceId, nocAddr, incr);
+      }
+      // fabric multicast
+      else {
+        auto startDeviceId =
+            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+                op.getLoc(), fcm, op.getStartDevice());
+        auto endDeviceId =
+            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+                op.getLoc(), fcm, op.getEndDevice());
+        // TODO: fix to be conditioned on if device is contained within mcast
+        // region
+        rewriter.replaceOpWithNewOp<ttkernel::FabricMulticastSemIncOp>(
+            op, fcm, meshId, startDeviceId, endDeviceId, nocAddr, incr);
+      }
+    } else if (op.getDstCoreIndex().empty()) {
       assert(!mlir::isa<d2m::SemaphoreIncOp>(op) &&
              "d2m.semaphore_inc to local core is illegal.");
 
@@ -2411,6 +2442,59 @@ public:
       rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
                                                    op.getResetValue());
     }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MDeviceSynchronizeRewriter
+    : public OpConversionPattern<d2m::DeviceSynchronizeOp> {
+public:
+  using OpConversionPattern<d2m::DeviceSynchronizeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::DeviceSynchronizeOp op,
+                  d2m::DeviceSynchronizeOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // get noc addr and ptr from global semaphore
+    auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+        rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
+        op.getCoreIndices());
+    auto globalSemAddr = rewriter.create<ttkernel::GetNocAddrOp>(
+        op.getLoc(), virtX, virtY, adaptor.getSyncSemaphore());
+    auto globalSemPtr = rewriter.create<ttkernel::CastToL1PtrOp>(
+        op.getLoc(), adaptor.getSyncSemaphore());
+
+    assert(op.getSenderStartDevice().size() > 0 && "start device must be set");
+    auto fcm = getFabricConnectionManager(op);
+    auto meshId = i16(rewriter, op->getLoc(), 0);
+    auto incr = i32(rewriter, op->getLoc(), 1);
+    auto numReceivers = i32(rewriter, op->getLoc(), op.getNumReceivers());
+
+    // fabric unicast
+    if (op.getSenderEndDevice().size()) {
+      auto startDeviceId =
+          rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+              op.getLoc(), fcm, op.getSenderStartDevice());
+      auto endDeviceId =
+          rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+              op.getLoc(), fcm, op.getSenderEndDevice());
+      rewriter.replaceOpWithNewOp<ttkernel::FabricMulticastSemIncOp>(
+          op, fcm, meshId, startDeviceId, endDeviceId, globalSemAddr, incr);
+    }
+    // fabric multicast
+    else {
+      auto startDeviceId =
+          rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+              op.getLoc(), fcm, op.getSenderStartDevice());
+      rewriter.replaceOpWithNewOp<ttkernel::FabricSemIncOp>(
+          op, fcm, meshId, startDeviceId, globalSemAddr, incr);
+    }
+
+    rewriter.create<ttkernel::NocSemaphoreWaitOp>(op.getLoc(), globalSemPtr,
+                                                  numReceivers);
 
     return success();
   }
@@ -2518,7 +2602,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::MemRefCollapseRewriter,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,
-               ttkernel::D2MSemaphoreWaitRewriter>(typeConverter, ctx);
+               ttkernel::D2MSemaphoreWaitRewriter,
+               ttkernel::D2MDeviceSynchronizeRewriter>(typeConverter, ctx);
 
   patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx,
                                                       ttnnMode);

@@ -1035,6 +1035,12 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
         build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*endDevice=*/ValueRange());
       }]>,
 
+      // Fully indexed unicast, with destination device range
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems, "ValueRange": $startDevice, "ValueRange": $endDevice),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), startDevice, endDevice);
+      }]>,
+
       // Shard-level unicast (no src indices, grid indices on dst, numElems = 0)
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices),
       [{
@@ -1051,12 +1057,6 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $startDevice, "ValueRange": $endDevice),
       [{
         build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), startDevice, endDevice);
-      }]>,
-
-      // Fully indexed unicast, with destination device range
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems, "ValueRange": $startDevice, "ValueRange": $endDevice),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), startDevice, endDevice);
       }]>
     ];
 
@@ -1534,13 +1534,9 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         Arg<Optional<AnyRankedTensorOrMemRef>, "the local buffer to store from",
         [MemRead]>:$localBuffer,
         Optional<D2M_CB>:$cb,
-        Variadic<Index>:$startDevice, Variadic<Index>:$endDevice
-        //Optional<Index>:$meshId
-        // we can have an option between a pair of devices, or a single device
-        // or we can
-        //Optional<D2M_MeshId>:$mesh_id,
-        //Bool:$isMcast
-        // sem inc???
+        Variadic<Index>:$startDevice, Variadic<Index>:$endDevice,
+        Optional<D2M_GlobalSemaphore>:$semaphore,
+        Variadic<Index>:$semaphoreIndices
         );
     let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
 
@@ -1548,22 +1544,22 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       // Explicit CB form (with CB, no result)
       OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb),
       [{
-        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb, /*startDevice=*/ValueRange{}, /*endDevice=*/ValueRange{});
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb, /*startDevice=*/ValueRange{}, /*endDevice=*/ValueRange{}, /*semaphore=*/Value{}, /*semaphoreIndices=*/ValueRange());
       }]>,
       // Implicit form with local buffer and result (required)
       OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices, "Value":$localBuffer),
       [{
-        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{}, /*startDevice=*/ValueRange{}, /*endDevice=*/ValueRange{});
+        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{}, /*startDevice=*/ValueRange{}, /*endDevice=*/ValueRange{}, /*semaphore=*/Value{}, /*semaphoreIndices=*/ValueRange());
       }]>,
       // Explicit CB form (with CB, no result); with destination device range
-      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb, "ValueRange":$startDevice, "ValueRange":$endDevice),
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb, "ValueRange":$startDevice, "ValueRange":$endDevice, "Value":$semaphore, "ValueRange":$semaphoreIndices),
       [{
-        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb, startDevice, endDevice);
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb, startDevice, endDevice, semaphore, semaphoreIndices);
       }]>,
       // Implicit form with local buffer and result (required); with destination device range
-      OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices, "Value":$localBuffer, "ValueRange":$startDevice, "ValueRange":$endDevice),
+      OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices, "Value":$localBuffer, "ValueRange":$startDevice, "ValueRange":$endDevice, "Value":$semaphore, "ValueRange":$semaphoreIndices),
       [{
-        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{}, startDevice, endDevice);
+        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{}, startDevice, endDevice, semaphore, semaphoreIndices);
       }]>
     ];
 
@@ -1571,10 +1567,11 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       $memref `[` $indices `]`
       ($localBuffer^)?
       (`from` $cb^)?
-      (`startDevice` `[` $startDevice^ `]`)? (`endDevice` `[` $endDevice^ `]`)?
+      (`devices` `startDevice` `[` $startDevice^ `]`)? (`endDevice` `[` $endDevice^ `]`)?
+      (`semaphore` `increment` $semaphore^ `[` $semaphoreIndices `]`)?
       attr-dict `:` type($memref)
       (`,` type($localBuffer)^)?
-      (`from` type($cb)^)?
+      (`,` type($cb)^)?
       (`->` type($result)^)?
     }];
 
@@ -1708,19 +1705,24 @@ class D2M_SemaphoreUpdateOp<string mnemonic> : D2M_GenericRegionOp<mnemonic,
     }];
 
     let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value,
-                         Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
+                         Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape,
+                         Variadic<Index>:$startDevice, Variadic<Index>:$endDevice);
 
-    let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` type($semaphore) }];
+    let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? (`startDevice` `[` $startDevice^ `]`)? (`endDevice` `[` $endDevice^ `]`)? attr-dict `:` type($semaphore) }];
 
     let builders =
     [
       OpBuilder<(ins "Value":$semaphore, "Value":$value),
       [{
-        build($_builder, $_state, semaphore, value, ValueRange(), ValueRange());
+        build($_builder, $_state, semaphore, value, ValueRange(), ValueRange(), ValueRange(), ValueRange());
       }]>,
       OpBuilder<(ins "Value":$semaphore, "Value":$value, "ValueRange":$dstCoreIndex),
       [{
-        build($_builder, $_state, semaphore, value, dstCoreIndex, ValueRange());
+        build($_builder, $_state, semaphore, value, dstCoreIndex, ValueRange(), ValueRange(), ValueRange());
+      }]>,
+      OpBuilder<(ins "Value":$semaphore, "Value":$value, "ValueRange":$dstCoreIndex, "ValueRange":$startDevice, "ValueRange":$endDevice),
+      [{
+        build($_builder, $_state, semaphore, value, dstCoreIndex, ValueRange(), startDevice, endDevice);
       }]>,
     ];
 }
@@ -2562,4 +2564,22 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 
   let hasVerifier = 1;
 }
+
+// TODO: Add description (how sync works...)
+def D2M_DeviceSynchronizeOp: D2M_GenericRegionOp<"device_synchronize",
+  [AttrSizedOperandSegments, MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "Device synchronize op.";
+  let description = [{
+    Synchronize the device.
+  }];
+
+  let arguments = (ins
+    D2M_GlobalSemaphore:$sync_semaphore,
+    Variadic<Index>:$senderStartDevice,
+    Variadic<Index>:$senderEndDevice,
+    I32Attr:$numReceivers,
+    Variadic<Index>:$coreIndices
+  );
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD
