@@ -328,14 +328,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     L1Attr = MemorySpaceAttr::get(ctx, MemorySpace::DeviceL1);
     DRAMAttr = MemorySpaceAttr::get(ctx, MemorySpace::DeviceDRAM);
 
-    // Precondition: no pre-existing streams.  The allocator is the sole
-    // owner of stream insertion.
-    assert(
-        !moduleOp
-             ->walk([](d2m::StreamLayoutOp) { return WalkResult::interrupt(); })
-             .wasInterrupted() &&
-        "unexpected pre-existing stream_layout op");
-
     // Run a sequence of FuncOp-scoped steps:
 
     if (moduleOp
@@ -398,6 +390,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
 
     if (failed(assignAllocAddresses(funcOp, analysis))) {
+      return failure();
+    }
+
+    if (failed(reblockGenerics(funcOp, analysis))) {
       return failure();
     }
 
@@ -1294,7 +1290,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return success();
   }
   /// Rebuild generic ops using the planned block factors.
-  LogicalResult reblockGenerics([[maybe_unused]] func::FuncOp funcOp,
+  LogicalResult reblockGenerics(func::FuncOp funcOp,
                                 FuncAnalysisData &analysis) {
     IRRewriter rewriter(funcOp->getContext());
     llvm::MapVector<d2m::GenericOp, GenericOpContext> updatedGenerics;
@@ -1302,7 +1298,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     for (auto &[genericOp, genericCtx] : analysis.generics) {
       d2m::GenericOp oldGenericOp = genericOp;
       // Skip generics whose execution shape is already final.
-      if (genericOp.isDMAOnlyForm() || genericCtx.isExplicitDatamovement ||
+      if (oldGenericOp.isDMAOnlyForm() || genericCtx.isExplicitDatamovement ||
           oldGenericOp.getBlockFactorsValue() == genericCtx.reblockedFactors) {
         updatedGenerics.insert({oldGenericOp, std::move(genericCtx)});
         continue;
@@ -1394,7 +1390,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   ///  - modify root alloc ops and any view layout ops to be in the final
   ///    memspace decided by the planner;
   ///  - insert stream layout ops together with their stream buffer allocs.
-  ///  - fix block factors
   ///
   LogicalResult insertOperandStreams(func::FuncOp funcOp,
                                      const FuncAnalysisData &analysis) {
@@ -1645,13 +1640,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               });
         });
       }
-
-      // Fix up block factors:
-
-      const auto blockFactorsAttrName =
-          const_cast<GenericOp &>(genericOp).getBlockFactorsAttrName();
-      genericOp->setAttr(blockFactorsAttrName,
-                         rewriter.getI64ArrayAttr(genericCtx.reblockedFactors));
     }
 
     return success();

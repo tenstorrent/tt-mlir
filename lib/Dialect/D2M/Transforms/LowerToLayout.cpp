@@ -1140,17 +1140,17 @@ public:
           // shapes don't divide evenly into tiles. Decompose via scalar space:
           // untilize → map in scalar space → tilize back.
 
-          // Untilize to scalar space (preserve current layout properties).
-          // Reblock virtual grid shape here to align with earlier splitting
-          // phases that use reblocked intermediates to bounce virtual grid
-          // shapes from host to device.
+          // Untilize to scalar space while preserving the current virtual grid.
+          // The following mapping step materializes the grid change via a view;
+          // collapsing here would make the temporary generic see mismatched
+          // input/output grid shapes.
           Type scalarType = getScalarType(targetInfo.type.getElementType());
           auto untilizedType = typeBuilder.modifyDeviceType(
               currentInfo.type, *currentInfo.layout, targetGridShape,
               currentRemapping.value_or(AffineMap()),
               ttcore::MemorySpace::DeviceL1,
               /*newTensorGrid=*/{}, scalarType,
-              /*newTileShape=*/{}, /* reblockVirtualGridShapes */ true);
+              /*newTileShape=*/{}, /* reblockVirtualGridShapes */ false);
           auto untilizedEmpty = createEmpty(untilizedType);
           currentValue = lowerFormatConversionGeneric(
               rewriter, currentValue, untilizedEmpty, op.getLoc());
