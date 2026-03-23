@@ -3649,6 +3649,12 @@ def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {
   let results = (outs AnyRankedTensor:$values,
                       AnyRankedTensor:$indices);
 
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(*this);
+    }
+  }];
+
   let hasVerifier = 1;
 }
 
