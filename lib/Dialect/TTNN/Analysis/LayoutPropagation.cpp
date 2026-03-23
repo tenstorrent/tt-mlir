@@ -34,9 +34,9 @@ LayoutPropagation::LayoutPropagation(
       tensorTypePossibleLayouts(tensorTypePossibleLayouts),
       beamWidth(beamWidth) {
   if (observer) {
-    observer_ = std::move(observer);
+    this->observer = std::move(observer);
   } else {
-    observer_ = std::make_unique<LayoutPropagationObserver>();
+    this->observer = std::make_unique<LayoutPropagationObserver>();
   }
 }
 
@@ -216,8 +216,8 @@ std::optional<BeamCandidate> LayoutPropagation::evaluateHint(
         candidate.score.requiresReshard, candidate.score.coreCount,
         candidate.score.outputL1Usage, result.getFirstActualOutputLayout());
 
-    observer_->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/true,
-                            &candidate, /*failureReason=*/"");
+    observer->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/true,
+                           &candidate, /*failureReason=*/"");
 
     return candidate;
   }
@@ -240,13 +240,39 @@ std::optional<BeamCandidate> LayoutPropagation::evaluateHint(
                op->getName(), hintIdx, hintBuf, hintMem,
                formatInputLayouts(inputLayouts), anyReshard);
 
-  observer_->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/false,
-                          /*candidate=*/nullptr, result.errorMessage);
+  observer->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/false,
+                         /*candidate=*/nullptr, result.errorMessage);
 
   return std::nullopt;
 }
 
-void LayoutPropagation::recordInplaceOps(size_t &opIndex) {
+// Observer-only recording helpers. These feed the decision-trace observer
+// and do not participate in the layout propagation algorithm.
+namespace observer_recording {
+
+using BeamState =
+    llvm::DenseMap<Operation *, llvm::SmallVector<BeamCandidate, 0>>;
+
+static const BeamCandidate *
+getChosenCandidate(Operation *op, const BeamState &beamState,
+                   const llvm::DenseMap<Operation *, size_t> &finalChoice) {
+  auto it = beamState.find(op);
+  if (it == beamState.end() || it->second.empty()) {
+    return nullptr;
+  }
+  size_t chosenIdx = 0;
+  auto choiceIt = finalChoice.find(op);
+  if (choiceIt != finalChoice.end()) {
+    chosenIdx = choiceIt->second;
+  }
+  if (chosenIdx >= it->second.size()) {
+    chosenIdx = 0;
+  }
+  return &it->second[chosenIdx];
+}
+
+void recordInplaceOps(func::FuncOp func, LayoutPropagationObserver *observer,
+                      const BeamState &beamState, size_t &opIndex) {
   func->walk([&](Operation *op) {
     if (op->getNumResults() != 0) {
       return;
@@ -270,26 +296,33 @@ void LayoutPropagation::recordInplaceOps(size_t &opIndex) {
     if (!hasTrackedProducer) {
       return;
     }
-    observer_->onInplaceOp(info);
+    observer->onInplaceOp(info);
     ++opIndex;
   });
 }
 
-void LayoutPropagation::recordFinalChoices() {
+void recordFinalChoices(
+    func::FuncOp func, LayoutPropagationObserver *observer,
+    const BeamState &beamState,
+    const llvm::DenseMap<Operation *, size_t> &finalChoice) {
   size_t finalIdx = 0;
   func->walk([&](Operation *op) {
-    const BeamCandidate *chosen = getChosenCandidate(op);
+    const BeamCandidate *chosen =
+        getChosenCandidate(op, beamState, finalChoice);
     if (!chosen) {
       return;
     }
-    observer_->onFinalChoice(op, finalIdx, *chosen);
+    observer->onFinalChoice(op, finalIdx, *chosen);
     ++finalIdx;
   });
 }
 
-void LayoutPropagation::recordEdges() {
+void recordEdges(func::FuncOp func, LayoutPropagationObserver *observer,
+                 const BeamState &beamState,
+                 const llvm::DenseMap<Operation *, size_t> &finalChoice) {
   func->walk([&](Operation *consumerOp) {
-    const BeamCandidate *chosen = getChosenCandidate(consumerOp);
+    const BeamCandidate *chosen =
+        getChosenCandidate(consumerOp, beamState, finalChoice);
     if (!chosen) {
       return;
     }
@@ -310,20 +343,22 @@ void LayoutPropagation::recordEdges() {
         if (auto opResult = mlir::dyn_cast<OpResult>(operand)) {
           producerResultIdx = opResult.getResultNumber();
         }
-        observer_->onEdge(producerOp, consumerOp, tensorOperandIdx,
-                          producerResultIdx, hasReshard, reshardLayout);
+        observer->onEdge(producerOp, consumerOp, tensorOperandIdx,
+                         producerResultIdx, hasReshard, reshardLayout);
       }
       ++tensorOperandIdx;
     }
   });
 }
 
+} // namespace observer_recording
+
 void LayoutPropagation::run() {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "LayoutPropagation::run() starting for func {0}",
                func.getName());
 
-  observer_->onStart(func.getName(), beamWidth);
+  observer->onStart(func.getName(), beamWidth);
 
   size_t opIndex = 0;
   // Forward pass: propagate layouts in topological (IR) order.
@@ -383,7 +418,8 @@ void LayoutPropagation::run() {
     ++opIndex;
   });
 
-  recordInplaceOps(opIndex);
+  observer_recording::recordInplaceOps(func, observer.get(), beamState,
+                                       opIndex);
 
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "LayoutPropagation: processed {0} ops with beamWidth={1}",
@@ -394,10 +430,11 @@ void LayoutPropagation::run() {
     consolidateBeam();
   }
 
-  recordFinalChoices();
-  recordEdges();
+  observer_recording::recordFinalChoices(func, observer.get(), beamState,
+                                         finalChoice);
+  observer_recording::recordEdges(func, observer.get(), beamState, finalChoice);
 
-  observer_->onEnd(opIndex);
+  observer->onEnd(opIndex);
 
   // Apply resolved configs to IR.
   applyToIR();
@@ -422,7 +459,7 @@ LayoutPropagation::processOp(Operation *op) {
     crossProduct *= set.size();
   }
 
-  observer_->onOpSetup(op, inputCandidateSets, outputHints, crossProduct);
+  observer->onOpSetup(op, inputCandidateSets, outputHints, crossProduct);
 
   // Log search space dimensions.
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
@@ -603,7 +640,7 @@ LayoutPropagation::processOp(Operation *op) {
     usedDramFallback = true;
   }
 
-  observer_->onBeamResult(op, candidates, usedDramFallback);
+  observer->onBeamResult(op, candidates, usedDramFallback);
 
   return candidates;
 }
@@ -1080,7 +1117,7 @@ void LayoutPropagation::consolidateBeam() {
               }
             }
           }
-          observer_->onForkResolved(producer, finalChoice[producer], consumers);
+          observer->onForkResolved(producer, finalChoice[producer], consumers);
 
           // Patch reshardLayouts for consumers that assumed a different
           // producer candidate. Without this, applyToIR won't insert a
