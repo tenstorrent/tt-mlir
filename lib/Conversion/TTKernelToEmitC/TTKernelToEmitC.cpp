@@ -1426,6 +1426,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricMulticastWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricSemIncOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::FabricMulticastSemIncOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::CreateFabricConnectionManagerOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SetupFabricConnectionsOp>,

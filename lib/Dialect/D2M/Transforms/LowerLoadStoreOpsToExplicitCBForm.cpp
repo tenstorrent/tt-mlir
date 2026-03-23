@@ -414,9 +414,10 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
 
       // Create the explicit CB form of remote_store (no local buffer, has CB)
       // d2m.remote_store %memref[indices] from %cb
-      rewriter.create<RemoteStoreOp>(loc, memref, remoteStore.getIndices(),
-                                     assocCb, remoteStore.getStartDevice(),
-                                     remoteStore.getEndDevice());
+      rewriter.create<RemoteStoreOp>(
+          loc, memref, remoteStore.getIndices(), assocCb,
+          remoteStore.getStartDevice(), remoteStore.getEndDevice(),
+          remoteStore.getSemaphore(), remoteStore.getSemaphoreIndices());
 
       // Track the reserve op for push insertion (avoid duplicates).
       if (reserveOp && cbsWithReserveOps.insert(assocCb).second) {
