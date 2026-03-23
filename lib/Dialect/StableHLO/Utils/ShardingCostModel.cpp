@@ -27,8 +27,7 @@ ShardingResult ShardingCostModel::evaluate(ModuleOp module,
   commCost += evaluateOutputShardingCost(module, maxElements);
   double memBenefit =
       evaluateMemoryBenefit(config, originalFuncOp, meshAxisSize, maxElements);
-  memBenefit +=
-      evaluateComputeBenefit(module, originalFuncOp, maxElements);
+  memBenefit += evaluateComputeBenefit(module, originalFuncOp);
   return {commCost, memBenefit, commCost - memBenefit};
 }
 
@@ -133,10 +132,10 @@ double ShardingCostModel::evaluateCommunicationCost(ModuleOp module,
 // tensors across the mesh saves memory proportional to the element count.
 // Benefit is normalized relative to the largest argument.
 //
-// Weight/parameter tensors (heuristic: rank <= 2 with > 1024 elements) get a
-// higher multiplier because they are persistent on device and dominate peak
-// memory in large models. Activations (rank > 2, typically with a batch dim)
-// are transient and less valuable to shard for memory.
+// Large tensors (at least 25% of the largest argument) get a higher multiplier
+// because sharding them yields significant memory and compute savings. This
+// applies to both weight matrices (rank 2) and attention Q/K/V tensors
+// (rank 4 with head dimensions). Small tensors get a base multiplier of 1.0.
 double ShardingCostModel::evaluateMemoryBenefit(const ShardingConfig &config,
                                                 func::FuncOp funcOp,
                                                 int64_t meshAxisSize,
@@ -160,7 +159,7 @@ double ShardingCostModel::evaluateMemoryBenefit(const ShardingConfig &config,
     int64_t numElements = tensorType.getNumElements();
 
     double typeMultiplier = 1.0;
-    if (tensorType.getRank() <= 2 && numElements > 1024) {
+    if (numElements > 1024 && numElements * 4 >= maxElements) {
       typeMultiplier = options.parameterMultiplier;
     }
 
@@ -174,17 +173,14 @@ double ShardingCostModel::evaluateMemoryBenefit(const ShardingConfig &config,
 // Estimate compute benefit from sharding by comparing total dot_general FLOPs
 // between the sharded module and the original (unsharded) module.
 // Sharding reduces tensor dimensions, producing smaller matmuls. The benefit
-// is proportional to the FLOPs reduction normalized by the original FLOPs.
+// is the fraction of FLOPs saved, which directly represents the compute
+// speedup from parallelism (e.g., halving heads in SDPA saves 50% of FLOPs).
 double ShardingCostModel::evaluateComputeBenefit(
-    ModuleOp module, func::FuncOp originalFuncOp,
-    int64_t maxElements) const {
+    ModuleOp module, func::FuncOp originalFuncOp) const {
   if (options.computeBenefitWeight <= 0.0) {
     return 0.0;
   }
 
-  // Sum FLOPs from dot_general ops in the sharded module.
-  // For a dot_general: FLOPs ≈ 2 * product_of_output_dims *
-  // product_of_contracting_dims.
   auto sumDotFlops = [](Operation *rootOp) -> double {
     double totalFlops = 0.0;
     rootOp->walk([&](mlir::stablehlo::DotGeneralOp dotOp) {
@@ -222,10 +218,8 @@ double ShardingCostModel::evaluateComputeBenefit(
     return 0.0;
   }
 
-  double maxElementsDbl = static_cast<double>(maxElements);
   double normalizedSavings = flopsSaved / originalFlops;
-  return options.computeBenefitWeight * normalizedSavings *
-         (originalFlops / (maxElementsDbl * maxElementsDbl));
+  return options.computeBenefitWeight * normalizedSavings;
 }
 
 // Estimate cost of sharded function outputs that need gathering.

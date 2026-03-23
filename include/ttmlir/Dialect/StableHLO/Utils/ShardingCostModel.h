@@ -73,8 +73,8 @@ private:
                                func::FuncOp funcOp, int64_t meshAxisSize,
                                int64_t maxElements) const;
 
-  double evaluateComputeBenefit(ModuleOp module, func::FuncOp originalFuncOp,
-                                int64_t maxElements) const;
+  double evaluateComputeBenefit(ModuleOp module,
+                                func::FuncOp originalFuncOp) const;
 
   double evaluateOutputShardingCost(ModuleOp module,
                                     int64_t maxElements) const;
