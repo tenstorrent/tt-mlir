@@ -115,13 +115,12 @@ private:
 
   // Extract the reduce dimensions as normalized (non-negative) int64 values.
   SmallVector<int64_t> getReduceDimValues(ReduceOpType op) const {
-    SmallVector<int64_t> dims;
     int64_t rank = op.getInput().getType().getRank();
-    for (Attribute attr : op.getDimArg()->getValue()) {
-      int64_t d = cast<IntegerAttr>(attr).getInt();
-      dims.push_back(d < 0 ? d + rank : d);
-    }
-    return dims;
+    return llvm::to_vector(llvm::map_range(
+        op.getDimArg()->getValue(), [rank](Attribute attr) -> int64_t {
+          int64_t d = cast<IntegerAttr>(attr).getInt();
+          return d < 0 ? d + rank : d;
+        }));
   }
 
   // Contract a rank-N permutation to rank-(N-|removed|) by dropping the given
@@ -186,9 +185,9 @@ private:
     return result;
   }
 
-  // Create a new reduce op with permuted dimensions. For keep_dim=true the
-  // rank is preserved, so we permute the old output shape directly. For
-  // keep_dim=false we derive the shape from the input by dropping reduced dims.
+  // Create a new reduce op with permuted dimensions. The output shape is
+  // derived from the new input shape and permuted reduce dims, handling both
+  // keep_dim=true and keep_dim=false uniformly.
   ReduceOpType createNewReduceOpWithPermutedDims(
       ReduceOpType op, Value newInput, ArrayRef<int64_t> permutation,
       PatternRewriter &rewriter, bool inverseDimPermute = false) const {
@@ -199,21 +198,18 @@ private:
     ArrayAttr newDimArgAttrs =
         permuteDims(*op.getDimArg(), dimPermutation, rewriter);
 
+    auto inputShape = cast<RankedTensorType>(newInput.getType()).getShape();
+    llvm::SmallDenseSet<int64_t> reducedDimSet;
+    for (Attribute attr : newDimArgAttrs.getValue()) {
+      reducedDimSet.insert(cast<IntegerAttr>(attr).getInt());
+    }
+
     SmallVector<int64_t> newReduceShape;
-    if (op.getKeepDim()) {
-      auto shapePerm = inverseDimPermute ? permutation : inversePermutation;
-      newReduceShape =
-          ttmlir::utils::applyPermutation(op.getType().getShape(), shapePerm);
-    } else {
-      auto inputShape = cast<RankedTensorType>(newInput.getType()).getShape();
-      llvm::SmallDenseSet<int64_t> reducedDimSet;
-      for (Attribute attr : newDimArgAttrs.getValue()) {
-        reducedDimSet.insert(cast<IntegerAttr>(attr).getInt());
-      }
-      for (auto [i, dim] : llvm::enumerate(inputShape)) {
-        if (!reducedDimSet.count(i)) {
-          newReduceShape.push_back(dim);
-        }
+    for (auto [i, dim] : llvm::enumerate(inputShape)) {
+      if (!reducedDimSet.count(i)) {
+        newReduceShape.push_back(dim);
+      } else if (op.getKeepDim()) {
+        newReduceShape.push_back(1);
       }
     }
 
