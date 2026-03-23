@@ -15,7 +15,7 @@ module {
     return %3 : tensor<1x5x64x64xbf16>
   }
 
-  // Only input A squeezed -- pattern does not fire (rank mismatch).
+  // Only input A squeezed -- pattern does not fire (both inputs must be merged).
   func.func @matmul_one_input_squeezed(%arg0: tensor<1x64x128xbf16>, %arg1: tensor<128x32xbf16>) -> tensor<1x64x32xbf16> {
     // CHECK-LABEL: @matmul_one_input_squeezed
     // CHECK: "ttir.reshape"
@@ -27,7 +27,7 @@ module {
     return %2 : tensor<1x64x32xbf16>
   }
 
-  // Only input B squeezed -- pattern does not fire (rank mismatch).
+  // Only input B squeezed -- pattern does not fire (both inputs must be merged).
   func.func @matmul_one_input_b_squeezed(%arg0: tensor<64x128xbf16>, %arg1: tensor<1x128x32xbf16>) -> tensor<1x64x32xbf16> {
     // CHECK-LABEL: @matmul_one_input_b_squeezed
     // CHECK: "ttir.reshape"
@@ -39,8 +39,8 @@ module {
     return %2 : tensor<1x64x32xbf16>
   }
 
-  // Only one input squeezed, batch dim > 1 -- pattern does not fire (rank
-  // mismatch would produce mixed-rank matmul that TTNN rejects).
+  // Only one input squeezed -- pattern does not fire (both inputs must be
+  // merged).
   func.func @matmul_one_input_squeezed_batch_gt1(%arg0: tensor<1x12x577x64xbf16>, %arg1: tensor<12x577x577xbf16>) -> tensor<1x12x577x64xbf16> {
     // CHECK-LABEL: @matmul_one_input_squeezed_batch_gt1
     // CHECK: "ttir.reshape"
@@ -91,7 +91,8 @@ module {
     return %3 : tensor<1x5x64x64xbf16>
   }
 
-  // Non-leading squeeze (middle dim) -- pattern does not fire.
+  // Non-leading squeeze (middle dim) -- pattern does not fire (only one input
+  // merged).
   func.func @matmul_non_leading_squeeze(%arg0: tensor<5x1x64x32xbf16>, %arg1: tensor<5x32x64xbf16>) -> tensor<5x1x64x64xbf16> {
     // CHECK-LABEL: @matmul_non_leading_squeeze
     // CHECK: "ttir.reshape"
@@ -117,8 +118,8 @@ module {
     return %3 : tensor<1x1x5x64x64xbf16>
   }
 
-    // One original matmul operand is 1D after squeeze. Pattern must not fire
-  // because un-squeezing would change 1D matmul semantics.
+  // One original matmul operand is 1D after squeeze -- pattern does not fire
+  // (only one input merged).
   func.func @matmul_rank1_operand_no_rewrite(%arg0: tensor<64x32xbf16>, %arg1: tensor<1x32xbf16>) -> tensor<1x64xbf16> {
     // CHECK-LABEL: @matmul_rank1_operand_no_rewrite
     // CHECK: "ttir.reshape"
@@ -130,8 +131,7 @@ module {
     return %2 : tensor<1x64xbf16>
   }
 
-  // Leading unsqueeze cannot be absorbed when batch-prefix broadcast would
-  // drop the added leading-1 dimension. Pattern must not fire.
+  // Only one input merged with broadcast prefix -- pattern does not fire.
   func.func @matmul_non_absorbable_broadcast_prefix(%arg0: tensor<1x5x64x32xbf16>, %arg1: tensor<7x5x32x64xbf16>) -> tensor<1x7x5x64x64xbf16> {
     // CHECK-LABEL: @matmul_non_absorbable_broadcast_prefix
     // CHECK: "ttir.reshape"
