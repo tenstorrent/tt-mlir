@@ -10,6 +10,7 @@
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OperationSupport.h"
@@ -21,6 +22,8 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 
 namespace mlir::tt::d2m {
+
+struct ParallelizedGeneric;
 
 inline void getDpsEffects(
     DestinationStyleOpInterface op,
@@ -50,5 +53,15 @@ inline void getDpsEffects(
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h.inc"
+
+namespace mlir::tt::d2m {
+
+struct ParallelizedGeneric {
+  SmallVector<ViewLayoutOp> operands;
+  GenericOp genericOp;
+  ViewLayoutOp returnView;
+};
+
+} // namespace mlir::tt::d2m
 
 #endif // TTMLIR_DIALECT_D2M_IR_D2MOPS_H

@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Target/Common/Target.h"
@@ -219,6 +220,8 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
     return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
   case ttnn::TensorMemoryLayout::BlockSharded:
     return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
+  case ttnn::TensorMemoryLayout::NDSharded:
+    return ::tt::target::ttnn::TensorMemoryLayout::NDSharded;
   }
 }
 
@@ -295,8 +298,6 @@ toFlatbuffer(FlatbufferObjectCache &,
 inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &,
                                        ttcore::ArchAttr arch) {
   switch (arch.getValue()) {
-  case ttcore::Arch::Grayskull:
-    return ::tt::target::Arch::Grayskull;
   case ttcore::Arch::WormholeB0:
     return ::tt::target::Arch::Wormhole_b0;
   case ttcore::Arch::Blackhole:
@@ -778,6 +779,17 @@ toFlatbuffer(FlatbufferObjectCache &cache,
       toFlatbuffer(cache, sdpaConfigAttr.getMaxCoresPerHeadBatch()));
 }
 
+inline ::flatbuffers::Offset<
+    ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::LayerNormShardedMultiCoreProgramConfigAttr configAttr) {
+  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
+      toFlatbuffer(cache, configAttr.getComputeWithStorageGridSize());
+  return ::tt::target::ttnn::CreateLayerNormShardedMultiCoreProgramConfig(
+      *cache.fbb, &computeWithStorageGridSize, configAttr.getSubblockW(),
+      configAttr.getBlockH(), configAttr.getBlockW(), configAttr.getInplace());
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
   ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> activation;
@@ -1181,8 +1193,32 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
   case ttcore::Topology::Torus:
     fbTopology = ::tt::target::Topology::Torus;
     break;
+  case ttcore::Topology::Disabled:
+    llvm_unreachable("Disabled topology cannot be serialized to flatbuffer");
   }
   return fbTopology;
+}
+
+inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
+                                           ttmetal::NocIndex nocIndex) {
+  switch (nocIndex) {
+  case ttmetal::NocIndex::Noc0:
+    return ::tt::target::NocIndex::Noc0;
+  case ttmetal::NocIndex::Noc1:
+    return ::tt::target::NocIndex::Noc1;
+  }
+  assert(false && "Unsupported NocIndex");
+}
+
+inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
+                                           ttnn::NocIndex nocIndex) {
+  switch (nocIndex) {
+  case ttnn::NocIndex::Noc0:
+    return ::tt::target::NocIndex::Noc0;
+  case ttnn::NocIndex::Noc1:
+    return ::tt::target::NocIndex::Noc1;
+  }
+  assert(false && "Unsupported NocIndex");
 }
 
 } // namespace mlir::tt

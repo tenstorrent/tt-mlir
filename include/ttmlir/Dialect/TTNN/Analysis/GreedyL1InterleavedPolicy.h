@@ -23,10 +23,10 @@ public:
     uint64_t requiredL1Usage;
   };
 
-  // This struct is holding information about the greedily choosen
+  // This struct is holding information about the greedily chosen
   // configuration of the @baseOp: 1) configs and 2) precedence.
   //
-  // The @configs represents the mapping between the op and its choosen
+  // The @configs represents the mapping between the op and its chosen
   // config. All the ops that are included in the @configs map must be
   // either @baseOp or its operand with legal L1 Interleaved output layout
   // at the moment of analyzing the @baseOp.
@@ -50,10 +50,9 @@ public:
   GreedyL1InterleavedPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
-      llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
-      unsigned usableL1CacheSize)
+      llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule)
       : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalConfigs,
-                                   schedule, usableL1CacheSize) {}
+                                   schedule) {}
 
   /**
    * Retrieve the greedy OpConfig for the given base operation
@@ -74,6 +73,10 @@ public:
   void run() final;
 
 private:
+  // Effective L1 cache size scaled by tensorL1UsageCap from module attribute.
+  // Calculated once at the start of run() using utils::getTensorL1UsageCap().
+  uint64_t usableL1CacheSize;
+
   // Check if the op is analyzable. Op is analyzable if it has at least one
   // legal config.
   bool isAnalyzable(Operation *op);

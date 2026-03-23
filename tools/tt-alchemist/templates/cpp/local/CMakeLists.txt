@@ -64,7 +64,7 @@ set(INCLUDE_DIRS
     ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
     ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
     ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-    ${CPM_SOURCE_CACHE}/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e/include
+    ${CPM_SOURCE_CACHE}/tt-logger/d2339ce68562cae34cd95f3fece7fd94eb0529b7/include
 
     # Metalium
     ${METAL_SRC_DIR}
@@ -72,7 +72,6 @@ set(INCLUDE_DIRS
     ${METAL_SRC_DIR}/tt_metal/api
     ${METAL_SRC_DIR}/tt_metal/hostdevcommon/api
     ${METAL_SRC_DIR}/tt_metal/hw/inc
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/grayskull
     ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole/wormhole_b0_defines
     ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole
     ${METAL_SRC_DIR}/tt_metal/hw/inc/blackhole
@@ -85,7 +84,6 @@ set(INCLUDE_DIRS
     ${METAL_SRC_DIR}/tt_metal/third_party/tracy/public
     ${METAL_SRC_DIR}/tt_metal/third_party/umd
     ${METAL_SRC_DIR}/tt_metal/third_party/umd/device/api
-    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/grayskull
     ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/wormhole
     ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/blackhole
 

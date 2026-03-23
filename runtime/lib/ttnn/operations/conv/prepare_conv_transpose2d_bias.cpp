@@ -55,7 +55,7 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dBiasOp *op,
         ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
   }
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> conv2dConfig;
+  std::optional<::ttnn::Conv2dConfig> conv2dConfig;
   if (op->conv2d_config()) {
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
   }
@@ -68,6 +68,10 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dBiasOp *op,
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfig;
+  if (op->conv2d_slice_config()) {
+    sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
+  }
   ::ttnn::Tensor out =
       ::ttnn::operations::conv::conv_transpose2d::prepare_conv_transpose2d_bias(
           biasTensor, *inputMemoryConfig,
@@ -75,7 +79,7 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dBiasOp *op,
           op->in_channels(), op->out_channels(), op->batch_size(),
           op->input_height(), op->input_width(), kernelSize, stride, padding,
           dilation, op->groups(), &targetDevice, inputDtype, outputDtype,
-          conv2dConfig, computeConfig, std::nullopt);
+          conv2dConfig, computeConfig, sliceConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

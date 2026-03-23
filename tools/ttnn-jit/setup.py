@@ -52,11 +52,11 @@ class CMakeBuild(build_ext):
     @staticmethod
     def get_python_version() -> str:
         """
-        Parse TTMLIR_PYTHON_VERSION environment variable. This is needed bc tt-metal will use Python3.10 while tt-mlir will use Python3.11.
+        Parse TTMLIR_PYTHON_VERSION environment variable. This is needed bc tt-metal will use Python3.10 while tt-mlir will use Python3.12.
             eg: TTMLIR_PYTHON_VERSION="python3.10" -> "cpython-310"
                 TTMLIR_PYTHON_VERSION="3.10" -> "cpython-310"
         """
-        python_version_env = os.getenv("TTMLIR_PYTHON_VERSION", "python3.11")
+        python_version_env = os.getenv("TTMLIR_PYTHON_VERSION", "python3.12")
         match = re.search(r"(\d+)\.(\d+)", python_version_env)
 
         if match:
@@ -64,7 +64,7 @@ class CMakeBuild(build_ext):
             minor = match.group(2)
             return f"cpython-{major}{minor}"
 
-        return "cpython-311"
+        return "cpython-312"
 
     @staticmethod
     def get_working_dir():
@@ -126,6 +126,7 @@ class CMakeBuild(build_ext):
                 "-DTTMLIR_ENABLE_OPMODEL=OFF",
                 "-DTTMLIR_ENABLE_TESTS=OFF",
                 "-DTTMLIR_ENABLE_ALCHEMIST=OFF",
+                "-DTT_USE_SYSTEM_SFPI=ON",
             ]
             cmake_args.extend(["-S", str(source_dir)])
             print(f"Running CMake configure: {' '.join(cmake_args)}")
@@ -249,6 +250,7 @@ setup(
     package_dir={"ttnn_jit": "."},
     ext_modules=[ttnn_jit_ext],
     cmdclass={"build_ext": CMakeBuild},
+    install_requires=["ttmlir"],
     python_requires=">=3.10",  # tt-metal uses python3.10
     zip_safe=False,
 )

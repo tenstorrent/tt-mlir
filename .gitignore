@@ -5,7 +5,7 @@ third_party/ttnn-python
 .DS_STORE
 .vscode/*
 .cache
-.claude/*
+.claude/settings.local.json
 *pycache*
 *.egg-info
 cluster_descriptor.yaml
@@ -42,9 +42,11 @@ test/lit.site.cfg.py
 
 # Root level mlir files (often used for testing, none should be at root)
 /*.mlir
+env/build/
 
 # Root level log files (various tools generate logs)
 /*.log
+/*.mlir
 
 # Obsidian editor files
 .obsidian/

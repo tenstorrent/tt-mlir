@@ -71,3 +71,29 @@ module @FlattenCompositeGrouping attributes {mhlo.cross_program_prefetches = [],
     return %12 : tensor<32x32xf32>
   }
 }
+
+// -----
+
+// Test that flattening a composite with two external captures annotates the
+// cloned op with reoutline.arg_operand_indices recording the original operand
+// positions.
+
+module @FlattenCompositeArgIndices attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  sdy.mesh @mesh = <["_axis_0_updated"=1, "_axis_0"=2]>
+  func.func @main(
+    %arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"_axis_0"}]>, ttcore.shard_status = #ttcore.shard_status<presharded>},
+    %arg1: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"_axis_0"}]>, ttcore.shard_status = #ttcore.shard_status<presharded>}
+  ) -> (tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+    // CHECK: stablehlo.subtract
+    // CHECK-SAME: reoutline.arg_operand_indices = array<i64: 0, 1>
+    // CHECK-SAME: reoutline.group = "composite_test.subtract.impl"
+    // CHECK-SAME: reoutline.orig_name = "test.subtract"
+    // CHECK-SAME: reoutline.seed
+    %0 = stablehlo.composite "test.subtract" %arg0, %arg1 {composite_attributes = {}, decomposition = @test.subtract.impl} : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    return %0 : tensor<32x32xf32>
+  }
+  func.func private @test.subtract.impl(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
+    %0 = stablehlo.subtract %arg0, %arg1 : tensor<32x32xf32>
+    return %0 : tensor<32x32xf32>
+  }
+}

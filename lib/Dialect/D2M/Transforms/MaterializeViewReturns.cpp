@@ -3,10 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
@@ -51,14 +54,11 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   TT_assertv(layout != nullptr, "Expected MetalLayoutAttr pre-bufferization");
 
   // Allocate output storage for the materialized view result.
-  // We create a new layout without the index map - the source layout's index
-  // map describes how to access the underlying storage with a transformed
-  // layout, but the new allocation should be identity-mapped fresh storage.
+  // Create a new layout for fresh storage (no remapping on the layout attr).
   auto newLayout = ttcore::MetalLayoutAttr::get(
       builder.getContext(), layout.getLogicalShape(), layout.getDimAlignments(),
       layout.getCollapsedIntervals(), layout.getOobVal(),
-      layout.getMemorySpace(), layout.getMemoryLayout(),
-      builder.getEmptyAffineMap());
+      layout.getMemorySpace(), layout.getMemoryLayout());
   auto emptyOp = builder.create<d2m::EmptyOp>(
       loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
 
@@ -74,23 +74,31 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
                                                          /*arity=*/2, rank);
 
   // Create a datamovement generic op that materializes the view.
-  // The region reserves the output circular buffer, issues a DMA to fetch data
-  // from the view (which applies the affine transformation), waits for the DMA
-  // to complete, then yields the output buffer.
-  auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+  auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+  AffineMap indexingMap = indexingMapAttr.getValue();
   auto genericOp = builder.create<GenericOp>(
-      loc, viewResult, emptyOp.getResult(),
-      [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-        Value outputCB =
-            builder.create<d2m::ReserveOp>(loc, blockArgs[1]).getResult();
-        // Issue a DMA from the view to the output buffer.
-        // The DMA will fetch data according to the view's affine map.
-        auto dma =
-            builder.create<d2m::DMAOp>(loc, viewResult, indexingMap, outputCB);
-        builder.create<d2m::DMAWaitOp>(loc, dma);
-        builder.create<d2m::YieldOp>(loc, outputCB);
+      loc, viewResult, emptyOp.getResult(), /*additionalArgs=*/ValueRange(),
+      [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+        SmallVector<Value> indices =
+            utils::buildGridIndices(builder, innerLoc, indexingMap);
+        // operandAllocs are tensor.empty results with shard shapes,
+        // one per generic operand.
+        Type inputShardType = blockArgs[0].getType();
+        Value inputBuffer = blockArgs[0];
+
+        Value loadedData =
+            builder
+                .create<RemoteLoadOp>(innerLoc, inputShardType, inputBuffer,
+                                      viewResult, indices)
+                .getResult();
+        Value storeResult =
+            builder
+                .create<RemoteStoreOp>(innerLoc, emptyOp.getType(),
+                                       emptyOp.getResult(), indices, loadedData)
+                .getResult();
+        builder.create<d2m::YieldOp>(innerLoc, storeResult);
       },
-      ThreadType::Datamovement, grid, SmallVector<int64_t>{1, 1});
+      ThreadType::Unified, grid, SmallVector<int64_t>{1, 1});
 
   return genericOp.getResult(0);
 }
@@ -105,17 +113,15 @@ public:
     ModuleOp module = getOperation();
     OpBuilder builder(&getContext());
 
-    // Process each function in the module to find unmaterialized view returns.
+    // Process each function in the module to find unmaterialized views.
     module.walk([&](func::FuncOp funcOp) {
+      // Case 1: Direct view return (should not happen with proper pipelines).
       funcOp.walk([&](func::ReturnOp returnOp) {
         builder.setInsertionPoint(returnOp);
 
         // Inspect each return operand to determine if it needs materialization.
         for (OpOperand &opOperand : returnOp->getOpOperands()) {
           Operation *definingOp = opOperand.get().getDefiningOp();
-
-          // Case 1: Direct view return (should not happen with proper
-          // pipelines).
           if (isViewOp(definingOp)) {
             // Insert a generic op to materialize the view before returning.
             // This ensures the tensor transformation represented by the view
@@ -123,30 +129,30 @@ public:
             Value materialized =
                 materializeView(builder, returnOp.getLoc(), opOperand.get());
             opOperand.set(materialized);
-            continue;
           }
+        }
+      });
 
-          // Case 2: View consumed by device-to-host ToHostOp before return.
-          // Pattern: %view = view_layout ... -> %host = to_host %view ->
-          // return %host. We need to materialize the view BEFORE the
-          // device-to-host transfer.
-          auto toLayoutOp =
-              mlir::dyn_cast_if_present<d2m::ToLayoutOp>(definingOp);
-          bool isToHostOp = mlir::isa_and_nonnull<d2m::ToHostOp>(definingOp) ||
-                            (toLayoutOp && toLayoutOp.isDeviceToHost());
-          if (isToHostOp) {
-            Value toHostInput = definingOp->getOperand(0);
-            Operation *inputDefiningOp = toHostInput.getDefiningOp();
+      // Case 2: View consumed by ToHostOp (or ToLayoutOp that is
+      // device-to-host). This can happen before the return, or in the middle of
+      // the function for the return-to-host-then-fetch-back pattern.
+      // Materialize the view BEFORE the device-to-host transfer.
+      funcOp.walk([&](Operation *op) {
+        auto toLayoutOp = mlir::dyn_cast_if_present<d2m::ToLayoutOp>(op);
+        bool isToHostOp = mlir::isa_and_nonnull<d2m::ToHostOp>(op) ||
+                          (toLayoutOp && toLayoutOp.isDeviceToHost());
 
-            if (isViewOp(inputDefiningOp)) {
-              // Materialize the view before the device-to-host transfer.
-              builder.setInsertionPoint(definingOp);
-              Value materialized =
-                  materializeView(builder, definingOp->getLoc(), toHostInput);
+        if (isToHostOp) {
+          Value toHostInput = op->getOperand(0);
+          Operation *inputDefiningOp = toHostInput.getDefiningOp();
 
-              // Update the ToHostOp to use the materialized value.
-              definingOp->setOperand(0, materialized);
-            }
+          if (isViewOp(inputDefiningOp)) {
+            // Materialize the view before the device-to-host transfer.
+            builder.setInsertionPoint(op);
+            Value materialized =
+                materializeView(builder, op->getLoc(), toHostInput);
+            // Update the ToHostOp to use the materialized value.
+            op->setOperand(0, materialized);
           }
         }
       });

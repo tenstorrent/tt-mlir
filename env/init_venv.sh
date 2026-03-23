@@ -7,7 +7,7 @@ set -e
 
 export _ACTIVATE_SUPPRESS_INIT_WARNING=1
 ENV_DIR=${ENV_DIR:-$(git rev-parse --show-toplevel)/env}
-TTMLIR_PYTHON_VERSION="${TTMLIR_PYTHON_VERSION:-python3.11}"
+TTMLIR_PYTHON_VERSION="${TTMLIR_PYTHON_VERSION:-python3.12}"
 
 source $ENV_DIR/activate
 
@@ -30,3 +30,5 @@ python -m pip install --upgrade pip
 pip install --no-cache-dir -r $ENV_DIR/build-requirements.txt
 pip install --no-cache-dir -r $ENV_DIR/ttnn-requirements.txt
 pip install --no-cache-dir -r $ENV_DIR/../test/python/requirements.txt
+
+$ENV_DIR/install-tt-triage.sh || echo "Warning: install-tt-triage.sh failed; continuing"

@@ -45,13 +45,11 @@ def TTCore_DataType : I32EnumAttr<"DataType", "TT DataTypes",
   let symbolToStringFnName = "DataTypeEnumToString";
 }
 
-def TTCore_Grayskull : I32EnumAttrCase<"Grayskull", 0, "grayskull">;
 def TTCore_WormholeB0 : I32EnumAttrCase<"WormholeB0", 1, "wormhole_b0">;
 def TTCore_Blackhole : I32EnumAttrCase<"Blackhole", 2, "blackhole">;
 
 def TTCore_Arch : I32EnumAttr<"Arch", "TT Arch",
                            [
-                            TTCore_Grayskull,
                             TTCore_WormholeB0,
                             TTCore_Blackhole,
                            ]> {
@@ -230,6 +228,7 @@ def TTCore_Topology_Ring  : I32EnumAttrCase<"Ring",  0, "ring">;
 def TTCore_Topology_Linear : I32EnumAttrCase<"Linear",  1, "linear">;
 def TTCore_Topology_Mesh : I32EnumAttrCase<"Mesh",  2, "mesh">;
 def TTCore_Topology_Torus : I32EnumAttrCase<"Torus",  3, "torus">;
+def TTCore_Topology_Disabled : I32EnumAttrCase<"Disabled",  4, "disabled">;
 
 def TTCore_Topology: I32EnumAttr<"Topology", "CCL Topology Type",
                           [
@@ -237,6 +236,7 @@ def TTCore_Topology: I32EnumAttr<"Topology", "CCL Topology Type",
                            TTCore_Topology_Linear,
                            TTCore_Topology_Mesh,
                            TTCore_Topology_Torus,
+                           TTCore_Topology_Disabled,
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttcore";

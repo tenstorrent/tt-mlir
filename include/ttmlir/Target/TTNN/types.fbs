@@ -7,6 +7,7 @@ enum TensorMemoryLayout: ushort {
   HeightSharded,
   WidthSharded,
   BlockSharded,
+  NDSharded,
 }
 
 enum StorageType: ushort {
@@ -22,6 +23,11 @@ enum ShardOrientation: uint32 {
 enum ShardDistributionStrategy: uint32 {
   RoundRobin1D,
   Grid2D,
+}
+
+enum ShardStatus: uint32 {
+  Presharded,
+  Unsharded,
 }
 
 struct CoreCoord {
@@ -90,6 +96,8 @@ table TensorDesc {
   shape: [int];
   mesh_shape: [int32];
   layout: LayoutDesc;
+  shard_status: ShardStatus;
+  local_shape: [int];
 }
 
 table TensorRef {
@@ -97,12 +105,21 @@ table TensorRef {
   desc: TensorDesc;
 }
 
+table GlobalSemaphoreRef {
+  global_id: uint32;
+}
+
 table FloatingPointType {
   value: float;
 }
 
-table UIntegralType {
-  value: uint32;
+table IntegralType {
+  value: int32;
+}
+
+union NumberType {
+  FP: FloatingPointType,
+  I32: IntegralType,
 }
 
 enum PlacementType: ushort {
@@ -123,4 +140,13 @@ table MeshMapperConfig {
 table MeshComposerConfig {
   dims: [int32];
   mesh_shape_override: [uint32];
+}
+
+table MeshCoord {
+  coords: [uint32];
+}
+
+table MeshCoordRange {
+  start: MeshCoord;
+  end: MeshCoord;
 }

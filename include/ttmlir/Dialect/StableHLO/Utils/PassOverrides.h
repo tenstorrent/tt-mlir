@@ -12,8 +12,11 @@ namespace mlir::tt::stablehlo {
 #ifdef TTMLIR_ENABLE_STABLEHLO
 struct OptionNames {
   static constexpr llvm::StringRef meshShape = "mesh-shape";
+  static constexpr llvm::StringRef resultPresharded = "result-presharded";
   static constexpr llvm::StringRef automaticArgAnalysis =
       "automatic-arg-analysis";
+  static constexpr llvm::StringRef enableAggressiveSimplification =
+      "enable-aggressive-simplification";
 };
 
 #endif // TTMLIR_ENABLE_STABLEHLO

@@ -58,6 +58,25 @@ static void rewriteCapturedDMAOperands(OpBuilder &builder, GenericOp generic,
   }
 }
 
+static void rewriteAdditionalArgOperands(OpBuilder &builder,
+                                         GenericOp generic) {
+  //  Get all uses of additional arg
+  //  operands that are not the generic operation itself.
+  for (auto [idx, operand] : llvm::enumerate(generic.getAdditionalArgs())) {
+    unsigned capturedOperandIndex = *getCapturedOperandIndex(generic, operand);
+    for (OpOperand &use : llvm::make_early_inc_range(operand.getUses())) {
+      if (use.getOwner() != generic.getOperation() &&
+          generic->isAncestor(use.getOwner())) {
+        builder.setInsertionPoint(use.getOwner());
+        //  And insert a get_global_operand op where the generic operand is being used.
+        auto globalOperand = builder.create<GetGlobalOperandOp>(
+            use.getOwner()->getLoc(), operand.getType(), capturedOperandIndex);
+        use.set(globalOperand.getResult());
+      }
+    }
+  }
+}
+
 namespace {
 class D2MGenericRegionsToFuncs
     : public impl::D2MGenericRegionsToFuncsBase<D2MGenericRegionsToFuncs> {
@@ -73,21 +92,23 @@ public:
       generic.walk([&](DMAOpInterface dma) {
         rewriteCapturedDMAOperands(builder, generic, dma);
       });
+      rewriteAdditionalArgOperands(builder, generic);
 
       SmallVector<Attribute> threads;
+      auto origThreads = generic.getThreadsAttr().getValue();
       for (Region &region : generic.getRegions()) {
         builder.setInsertionPoint(moduleOp.getBody(),
                                   moduleOp.getBody()->end());
-        ThreadType threadType =
-            generic.getRegionThreadType(region.getRegionNumber());
+        auto origThreadAttr =
+            mlir::cast<ThreadAttr>(origThreads[region.getRegionNumber()]);
+        ThreadType threadType = origThreadAttr.getThreadType();
+        int32_t nocIndex = origThreadAttr.getNocIndex();
         std::string symbolName =
-            stringifyEnum(generic.getRegionThreadType(region.getRegionNumber()))
-                .str() +
-            "_kernel" + Twine(unique++).str();
+            stringifyEnum(threadType).str() + "_kernel" + Twine(unique++).str();
         auto threadAttrWithSym = builder.getAttr<ThreadAttr>(
-            threadType, builder.getAttr<SymbolRefAttr>(symbolName));
+            threadType, builder.getAttr<SymbolRefAttr>(symbolName), nocIndex);
         auto threadAttrWithoutSym =
-            builder.getAttr<ThreadAttr>(threadType, nullptr);
+            builder.getAttr<ThreadAttr>(threadType, nullptr, nocIndex);
         Location loc = region.getNumArguments() > 0
                            ? region.getArgument(0).getLoc()
                            : generic.getLoc();
@@ -108,9 +129,10 @@ public:
       builder.setInsertionPoint(generic);
       auto symbolicGeneric = builder.create<GenericOp>(
           generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-          generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
-          generic.getIndexingMaps(), generic.getIteratorTypes(),
-          builder.getArrayAttr(threads),
+          generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
+          generic.getBlockFactors(), generic.getIndexingMaps(),
+          generic.getIteratorTypes(), builder.getArrayAttr(threads),
+          generic.getScratchInputsAttr(),
           /*numRegions*/ 0);
 
       generic.replaceAllUsesWith(symbolicGeneric);

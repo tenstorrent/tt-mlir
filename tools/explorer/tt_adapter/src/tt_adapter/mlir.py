@@ -26,7 +26,7 @@ def parse_loc_string(loc_str):
         )
         # raise IndexError("Invalid LOC type in perf_trace: %s, expected string", type(loc_str))
         return None
-    match = re.match(r'^loc\("([^"]+)"', loc_str)
+    match = re.match(r'^loc\("?([^")]+)"?\)', loc_str)
     if not match:
         logging.error("Failed to match location string: %s", loc_str)
         return None
@@ -697,7 +697,7 @@ class OpHandler:
                 graph_builder.KeyValue(key="full_location", value=self.full_location)
             )
 
-        # Add output tensor attriributes to the op itself
+        # Add output tensor attributes to the op itself
         if self.op.results:
             # Examples like the Pooling Op Contain more than 1 Result Tensor
             # Since the output of a pool op is currently the same shape we don't have to add any extra logic
@@ -933,9 +933,13 @@ class GraphHandler:
                 self.process_function(operation)
 
     def process_function(self, func):
+        if "const_eval" in func.name.value:
+            namespace = "const_eval/" + func.name.value
+        else:
+            namespace = ""
         for region in func.regions:
             self.append_after = []
-            self.process_region(region)
+            self.process_region(region, namespace)
             for node in self.append_after:
                 self.graph.nodes.append(node)
 
@@ -1035,6 +1039,9 @@ class GraphHandler:
             if isinstance(operand, ir.Value) and not isinstance(
                 operand.owner, ir.Operation
             ):
+                # Skip block argument inputs for ttcore.load_cached ops
+                if op.name == "ttcore.load_cached":
+                    continue
                 if operand not in self.operands_in_graph:
                     block_args.append(operand)
 
@@ -1056,6 +1063,8 @@ class GraphHandler:
 
     def add_edges(self, block):
         for op in block.operations:
+            if op.name == "ttcore.load_cached":
+                continue
             # Create edges for this operation
             for operand_index, operand in enumerate(op.operands):
                 if operand.owner == block:

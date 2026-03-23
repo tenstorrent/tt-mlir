@@ -12,10 +12,10 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// AllGatherOp in TTNN currently does not support tensors with rank < 4
-// correctly. As a temporary workaround, we insert reshape ops front and back
-// to make the tensor as four dimensional tensor.
-// Related tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/25143
+// AllGatherOp in TTNN currently does not support 1d tensors.
+// As a temporary workaround, we insert reshape ops front and back
+// to make the tensor at least two dimensional.
+// Metal issue: https://github.com/tenstorrent/tt-metal/issues/40107
 class TTNNAllGatherWorkarounds : public OpRewritePattern<ttnn::AllGatherOp> {
 public:
   using OpRewritePattern<ttnn::AllGatherOp>::OpRewritePattern;

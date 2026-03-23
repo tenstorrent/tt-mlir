@@ -4,7 +4,7 @@
 import pytest
 import torch
 from typing import List, Optional
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
@@ -43,10 +43,8 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -65,7 +63,6 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
 )
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.xfail(reason="Compile failure on CPU target")
 def test_cpu_hoistable_concat_op(
     shapes: List[Shape],
     dim: int,
@@ -92,14 +89,21 @@ def test_cpu_hoistable_concat_op(
         test_base=f"{request.node.name}",
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
 # Pad tests
-@pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
-@pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
+@pytest.mark.parametrize(
+    "shape, padding",
+    [
+        ((1, 1024, 64, 64), [0, 1, 2, 3, 4, 5, 6, 7]),
+        ((1, 1024, 64, 64), [0, 0, 0, 0, -16, -16, -16, -16]),
+        ((1, 1024, 64, 64), [2, 2, 2, 2, -1, -1, -1, -1]),
+        ((1, 4, 8, 8, 32), [0, 0, 1, 1, 1, 1, 1, 1, 0, 0]),
+        ((1, 4, 8, 8, 32), [0, 0, 2, 2, 0, 0, 0, 0, 0, 0]),
+        ((2, 6, 4, 4, 16), [1, 1, 1, 1, 1, 1, 0, 0, 0, 0]),
+    ],
+)
 @pytest.mark.parametrize("value", [0])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_pad(
@@ -116,11 +120,49 @@ def test_pad(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", [(1, 1024, 64, 64)], ids=shape_str)
+@pytest.mark.parametrize(
+    "padding",
+    [
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [0, 0, 0, 0, -16, -16, -16, -16],
+        [2, 2, 2, 2, -1, -1, -1, -1],
+    ],
+)
+@pytest.mark.parametrize("value", [0])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_cpu_hoistable_pad_op(
+    shape: Shape,
+    padding: List[int],
+    value: int,
+    request,
+    target: str,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def hoisted_pad_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.pad(
+                in0, padding=padding, value=value, unit_attrs=["ttir.should_hoist"]
+            )
+
+    """Test unary ops that support CPU hoisting"""
+    compile_and_execute_ttir(
+        module,
+        test_base=f"{request.node.name}",
+        target=target,
+        device=device,
     )
 
 
@@ -145,10 +187,8 @@ def test_permute(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -178,10 +218,8 @@ def test_repeat_interleave(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -201,10 +239,8 @@ def test_repeat(shape: Shape, dims: List[int], dtype, target: str, request, devi
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -252,10 +288,8 @@ def test_reshape(shapes, dtype: torch.dtype, target: str, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -273,10 +307,8 @@ def test_squeeze(shape: Shape, dim: int, target: str, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -294,10 +326,8 @@ def test_unsqueeze(shape: Shape, dim: int, target: str, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -328,8 +358,6 @@ def test_cpu_hoistable_reshape_op(
         test_base=f"{request.node.name}",
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -337,6 +365,17 @@ def test_cpu_hoistable_reshape_op(
 @pytest.mark.parametrize(
     "shape,begins,ends,step",
     [
+        # Tilized: inner dims preserved
+        ((4, 32, 64), [1, 0, 0], [3, 32, 64], [1, 1, 1]),
+        ((6, 32, 64), [0, 0, 0], [4, 32, 64], [2, 1, 1]),
+        ((4, 5, 32, 64), [1, 2, 0, 0], [3, 4, 32, 64], [1, 1, 1, 1]),
+        ((8, 6, 64, 32), [2, 1, 0, 0], [6, 5, 64, 32], [1, 1, 1, 1]),
+        ((2, 4, 3, 32, 64), [0, 1, 1, 0, 0], [2, 3, 2, 32, 64], [1, 1, 1, 1, 1]),
+        # Simple 1D
+        ((64,), [0], [32], None),
+        # Strided 1D
+        ((70,), [3], [62], [7]),
+        ((2048,), [0], [2048], [3]),
         # Simple 2D
         ((64, 64), [0, 0], [32, 32], None),
         # Crop 2D
@@ -345,11 +384,23 @@ def test_cpu_hoistable_reshape_op(
         ((192, 64), [2, 0], [192, 64], [3, 1]),
         ((64, 192), [0, 2], [64, 192], [1, 3]),
         # Sample large 2D tensors
-        ((32, 131072), [0, 3], [32, 128 * 991], [2, 991]),
+        pytest.param(
+            (32, 131072),
+            [0, 3],
+            [32, 128 * 991],
+            [2, 991],
+            marks=pytest.mark.skip_config(
+                ["ttmetal", "p150"],
+                ["ttmetal", "p300"],
+                reason="L1 memory usage exceeds capacity #7559",
+            ),
+        ),
         ((131072, 32), [5, 1], [128 * 997, 32], [997, 2]),
         ((1024, 1024), [3, 2], [64 * 11, 64 * 13], [11, 13]),
         # Simple 3D
         ((2, 64, 32), [0, 0, 0], [1, 64, 32], None),
+        # Crop 3D
+        ((19, 160, 64), [0, 0, 0], [19, 96, 32], None),
         # Interleaved 3D
         ((2, 64, 32), [0, 1, 0], [1, 64, 32], [1, 2, 1]),
         ((2, 64, 32), [0, 1, 0], [1, 64, 32], [1, 2, 2]),
@@ -374,45 +425,40 @@ def test_cpu_hoistable_reshape_op(
         ((3, 20, 14, 64, 64), [1, 5, 6, 31, 32], [2, 6, 7, 32, 33], None),
     ],
 )
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_slice(
     shape: Shape,
     begins: List[int],
     ends: List[int],
     step: List[int],
+    dtype: torch.dtype,
     target: str,
     request,
     device,
 ):
     def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
+        @builder.func([shape], [dtype])
         def slice_wrapper(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
             return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
 
-    # NoC alignment is at least 16B => must align to 4 floats.
-    special_dma = (begins[-1] % 4 != 0) or (step is not None and step[-1] != 1)
-    if target == "ttmetal" and special_dma:
-        request.node.add_marker(
-            pytest.mark.xfail(
-                reason="Unaligned and/or strided DMA in the last dim #6475", run=True
-            )
-        )
-
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
 
 # Sort tests
 @pytest.mark.parametrize("shape", [(1, 64, 64)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.bfloat16, torch.float32],
+    ids=["bf16", "f32"],
+)
 @pytest.mark.parametrize("dim", [0, 1, 2])
 @pytest.mark.parametrize("descending", [True, False])
 @pytest.mark.parametrize("stable", [True, False])
@@ -449,10 +495,8 @@ def test_sort(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -478,10 +522,8 @@ def test_transpose(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -515,8 +557,6 @@ def test_cpu_hoistable_transpose_op(
         test_base=f"{request.node.name}",
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -544,12 +584,6 @@ def test_typecast(
     if from_type == torch.float32 and to_type == torch.int32 and target == "ttmetal":
         pytest.xfail("ttmetal does not support float32 to int32 typecast")
 
-    if from_type == torch.float32 and to_type == torch.bfloat16 and target == "ttmetal":
-        pytest.xfail(
-            "f32->bf16 typecast fails due to LLK tiling issue. "
-            "See comment at: https://github.com/tenstorrent/tt-metal/issues/35302"
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [from_type])
         def typecast(
@@ -562,9 +596,8 @@ def test_typecast(
     pipeline_options = []
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         pipeline_options=pipeline_options,
     )

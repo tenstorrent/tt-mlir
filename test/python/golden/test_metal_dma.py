@@ -12,6 +12,7 @@ from ttmlir.ir import *
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -32,9 +33,7 @@ def compile_dma_test(test_func, shape, request, device):
         target="ttmetal",
         device=device,
         custom_pipeline=pipeline,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -79,7 +78,6 @@ def test_host_interop_single_bank_dram_dma(
 
 
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #4835")
 @pytest.mark.parametrize("shape", [(256, 256)])
 @pytest.mark.parametrize("start_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
 @pytest.mark.parametrize("end_grid", [(1, 1), (2, 2)])

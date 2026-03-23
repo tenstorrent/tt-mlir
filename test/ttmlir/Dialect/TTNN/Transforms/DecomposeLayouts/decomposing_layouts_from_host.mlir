@@ -35,8 +35,8 @@ module attributes {} {
 
     // Test case when we move tensor from host to host for tile case.
     func.func @from_host_to_host_layout_to_layout_create_data_cast_op_tile(%arg0: tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_host_tile_bf16> {
-        // Typecast works only on device. Verify that for the tile case when the output is on host, we insert the to_dtype op to cast the data type on host.
-        // CHECK: %[[CASTING_OP:.*]] = "ttnn.to_dtype"(%arg0)
+        // Verify that for the tile case when the output is on host, we insert the typecast op to cast the data type on host.
+        // CHECK: %[[CASTING_OP:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK-NEXT: return %[[CASTING_OP]]
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>
@@ -45,8 +45,8 @@ module attributes {} {
 
     // Test case when we move tensor from host to host for row-major case.
     func.func @from_host_to_host_layout_to_layout_create_data_cast_op_rm(%arg0: tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_host_rm_bf16> {
-        // Typecast works only on device. Verify that for the row-major case when the output is on host, we insert the to_dtype op to cast the data type on host.
-        // CHECK: %[[CASTING_OP:.*]] = "ttnn.to_dtype"(%arg0)
+        // Verify that for the row-major case when the output is on host, we insert the typecast op to cast the data type on host.
+        // CHECK: %[[CASTING_OP:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK-NEXT: return %[[CASTING_OP]]
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
@@ -55,9 +55,9 @@ module attributes {} {
 
     // Test case when we move tensor from host to device for row-major case.
     func.func @from_host_to_device_layout_to_layout_create_data_cast_op_rm(%arg0: tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16> {
-        // Typecast on device only works for tile layout. Verify that for the row-major case we insert the to_dtype op to cast the data type on host and than move the tensor to device.
+        // Typecast on device only works for tile layout. Verify that for the row-major case we insert the typecast op to cast the data type on host and than move the tensor to device.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
-        // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.to_dtype"(%arg0)
+        // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%[[CASTING_OP]], %[[GET_DEVICE_OP]])
         // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
@@ -158,8 +158,8 @@ module attributes {} {
 
     // Test case when we move tensor from host to host for tile -> row-major case and data type cast.
     func.func @from_host_to_host_from_bf16_to_f32_from_tile_to_rm(%arg0: tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_host_rm> {
-        // This test verifies that the `to_layout` and `to_dtype` operations are correctly inserted to change the layout from tile to row-major and cast data type from bf16 to f32 on host.
-        // CHECK: %[[CASTING_OP:.*]] = "ttnn.to_dtype"(%arg0)
+        // This test verifies that the `to_layout` and `typecast` operations are correctly inserted to change the layout from tile to row-major and cast data type from bf16 to f32 on host.
+        // CHECK: %[[CASTING_OP:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[CASTING_OP]])
         // CHECK-SAME: layout = #ttnn.layout<row_major>
@@ -170,8 +170,8 @@ module attributes {} {
 
     // Test case when we move tensor from host to host for row-major -> tile case and data type cast.
     func.func @from_host_to_host_from_bf16_to_f32_from_rm_to_tile(%arg0: tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xf32, #ttnn_layout_host_tile> {
-        // This test verifies that the `to_layout` and `to_dtype` operations are correctly inserted to change the layout from row-major to tile and cast data type from bf16 to f32 on host.
-        // CHECK: %[[CASTING_OP:.*]] = "ttnn.to_dtype"(%arg0)
+        // This test verifies that the `to_layout` and `typecast` operations are correctly inserted to change the layout from row-major to tile and cast data type from bf16 to f32 on host.
+        // CHECK: %[[CASTING_OP:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[CASTING_OP]])
         // CHECK-SAME: layout = #ttnn.layout<tile>

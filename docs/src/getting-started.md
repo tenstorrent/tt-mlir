@@ -14,19 +14,19 @@ Use this guide to set up your hardware - [Hardware Setup](https://docs.tenstorre
 
 You can use tt-mlir with Ubuntu or Mac OS, however the runtime does not work on Mac OS. tt-mlir project has the following system dependencies:
 
-- Ubuntu 22.04 OS or Mac OS
+- Ubuntu 24.04 OS or Mac OS
 - Clang >= 14 & <= 18
 - Ninja
 - CMake 3.24 or higher
-- Python 3.11
-- python3.11-venv
+- Python 3.12
+- python3.12-venv
 
 #### Ubuntu
 
-Install Clang, Ninja, CMake, and python3.11-venv:
+Install Clang, Ninja, CMake, and python3.12-venv:
 
 ```bash
-sudo apt install git clang cmake ninja-build pip python3.11-venv
+sudo apt install git clang cmake ninja-build pip python3.12-venv
 ```
 
 You should now have the required dependencies installed.
@@ -61,7 +61,9 @@ git clone https://github.com/tenstorrent/tt-mlir.git
 
 ## Environment Setup
 
-There are two ways to set up the environment, either using a docker image or building the environment manually. The docker image is recommended since it is easier to set up and use.
+There are two ways to set up the environment, either using a docker image or building the environment manually. The docker image is recommended on ubuntu since it is easier to set up and use.
+
+> Note: Docker path is only supported on ubuntu. For macos please use [Setting up the Environment Manually](#setting-up-the-environment-manually).
 
 ### Using a Docker Image
 
@@ -69,13 +71,15 @@ Please see [Docker Notes](docker-notes.md#using-the-docker-image) for details on
 
 Once you have the docker image running and you are logged into the container, you should be ready to build.
 
+> Note: Docker path is only supported on ubuntu. For macos please use [Setting up the Environment Manually](#setting-up-the-environment-manually).
+
 ### Setting up the Environment Manually
 
 This section explains how to manually build the environment so you can use tt-mlir. You only need to build this once, it builds llvm, flatbuffers, and a Python virtual environment. You can specify the LLVM build type by using `-DLLVM_BUILD_TYPE=*`. The default is `MinSizeRel`, and available options are listed [here](https://llvm.org/docs/CMake.html#frequently-used-cmake-variables).
 
 1. Navigate into the **tt-mlir** folder.
 
-2. The environment gets installed into a toolchain directory, which is by default set to `/opt/ttmlir-toolchain`, but can be overrideen by setting (and persisting in your environment) the environment variable `TTMLIR_TOOLCHAIN_DIR`. You need to manually create the toolchain directory as follows:
+2. The environment gets installed into a toolchain directory, which is by default set to `/opt/ttmlir-toolchain`, but can be overridden by setting (and persisting in your environment) the environment variable `TTMLIR_TOOLCHAIN_DIR`. You need to manually create the toolchain directory as follows:
 
 ```bash
 export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/
@@ -114,11 +118,11 @@ You can add different flags to your build. Here are some options to consider:
 - To enable `tt-explorer` add the `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`, `-DTTMLIR_ENABLE_RUNTIME=ON`, and `-DTT_RUNTIME_DEBUG=ON`.
 - To enable optimizer pass that uses the op model library, add `-DTTMLIR_ENABLE_OPMODEL=ON`.
 - The TTNN build is automatically integrated / handled by the tt-mlir cmake build system. For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html).
-- The runtime build depends on the `TT_METAL_RUNTIME_ROOT` variable, which is also set in `env/activate` script. For more information, please refer to [TT-NN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
+- The runtime build depends on the `TT_METAL_RUNTIME_ROOT` variable, which is also set in `env/activate` script. For more information, please refer to [TT-NN and TT-Metalium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
 
 | OS           | Offline Compiler Only | Runtime Enabled Build | Runtime + Perf Enabled Build |
 | ------------ | --------------------- | --------------------- | ---------------------------- |
-| Ubuntu 22.04 | ✅                    | ✅                    | ✅                           |
+| Ubuntu 24.04 | ✅                    | ✅                    | ✅                           |
 | Ubuntu 20.04 | ✅                    | ❌                    | ❌                           |
 | MacOS        | ✅                    | ❌                    | ❌                           |
 

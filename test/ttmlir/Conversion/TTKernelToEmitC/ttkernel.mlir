@@ -88,6 +88,34 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @pack_tile_block
+    func.func @pack_tile_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 2 : index
+      // CHECK: %[[NTILES:.*]] = "emitc.constant"
+      %ntiles = arith.constant 8 : index
+      // CHECK: emitc.call_opaque "pack_tile_block"(%[[DST_INDEX]], %[[OUT_CB]], %[[NTILES]])
+      "ttkernel.pack_tile_block"(%dst_index, %out_cb, %ntiles) : (index, !cb0_tiles, index) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @copy_block_matmul_partials
+    func.func @copy_block_matmul_partials() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[START_TILE:.*]] = "emitc.constant"
+      %start_tile = arith.constant 1 : index
+      // CHECK: %[[START_DST:.*]] = "emitc.constant"
+      %start_dst = arith.constant 3 : index
+      // CHECK: %[[NTILES:.*]] = "emitc.constant"
+      %ntiles = arith.constant 4 : index
+      // CHECK: emitc.call_opaque "copy_block_matmul_partials"(%[[CB]], %[[START_TILE]], %[[START_DST]], %[[NTILES]])
+      "ttkernel.copy_block_matmul_partials"(%cb, %start_tile, %start_dst, %ntiles) : (!cb0_tiles, index, index, index) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @copy_tile_init
     func.func @copy_tile_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
@@ -956,28 +984,28 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @logical_not_unary_tile_init
-    func.func @logical_not_unary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.call_opaque "logical_not_unary_tile_init"()
-      "ttkernel.logical_not_unary_tile_init"() : () -> ()
+    // CHECK-LABEL: func @logical_not_tile_init
+    func.func @logical_not_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "logical_not_tile_init"()
+      "ttkernel.logical_not_tile_init"() : () -> ()
       return
     }
 
-    // CHECK-LABEL: func @logical_not_unary_tile
-    func.func @logical_not_unary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+    // CHECK-LABEL: func @logical_not_tile
+    func.func @logical_not_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "logical_not_unary_tile"(%[[DST0_INDEX]])
-      "ttkernel.logical_not_unary_tile"(%dst0_index) : (i32) -> ()
+      // CHECK: emitc.call_opaque "logical_not_tile"(%[[DST0_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Float16_b">]}
+      "ttkernel.logical_not_tile"(%dst0_index) {dtype = #ttcore.supportedDataTypes<bf16>} : (i32) -> ()
       return
     }
 
-    // CHECK-LABEL: func @logical_not_unary_tile_int32
-    func.func @logical_not_unary_tile_int32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+    // CHECK-LABEL: func @logical_not_tile_int32
+    func.func @logical_not_tile_int32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "logical_not_unary_tile_int32"(%[[DST0_INDEX]])
-      "ttkernel.logical_not_unary_tile_int32"(%dst0_index) : (i32) -> ()
+      // CHECK: emitc.call_opaque "logical_not_tile"(%[[DST0_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.logical_not_tile"(%dst0_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32) -> ()
       return
     }
 
@@ -1198,8 +1226,8 @@ module {
       %dst0_index = arith.constant 0 : i32
       %dst1_index = arith.constant 1 : i32
       %odst_index = arith.constant 2 : i32
-      // CHECK: emitc.call_opaque "bitwise_and_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
-      "ttkernel.bitwise_and_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "bitwise_and_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.bitwise_and_binary_tile"(%dst0_index, %dst1_index, %odst_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32, i32, i32) -> ()
       return
     }
 
@@ -1211,8 +1239,8 @@ module {
       %dst0_index = arith.constant 0 : i32
       %dst1_index = arith.constant 1 : i32
       %odst_index = arith.constant 2 : i32
-      // CHECK: emitc.call_opaque "bitwise_or_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
-      "ttkernel.bitwise_or_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "bitwise_or_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.bitwise_or_binary_tile"(%dst0_index, %dst1_index, %odst_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32, i32, i32) -> ()
       return
     }
 
@@ -1224,8 +1252,8 @@ module {
       %dst0_index = arith.constant 0 : i32
       %dst1_index = arith.constant 1 : i32
       %odst_index = arith.constant 2 : i32
-      // CHECK: emitc.call_opaque "bitwise_xor_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
-      "ttkernel.bitwise_xor_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "bitwise_xor_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.bitwise_xor_binary_tile"(%dst0_index, %dst1_index, %odst_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32, i32, i32) -> ()
       return
     }
 
@@ -1246,23 +1274,8 @@ module {
       %false_index = arith.constant 2 : index
       // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
       %odst_index = arith.constant 3 : index
-      // CHECK: emitc.call_opaque "where_tile"(%[[COND_INDEX]], %[[TRUE_INDEX]], %[[FALSE_INDEX]], %[[ODST_INDEX]])
-      "ttkernel.where_tile"(%cond_index, %true_index, %false_index, %odst_index) : (index, index, index, index) -> ()
-      return
-    }
-
-    // CHECK-LABEL: func @where_fp32_tile
-    func.func @where_fp32_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[COND_INDEX:.*]] = "emitc.constant"
-      %cond_index = arith.constant 0 : index
-      // CHECK: %[[TRUE_INDEX:.*]] = "emitc.constant"
-      %true_index = arith.constant 1 : index
-      // CHECK: %[[FALSE_INDEX:.*]] = "emitc.constant"
-      %false_index = arith.constant 2 : index
-      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
-      %odst_index = arith.constant 3 : index
-      // CHECK: emitc.call_opaque "where_fp32_tile"(%[[COND_INDEX]], %[[TRUE_INDEX]], %[[FALSE_INDEX]], %[[ODST_INDEX]])
-      "ttkernel.where_fp32_tile"(%cond_index, %true_index, %false_index, %odst_index) : (index, index, index, index) -> ()
+      // CHECK: emitc.call_opaque "where_tile"(%[[COND_INDEX]], %[[TRUE_INDEX]], %[[FALSE_INDEX]], %[[ODST_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Float32">]}
+      "ttkernel.where_tile"(%cond_index, %true_index, %false_index, %odst_index) {dtype = #ttcore.supportedDataTypes<f32>} : (index, index, index, index) -> ()
       return
     }
   } // module

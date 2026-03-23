@@ -9,8 +9,8 @@ Silicon.
 
 1. [UTM](https://mac.getutm.app) is the VM application we'll be using in this
 guide, so the first step is to download and install UTM.
-2. [Ubuntu 22.04 ARM image download](https://cdimage.ubuntu.com/releases/22.04/release/).
-  - Direct link: [64-bit ARM (ARMv8/AArch64) server install image](https://cdimage.ubuntu.com/releases/22.04/release/ubuntu-22.04.5-live-server-arm64.iso)
+2. [Ubuntu 24.04 ARM image download](https://cdimage.ubuntu.com/releases/24.04/release/).
+  - Direct link: [64-bit ARM (ARMv8/AArch64) server install image](https://cdimage.ubuntu.com/releases/24.04/release/ubuntu-24.04.1-live-server-arm64.iso)
 
 ## UTM Setup
 
@@ -23,12 +23,12 @@ guide, so the first step is to download and install UTM.
     for x86 if you're interested.  It's not required and [additional steps](https://docs.getutm.app/advanced/rosetta/)
     are required for it to work.
 5. This step depends on your machine's capabilities, but it's recommended to
-   give 16GB of memory and to use the defualt CPU Cores setting. Note this can
+   give 16GB of memory and to use the default CPU Cores setting. Note this can
    be changed after initial setup if you want to go back and tweak settings.
 6. It's recommended to at least 128GB of storage, with LLVM installation and
    full SW stack we quickly reach 80 gigs of storage.
 7. Optionally choose a shared host/VM directory.
-8. Optionally name your new VM `ubuntu 22.04 arm64`
+8. Optionally name your new VM `ubuntu 24.04 arm64`
 
 ## VM Setup
 

@@ -54,6 +54,9 @@ void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
                      std::string firstAxisName, std::string secondAxisName,
                      int64_t firstAxisSize, int64_t secondAxisSize);
 
+// Normalize a 1D mesh to 2D by prepending an axis of size 1.
+mlir::LogicalResult normalize1DMeshTo2D(mlir::ModuleOp &module);
+
 // Create a TTMeshAttr from a sdy::meshOp.
 mlir::tt::ttcore::MeshAttr
 createTTMeshAttrFromSdyMeshOp(mlir::sdy::MeshOp meshOp);
@@ -185,6 +188,16 @@ bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh);
 // Return true if the module has any sdy tensor sharding annotations that are
 // not fully replicated.
 bool isShardedModule(mlir::ModuleOp &module);
+
+// Attempts to slice a global constant tensor into a local shard if the data is
+// periodic (broadcasted) along the sharding axis.
+// Returns std::nullopt if the data is not periodic or sharding info is invalid.
+std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
+    mlir::DenseElementsAttr globalAttr, mlir::RankedTensorType localType,
+    mlir::sdy::TensorShardingAttr sharding, mlir::sdy::MeshOp meshOp);
+
+// Check if the operation has Shardy-sharded inputs or outputs.
+bool opHasShardySharding(mlir::Operation *op);
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 

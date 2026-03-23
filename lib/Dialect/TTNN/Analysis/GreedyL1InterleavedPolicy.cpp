@@ -4,11 +4,13 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/GreedyL1InterleavedPolicy.h"
 
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Scheduler/Scheduler.h"
 
+#include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/DenseMap.h"
 
 namespace mlir::tt::ttnn {
@@ -134,6 +136,16 @@ GreedyL1InterleavedPolicy::getGreedyConfig(
 }
 
 void GreedyL1InterleavedPolicy::run() {
+  // Calculate effective L1 limit from module attribute (single source of
+  // truth). This matches the pattern used in OpConstraintValidation.
+  const float tensorL1UsageCap = utils::getTensorL1UsageCap(rootOp);
+  ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
+      rootOp->getParentOfType<ModuleOp>()->getAttr(
+          ttcore::SystemDescAttr::name));
+  ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+  usableL1CacheSize =
+      static_cast<uint64_t>(tensorL1UsageCap * chipDesc.getUsableL1Size());
+
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
     if (!func) {
@@ -144,12 +156,12 @@ void GreedyL1InterleavedPolicy::run() {
     //
     llvm::DenseMap<Operation *, OpMemSpec> OpMemSpecMap;
     mlir::tt::scheduler::Scheduler scheduler(&func);
-    llvm::SmallVector<Operation *> scheduleableOps;
+    llvm::SmallVector<Operation *> schedulableOps;
 
     while (scheduler.hasUnscheduledOps()) {
-      scheduleableOps = scheduler.getSchedulableOps();
+      schedulableOps = scheduler.getSchedulableOps();
 
-      for (Operation *op : scheduleableOps) {
+      for (Operation *op : schedulableOps) {
         // Schedule the op.
         //
         scheduler.scheduleOp(op);
@@ -278,7 +290,7 @@ void GreedyL1InterleavedPolicy::run() {
     constructSchedule(func);
 
     // Build, Resolve and Complete the L1 chain.
-    // This implementation is only here unitl we are able to merge
+    // This implementation is only here until we are able to merge
     // L1ChainConfigs.
     // TODO(fbajraktari): Fix this hack.
     //
@@ -302,7 +314,7 @@ bool GreedyL1InterleavedPolicy::isAnalyzable(Operation *op) {
   // Skip operations that are not analyzed by the LegalLayoutAnalysis.
   //
   if (legalConfigs.count(op) > 0) {
-    // Skip operations that are filterd out by the MemoryLayoutAnalysis.
+    // Skip operations that are filtered out by the MemoryLayoutAnalysis.
     //
     return legalConfigs[op].size() > 0;
   }

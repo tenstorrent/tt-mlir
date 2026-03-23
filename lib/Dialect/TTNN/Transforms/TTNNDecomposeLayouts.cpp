@@ -128,6 +128,24 @@ private:
     }
   };
 
+  bool isOutputFromCPUHoistedFunction(mlir::Value value) const {
+    if (auto callOp = value.getDefiningOp<func::CallOp>()) {
+      return callOp->hasAttr(ttmlir::utils::g_cpuHoistFuncCallAttrName);
+    }
+    return false;
+  }
+
+  bool isInputToCPUHoistedFunction(ttnn::ToLayoutOp op) const {
+    if (!op.getResult().hasOneUse()) {
+      return false;
+    }
+    if (auto callOp =
+            dyn_cast<func::CallOp>(*op.getResult().getUsers().begin())) {
+      return callOp->hasAttr(ttmlir::utils::g_cpuHoistFuncCallAttrName);
+    }
+    return false;
+  }
+
   bool canTilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
     // tt-metal tilize supports: bfloat16, float32, uint32, int32, uint16
     // See: ttnn/operations/data_movement/tilize/device/tilize_op.cpp
@@ -346,7 +364,6 @@ private:
                                             /*memory_config*/ nullptr);
   }
 
-  template <typename OpType>
   mlir::Value createDataTypeCastingOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
                                       mlir::Value currentInput,
                                       const OpCreationInfo &info) const {
@@ -355,8 +372,8 @@ private:
     RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
         mlir::cast<RankedTensorType>(currentInput.getType()),
         info.output.dataType);
-    return this->createOp<OpType>(rewriter, op, newResultType, currentInput,
-                                  dtypeAttr);
+    return this->createOp<ttnn::TypecastOp>(rewriter, op, newResultType,
+                                            currentInput, dtypeAttr);
   }
 
   mlir::Value
@@ -372,17 +389,11 @@ private:
 
     TTNNLayoutAttr inputLayout =
         mlir::cast<TTNNLayoutAttr>(currentInputType.getEncoding());
-    if (inputLayout.isSystemBufferType()) {
-      // If the input tensor is on host, we need to cast it on the host.
-      return this->createDataTypeCastingOp<ttnn::ToDTypeOp>(op, rewriter,
-                                                            currentInput, info);
+    if (!inputLayout.isSystemBufferType()) {
+      assert(inputLayout.getLayout() == Layout::Tile &&
+             "Only tilized tensors are supported for device typecast");
     }
-
-    assert(inputLayout.getLayout() == Layout::Tile &&
-           "Only tilized tensors are supported for device typecast");
-    // If the input tensor is on device, we can cast it on the device.
-    return this->createDataTypeCastingOp<ttnn::TypecastOp>(op, rewriter,
-                                                           currentInput, info);
+    return this->createDataTypeCastingOp(op, rewriter, currentInput, info);
   }
 
   mlir::Value createToMemoryConfigOpIfNeeded(ttnn::ToLayoutOp op,
@@ -394,8 +405,18 @@ private:
     }
     ttnn::MemoryConfigAttr memoryConfigAttr =
         info.output.createMemoryConfigAttr(op.getContext());
-    return this->createOp<ttnn::ToMemoryConfigOp>(op, rewriter, currentInput,
-                                                  memoryConfigAttr);
+    RankedTensorType currentInputType =
+        mlir::cast<RankedTensorType>(currentInput.getType());
+    TTNNLayoutAttr newLayout =
+        utils::getLayoutAttrFromTensor(currentInputType)
+            .withBufferType(info.output.bufferType)
+            .withMemoryLayout(info.output.tensorMemoryLayout)
+            .withGrid(currentInputType.getShape(), info.output.shardGrid)
+            .withShardShape(info.output.shardShape);
+    RankedTensorType newResultType =
+        utils::RankedTensorTypeFactory::create(currentInputType, newLayout);
+    return this->createOp<ttnn::ToMemoryConfigOp>(
+        rewriter, op, newResultType, currentInput, memoryConfigAttr);
   }
 
   /* Functions that create ops based on the layouts of the input output tensors
@@ -428,6 +449,19 @@ private:
     if (output.isOnHost()) {
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
+    // If the input value is an output from a CPU-hoisted function, we should
+    // perform layout change on host to minimize intermediate DRAM/L1 usage.
+    if (isOutputFromCPUHoistedFunction(currentInput)) {
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput =
+          this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                           currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
@@ -510,6 +544,19 @@ private:
       return;
     }
 
+    // If the input value is an output from a CPU-hoisted function, we should
+    // perform typecast on host to minimize intermediate DRAM/L1 usage.
+    if (isOutputFromCPUHoistedFunction(currentInput)) {
+      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                           currentInput, info);
+      currentInput =
+          this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
     // Device typecast only supports tilized tensors. Therefore, if the output
     // tensor is in row-major (input as well is in row-major) and resides on the
     // device, we should perform the data type casting on the host before moving
@@ -555,6 +602,22 @@ private:
                                                            currentInput, info);
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
+    // If the input value is an output from a CPU-hoisted function, we should
+    // perform both typecast and layout change on host to minimize
+    // intermediate DRAM/L1 usage.
+    if (isOutputFromCPUHoistedFunction(currentInput)) {
+      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                           currentInput, info);
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput =
+          this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                           currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
@@ -688,13 +751,36 @@ private:
     assert(input.dataType == output.dataType &&
            "Data type should be the same if we're not creating typecast op");
 
-    // If the output data type is untilizable on device, untilize on device then
-    // move to host
-    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(input.dataType)) {
+    // If the result feeds into a CPU-hoisted function, we should move to host
+    // first and perform layout change on host to minimize intermediate DRAM/L1
+    // usage.
+    if (isInputToCPUHoistedFunction(op)) {
+      currentInput =
+          this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                           currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
+    // If the output data type is untilizable on device, untilize on device then
+    // move to host
+    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(input.dataType)) {
+      // If input is L1 sharded, unshard first since untilize doesn't support
+      // sharded input with sharded output.
+      if (input.isL1Sharded()) {
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+        currentInput =
+            this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      } else {
+        currentInput =
+            this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+      }
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
@@ -788,12 +874,35 @@ private:
     assert(input.layoutEnum == output.layoutEnum &&
            "Layout should be the same if we're not creating toLayout op");
 
-    // If the output is tilized, typecast directly on device
-    if (output.isTilized()) {
+    // If the result feeds into a CPU-hoisted function, we should move to host
+    // first and perform typecast on host to minimize intermediate DRAM/L1
+    // usage.
+    if (isInputToCPUHoistedFunction(op)) {
+      currentInput =
+          this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                           currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
+    // If the output is tilized, typecast directly on device
+    if (output.isTilized()) {
+      // If the input is sharded, typecast should happen after converting to
+      // memory.
+      if (input.isL1Sharded()) {
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+        currentInput = this->createDataTypeCastingOpIfNeeded(
+            op, rewriter, currentInput, info);
+      } else {
+        currentInput = this->createDataTypeCastingOpIfNeeded(
+            op, rewriter, currentInput, info);
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+      }
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
@@ -838,8 +947,24 @@ private:
     const LayoutInfo &output = info.output;
     const OpsToCreate &opsToCreate = info.opsToCreate;
 
+    // If the result feeds into a CPU-hoisted function, we should move to host
+    // first and perform both typecast and layout change on host to minimize
+    // intermediate DRAM/L1 usage.
+    if (isInputToCPUHoistedFunction(op)) {
+      currentInput =
+          this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                           currentInput, info);
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
     // If we need to untilize and the output data type can be untilized on
-    // device typcast and untilize on device
+    // device typecast and untilize on device
     if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(output.dataType)) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);

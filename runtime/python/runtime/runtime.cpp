@@ -13,6 +13,7 @@
 #include "tt/runtime/detail/python/nanobind_headers.h"
 
 namespace nb = nanobind;
+using namespace nb::literals;
 
 namespace tt::runtime::python {
 void registerRuntimeBindings(nb::module_ &m) {
@@ -308,7 +309,6 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
 
   nb::enum_<::tt::target::Arch>(m, "Arch")
-      .value("GRAYSKULL", ::tt::target::Arch::Grayskull)
       .value("WORMHOLE_B0", ::tt::target::Arch::Wormhole_b0)
       .value("BLACKHOLE", ::tt::target::Arch::Blackhole);
 
@@ -393,6 +393,32 @@ void registerRuntimeBindings(nb::module_ &m) {
                          return reinterpret_cast<const void *>(ptr);
                        });
         return tt::runtime::createMultiDeviceHostTensor(
+            data, shape, stride, itemsize, dataType, strategy, meshShape);
+      },
+      "Create a multi-device host tensor with owned memory");
+  m.def(
+      "create_multi_device_host_tensor_from_shards",
+      [](std::vector<tt::runtime::Tensor> &tensorShards,
+         const std::unordered_map<std::string, std::string> &strategy,
+         const std::vector<uint32_t> &meshShape) {
+        return tt::runtime::createMultiDeviceHostTensor(tensorShards, strategy,
+                                                        meshShape);
+      },
+      "Create a multi-device host tensor from tensor shards");
+  m.def(
+      "create_multi_device_borrowed_host_tensor",
+      [](std::vector<std::uintptr_t> &ptrs,
+         const std::vector<std::uint32_t> &shape,
+         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         ::tt::target::DataType dataType,
+         const std::unordered_map<std::string, std::string> &strategy,
+         const std::vector<uint32_t> &meshShape) {
+        std::vector<void *> data;
+        data.reserve(ptrs.size());
+        std::transform(
+            ptrs.begin(), ptrs.end(), std::back_inserter(data),
+            [](std::uintptr_t ptr) { return reinterpret_cast<void *>(ptr); });
+        return tt::runtime::createMultiDeviceBorrowedHostTensor(
             data, shape, stride, itemsize, dataType, strategy, meshShape);
       },
       "Create a multi-device host tensor with owned memory");
@@ -545,7 +571,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       nb::arg("tensor_handle"),
       R"(
     Overwrite the data associated with an existing tensor reference.
-    Prefered to be owned tensor to avoid unexpected behavior in case of
+    Preferred to be owned tensor to avoid unexpected behavior in case of
     deallocation.
 
     Parameters
@@ -597,7 +623,11 @@ void registerRuntimeBindings(nb::module_ &m) {
       "Load tensor from file");
 
   nb::class_<tt::runtime::debug::Env>(m, "DebugEnv")
-      .def_static("get", &tt::runtime::debug::Env::get)
+      .def_static(
+          "get", &tt::runtime::debug::Env::get, "dump_kernels"_a = false,
+          "load_kernels"_a = false, "use_loc_for_kernel_name"_a = false,
+          "kernel_source_dir"_a = "", "device_address_validation"_a = false,
+          "blocking_cq"_a = false)
       .def("__str__", [](const tt::runtime::debug::Env &env) {
         std::stringstream os;
         os << env;
@@ -605,7 +635,9 @@ void registerRuntimeBindings(nb::module_ &m) {
       });
 
   nb::class_<tt::runtime::perf::Env>(m, "PerfEnv")
-      .def_static("get", &tt::runtime::perf::Env::get, nb::rv_policy::reference)
+      .def_static("get", &tt::runtime::perf::Env::get, nb::rv_policy::reference,
+                  "dump_device_rate"_a = 1000, "enable_perf_trace"_a = false,
+                  "tracy_program_metadata"_a = "")
       .def("set_program_metadata", &tt::runtime::perf::Env::setProgramMetadata)
       .def("tracy_log_op_location", &tt::runtime::perf::Env::tracyLogOpLocation)
       .def("tracy_log_input_layout_conversion",

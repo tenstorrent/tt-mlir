@@ -135,21 +135,22 @@ public:
   }
 };
 
-class TTNNMorehCumSumToTTIRCumSumConversionPattern
-    : public mlir::OpConversionPattern<mlir::tt::ttnn::MorehCumSumOp> {
+class TTNNCumSumToTTIRCumSumConversionPattern
+    : public mlir::OpConversionPattern<mlir::tt::ttnn::CumSumOp> {
 public:
   using mlir::OpConversionPattern<
-      mlir::tt::ttnn::MorehCumSumOp>::OpConversionPattern;
+      mlir::tt::ttnn::CumSumOp>::OpConversionPattern;
 
   mlir::LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::MorehCumSumOp srcOp,
-                  mlir::tt::ttnn::MorehCumSumOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::CumSumOp srcOp,
+                  mlir::tt::ttnn::CumSumOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<mlir::RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::CumSumOp>(
-        srcOp, outputType, adaptor.getInput(), srcOp.getDim());
+        srcOp, outputType, adaptor.getInput(),
+        rewriter.getI64IntegerAttr(srcOp.getDim()));
 
     return mlir::success();
   }
@@ -285,6 +286,8 @@ addElementwiseBinaryOpsConversionPatterns(mlir::MLIRContext *ctx,
                                              mlir::tt::ttir::MaximumOp>,
       TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::MinimumOp,
                                              mlir::tt::ttir::MinimumOp>,
+      TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::ClampTensorOp,
+                                             mlir::tt::ttir::ClampTensorOp>,
       TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::MultiplyOp,
                                              mlir::tt::ttir::MultiplyOp>,
       TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::SubtractOp,
@@ -344,8 +347,7 @@ addReductionOpsConversionPatterns(mlir::MLIRContext *ctx,
                                                     mlir::tt::ttir::MinOp>,
                TTNNArgMaxToTTIRArgMaxConversionPattern,
                TTNNProdToTTIRProdConversionPattern,
-               TTNNMorehCumSumToTTIRCumSumConversionPattern>(typeConverter,
-                                                             ctx);
+               TTNNCumSumToTTIRCumSumConversionPattern>(typeConverter, ctx);
 }
 
 namespace mlir::tt {

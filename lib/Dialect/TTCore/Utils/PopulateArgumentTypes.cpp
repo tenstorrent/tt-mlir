@@ -52,11 +52,11 @@ bool ArgumentTypeMapParser::parse(
 
     // if an entry is something like "func1=" or "func1=," then it's invalid.
     if (argNames.empty()) {
-      llvm::errs() << "Provided empty argument list for funtion name: \""
+      llvm::errs() << "Provided empty argument list for function name: \""
                    << funcName << "\"" << "\n";
       return true;
     }
-    // If this enrty is  "func1=input,param" then argNames would hold ["input",
+    // If this entry is  "func1=input,param" then argNames would hold ["input",
     // "param"] now.
 
     // Parse the argument type names into their respective enums.
@@ -286,7 +286,7 @@ private:
   void applyFuncArgumentType(func::FuncOp func, uint32_t argIdx,
                              ArgumentType argType) {
     // The current argument may already have attributes, so we need to add
-    // the argument type to that DictonaryAttr rather than overwrite it.
+    // the argument type to that DictionaryAttr rather than overwrite it.
     SmallVector<mlir::NamedAttribute> newArgAttrs;
     if (auto currentArgAttrDict = func.getArgAttrDict(argIdx)) {
       if (currentArgAttrDict.contains(ArgumentTypeAttr::name)) {

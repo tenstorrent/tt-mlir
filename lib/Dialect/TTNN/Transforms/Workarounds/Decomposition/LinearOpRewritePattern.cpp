@@ -4,8 +4,8 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 
-#include "ttmlir/Asserts.h"
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -28,25 +28,12 @@ static bool isBatchedLinearOp(ttnn::LinearOp linearOp) {
                                   [](int64_t dim) { return dim > 1; });
 }
 
-// Helper function to check if bias is effectively 1D
-// Returns true if bias has only one non-unit dimension (e.g., <64>, <1x64>,
-// <1x1x64>).
-// Expects every dimension except last to be either 1 or absent.
-static bool isNotEffectively1DBias(TypedValue<RankedTensorType> bias) {
-  if (!bias) {
-    return false;
-  }
-
-  RankedTensorType biasType = bias.getType();
-  if (!biasType) {
-    return false;
-  }
-
-  auto biasShape = biasType.getShape();
-  auto rank = biasType.getRank();
-
-  return rank > 1 && llvm::any_of(biasShape.drop_back(1),
-                                  [](int64_t dim) { return dim > 1; });
+// The fused bias kernel only broadcasts row 0 of the bias tile. Every dimension
+// except the last (feature) dimension must be 1, otherwise the extra rows are
+// silently ignored and results are incorrect.
+static bool hasNonUnitNonFeatureDims(llvm::ArrayRef<int64_t> shape) {
+  return shape.size() > 1 &&
+         llvm::any_of(shape.drop_back(1), [](int64_t dim) { return dim > 1; });
 }
 
 // Calculate the output shape of a matmul operation following tt-metal's logic.
@@ -110,22 +97,47 @@ computeMatmulOutputShape(llvm::ArrayRef<int64_t> shapeA, bool transposeA,
   return outputShape;
 }
 
-// Rewrite Linear op into matmul + add if input B is batched.
+// Keep LinearOp only when the bias is safe for tt-metal's fused-bias linear
+// path:
+//   - RHS/B is not batched.
+//   - Bias is effectively a row bias, i.e. every non-feature dimension is 1.
+//     The fused bias kernel broadcasts only row 0 of the bias tile, so keeping
+//     shapes such as [H, N] with H > 1 would silently ignore the extra rows.
+//   - Bias last dimension matches the output feature dimension.
+static bool canKeepBiasFusedInLinear(ttnn::LinearOp linearOp,
+                                     llvm::ArrayRef<int64_t> matmulShape) {
+  if (!linearOp.getBias()) {
+    return true;
+  }
+
+  if (isBatchedLinearOp(linearOp)) {
+    return false;
+  }
+
+  llvm::ArrayRef<int64_t> biasShape = linearOp.getBias().getType().getShape();
+  if (biasShape.empty()) {
+    return false;
+  }
+
+  if (hasNonUnitNonFeatureDims(biasShape)) {
+    return false;
+  }
+
+  if (biasShape.back() != matmulShape.back()) {
+    return false;
+  }
+
+  return true;
+}
+
+// Rewrite Linear op into matmul + add when tt-metal cannot keep the bias fused.
 // Follows
 // third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/operations/matmul/matmul.cpp.
 LogicalResult
 LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
                                         PatternRewriter &rewriter) const {
 
-  // Only decompose if bias exists AND (bias is non-1D OR input B is batched)
   if (!srcOp.getBias()) {
-    return failure();
-  }
-
-  bool biasIsNon1D = isNotEffectively1DBias(srcOp.getBias());
-  bool inputBIsBatched = isBatchedLinearOp(srcOp);
-
-  if (!biasIsNon1D && !inputBIsBatched) {
     return failure();
   }
 
@@ -138,6 +150,10 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
       computeMatmulOutputShape(inputAType.getShape(), srcOp.getTransposeA(),
                                inputBType.getShape(), srcOp.getTransposeB());
 
+  if (canKeepBiasFusedInLinear(srcOp, matmulShape)) {
+    return failure();
+  }
+
   // Create matmul output type
   auto outputEncoding =
       mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
@@ -147,23 +163,35 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
   auto dataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
       rewriter.getContext(), outputEncoding.getDataType());
 
-  // Step 1: Create MatMul operation.
-
   MatmulOp matmulOp = rewriter.create<ttnn::MatmulOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_matmul"),
       matmulOutputType, srcOp.getA(), srcOp.getB(), srcOp.getTransposeA(),
-      srcOp.getTransposeB(),
-      /*matmul_program_config=*/mlir::Attribute(),
-      /*activation=*/nullptr);
+      srcOp.getTransposeB(), /*matmul_program_config=*/nullptr,
+      /*activation=*/nullptr,
+      /*compute_config=*/srcOp.getComputeConfigAttr());
 
   // Step 2: Create Add operation with bias.
+  llvm::SmallVector<int64_t> addShape;
+  mlir::OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
+                                           srcOp.getBias().getType().getShape(),
+                                           addShape);
+  auto addOutputType =
+      utils::RankedTensorTypeFactory::create(outputType, addShape);
   AddOp addOp = rewriter.create<ttnn::AddOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_add"),
-      outputType, matmulOp.getResult(), srcOp.getBias(),
+      addOutputType, matmulOp.getResult(), srcOp.getBias(),
       /*dtype=*/dataTypeAttr,
       /*memory_config=*/ttnn::MemoryConfigAttr());
 
-  // Step 3: If original linear op had activation, apply it to the add result.
+  // Step 3: Reshape the add result back to original output shape.
+  // Reshape op will be no-op if addOp output shape is same as original LinearOp
+  // output shape.
+  ReshapeOp finalReshape = ttir_to_ttnn::utils::generateReshape(
+      addOp.getResult(), srcOp.getType().getShape(), rewriter,
+      ttmlir::utils::appendLocationSuffix(srcOp->getLoc(), "_decomp_reshape"));
+
+  // Step 4: If original linear op had activation, apply it to the reshape op
+  // result.
   if (srcOp.getActivation()) {
     std::string activationStr = srcOp.getActivation()->str();
 
@@ -191,12 +219,12 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
         rewriter.create(ttmlir::utils::appendLocationSuffix(
                             srcOp.getLoc(), "_decomp_" + activationStr),
                         opName,
-                        /*operands=*/ValueRange{addOp.getResult()},
+                        /*operands=*/ValueRange{finalReshape.getResult()},
                         /*types=*/TypeRange{outputType});
 
     rewriter.replaceOp(srcOp, activationOp->getResult(0));
   } else {
-    rewriter.replaceOp(srcOp, addOp.getResult());
+    rewriter.replaceOp(srcOp, finalReshape.getResult());
   }
 
   return success();

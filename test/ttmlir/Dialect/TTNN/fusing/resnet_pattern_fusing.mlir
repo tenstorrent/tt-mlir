@@ -1,12 +1,11 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-fusing-pass=true enable-fusing-conv2d-with-multiply-pattern=true" --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// This is common pattern throught Resnet. We have conv2d with constant weight, followed by multiply with constant input. This will be commuted through conv2d.
+// This is common pattern throughout Resnet. We have conv2d with constant weight, followed by multiply with constant input. This will be commuted through conv2d.
 // Then we fuse add into conv2d with bias and lastly we fuse conv2d and relu into conv2d with activation.
 
 module {
   // CHECK-LABEL: func.func private @main_const_eval_0
-  // CHECK: "ttnn.multiply"
 
   // CHECK-LABEL: func.func @main
   // CHECK-SAME: %arg0: tensor<64x64x3x3xf32, #ttnn.ttnn_layout<{{.*}}, memref<12288x3xf32, #ttnn.buffer_type<system_memory

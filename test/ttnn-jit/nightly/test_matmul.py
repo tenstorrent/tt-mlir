@@ -8,10 +8,11 @@ import itertools
 
 import pytest
 
+from ttnn_jit._src.utils import get_maximal_block_sharding_grid
 from utils import (
     create_sharded_tile_tensor,
     create_dram_tensor,
-    get_block_sharding_grid,
+    get_core_grid_from_device,
 )
 
 from op_definitions import (
@@ -45,8 +46,7 @@ MATMUL_SHAPE_GRIDS_SINGLE_OR_FULL = [
     ],
     ids=["f32", "bf16", "bfp8"],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype, frontend):
+def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype):
     shapes, grids = shape_grids
     # shape is (m, k, n)
     shape0 = [shapes[0], shapes[1]]
@@ -57,7 +57,6 @@ def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype, frontend):
 
     compiled_op = ttnn_jit.jit(
         debug=True,
-        frontend=frontend,
         compile_only=False,
     )(matmul)
     input0_tensor = create_sharded_tile_tensor(
@@ -89,8 +88,7 @@ def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype, frontend):
 
 
 MATMUL_SHAPES = [
-    (m * 32, k * 32, n * 32)
-    for m, k, n in itertools.product(range(1, 9), range(1, 9), range(1, 9))
+    (m * 32, k * 32, n * 32) for m, k, n in itertools.product([1, 3, 4, 6, 8], repeat=3)
 ]
 
 INPUT_LAYOUTS = [
@@ -112,18 +110,19 @@ INPUT_LAYOUTS = [
     ],
     ids=["bf16"],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
 @pytest.mark.parametrize(
     "input_layouts",
     INPUT_LAYOUTS,
     ids=[f"{str(layout)}" for layout in INPUT_LAYOUTS],
 )
-def test_matmul_with_grids(device, shapes, dtype, ttnn_dtype, frontend, input_layouts):
+def test_matmul_with_grids(device, shapes, dtype, ttnn_dtype, input_layouts):
     shapes = [(shapes[0], shapes[1]), (shapes[1], shapes[2])]
     input_tensors = []
     for shape, layout in zip(shapes, input_layouts):
         if layout == ttnn.TensorMemoryLayout.BLOCK_SHARDED:
-            grid = get_block_sharding_grid(shape)
+            grid = get_maximal_block_sharding_grid(
+                shape, get_core_grid_from_device(device)
+            )
             input_tensors.append(
                 create_sharded_tile_tensor(
                     device,
@@ -141,7 +140,6 @@ def test_matmul_with_grids(device, shapes, dtype, ttnn_dtype, frontend, input_la
 
     compiled_op = ttnn_jit.jit(
         debug=True,
-        frontend=frontend,
         compile_only=False,
     )(matmul)
     output = compiled_op(*input_tensors)

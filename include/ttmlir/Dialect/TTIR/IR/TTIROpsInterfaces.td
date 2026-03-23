@@ -99,6 +99,25 @@ def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
   ];
 }
 
+def TTIR_CacheOpInterface : OpInterface<"CacheOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let description = [{
+    This interface identifies kv_cache operations and provides access to their
+    cache operand.
+  }];
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{ Get the cache operand. }],
+      /*retTy=*/"::mlir::Value",
+      /*methodName=*/"getCache",
+      /*args=*/(ins),
+      /*methodBody=*/[{
+        return $_op.getCache();
+      }]
+    >,
+  ];
+}
+
 def TTIR_DMAOpInterface : OpInterface<"DMAOpInterface"> {
   let cppNamespace = "::mlir::tt::ttir";
   let description = [{

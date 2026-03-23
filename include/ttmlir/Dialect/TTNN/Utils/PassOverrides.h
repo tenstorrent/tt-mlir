@@ -33,6 +33,7 @@ struct OptionNames {
   static constexpr StringRef mockSystemDescArch = "mock-system-desc-arch";
   static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
   static constexpr StringRef meshShape = "mesh-shape";
+  static constexpr StringRef meshTopology = "mesh-topology";
   static constexpr StringRef tuplifyInputIfEmpty = "tuplify-input-if-empty";
   static constexpr StringRef tensorL1UsageCap = "tensor-l1-usage-cap";
   static constexpr StringRef ttnnPerfMetricsOutputFile =
@@ -163,7 +164,7 @@ public:
   bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
              llvm::StringMap<Conv2dConfigOverrideParams> &value);
 
-  // Return override-conv2d-config string represenation.
+  // Return override-conv2d-config string representation.
   //
   static std::string
   toString(const llvm::StringMap<Conv2dConfigOverrideParams> &);

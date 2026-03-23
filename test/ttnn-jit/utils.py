@@ -6,6 +6,7 @@ import ttnn
 import ttnn_jit
 import torch
 from typing import Callable, Optional, Dict, Iterable
+from ttnn_jit._src.utils import get_maximal_block_sharding_grid
 
 
 def _get_ttnn_op(func: Callable) -> Optional[Callable]:
@@ -17,12 +18,15 @@ def _get_ttnn_op(func: Callable) -> Optional[Callable]:
     return attr if callable(attr) else None
 
 
-def memory_configs_equal(memory_config1, memory_config2):
-    return (
+def memory_configs_equal(memory_config1, memory_config2, debug=True):
+    equal = (
         memory_config1.memory_layout == memory_config2.memory_layout
         and memory_config1.buffer_type == memory_config2.buffer_type
         and memory_config1.shard_spec == memory_config2.shard_spec
     )
+    if debug:
+        print("memory_configs_equal", equal)
+    return equal
 
 
 # ----- Input transforms for ops that need constrained inputs -----
@@ -73,17 +77,22 @@ def _get_input_transform(
     return _INPUT_TRANSFORMS.get(op.__name__)
 
 
-def get_block_sharding_grid(shape):
-    """Infer a TTNN grid/end coord for block sharding the given logical tensor shape"""
-    assert len(shape) == 2, f"Only 2D shapes are supported"
-    tile_shape = [shape[0] // 32, shape[1] // 32]
-    grid = []
-    for dim in tile_shape:
-        for grid_dim in reversed(range(8)):
-            if dim % (grid_dim + 1) == 0:
-                grid.append(grid_dim)
-                break
-    return list(reversed(grid))
+def get_core_grid_from_device(device):
+    """Get the core grid from the device"""
+    return (device.core_grid.x - 1, device.core_grid.y - 1)
+
+
+def get_expected_block_sharded_memory_config(tensor_shape, device):
+    """Get expected block sharded memory config for a given tensor shape"""
+    max_core_grid = get_core_grid_from_device(device)
+    grid = get_maximal_block_sharding_grid(tensor_shape, max_core_grid)
+
+    return ttnn.create_sharded_memory_config(
+        shape=tensor_shape,
+        core_grid=ttnn.CoreGrid(x=grid[0] + 1, y=grid[1] + 1),
+        strategy=ttnn.ShardStrategy.BLOCK,
+        use_height_and_width_as_shard_shape=False,
+    )
 
 
 def pcc_check(result, golden_result, threshold=0.99):
@@ -178,7 +187,6 @@ def run_op_test(
     op,
     num_inputs,
     buffer_type=ttnn.BufferType.L1,
-    frontend="graph_capture",
     enable_cache=False,
     shard_strategy=ttnn.ShardStrategy.BLOCK,
     ttnn_dtype=None,
@@ -187,6 +195,8 @@ def run_op_test(
     check_allclose=False,
     pcc_threshold=0.99,
     math_fidelity=ttnn.MathFidelity.HiFi4,
+    memory_config=None,
+    fallback=False,
 ):
     """
     Common test runner for JIT operations.
@@ -199,12 +209,13 @@ def run_op_test(
         op: Operation to test
         num_inputs: Number of input tensors
         buffer_type: Buffer type (L1 or DRAM)
-        frontend: Frontend to use ("ast", "graph_capture", or "tracing") (default: "graph_capture")
         enable_cache: Whether to enable cache for the JIT-compiled function (default: False)
         ttnn_dtype: Optional ttnn.DataType override (e.g., ttnn.DataType.BFLOAT8_B)
         check_pcc: Whether to check PCC (default: True)
         check_allclose: Whether to check allclose (default: False)
         pcc_threshold: PCC threshold for comparison (default: 0.99)
+        math_fidelity: Math fidelity setting for JIT compilation (default: HiFi4)
+        memory_config: Optional output memory configuration for the JIT-compiled function
     """
     # Auto-select input transform based on op name
     input_transform = _get_input_transform(op)
@@ -237,8 +248,9 @@ def run_op_test(
         compile_only=compile_only,
         debug=True,
         enable_cache=enable_cache,
-        frontend=frontend,
         math_fidelity=math_fidelity,
+        memory_config=memory_config,
+        fallback=fallback,
     )(op)
 
     output_tensor = op_jit(*inputs)
@@ -246,9 +258,18 @@ def run_op_test(
 
     print("created inputs:\n", inputs)
     if not compile_only:
-        assert memory_configs_equal(
-            output_tensor.memory_config(), golden_tensor.memory_config()
-        )
+        if not op_jit.fallback_used:
+            if memory_config is not None:
+                assert memory_configs_equal(
+                    output_tensor.memory_config(), memory_config
+                )
+            else:
+                expected_memory_config = get_expected_block_sharded_memory_config(
+                    golden_tensor.shape, device
+                )
+                assert memory_configs_equal(
+                    output_tensor.memory_config(), expected_memory_config
+                )
         print("--------------------------------")
         print("Output:")
         print(output_tensor)

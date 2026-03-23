@@ -5,7 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from golden import get_golden_function
@@ -184,9 +184,7 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
     pipeline_options = []
     compile_and_execute_ttnn(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=pipeline_options,
@@ -218,9 +216,7 @@ def test_bitwise_binary_ops_and(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -244,9 +240,7 @@ def test_bitwise_binary_ops_or(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -270,9 +264,7 @@ def test_bitwise_binary_ops_xor(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -315,9 +307,7 @@ def test_logical_shift_binary_ops_logical_left_shift(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -349,9 +339,7 @@ def test_logical_shift_binary_ops_logical_right_shift(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -402,9 +390,7 @@ def test_eq(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -452,9 +438,7 @@ def test_ge(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -502,9 +486,7 @@ def test_gt(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -552,9 +534,7 @@ def test_le(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -602,9 +582,7 @@ def test_lt(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -652,9 +630,7 @@ def test_ne(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )

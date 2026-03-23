@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "executor.h"
+#include "arguments.h"
 #include "executor_utils.h"
+#include "kernels.h"
 #include "meshshard_utils.h"
 
 #include "tools/profiler/op_profiler.hpp"
@@ -11,6 +13,7 @@
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
+#include "tt/runtime/detail/common/fabric_config.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttmetal/profiler.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
@@ -65,6 +68,8 @@ private:
   void execute(const target::metal::CpuCommand *command);
   void execute(const target::metal::FinishCommand *command);
   void execute(const target::metal::MeshShardCommand *command);
+  void execute(const target::metal::CreateGlobalSemaphoreCommand *command);
+  void execute(const target::metal::ResetGlobalSemaphoreCommand *command);
 
   std::uint64_t getUniqueProgramRuntimeId() { return nextProgramRuntimeId++; }
 
@@ -73,6 +78,8 @@ private:
   std::vector<std::shared_ptr<distributed::MeshEvent>> initMeshEvents;
   std::unordered_map<std::uint32_t, std::shared_ptr<distributed::MeshBuffer>>
       meshBuffers;
+  std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
+      global_semaphores;
   std::unordered_map<std::uint32_t, Tensor> hostBuffers;
   std::unordered_map<std::uint32_t, std::shared_ptr<distributed::MeshEvent>>
       meshEvents;
@@ -208,6 +215,14 @@ void MCQExecutor::execute(const target::metal::Command *command) {
     execute(command->type_as_MeshShardCommand());
     break;
   }
+  case target::metal::CommandType::CreateGlobalSemaphoreCommand: {
+    execute(command->type_as_CreateGlobalSemaphoreCommand());
+    break;
+  }
+  case target::metal::CommandType::ResetGlobalSemaphoreCommand: {
+    execute(command->type_as_ResetGlobalSemaphoreCommand());
+    break;
+  }
   case target::metal::CommandType::NONE: {
     LOG_FATAL("Unsupported CommandType::NONE");
     break;
@@ -285,70 +300,125 @@ void MCQExecutor::execute(const target::metal::ReturnCommand *command) {
   }
 }
 
+void MCQExecutor::execute(
+    const target::metal::CreateGlobalSemaphoreCommand *command) {
+  ZoneScopedN("CreateGlobalSemaphoreCommand");
+  LOG_ASSERT(global_semaphores.find(command->ref()->global_id()) ==
+                 global_semaphores.end(),
+             "Global semaphore with id ", command->ref()->global_id(),
+             " already exists.");
+  auto global_semaphore = tt::tt_metal::experimental::CreateGlobalSemaphore(
+      meshDevice, common::toCoreRangeSet(command->core_range_set()),
+      command->initial_value(), tt_metal::BufferType::L1,
+      deviceAddressValidator(command->ref()->address(),
+                             target::BufferType::L1));
+  LOG_ASSERT(global_semaphore.address() == command->ref()->address());
+  global_semaphores.emplace(command->ref()->global_id(),
+                            std::move(global_semaphore));
+}
+
+void MCQExecutor::execute(
+    const target::metal::ResetGlobalSemaphoreCommand *command) {
+  ZoneScopedN("ResetGlobalSemaphoreCommand");
+  LOG_ASSERT(global_semaphores.find(command->ref()->global_id()) !=
+                 global_semaphores.end(),
+             "Global semaphore with id ", command->ref()->global_id(),
+             " does not exist.");
+  global_semaphores.at(command->ref()->global_id())
+      .reset_semaphore_value(command->value());
+}
+
 void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
                           const char *loc, const char *debugInfo) {
   ZoneScopedN("EnqueueProgramCommand");
-  tt_metal::Program program = tt_metal::CreateProgram();
-
-  for (const target::metal::KernelConfig *kernelConfig :
-       *command->program()->kernels()) {
-    const target::metal::KernelSource *kernelSource =
-        kernelConfig->kernel_as_KernelSource();
-    LOG_ASSERT(kernelSource, "Only source kernels supported for now");
-    std::string kernelSourceString(kernelSource->source()->c_str(),
-                                   kernelSource->source()->size());
-
-    tt::tt_metal::CoreRangeSet coreRangeSet =
-        common::toCoreRangeSet(kernelConfig->core_range_set());
-
-    auto createSemaphore = [&](std::uint32_t initialValue,
-                               CoreType coreType) -> std::uint32_t {
-      return tt_metal::CreateSemaphore(program, coreRangeSet, initialValue,
-                                       coreType);
-    };
-
-    tt_metal::KernelHandle handle = createKernel(
-        program, kernelSourceString, coreRangeSet,
-        createKernelConfig(kernelConfig, command->buffers(), meshBuffers,
-                           command->cbs(), deviceAddressValidator,
-                           createSemaphore),
-        currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
-        kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
-
-    std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
-        kernelConfig->args()->rt_args(), command->buffers(), meshBuffers,
-        command->cbs(), deviceAddressValidator, createSemaphore);
-    tt_metal::SetRuntimeArgs(program, handle, coreRangeSet, rtArgsVec);
-  }
-
-  for (const target::metal::CBRef *cbRef : *command->cbs()) {
-    const target::metal::BufferDesc *bufferDesc = cbRef->buffer_ref()->desc();
-    LOG_ASSERT(bufferDesc->buffer_detail_type() ==
-               target::metal::BufferDetail::MetalBuffer);
-    const target::metal::MetalBuffer *metalBuffer =
-        bufferDesc->buffer_detail_as_MetalBuffer();
-
-    assert((metalBuffer->buffer_config_type() !=
-                target::metal::BufferConfig::InterleavedBufferConfig ||
-            !metalBuffer->circular_buffer_config()) &&
-           "Interleaved buffer configs should not have a CB config");
-
-    // skip init if CircularBufferConfig is not present
-    if (!metalBuffer->circular_buffer_config()) {
-      continue;
-    }
-
-    tt::tt_metal::CoreRangeSet coreRangeSet = common::toCoreRangeSet(
-        metalBuffer->circular_buffer_config()->core_range_set());
-    tt_metal::CircularBufferConfig config =
-        createCircularBufferConfig(cbRef, meshBuffers);
-    tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
-  }
+  LOG_TRACE(logger::LogRuntimeTTMetalCommand, "Executing program: ", loc, "\n",
+            debugInfo);
 
   auto meshWorkload = distributed::MeshWorkload();
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
+  for (auto deviceCoord : deviceRange) {
+    tt_metal::Program program = tt_metal::CreateProgram();
+    for (const target::metal::KernelConfig *kernelConfig :
+         *command->program()->kernels()) {
+      const target::metal::KernelSource *kernelSource =
+          kernelConfig->kernel_as_KernelSource();
+      LOG_ASSERT(kernelSource, "Only source kernels supported for now");
+      std::string kernelSourceString(kernelSource->source()->c_str(),
+                                     kernelSource->source()->size());
 
-  meshWorkload.add_program(deviceRange, std::move(program));
+      tt::tt_metal::CoreRangeSet coreRangeSet =
+          common::toCoreRangeSet(kernelConfig->core_range_set());
+
+      auto createSemaphore = [&](std::uint32_t initialValue) -> std::uint32_t {
+        return tt_metal::CreateSemaphore(program, coreRangeSet, initialValue);
+      };
+
+      tt_metal::KernelHandle handle = createKernel(
+          program, kernelSourceString, coreRangeSet,
+          createKernelConfig(kernelConfig, command->arg_refs_type(),
+                             command->arg_refs(), meshBuffers,
+                             global_semaphores, command->cbs(),
+                             deviceAddressValidator, createSemaphore),
+          currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
+          kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
+
+      std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
+          kernelConfig->args()->rt_args(), command->arg_refs_type(),
+          command->arg_refs(), meshBuffers, global_semaphores, command->cbs(),
+          deviceAddressValidator, createSemaphore);
+
+      if (command->fabric_connection_config() &&
+          kernelConfig->type_type() ==
+              target::metal::KernelConfigType::NocConfig &&
+          command->fabric_connection_config()->noc_index() ==
+              kernelConfig->type_as_NocConfig()->noc_index()) {
+        auto fabricConfigArgs = common::appendFabricConfigArgs(
+            command->fabric_connection_config(), kernelConfig, program, handle,
+            deviceCoord, meshDevice, rtArgsVec, coreRangeSet);
+
+        for (auto core : tt::tt_metal::corerange_to_cores(coreRangeSet)) {
+          tt_metal::SetRuntimeArgs(program, handle, core,
+                                   fabricConfigArgs[core]);
+        }
+      } else {
+        tt_metal::SetRuntimeArgs(program, handle, coreRangeSet, rtArgsVec);
+      }
+    }
+
+    for (const target::metal::CBRef *cbRef : *command->cbs()) {
+      const target::metal::BufferDesc *bufferDesc = cbRef->buffer_ref()->desc();
+      LOG_ASSERT(bufferDesc->buffer_detail_type() ==
+                 target::metal::BufferDetail::MetalBuffer);
+      const target::metal::MetalBuffer *metalBuffer =
+          bufferDesc->buffer_detail_as_MetalBuffer();
+
+      assert((metalBuffer->buffer_config_type() !=
+                  target::metal::BufferConfig::InterleavedBufferConfig ||
+              !metalBuffer->circular_buffer_config()) &&
+             "Interleaved buffer configs should not have a CB config");
+
+      // skip init if CircularBufferConfig is not present
+      if (!metalBuffer->circular_buffer_config()) {
+        continue;
+      }
+
+      tt::tt_metal::CoreRangeSet coreRangeSet = common::toCoreRangeSet(
+          metalBuffer->circular_buffer_config()->core_range_set());
+      tt_metal::CircularBufferConfig config =
+          createCircularBufferConfig(cbRef, meshBuffers);
+      tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+    }
+
+    // fabric connected cores all have separate runtime args so we add a
+    // separate program for each device
+    if (command->fabric_connection_config()) {
+      meshWorkload.add_program(distributed::MeshCoordinateRange(deviceCoord),
+                               std::move(program));
+    } else {
+      meshWorkload.add_program(deviceRange, std::move(program));
+      break;
+    }
+  }
 
   if (perf::Env::get().enablePerfTrace) {
     auto devices = meshDevice->get_devices();
@@ -377,10 +447,8 @@ void MCQExecutor::execute(
 
   auto input = hostBuffers.at(command->src()->global_id());
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
-  tt::runtime::ttmetal::checkHostTensorSizeMatchWithMeshBufferSize(input,
-                                                                   meshBuffer);
-  tt::runtime::ttmetal::writeHostTensorToMeshBuffer(mcq, input, meshBuffer,
-                                                    blockingCQ);
+  checkHostTensorSizeMatchWithMeshBufferSize(input, meshBuffer);
+  writeHostTensorToMeshBuffer(mcq, input, meshBuffer, blockingCQ);
 }
 
 void MCQExecutor::execute(
@@ -389,10 +457,8 @@ void MCQExecutor::execute(
 
   auto meshBuffer = meshBuffers.at(command->src()->global_id());
   auto output = hostBuffers.at(command->dst()->global_id());
-  tt::runtime::ttmetal::checkHostTensorSizeMatchWithMeshBufferSize(output,
-                                                                   meshBuffer);
-  tt::runtime::ttmetal::readHostTensorFromMeshBuffer(mcq, meshBuffer, output,
-                                                     blockingCQ);
+  checkHostTensorSizeMatchWithMeshBufferSize(output, meshBuffer);
+  readHostTensorFromMeshBuffer(mcq, meshBuffer, output, blockingCQ);
 }
 
 void MCQExecutor::execute(const target::metal::CreateBufferCommand *command) {
@@ -493,10 +559,10 @@ void MCQExecutor::execute(const target::metal::FinishCommand *) {
 void MCQExecutor::execute(const target::metal::MeshShardCommand *command) {
   LOG_ASSERT(command->src()->desc()->buffer_detail_type() ==
                  tt::target::metal::BufferDetail::SystemBuffer,
-             "MeshShardCommand requries system memory as input");
+             "MeshShardCommand requires system memory as input");
   LOG_ASSERT(command->dst()->desc()->buffer_detail_type() ==
                  tt::target::metal::BufferDetail::SystemBuffer,
-             "MeshShardCommand requries system memory as output");
+             "MeshShardCommand requires system memory as output");
   const auto dstDataType = command->dst()->desc()->data_type();
   const auto *fbTensorShape = command->src()->desc()->shape();
   const std::vector<size_t> tensorShape(fbTensorShape->begin(),

@@ -9,6 +9,32 @@ include "mlir/Pass/PassBase.td"
 include "shardy/dialect/sdy/ir/dialect.td"
 include "shardy/dialect/sdy/ir/op_interface.td"
 
+def StableHLOComplexDataTypeConversionPass : Pass<"stablehlo-complex-data-type-conversion", "::mlir::ModuleOp"> {
+  let summary = "Convert complex data types to float pair representations in StableHLO.";
+  let description = [{
+    This pass converts StableHLO operations with complex element types to
+    equivalent operations using float pair representations. Complex tensors of
+    type tensor<...xcomplex<fN>> are converted to tensor<...x2xfN>, where the
+    last dimension stores [real, imag] components.
+
+    Complex specific ops, such as stablehlo.complex, stablehlo.real, and stablehlo.imag transpose
+    the trailing dimension to the front for tilize/ untilize performance.
+
+    Concretely, the pass handles:
+      - stablehlo.complex -> stablehlo.reshape + stablehlo.concatenate + stablehlo.transpose
+      - stablehlo.real / stablehlo.imag -> stablehlo.transpose + stablehlo.slice + stablehlo.reshape
+      - stablehlo.constant with complex element type -> float-pair constant
+      - stablehlo.reshape with complex result type -> float-pair reshape
+      - stablehlo.broadcast_in_dim with complex result type -> float-pair broadcast_in_dim
+      - func signatures and return ops with complex types
+
+    This pass is intended to run after `stablehlo-complex-math-expander` (real-domain elementwise ops).
+    To add support for elementwise ops with complex types, please register them in `stablehlo-complex-math-expander` pass.
+  }];
+  let dependentDialects = ["mlir::func::FuncDialect",
+                           "::mlir::stablehlo::StablehloDialect"];
+}
+
 def RegisterCustomShardingRulePass : Pass<"register-custom-sharding-rule", "::mlir::ModuleOp">
 {
   let summary = "Register custom sharding rules for operations.";
@@ -42,14 +68,15 @@ def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::
 {
   let summary = "Annotate arguments with their shard status.";
   let description = [{
-    This pass will analyze the module arguments and annotate arguments with whether they are pre-sharded or not. It will determine this based on analyzing shardy or mhlo annotations.
-    If shardy or mhlo annotations exist, the argument/results is presharded. If not, it is unsharded.
+    This pass will analyze the module arguments and annotate arguments with whether they are pre-sharded or not.
+    For argument, if a sdy.sharding or mhlo.sharding exists, it is presharded.
+    For results, the user must pass that as a compiler option.
 
     Example, this pass will convert the following code:
     ```mlir
     module {
       sdy.mesh @mesh = <["x"=1, "batch"=8]>
-      func.func @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>}) -> (tensor<2048x1024xf32>) {
+      func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>}) -> (tensor<2048x1024xf32>) {
         %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
         return %0 : tensor<2048x1024xf32>
       }
@@ -60,7 +87,7 @@ def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::
     ```mlir
     module {
       sdy.mesh @mesh = <["x"=1, "batch"=8]>
-      func.func @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>, ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<2048x1024xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+      func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>, ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<2048x1024xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
         %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
         return %0 : tensor<2048x1024xf32>
       }
@@ -71,6 +98,10 @@ def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::
   let dependentDialects = [
     "::mlir::sdy::SdyDialect",
     "::mlir::tt::ttir::TTIRDialect"
+  ];
+
+  let options = [
+    ListOption<"resultPresharded", "result-presharded", "int64_t", "Set whether each result is presharded or not">,
   ];
 }
 
@@ -108,6 +139,70 @@ def ConvertXlaSdyToSdyPass : Pass<"convert-xla-sdy-to-sdy", "::mlir::ModuleOp">
   ];
 }
 
+def StableHLOFusingPass : Pass<"stablehlo-fusing", "::mlir::ModuleOp">
+{
+  let summary = "StableHLO fusing pass for shardy passes optimization.";
+  let description = [{
+    This pass tries to fuse stablehlo operations together with the goal of optimizing shardy passes.
+    If proposed fusion is not optimizing shardy passes, it should be implemented in lower level passes. i.e. in TTIR/ TTNN fusion passes.
+
+    For example, it implements `ConcatenateToBroadcastInDimFusionPattern` pattern which fuses stablehlo.concatenate
+    and stablehlo.reshape into stablehlo.broadcast_in_dim. This is due to the fact that
+    stablehlo.broadcast_in_dim propagates shardings better during UserPriorityPropagationPass and InsertExplicitReshardsPass.
+    See https://github.com/openxla/shardy/issues/945 for more details.
+
+    Example, this pass will convert the following code:
+    ```mlir
+      %0 = stablehlo.concatenate %arg0, %arg0, %arg0, dim = 0 :
+            (tensor<2x4xbf16>, tensor<2x4xbf16>, tensor<2x4xbf16>) ->
+            tensor<6x4xbf16>
+      %1 = stablehlo.reshape %0 : (tensor<6x4xbf16>) -> tensor<3x2x4xbf16>
+    ```
+
+    Into:
+    ```mlir
+      %0 = stablehlo.broadcast_in_dim %arg0, dims = [1, 2] :
+            (tensor<2x4xbf16>) -> tensor<3x2x4xbf16>
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
+def PartiallyConvertSdyToStableHLOPass : Pass<"partially-convert-sdy-to-stablehlo", "::mlir::ModuleOp">
+{
+  let summary = "Partially convert Shardy operations to StableHLO operations.";
+  let description = [{
+    This pass partially converts Shardy operations to their StableHLO equivalents.
+    This is needed because tt-xla may receive graphs from XLA containing Shardy operations,
+    but tt-mlir does not need or handle them beyond sharding annotations.
+
+    Currently, this pass converts sdy.constant operations to stablehlo.constant operations.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    func.func @main() -> tensor<2x3xf32> {
+      %0 = sdy.constant dense<[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]> : tensor<2x3xf32>
+      return %0 : tensor<2x3xf32>
+    }
+    ```
+
+    Into:
+    ```mlir
+    func.func @main() -> tensor<2x3xf32> {
+      %0 = stablehlo.constant dense<[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]> : tensor<2x3xf32>
+      return %0 : tensor<2x3xf32>
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect",
+    "::mlir::sdy::SdyDialect"
+  ];
+}
 
 def AnalyzeMeshPass : Pass<"analyze-mesh", "::mlir::ModuleOp">
 {
@@ -170,6 +265,34 @@ def DecoupleConstFanoutPass : Pass<
 
   let dependentDialects = [
     "::mlir::func::FuncDialect",
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
+def DecomposeCustomCallTuplesPass : Pass<"decompose-custom-call-tuples", "::mlir::ModuleOp"> {
+  let summary = "Eliminate stablehlo.tuple ops by forwarding operands to get_tuple_element users.";
+  let description = [{
+    This pass finds `stablehlo.tuple` operations and replaces all corresponding
+    `stablehlo.get_tuple_element` users with direct references to the tuple's
+    operands. The tuple op is erased if all uses are replaced.
+
+    This is required because Shardy's sharding propagation does not support
+    tuple types and they must be eliminated before sharding propagation can run.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    %0 = stablehlo.tuple %arg0, %arg1 : tuple<tensor<3x3xf32>, tensor<3xf32>>
+    %1 = stablehlo.get_tuple_element %0[0] : (tuple<tensor<3x3xf32>, tensor<3xf32>>) -> tensor<3x3xf32>
+    %2 = stablehlo.get_tuple_element %0[1] : (tuple<tensor<3x3xf32>, tensor<3xf32>>) -> tensor<3xf32>
+    ```
+
+    Into:
+    ```mlir
+    // %1 is replaced by %arg0, %2 is replaced by %arg1
+    ```
+  }];
+
+  let dependentDialects = [
     "::mlir::stablehlo::StablehloDialect"
   ];
 }
@@ -264,6 +387,46 @@ def WrapUnderManualComputationPass : Pass<"wrap-under-manual-computation", "::ml
   ];
 }
 
+def AnnotateLocalShapesPass : Pass<"annotate-local-shapes", "::mlir::ModuleOp">
+{
+  let summary = "Annotate all arguments and results with their local shape.";
+  let description = [{
+    This pass will iterate through all arguments and results and annotate the local shape of that argument/result.
+    For single device graphs, the local shape is the original shape.
+    For multi-device graphs, the local shape can be sharded or replicated depending on the sharding config set in the graph.
+    This information is required by any tool calling ttmlir runtime to tell it how the inputs should be preprocessed.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    module {
+      sdy.mesh @mesh = <["x"=1, "batch"=8]>
+      func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>}) -> (tensor<2048x1024xf32>) {
+        %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
+        return %0 : tensor<2048x1024xf32>
+      }
+    }
+    ```
+
+    Into:
+    ```mlir
+    module {
+      sdy.mesh @mesh = <["x"=1, "batch"=8]>
+      func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<128x2x32x32xf32>>, ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<2048x1024xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch", ?}, {?}\]>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<2048x1024xf32>>, ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+        %0 = sdy.manual_computation(%arg0) in_shardings=\[<@mesh, \[{"batch"}, {}, {}, {}\]>\] out_shardings=\[<@mesh, \[{"batch", ?}, {?}\]>\] manual_axes={} (%arg1: tensor<1024x2x32x32xf32>) {
+          %1 = stablehlo.reshape %arg1 {sdy.sharding = #sdy.sharding_per_value<\[<@mesh, \[{"batch", ?}, {?}\]>\]>} : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
+          sdy.return %1 : tensor<2048x1024xf32>
+        } : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
+        return %0 : tensor<2048x1024xf32>
+      }
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mlir::ModuleOp">
 {
   let summary = "Update all the tensor dimensions based on their tensor sharding annotation from global shapes to local per device shapes.";
@@ -304,6 +467,35 @@ def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mli
   ];
 }
 
+def ReplicateNonSplittableConstantsPass : Pass<"replicate-non-splittable-constants", "::mlir::ModuleOp">
+{
+  let summary = "Change sharding of non-splittable constants to replicated.";
+  let description = [{
+    This pass identifies stablehlo.constant operations whose values are
+    non-splat and non-periodic across the sharding dimension, meaning they
+    cannot be meaningfully sharded in SPMD (all devices run the same program
+    and would need to split constant data that has no repeating pattern).
+
+    For such constants, the pass changes their sharding annotation to fully
+    replicated (all dimensions closed, no sharding axes). This must run
+    before InsertExplicitReshards so that Shardy detects the mismatch between
+    the replicated constant and its sharded consumers, and inserts the
+    appropriate sdy.reshard operations. Those reshards are later converted to
+    concrete collective operations by ReshardToCollectives.
+
+    Without this pass, UpdateGlobalToLocalShapes would try to shard the
+    constant value, which fails for non-splat, non-periodic data.
+
+    Example constants that are non-splittable:
+      - dense<[0, 1, 2, ..., 63]> : tensor<64xi64>  (iota / position indices)
+      - dense<[[[0.0, 1.0, ..., 63.0]]]> : tensor<1x1x64xf32>  (RoPE freqs)
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::ModuleOp">
 {
   let summary = "Insert explicit reshards only on non-solved graphs.";
@@ -313,6 +505,18 @@ def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::Modul
     manual_axes, indicating that the sharding propagation has already been completed.
   }];
 
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
+def ShardyCCLCanonicalizationPass : Pass<"shardy-ccl-canonicalization", "::mlir::ModuleOp">
+{
+  let summary = "Canonicalize Shardy CCL operations.";
+  let description = [{
+    This pass canonicalizes Shardy collective communication operations by fusing / rewriting
+    patterns that can be represented more efficiently.
+  }];
   let dependentDialects = [
     "::mlir::sdy::SdyDialect"
   ];

@@ -186,6 +186,7 @@ def get_metal_tensor_layout(
     ctx: Context,
     logical_shape: Shape,
     tiled=False,
+    element_dtype: torch.dtype = torch.float32,
     oobVal=ttcore.OOBVal.Undef,
     memorySpace=ttcore.MemorySpace.DeviceL1,
     grid: Optional[Tuple[int, int]] = None,
@@ -216,11 +217,14 @@ def get_metal_tensor_layout(
     grid : Optional[Tuple[int, int]]
         Grid shape for sharding
     index_map : Optional[AffineMap]
-        Optional affine map for layout transformation
+        Deprecated. Remapping is now carried by view/stream ops, not layouts.
     dim_alignments : Optional[Tuple[int, ...]]
         Optional explicit dimension alignments. When specified, the tensor
         will be padded to these alignments regardless of tile size. Useful
         for testing masking of complete out-of-bounds tiles.
+    element_dtype : torch.dtype
+        Element dtype for the resulting tensor. Supports torch.float32,
+        torch.int32, torch.uint16, and torch.bfloat16.
 
     Returns
     -------
@@ -244,9 +248,6 @@ def get_metal_tensor_layout(
         intervals_np = np.array([[0, rank - 1]], dtype=np.int64)
         collapse_intervals = DenseElementsAttr.get(intervals_np)
 
-        if index_map is None:
-            index_map = AffineMap.get_identity(2 * rank, ctx)
-
         layout = ttcore.ir.MetalLayoutAttr.get(
             ctx,
             logical_shape,
@@ -255,20 +256,10 @@ def get_metal_tensor_layout(
             memory_layout,
             collapse_intervals,
             list(dim_alignments),
-            index_map,
-        )
-    elif index_map is None:
-        layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx, logical_shape, oobVal, memorySpace, memory_layout
         )
     else:
         layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx,
-            logical_shape,
-            oobVal,
-            memorySpace,
-            memory_layout,
-            index_map,
+            ctx, logical_shape, oobVal, memorySpace, memory_layout
         )
 
     shard_shape = []
@@ -284,11 +275,24 @@ def get_metal_tensor_layout(
         grid_shape, [32, 32] if tiled else [1, 1]
     )
 
-    elemType = F32Type.get(ctx)
+    if element_dtype == torch.float32:
+        elemType = F32Type.get(ctx)
+        tile_elem_dtype = ttcore.DataType.Float32
+    elif element_dtype == torch.int32:
+        elemType = IntegerType.get_signed(32, ctx)
+        tile_elem_dtype = ttcore.DataType.Int32
+    elif element_dtype == torch.uint16:
+        elemType = IntegerType.get_unsigned(16, ctx)
+        tile_elem_dtype = ttcore.DataType.UInt16
+    elif element_dtype == torch.bfloat16:
+        elemType = BF16Type.get(ctx)
+        tile_elem_dtype = ttcore.DataType.BFloat16
+    else:
+        raise ValueError(f"Unsupported dtype for metal layout: {element_dtype}")
 
     # For tiled layouts, ensure the device shape accounts for tiles.
     if tiled:
-        elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
+        elemType = ttcore.ir.TileType.get(ctx, 32, 32, tile_elem_dtype)
         if grid is None or grid == (1, 1):
             # For default 1x1 grid, use tile count based on aligned shape.
             # If dim_alignments is specified, use that; otherwise use logical_shape.
@@ -311,3 +315,31 @@ def get_metal_tensor_layout(
             device_shape[-1] = tiles_per_shard_w
 
     return RankedTensorType.get(device_shape, elemType, layout, Location.unknown(ctx))
+
+
+def affine_map_from_lambda(fn):
+    class Dim:
+        def __init__(self, position, name):
+            self.position = position
+            self.name = name
+
+    dims = tuple(
+        Dim(i, name) for i, name in enumerate(inspect.signature(fn).parameters)
+    )
+    num_dims = len(dims)
+    results = fn(*dims)
+    exprs = []
+    for result in results:
+        if isinstance(result, Dim):
+            exprs.append(AffineDimExpr.get(result.position))
+        elif isinstance(result, int):
+            assert (
+                result == 0
+            ), "The only integer constant allowed in an indexing_map is 0"
+            exprs.append(AffineConstantExpr.get(result))
+        else:
+            raise TypeError(
+                f"Unsupported indexing_map result type `{type(result)}` for result `{result}`"
+            )
+    num_syms = 0
+    return AffineMap.get(num_dims, num_syms, exprs)

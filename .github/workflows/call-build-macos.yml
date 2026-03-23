@@ -23,13 +23,13 @@ jobs:
     runs-on: ${{ matrix.build.runs-on }}
     timeout-minutes: 600
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
           fetch-depth: 0 # Fetch all history and tags
 
     - uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: '3.12'
 
     - name: Get macos sdk version
       if: startsWith(matrix.build.runs-on, 'macos')

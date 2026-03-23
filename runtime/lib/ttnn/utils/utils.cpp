@@ -257,6 +257,8 @@ MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
     return ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
   case ::tt::target::ttnn::TensorMemoryLayout::BlockSharded:
     return ::ttnn::TensorMemoryLayout::BLOCK_SHARDED;
+  case ::tt::target::ttnn::TensorMemoryLayout::NDSharded:
+    return ::ttnn::TensorMemoryLayout::ND_SHARDED;
   }
 }
 
@@ -271,6 +273,8 @@ fromTTNNTensorMemoryLayout(::ttnn::TensorMemoryLayout tensorMemoryLayout) {
     return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
   case ::ttnn::TensorMemoryLayout::BLOCK_SHARDED:
     return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
+  case ::ttnn::TensorMemoryLayout::ND_SHARDED:
+    return ::tt::target::ttnn::TensorMemoryLayout::NDSharded;
   }
 }
 
@@ -356,6 +360,21 @@ toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange) {
   tt::tt_metal::CoreCoord start = toTTNNCoreCoord(coreRange.start_coord());
   tt::tt_metal::CoreCoord end = toTTNNCoreCoord(coreRange.end_coord());
   return tt::tt_metal::CoreRange(start, end);
+}
+
+tt::tt_metal::distributed::MeshCoordinate
+toTTNNMeshCoordinate(const tt::target::ttnn::MeshCoord &meshCoord) {
+  return tt::tt_metal::distributed::MeshCoordinate(meshCoord.coords()->Get(0),
+                                                   meshCoord.coords()->Get(1));
+}
+
+tt::tt_metal::distributed::MeshCoordinateRange toTTNNMeshCoordinateRange(
+    const tt::target::ttnn::MeshCoordRange &meshCoordRange) {
+  tt::tt_metal::distributed::MeshCoordinate start =
+      toTTNNMeshCoordinate(*meshCoordRange.start());
+  tt::tt_metal::distributed::MeshCoordinate end =
+      toTTNNMeshCoordinate(*meshCoordRange.end());
+  return tt::tt_metal::distributed::MeshCoordinateRange(start, end);
 }
 
 ::tt::target::ttnn::CoreRange

@@ -46,6 +46,11 @@ public:
     deviceAttr = mlir::tt::ttcore::lookupDevice(func);
   }
 
+  void setL1UsageCap(float cap) {
+    module->getOperation()->setAttr(utils::g_TensorL1UsageCapAttrName,
+                                    builder.getF32FloatAttr(cap));
+  }
+
   llvm::SmallVector<int64_t, 2> getTensorShape() {
     return {TensorDimX, TensorDimY};
   }
@@ -134,7 +139,11 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   llvm::DenseMap<mlir::func::FuncOp, llvm::SmallVector<mlir::Operation *>>
       schedule;
   llvm::DenseMap<mlir::Operation *, L1Usage> opsL1Usage;
-  constexpr uint64_t usableL1CacheSize = 15;
+
+  // Set tensorL1UsageCap to achieve usableL1CacheSize = 15
+  // usableL1Size = 1499136 - 1024 = 1498112
+  // tensorL1UsageCap = 15 / 1498112
+  setL1UsageCap(15.0f / 1498112.0f);
 
   // Create operand A
   mlir::Value lhs = func.getBody().getBlocks().front().getArgument(0);
@@ -177,8 +186,8 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
                                  legalConfigs, opsL1Usage);
 
   // Run greedy config picker policy
-  GreedyL1InterleavedPolicy l1InterleavedPolicy(
-      nullptr, l1ChainConfigs, legalConfigs, schedule, usableL1CacheSize);
+  GreedyL1InterleavedPolicy l1InterleavedPolicy(nullptr, l1ChainConfigs,
+                                                legalConfigs, schedule);
   GreedyPolicyChoice greedyConfig =
       l1InterleavedPolicy.getGreedyConfig(opD, opsL1Usage);
 

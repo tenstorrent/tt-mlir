@@ -21,6 +21,7 @@ class SortOp;
 class SliceDynamicOp;
 class SliceStaticOp;
 class RotaryEmbeddingOp;
+class Conv3dOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -248,14 +249,15 @@ public:
   static TTNNOperandsWorkarounds
   createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
 
+  // Create workarounds for mesh partition op operands. The input and output
+  // tensors are always in row-major layout.
+  // TODO (hshah): Remove once
+  // https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
+  static TTNNOperandsWorkarounds createMeshPartitionOpOperandsWorkarounds();
+
   // Create workarounds for scatter op operands.
   static TTNNOperandsWorkarounds
   createScatterOpOperandsWorkarounds(mlir::Operation *op);
-
-  // Create workarounds for concat op operands.
-  static TTNNOperandsWorkarounds
-  createConcatOpOperandsWorkarounds(mlir::Operation::operand_range inputs,
-                                    int64_t numOperands, int32_t dim);
 
   // Create workarounds for static slice op operands.
   static TTNNOperandsWorkarounds
@@ -276,6 +278,8 @@ public:
   static TTNNOperandsWorkarounds
   createReshapeOpOperandsWorkarounds(RankedTensorType inputType);
 
+  static TTNNOperandsWorkarounds createDropoutOpOperandsWorkarounds();
+
   static TTNNOperandsWorkarounds
   createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
 
@@ -294,6 +298,10 @@ public:
 
   static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
 
+  // Create workarounds for group norm op operands.
+  static TTNNOperandsWorkarounds
+  createGroupNormOpOperandsWorkarounds(mlir::Operation *op);
+
   // Create workarounds for ArgMax op operands.
   static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();
 
@@ -311,6 +319,10 @@ public:
   template <typename T>
   static TTNNOperandsWorkarounds createConvOpOperandsWorkarounds(T op);
 
+  // Create workarounds for conv3d op to force BFloat16 data type.
+  static TTNNOperandsWorkarounds
+  createConv3dOpOperandsWorkarounds(ttnn::Conv3dOp op);
+
   // Create workarounds for reduction op operands.
   static TTNNOperandsWorkarounds
   createReductionOpOperandsWorkarounds(mlir::Operation *op);
@@ -325,6 +337,27 @@ public:
   static TTNNOperandsWorkarounds
   createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
+
+  // Create workarounds for sparse_matmul op operands.
+  // Sparsity tensor must be in ROW_MAJOR layout.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/39126
+  static TTNNOperandsWorkarounds createSparseMatmulOpOperandsWorkarounds();
+
+  // Create workarounds for all_to_all_dispatch op operands.
+  // Expert indices and mapping require uint16 dtype and ROW_MAJOR layout.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
+  static TTNNOperandsWorkarounds createAllToAllDispatchOpOperandsWorkarounds();
+
+  // Create workarounds for all_to_all_combine op operands.
+  // Expert metadata and mapping require uint16 dtype and ROW_MAJOR layout.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
+  static TTNNOperandsWorkarounds createAllToAllCombineOpOperandsWorkarounds();
+
+  // Create workarounds for moe_expert_token_remap op operands.
+  // expert_metadata requires uint16 dtype and ROW_MAJOR layout.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/39128
+  static TTNNOperandsWorkarounds
+  createMoeExpertTokenRemapOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

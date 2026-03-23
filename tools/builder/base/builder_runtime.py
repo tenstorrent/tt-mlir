@@ -109,23 +109,36 @@ def runtime_str_dtype_to_torch_dtype(dtype):
     raise ValueError(f"unsupported dtype: {dtype}")
 
 
-def create_tensor(tensor):
-    isEmptyTensor = not all(tensor.shape)
+def create_tensor(tensor_shards, mesh_shape):
+    first_tensor = tensor_shards[0]
+    isEmptyTensor = not all(first_tensor.shape)
+
     if isEmptyTensor:
         return tt_runtime.runtime.create_owned_host_tensor(
-            tensor.data_ptr(),
-            list(tensor.shape),
-            list(tensor.stride()),
-            tensor.element_size(),
-            torch_dtype_to_runtime_dtype(tensor.dtype),
+            first_tensor.data_ptr(),
+            list(first_tensor.shape),
+            list(first_tensor.stride()),
+            first_tensor.element_size(),
+            torch_dtype_to_runtime_dtype(first_tensor.dtype),
+        )
+
+    if len(tensor_shards.keys()) > 1:
+        return tt_runtime.runtime.create_multi_device_borrowed_host_tensor(
+            [t.data_ptr() for t in tensor_shards.values()],
+            list(first_tensor.shape),
+            list(first_tensor.stride()),
+            first_tensor.element_size(),
+            torch_dtype_to_runtime_dtype(first_tensor.dtype),
+            {},  # strategy: not used
+            mesh_shape,
         )
 
     return tt_runtime.runtime.create_borrowed_host_tensor(
-        tensor.data_ptr(),
-        list(tensor.shape),
-        list(tensor.stride()),
-        tensor.element_size(),
-        torch_dtype_to_runtime_dtype(tensor.dtype),
+        first_tensor.data_ptr(),
+        list(first_tensor.shape),
+        list(first_tensor.stride()),
+        first_tensor.element_size(),
+        torch_dtype_to_runtime_dtype(first_tensor.dtype),
     )
 
 
@@ -373,7 +386,6 @@ def get_sanitized_filename(name: str, replacement: str = "_") -> str:
 
 def save_torch_tensor(torch_tensor, folder_path, torch_tensor_name):
     torch_tensor_name = get_sanitized_filename(torch_tensor_name)
-    os.makedirs(folder_path, exist_ok=True)
     torch.save(torch_tensor, f"{folder_path}/{torch_tensor_name}")
 
 
@@ -412,6 +424,8 @@ class CallbackRuntimeConfig:
         bypass_ops=None,
         save_artifacts: bool = False,
         artifact_dir: str = ".",
+        verify_intermediates: bool = False,
+        save_memory: bool = False,
     ):
         self.device = device
         self.pcc = pcc
@@ -424,22 +438,18 @@ class CallbackRuntimeConfig:
         self.bypass_ops = bypass_ops if bypass_ops else []
         self.save_artifacts = save_artifacts
         self.artifact_dir = artifact_dir
+        self.verify_intermediates = verify_intermediates
+        self.save_memory = save_memory
         self.golden_report = {}
+        self.memory_report = []
 
     def start_new_program(self, artifact_dir):
         self.artifact_dir = artifact_dir
         self.golden_report = {}
+        self.memory_report = []
 
 
-def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
-    pass
-
-
-def pre_op_get_callback_fn(callback_runtime_config):
-    return partial(pre_op_callback, callback_runtime_config)
-
-
-def post_op_callback(callback_runtime_config, binary, program_context, op_context):
+def golden(callback_runtime_config, binary, program_context, op_context):
     loc = tt_runtime.runtime.get_op_loc_info(op_context)
     op_output_tensor_map = tt_runtime.runtime.get_op_output_tensor(
         op_context, program_context
@@ -533,6 +543,60 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
     callback_runtime_config.golden_report[loc] = device_results
 
 
+def create_memory_dictionary(memory_view):
+    memory_dict = {}
+    memory_dict["num_banks"] = memory_view.num_banks
+    memory_dict["total_bytes_per_bank"] = memory_view.total_bytes_per_bank
+    memory_dict[
+        "total_bytes_allocated_per_bank"
+    ] = memory_view.total_bytes_allocated_per_bank
+    memory_dict["total_bytes_free_per_bank"] = memory_view.total_bytes_free_per_bank
+    memory_dict[
+        "largest_contiguous_bytes_free_per_bank"
+    ] = memory_view.largest_contiguous_bytes_free_per_bank
+    memory_dict["block_table"] = memory_view.block_table
+
+    return memory_dict
+
+
+def memory(callback_runtime_config, binary, program_context, op_context):
+    device = callback_runtime_config.device
+    loc = tt_runtime.runtime.get_op_loc_info(op_context)
+    debug_str = tt_runtime.runtime.get_op_debug_str(op_context)
+
+    memory_views = device.get_memory_view()
+    dram_memory_view = memory_views[tt_runtime.runtime.MemoryBufferType.DRAM]
+    l1_memory_view = memory_views[tt_runtime.runtime.MemoryBufferType.L1]
+    l1_small_memory_view = memory_views[tt_runtime.runtime.MemoryBufferType.L1_SMALL]
+    trace_memory_view = memory_views[tt_runtime.runtime.MemoryBufferType.TRACE]
+
+    op_memory_report = {}
+    op_memory_report["loc"] = loc
+    op_memory_report["debug_str"] = debug_str
+    op_memory_report["dram"] = create_memory_dictionary(dram_memory_view)
+    op_memory_report["l1"] = create_memory_dictionary(l1_memory_view)
+    op_memory_report["l1_small"] = create_memory_dictionary(l1_small_memory_view)
+    op_memory_report["trace"] = create_memory_dictionary(trace_memory_view)
+
+    callback_runtime_config.memory_report.append(op_memory_report)
+
+
+def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
+    pass
+
+
+def pre_op_get_callback_fn(callback_runtime_config):
+    return partial(pre_op_callback, callback_runtime_config)
+
+
+def post_op_callback(callback_runtime_config, binary, program_context, op_context):
+    if callback_runtime_config.verify_intermediates:
+        golden(callback_runtime_config, binary, program_context, op_context)
+
+    if callback_runtime_config.save_memory:
+        memory(callback_runtime_config, binary, program_context, op_context)
+
+
 def post_op_get_callback_fn(callback_runtime_config):
     return partial(post_op_callback, callback_runtime_config)
 
@@ -565,20 +629,21 @@ def convert_golden_input_output_to_torch(
 
 def execute_fb(
     compiled_bin,
-    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
-    intermediate_goldens: Dict[str, Dict[int, GoldenMapTensor]],
+    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = None,
+    intermediate_goldens: Dict[str, Dict[int, GoldenMapTensor]] = None,
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
     device=None,
-    check_pcc: bool = False,
+    check_pcc: bool = True,
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
     bypass_ops: List[str] = None,
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    dump_memory: bool = False,
 ):
     """
     Execute a flatbuffer binary on device and compare device outputs against goldens.
@@ -615,6 +680,8 @@ def execute_fb(
         Save output tensors (and intermediate tensors if intermediate verification is enabled) and golden reports to `artifact_dir`.
     artifact_dir : str
         Root directory for artifacts.
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
 
     Returns
     -------
@@ -633,6 +700,9 @@ def execute_fb(
     golden_report = {}
     if bypass_ops is None:
         bypass_ops = []
+    verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
+    if input_output_goldens is None:
+        disable_golden = True
 
     callback_runtime_config = CallbackRuntimeConfig(
         device=device,
@@ -646,9 +716,11 @@ def execute_fb(
         bypass_ops=bypass_ops,
         save_artifacts=save_artifacts,
         artifact_dir=artifact_dir,
+        verify_intermediates=verify_intermediates,
+        save_memory=dump_memory,
     )
 
-    if enable_intermediate_verification or bypass_ops:
+    if verify_intermediates or dump_memory:
         tt_runtime.runtime.DebugHooks.get(
             pre_op_get_callback_fn(callback_runtime_config),
             post_op_get_callback_fn(callback_runtime_config),
@@ -658,9 +730,11 @@ def execute_fb(
         if fbb.is_program_private(program_index):
             continue
 
-        callback_runtime_config.start_new_program(
-            f"{artifact_dir}/program_{program_index}"
-        )
+        program_artifact_dir = os.path.join(artifact_dir, f"program_{program_index}")
+        if save_artifacts or dump_memory:
+            os.makedirs(program_artifact_dir, exist_ok=True)
+
+        callback_runtime_config.start_new_program(program_artifact_dir)
         program_golden_report = {}
         program_output_tensors = {}
 
@@ -671,7 +745,7 @@ def execute_fb(
         for i, i_dict in enumerate(input_dict):
             if not disable_golden:
                 golden_inputs_torch.append(
-                    golden_input_output_tensors[program_index][f"input_{i}"][0]
+                    golden_input_output_tensors[program_index][f"input_{i}"]
                 )
             else:
                 torch_tensor = torch.randn(
@@ -687,7 +761,7 @@ def execute_fb(
         for i, o_dict in enumerate(output_dict):
             if not disable_golden:
                 golden_outputs_torch.append(
-                    golden_input_output_tensors[program_index][f"output_{i}"][0]
+                    golden_input_output_tensors[program_index][f"output_{i}"]
                 )
 
             torch_tensor = torch.zeros(
@@ -696,12 +770,12 @@ def execute_fb(
                     o_dict["desc"]["layout"]["memory_desc"]["data_type"]
                 ),
             )
-            outputs_torch.append(torch_tensor)
+            outputs_torch.append({0: torch_tensor})
 
         inputs = []
         outputs = []
         for i in golden_inputs_torch:
-            new_input = create_tensor(i)
+            new_input = create_tensor(i, device.get_mesh_shape())
             inputs.append(new_input)
         converted_inputs = convert_input_layouts(
             device,
@@ -711,7 +785,7 @@ def execute_fb(
         )
 
         for i in outputs_torch:
-            new_output = create_tensor(i)
+            new_output = create_tensor(i, (1, 1))
             outputs.append(new_output)
 
         start_submit = time.perf_counter_ns()
@@ -742,9 +816,16 @@ def execute_fb(
             if disable_golden:
                 continue
 
+            combined_output_tensor = output_host
+            if fbb.file_identifier != "TTM0":
+                combined_output_tensor = (
+                    tt_runtime.runtime.create_multi_device_host_tensor_from_shards(
+                        [output_host], {}, (1, 1)
+                    )
+                )
             tt_runtime.runtime.memcpy(
                 outputs[i],
-                output_host,
+                combined_output_tensor,
             )
             tt_runtime.runtime.deallocate_tensor(runtime_output_tensor, force=True)
 
@@ -761,7 +842,7 @@ def execute_fb(
                     dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
                 ).reshape(outputs[i].get_shape())
 
-            golden_tensor_torch = golden_outputs_torch[i]
+            golden_tensor_torch = golden_outputs_torch[i][0]
             results = check_outputs(
                 golden_tensor_torch,
                 output_tensor_torch,
@@ -779,9 +860,6 @@ def execute_fb(
             program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch
 
             if save_artifacts:
-                program_artifact_dir = os.path.join(
-                    artifact_dir, f"program_{program_index}"
-                )
                 save_torch_tensor(
                     output_tensor_torch,
                     program_artifact_dir,
@@ -793,16 +871,21 @@ def execute_fb(
                     f"golden_output_{i}.pt",
                 )
 
-        if not disable_golden:
             for loc, device_results in callback_runtime_config.golden_report.items():
                 program_golden_report[loc] = device_results
 
             if save_artifacts:
-                artifact_file = os.path.join(
-                    artifact_dir, f"program_{program_index}", "golden_report.json"
-                )
-                with open(artifact_file, "w") as f:
+                golden_file = os.path.join(program_artifact_dir, "golden_report.json")
+                with open(golden_file, "w") as f:
                     json.dump(program_golden_report, f, indent=4)
+
+            if dump_memory:
+                memory_file = os.path.join(
+                    program_artifact_dir,
+                    "memory_report.json",
+                )
+                with open(memory_file, "w") as f:
+                    json.dump(callback_runtime_config.memory_report, f, indent=4)
 
             golden_report[f"program_{program_index}"] = program_golden_report
             output_tensors[f"program_{program_index}"] = program_output_tensors
@@ -812,12 +895,12 @@ def execute_fb(
 
 def execute_py(
     compiled_bin,
-    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
+    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = None,
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
-    check_pcc: bool = False,
+    check_pcc: bool = True,
     check_atol: bool = False,
     check_rtol: bool = False,
     save_artifacts: bool = False,
@@ -873,11 +956,14 @@ def execute_py(
 
     import ttnn
 
+    if input_output_goldens is None:
+        disable_golden = True
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
     output_tensors = {}
     golden_report = {}
+    module_name = None
 
     try:
         # Parse the AST to find function names from the compiled source
@@ -891,6 +977,7 @@ def execute_py(
                 and not node.name.__contains__("_const_eval_")
                 # TODO(dmilinkovic): this is getting out of hand, issue #6386.
                 and not node.name.__contains__("hoisted_")
+                and not node.name.startswith("consteval_")
             ):
                 program_names.append(node.name)
 
@@ -955,6 +1042,7 @@ def execute_py(
                         program_artifact_dir = os.path.join(
                             artifact_dir, f"program_{program_index}"
                         )
+                        os.makedirs(program_artifact_dir, exist_ok=True)
                         save_torch_tensor(
                             output_tensor_torch,
                             program_artifact_dir,
@@ -978,19 +1066,22 @@ def execute_py(
 
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
+    finally:
+        if module_name is not None:
+            sys.modules.pop(module_name, None)
 
     return golden_report, output_tensors
 
 
 def execute_cpp(
     cpp_path: str,
-    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
+    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = None,
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
     device=None,
-    check_pcc: bool = False,
+    check_pcc: bool = True,
     check_atol: bool = False,
     check_rtol: bool = False,
     save_artifacts: bool = False,
@@ -1047,13 +1138,13 @@ def execute_cpp(
         metal_lib_candidates = [
             p for p in TT_METAL_RUNTIME_ROOT.glob("build*/lib") if p.is_dir()
         ]
-        if len(metal_lib_candidates) != 1:
-            found = "\n".join(f"- {p}" for p in metal_lib_candidates) or "- <none>"
-            raise TTBuilderRuntimeException(
-                "Expected exactly one TT-Metal build lib directory matching "
-                f"`{TT_METAL_RUNTIME_ROOT}/build*/lib`, but found {len(metal_lib_candidates)}:\n"
-                f"{found}"
-            )
+        # if len(metal_lib_candidates) != 1:
+        #    found = "\n".join(f"- {p}" for p in metal_lib_candidates) or "- <none>"
+        #    raise TTBuilderRuntimeException(
+        #        "Expected exactly one TT-Metal build lib directory matching "
+        #        f"`{TT_METAL_RUNTIME_ROOT}/build*/lib`, but found {len(metal_lib_candidates)}:\n"
+        #        f"{found}"
+        #    )
         metal_lib_dir = str(metal_lib_candidates[0])
 
     output_dir = os.path.dirname(cpp_path)
@@ -1064,6 +1155,8 @@ def execute_cpp(
     )
     so_path = cpp_path.replace(".cpp", ".so")
 
+    if input_output_goldens is None:
+        disable_golden = True
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
@@ -1092,8 +1185,8 @@ def execute_cpp(
 
                 for input_index, template_input in enumerate(inputs):
                     # Use the layout from the template_input to convert the golden input
-                    golden_input = golden_input_outputs[f"input_{input_index}"][0]
-                    new_input = create_tensor(golden_input)
+                    golden_input = golden_input_outputs[f"input_{input_index}"]
+                    new_input = create_tensor(golden_input, (1, 1))
                     corrected_inputs.append(new_input)
 
                 inputs = convert_input_layouts(
@@ -1148,6 +1241,7 @@ def execute_cpp(
                         program_artifact_dir = os.path.join(
                             artifact_dir, f"program_{program_index}"
                         )
+                        os.makedirs(program_artifact_dir, exist_ok=True)
                         save_torch_tensor(
                             output_tensor_torch,
                             program_artifact_dir,

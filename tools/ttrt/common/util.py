@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import importlib.machinery
 import importlib.util
 import json
 import os
@@ -11,7 +10,6 @@ from pprint import pprint
 import re
 
 import torch
-from pkg_resources import get_distribution
 
 # environment tweaks
 if "LOGGER_LEVEL" not in os.environ:
@@ -273,29 +271,42 @@ def convert_input_layouts(device, inputs, fbb, program_index):
     return inputs_converted
 
 
-def create_tensor(tensor):
+def create_tensor(tensor_shards, mesh_shape):
     import ttrt.runtime
 
+    first_tensor = tensor_shards[0]
+
     # Empty tensor if any of the dim is zero.
-    isEmptyTensor = not all(tensor.shape)
+    isEmptyTensor = not all(first_tensor.shape)
 
     # Create 'owned tensor' in case of empty tensor;
     if isEmptyTensor:
         return ttrt.runtime.create_owned_host_tensor(
-            tensor.data_ptr(),
-            list(tensor.shape),
-            list(tensor.stride()),
-            tensor.element_size(),
-            Binary.Program.to_data_type(tensor.dtype),
+            first_tensor.data_ptr(),
+            list(first_tensor.shape),
+            list(first_tensor.stride()),
+            first_tensor.element_size(),
+            Binary.Program.to_data_type(first_tensor.dtype),
+        )
+
+    if len(tensor_shards) > 1:
+        return ttrt.runtime.create_multi_device_borrowed_host_tensor(
+            [t.data_ptr() for t in tensor_shards],
+            list(first_tensor.shape),
+            list(first_tensor.stride()),
+            first_tensor.element_size(),
+            Binary.Program.to_data_type(first_tensor.dtype),
+            {},  # strategy: not used
+            mesh_shape,
         )
 
     # Create 'borrowed tensor'.
     return ttrt.runtime.create_borrowed_host_tensor(
-        tensor.data_ptr(),
-        list(tensor.shape),
-        list(tensor.stride()),
-        tensor.element_size(),
-        Binary.Program.to_data_type(tensor.dtype),
+        first_tensor.data_ptr(),
+        list(first_tensor.shape),
+        list(first_tensor.stride()),
+        first_tensor.element_size(),
+        Binary.Program.to_data_type(first_tensor.dtype),
     )
 
 
@@ -912,7 +923,7 @@ class Binary(Flatbuffer):
     def get_program(self, program_index):
         if program_index > self.get_num_programs():
             raise Exception(
-                f"program index={program_index} is greater than number of programs availabe={self.get_num_programs()}!"
+                f"program index={program_index} is greater than number of programs available={self.get_num_programs()}!"
             )
 
         return self.programs[program_index]
@@ -1005,23 +1016,87 @@ class Binary(Flatbuffer):
                     self.input_tensors.append(reshaped)
             else:
                 for i in self.inputs:
+                    tensor_shards = []
+
+                    if "shard_status" not in i["desc"]:
+                        torch_tensor = init_fn(
+                            i["desc"]["shape"],
+                            dtype=Binary.Program.from_data_type(
+                                i["desc"]["layout"]["memory_desc"]["data_type"]
+                            ),
+                        )
+                        tensor_shards.append(torch_tensor)
+                        self.input_tensors.append(tensor_shards)
+                        continue
+
+                    shard_status = i["desc"]["shard_status"]
+                    if shard_status == "Presharded":
+                        local_shape = i["desc"]["local_shape"]
+                        mesh_shape = i["desc"]["mesh_shape"]
+                        num_devices = 1
+                        for dim in mesh_shape:
+                            num_devices *= dim
+
+                        torch_tensor = init_fn(
+                            local_shape,
+                            dtype=Binary.Program.from_data_type(
+                                i["desc"]["layout"]["memory_desc"]["data_type"]
+                            ),
+                        )
+                        for shard_index in range(num_devices):
+                            tensor_shard = torch_tensor.clone()
+                            tensor_shards.append(tensor_shard)
+                    else:
+                        torch_tensor = init_fn(
+                            i["desc"]["shape"],
+                            dtype=Binary.Program.from_data_type(
+                                i["desc"]["layout"]["memory_desc"]["data_type"]
+                            ),
+                        )
+                        tensor_shards.append(torch_tensor)
+                    self.input_tensors.append(tensor_shards)
+
+        def populate_outputs(self, init_fn):
+            for i in self.outputs:
+                tensor_shards = []
+
+                if "shard_status" not in i["desc"]:
                     torch_tensor = init_fn(
                         i["desc"]["shape"],
                         dtype=Binary.Program.from_data_type(
                             i["desc"]["layout"]["memory_desc"]["data_type"]
                         ),
                     )
-                    self.input_tensors.append(torch_tensor)
+                    tensor_shards.append(torch_tensor)
+                    self.output_tensors.append(tensor_shards)
+                    continue
 
-        def populate_outputs(self, init_fn):
-            for i in self.outputs:
-                torch_tensor = init_fn(
-                    i["desc"]["shape"],
-                    dtype=Binary.Program.from_data_type(
-                        i["desc"]["layout"]["memory_desc"]["data_type"]
-                    ),
-                )
-                self.output_tensors.append(torch_tensor)
+                shard_status = i["desc"]["shard_status"]
+                if shard_status == "Presharded":
+                    local_shape = i["desc"]["local_shape"]
+                    mesh_shape = i["desc"]["mesh_shape"]
+                    num_devices = 1
+                    for dim in mesh_shape:
+                        num_devices *= dim
+
+                    torch_tensor = init_fn(
+                        local_shape,
+                        dtype=Binary.Program.from_data_type(
+                            i["desc"]["layout"]["memory_desc"]["data_type"]
+                        ),
+                    )
+                    for shard_index in range(num_devices):
+                        tensor_shard = torch_tensor.clone()
+                        tensor_shards.append(tensor_shard)
+                else:
+                    torch_tensor = init_fn(
+                        i["desc"]["shape"],
+                        dtype=Binary.Program.from_data_type(
+                            i["desc"]["layout"]["memory_desc"]["data_type"]
+                        ),
+                    )
+                    tensor_shards.append(torch_tensor)
+                self.output_tensors.append(tensor_shards)
 
         def is_private(self):
             import ttrt.binary

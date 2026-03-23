@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
-#include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -41,8 +40,6 @@ struct ConvertTTIRToLinalgPass
     target.addLegalDialect<arith::ArithDialect>();
     target.addLegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
-    // TODO (#3232): Fix softmax linalg lowering and re-enable.
-    target.addIllegalOp<linalg::SoftmaxOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.
@@ -51,10 +48,12 @@ struct ConvertTTIRToLinalgPass
     RewritePatternSet patterns(&getContext());
 
     // Add TTIR to Tosa patterns.
-    populateTTIRToTosaPatterns(&getContext(), patterns, typeConverter);
+    ttir_to_linalg::populateTTIRToTosaPatterns(&getContext(), patterns,
+                                               typeConverter);
 
     // Add direct TTIR to Linalg patterns.
-    populateTTIRToLinalgPatterns(&getContext(), patterns, typeConverter);
+    ttir_to_linalg::populateTTIRToLinalgPatterns(&getContext(), patterns,
+                                                 typeConverter);
 
     // Apply full conversion for both paths.
     //

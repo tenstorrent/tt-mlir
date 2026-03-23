@@ -2,6 +2,9 @@
 
 .PHONY: help build up down logs shell clean restart status local-up local-down local-logs local-build
 
+# Extract TT_METAL_COMMIT from third_party/CMakeLists.txt (must match tt-mlir's pinned version)
+export TT_METAL_COMMIT := $(shell sed -n 's/set(TT_METAL_VERSION "\([^"]*\)").*/\1/p' ../../../third_party/CMakeLists.txt)
+
 # Default target
 help:
 	@echo "TT-Explorer Docker Compose Management"
@@ -58,9 +61,11 @@ setup:
 
 # Production targets
 build:
+	@if [ -z "$(TT_METAL_COMMIT)" ]; then echo "ERROR: Failed to extract TT_METAL_COMMIT from CMakeLists.txt"; exit 1; fi
 	docker compose -p tt-explorer -f docker-compose.yml build
 
 build-full:
+	@if [ -z "$(TT_METAL_COMMIT)" ]; then echo "ERROR: Failed to extract TT_METAL_COMMIT from CMakeLists.txt"; exit 1; fi
 	docker compose -p tt-explorer -f docker-compose.yml build --no-cache
 
 up:
@@ -74,6 +79,7 @@ logs:
 
 # Local development targets
 local-build:
+	@if [ -z "$(TT_METAL_COMMIT)" ]; then echo "ERROR: Failed to extract TT_METAL_COMMIT from CMakeLists.txt"; exit 1; fi
 	docker compose -f docker-compose.local.yml build
 
 local-up:

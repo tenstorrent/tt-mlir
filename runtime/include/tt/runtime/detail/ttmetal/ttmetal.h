@@ -9,6 +9,7 @@
 #include "tt-metalium/circular_buffer.hpp"
 #include "tt-metalium/distributed_host_buffer.hpp"
 #include "tt-metalium/event.hpp"
+#include "tt-metalium/experimental/forge_backdoor/global_semaphore.hpp"
 #include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/memory_reporter.hpp"
@@ -58,6 +59,13 @@ Tensor createMultiDeviceHostTensor(
 Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
+
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,

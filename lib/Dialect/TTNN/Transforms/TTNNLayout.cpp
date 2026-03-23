@@ -14,13 +14,10 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-
-#include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNLAYOUT
@@ -246,9 +243,9 @@ public:
           appendInputSuffix(op->getLoc(), operand.getOperandNumber());
 
       // Given the operand constraint, create the desired layout for the operand
-      std::optional<Value> desiredLayout =
-          createToLayoutOp(rewriter, newLoc, operand.get(),
-                           g_defaultMemorySpaceDevice, /*tiled=*/true);
+      std::optional<Value> desiredLayout = createToLayoutOp(
+          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
+          /*tiled=*/true);
 
       // If layout changed update the operand
       if (desiredLayout) {
@@ -261,8 +258,9 @@ public:
 
     for (auto it : llvm::enumerate(op->getResultTypes())) {
       RankedTensorType ty = mlir::cast<RankedTensorType>(it.value());
-      std::optional<RankedTensorType> desiredType = createDesiredType(
-          rewriter, ty, g_defaultMemorySpaceDevice, /*tiled=*/shouldTilize(op));
+      std::optional<RankedTensorType> desiredType =
+          createDesiredType(rewriter, ty, g_defaultMemorySpaceDevice,
+                            /*tiled=*/shouldTilizeResult(op));
       if (desiredType) {
         rewriter.modifyOpInPlace(op, [&]() {
           modified = true;
@@ -275,7 +273,7 @@ public:
   }
 
 private:
-  bool shouldTilize(Operation *op) const {
+  bool shouldTilizeResult(Operation *op) const {
 
     // TTNN Reshape does not support implicit tilization/untilization
     // Therefore input output layouts should be the same
@@ -382,6 +380,24 @@ public:
 } // namespace
 
 namespace {
+
+// Rewriter which handles layouts of ttir::MeshShardOp.
+//
+// ttir::MeshShardOp comes in two flavors, depending on the MeshShardTypeAttr:
+// - Identity - gets mapped to ttnn::MeshShardOp. This is purely a semantic
+// decorator to preserve mapping between global and local shapes for pre-sharded
+// tensors, and is a no-op from the runtime perspective.
+// - Non-identity (Replicate, Maximal, Devices) - gets mapped to
+// ttnn::AggregateTensorOp or ttnn::DistributeTensorOp, which must execute on
+// host.
+//
+// Rewrites applied in this pattern:
+// - Non-identity MeshShard ops need inputs and outputs to be in the host
+// memory.
+// - Identity MeshShard ops are a no-op from the runtime perspective, meaning
+// that they can't change the tensor layouts, so we need to make sure that the
+// output layout matches the input layout.
+//
 class TTNNLayoutMeshShardRewriter : public OpRewritePattern<ttir::MeshShardOp> {
 public:
   TTNNLayoutMeshShardRewriter(MLIRContext *ctx)
@@ -389,15 +405,41 @@ public:
   // Match and rewrite the MeshShardOp.
   LogicalResult matchAndRewrite(ttir::MeshShardOp op,
                                 PatternRewriter &rewriter) const override {
-    // TTNN mesh shard expects host input and output
-    // TODO(#2291): This can be removed once the workaround pass can correctly
-    // handle canonicalization of toLayout ops (#2102). Currently the
-    // workaround pass cannot detect redundant toLayout ops as a result of
-    // forcing the output layout and removing them.
-    if (!shouldMeshShardOpForceSystemMemory(op.getOperation())) {
-      return failure();
+    if (shouldMeshShardOpForceSystemMemory(op.getOperation())) {
+      return forceSystemMemory(op, rewriter);
     }
 
+    return forceSameInputOutputLayout(op, rewriter);
+  }
+
+private:
+  LogicalResult forceSameInputOutputLayout(ttir::MeshShardOp op,
+                                           PatternRewriter &rewriter) const {
+    // Identity MeshShard cannot perform implicit tilization/untilization.
+    // Its output layout must match its input layout.
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(op.getOperand().getType());
+    RankedTensorType resultType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+    auto inputLayout =
+        mlir::dyn_cast_if_present<TTNNLayoutAttr>(inputType.getEncoding());
+    auto resultLayout =
+        mlir::dyn_cast_if_present<TTNNLayoutAttr>(resultType.getEncoding());
+    if (!inputLayout || !resultLayout ||
+        inputLayout.getLayout() == resultLayout.getLayout()) {
+      return failure();
+    }
+    TTNNLayoutAttr newLayout =
+        resultLayout.withLayout(inputLayout.getLayout(), resultType.getShape());
+    rewriter.modifyOpInPlace(op, [&]() {
+      op->getResult(0).setType(RankedTensorType::get(
+          resultType.getShape(), resultType.getElementType(), newLayout));
+    });
+    return success();
+  }
+
+  LogicalResult forceSystemMemory(ttir::MeshShardOp op,
+                                  PatternRewriter &rewriter) const {
     bool modified = false;
     Value input = op.getOperand();
     Location newLoc = appendInputSuffix(op.getLoc(), 0);
@@ -584,7 +626,8 @@ private:
   bool shouldForceInputSystemMemory(BlockArgument arg) const {
     func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
 
-    // For block arguments which are maked as conv2d weights leave them on host.
+    // For block arguments which are marked as conv2d weights leave them on
+    // host.
     uint32_t argIdx = arg.getArgNumber();
     if (owningFunc.getArgAttr(argIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
       return true;
@@ -606,15 +649,20 @@ private:
   }
 
   bool shouldForceInputRowMajor(BlockArgument arg) const {
+    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
+
+    // KV cache arguments should not be forced to row major.
+    if (owningFunc.getArgAttr(arg.getArgNumber(), ttcore::g_kvCacheAttrName)) {
+      return false;
+    }
+
     for (Operation *user : arg.getUsers()) {
-      // MeshShardOp/UpdateCacheOp/PagedUpdateCacheOp inputs should be tiled.
-      if (mlir::isa<ttir::MeshShardOp, ttir::UpdateCacheOp,
-                    ttir::PagedUpdateCacheOp>(user)) {
+      // MeshShardOp inputs should be tiled.
+      if (mlir::isa<ttir::MeshShardOp>(user)) {
         return false;
       }
     }
 
-    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
     if (auto typeAttr = owningFunc.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
             arg.getArgNumber(), ttcore::ArgumentTypeAttr::name)) {
       return typeAttr.getValue() == ttcore::ArgumentType::Input;

@@ -5,7 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 from collections import OrderedDict
 
 from builder.base.builder_utils import Operand, Shape, TypeInfo
@@ -50,20 +50,11 @@ def test_sharding_constraint(
             )
 
             builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
-
-            sharded_out = builder.add(in0, in1)
-            # Currently, builder doesn't support evaluating graphs that return sharded
-            # tensors. So we all_gather the sharded output to make it fully replicated.
-            # TODO(hshahTT): Remove this once sharded tensor evaluation is supported.
-            partially_sharded_out = builder.all_gather(sharded_out, 0, [[0]])
-            replicated_out = builder.all_gather(partially_sharded_out, 1, [[0]])
-            return replicated_out
+            return builder.add(in0, in1)
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,

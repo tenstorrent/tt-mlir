@@ -14,11 +14,12 @@ func.func @reduce_max(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> t
         indexing_maps = [#map, #map, #map],
         iterator_types = [#parallel, #parallel],
         threads = [#d2m.thread<compute>],
-        operandSegmentSizes = array<i32: 2, 1>
+        operandSegmentSizes = array<i32: 2, 1, 0>
         }> ({
-        ^bb0(%cb2: !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>>,
-            %cb3: !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>>,
-            %cb4: !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>>):
+        ^bb0:
+            %cb2 = d2m.get_cb(0) : !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>>
+            %cb3 = d2m.get_cb(1) : !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>>
+            %cb4 = d2m.get_cb(2) : !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>>
             %arg2 = d2m.wait %cb2 : !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>> -> tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>
             %arg3 = d2m.wait %cb3 : !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>> -> tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>
             %arg4 = d2m.reserve %cb4 : !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>> -> tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>

@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "stablehlo/dialect/StablehloOps.h"
+#include "llvm/Support/Error.h"
+
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
@@ -13,11 +16,11 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_APPLYARGUMENTSHARDSTATUSPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
-static mlir::LogicalResult updateShardStatus(MLIRContext *context,
-                                             mlir::OpBuilder &builder,
-                                             func::FuncOp &funcOp,
-                                             bool gspmdAnnotationsExist,
-                                             bool shardyAnnotationsExist) {
+static mlir::LogicalResult
+updateArgumentShardStatus(MLIRContext *context, mlir::ModuleOp &module,
+                          mlir::OpBuilder &builder, func::FuncOp &funcOp,
+                          bool gspmdAnnotationsExist,
+                          bool shardyAnnotationsExist) {
   llvm::StringRef annotationsKeyWord =
       shardyAnnotationsExist ? mlir::sdy::TensorShardingAttr::name
                              : mlir::tt::gspmd_utils::kXlaShardingAttr;
@@ -57,25 +60,42 @@ static mlir::LogicalResult updateShardStatus(MLIRContext *context,
     }
   }
 
-  // Iterate through all the results and determine whether they are
-  // pre-sharded or not.
+  return mlir::success();
+}
+
+static mlir::LogicalResult
+updateResultShardStatus(MLIRContext *context, mlir::ModuleOp &module,
+                        mlir::OpBuilder &builder, func::FuncOp &funcOp,
+                        llvm::SmallVector<int64_t> resultPreshardedRef) {
+  // If user did not provide result shard status, we will assume all results are
+  // unsharded.
+  if (resultPreshardedRef.empty() && funcOp.getNumResults() > 0) {
+    module.emitWarning("User did not provide result shard status, assuming all "
+                       "results are unsharded.");
+    resultPreshardedRef = llvm::SmallVector<int64_t>(funcOp.getNumResults(), 0);
+  }
+
+  // Check if the size of the result shard status matches the number of results
+  // in the function.
+  if (resultPreshardedRef.size() != funcOp.getNumResults()) {
+    return module.emitError("The size of the result shard status does not "
+                            "match the number of results in the function.");
+  }
+
+  // Iterate through all the results and set the shard status based on the user
+  // provided pipeline option.
   mlir::FunctionType funcType = funcOp.getFunctionType();
   for (uint32_t i = 0; i < funcType.getNumResults(); i++) {
     mlir::DictionaryAttr resultAttrDict =
         mlir::DictionaryAttr::get(context, funcOp.getResultAttrs(i));
     llvm::SmallVector<mlir::NamedAttribute> newResultAttrs;
     mlir::tt::ttcore::ShardStatus shardStatus =
-        mlir::tt::ttcore::ShardStatus::Unsharded;
+        resultPreshardedRef[i] == 0 ? mlir::tt::ttcore::ShardStatus::Unsharded
+                                    : mlir::tt::ttcore::ShardStatus::Presharded;
 
-    // If the result contains a gspmd.sharding or sdy.sharding annotation, it is
-    // already pre-sharded.
     if (resultAttrDict) {
       newResultAttrs =
           llvm::SmallVector<mlir::NamedAttribute>(resultAttrDict.getValue());
-
-      if (resultAttrDict.contains(annotationsKeyWord)) {
-        shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
-      }
     }
 
     mlir::NamedAttribute shardStatusNamedAttr = {
@@ -85,9 +105,7 @@ static mlir::LogicalResult updateShardStatus(MLIRContext *context,
     funcOp.setResultAttrs(i,
                           mlir::DictionaryAttr::get(context, newResultAttrs));
 
-    // Update the shard status for the @Sharding custom call if it exists for
-    // this result.
-    if (!shardyAnnotationsExist) {
+    if (!shardy_utils::sdyAnnotationsExist(module)) {
       gspmd_utils::updateShardStatusForResult(context, funcOp, i,
                                               shardStatusNamedAttr);
     }
@@ -95,6 +113,40 @@ static mlir::LogicalResult updateShardStatus(MLIRContext *context,
 
   return mlir::success();
 }
+
+/*
+In multi-device graphs jax/torch-xla will annotate arguments/results with a
+sharding attribute. For arguments, the framework will either provide a list of
+tensors or a single tensor for each argument and give it to ttmlir runtime. For
+results, the framework will either expect a list of tensors or a single tensor
+from ttmlir runtime.
+
+The situations are as follows:
+* jax
+arguments
+- if there is a sdy.sharding annotation, the framework will provide a list of
+tensors, otherwise framework will provide a single tensor
+results
+- if there is a sdy.sharding annotation, framework expects a list of tensors,
+otherwise framework expects a single tensor
+
+* torchxla
+arguments
+- will always have a sdy.sharding annotation
+- framework will always provide a list of tensors for each result
+results
+- framework will always expect a list of tensors for each result (regardless if
+it has a sdy.sharding annotation or not)
+
+Therefore, we can conclude the following for arguments:
+- ttmlir compiler can infer the shard status of the arguments. If the argument
+has a sdy.sharding annotation, the framework will provide a list of tensors. If
+not, the framework provides only a single tensor For results:
+- ttmlir compiler will not be able to infer the shard status of results based
+solely on the shlo graph itself. The set of rules that govern torch_xla are
+different from jax. Therefore, we need support from frontend teams to provide
+this as a pipeline option.
+*/
 
 class ApplyArgumentShardStatusPass
     : public impl::ApplyArgumentShardStatusPassBase<
@@ -113,13 +165,26 @@ public:
     bool gspmdAnnotationsExist = gspmd_utils::gspmdAnnotationsExist(rootModule);
     bool sdyAnnotationsExist = shardy_utils::sdyAnnotationsExist(rootModule);
 
-    // Loop through each argument. For each argument, check if it has a sdy
-    // sharding annotations. If it does, it is pre-sharded. If it does not, it
-    // is unsharded.
+    // Loop through all arguments and annotate it with its shard status.
     rootModule.walk([&](func::FuncOp funcOp) {
-      if (failed(mlir::tt::stablehlo::updateShardStatus(
-              context, builder, funcOp, gspmdAnnotationsExist,
+      if (failed(mlir::tt::stablehlo::updateArgumentShardStatus(
+              context, rootModule, builder, funcOp, gspmdAnnotationsExist,
               sdyAnnotationsExist))) {
+        rootModule.emitError("Failed to update shard status");
+        signalPassFailure();
+        return;
+      }
+    });
+
+    // Loop through all results and annotate it with its shard status.
+    llvm::SmallVector<int64_t> resultPreshardedRef = llvm::to_vector(
+        llvm::map_range(resultPresharded, [](int64_t val) { return val; }));
+    rootModule.walk([&](func::FuncOp funcOp) {
+      if (!funcOp.isPublic()) {
+        return;
+      }
+      if (failed(mlir::tt::stablehlo::updateResultShardStatus(
+              context, rootModule, builder, funcOp, resultPreshardedRef))) {
         rootModule.emitError("Failed to update shard status");
         signalPassFailure();
         return;

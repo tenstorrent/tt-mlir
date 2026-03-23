@@ -23,7 +23,7 @@ inline constexpr bool has_variadic_outputs_v<
 // form in {AnyRankedTensor:$output, Variadic<AnyRankedTensor>:$outputs}.
 //
 // If a base tablegen 'class' adds this extra class declaration, derived 'def's
-// don't need to overrride it just to switch from single to variadic type of
+// don't need to override it just to switch from single to variadic type of
 // '$outputs' (or vice versa):
 // ...
 // clang-format off

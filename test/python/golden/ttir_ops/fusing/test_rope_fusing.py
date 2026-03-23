@@ -8,6 +8,7 @@ from typing import List, Optional
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -147,9 +148,7 @@ def test_rotary_embedding(
     output = compile_and_execute_ttir(
         module,
         target=target,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -171,10 +170,10 @@ def test_rotary_embedding(
                 (1, 1, 64),  # cos input
                 (1, 1, 64),  # sin input
             ],
-            # Mark as fail becase of https://github.com/tenstorrent/tt-metal/issues/31567
+            # Mark as fail because of https://github.com/tenstorrent/tt-metal/issues/31567
             # I will follow up with decomposition to slice tensor until there is
             # some resolution from metal team.
-            # Issue for decompositon https://github.com/tenstorrent/tt-mlir/issues/5621
+            # Issue for decomposition https://github.com/tenstorrent/tt-mlir/issues/5621
             marks=pytest.mark.xfail,
         ),
     ],
@@ -222,9 +221,7 @@ def test_rotary_embedding_failure(
     output = compile_and_execute_ttir(
         module,
         target=target,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         pipeline_options=["disable-workarounds=true"],
     )

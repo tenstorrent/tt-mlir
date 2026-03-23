@@ -14,6 +14,29 @@ TTMLIR_VERSION_PATCH = os.getenv("TTMLIR_VERSION_PATCH", "0")
 
 __version__ = f"{TTMLIR_VERSION_MAJOR}.{TTMLIR_VERSION_MINOR}.{TTMLIR_VERSION_PATCH}"
 
+
+def load_requirements(filename):
+    requirements = []
+    filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    with open(filepath, encoding="utf-8") as requirements_file:
+        for raw_line in requirements_file:
+            requirement = raw_line.strip()
+            if (
+                not requirement
+                or requirement.startswith("#")
+                or requirement.startswith("--")
+            ):
+                continue
+
+            # Skip torch requirements - we'll handle them separately based on platform
+            if requirement.startswith("torch"):
+                continue
+
+            requirements.append(requirement)
+
+    return requirements
+
+
 src_dir = os.environ.get(
     "SOURCE_ROOT",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."),
@@ -42,8 +65,15 @@ dylibs = []
 runlibs = []
 perflibs = []
 metallibs = []
-install_requires = []
-install_requires += ["nanobind"]
+install_requires = load_requirements("requirements.txt")
+
+# Add platform-specific torch requirement
+if platform.system() == "Linux":
+    install_requires.append(
+        "torch @ https://download.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl"
+    )
+elif platform.system() == "Darwin":
+    install_requires.append("torch==2.9.1")
 
 if enable_ttnn:
     runlibs += ["_ttnncpp.so"]
@@ -207,12 +237,7 @@ package_dir = {
     "ttrt.runtime": f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
 }
 if enable_perf:
-    install_requires += ["loguru"]
-    install_requires += ["pandas"]
-    install_requires += ["seaborn"]
-    install_requires += ["graphviz"]
-    install_requires += ["pyyaml"]
-    install_requires += ["click"]
+    install_requires += load_requirements("requirements-perf.txt")
     packages += ["tracy"]
     packages += ["tt_metal"]
     package_dir["tracy"] = f"{ttmetalhome}/tools/tracy"

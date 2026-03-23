@@ -26,10 +26,9 @@ jobs:
     steps:
 
     - name: Maximize space
-      if: ${{ matrix.build.runs-on }} == 'ubuntu-latest'
       uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
 
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
           fetch-depth: 0
 
@@ -75,6 +74,8 @@ jobs:
 
     - name: Build
       id: build
+      env:
+        CMAKE_BUILD_PARALLEL_LEVEL: "16"
       shell: bash
       run: |
         source env/activate
@@ -85,7 +86,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/gcov_for_clang.sh
+        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/gcov_for_clang.sh --ignore-errors inconsistent,corrupt
         # this will output `test/report.xml` in the build dir:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
         mv ${{ steps.strings.outputs.build-output-dir }}/test/report.xml ${{ steps.strings.outputs.build-output-dir }}/test/report_${{ steps.fetch-job-id.outputs.job_id }}.xml
@@ -109,11 +110,11 @@ jobs:
 
     - name: Prepare code coverage report
       run: |
-        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --output-file coverage.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/gcov_for_clang.sh
-        lcov --add-tracefile baseline.info --add-tracefile coverage.info --output-file coverage.total
-        lcov --extract coverage.total '**/tt-mlir/*' --output-file coverage.info
+        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --output-file coverage.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/gcov_for_clang.sh --ignore-errors inconsistent,corrupt
+        lcov --add-tracefile baseline.info --add-tracefile coverage.info --output-file coverage.total --ignore-errors inconsistent,corrupt
+        lcov --extract coverage.total '**/tt-mlir/*' --output-file coverage.info --ignore-errors inconsistent,corrupt
         sed -i 's|SF:/__w/tt-mlir/tt-mlir/|SF:|' coverage.info
-        lcov --list coverage.info
+        lcov --list coverage.info --ignore-errors inconsistent,corrupt
 
     - name: Upload coverage reports to Codecov
       if: success() || failure()
@@ -125,8 +126,9 @@ jobs:
 
     - name: Upload test results to Codecov
       if: success() || failure()
-      uses: codecov/test-results-action@v1
+      uses: codecov/codecov-action@v5
       with:
+        report_type: test_results
         files: ${{ steps.strings.outputs.build-output-dir }}/test/report_${{ steps.fetch-job-id.outputs.job_id }}.xml
         disable_search: true
         token: ${{ secrets.CODECOV_TOKEN }}

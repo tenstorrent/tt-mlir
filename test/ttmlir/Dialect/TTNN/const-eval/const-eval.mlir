@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-const-eval=true" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-const-eval=true enable-cpu-hoisted-const-eval=false" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {
@@ -156,8 +156,7 @@ module {
 
   // CHECK-LABEL: func.func private @non_splat_constant_const_eval_0
   // CHECK: = "ttnn.get_device"
-  // CHECK: = "ttnn.constant"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, value = dense<{{\[\[}}1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]>
-  // CHECK: = "ttnn.neg"
+  // CHECK: = "ttnn.constant"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, value = dense<{{\[\[}}-1.000000e+00, -2.000000e+00], [-3.000000e+00, -4.000000e+00]]>
 
   // CHECK: func.func @non_splat_constant(
   func.func @non_splat_constant(%arg0: tensor<2x2xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<2x2xbf16> {

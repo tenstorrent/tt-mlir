@@ -7,6 +7,8 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/LogicalResult.h"
 
 #include <string_view>
@@ -20,7 +22,7 @@ using namespace mlir::tt::emitpy;
 
 /// Parse a format string and return a list of its parts.
 /// A part is either a StringRef that has to be printed as-is, or
-/// a Placeholder which requires printing the next operand of the VerbatimOp.
+/// a Placeholder which requires printing the next argument.
 /// In the format string, all `{}` are replaced by Placeholders, except if the
 /// `{` is escaped by `{{` - then it doesn't start a placeholder.
 template <class ArgType>
@@ -345,6 +347,9 @@ LogicalResult CallOpaqueOp::verify() {
     return emitOpError("callee must not be empty");
   }
 
+  if ((getArgs() && !getKeywordArgs()) || (!getArgs() && getKeywordArgs())) {
+    return emitOpError("args and keyword_args must be specified together");
+  }
   if (getArgs() && getKeywordArgs() &&
       getArgs()->size() != getKeywordArgs()->size()) {
     return emitOpError("there must be a specified keyword argument string for "
@@ -356,35 +361,53 @@ LogicalResult CallOpaqueOp::verify() {
 //===----------------------------------------------------------------------===//
 // ImportOp
 //===----------------------------------------------------------------------===//
-
 void ImportOp::print(OpAsmPrinter &p) {
-  StringAttr moduleName = getModuleNameAttr();
+  auto moduleNameAttr = getModuleNameAttr();
+  auto moduleAlias = getModuleAlias();
+  auto membersToImport = getMembersToImport();
+  auto memberAliases = getMemberAliases();
   p << " ";
   if (getImportAll()) {
     // Print 'from <moduleName> import *' case.
-    p << "from " << moduleName << " import *";
-  } else if (getMembersToImport()) {
+    p << "from " << moduleNameAttr << " import *";
+  } else if (membersToImport && !membersToImport->empty()) {
     // Print 'from <moduleName> import <membersToImport> [as <memberAliases>]'
     // case.
-    ArrayAttr membersToImport = *getMembersToImport();
-    p << "from " << moduleName << " import " << membersToImport[0];
-    ArrayAttr member_aliases = nullptr;
-    if (getMemberAliases()) {
-      member_aliases = *getMemberAliases();
-      if (!dyn_cast<StringAttr>(member_aliases[0]).empty()) {
-        p << " as " << member_aliases[0];
+    auto hasAliasAt = [&](size_t i) -> bool {
+      if (!memberAliases || memberAliases->empty() ||
+          i >= memberAliases->size()) {
+        return false;
       }
-    }
-    for (size_t i = 1; i < membersToImport.size(); i++) {
-      p << ", " << membersToImport[i];
-      if (member_aliases && !dyn_cast<StringAttr>(member_aliases[i]).empty()) {
-        p << " as " << member_aliases[i];
+      if (auto alias = dyn_cast_if_present<StringAttr>((*memberAliases)[i])) {
+        return alias && !alias.empty();
       }
+      return false;
+    };
+
+    p << "from " << moduleNameAttr << " import ";
+
+    bool first = true;
+    for (size_t i = 0; i < membersToImport->size(); ++i) {
+      auto member =
+          llvm::dyn_cast_if_present<StringAttr>((*membersToImport)[i]);
+      if (!member || member.empty()) {
+        continue;
+      }
+
+      if (!first) {
+        p << ", ";
+      }
+      p << member;
+      if (hasAliasAt(i)) {
+        p << " as " << (*memberAliases)[i];
+      }
+
+      first = false;
     }
   } else {
     // Print 'import <moduleName> [as <moduleAlias>]' case.
-    p << "import " << moduleName;
-    if (getModuleAlias()) {
+    p << "import " << moduleNameAttr;
+    if (moduleAlias && !moduleAlias->empty()) {
       p << " as " << getModuleAliasAttr();
     }
   }
@@ -407,7 +430,7 @@ ParseResult ImportOp::parse(::mlir::OpAsmParser &parser,
     }
     result.addAttribute("module_name", moduleNameAttr);
 
-    if (parser.parseOptionalKeyword("import")) {
+    if (parser.parseKeyword("import")) {
       return parser.emitError(parser.getNameLoc())
              << "expected string literal 'import'";
     }
@@ -416,52 +439,46 @@ ParseResult ImportOp::parse(::mlir::OpAsmParser &parser,
       // Parse 'from <moduleName> import *' case.
       importAllAttr = builder.getUnitAttr();
       result.addAttribute("import_all", importAllAttr);
-
-      if (succeeded(parser.parseOptionalKeyword("as"))) {
-        return parser.emitError(
-            parser.getNameLoc(),
-            "unexpected 'as' keyword in 'from ... import *' form");
-      }
     } else {
       // Parse 'from <moduleName> import <membersToImport> [as <memberAliases>]'
       // case.
       StringAttr member;
-      StringAttr member_alias = builder.getStringAttr("");
+      StringAttr memberAlias = builder.getStringAttr("");
       SmallVector<StringRef> members;
-      SmallVector<StringRef> member_aliases;
+      SmallVector<StringRef> memberAliases;
 
-      if (!parser.parseOptionalAttribute(member).has_value()) {
+      if (parser.parseAttribute(member)) {
         return parser.emitError(parser.getNameLoc())
                << "expected string attribute for member name";
       }
       if (succeeded(parser.parseOptionalKeyword("as"))) {
-        if (!parser.parseOptionalAttribute(member_alias).has_value()) {
+        if (parser.parseAttribute(memberAlias)) {
           return parser.emitError(parser.getNameLoc())
                  << "expected string attribute for alias";
         }
       }
       members.push_back(member.getValue());
-      member_aliases.push_back(member_alias.getValue());
+      memberAliases.push_back(memberAlias.getValue());
 
       while (succeeded(parser.parseOptionalComma())) {
-        if (!parser.parseOptionalAttribute(member).has_value()) {
+        if (parser.parseAttribute(member)) {
           return parser.emitError(parser.getNameLoc())
                  << "expected string attribute for member name";
         }
-        member_alias = builder.getStringAttr("");
+        memberAlias = builder.getStringAttr("");
         if (succeeded(parser.parseOptionalKeyword("as"))) {
-          if (!parser.parseOptionalAttribute(member_alias).has_value()) {
+          if (parser.parseAttribute(memberAlias)) {
             return parser.emitError(parser.getNameLoc())
                    << "expected string attribute for alias";
           }
         }
         members.push_back(member.getValue());
-        member_aliases.push_back(member_alias.getValue());
+        memberAliases.push_back(memberAlias.getValue());
       }
 
       membersToImportAttr = builder.getStrArrayAttr(members);
       result.addAttribute("members_to_import", membersToImportAttr);
-      memberAliasesAttr = builder.getStrArrayAttr(member_aliases);
+      memberAliasesAttr = builder.getStrArrayAttr(memberAliases);
       result.addAttribute("member_aliases", memberAliasesAttr);
     }
   } else {
@@ -490,42 +507,36 @@ ParseResult ImportOp::parse(::mlir::OpAsmParser &parser,
 }
 
 LogicalResult ImportOp::verify() {
-  StringRef moduleName = getModuleName();
-  ::std::optional<::llvm::StringRef> moduleAlias = getModuleAlias();
-  ::std::optional<::mlir::ArrayAttr> membersToImport = getMembersToImport();
-  ::std::optional<::mlir::ArrayAttr> memberAliases = getMemberAliases();
-  ::std::optional<bool> importAll = getImportAll();
+  auto importAll = getImportAll();
+  auto moduleAlias = getModuleAlias();
+  auto membersToImport = getMembersToImport();
+  auto memberAliases = getMemberAliases();
 
   // <moduleName> must be non-empty.
-  if (moduleName.empty()) {
+  if (getModuleName().empty()) {
     return emitOpError("module name attribute must be non-empty");
   }
 
-  bool hasModuleAlias = moduleAlias.has_value();
-  bool hasMembersToImport = membersToImport.has_value();
-  bool hasMemberAliases = memberAliases.has_value();
-  bool hasImportAll = importAll.has_value();
-
   // Verify 'from <moduleName> import *' case.
-  if (hasImportAll) {
-    if (hasModuleAlias) {
+  if (importAll) {
+    if (moduleAlias) {
       return emitOpError("cannot specify module alias with *");
     }
-    if (hasMembersToImport) {
+    if (membersToImport) {
       return emitOpError("cannot specify members to import with *");
     }
-    if (hasMemberAliases) {
+    if (memberAliases) {
       return emitOpError("cannot specify members' aliases with *");
     }
     return success();
   }
 
   // Verify 'import <moduleName> as <moduleAlias>' case.
-  if (hasModuleAlias) {
-    if (hasMembersToImport) {
+  if (moduleAlias) {
+    if (membersToImport) {
       return emitOpError("cannot specify members to import with module alias");
     }
-    if (hasMemberAliases) {
+    if (memberAliases) {
       return emitOpError("cannot specify members' aliases with module alias");
     }
     return success();
@@ -533,18 +544,25 @@ LogicalResult ImportOp::verify() {
 
   // Verify 'from <moduleName> import <membersToImport> [as <memberAliases>]'
   // case.
-  if (hasMembersToImport) {
+  if (membersToImport) {
+    if (membersToImport->empty()) {
+      return emitOpError("members to import must not be empty array");
+    }
+
     // Check individual members' names are not empty.
     for (Attribute member : *membersToImport) {
-      StringAttr memberName = dyn_cast<StringAttr>(member);
-      if (memberName.empty()) {
-        return emitOpError("imported member name cannot be empty");
+      auto memberName = dyn_cast_if_present<StringAttr>(member);
+      if (!memberName || memberName.empty()) {
+        return emitOpError("imported member name must be a non-empty string");
       }
     }
 
     // If <memberAliases> are provided, their count must be equal to
     // <membersToImport> count.
-    if (hasMemberAliases) {
+    if (memberAliases) {
+      if (memberAliases->empty()) {
+        return emitOpError("member aliases must not be empty array");
+      }
       if (membersToImport->size() != memberAliases->size()) {
         return emitOpError("the number of members' aliases must be equal to "
                            "the number of members to import; empty string is "
@@ -552,6 +570,11 @@ LogicalResult ImportOp::verify() {
       }
     }
     return success();
+  }
+
+  if (memberAliases) {
+    return emitOpError(
+        "cannot specify member aliases without specifying members to import");
   }
 
   // Verify 'import <moduleName>' case.
@@ -566,6 +589,20 @@ LogicalResult ImportOp::verify() {
 LogicalResult LiteralOp::verify() {
   if (getValue().empty()) {
     return emitOpError() << "value must not be empty";
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SubscriptOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult SubscriptOp::verify() {
+  Type valueType = getContainer().getType();
+  Type indexType = getIndex().getType();
+  if (isa<StringType>(indexType) && !isa<DictType>(valueType)) {
+    return emitOpError() << "cannot use string index on non-dict type "
+                         << valueType;
   }
   return success();
 }
@@ -597,6 +634,53 @@ LogicalResult VerbatimOp::verify() {
 FailureOr<SmallVector<ReplacementItem>> VerbatimOp::parseFormatString() {
   // Error checking is done in verify.
   return ::parseFormatString(getValue(), getFmtArgs());
+}
+
+//===----------------------------------------------------------------------===//
+// IfOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult IfOp::verify() {
+  if (getCondition().empty()) {
+    return emitOpError() << "condition string must not be empty";
+  }
+
+  if (getThenRegion().front().empty()) {
+    return emitOpError() << "then block must contain at least one operation";
+  }
+
+  if (!getElseRegion().empty()) {
+    if (!llvm::hasSingleElement(getElseRegion())) {
+      return emitOpError() << "else region must have exactly one block";
+    }
+    if (getElseRegion().front().empty()) {
+      return emitOpError()
+             << "else block must contain at least one operation if present";
+    }
+  }
+
+  auto errorCallback = [&]() -> InFlightDiagnostic {
+    return this->emitOpError();
+  };
+  FailureOr<SmallVector<ReplacementItem>> fmt =
+      ::parseFormatString(getCondition(), getCondArgs(), errorCallback);
+  if (failed(fmt)) {
+    return failure();
+  }
+  size_t numPlaceholders = llvm::count_if(*fmt, [](ReplacementItem &item) {
+    return std::holds_alternative<Placeholder>(item);
+  });
+
+  if (numPlaceholders != getCondArgs().size()) {
+    return emitOpError()
+           << "requires operands for each placeholder in the condition string";
+  }
+  return success();
+}
+
+FailureOr<SmallVector<ReplacementItem>> IfOp::parseFormatString() {
+  // Error checking is done in verify.
+  return ::parseFormatString(getCondition(), getCondArgs());
 }
 
 //===----------------------------------------------------------------------===//
@@ -734,20 +818,6 @@ GlobalStatementOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
 }
 
 //===----------------------------------------------------------------------===//
-// GetGlobalOp
-//===----------------------------------------------------------------------===//
-
-LogicalResult GetGlobalOp::verify() {
-  StringRef name = getName();
-  return isValidPythonIdentifier(getOperation(), name);
-}
-
-LogicalResult
-GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
-  return verifyNearestGlobalSymbol<GetGlobalOp>(*this, symbolTable);
-}
-
-//===----------------------------------------------------------------------===//
 // CreateDictOp
 //===----------------------------------------------------------------------===//
 
@@ -757,38 +827,32 @@ LogicalResult CreateDictOp::verify() {
     return emitOpError() << "dictionary name must be a valid Python identifier";
   }
 
-  if (getLiteralExpr() && !getItems().empty()) {
-    return emitOpError(
-        "cannot have both literal_expr and items operands; use either "
-        "literal_expr for Python dict literals or items for key-value pairs");
-  }
-
-  if (!getLiteralExpr() && getItems().size() % 2 != 0) {
-    return emitOpError(
-        "items must be alternating key-value pairs (even count required)");
-  }
-
-  if (getLiteralExpr() && getLiteralExpr()->empty()) {
-    return emitOpError("literal_expr must not be empty");
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// SetValueForDictKeyOp
-//===----------------------------------------------------------------------===//
-
-LogicalResult SetValueForDictKeyOp::verify() {
-  Type keyType = getKey().getType();
-
-  // If key is an opaque type, verify it represents a string
-  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
-    StringRef value = opaqueType.getValue();
-    if (value != "str") {
-      return emitOpError()
-             << "key with opaque type must represent a string type "
-             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+  if (getLiteralExpr()) {
+    if (getLiteralExpr()->empty()) {
+      return emitOpError("literal_expr must not be empty");
+    }
+    if (!getItems().empty()) {
+      return emitOpError(
+          "cannot have both literal_expr and items operands; use either "
+          "literal_expr for Python dict literals or items for key-value pairs");
+    }
+  } else {
+    if (getItems().empty()) {
+      return emitOpError(
+          "cannot have both literal_expr and items empty; for an "
+          "empty dict, use literal_expr = \"{}\" instead");
+    }
+    if (getItems().size() % 2 != 0) {
+      return emitOpError(
+          "items must be alternating key-value pairs (even count required)");
+    }
+    for (size_t i = 0; i < getItems().size(); i += 2) {
+      Type keyType = getItems()[i].getType();
+      if (!isa<IndexType, StringType>(keyType)) {
+        return emitOpError()
+               << "dictionary keys must be index or string type, but got "
+               << keyType << " at position " << i;
+      }
     }
   }
 
@@ -796,20 +860,71 @@ LogicalResult SetValueForDictKeyOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// GetValueForDictKeyOp
+// AssignOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult GetValueForDictKeyOp::verify() {
-  Type keyType = getKey().getType();
+void AssignOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  // Assign modifies the target in-place
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       SideEffects::DefaultResource::get());
+}
 
-  // If key is an opaque type, verify it represents a string
-  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
-    StringRef value = opaqueType.getValue();
-    if (value != "str") {
+LogicalResult AssignOp::verify() {
+  // Check if the target is a subscript operation
+  Operation *definingOp = getTarget().getDefiningOp();
+  if (definingOp && isa_and_nonnull<SubscriptOp>(definingOp)) {
+    // Allow subscript assignment inside an expression block
+    if (!isa_and_nonnull<ExpressionOp>(getOperation()->getParentOp())) {
       return emitOpError()
-             << "key with opaque type must represent a string type "
-             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+             << "subscript assignment (e.g., dict[key] = value) must be "
+                "wrapped in emitpy.expression. "
+             << "Example: emitpy.expression(%dict, %key, %value) : "
+                "(!emitpy.dict, index, T) -> !emitpy.opaque<\"None\"> { "
+                "^bb0(%d: !emitpy.dict, %k: index, %v: T): "
+                "%sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> T; "
+                "emitpy.assign %sub = %v : (T, T); "
+                "%none = emitpy.constant ... : !emitpy.opaque<\"None\">; "
+                "emitpy.yield %none : !emitpy.opaque<\"None\"> }";
     }
+  }
+
+  return success();
+}
+
+void AssignOp::print(OpAsmPrinter &p) {
+  p << " " << getTarget();
+  p << " = " << getValue() << " : (";
+  p << getTarget().getType();
+  p << ", " << getValue().getType() << ")";
+  p.printOptionalAttrDict(getOperation()->getAttrs());
+}
+
+ParseResult AssignOp::parse(OpAsmParser &parser, OperationState &result) {
+  OpAsmParser::UnresolvedOperand target, value;
+  Type targetType, valueType;
+
+  // Parse: %target = %value : (target_type, value_type)
+  if (parser.parseOperand(target) || parser.parseEqual() ||
+      parser.parseOperand(value)) {
+    return parser.emitError(parser.getNameLoc(), "expected '%target = %value'");
+  }
+
+  if (parser.parseColon() || parser.parseLParen() ||
+      parser.parseType(targetType) || parser.parseComma() ||
+      parser.parseType(valueType) || parser.parseRParen()) {
+    return parser.emitError(parser.getNameLoc(),
+                            "expected ': (target_type, value_type)'");
+  }
+
+  if (parser.resolveOperand(target, targetType, result.operands) ||
+      parser.resolveOperand(value, valueType, result.operands)) {
+    return parser.emitError(parser.getNameLoc(), "failed to resolve operands");
+  }
+
+  if (parser.parseOptionalAttrDict(result.attributes)) {
+    return failure();
   }
 
   return success();
@@ -863,20 +978,53 @@ LogicalResult ExpressionOp::verify() {
     return emitOpError("requires yielded type to match return type");
   }
 
+  // Check if this is a subscript assignment pattern
+  bool isSubscriptAssignment = false;
+
   for (Operation &op : region.front().without_terminator()) {
-    auto expressionInterface = dyn_cast<PyExpressionInterface>(op);
-    // Ensure each operation implements the expression interface
-    if (!expressionInterface) {
-      return emitOpError("contains an unsupported operation");
+    if (auto assignOp = dyn_cast<AssignOp>(&op)) {
+      if (auto subscriptOp = dyn_cast_or_null<SubscriptOp>(
+              assignOp.getTarget().getDefiningOp())) {
+        isSubscriptAssignment = true;
+        break;
+      }
     }
-    // Ensure each operation has exactly one result
-    if (op.getNumResults() != 1) {
-      return emitOpError("requires exactly one result for each operation");
+  }
+
+  // For subscript assignment pattern, verify it contains exactly the expected
+  // ops: one SubscriptOp, one AssignOp targeting it, and one constant for the
+  // yield. The translator only emits the AssignOp, so any other operations
+  // would be silently dropped.
+  if (isSubscriptAssignment) {
+    unsigned nonTerminatorCount = 0;
+    for (Operation &op : region.front().without_terminator()) {
+      ++nonTerminatorCount;
+      if (!isa<SubscriptOp, AssignOp, ConstantOp>(op)) {
+        return emitOpError("subscript assignment expression must only contain "
+                           "subscript, assign, and constant operations");
+      }
     }
-    Value result = op.getResult(0);
-    // Ensure each operation's result is used at least once
-    if (result.use_empty()) {
-      return emitOpError("contains an unused operation");
+    if (nonTerminatorCount != 3) {
+      return emitOpError(
+          "subscript assignment expression must contain exactly three "
+          "operations (subscript, assign, constant) before the yield");
+    }
+  } else {
+    for (Operation &op : region.front().without_terminator()) {
+      auto expressionInterface = dyn_cast<PyExpressionInterface>(op);
+      // Ensure each operation implements the expression interface
+      if (!expressionInterface) {
+        return emitOpError("contains an unsupported operation");
+      }
+      // Ensure each operation has exactly one result
+      if (op.getNumResults() != 1) {
+        return emitOpError("requires exactly one result for each operation");
+      }
+      Value result = op.getResult(0);
+      // Ensure each operation's result is used at least once
+      if (result.use_empty()) {
+        return emitOpError("contains an unused operation");
+      }
     }
   }
 
@@ -987,6 +1135,16 @@ ParseResult ExpressionOp::parse(OpAsmParser &parser, OperationState &result) {
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// FileOp
+//===----------------------------------------------------------------------===//
+
+void FileOp::build(OpBuilder &builder, OperationState &state, StringRef id) {
+  state.addRegion()->emplaceBlock();
+  state.attributes.push_back(
+      builder.getNamedAttr("id", builder.getStringAttr(id)));
 }
 
 #define GET_OP_CLASSES

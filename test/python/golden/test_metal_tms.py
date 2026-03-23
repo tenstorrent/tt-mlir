@@ -11,6 +11,7 @@ This test suite validates TM operations like permute, transpose, reshape, etc.
 import pytest
 import torch
 from typing import List, Tuple
+from conftest import get_request_kwargs
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -21,11 +22,6 @@ pytestmark = pytest.mark.frontend("ttir")
 # Skip reason for shapes with slow compilation due to inefficient coalescing factor calculation
 SLOW_COMPILE_SKIP = pytest.mark.skip(
     reason="Slow compilation due to inefficient calculateCoalescingFactors, see https://github.com/tenstorrent/tt-mlir/issues/6375"
-)
-
-# Skip for 1D tensor shapes that are not yet supported
-ONE_D_SKIP = pytest.mark.skip(
-    reason="1D tensor reshapes not yet supported, see https://github.com/tenstorrent/tt-mlir/issues/6376"
 )
 
 # Skip for NOC read issue
@@ -39,6 +35,37 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
 @pytest.mark.parametrize(
     "shape, permutation",
     [
+        # 2d transpose
+        [(32, 128 * 500), [1, 0]],
+        pytest.param(
+            (32, 128 * 501),
+            [1, 0],
+            marks=pytest.mark.skip_config(
+                ["n150"],
+                ["n300"],
+                reason="L1 memory usage exceeds capacity #7559",
+            ),
+        ),
+        pytest.param(
+            (32, 128 * 800),
+            [1, 0],
+            marks=pytest.mark.skip_config(
+                ["n150"],
+                ["n300"],
+                reason="L1 memory usage exceeds capacity #7559",
+            ),
+        ),
+        pytest.param(
+            (32, 128 * 801),
+            [1, 0],
+            marks=pytest.mark.skip_config(
+                ["n150"],
+                ["n300"],
+                ["p150"],
+                ["p300"],
+                reason="L1 memory usage exceeds capacity #7559",
+            ),
+        ),
         # 3d inner permutes
         [(3, 32, 32), [0, 2, 1]],
         [(3, 32, 64), [0, 2, 1]],
@@ -73,6 +100,8 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(1, 18, 8, 128), [0, 2, 1, 3]],
         [(1, 128, 24, 128), [0, 2, 1, 3]],
         [(1, 128, 8, 128), [0, 2, 1, 3]],
+        # 4d outer permutes (tilized)
+        [(1, 18, 8, 128), [1, 0, 2, 3]],
         # 5d outer permutes
         [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
         [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
@@ -81,6 +110,44 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(3, 32, 32, 32), [0, 3, 1, 2]],
         # # 5d inner, then outer permute
         [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
+        # 3d outer permutes (gpt-20b)
+        [(1, 32, 128), [0, 2, 1]],
+        # 4d outer permutes (gpt-20b)
+        [(1, 128, 8, 64), [0, 2, 1, 3]],
+        [(1, 128, 1, 64), [0, 2, 1, 3]],
+        # 4d inner permutes (gpt-20b)
+        [(1, 8, 128, 64), [0, 1, 3, 2]],
+        [(1, 8, 64, 128), [0, 1, 3, 2]],
+        # 4d inner permutes (llama3-70b, qwen3-32b)
+        pytest.param(
+            (32, 8, 128, 128),
+            [0, 1, 3, 2],
+            marks=pytest.mark.skip_config(
+                ["p150"],
+                ["p300"],
+                reason="L1 memory usage exceeds capacity on p150/p300",
+            ),
+        ),
+        # 4d complex permutes (llama3-70b, qwen3-32b)
+        [(32, 1, 1, 128), [2, 1, 0, 3]],
+        # 4d outer permutes (deepseek-671b)
+        [(1, 16, 32, 32), [0, 2, 1, 3]],
+        [(1, 16, 32, 128), [0, 2, 1, 3]],
+        # 3d inner permutes (glm-358b)
+        [(1, 32, 32), [0, 2, 1]],
+        # 4d outer permutes (glm-358b)
+        [(1, 32, 8, 128), [0, 2, 1, 3]],
+        [(1, 32, 96, 128), [0, 2, 1, 3]],
+        # 4d inner permutes (glm-358b)
+        [(1, 96, 32, 128), [0, 1, 3, 2]],
+        # 3d inner permutes (gpt_oss-120b)
+        [(1, 128, 32), [0, 2, 1]],
+        # 4d outer permutes (gpt_oss-120b)
+        [(1, 128, 16, 64), [0, 2, 1, 3]],
+        [(1, 128, 2, 64), [0, 2, 1, 3]],
+        # 4d inner permutes (gpt_oss-120b)
+        [(1, 16, 128, 64), [0, 1, 3, 2]],
+        [(1, 2, 128, 64), [0, 1, 3, 2]],
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -100,9 +167,58 @@ def test_permute(shape: Shape, permutation: List[int], target: str, request, dev
         permute_module,
         target=target,
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
+    )
+
+
+# ==================== CONCATENATE HEADS TESTS ====================
+
+
+@pytest.mark.parametrize(
+    "input_shape",
+    [
+        # Format: (batch, num_heads, seq_len, head_dim)
+        (1, 8, 32, 64),
+        (1, 12, 64, 64),
+        (1, 16, 32, 128),
+        (2, 8, 32, 64),
+        (1, 24, 32, 128),
+        (2, 24, 32, 128),
+        (1, 32, 64, 128),
+        (1, 8, 128, 64),
+        (1, 4, 32, 32),
+        (1, 2, 32, 64),
+        (1, 12, 256, 64),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_concatenate_heads(
+    input_shape: Tuple[int, int, int, int], target: str, request, device
+):
+    """Test concatenate_heads operation on TTMetal backend.
+
+    Concatenate heads transforms:
+    Input: [batch, num_heads, seq_len, head_dim]
+    Output: [batch, seq_len, num_heads * head_dim]
+    """
+    batch, num_heads, seq_len, head_dim = input_shape
+    output_shape = (batch, seq_len, num_heads * head_dim)
+
+    def concatenate_heads_module(builder: TTIRBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def concatenate_heads(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            return builder.concatenate_heads(in0, output_type=torch.float32)
+
+    compile_and_execute_ttir(
+        concatenate_heads_module,
+        target=target,
+        device=device,
+        **get_request_kwargs(request),
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
     )
 
@@ -119,20 +235,16 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     # 2D -> 2D reshapes
     ((64, 64), (32, 128)),
     ((128, 64), (64, 128)),
-    ((32, 128), (64, 64)),
     # 2D -> 3D reshapes
     ((96, 64), (3, 32, 64)),
     ((128, 96), (4, 32, 96)),
-    ((192, 64), (6, 32, 64)),
     # 2D -> 4D reshapes
     ((192, 64), (2, 3, 32, 64)),
     ((256, 96), (2, 4, 32, 96)),
     # 3D -> 2D reshapes
     ((3, 32, 64), (96, 64)),
-    ((4, 64, 32), (256, 32)),
     ((5, 32, 64), (160, 64)),
     # 3D -> 3D reshapes
-    ((2, 64, 64), (4, 32, 64)),
     ((3, 32, 96), (3, 96, 32)),
     ((6, 32, 64), (3, 64, 64)),
     # 3D -> 4D reshapes
@@ -165,71 +277,37 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((49, 7), (7, 7, 7)),
     ((3, 11, 13), (33, 13)),
     ((33, 13), (3, 11, 13)),
-    # Weird shapes with NOC issues
-    pytest.param(((1, 32), (32, 1)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((2, 3, 5, 7), (6, 35)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((6, 35), (2, 3, 5, 7)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((11, 13, 2), (22, 13)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((22, 13), (11, 13, 2)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((3, 5, 7, 11), (15, 77)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((15, 77), (3, 5, 7, 11)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((2, 3, 5, 7, 11), (6, 5, 77)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((6, 5, 77), (2, 3, 5, 7, 11)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((5, 7, 9, 11), (35, 99)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((35, 99), (5, 7, 9, 11)), marks=NOC_ISSUE_SKIP),
-    # 1D tensor shapes (not yet supported)
-    pytest.param(((7, 11), (77,)), marks=ONE_D_SKIP),
-    pytest.param(((77,), (7, 11)), marks=ONE_D_SKIP),
-    pytest.param(((13, 17), (221,)), marks=ONE_D_SKIP),
-    pytest.param(((221,), (13, 17)), marks=ONE_D_SKIP),
-    pytest.param(((17, 19), (323,)), marks=ONE_D_SKIP),
-    pytest.param(((323,), (17, 19)), marks=ONE_D_SKIP),
-    pytest.param(((23, 29), (667,)), marks=ONE_D_SKIP),
-    pytest.param(((667,), (23, 29)), marks=ONE_D_SKIP),
-    # ==================== LLAMA 3.2 3B TESTS ====================
-    pytest.param(((1024, 3072), (1, 1024, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((128256, 3072), (1, 128256, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((128,), (1, 128)), marks=ONE_D_SKIP),
+    # 1D tensor shapes
+    ((1,), (1, 1, 1)),
+    ((1,), (1, 1, 1, 1)),
+    ((128,), (1, 128)),
+    ((1, 64), (64,)),
+    ((1, 1, 128), (128,)),
+    ((128,), (2, 64)),
+    ((2, 64), (128,)),
+    ((64,), (64,)),
+    ((128,), (1, 1, 1, 128)),
+    # LLAMA 3.2 3B TESTS
     ((18, 128), (1, 18, 128)),
     ((18, 128), (1, 1, 18, 128)),
-    pytest.param(((18,), (18, 1)), marks=ONE_D_SKIP),
-    pytest.param(((18,), (1, 1, 18)), marks=ONE_D_SKIP),
-    pytest.param(((1, 1024, 3072), (1024, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((1, 128256, 3072), (128256, 3072)), marks=SLOW_COMPILE_SKIP),
     ((1, 18, 128), (18, 128)),
     ((1, 18, 128), (1, 1, 18, 128)),
-    pytest.param(((1, 1, 18), (18,)), marks=ONE_D_SKIP),
-    pytest.param(((1, 1, 3072), (3072,)), marks=ONE_D_SKIP),
-    pytest.param(((1, 1, 64), (1, 64, 1)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((1, 3072, 3072), (3072, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((1, 3072, 8192), (3072, 8192)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((1, 32, 18), (576,)), marks=ONE_D_SKIP),
-    pytest.param(((1, 8192, 3072), (8192, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((3072, 3072), (1, 3072, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((3072, 8192), (1, 3072, 8192)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((3072,), (1, 1, 3072)), marks=ONE_D_SKIP),
-    pytest.param(((32, 18, 128), (32, 1, 18, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 18, 1), (32, 18)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((32, 18, 24, 128), (576, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 18, 3072), (576, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 18, 8192), (576, 8192)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 18), (32, 18, 1)), marks=NOC_ISSUE_SKIP),
     ((32, 18), (1, 32, 18)),
-    pytest.param(((32, 1, 18, 128), (32, 18, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 24, 128, 128), (768, 128, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 24, 18, 128), (768, 18, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 24, 18), (32, 24, 18, 1)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((32, 8, 128, 128), (32, 8, 1, 128, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 8, 3, 128, 128), (32, 24, 128, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 8, 3, 128, 128), (768, 128, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((576, 1024), (32, 18, 8, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((576, 128256), (32, 18, 128256)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((576, 3072), (32, 18, 24, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((576, 3072), (32, 18, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((576, 8192), (32, 18, 8192)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((64,), (1, 1, 64)), marks=ONE_D_SKIP),
-    pytest.param(((768, 18, 128), (32, 24, 18, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((8192, 3072), (1, 8192, 3072)), marks=SLOW_COMPILE_SKIP),
+    # ==================== RESHAPE + PERMUTE (TRAILING 1 FLIP) TESTS ====================
+    # Qwen3 32B
+    ((1, 64), (1, 64, 1)),
+    # GPT OSS 120B
+    ((1, 128), (128, 1)),
+    ((1, 16), (1, 16, 1, 1)),
+    # Kimi K2 1T
+    ((1, 32), (32, 1)),
+    ((32,), (32, 1)),
+    # DeepSeek 671B
+    ((1, 32), (1, 32, 1)),
+    ((8,), (8, 1, 1)),
+    # GLM 358B
+    ((1, 32, 8), (1, 32, 8, 1)),
+    ((1, 96, 32), (1, 96, 32, 1)),
 ]
 
 
@@ -248,7 +326,11 @@ def shapes_to_id(shapes) -> str:
 @pytest.mark.parametrize(
     "shapes", RESHAPE_SHAPES, ids=[shapes_to_id(s) for s in RESHAPE_SHAPES]
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.bfloat16, torch.int32, torch.int64, torch.bool],
+    ids=["f32", "bf16", "i32", "i64", "i1"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reshape(
     shapes: Tuple[Tuple[int, ...], Tuple[int, ...]],
@@ -270,9 +352,65 @@ def test_reshape(
         target=target,
         device=device,
         custom_pipeline="ttir-to-ttmetal-pipeline",
-        test_base=request.node.name,
-        save_artifacts=True,
-        print_ir=False,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
+    )
+
+
+# ==================== ARANGE TESTS ====================
+
+
+@pytest.mark.parametrize(
+    "shape,start,step",
+    [
+        ((1, 32), 0, 1),  # Single tile
+        ((1, 64), 32, 2),  # Two tiles
+        ((1, 96), 64, 1),  # Three tiles
+        ((1, 128), 0, 1),  # Four tiles (from GPT model)
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_arange(
+    shape: tuple,
+    start: int,
+    step: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test arange operation on TTMetal backend.
+
+    Tests tiled arange implementation with various shapes and parameters.
+    """
+    num_elements = shape[0] * shape[1]
+    end = start + num_elements * step
+    arange_dimension = 1  # Arange is always on the last dimension
+
+    golden = torch.arange(start, end, step, dtype=dtype).reshape(shape)
+
+    def arange_module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def arange(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            result = builder.arange(
+                shape=list(shape),
+                dtype=dtype,
+                start=start,
+                end=end,
+                step=step,
+                arange_dimension=arange_dimension,
+                unit_attrs=unit_attrs,
+            )
+            return result
+
+    compile_and_execute_ttir(
+        arange_module,
+        target=target,
+        device=device,
+        custom_pipeline="ttir-to-ttmetal-pipeline",
+        **get_request_kwargs(request),
     )

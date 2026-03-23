@@ -49,24 +49,6 @@ class DeviceGetter:
         return cls._instance
 
 
-# Wrapper to abstract const-eval logic out of runtime funcs to keep them
-# cleaner. Invokes constEvalFunc iff key is not in cacheDict.
-def constEvalFuncWrapper(constEvalFunc, inputs, cacheDict, key):
-    if key not in cacheDict:
-        cacheDict[key] = constEvalFunc(inputs)
-    return cacheDict[key]
-
-
-# Wrapper to abstract const-eval logic out of runtime funcs to keep them
-# cleaner. Invokes constEvalFunc iff key is not in cacheDict.
-# This is an overload of constEvalFuncWrapper for const-eval functions that
-# take zero arguments.
-def constEvalFuncWrapperZeroArg(constEvalFunc, cacheDict, key):
-    if key not in cacheDict:
-        cacheDict[key] = constEvalFunc()
-    return cacheDict[key]
-
-
 def get_scalar_from_tensor(tensor: ttnn.Tensor) -> int:
     assert tensor.logical_volume() == 1, "expected scalar tensor"
     assert tensor.dtype == ttnn.DataType.UINT32, "expected uint32 tensor"
@@ -240,7 +222,8 @@ def perform_golden_workarounds():
     #
     # Golden function operates only on 4D tensors.
     #
-    def new_repeat_golden_function(tensor, repeats):
+    # Golden function doesn't accept memory_config keyword argument.
+    def new_repeat_golden_function(tensor, repeats, memory_config):
         return tensor.repeat(*repeats)
 
     ttnn.repeat.golden_function = new_repeat_golden_function
@@ -257,7 +240,7 @@ def perform_golden_workarounds():
 
     missing_golden_function_ops = [
         ttnn.avg_pool2d,
-        ttnn.moreh_cumsum,
+        ttnn.cumsum,
         ttnn.slice,
     ]
 
@@ -266,3 +249,14 @@ def perform_golden_workarounds():
 
 
 perform_golden_workarounds()
+
+
+# Helpers for distributed RMS norm EmitPy support.
+# These mirror the runtime logic in
+# runtime/lib/ttnn/operations/normalization/distributed_rms_norm.cpp
+# TODO(jserbedzija): Remove this once the following issue if fixed in tt-metal: https://github.com/tenstorrent/tt-metal/issues/37746
+def create_global_semaphore(input_tensor):
+    """Create a global semaphore from the input tensor's device and shard grid."""
+    mesh_device = input_tensor.device()
+    shard_spec = input_tensor.memory_config().shard_spec
+    return ttnn.create_global_semaphore(mesh_device, shard_spec.grid, 0)

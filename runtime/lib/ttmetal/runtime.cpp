@@ -195,6 +195,16 @@ Tensor createMultiDeviceHostTensor(
                                               meshShape);
 }
 
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+  LOG_FATAL(
+      "createMultiDeviceBorrowedHostTensor not implemented for metal runtime");
+}
+
 bool isTensorAllocated(Tensor tensor) {
   LOG_FATAL("isTensorAllocated not implemented for metal runtime");
 }
@@ -531,9 +541,9 @@ static std::vector<T> getStridedRowStartIndices(const std::vector<T> &shape,
   }
 
   // Recursive case.
-  // 1. Get the indicies of all the rows of a single slice of the current dim.
-  const auto sliceIndicies = getStridedRowStartIndices(shape, strides, dim + 1);
-  const size_t sliceRows = sliceIndicies.size();
+  // 1. Get the indices of all the rows of a single slice of the current dim.
+  const auto sliceIndices = getStridedRowStartIndices(shape, strides, dim + 1);
+  const size_t sliceRows = sliceIndices.size();
   // 2. Generate indices for all the slices of the current dim.
   std::vector<T> indices(sliceRows * dimSize);
   // 3. The distance between the start of the first row of two neighboring
@@ -541,7 +551,7 @@ static std::vector<T> getStridedRowStartIndices(const std::vector<T> &shape,
   for (T i = 0; i < dimSize; i++) {
     const T offset = i * strides[dim];
     for (size_t j = 0; j < sliceRows; j++) {
-      indices[i * sliceRows + j] = sliceIndicies[j] + offset;
+      indices[i * sliceRows + j] = sliceIndices[j] + offset;
     }
   }
   return indices;
@@ -619,8 +629,15 @@ void memcpy(Tensor dst, Tensor src) {
 
 void memcpy(Tensor dst, TensorDesc dstDesc, Tensor src, TensorDesc srcDesc) {
   LOG_ASSERT(dstDesc.dataType == srcDesc.dataType, "Tensor data type mismatch");
-  LOG_ASSERT(dstDesc.shape.size() == srcDesc.shape.size(),
-             "Tensor rank mismatch");
+  // Allow rank mismatch for reshape-style copies (e.g. [128] -> [1,128]) when
+  // total byte size matches and both are contiguous (rank normalization may
+  // promote 1D to 2D on one side while the other keeps original shape).
+  if (dstDesc.shape.size() != srcDesc.shape.size()) {
+    LOG_ASSERT(dstDesc.sizeBytes() == srcDesc.sizeBytes(),
+               "Tensor size mismatch for rank-changing copy");
+    LOG_ASSERT(!dstDesc.isPadded() && !srcDesc.isPadded(),
+               "Padded tensors with different ranks not supported for memcpy");
+  }
   void *singleDeviceTensorPtr = nullptr;
   std::visit(utils::overloaded{
                  [&](const TensorDesc &srcDesc) {

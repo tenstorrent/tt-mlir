@@ -75,9 +75,11 @@ struct Conv2dAttrs {
 
 struct MatmulAttrs {
   std::optional<mlir::Attribute> matmulProgramConfig;
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig;
 
   bool operator==(const MatmulAttrs &other) const {
-    return matmulProgramConfig == other.matmulProgramConfig;
+    return matmulProgramConfig == other.matmulProgramConfig &&
+           computeKernelConfig == other.computeKernelConfig;
   }
   bool operator!=(const MatmulAttrs &other) const { return !(*this == other); }
 
@@ -91,6 +93,16 @@ struct MatmulAttrs {
       result += "matmulProgramConfig=" + attrStr;
     } else {
       result += "matmulProgramConfig=<null>";
+    }
+    result += ", ";
+    if (computeKernelConfig.has_value() && computeKernelConfig.value()) {
+      std::string attrStr;
+      llvm::raw_string_ostream stream(attrStr);
+      stream << computeKernelConfig.value();
+      stream.flush();
+      result += "computeKernelConfig=" + attrStr;
+    } else {
+      result += "computeKernelConfig=<null>";
     }
     result += "}";
     return result;

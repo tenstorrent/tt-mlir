@@ -4,20 +4,22 @@
 
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
-#include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
-#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+#include "ttmlir/Conversion/TTNNToTTIR/TTNNToTTIR.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/DevicePassesWrapper.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Transforms/Passes.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -34,6 +36,7 @@ void createTTNNPipelineTTIRPasses(
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
+    registerDeviceOptions.meshTopology = llvm::to_vector(options.meshTopology);
   }
   pm.addPass(
       mlir::tt::ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
@@ -51,6 +54,10 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRQuantDequantConversion());
   }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(mlir::createCanonicalizerPass());
+  if (options.implicitBroadcastFoldingEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
+  }
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -59,6 +66,9 @@ void createTTNNPipelineTTIRPasses(
   // Inlines all private functions. I.e flattens the program into the main
   // function. Removes all private functions.
   pm.addPass(mlir::createInlinerPass());
+
+  // Infer kv_cache argument types from cache operations.
+  pm.addPass(mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes());
 
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
@@ -77,10 +87,13 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
+  pm.addPass(mlir::tt::ttir::createTTIRFoldFullToScalar());
 }
 
 void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
+
+  pm.addPass(mlir::tt::ttnn::createTTNNConfigureCCLOps());
 
   // Add pass to check for unique operation locations if enabled
   if (options.checkUniqueLocations) {
@@ -95,7 +108,6 @@ void createTTNNPipelineAnalysisPasses(
     wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
-    validationOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
     pm.addPass(createDevicePassesWrapper(
@@ -147,10 +159,12 @@ void createTTNNFusingPass(OpPassManager &pm,
       wrapperOptions.devicePtr = options.devicePtr;
       wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
+      uint32_t fallbackAttempts = options.maxFallbackAttempts;
       pm.addPass(createDevicePassesWrapper(
-          [](OpPassManager &innerPm) {
+          [fallbackAttempts](OpPassManager &innerPm) {
             TTNNFusingOptions fusingOptions;
             fusingOptions.enableOpConstraints = true;
+            fusingOptions.maxFallbackAttempts = fallbackAttempts;
             innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
           },
           wrapperOptions));
@@ -183,6 +197,7 @@ void createTTNNPipelineWorkaroundPass(
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createCSEPass());
 }
 
 void createTTNNPipelineLayoutDecompositionPass(
@@ -208,24 +223,23 @@ void createTTNNPipelineDeallocPass(
 // lowering, and then lowers them to TTNN dialect.
 //
 // CPU module does get modified in this pipeline, but only by
-// adding more TTIR ops to it (CPUHoistTransform passes).
+// adding more TTIR ops to it (CPU hoisting passes).
 //
 void createTTIRToTTNNDevicePipeline(
     OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
   // Resolve options controlled by optimization_level.
   options.resolveOptimizationLevelOptions();
 
+  // TODO(dmilinkovic): Remove this once multithreading issues in MetalContext
+  // are resolved - tt-metal issue #31041.
+  if (options.optimizerPassEnabled) {
+    static_cast<PassManager &>(pm).getContext()->disableMultithreading();
+  }
+
   // Mark all public functions without a type assigned to them as Device Forward
   // functions before any other. This provides a consistent mechanism for
   // identifying Device Forward functions downstream.
   pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
-
-  pm.addPass(mlir::createCanonicalizerPass());
-
-  // Add Decomposition pass here to ensure it runs before hoisting.
-  TTIRToTTIRDecompositionOptions decompOptions;
-  decompOptions.decompConfig = DecompMode::CPUFallback;
-  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
 
   // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
@@ -237,6 +251,9 @@ void createTTIRToTTNNDevicePipeline(
   {
     auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
+    // Element type normalization must run before canonicalization and other
+    // transformative passes. Canonicalization patterns assume normalized types
+    // (e.g., no i64/f64) and may produce incorrect results otherwise.
     // Element type normalization should be applied only to the ops in the
     // Device Module, since we aren't restricted with element types on CPU.
     ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
@@ -250,6 +267,8 @@ void createTTIRToTTNNDevicePipeline(
     ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
     quantOptions.targetBitWidth = options.quantBitWidth;
     devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
+
+    devicePm.addPass(mlir::createCSEPass());
 
     // Const-eval hoisting pass.
     if (options.enableConstEval) {
@@ -271,11 +290,30 @@ void createTTIRToTTNNDevicePipeline(
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
 
+    if (options.dramSpaceSavingOptimizationEnabled) {
+      devicePm.addPass(createTTNNMemoryManagement());
+    }
     createTTNNPipelineWorkaroundPass(devicePm, options);
-    // Add BFP8 weight conversion pass before analysis passes.
+    // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
-    if (options.experimentalBfp8Weights) {
-      devicePm.addPass(createTTNNWeightBFP8Conversion());
+    {
+      WeightDtype resolvedWeightDtype = options.experimentalWeightDtype;
+
+      // Handle deprecated experimental-bfp8-weights flag.
+      if (options.experimentalBfp8Weights) {
+        if (resolvedWeightDtype != WeightDtype::None) {
+          llvm::report_fatal_error(
+              "Cannot set both experimental-bfp8-weights and "
+              "experimental-weight-dtype. Use experimental-weight-dtype only.");
+        }
+        resolvedWeightDtype = WeightDtype::BFP_BFloat8;
+      }
+
+      if (resolvedWeightDtype != WeightDtype::None) {
+        TTNNWeightDtypeConversionOptions convOpts;
+        convOpts.targetDtype = resolvedWeightDtype;
+        devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
+      }
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.
@@ -291,7 +329,24 @@ void createTTIRToTTNNDevicePipeline(
       devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
     }
 
+    if (options.enableD2MFusing) {
+      if (!options.optimizerPassEnabled) {
+        llvm::errs()
+            << "WARNING: D2M fusing pass only supported with Optimizer "
+               "enabled. Automatically enabling Optimizer as a dependency.\n";
+      }
+      options.optimizerPassEnabled = true;
+      devicePm.addPass(tt::ttnn::createTTNND2MFusing());
+    }
+
     createTTNNPipelineAnalysisPasses(devicePm, options);
+
+    if (options.enableD2MFusing) {
+      createTTNNPipelineD2MPass(devicePm);
+      devicePm.addPass(createTTNNCollaspeD2M());
+      devicePm.addPass(createCanonicalizerPass());
+    }
+
     // We need to re-run const-eval to pick up const prepare conv2d weight ops
     // split during the analysis passes.
     if (options.enableConstEval) {
@@ -355,8 +410,6 @@ void createRecoverStructureXLATorchPipeline(
 //
 void createTTNNToEmitCDevicePipeline(
     OpPassManager &pm, const TTNNToEmitCDevicePipelineOptions &options) {
-  pm.addPass(createTTNNAdjustDeallocs());
-
   // Unwrapping the device module.
   //
   // TODO(dmilinkovic): Should be removed after support for generating
@@ -364,6 +417,15 @@ void createTTNNToEmitCDevicePipeline(
   // pipeline - issue #6100.
   //
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+
+  // These passes operate on TTNN IR inside the (now unwrapped) top-level
+  // module.
+  //
+  pm.addPass(createTTNNAdjustDeallocs());
+  if (options.tryRecoverStructure) {
+    createRecoverStructureXLATorchPipeline(
+        pm, RecoverStructureXLATorchPipelineOptions());
+  }
 
   if (options.targetDylib) {
     // In dylib path, only run tuplification with forced settings.
@@ -433,7 +495,19 @@ void createTTNNToEmitPyDevicePipeline(
     }
   }
 
-  devicePm.addPass(createConvertTTNNToEmitPyPass());
+  devicePm.addPass(createTTNNPrepareConstEvalCaching());
+  // Optionally run TTNNFileSplit pass.
+  if (options.splitFiles) {
+    TTNNFileSplitOptions fileSplitOptions;
+    fileSplitOptions.target = FileSplitTarget::EmitPy;
+    devicePm.addPass(createTTNNFileSplit(fileSplitOptions));
+  }
+
+  ConvertTTNNToEmitPyOptions emitpyOptions;
+  emitpyOptions.targetModule = options.targetModule;
+  devicePm.addPass(createConvertTTNNToEmitPyPass(emitpyOptions));
+
+  devicePm.addPass(createEmitPyConstEvalCachingPass());
 
   devicePm.addPass(createEmitPyNameVarsPass());
 }
@@ -459,9 +533,24 @@ void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
   //
   ConvertTTNNToEmitPyOptions options;
   options.enableGoldenMode = true;
+  options.targetModule = false;
   cpuPm.addPass(createConvertTTNNToEmitPyPass(options));
 
   cpuPm.addPass(createEmitPyNameVarsPass());
+}
+
+void createTTNNPipelineD2MPass(OpPassManager &pm) {
+  // TODO(vtang): pass to strip intermediate layouts.
+  pm.addPass(tt::createConvertTTNNToTTIRPass());
+  // pm.addPass(strip layouts pass)
+
+  // Can't use createTTIRToTTMetalPipeline because TTCoreWrapDeviceModulePass
+  // only works on top-level modules (doesn't run module has a parent op).
+  ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;
+  ttmetalOptions.ttnnMode = true;
+  ttmetal::createTTIRToTTMetalFrontendPipeline(pm, ttmetalOptions);
+  ttmetal::createTTIRToTTMetalMiddleendPipeline(pm, ttmetalOptions);
+  ttmetal::createTTIRToTTMetalBackendPipeline(pm, ttmetalOptions);
 }
 
 //===----------------------------------------------------------------------===//
@@ -594,5 +683,16 @@ void registerTTNNPipelines() {
       "Pipeline to recover structure from TTNN IR for code generation from "
       "XLA/Torch. ",
       mlir::tt::ttnn::createRecoverStructureXLATorchPipeline);
+
+  // TTNN D2M pipeline - runs D2M compilation on TTNN d2m_subgraph ops.
+  //
+  mlir::PassPipelineRegistration<>(
+      "ttnn-through-d2m-pipeline",
+      "Pipeline to compile D2M subgraphs inside ttnn.d2m_subgraph ops.",
+      [](OpPassManager &pm) {
+        auto &devicePm =
+            pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+        mlir::tt::ttnn::createTTNNPipelineD2MPass(devicePm);
+      });
 }
 } // namespace mlir::tt::ttnn

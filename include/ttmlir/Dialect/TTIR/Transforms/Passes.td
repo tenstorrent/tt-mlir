@@ -24,16 +24,14 @@ def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::Mod
   }];
 }
 
-def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
+def CPUHoistManuallyTaggedOpsTransform: Pass<"cpu-hoist-manually-tagged", "::mlir::ModuleOp">
 {
-  let summary = "Transform to perform hoist mechanics on any ops marked to be hoisted for CPU lowering";
+  let summary = "Hoist ops manually tagged with ttir.should_hoist to the CPU module";
   let description = [{
-    Transform pass which runs an analysis pass to find ops which should be hoisted, and then hoists those ops.
-    The analysis behaviour can be customized when instantiating the pass.
-
-    Each of the ops / sets of ops which are hoisted are moved into their own function in a CPU module.
-    A function declaration is created in the device module, and the original ops are replaced with a
-    call to that function declaration.
+    Transform pass which finds ops tagged with the `ttir.should_hoist` attribute
+    and hoists them into their own function in the CPU module. A function declaration
+    is created in the device module, and the original ops are replaced with a call
+    to that function declaration.
 
     Example:
     input:
@@ -41,7 +39,7 @@ def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
         builtin.module {
           func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
             %0 = ttir.empty() : tensor<32x32xbf16>
-            %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16> loc("add_op1")
+            %1 = "ttir.add"(%arg0, %arg1, %0) {ttir.should_hoist} : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16> loc("add_op1")
             return %1 : tensor<32x32xbf16>
           }
         }
@@ -51,15 +49,15 @@ def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
         builtin.module {
           func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
             %0 = ttir.empty() : tensor<32x32xbf16>
-            %1 = call @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func_decl(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+            %1 = call @cpu_hoisted_ttir_add_<hash>(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
             return %1 : tensor<32x32xbf16>
           }
-          func.func private @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func_decl(tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+          func.func private @cpu_hoisted_ttir_add_<hash>(tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
         }
       }
       ttcore.cpu_module {
         builtin.module {
-          func.func @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>, %arg2: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {arg_ranks = [2, 2, 2, 2], result_ranks = [2]} {
+          func.func @cpu_hoisted_ttir_add_<hash>(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>, %arg2: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {arg_ranks = [2, 2, 2, 2], result_ranks = [2]} {
             %0 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
             return %0 : tensor<32x32xbf16>
           }
@@ -68,21 +66,69 @@ def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
   }];
 
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
+}
 
-  let constructor = "createCPUHoistManuallyTaggedOpsTransform()";
+def CPUHoistNonLowerableSHLOOpsTransform: Pass<"cpu-hoist-non-lowerable-shlo-ops", "::mlir::ModuleOp">
+{
+  let summary = "Hoist non-lowerable StableHLO ops to the CPU module";
+  let description = [{
+    Transform pass which finds StableHLO ops that cannot be lowered to TTIR and
+    hoists them to the CPU module. The allow-list of ops to hoist is hardcoded;
+    before adding an op, make sure it is supported in StableHLO to TOSA/Linalg
+    conversion.
+
+    When StableHLO support is not compiled in, this pass is a no-op.
+  }];
+
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
+}
+
+def CPUHoistConstEvalTransform: Pass<"cpu-hoist-const-eval", "::mlir::ModuleOp">
+{
+  let summary = "Hoist ops from const-eval subgraphs to the CPU module";
+  let description = [{
+    Transform pass which finds const-eval functions and hoists ops within them
+    into the CPU module functions. This improves precision (CPU uses 32-bit types)
+    and reduces peak DRAM/L1 usage by keeping intermediate tensors in host memory.
+  }];
+
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect",
+                           "::mlir::tt::ttir::TTIRDialect",
+                           "::mlir::linalg::LinalgDialect",
+                           "::mlir::tosa::TosaDialect",
+                           "::mlir::arith::ArithDialect",
+                           "::mlir::math::MathDialect",
+                           "::mlir::tensor::TensorDialect"];
 }
 
 def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">
 {
   let summary = "Normalize element types into list of supported types.";
   let description = [{
-    "This pass walks through the graph and normalizes the element types into a list of supported types. This is useful for lowering
-        to a target that only supports a subset of the element types.
+    This pass walks through the graph and normalizes the element types into a list of supported types. This is useful for lowering
+    to a target that only supports a subset of the element types.
   }];
 
   list<Option> options = [
     Option<"enableBfp8Conversion", "enable-bfp8-conversion", "bool", "false", "When enabled this pass will convert all bfloat16 types into bfp8_b types.">,
   ];
+}
+
+def PredicateTypeAlignment : Pass<"ttir-predicate-type-alignment", "::mlir::ModuleOp"> {
+  let summary = "Align predicate-like tensor types before element-type narrowing.";
+  let description = [{
+    Aligns predicate-like results with data dtypes so downstream passes (e.g.
+    ttir-element-type-normalization) can map i1 to bf16 without mixed-type
+    elementwise edges. Rules:
+      - Unary tensor-manipulation ops (reshape, broadcast, etc.): result
+        element type follows the input (stops at typecast).
+      - Gather: result element type follows the data input.
+      - Elementwise binary (e.g. logical_and): if one operand is i1 and the
+        other is not, align to the non-i1 type via typecasts.
+      - Comparisons (eq, ne, gt, ge, lt, le), logical_not, reduce_or: result
+        element type matches input/lhs instead of i1.
+      - where: condition is typecast to the true/false value element type.
+  }];
 }
 
 def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp">
@@ -153,6 +199,69 @@ def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRGlobalDataFormatConversion: Pass<"ttir-global-data-format-conversion", "::mlir::ModuleOp"> {
+  let summary = "Convert all tensor data types to a target format.";
+  let description = [{
+    This pass converts all tensor element types in the function body
+    to a specified target format. Function signatures are preserved, and typecast operations
+    are automatically inserted at boundaries where type conversions are needed.
+
+    Supported target formats:
+      - "f32" (Float32)
+      - "bf16" (BFloat16, default)
+      - "bfp_bf8" (BFP_BFloat8)
+
+    Example:
+      Before:
+       func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+        %0 = ttir.empty() : tensor<64x128xf32>
+        %1 = "ttir.exp"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+        return %1 : tensor<64x128xf32>
+       }
+
+      After (with target-format="bf16"):
+        func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+          %0 = ttir.empty() : tensor<64x128xbf16>
+          %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = false}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+          %2 = ttir.empty() : tensor<64x128xbf16>
+          %3 = "ttir.exp"(%1, %2) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+          %4 = ttir.empty() : tensor<64x128xf32>
+          %5 = "ttir.typecast"(%3, %4) <{conservative_folding = false}> : (tensor<64x128xbf16>, tensor<64x128xf32>) -> tensor<64x128xf32>
+          return %5 : tensor<64x128xf32>
+        }
+  }];
+  let options = [
+    Option<"targetFormat", "target-format", "std::string", /*default=*/"\"bf16\"",
+           "Target data format for conversion: f32, bf16 (default), or bfp_bf8">
+  ];
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRDecomposeComplexPermute: Pass<"ttir-decompose-complex-permute", "::mlir::ModuleOp"> {
+  let summary = "Decompose complex permute operations into inner/outer permutes.";
+  let description = [{
+    This pass decomposes complex permute operations into a sequence of inner and outer
+    permutes. An inner permute swaps only the last two dimensions, while an outer permute
+    handles any other permutation on the outer dimensions.
+
+    The permute will at most be decomposed into an Outer -> Inner -> Outer permute.
+  }];
+}
+
+def TTIRRankNormalization: Pass<"ttir-rank-normalization", "::mlir::ModuleOp"> {
+  let summary = "Normalize tensor ranks by promoting low-rank tensors to 2D.";
+  let description = [{
+    This pass destructively rewrites tensor ranks to ensure all tensors have at
+    least rank 2. This is needed because the device compute kernels work with
+    2D+ tensors.
+
+    The pass directly modifies types in place - no reshape operations are inserted.
+    This is safe because adding 1's to the outer dimensions doesn't change the
+    memory layout in any way; a scalar is packed the same way regardless of rank.
+  }];
+  let dependentDialects = ["::mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert integer data types in quantized types to a specified bit width";
   let description = [{
@@ -199,9 +308,125 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
              "Controls if we should enable the Conv2dWithMultiply pattern">,
       Option<"permuteMatmulEnabled",
              "enable-permute-matmul-fusion",
-             "bool", /*default=*/"true",
+             "bool", /*default=*/"false",
              "Fuse permute ops into matmul/linear transpose attributes">,
   ];
+}
+
+def TTIRMoveReshapeToConstant: Pass<"ttir-move-reshape-to-constant", "::mlir::ModuleOp">
+{
+  let summary = "Move reshapes from activation paths to constant paths.";
+  let description = [{
+    This pass identifies reshape operations that exist solely to match the shape
+    of a constant tensor operand in elementwise operations. Instead of reshaping
+    the activation tensor, it moves the inverse reshape onto the constant path,
+    which can then be folded or const-eval'd away.
+
+    Example:
+      Before:
+        %const = ttir.constant() {value = dense<2.0> : tensor<32x1x2560xf32>} : () -> tensor<32x1x2560xf32>
+        %activation = ... : tensor<32x2560xf32>
+        %reshaped = ttir.reshape(%activation) {shape = [32, 1, 2560]} : ... -> tensor<32x1x2560xf32>
+        %result = ttir.pow(%reshaped, %const) : ... -> tensor<32x1x2560xf32>
+
+      After:
+        %const = ttir.constant() {value = dense<2.0> : tensor<32x1x2560xf32>} : () -> tensor<32x1x2560xf32>
+        %const_reshaped = ttir.reshape(%const) {shape = [32, 2560]} : ... -> tensor<32x2560xf32>
+        %activation = ... : tensor<32x2560xf32>
+        %result = ttir.pow(%activation, %const_reshaped) : ... -> tensor<32x2560xf32>
+
+    The reshape on the constant path can be folded away during const-eval, removing
+    the reshape from the critical activation path.
+  }];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRFoldConstantReshapeBroadcast: Pass<"ttir-fold-constant-reshape-broadcast", "::mlir::ModuleOp">
+{
+  let summary = "Fold reshape and broadcast operations on constants into new constants.";
+  let description = [{
+    This pass folds reshape and broadcast operations on constant tensors when the
+    result is consumed by elementwise operations (add, sub, mul, div, pow). Instead
+    of keeping the reshape/broadcast op, it creates a new constant with the target shape.
+
+    Reshape Example:
+      Before:
+        %const = ttir.constant() {value = dense<2.0> : tensor<32x1x2560xf32>} : () -> tensor<32x1x2560xf32>
+        %const_reshaped = ttir.reshape(%const) {shape = [32, 2560]} : ... -> tensor<32x2560xf32>
+        %result = ttir.pow(%activation, %const_reshaped) : ... -> tensor<32x2560xf32>
+
+      After:
+        %const = ttir.constant() {value = dense<2.0> : tensor<32x2560xf32>} : () -> tensor<32x2560xf32>
+        %result = ttir.pow(%activation, %const) : ... -> tensor<32x2560xf32>
+
+    Broadcast Example:
+      Before:
+        %const = ttir.constant() {value = dense<2.0> : tensor<1x2560xf32>} : () -> tensor<1x2560xf32>
+        %const_bcast = ttir.broadcast(%const) : ... -> tensor<32x2560xf32>
+        %result = ttir.multiply(%activation, %const_bcast) : ... -> tensor<32x2560xf32>
+
+      After:
+        %const = ttir.constant() {value = dense<2.0> : tensor<32x2560xf32>} : () -> tensor<32x2560xf32>
+        %result = ttir.multiply(%activation, %const) : ... -> tensor<32x2560xf32>
+
+    This eliminates the reshape/broadcast operation entirely from the graph.
+  }];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRInferKVCacheArgumentTypes: Pass<"ttir-infer-kv-cache-argument-types", "::mlir::ModuleOp">
+{
+  let summary = "Infer KV cache arguments from cache operations.";
+  let description = [{
+    This pass identifies function arguments used as cache inputs to FillCacheOp,
+    UpdateCacheOp, PagedFillCacheOp, or PagedUpdateCacheOp and marks them with
+    the ttcore.kv_cache unit attribute.
+
+    This is used to distinguish KV cache arguments from regular input arguments
+    and avoid e.g. forcing to Row Major layout.
+  }];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRDecomposeComplexReshape: Pass<"ttir-decompose-complex-reshape", "::mlir::ModuleOp"> {
+  let summary = "Decompose reshapes that flip trailing 1s into permute + reshape.";
+  let description = [{
+    Detects two kinds of reshape that require a permute for correct data movement:
+
+    1. Singleton transpose: non-1 dims are the same but trailing-1 status differs.
+       Decomposed into at most reshape + swap-last-two-dims permute + reshape.
+         [1, 128] -> [128, 1]:  permute [1, 0]
+         [32, 8, 17] -> [32, 8, 17, 1]:  reshape to [32, 8, 1, 17], permute [0, 1, 3, 2]
+         [64, 1, 1] -> [1, 1, 64]:  reshape to [1, 64, 1], permute [0, 2, 1]
+
+    2. Flatten and swap: non-1 dims differ AND trailing 1s need to become
+       leading 1s. Flattened to (X, 1), swapped to (1, X), then reshaped.
+         [128, 4, 1] -> [1, 512]:  reshape to [512, 1], permute [1, 0]
+         [512, 1] -> [1, 32, 16]:  permute [1, 0] to [1, 512], reshape to [1, 32, 16]
+  }];
+}
+
+def TTIRReductionForceKeepDim: Pass<"ttir-reduction-force-keep-dim", "::mlir::ModuleOp">
+{
+  let summary = "Force all reductions to use keep_dim=true.";
+  let description = [{
+    This pass converts all reduction operations with keep_dim=false to
+    keep_dim=true, inserting a reshape after the reduction to restore the
+    original output shape.
+
+    Example:
+      Before:
+        %0 = "ttir.sum"(%input) {dim_arg = [1], keep_dim = false} : (tensor<2x3x4xf32>) -> tensor<2x4xf32>
+
+      After:
+        %0 = "ttir.sum"(%input) {dim_arg = [1], keep_dim = true} : (tensor<2x3x4xf32>) -> tensor<2x1x4xf32>
+        %1 = "ttir.reshape"(%0) <{shape = [2, 4]}> : (tensor<2x1x4xf32>) -> tensor<2x4xf32>
+  }];
+
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
 def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation", "::mlir::ModuleOp">
@@ -229,6 +454,31 @@ def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation",
   }];
 
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRFoldFullToScalar: Pass<"ttir-fold-full-to-scalar", "::mlir::ModuleOp"> {
+  let summary = "Fold creation ops into scalar when all users support implicit broadcasting.";
+  let description = [{
+    This pass finds ttir.full, ttir.zeros, and ttir.ones ops whose users all
+    have the Broadcastable trait and replaces them with a volume-1 (scalar)
+    equivalent. Broadcastable ops will implicitly broadcast the scalar to
+    the required shape, saving memory by materializing only a single element
+    instead of a full tensor.
+
+    When the creation op was the shape carrier for a consumer, the consumer's
+    result type is updated and an explicit broadcast is added on its output
+    to preserve the original shape.
+
+    Example:
+      Before:
+        %0 = "ttir.full"() <{shape = array<i32: 64, 32>, fill_value = 1.0 : f32}> : () -> tensor<64x32xf32>
+        %1 = "ttir.add"(%arg0, %0) : (tensor<64x32xf32>, tensor<64x32xf32>) -> tensor<64x32xf32>
+
+      After:
+        %0 = "ttir.full"() <{shape = array<i32: 1>, fill_value = 1.0 : f32}> : () -> tensor<1xf32>
+        %1 = "ttir.add"(%arg0, %0) : (tensor<64x32xf32>, tensor<1xf32>) -> tensor<64x32xf32>
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
 #endif

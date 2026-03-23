@@ -6,6 +6,7 @@ import pytest
 import torch
 import os
 from typing import List, Optional
+from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape, get_artifact_dir
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import compile_and_execute_ttnn
@@ -73,9 +74,7 @@ def test_matmul_activation_fusing(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         save_artifacts=True,
     )
@@ -147,9 +146,7 @@ def test_linear_activation_fusing(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         save_artifacts=True,
     )

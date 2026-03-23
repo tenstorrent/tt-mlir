@@ -57,11 +57,13 @@ public:
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
 
-    // Filter to compute regions that have linalg.generic ops.
+    // Filter to compute regions (unified or compute) that have linalg.generic
+    // ops.
     auto computeRegions = llvm::make_filter_range(
         llvm::enumerate(op.getRegions()), [&](auto indexedRegion) {
-          return op.getRegionThreadType(indexedRegion.index()) ==
-                     ThreadType::Compute &&
+          ThreadType threadType = op.getRegionThreadType(indexedRegion.index());
+          return (threadType == ThreadType::Unified ||
+                  threadType == ThreadType::Compute) &&
                  hasLinalgGenericOps(op, indexedRegion.index());
         });
 

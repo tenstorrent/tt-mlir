@@ -15,10 +15,11 @@
 #include "tt-metalium/program_cache.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/events.hpp"
+#include "ttnn/global_semaphore.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/core/core.hpp"
-#include "ttnn/operations/creation.hpp"
+#include "ttnn/operations/creation/creation.hpp"
 #include "ttnn/operations/data_movement/clone/clone.hpp"
 #include "ttnn/operations/data_movement/concat/concat.hpp"
 #include "ttnn/operations/data_movement/copy/copy.hpp"
@@ -43,17 +44,19 @@
 #include "ttnn/operations/generic/generic_op.hpp"
 #include "ttnn/operations/kv_cache/kv_cache.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
-#include "ttnn/operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "ttnn/operations/normalization/batch_norm/batch_norm.hpp"
+#include "ttnn/operations/normalization/groupnorm/groupnorm.hpp"
 #include "ttnn/operations/normalization/layernorm/layernorm.hpp"
 #include "ttnn/operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
 #include "ttnn/operations/pool/generic/generic_pools.hpp"
 #include "ttnn/operations/pool/upsample/upsample.hpp"
 #include "ttnn/operations/rand/rand.hpp"
+#include "ttnn/operations/reduction/accumulation/cumsum/cumsum.hpp"
 #include "ttnn/operations/reduction/argmax/argmax.hpp"
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/operations/reduction/prod/prod.hpp"
+#include "ttnn/operations/reduction/topk/topk.hpp"
 #include "ttnn/operations/trace.hpp"
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "ttnn/operations/transformer/sdpa/sdpa.hpp"
@@ -104,6 +107,16 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 // Tensor shards can be host tensors with either owned or borrowed storage.
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<::tt::runtime::Tensor> &tensorShards,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
+
+// Creates multi-device host tensor with borrowed storage (the buffer of the
+// tensor is on the host and it was borrowed from an external buffer which is
+// responsible for its allocation/deallocation).
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
 
@@ -254,7 +267,7 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
                        tt::runtime::TensorRef tensorRef, bool untilize);
 
 // Update tensor to which tensorRef refers
-// Prefered to be owned tensor to avoid unexpected behavior in case of
+// Preferred to be owned tensor to avoid unexpected behavior in case of
 // deallocation
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);

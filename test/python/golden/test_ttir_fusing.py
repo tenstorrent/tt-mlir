@@ -4,6 +4,7 @@
 
 import pytest
 import torch
+from conftest import get_request_kwargs
 import os
 from typing import List, Optional
 from builder.base.builder_utils import Operand, Shape, get_artifact_dir
@@ -140,14 +141,10 @@ def test_batch_norm_decomposition(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption(
-            "--path",
-        ),
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
-        pipeline_options=["enable-fusing-conv2d-with-multiply-pattern=true"],
         save_artifacts=True,
+        pipeline_options=["enable-fusing-conv2d-with-multiply-pattern=true"],
     )
     output_path = os.path.join(
         get_artifact_dir(
@@ -257,11 +254,8 @@ def test_conv_activation_fusing(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
-        save_artifacts=True,
     )
     output_path = os.path.join(
         get_artifact_dir(
@@ -360,11 +354,8 @@ def test_conv_silu_decomposed_fusing(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
-        save_artifacts=True,
     )
     output_path = os.path.join(
         get_artifact_dir(
@@ -377,3 +368,114 @@ def test_conv_silu_decomposed_fusing(
         and not check_op(output_path, "sigmoid")
         and not check_op(output_path, "multiply")
     )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        # Direct matmul + 1D bias.
+        [(68, 1024), (1024, 1024), (1024,)],
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
+def test_matmul_with_bias_fusing(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def matmul_add_bias(
+            input_tensor: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            matmul_result = builder.matmul(input_tensor, weight)
+            return builder.add(matmul_result, bias)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
+    )
+    assert check_op(output_path, "linear") and not check_op(output_path, "matmul")
+
+
+@pytest.mark.parametrize(
+    "matmul_shapes,bias_shape,bias_reshape,bias_broadcast",
+    [
+        # ViT / BERT pattern: matmul [1576, 768] + bias [768] reshaped to
+        # [1, 768] and broadcast to [1576, 768].
+        (
+            [(1576, 768), (768, 768)],
+            (768,),
+            [1, 768],
+            [1576, 1],
+        ),
+        # Phi decode pattern: matmul [32, 2048] + bias [2048] reshaped to
+        # [1, 2048] and broadcast to [32, 2048].
+        (
+            [(32, 2048), (2048, 2048)],
+            (2048,),
+            [1, 2048],
+            [32, 1],
+        ),
+        # Qwen decode pattern: matmul [32, 896] + bias [896] reshaped to
+        # [1, 896] and broadcast to [32, 896].
+        (
+            [(32, 896), (896, 896)],
+            (896,),
+            [1, 896],
+            [32, 1],
+        ),
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
+def test_matmul_with_bias_reshape_broadcast_fusing(
+    matmul_shapes: List[Shape],
+    bias_shape: Shape,
+    bias_reshape: List[int],
+    bias_broadcast: List[int],
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    shapes = [matmul_shapes[0], matmul_shapes[1], bias_shape]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def matmul_bias_tm(
+            input_tensor: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            matmul_result = builder.matmul(input_tensor, weight)
+            reshaped_bias = builder.reshape(bias, bias_reshape)
+            broadcast_bias = builder.broadcast(reshaped_bias, bias_broadcast)
+            return builder.add(matmul_result, broadcast_bias)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
+    )
+    assert check_op(output_path, "linear") and not check_op(output_path, "matmul")

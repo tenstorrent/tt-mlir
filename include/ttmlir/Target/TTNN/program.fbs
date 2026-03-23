@@ -19,7 +19,7 @@ include "ttmlir/Target/TTNN/operations/load_cached.fbs";
 include "ttmlir/Target/TTNN/operations/matmul.fbs";
 // ANCHOR_END: adding_an_op_matmul_fbs_include
 include "ttmlir/Target/TTNN/operations/mlir_native.fbs";
-include "ttmlir/Target/TTNN/operations/moreh_cumsum.fbs";
+include "ttmlir/Target/TTNN/operations/cumsum.fbs";
 include "ttmlir/Target/TTNN/operations/normalization.fbs";
 include "ttmlir/Target/TTNN/operations/pool.fbs";
 include "ttmlir/Target/TTNN/operations/rand.fbs";
@@ -27,6 +27,7 @@ include "ttmlir/Target/TTNN/operations/reduction.fbs";
 include "ttmlir/Target/TTNN/operations/tensor_serialization.fbs";
 include "ttmlir/Target/TTNN/operations/trace.fbs";
 include "ttmlir/Target/TTNN/operations/transformer.fbs";
+include "ttmlir/Target/TTNN/operations/global_semaphore.fbs";
 
 namespace tt.target.ttnn;
 
@@ -34,6 +35,8 @@ union OpType {
   AggregateTensorOp,
   AllGatherOp,
   AllReduceOp,
+  AllToAllCombineOp,
+  AllToAllDispatchOp,
   ArangeOp,
   AssignOp,
   BatchNormInferenceOp,
@@ -53,6 +56,8 @@ union OpType {
   CpuOp,
   DeallocateOp,
   DistributeTensorOp,
+  DistributedRMSNormOp,
+  DropoutOp,
   EltwiseBinaryCompositeOp,
   EltwiseBinaryCompositeScalarOp,
   EltwiseBinaryOp,
@@ -73,15 +78,19 @@ union OpType {
   GenericOp,
   GetDeviceOp,
   GlobalAvgPool2dOp,
+  GroupNormOp,
   LayerNormOp,
   LinearOp,
   LoadCachedOp,
   // ANCHOR: adding_an_op_matmul_fbs_op_type
   MatmulOp,
   // ANCHOR_END: adding_an_op_matmul_fbs_op_type
+  SparseMatmulOp,
   MaxPool2dWithIndicesOp,
   MeshShardOp,
-  MorehCumSumOp,
+  MeshPartitionOp,
+  MoeExpertTokenRemapOp,
+  CumSumOp,
   NamedFullOp,
   NLPConcatHeadsDecodeOp,
   PadOp,
@@ -112,7 +121,6 @@ union OpType {
   SortOp,
   SplitQueryKeyValueAndSplitHeadsOp,
   ToDeviceOp,
-  ToDTypeOp,
   ToLayoutOp,
   ToMemoryConfigOp,
   TransposeOp,
@@ -124,7 +132,13 @@ union OpType {
   LoadTensorOp,
   AnnotateOp,
   BreakpointOp,
+  PrintOp,
   MemorySnapshotOp,
+  RegionStartOp,
+  RegionEndOp,
+  TopKOp,
+  CreateGlobalSemaphoreOp,
+  ResetGlobalSemaphoreOp,
 }
 
 table Operation {

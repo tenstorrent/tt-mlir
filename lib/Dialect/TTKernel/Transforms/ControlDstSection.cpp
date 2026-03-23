@@ -17,18 +17,28 @@ namespace mlir::tt::ttkernel {
 
 namespace {
 
-class TTKernelTileRegsRewriter : public OpRewritePattern<ttkernel::PackTileOp> {
+template <typename PackOp>
+class TTKernelTileRegsRewriter : public OpRewritePattern<PackOp> {
 public:
-  using OpRewritePattern<ttkernel::PackTileOp>::OpRewritePattern;
+  using OpRewritePattern<PackOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(ttkernel::PackTileOp op,
+  LogicalResult matchAndRewrite(PackOp op,
                                 PatternRewriter &rewriter) const final {
     Block *acquireBlock = findBlockContaining<ttkernel::TileRegsAcquireOp>(op);
-    if (!acquireBlock->getOps<ttkernel::TileRegsCommitOp>().empty()) {
-      return failure();
+    Operation *parent = parentOpAtBlock(op, acquireBlock);
+
+    // Walk backwards from the pack point to find whether this specific
+    // DST section has already been processed.
+    for (Operation *it = parent->getPrevNode(); it; it = it->getPrevNode()) {
+      if (isa<ttkernel::TileRegsCommitOp>(it)) {
+        // Has a commit, already processed.
+        return failure();
+      }
+      if (isa<ttkernel::TileRegsAcquireOp>(it)) {
+        break;
+      }
     }
 
-    Operation *parent = parentOpAtBlock(op, acquireBlock);
     rewriter.setInsertionPoint(parent);
     rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
     rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
@@ -68,7 +78,9 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTKernelTileRegsRewriter>(&getContext());
+    patterns.add<TTKernelTileRegsRewriter<ttkernel::PackTileOp>>(&getContext());
+    patterns.add<TTKernelTileRegsRewriter<ttkernel::PackTileBlockOp>>(
+        &getContext());
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

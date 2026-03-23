@@ -29,9 +29,29 @@ class TTNNBuilder(Builder):
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
         ] = OrderedDict([("x", 1), ("y", 1)]),
-        disable_golden_check: bool = False,
     ):
-        super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
+        super().__init__(ctx, location, mesh_name, mesh_dict)
+        self._default_tensor_encoding = self.create_tensor_encoding
+
+    def func(
+        self,
+        input_shapes,
+        input_types,
+        host_inputs: bool = False,
+    ):
+        if not host_inputs:
+            return super().func(input_shapes, input_types)
+
+        def wrapper(fn):
+            original = self.create_tensor_encoding
+            self.create_tensor_encoding = self.create_host_row_major_tensor_encoding
+            try:
+                result = super(TTNNBuilder, self).func(input_shapes, input_types)(fn)
+            finally:
+                self.create_tensor_encoding = original
+            return result
+
+        return wrapper
 
     # ----- Private Methods ----
 
@@ -120,7 +140,7 @@ class TTNNBuilder(Builder):
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-            if not skip_golden and not self._disable_golden_check:
+            if not skip_golden:
                 op_golden_function = get_golden_function(
                     op_ttnn_function, **golden_kwargs
                 )
@@ -150,7 +170,7 @@ class TTNNBuilder(Builder):
         """
         TTNN tensors require that encoding information is present.
         This method creates a TTNN tensor with encoding information.
-        For simplicity we will always create DRAM/Interlaved tiled tensor.
+        For simplicity we will always create DRAM/Interleaved tiled tensor.
         """
         if isinstance(element_type, torch.dtype):
             element_type = self._get_type_from_torch_dtype(element_type)
@@ -173,11 +193,54 @@ class TTNNBuilder(Builder):
         """
         TTNN tensors require that encoding information is present.
         This method creates a TTNN tensor with encoding information.
-        For simplicity we will always create DRAM/Interlaved tiled tensor.
+        For simplicity we will always create DRAM/Interleaved tiled tensor.
         """
         with self._ctx, self._loc:
             ttnn_layout_attr = self.create_tensor_encoding(shape, element_type)
             return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
+
+    def create_host_tensor_encoding(
+        self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
+    ) -> ttnn.ir.TTNNLayoutAttr:
+        """
+        Create a TTNN tensor encoding for a host (system memory) tensor
+        in tile layout.
+        """
+        if isinstance(element_type, torch.dtype):
+            element_type = self._get_type_from_torch_dtype(element_type)
+        with self._ctx, self._loc:
+            data_type = util.element_type_to_data_type(element_type)
+            tile_element_type = ttcore.ir.TileType.get(self._ctx, 32, 32, data_type)
+            buffer_type = ttnn.BufferType.SystemMemory
+            grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
+            return ttnn.ir.TTNNLayoutAttr.get(
+                self._ctx,
+                shape,
+                tile_element_type,
+                buffer_type,
+                grid_attr,
+            )
+
+    def create_host_row_major_tensor_encoding(
+        self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
+    ) -> ttnn.ir.TTNNLayoutAttr:
+        """
+        Create a TTNN tensor encoding for a host (system memory) tensor
+        in row-major layout. Used for intermediate tensors produced by
+        distribute_tensor / aggregate_tensor at runtime.
+        """
+        if isinstance(element_type, torch.dtype):
+            element_type = self._get_type_from_torch_dtype(element_type)
+        with self._ctx, self._loc:
+            buffer_type = ttnn.BufferType.SystemMemory
+            grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
+            return ttnn.ir.TTNNLayoutAttr.get(
+                self._ctx,
+                shape,
+                element_type,
+                buffer_type,
+                grid_attr,
+            )
 
     def create_l1_width_sharded_tiled_encoding(
         self, shape: Shape, element_type: Type
@@ -257,8 +320,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -276,12 +338,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -325,8 +386,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -343,11 +403,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -391,8 +450,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -409,11 +467,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -457,8 +514,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -475,11 +531,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -523,8 +578,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -541,11 +595,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -589,8 +642,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -607,11 +659,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -655,8 +706,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -673,11 +723,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -721,8 +770,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -739,11 +787,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -787,8 +834,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -805,11 +851,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -853,8 +898,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -871,11 +915,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -919,8 +962,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -937,11 +979,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -985,8 +1026,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1003,11 +1043,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1051,8 +1090,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1069,11 +1107,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1117,8 +1154,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1135,11 +1171,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1183,8 +1218,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1201,11 +1235,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1249,8 +1282,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1267,11 +1299,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1315,8 +1346,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1333,11 +1363,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1381,8 +1410,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1399,11 +1427,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1447,8 +1474,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1465,11 +1491,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1513,8 +1538,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1531,11 +1555,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1579,8 +1602,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1597,11 +1619,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1645,8 +1666,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1663,11 +1683,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1711,8 +1730,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1729,11 +1747,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1777,8 +1794,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1795,11 +1811,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1843,8 +1858,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1861,11 +1875,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1909,8 +1922,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1927,11 +1939,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -1972,8 +1983,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1990,11 +2000,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, old_op.dtype, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2038,8 +2047,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2056,11 +2064,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2104,8 +2111,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2122,11 +2128,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2170,8 +2175,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2188,11 +2192,10 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2241,8 +2244,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2260,12 +2262,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2314,8 +2315,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2333,12 +2333,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2387,8 +2386,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2406,12 +2404,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2460,8 +2457,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2479,12 +2475,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2533,8 +2528,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2552,12 +2546,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2606,8 +2599,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2625,12 +2617,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2679,8 +2670,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2698,12 +2688,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2750,8 +2739,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2769,12 +2757,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2823,8 +2810,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2842,12 +2828,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2896,8 +2881,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2915,12 +2899,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -2969,8 +2952,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -2988,12 +2970,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3041,8 +3022,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3060,12 +3040,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3113,8 +3092,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3132,12 +3110,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3185,8 +3162,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3204,12 +3180,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3256,8 +3231,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3275,12 +3249,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3327,8 +3300,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3346,12 +3318,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3402,8 +3373,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3421,12 +3391,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3473,8 +3442,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3492,12 +3460,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3544,8 +3511,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3563,12 +3529,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3615,8 +3580,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3634,12 +3598,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3688,8 +3651,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3707,12 +3669,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3761,8 +3722,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3780,12 +3740,11 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3837,8 +3796,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3863,15 +3821,14 @@ class TTNNBuilder(Builder):
         )
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            min_tensor_golden = self._get_golden_tensor(min_tensor)
-            max_tensor_golden = self._get_golden_tensor(max_tensor)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(
-                input0, min_tensor_golden, max_tensor_golden, result.element_type
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        min_tensor_golden = self._get_golden_tensor(min_tensor)
+        max_tensor_golden = self._get_golden_tensor(max_tensor)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0, min_tensor_golden, max_tensor_golden, result.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3918,8 +3875,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -3942,13 +3898,10 @@ class TTNNBuilder(Builder):
         )
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input_tensors = tuple([self._get_golden_tensor(in0) for in0 in inputs])
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(
-                input_tensors, dim_attr, result.element_type
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
+        input_tensors = tuple([self._get_golden_tensor(in0) for in0 in inputs])
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input_tensors, dim_attr, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -3995,8 +3948,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -4019,13 +3971,12 @@ class TTNNBuilder(Builder):
         )
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(
-                input0, repeat_dims_attr, old_op.result.type.element_type
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0, repeat_dims_attr, old_op.result.type.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -4083,8 +4034,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -4109,22 +4059,21 @@ class TTNNBuilder(Builder):
         )
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            first_tensor = self._get_golden_tensor(first)
-            condition = first_tensor.apply_shardwise(
-                lambda shard: torch.where(
-                    shard > 0,
-                    torch.tensor(True, device=shard.device),
-                    torch.tensor(False, device=shard.device),
-                )
+        first_tensor = self._get_golden_tensor(first)
+        condition = first_tensor.apply_shardwise(
+            lambda shard: torch.where(
+                shard > 0,
+                torch.tensor(True, device=shard.device),
+                torch.tensor(False, device=shard.device),
             )
-            input1 = self._get_golden_tensor(second)
-            input2 = self._get_golden_tensor(third)
-            op_golden_function = get_golden_function(ttnn_op)
-            golden_output = op_golden_function(
-                condition, input1, input2, result.element_type
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
+        )
+        input1 = self._get_golden_tensor(second)
+        input2 = self._get_golden_tensor(third)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            condition, input1, input2, result.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -4183,8 +4132,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -4209,18 +4157,17 @@ class TTNNBuilder(Builder):
         )
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            op_golden_function = get_golden_function(ttnn_op)
-            input0 = self._get_golden_tensor(lhs)
-            input1 = self._get_golden_tensor(rhs)
-            golden_output = op_golden_function(
-                input0,
-                input1,
-                old_op.transpose_a,
-                old_op.transpose_b,
-                result.element_type,
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
+        op_golden_function = get_golden_function(ttnn_op)
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        golden_output = op_golden_function(
+            input0,
+            input1,
+            old_op.transpose_a,
+            old_op.transpose_b,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {old_op.result: new_op_result}
         return new_op, op_map_dictionary
@@ -4282,8 +4229,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -4310,20 +4256,19 @@ class TTNNBuilder(Builder):
         )
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            op_golden_function = get_golden_function(ttnn_op)
-            input0 = self._get_golden_tensor(a)
-            input1 = self._get_golden_tensor(b)
-            bias_golden = self._get_golden_tensor(bias) if bias is not None else None
-            golden_output = op_golden_function(
-                input0,
-                input1,
-                bias_golden,
-                old_op.transpose_a,
-                old_op.transpose_b,
-                result.element_type,
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
+        op_golden_function = get_golden_function(ttnn_op)
+        input0 = self._get_golden_tensor(a)
+        input1 = self._get_golden_tensor(b)
+        bias_golden = self._get_golden_tensor(bias) if bias is not None else None
+        golden_output = op_golden_function(
+            input0,
+            input1,
+            bias_golden,
+            old_op.transpose_a,
+            old_op.transpose_b,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {old_op.result: new_op_result}
         return new_op, op_map_dictionary
@@ -4366,8 +4311,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -4384,13 +4328,12 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, old_op.min, old_op.max, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            op_golden_function = get_golden_function(ttnn_op)
-            input0 = self._get_golden_tensor(in0)
-            golden_output = op_golden_function(
-                input0, old_op.min, old_op.max, result.element_type
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
+        op_golden_function = get_golden_function(ttnn_op)
+        input0 = self._get_golden_tensor(in0)
+        golden_output = op_golden_function(
+            input0, old_op.min, old_op.max, result.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {old_op.result: new_op_result}
         return new_op, op_map_dictionary
@@ -4435,8 +4378,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -4453,13 +4395,12 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, old_op.repeats, old_op.dim, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            op_golden_function = get_golden_function(ttnn_op)
-            input0 = self._get_golden_tensor(in0)
-            golden_output = op_golden_function(
-                input0, old_op.repeats, old_op.dim, result.element_type
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
+        op_golden_function = get_golden_function(ttnn_op)
+        input0 = self._get_golden_tensor(in0)
+        golden_output = op_golden_function(
+            input0, old_op.repeats, old_op.dim, result.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
 
         return new_op, {old_op.result: new_op_result}
 
@@ -4499,8 +4440,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -4517,13 +4457,12 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, old_op.parameter, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            op_golden_function = get_golden_function(ttnn_op)
-            input0 = self._get_golden_tensor(in0)
-            golden_output = op_golden_function(
-                input0, old_op.parameter, result.element_type
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
+        op_golden_function = get_golden_function(ttnn_op)
+        input0 = self._get_golden_tensor(in0)
+        golden_output = op_golden_function(
+            input0, old_op.parameter, result.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
 
         return new_op, {old_op.result: new_op_result}
 
@@ -4561,8 +4500,7 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -4579,13 +4517,56 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            op_golden_function = get_golden_function(ttnn_op)
-            input0 = self._get_golden_tensor(in0)
-            golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op_result, golden_output)
+        op_golden_function = get_golden_function(ttnn_op)
+        input0 = self._get_golden_tensor(in0)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
 
         return new_op, {old_op.result: new_op_result}
+
+    ############### ttnn.DumpTensorOp ###############
+
+    @tag(ttnn.DumpTensorOp)
+    def dump_tensor(
+        self,
+        in0: Operand,
+        file_path: str,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> None:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.dump_tensor)
+        file_path_attr = StringAttr.get(file_path)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        ttnn_op(
+            file_path_attr,
+            in0,
+            loc=loc,
+        )
+
+        return
+
+    @parse(ttnn.DumpTensorOp)
+    def dump_tensor_parser(
+        self,
+        old_op: ttnn.DumpTensorOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.dump_tensor_parser)
+        in0 = global_dict[old_op.input]
+
+        ttnn_op(
+            old_op.file_path,
+            in0,
+            loc=old_op.location,
+        )
+
+        return None, {}
 
     def _op_proxy_l1_sharded_executed_op_with_dram_final_output(
         self,
@@ -4653,7 +4634,7 @@ class TTNNBuilder(Builder):
                 dtype=data_type,
             )
 
-            if not skip_golden and not self._disable_golden_check:
+            if not skip_golden:
                 golden_func = get_golden_function(op_function)
                 if golden_func:
                     golden_args = self._organize_eltwise_golden(inputs)
@@ -4744,13 +4725,527 @@ class TTNNBuilder(Builder):
                 golden_kwargs=golden_kwargs,
             )
 
+    ############### ttnn.GetDeviceOp ###############
+
+    @tag(ttnn.GetDeviceOp)
+    def get_device(
+        self,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
+            self._ctx, self._mesh_shape[0], self._mesh_shape[1]
+        )
+        mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(self._ctx, 0, 0)
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+        device_op = ttnn.GetDeviceOp(
+            mesh_shape=mesh_shape_attr, mesh_offset=mesh_offset_attr, loc=loc
+        )
+        return device_op.device
+
+    @parse(ttnn.GetDeviceOp)
+    def get_device_parser(
+        self,
+        old_op: ttnn.GetDeviceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.get_device_parser)
+        mesh_shape_attr = old_op.mesh_shape
+        mesh_offset_attr = old_op.mesh_offset
+        new_op = ttnn_op(mesh_shape=mesh_shape_attr, mesh_offset=mesh_offset_attr)
+        return new_op, {old_op.device: new_op.device}
+
+    ############### ttnn.ToLayoutOp ###############
+
+    @tag(ttnn.ToLayoutOp)
+    def to_layout(
+        self,
+        input: Operand,
+        layout,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        shape = input.type.shape
+        element_type = input.type.element_type
+        if layout == ttnn.Layout.Tile:
+            output_type = self._create_host_ttnn_tensor(shape, element_type)
+        else:
+            output_type = self._create_host_row_major_ttnn_tensor(shape, element_type)
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
+        op = ttnn.ToLayoutOp(output_type, input, layout=layout_attr, loc=loc)
+        input_golden = self._get_golden_tensor(input)
+        op_golden_function = get_golden_function(
+            self.get_opview_from_method(TTNNBuilder.to_layout)
+        )
+        golden_output = op_golden_function(input_golden, output_type)
+        self._set_golden_tensor(op.result, golden_output)
+        return op.result
+
+    @parse(ttnn.ToLayoutOp)
+    def to_layout_parser(
+        self,
+        old_op: ttnn.ToLayoutOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.to_layout_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        layout_attr = old_op.layout
+        new_op = ttnn_op(result, in0, layout=layout_attr, loc=old_op.location)
+        new_op_result = new_op.result
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result)
+        self._set_golden_tensor(new_op_result, golden_output)
+        return new_op, {old_op.result: new_op_result}
+
+    ############### ttnn.ToDeviceOp ###############
+
+    @tag(ttnn.ToDeviceOp)
+    def to_device(
+        self,
+        input: Operand,
+        device: Operand,
+        memory_config=None,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        """Move a tensor to device memory.
+
+        If *memory_config* is ``None`` (the default), a DRAM Interleaved
+        memory configuration is used.
+        """
+        with self._ctx, self._loc:
+            shape = input.type.shape
+            element_type = input.type.element_type
+            output_type = self._create_dram_tiled_ttnn_tensor(shape, element_type)
+            if memory_config is None:
+                memory_config = self._create_dram_memory_config()
+            if loc is None:
+                loc = self._get_location()
+            else:
+                loc = Location.name(loc)
+            op = ttnn.ToDeviceOp(
+                output_type, input, device, memory_config=memory_config, loc=loc
+            )
+            input_golden = self._get_golden_tensor(input)
+            op_golden_function = get_golden_function(
+                self.get_opview_from_method(TTNNBuilder.to_device)
+            )
+            golden_output = op_golden_function(input_golden)
+            self._set_golden_tensor(op.result, golden_output)
+            return op.result
+
+    @parse(ttnn.ToDeviceOp)
+    def to_device_parser(
+        self,
+        old_op: ttnn.ToDeviceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.to_device_parser)
+        in0 = global_dict[old_op.input]
+        device = global_dict[old_op.device]
+        result = old_op.result.type
+        new_op = ttnn_op(
+            result,
+            in0,
+            device,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0)
+        self._set_golden_tensor(new_op_result, golden_output)
+        return new_op, {old_op.result: new_op_result}
+
+    ############### ttnn.FromDeviceOp ###############
+
+    @tag(ttnn.FromDeviceOp)
+    def from_device(
+        self,
+        input: Operand,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        with self._ctx, self._loc:
+            shape = input.type.shape
+            element_type = input.type.element_type
+            output_type = self._create_host_ttnn_tensor(shape, element_type)
+            if loc is None:
+                loc = self._get_location()
+            else:
+                loc = Location.name(loc)
+            op = ttnn.FromDeviceOp(output_type, input, loc=loc)
+            input_golden = self._get_golden_tensor(input)
+            op_golden_function = get_golden_function(
+                self.get_opview_from_method(TTNNBuilder.from_device)
+            )
+            golden_output = op_golden_function(input_golden)
+            self._set_golden_tensor(op.result, golden_output)
+            return op.result
+
+    @parse(ttnn.FromDeviceOp)
+    def from_device_parser(
+        self,
+        old_op: ttnn.FromDeviceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.from_device_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0)
+        self._set_golden_tensor(new_op_result, golden_output)
+        return new_op, {old_op.result: new_op_result}
+
+    # ----- Private CCL Helpers -----
+
+    def _create_host_ttnn_tensor(
+        self, shape: Shape, element_type: Type
+    ) -> RankedTensorType:
+        with self._ctx, self._loc:
+            host_encoding = self.create_host_tensor_encoding(shape, element_type)
+            return RankedTensorType.get(shape, element_type, host_encoding)
+
+    def _create_host_row_major_ttnn_tensor(
+        self, shape: Shape, element_type: Type
+    ) -> RankedTensorType:
+        with self._ctx, self._loc:
+            host_encoding = self.create_host_row_major_tensor_encoding(
+                shape, element_type
+            )
+            return RankedTensorType.get(shape, element_type, host_encoding)
+
+    def _create_dram_tiled_ttnn_tensor(
+        self, shape: Shape, element_type: Type
+    ) -> RankedTensorType:
+        with self._ctx, self._loc:
+            ttnn_layout_attr = self._default_tensor_encoding(shape, element_type)
+            return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
+
+    def _create_dram_memory_config(self):
+        tensor_memory_layout_attr = ttnn.ir.TensorMemoryLayoutAttr.get(
+            self._ctx, ttnn.TensorMemoryLayout.Interleaved
+        )
+        buffer_type_attr = ttnn.ir.BufferTypeAttr.get(self._ctx, ttnn.BufferType.DRAM)
+        return ttnn.ir.MemoryConfigAttr.get(
+            self._ctx, tensor_memory_layout_attr, buffer_type_attr
+        )
+
+    ############### ttnn.DistributeTensorOp ###############
+
+    @tag(ttnn.DistributeTensorOp)
+    def distribute_tensor(
+        self,
+        input: Operand,
+        device: Operand,
+        shard_dims: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.distribute_tensor)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        placements = []
+        for dim in shard_dims:
+            if dim >= 0:
+                placements.append(f"<shard, {dim} : i64>")
+            else:
+                placements.append("<replicate>")
+        placements_str = ", ".join(placements)
+
+        mesh_x, mesh_y = self._mesh_shape[0], self._mesh_shape[1]
+        config_str = (
+            f"#ttnn.mesh_mapper_config<placements = [{placements_str}], "
+            f"mesh_shape_override = [{mesh_x} : ui32, {mesh_y} : ui32]>"
+        )
+        config_attr = Attribute.parse(config_str)
+
+        input0 = self._get_golden_tensor(input)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, config_attr, mlir_output_type)
+        host_rm_result = self._create_host_row_major_ttnn_tensor(
+            golden_output.shape, mlir_output_type
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            host_rm_result,
+            input,
+            config_attr,
+            device,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
+    @parse(ttnn.DistributeTensorOp)
+    def distribute_tensor_parser(
+        self,
+        old_op: ttnn.DistributeTensorOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.distribute_tensor_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        device = global_dict[old_op.mesh_device]
+        config_attr = old_op.mapper_config
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            config_attr,
+            device,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, config_attr, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op, {old_op.result: new_op_result}
+
+    ############### ttnn.AggregateTensorOp ###############
+
+    @tag(ttnn.AggregateTensorOp)
+    def aggregate_tensor(
+        self,
+        input: Operand,
+        device: Operand,
+        shard_dims: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.aggregate_tensor)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_type = input.type
+        input_rank = len(input_type.shape)
+        mesh_x, mesh_y = self._mesh_shape[0], self._mesh_shape[1]
+        full_mesh_shape = [mesh_x, mesh_y]
+
+        composer_dims = []
+        target_mesh_shape = []
+        for dim_idx, dim in enumerate(shard_dims):
+            if dim >= 0:
+                composer_dims.append(dim)
+                target_mesh_shape.append(full_mesh_shape[dim_idx])
+            else:
+                non_overlapping = self._find_non_overlapping_dim(
+                    input_rank, shard_dims, composer_dims
+                )
+                composer_dims.append(non_overlapping)
+                target_mesh_shape.append(1)
+
+        dims_str = ", ".join(f"{d} : i32" for d in composer_dims)
+        mesh_str = ", ".join(f"{s} : ui32" for s in target_mesh_shape)
+        config_str = (
+            f"#ttnn.mesh_composer_config<dims = [{dims_str}], "
+            f"mesh_shape_override = [{mesh_str}]>"
+        )
+        config_attr = Attribute.parse(config_str)
+
+        input0 = self._get_golden_tensor(input)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, config_attr, mlir_output_type)
+
+        host_result = self._create_host_row_major_ttnn_tensor(
+            golden_output.shape, mlir_output_type
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            host_result,
+            input,
+            config_attr,
+            device,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
+    @parse(ttnn.AggregateTensorOp)
+    def aggregate_tensor_parser(
+        self,
+        old_op: ttnn.AggregateTensorOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.aggregate_tensor_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        device = global_dict[old_op.mesh_device]
+        config_attr = old_op.composer_config
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            config_attr,
+            device,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, config_attr, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op, {old_op.result: new_op_result}
+
+    @staticmethod
+    def _find_non_overlapping_dim(
+        input_rank: int, shard_dims: List[int], composer_dims: List[int]
+    ) -> int:
+        for d in range(input_rank - 1, -1, -1):
+            if d not in shard_dims and d not in composer_dims:
+                return d
+        raise ValueError(
+            f"No non-overlapping dimension found for input_rank={input_rank}, "
+            f"shard_dims={shard_dims}, composer_dims={composer_dims}"
+        )
+
+    ############### ttnn.AllGatherOp ###############
+
+    @tag(ttnn.AllGatherOp)
+    def all_gather(
+        self,
+        input: Operand,
+        all_gather_dim: int,
+        cluster_axis: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.all_gather)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        all_gather_dim_attr = IntegerAttr.get(
+            IntegerType.get_signed(32), all_gather_dim
+        )
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
+
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0, all_gather_dim_attr, cluster_axis_attr, mlir_output_type
+        )
+        result = self._create_dram_tiled_ttnn_tensor(
+            golden_output.shape, mlir_output_type
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            input,
+            all_gather_dim_attr,
+            cluster_axis_attr,
+            loc=loc,
+        )
+        new_op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op_result
+
+    @parse(ttnn.AllGatherOp)
+    def all_gather_parser(
+        self,
+        old_op: ttnn.AllGatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.all_gather_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        all_gather_dim_attr = old_op.all_gather_dim
+        cluster_axis_attr = old_op.cluster_axis
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            all_gather_dim_attr,
+            cluster_axis_attr,
+            sub_device_id=old_op.sub_device_id,
+            memory_config=old_op.memory_config,
+            num_links=old_op.num_links,
+            topology=old_op.topology,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0,
+            all_gather_dim_attr,
+            cluster_axis_attr,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op, {old_op.result: new_op_result}
+
     # ----- Parse ttnn module ----
 
     @staticmethod
     def from_module(
         ctx: Context,
         mlir_text: str,
-        golden_inputs: Dict[str, List[torch.tensor]] = None,
+        golden_inputs: Dict[str, List[Dict[int, torch.tensor]]] = None,
     ) -> Tuple(Module, TTNNBuilder):
         if golden_inputs is None:
             golden_inputs = {}

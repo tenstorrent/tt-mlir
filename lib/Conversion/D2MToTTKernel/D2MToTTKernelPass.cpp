@@ -76,6 +76,8 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<d2m::GenericOp>();
     target.addLegalOp<d2m::EmptyOp>();
     target.addLegalOp<d2m::MeshShardOp>();
+    target.addLegalOp<d2m::CreateGlobalSemaphoreOp>();
+    target.addLegalOp<d2m::ResetGlobalSemaphoreOp>();
 
     if (ttnnMode) {
       target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
@@ -97,10 +99,8 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<memref::GlobalOp>();
     target.addLegalOp<memref::GetGlobalOp>();
 
-    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-      return !op->hasAttr(d2m::ThreadAttr::name) ||
-             (op.getFunctionType().getNumInputs() == 0);
-    });
+    target.addDynamicallyLegalOp<func::FuncOp>(
+        [&](func::FuncOp op) { return !op->hasAttr(d2m::ThreadAttr::name); });
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
@@ -136,6 +136,9 @@ struct ConvertD2MToTTKernel
     });
     typeConverter.addConversion([](d2m::SemaphoreType semaphore) {
       return ttkernel::SemaphoreType::get(semaphore.getContext());
+    });
+    typeConverter.addConversion([](d2m::GlobalSemaphoreType globalSemaphore) {
+      return ttkernel::L1AddrType::get(globalSemaphore.getContext());
     });
 
     d2m::AssociatedDMAWaits associatedDMAWaits =

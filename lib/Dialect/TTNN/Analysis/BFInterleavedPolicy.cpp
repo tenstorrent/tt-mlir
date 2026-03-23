@@ -4,14 +4,27 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/BFInterleavedPolicy.h"
 
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Scheduler/Scheduler.h"
 
+#include "mlir/IR/BuiltinOps.h"
+
 namespace mlir::tt::ttnn {
 
 void BFInterleavedPolicy::run() {
+  // Calculate effective L1 limit from module attribute (single source of
+  // truth). This matches the pattern used in OpConstraintValidation.
+  const float tensorL1UsageCap = utils::getTensorL1UsageCap(rootOp);
+  ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
+      rootOp->getParentOfType<ModuleOp>()->getAttr(
+          ttcore::SystemDescAttr::name));
+  ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+  usableL1CacheSize =
+      static_cast<uint64_t>(tensorL1UsageCap * chipDesc.getUsableL1Size());
+
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
     if (!func) {
@@ -65,7 +78,7 @@ void BFInterleavedPolicy::run() {
         }
 
         // Check if the scheduling of the op is consuming the least amount of L1
-        // memory among all the scheduleable ops.
+        // memory among all the schedulable ops.
         //
         changeInL1Usage = allocOfL1Mem - deallocOfL1Mem;
         if (changeInL1Usage < minimalChangeInL1Usage) {
@@ -160,7 +173,7 @@ bool BFInterleavedPolicy::isAnalyzable(Operation *op) {
   // Skip operations that are not analyzed by the LegalGridAnalysis.
   //
   if (legalConfigs.count(op) > 0) {
-    // Skip operations that are filterd out by the MemoryLayoutAnalysis.
+    // Skip operations that are filtered out by the MemoryLayoutAnalysis.
     //
     return legalConfigs[op].size() > 0;
   }

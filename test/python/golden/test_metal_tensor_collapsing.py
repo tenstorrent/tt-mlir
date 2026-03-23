@@ -13,7 +13,7 @@ Current state:
 - ✅ 3D addition: Works correctly with non-collapsed tensors
 - ✅ 3D multiplication: Works correctly with non-collapsed tensors
 - ✅ 3D exponential: Works correctly with non-collapsed tensors
-- ❌ 3D matmul: Causes core dump due to hardcoded rank==2 assertions in matmul rewriter
+- ✅ 3D matmul: Works correctly with non-collapsed tensors (fixed in #6648)
 - ❌ 3D transpose: Causes core dump due to hardcoded rank==2 assertions in permute rewriter
 """
 
@@ -86,20 +86,11 @@ def module_transpose_inner_dims(builder: TTIRBuilder):
         (module_elementwise_multiply_3d_multiply, "3d_multiply"),
         (module_unary_exp_2d_exp, "3d_exp"),
         # 4D element-wise operations (working with non-collapsed tensors)
-        pytest.param(
-            module_elementwise_add_4d_add,
-            "4d_add",
-            marks=pytest.mark.xfail(reason="Golden failure"),
-        ),
+        pytest.param(module_elementwise_add_4d_add, "4d_add"),
         (module_unary_exp_4d_exp, "4d_exp"),
+        # Batched matmul (fixed in #6648)
+        (module_batch_matmul, "matmul"),
         # Operations with known issues (marked as skip)
-        pytest.param(
-            module_batch_matmul,
-            "matmul",
-            marks=pytest.mark.skip(
-                reason="Hardcoded rank==2 assertions in matmul rewriter cause core dump"
-            ),
-        ),
         pytest.param(
             module_transpose_inner_dims,
             "transpose",
@@ -132,8 +123,5 @@ def test_uncollapsed_tensors(
         target=target,
         custom_pipeline=pipeline,
         test_base=f"{request.node.name}_{test_name}_{'collapsed' if collapse_tensors else 'non_collapsed'}",
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
     )

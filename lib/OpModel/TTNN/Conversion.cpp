@@ -331,6 +331,8 @@ getTensorMemoryLayout(const TensorMemoryLayout tensorMemoryLayout) {
     return ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED;
   case TensorMemoryLayout::BlockSharded:
     return ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED;
+  case TensorMemoryLayout::NDSharded:
+    return ::tt::tt_metal::TensorMemoryLayout::ND_SHARDED;
   }
 }
 TensorMemoryLayout
@@ -344,6 +346,8 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
     return TensorMemoryLayout::WidthSharded;
   case ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED:
     return TensorMemoryLayout::BlockSharded;
+  case ::tt::tt_metal::TensorMemoryLayout::ND_SHARDED:
+    return TensorMemoryLayout::NDSharded;
   }
 }
 
@@ -436,7 +440,7 @@ convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
   return ::ttsl::SmallVector<int>(vec.begin(), vec.end());
 }
 
-std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
+std::optional<::ttnn::Conv2dConfig>
 getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   if (!conv2dConfig || !conv2dConfig.has_value() || !conv2dConfig.value()) {
     return std::nullopt;
@@ -446,7 +450,7 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   // CoreRangeSet as an IR attribute.
   assert(!conv2dConfig->getCoreGrid() && "CoreGrid is not supported yet");
 
-  ::ttnn::operations::conv::conv2d::Conv2dConfig config;
+  ::ttnn::Conv2dConfig config;
 
   if (conv2dConfig->getWeightsDtype()) {
     config.weights_dtype = getDataType(*conv2dConfig->getWeightsDtype());
@@ -551,10 +555,6 @@ getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
   const DeviceComputeKernelConfigAttr &devConfig =
       deviceComputeKernelConfig.value();
 
-  // Note: Currently, we only support creating WormholeComputeKernelConfig.
-  // If we need to support GrayskullComputeKernelConfig in the future, we
-  // need to pass in the device information to this function or include it in
-  // DeviceComputeKernelConfigAttr.
   ::ttnn::WormholeComputeKernelConfig config;
   if (devConfig.getFp32DestAccEn()) {
     config.fp32_dest_acc_en = devConfig.getFp32DestAccEn().getValue();
@@ -574,8 +574,7 @@ getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
   return config;
 }
 
-std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-getConv2dSliceConfig(
+std::optional<::ttnn::Conv2dSliceConfig> getConv2dSliceConfig(
     const std::optional<Conv2dSliceConfigAttr> &conv2dSliceConfig) {
   if (!conv2dSliceConfig || !conv2dSliceConfig.has_value() ||
       !conv2dSliceConfig.value()) {
@@ -584,20 +583,17 @@ getConv2dSliceConfig(
 
   const Conv2dSliceConfigAttr &sliceConfig = conv2dSliceConfig.value();
 
-  ::ttnn::operations::conv::conv2d::Conv2dSliceConfig config;
+  ::ttnn::Conv2dSliceConfig config;
 
   switch (sliceConfig.getSliceType()) {
   case Conv2dSliceType::DramHeight:
-    config.slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
-        SliceType::DRAM_HEIGHT;
+    config.slice_type = ::ttnn::Conv2dSliceConfig::SliceType::DRAM_HEIGHT;
     break;
   case Conv2dSliceType::DramWidth:
-    config.slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
-        SliceType::DRAM_WIDTH;
+    config.slice_type = ::ttnn::Conv2dSliceConfig::SliceType::DRAM_WIDTH;
     break;
   case Conv2dSliceType::L1Full:
-    config.slice_type =
-        ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_FULL;
+    config.slice_type = ::ttnn::Conv2dSliceConfig::SliceType::L1_FULL;
     break;
   }
 

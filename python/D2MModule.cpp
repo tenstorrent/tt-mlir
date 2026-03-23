@@ -4,9 +4,11 @@
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
+#include "mlir/CAPI/AffineMap.h"
 #include "mlir/CAPI/IR.h"
 #include "ttmlir-c/D2MTypes.h"
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.h"
 
@@ -23,6 +25,8 @@ void populateD2MModule(nb::module_ &m) {
           threadType = tt::d2m::ThreadType::Compute;
         } else if (threadTypeStr == "datamovement") {
           threadType = tt::d2m::ThreadType::Datamovement;
+        } else if (threadTypeStr == "unified") {
+          threadType = tt::d2m::ThreadType::Unified;
         } else {
           throw std::runtime_error("Unknown thread type " + threadTypeStr);
         }
@@ -46,5 +50,12 @@ void populateD2MModule(nb::module_ &m) {
           [](MlirType &ty) { return mlir::cast<tt::d2m::CBType>(unwrap(ty)); })
       .def("get_underlying",
            [](tt::d2m::CBType self) { return wrap(self.getUnderlying()); });
+
+  m.def("calculate_reblock_map", [](std::vector<int64_t> inputShape,
+                                    std::vector<int64_t> outputShape,
+                                    MlirContext ctx) {
+    return wrap(::ttmlir::utils::calculateReblockMap(inputShape, outputShape,
+                                                     unwrap(ctx)));
+  });
 }
 } // namespace mlir::ttmlir::python

@@ -4,7 +4,11 @@
 
 import pytest
 import torch
-from typing import Callable, List, Optional
+from conftest import get_request_kwargs
+from typing import List, Optional, Tuple
+from collections import OrderedDict
+
+from ttmlir.dialects import ttnn
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
@@ -29,10 +33,8 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, dev
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -53,10 +55,8 @@ def test_clamp_tensor(shapes: List[Shape], request, device):
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -73,10 +73,8 @@ def test_repeat(shape: Shape, repeat_dims: List[int], dtype, request, device):
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -107,10 +105,8 @@ def test_repeat_interleave(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -141,10 +137,8 @@ def test_concat(shapes: List[Shape], dim: int, request, device):
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -177,9 +171,7 @@ def test_matmul(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -224,9 +216,107 @@ def test_linear(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        (1, 32, 32, 32),
+        (1, 32, 32, 1),
+        (32, 32, 1, 1),
+        (1, 32, 32),
+        (32, 32),
+        (32, 40),
+        (40, 32),
+        (1, 1, 32, 32, 32),
+        (1, 1, 1, 1, 1, 1, 32, 32, 32),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize(
+    "mesh_shape", [(2, 4), (1, 8), (1, 2), (1, 32), (8, 4)], ids=shape_str
+)
+@pytest.mark.parametrize("all_gather_dim", range(4))
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+def test_all_gather(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    all_gather_dim: int,
+    cluster_axis: int,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    if all_gather_dim >= len(test_shape):
+        pytest.skip("all_gather_dim is out of range")
+    if mesh_shape[cluster_axis] == 1:
+        pytest.skip("all_gather across 1 device is meaningless")
+
+    rank_in = len(test_shape)
+    rank_mesh = len(mesh_shape)
+
+    if rank_mesh > rank_in:
+        pytest.skip(
+            f"Mesh shape {mesh_shape} has {rank_mesh} dimensions, but test shape "
+            f"{test_shape} only has {rank_in} dimensions."
+        )
+
+    shard_dims_candidate = list(range(rank_in - rank_mesh, rank_in))
+    for d, factor in zip(shard_dims_candidate, mesh_shape):
+        if test_shape[d] < factor:
+            pytest.skip(
+                f"Tensor dim {d} (size {test_shape[d]}) too small to shard "
+                f"by factor {factor}"
+            )
+
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+
+    full_input_shape = list(test_shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
+    def module(builder: TTNNBuilder):
+        @builder.func([full_input_shape], [dtype], host_inputs=True)
+        def all_gather(in0: Operand, builder: TTNNBuilder):
+            device = builder.get_device()
+
+            distributed = builder.distribute_tensor(
+                in0,
+                device=device,
+                shard_dims=shard_dims,
+            )
+            tilized = builder.to_layout(distributed, layout=ttnn.Layout.Tile)
+            on_device = builder.to_device(tilized, device=device)
+
+            gathered = builder.all_gather(
+                on_device,
+                all_gather_dim=all_gather_dim,
+                cluster_axis=cluster_axis,
+            )
+
+            from_dev = builder.from_device(gathered)
+            untilized = builder.to_layout(from_dev, layout=ttnn.Layout.RowMajor)
+            return builder.aggregate_tensor(
+                untilized,
+                device=device,
+                shard_dims=shard_dims,
+            )
+
+    compile_and_execute_ttnn(
+        module,
+        custom_pipeline=(
+            "ttcore-mark-functions-as-forward,"
+            "ttcore-wrap-device-module,"
+            "ttcore.device_module(builtin.module("
+            "ttnn-configure-ccl-ops,ttnn-deallocate))"
+        ),
+        **get_request_kwargs(request),
+        target="ttnn",
+        device=device,
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
     )

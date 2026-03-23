@@ -7,11 +7,11 @@ import torch
 
 import pytest
 from op_definitions import *
-
 from utils import (
     _get_ttnn_op,
     all_close_check,
     memory_configs_equal,
+    get_expected_block_sharded_memory_config,
     create_dram_tensor,
     create_sharded_tile_tensor,
     run_op_test,
@@ -20,7 +20,6 @@ from utils import (
 
 DRAM_SHAPES = [
     (1024, 1024),
-    (2048, 2048),
     (512, 2048),
     (2, 512, 2048),
     (4, 4, 32, 32),
@@ -28,6 +27,7 @@ DRAM_SHAPES = [
 
 SHARD_SHAPES_GRIDS = [
     ((1024, 1024), (7, 7), ttnn.ShardStrategy.BLOCK),
+    ((96, 576), (5, 0), ttnn.ShardStrategy.BLOCK),
     ((2048, 32), (7, 7), ttnn.ShardStrategy.HEIGHT),
     ((32, 2048), (7, 7), ttnn.ShardStrategy.WIDTH),
 ]
@@ -68,10 +68,7 @@ SHARD_SHAPES_GRIDS = [
         logical_not,
     ],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, frontend):
-    if dtype == torch.float32 and shape == (2048, 2048):
-        pytest.skip("Skipping large operation for float32")
+def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op):
     if op in [log, ceil, floor, sqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
@@ -84,8 +81,8 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, frontend):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend=frontend,
         ttnn_dtype=ttnn_dtype,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
     )
 
 
@@ -128,10 +125,7 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, frontend):
         gelu,
     ],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_unary_op_l1(
-    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, frontend
-):
+def test_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op):
     if op in [log, ceil, floor, sqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
     if op == reciprocal and (
@@ -147,7 +141,6 @@ def test_unary_op_l1(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
         shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
@@ -163,11 +156,7 @@ def test_unary_op_l1(
     "op",
     [bitwise_not],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_bitwise_unary_op_dram(device, shape, dtype, op, frontend):
-    if shape == (2048, 2048):
-        pytest.skip("Skipping large operation")
-
+def test_bitwise_unary_op_dram(device, shape, dtype, op):
     max_grid = (0, 0)
     run_op_test(
         device,
@@ -177,7 +166,7 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, frontend):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend=frontend,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
     )
 
 
@@ -191,10 +180,7 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, frontend):
     "op",
     [bitwise_not],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_bitwise_unary_op_l1(
-    device, shape, max_grid, shard_strategy, dtype, op, frontend
-):
+def test_bitwise_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, op):
 
     run_op_test(
         device,
@@ -204,7 +190,6 @@ def test_bitwise_unary_op_l1(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -227,10 +212,7 @@ def test_bitwise_unary_op_l1(
     "op",
     [add, sub, mul, div, pow, eq, ne, gt, ge, lt, le, maximum, minimum],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op, frontend):
-    if dtype == torch.float32 and shape == (2048, 2048):
-        pytest.skip("Skipping large operation for float32")
+def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op):
     if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
@@ -244,9 +226,9 @@ def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op, frontend):
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend=frontend,
         ttnn_dtype=ttnn_dtype,
         compile_only=compile_only,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
     )
 
 
@@ -268,10 +250,7 @@ def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op, frontend):
     "op",
     [add, sub, mul, div, pow, eq, ne, gt, ge, lt, le, maximum, minimum],
 )
-@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
-def test_binary_ops_l1(
-    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, frontend
-):
+def test_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op):
     if op in [div, pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
     if op in [maximum, minimum, pow] and ttnn_dtype == ttnn.DataType.BFLOAT8_B:
@@ -287,7 +266,6 @@ def test_binary_ops_l1(
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
         shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
@@ -309,9 +287,8 @@ def test_binary_ops_l1(
     "op",
     [add, sub, mul],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
 def test_binary_ops_mixed_layouts(
-    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, frontend
+    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op
 ):
     input0 = create_sharded_tile_tensor(
         device,
@@ -325,12 +302,14 @@ def test_binary_ops_mixed_layouts(
 
     compiled_op = ttnn_jit.jit(
         debug=True,
-        frontend=frontend,
         compile_only=False,
     )(op)
 
     output = compiled_op(input0, input1)
-    assert memory_configs_equal(output.memory_config(), input0.memory_config())
+    expected_memory_config = get_expected_block_sharded_memory_config(
+        output.shape, device
+    )
+    assert memory_configs_equal(output.memory_config(), expected_memory_config)
 
     golden_output = op(input0, input1)
     assert all_close_check(output, golden_output)
@@ -350,11 +329,7 @@ def test_binary_ops_mixed_layouts(
     "op",
     [bitwise_and, bitwise_or, bitwise_xor],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_bitwise_binary_ops_dram(device, shape, dtype, op, frontend):
-    if shape == (2048, 2048):
-        pytest.skip("Skipping large operation")
-
+def test_bitwise_binary_ops_dram(device, shape, dtype, op):
     max_grid = (0, 0)
     run_op_test(
         device,
@@ -364,7 +339,7 @@ def test_bitwise_binary_ops_dram(device, shape, dtype, op, frontend):
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend=frontend,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
     )
 
 
@@ -378,10 +353,7 @@ def test_bitwise_binary_ops_dram(device, shape, dtype, op, frontend):
     "op",
     [bitwise_and, bitwise_or, bitwise_xor],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_bitwise_binary_ops_l1(
-    device, shape, max_grid, shard_strategy, dtype, op, frontend
-):
+def test_bitwise_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, op):
     run_op_test(
         device,
         shape,
@@ -390,7 +362,55 @@ def test_bitwise_binary_ops_l1(
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
+        shard_strategy=shard_strategy,
+    )
+
+
+# ------------------------------------------------------------
+# ttnn.clamp tests
+# ------------------------------------------------------------
+# Helpers for clamp tests
+
+
+def _clamp_min_max(input_tensor):
+    return ttnn.clamp(input_tensor, min=-0.001, max=0.001)
+
+
+def _clamp_tensor_bounds(input_tensor, min_tensor, max_tensor):
+    return ttnn.clamp(input_tensor, min=min_tensor, max=max_tensor)
+
+
+@pytest.mark.parametrize(
+    "buffer_type, use_tensor_bounds",
+    [
+        (ttnn.BufferType.L1, False),
+        (ttnn.BufferType.DRAM, True),
+    ],
+    ids=["l1_scalar", "dram_tensor"],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+def test_clamp(device, buffer_type, use_tensor_bounds, dtype):
+    shape = (32, 32)
+    max_grid = (0, 0)
+    shard_strategy = (
+        ttnn.ShardStrategy.BLOCK if buffer_type == ttnn.BufferType.L1 else None
+    )
+
+    if use_tensor_bounds:
+        op = _clamp_tensor_bounds
+        num_inputs = 3
+    else:
+        op = _clamp_min_max
+        num_inputs = 1
+
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=num_inputs,
+        buffer_type=buffer_type,
         shard_strategy=shard_strategy,
     )
 
@@ -429,9 +449,10 @@ def test_interop_jit_to_ttnn_unary_l1(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_unary_op(golden_jit_output)
 
-    assert memory_configs_equal(
-        interop_result.memory_config(), golden_result.memory_config()
+    expected_memory_config = get_expected_block_sharded_memory_config(
+        golden_result.shape, device
     )
+    assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
 
@@ -470,9 +491,10 @@ def test_interop_two_jit_to_ttnn_binary_l1(
     golden_output2 = golden_jit_op2(input2)
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
-    assert memory_configs_equal(
-        interop_result.memory_config(), golden_result.memory_config()
+    expected_memory_config = get_expected_block_sharded_memory_config(
+        golden_result.shape, device
     )
+    assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
 
@@ -492,7 +514,9 @@ def test_interop_two_jit_to_ttnn_binary_l1(
 def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary_op):
     input_tensor = create_dram_tensor(device, shape, dtype)
 
-    compiled_op = ttnn_jit.jit(debug=True)(jit_op)
+    compiled_op = ttnn_jit.jit(debug=True, memory_config=ttnn.DRAM_MEMORY_CONFIG)(
+        jit_op
+    )
     jit_output = compiled_op(input_tensor)
     interop_result = ttnn_unary_op(jit_output)
 
@@ -525,8 +549,12 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     input1 = create_dram_tensor(device, shape, dtype)
     input2 = create_dram_tensor(device, shape, dtype)
 
-    compiled_op1 = ttnn_jit.jit(debug=True)(jit_op1)
-    compiled_op2 = ttnn_jit.jit(debug=True)(jit_op2)
+    compiled_op1 = ttnn_jit.jit(debug=True, memory_config=ttnn.DRAM_MEMORY_CONFIG)(
+        jit_op1
+    )
+    compiled_op2 = ttnn_jit.jit(debug=True, memory_config=ttnn.DRAM_MEMORY_CONFIG)(
+        jit_op2
+    )
     jit_output1 = compiled_op1(input1)
     jit_output2 = compiled_op2(input2)
     interop_result = ttnn_binary_op(jit_output1, jit_output2)

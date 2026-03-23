@@ -60,8 +60,129 @@ TTNNOptimizerOptions::TTNNOptimizerOptions(
       memoryLayoutAnalysisPolicy(pipelineOptions.memoryLayoutAnalysisPolicy),
       memReconfigEnabled(pipelineOptions.memReconfigEnabled),
       maxLegalLayouts(pipelineOptions.maxLegalLayouts),
-      rowMajorEnabled(pipelineOptions.rowMajorEnabled),
-      tensorL1UsageCap(pipelineOptions.tensorL1UsageCap) {}
+      rowMajorEnabled(pipelineOptions.rowMajorEnabled) {}
+
+namespace {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+
+/// Applies the chosen layout to a D2MSubgraphOp: result type(s), output
+/// buffer(s) (Empty op), and the referenced D2M subgraph function.
+void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
+                                      RankedTensorType newTensorType,
+                                      TTNNLayoutAttr layoutAttr,
+                                      ttcore::GridAttr deviceGrid) {
+  assert(dispatchOp.getNumResults() <= 1 &&
+         "D2MSubgraphOp with multiple results not yet supported");
+
+  for (unsigned i = 0; i < dispatchOp.getNumResults(); ++i) {
+    dispatchOp.getResult(i).setType(newTensorType);
+  }
+
+  for (Value output : dispatchOp.getOutputs()) {
+    if (EmptyOp emptyOp = output.getDefiningOp<EmptyOp>()) {
+      emptyOp.getResult().setType(newTensorType);
+      BufferType bufferType = layoutAttr.getBufferType();
+      TensorMemoryLayoutAttr tensorMemoryLayoutAttr = layoutAttr.getMemLayout();
+      emptyOp.setDtype(layoutAttr.getDataType());
+      if (layoutAttr.isTiled()) {
+        emptyOp.setLayout(ttnn::Layout::Tile);
+      } else {
+        emptyOp.setLayout(ttnn::Layout::RowMajor);
+      }
+      emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
+          dispatchOp.getContext(), tensorMemoryLayoutAttr,
+          BufferTypeAttr::get(dispatchOp.getContext(), bufferType),
+          utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+    } else {
+      llvm::report_fatal_error(
+          "Expected EmptyOp for D2MSubgraphOp output buffer");
+    }
+  }
+
+  if (func::FuncOp mainFunc = dispatchOp.getD2MMainFunc()) {
+    Block &entryBlock = mainFunc.getBody().front();
+    unsigned argIdx = 0;
+    for (Value input : dispatchOp.getInputs()) {
+      if (argIdx < entryBlock.getNumArguments()) {
+        Type inputType = input.getType();
+        if (isa<RankedTensorType>(inputType)) {
+          entryBlock.getArgument(argIdx).setType(inputType);
+        }
+        ++argIdx;
+      }
+    }
+    // Insert a trailing to_layout to convert the last op's output to the
+    // chosen layout X instead of rewriting every body op's result type.
+    Block &block = mainFunc.getBody().front();
+    Operation *terminator = block.getTerminator();
+    if (func::ReturnOp returnOp = dyn_cast<func::ReturnOp>(terminator)) {
+      if (returnOp.getNumOperands() > 0) {
+        Value currentResultValue = returnOp.getOperand(0);
+        if (currentResultValue.getType() != newTensorType) {
+          OpBuilder builder(dispatchOp.getContext());
+          builder.setInsertionPoint(returnOp);
+          ttcore::DataTypeAttr dataType = ttcore::DataTypeAttr::get(
+              dispatchOp.getContext(), layoutAttr.getDataType());
+          LayoutAttr newLayout =
+              LayoutAttr::get(dispatchOp.getContext(), layoutAttr.getLayout());
+          MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
+              dispatchOp.getContext(), layoutAttr.getMemLayout(),
+              BufferTypeAttr::get(dispatchOp.getContext(),
+                                  layoutAttr.getBufferType()),
+              utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
+          Location loc = mainFunc.getLoc();
+          ToLayoutOp toLayoutOp =
+              builder.create<ToLayoutOp>(loc, newTensorType, currentResultValue,
+                                         newLayout, dataType, memConfigAttr);
+          returnOp.setOperand(0, toLayoutOp.getResult());
+        }
+      }
+    }
+    SmallVector<Type> newInputTypes;
+    for (Value input : dispatchOp.getInputs()) {
+      newInputTypes.push_back(input.getType());
+    }
+    SmallVector<Type> newResultTypes(dispatchOp.getNumResults(), newTensorType);
+    mainFunc.setType(FunctionType::get(dispatchOp.getContext(), newInputTypes,
+                                       newResultTypes));
+  }
+}
+
+/// Sync the D2M subgraph function's argument and function types to the
+/// dispatch op's current input types (e.g. after spill, first operand may be
+/// DRAM).
+void syncD2MFuncTypesToDispatchInputs(D2MSubgraphOp dispatchOp) {
+  func::FuncOp mainFunc = dispatchOp.getD2MMainFunc();
+  if (!mainFunc) {
+    return;
+  }
+  Block &entryBlock = mainFunc.getBody().front();
+  unsigned argIdx = 0;
+  for (Value input : dispatchOp.getInputs()) {
+    if (argIdx < entryBlock.getNumArguments()) {
+      Type inputType = input.getType();
+      if (isa<RankedTensorType>(inputType)) {
+        entryBlock.getArgument(argIdx).setType(inputType);
+      }
+      ++argIdx;
+    }
+  }
+  SmallVector<Type> newInputTypes;
+  for (Value input : dispatchOp.getInputs()) {
+    newInputTypes.push_back(input.getType());
+  }
+  SmallVector<Type> newResultTypes;
+  for (Value result : dispatchOp.getResults()) {
+    newResultTypes.push_back(result.getType());
+  }
+  mainFunc.setType(FunctionType::get(dispatchOp.getContext(), newInputTypes,
+                                     newResultTypes));
+}
+
+#endif // TTMLIR_ENABLE_OPMODEL
+
+} // namespace
 
 namespace impl {
 
@@ -132,7 +253,6 @@ public:
     memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
     rowMajorEnabled = std::move(options.rowMajorEnabled);
-    tensorL1UsageCap = std::move(options.tensorL1UsageCap);
   }
 
 protected:
@@ -183,20 +303,6 @@ protected:
       ::llvm::cl::desc(
           "Enable row major layout generation in legal layout analysis."),
       ::llvm::cl::init(false)};
-  ::mlir::Pass::Option<float> tensorL1UsageCap{
-      *this, OptionNames::tensorL1UsageCap,
-      ::llvm::cl::desc(
-          "Override tensor L1 usage cap in L1 Interleaved Fallback Analysis "
-          "and Memory Layout Analysis. [0.0-1.0]"),
-      ::llvm::cl::init(1.0f)};
-
-  // Calculate the usable L1 cache size with capacity scaling.
-  // For analysis purposes, usableL1CacheSize is scaled by a cap value between
-  // 0.0 and 1.0, where 1.0 means the entire L1 cache can be used by ops.
-  // This cap is set by a flag in the pipeline options.
-  unsigned getScaledUsableL1Size(const ttcore::ChipDescAttr &chipDesc) const {
-    return chipDesc.getUsableL1Size() * tensorL1UsageCap;
-  }
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
@@ -227,7 +333,7 @@ public:
     llvm::llvm_unreachable_internal(
         "TTNNOptimizer pass requires OpModel support to be enabled.");
 #else
-    op_model::ScopedSingletonDeviceGuard deviceGuard;
+    op_model::ScopedSingletonDeviceGuard deviceGuard(getOperation());
 
     // Generate legal OP configuration candidates.
     // Perform memory layout analysis.
@@ -243,9 +349,6 @@ public:
     ttcore::GridAttr deviceGrid =
         ttcore::lookupDevice(moduleOp).getWorkerGrid();
 
-    ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
-        moduleOp->getAttr(ttcore::SystemDescAttr::name));
-    ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
     llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
     // Map to store only L1 Interleaved legal configs for
     // L1InterleavedFallbackAnalysis.
@@ -348,8 +451,7 @@ public:
       MemoryLayoutAnalysis memoryLayoutAnalysis =
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
-          &tensorTypePossibleLayouts, legalConfigs,
-          getScaledUsableL1Size(chipDesc), overrideReshardEdges,
+          &tensorTypePossibleLayouts, legalConfigs, overrideReshardEdges,
           overrideOutputLayout, memoryLayoutAnalysisPolicy));
       legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
@@ -360,13 +462,13 @@ public:
           memoryLayoutAnalysis.getResult().spillToL1InterleavedOps;
     }
 
-    // Manually overriden resharding edges should be added to the
+    // Manually overridden resharding edges should be added to the
     // memReconfigEntryMap.
     //
     for (const auto &edge : overrideReshardEdges) {
       if (memReconfigEntryMap.count(edge) == 0) {
         auto newEntry = MemReconfigEntry();
-        newEntry.setOverridenReconfig(true);
+        newEntry.setOverriddenReconfig(true);
         memReconfigEntryMap.try_emplace(edge, newEntry);
       }
     }
@@ -400,6 +502,12 @@ public:
           //
           if (isa<mlir::DestinationStyleOpInterface>(nextOp)) {
             nextOp->getOperands().back().getDefiningOp()->moveBefore(nextOp);
+          } else if (auto dispatchOp = dyn_cast<D2MSubgraphOp>(nextOp)) {
+            for (Value output : dispatchOp.getOutputs()) {
+              if (Operation *defOp = output.getDefiningOp()) {
+                defOp->moveBefore(nextOp);
+              }
+            }
           }
         }
       }
@@ -455,6 +563,14 @@ public:
           TTNNLayoutAttr layoutAttr =
               mlir::cast<TTNNLayoutAttr>(newTensorType.getEncoding());
 
+          // D2MSubgraphOp: apply chosen layout to result(s), output buffer(s),
+          // and D2M subgraph.
+          if (auto dispatchOp = dyn_cast<D2MSubgraphOp>(op)) {
+            applyChosenLayoutToD2MSubgraphOp(dispatchOp, newTensorType,
+                                             layoutAttr, deviceGrid);
+            return;
+          }
+
           // Update layout attribute for ops that have layout attribute.
           if (TTNNLayoutOpInterface opWithLayoutIF =
                   mlir::dyn_cast<TTNNLayoutOpInterface>(op)) {
@@ -496,7 +612,7 @@ public:
                 BufferTypeAttr::get(op->getContext(), bufferType),
                 utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
           }
-          // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Allign
+          // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Align
           // MemoryConfigAttr with layout attribute of its output tensor. This
           // redundant info should be removed or made consistent as part of temp
           // ToLayoutOp decomposition pass.
@@ -595,14 +711,19 @@ public:
       processSpillOps(spillToDramOps, deviceGrid, insertedMemoryReconfigOps);
       processSpillToL1InterleavedOps(spillToL1InterleavedOps, deviceGrid);
 
+      // Sync D2M subgraph function types to match dispatch op's current inputs
+      // (e.g. after spill, first operand may be DRAM).
+      func->walk([&](D2MSubgraphOp dispatchOp) {
+        syncD2MFuncTypesToDispatchInputs(dispatchOp);
+      });
+
       // Try finding ops that can be upgraded from DRAM to L1 interleaved
       // layout.
       if (l1InterleavedFallbackAnalysisEnabled) {
         L1InterleavedFallbackAnalysis l1InterleavedFallbackAnalysis =
             getAnalysis<L1InterleavedFallbackAnalysis>();
         l1InterleavedFallbackAnalysis.init(L1InterleavedFallbackAnalysisInput(
-            l1InterleavedLegalConfigs, opConfigAnalysis.getResult(), func,
-            getScaledUsableL1Size(chipDesc)));
+            l1InterleavedLegalConfigs, opConfigAnalysis.getResult(), func));
         auto l1InterleavedOpConfigs =
             l1InterleavedFallbackAnalysis.getResult().upgradedConfigs;
 
@@ -636,19 +757,19 @@ public:
 
 private:
   void assertOverridesValid() {
-    // Check if each overriden op exists in the graph.
+    // Check if each overridden op exists in the graph.
     // Check if each conv2d config override is applied only to conv2d op.
     //
-    llvm::StringMap<bool> overridenOpExists;
+    llvm::StringMap<bool> overriddenOpExists;
     llvm::StringMap<bool> overrideConv2dOp;
     for (const auto &[opLoc, _] : overrideOutputLayout) {
-      overridenOpExists[opLoc] = false;
+      overriddenOpExists[opLoc] = false;
     }
     for (const auto &[opLoc, _] : insertMemReconfig) {
-      overridenOpExists[opLoc] = false;
+      overriddenOpExists[opLoc] = false;
     }
     for (const auto &[opLoc, _] : overrideConv2dConfig) {
-      overridenOpExists[opLoc] = false;
+      overriddenOpExists[opLoc] = false;
       overrideConv2dOp[opLoc] = false;
     }
 
@@ -659,8 +780,8 @@ private:
       }
 
       StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-      if (overridenOpExists.contains(opLocName)) {
-        overridenOpExists[opLocName] = true;
+      if (overriddenOpExists.contains(opLocName)) {
+        overriddenOpExists[opLocName] = true;
       }
       if (!isa<ttnn::Conv2dOp>(op) && overrideConv2dOp.contains(opLocName)) {
         op->emitRemark() << "Trying to override non-conv2d op: '"
@@ -670,8 +791,8 @@ private:
       }
     });
 
-    for (const auto &[opLoc, opOverridenAndExists] : overridenOpExists) {
-      if (!opOverridenAndExists) {
+    for (const auto &[opLoc, opOverriddenAndExists] : overriddenOpExists) {
+      if (!opOverriddenAndExists) {
         llvm::report_fatal_error("Trying to override non-existing op: " +
                                  opLoc + ". Check logs for details");
       }
@@ -729,8 +850,8 @@ private:
       Operation *producerOp = edge.producerOp;
       Operation *consumerOp = edge.consumerOp;
 
-      const bool overridenReconfig = memReconfigEntry.hasOverridenReconfig();
-      assert(overridenReconfig ||
+      const bool overriddenReconfig = memReconfigEntry.hasOverriddenReconfig();
+      assert(overriddenReconfig ||
              memReconfigEntry.hasSelectedReshardOutputConfigBitIndex());
 
       // If there's no producer, tensor is defined by the consumer op input
@@ -750,7 +871,7 @@ private:
       // Pick first layout from the list of layouts or consumer output layout if
       // this is the case of an override.
       TTNNLayoutAttr reshardOpLayout = nullptr;
-      if (overridenReconfig) {
+      if (overriddenReconfig) {
         reshardOpLayout = mlir::cast<TTNNLayoutAttr>(
             mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
                 .getEncoding());

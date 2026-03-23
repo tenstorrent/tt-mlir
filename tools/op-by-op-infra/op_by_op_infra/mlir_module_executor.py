@@ -33,7 +33,7 @@ class MLIRModuleExecutor:
           shlo -> ttir -> ttnn, depending on the dialect of the module.
         - Flatbuffer generation phase. Generates flatbuffer from TTNN module. Depends on
           the previous phase.
-        - Run phase. Runs generated flabuffer on device. Depends on the previous phase.
+        - Run phase. Runs generated flatbuffer on device. Depends on the previous phase.
     """
 
     # ----- Public methods -----
@@ -71,23 +71,6 @@ class MLIRModuleExecutor:
         """
         # Prepare for new run.
         self._reset(module)
-
-        # TODO special case where module consists solely of one of following TTNN ops
-        # that cannot be executed on their own. They either fail fb generation or run.
-        # See what should be done with them.
-        if (
-            module.has_origin_op
-            and module.dialect == ModuleDialect.TTNN
-            and module.origin_op_name
-            in [
-                "ttnn.get_device",
-                "ttnn.to_device",
-                "ttnn.full",
-                "ttnn.empty",
-                "ttnn.deallocate",
-            ]
-        ):
-            return self._execution_result
 
         # Run execution steps on stored module.
         return self._execute()
@@ -156,6 +139,7 @@ class MLIRModuleExecutor:
             return self._compile_ttir_to_ttnn()
         elif self._original_module_dialect == ModuleDialect.TTNN:
             # Trivial, original module was already a TTNN module.
+            self._debug_print_module(self._module)
             return self._module
         else:
             raise ValueError(
@@ -264,8 +248,9 @@ class MLIRModuleExecutor:
                 self._mark_execution_step(
                     ExecutionPhase.EXECUTED_FLATBUFFER, run_passed=True
                 )
-        finally:
-            return self._execution_result.device_run_passed
+        except RuntimeError as e:
+            self._execution_result.error_message = str(e)
+        return self._execution_result.device_run_passed
 
     def _execute(self) -> ExecutionResult:
         """

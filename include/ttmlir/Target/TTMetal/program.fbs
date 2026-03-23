@@ -3,11 +3,6 @@ include "ttmlir/Target/TTMetal/types.fbs";
 
 namespace tt.target.metal;
 
-enum NocIndex : ushort {
-  Noc0,
-  Noc1,
-}
-
 enum EthType : ushort {
   Sender,
   Receiver,
@@ -78,10 +73,21 @@ table KernelArgSemaphore {
   core_type: CoreType;
 }
 
+table KernelArgNamedArgument {
+  name: string;
+  value: uint32;
+}
+
+table KernelArgGlobalSemaphore {
+  operand_idx: uint32;
+}
+
 union KernelArgType {
   KernelArgCBPort,
   KernelArgBufferAddress,
   KernelArgSemaphore,
+  KernelArgNamedArgument,
+  KernelArgGlobalSemaphore,
 }
 
 table KernelArg {

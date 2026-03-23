@@ -16,6 +16,7 @@ set(ttmlir_export_targets
   # TTIR dialect
   MLIRTTIRDialect
   MLIRTTIREraseInverseOps
+  MLIRTTIRHoistCPUOps
   MLIRTTIRTransforms
   TTMLIRTTIRUtils
 
@@ -42,6 +43,7 @@ set(ttmlir_export_targets
   MLIRLLVMTransforms
   MLIREmitPyDialect
   MLIREmitPyInterfaces
+  MLIREmitPyTransforms
   MLIRD2MDialect
   MLIRD2MAllocation
   MLIRD2MAnalysis

@@ -152,7 +152,7 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                inputSlotWrapper.getTensor());
 
     // Input slot will now contain identical data as the input tensor
-    // Thus we can syncronize their versions
+    // Thus we can synchronize their versions
     inputSlotWrapper.syncVersion(inputTensorWrapper);
   }
 
@@ -183,10 +183,6 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
 
   LOG_ASSERT(meshDevice.get_program_cache().is_enabled(),
              "Program cache must be enabled");
-  LOG_ASSERT(meshDevice.allocator()
-                     ->get_statistics(::ttnn::BufferType::TRACE)
-                     .total_allocatable_size_bytes > 0,
-             "Trace region size must be greater than 0");
 
   auto traceCache =
       deviceHandle.getTraceCache()
