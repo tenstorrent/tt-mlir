@@ -1062,9 +1062,9 @@ updateViewLayoutOps(ArrayRef<ViewLayoutUpdateInfo> viewLayoutsToUpdate,
     }
 
     builder.setInsertionPoint(viewOp);
-    auto newViewOp = builder.create<d2m::ViewLayoutOp>(
-        viewOp.getLoc(), newResultType, viewOp.getInput(), newRemapping,
-        viewOp.getReinterpretLayout());
+    auto newViewOp = d2m::ViewLayoutOp::create(
+        builder, viewOp.getLoc(), newResultType, viewOp.getInput(),
+        newRemapping, viewOp.getReinterpretLayout());
     viewOp.getResult().replaceAllUsesWith(newViewOp.getResult());
     viewOp.erase();
   }
