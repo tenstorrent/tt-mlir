@@ -19,6 +19,7 @@ struct TTNNGreedyLayoutPropagationPipelineOptions {
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
   int64_t beamWidth = 8;
+  bool enableL1ShardingLayouts = true;
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
   llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig;
   bool enableDecisionTrace = false;
