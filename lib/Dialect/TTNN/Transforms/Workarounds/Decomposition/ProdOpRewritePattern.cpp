@@ -22,6 +22,7 @@ ProdOpRewritePattern::matchAndRewrite(ProdOp srcOp,
   constexpr int64_t TILE_HEIGHT = ttcore::TileType::getDefaultShape()[0];
 
   RankedTensorType inputType = srcOp.getInput().getType();
+  RankedTensorType resultType = srcOp.getResult().getType();
   llvm::SmallVector<int64_t> inputShape(inputType.getShape().begin(),
                                         inputType.getShape().end());
   int64_t rank = inputType.getRank();
@@ -30,6 +31,10 @@ ProdOpRewritePattern::matchAndRewrite(ProdOp srcOp,
   }
 
   Value rewrittenInput = srcOp.getInput();
+  IntegerAttr newDimArgAttr = srcOp.getDimArgAttr();
+  RankedTensorType rewrittenResultType = resultType;
+  bool needsResultReshape = false;
+
   if (rank == 1) {
     llvm::SmallVector<int64_t> reshapedShape = {inputShape[0], 1};
     llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
@@ -46,12 +51,23 @@ ProdOpRewritePattern::matchAndRewrite(ProdOp srcOp,
     inputType = reshapedType;
     inputShape = reshapedShape;
     rank = inputType.getRank();
+    // Reduction should collapse all dimensions of rank 1 tensor.
+    newDimArgAttr = nullptr;
+
+    if (srcOp.getKeepDim()) {
+      rewrittenResultType =
+          utils::RankedTensorTypeFactory::create(resultType, {1, 1});
+      needsResultReshape = true;
+    }
   }
 
-  bool reduceHeight = !srcOp.getDimArg();
-  bool reduceWidth = !srcOp.getDimArg();
-  if (auto dimArg = srcOp.getDimArg()) {
-    int64_t normalizedDim = *dimArg < 0 ? *dimArg + rank : *dimArg;
+  bool reduceHeight = !newDimArgAttr;
+  bool reduceWidth = !newDimArgAttr;
+  if (newDimArgAttr) {
+    int64_t normalizedDim = newDimArgAttr.getInt();
+    if (normalizedDim < 0) {
+      normalizedDim += rank;
+    }
     reduceHeight = normalizedDim == rank - 2;
     reduceWidth = normalizedDim == rank - 1;
   }
@@ -92,9 +108,22 @@ ProdOpRewritePattern::matchAndRewrite(ProdOp srcOp,
       /*use_multicore=*/false,
       /*memory_config=*/nullptr);
 
-  rewriter.replaceOpWithNewOp<ttnn::ProdOp>(
-      srcOp, srcOp.getResult().getType(), paddedInput, srcOp.getDimArgAttr(),
+  auto prodOp = rewriter.create<ttnn::ProdOp>(
+      srcOp.getLoc(), rewrittenResultType, paddedInput, newDimArgAttr,
       srcOp.getKeepDimAttr(), srcOp.getMemoryConfigAttr());
+
+  if (!needsResultReshape) {
+    rewriter.replaceOp(srcOp, prodOp);
+    return success();
+  }
+
+  llvm::SmallVector<int32_t> resultShapeI32(resultType.getShape().begin(),
+                                            resultType.getShape().end());
+  auto reshapeOp = rewriter.create<ttnn::ReshapeOp>(
+      ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_reshape_result"),
+      resultType, prodOp, rewriter.getI32ArrayAttr(resultShapeI32),
+      /*memory_config=*/nullptr);
+  rewriter.replaceOp(srcOp, reshapeOp);
   return success();
 }
 } // namespace mlir::tt::ttnn::workarounds::decomposition
