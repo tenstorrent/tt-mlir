@@ -11,13 +11,25 @@ module {
         %3 = "ttir.mean"(%1) <{dim_arg = [2 : i32, 3 : i32], keep_dim = true}> : (tensor<12x1152x7x7xbf16>) -> tensor<12x1152x1x1xbf16>
         return %3 : tensor<12x1152x1x1xbf16>
     }
-    // Commute when reduce has keepdim = false is not currently supported
-    func.func @test_permute_mean_keepdim_false_not_commute(%arg0: tensor<12x7x7x1152xbf16>) -> tensor<12x1152xbf16> {
-        // CHECK: "ttir.permute"
-        // CHECK: "ttir.mean"
+    // keep_dim=false: contracted permutation is identity, so permute is elided.
+    func.func @test_permute_mean_keepdim_false_commute_downwards(%arg0: tensor<12x7x7x1152xbf16>) -> tensor<12x1152xbf16> {
+        // CHECK: %[[REDUCE:[0-9]+]] = "ttir.mean"(%arg0
+        // CHECK-SAME: dim_arg = [1 : i32, 2 : i32]
+        // CHECK-NOT: "ttir.permute"
+        // CHECK: return %[[REDUCE]]
         %1 = "ttir.permute"(%arg0) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<12x7x7x1152xbf16>) -> tensor<12x1152x7x7xbf16>
         %3 = "ttir.mean"(%1) <{dim_arg = [2 : i32, 3 : i32], keep_dim = false}> : (tensor<12x1152x7x7xbf16>) -> tensor<12x1152xbf16>
         return %3 : tensor<12x1152xbf16>
+    }
+    // keep_dim=false with non-trivial contracted permutation.
+    func.func @test_permute_mean_keepdim_false_nontrivial_perm_downwards(%arg0: tensor<2x3x4x5xbf16>) -> tensor<2x5x3xbf16> {
+        // CHECK: %[[REDUCE:[0-9]+]] = "ttir.mean"(%arg0
+        // CHECK-SAME: dim_arg = [2 : i32]
+        // CHECK: %[[PERMUTE:[0-9]+]] = "ttir.permute"(%[[REDUCE]]
+        // CHECK: return %[[PERMUTE]]
+        %1 = "ttir.permute"(%arg0) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<2x3x4x5xbf16>) -> tensor<2x4x5x3xbf16>
+        %3 = "ttir.mean"(%1) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<2x4x5x3xbf16>) -> tensor<2x5x3xbf16>
+        return %3 : tensor<2x5x3xbf16>
     }
     // If reduce op has multiple users, they all use same permuted input
     func.func @test_permute_mean_multiple_users_downwards(%arg0: tensor<12x7x7x1152xbf16>) -> (tensor<12x1152x1x1xbf16>, tensor<12x1152x1x1xbf16>, tensor<12x1152x1x1xbf16>) {
