@@ -57,6 +57,7 @@ public:
     maxLegalLayouts = opts.maxLegalLayouts;
     rowMajorEnabled = opts.rowMajorEnabled;
     beamWidth = opts.beamWidth;
+    enableL1ShardingLayouts = opts.enableL1ShardingLayouts;
     enableDecisionTrace = opts.enableDecisionTrace;
     decisionTraceDir = std::move(opts.decisionTraceDir);
     enableCompileTimeStats = opts.enableCompileTimeStats;
@@ -102,6 +103,10 @@ public:
         deviceGrid, &scalarTypes, rowMajorEnabled));
     TensorTypeLayoutsMap tensorTypePossibleLayouts =
         legalTensorLayoutAnalysis.getResult();
+
+    if (!enableL1ShardingLayouts) {
+      clearShardedLayouts(tensorTypePossibleLayouts);
+    }
 
     // Step 3: Walk operations and run per-op analyses.
     moduleOp->walk([&](func::FuncOp func) {
