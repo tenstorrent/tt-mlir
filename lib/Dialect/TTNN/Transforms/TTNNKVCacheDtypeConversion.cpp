@@ -1,13 +1,19 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/WeightDtypeParser.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/IR/SymbolTable.h"
 
 #include "llvm/ADT/SmallVector.h"
 
@@ -17,52 +23,19 @@ namespace mlir::tt::ttnn {
 
 namespace {
 
-// Template pattern that inserts a typecast on the input operand of kv cache
-// ops where it requires input and cache dtypes to match (e.g. fill_cache).
-template <typename OpTy>
-class KVCacheDtypePattern : public mlir::OpRewritePattern<OpTy> {
-public:
-  KVCacheDtypePattern(mlir::MLIRContext *ctx, ttcore::DataType targetDtype)
-      : mlir::OpRewritePattern<OpTy>(ctx), targetDtype(targetDtype) {}
-
-  mlir::LogicalResult
-  matchAndRewrite(OpTy op, mlir::PatternRewriter &rewriter) const override {
-    auto input = op.getInput();
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    mlir::Type elType = inputType.getElementType();
-
-    // Skip if input is already the target dtype.
-    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elType)) {
-      if (tileType.getDataType() == targetDtype) {
-        return mlir::failure();
-      }
-    } else if (ttcore::elementTypeToDataType(elType) == targetDtype) {
-      return mlir::failure();
-    }
-
-    auto newInputType =
-        ttnn::utils::RankedTensorTypeFactory::create(inputType, targetDtype);
-    auto typecastOp = rewriter.create<TypecastOp>(
-        op.getLoc(), newInputType, input,
-        ttcore::DataTypeAttr::get(rewriter.getContext(), targetDtype));
-
-    rewriter.modifyOpInPlace(op, [&]() {
-      op.getInputMutable().assign(typecastOp.getResult());
-    });
-
-    return mlir::success();
-  }
-
-private:
-  ttcore::DataType targetDtype;
-};
-
 class TTNNKVCacheDtypeConversionPass
     : public impl::TTNNKVCacheDtypeConversionBase<
           TTNNKVCacheDtypeConversionPass> {
 public:
   using impl::TTNNKVCacheDtypeConversionBase<
       TTNNKVCacheDtypeConversionPass>::TTNNKVCacheDtypeConversionBase;
+
+  static bool hasDtype(mlir::Type elType, ttcore::DataType dtype) {
+    if (auto t = mlir::dyn_cast<ttcore::TileType>(elType)) {
+      return t.getDataType() == dtype;
+    }
+    return ttcore::elementTypeToDataType(elType) == dtype;
+  }
 
   static ttcore::DataType weightDtypeToDataType(WeightDtype wd) {
     switch (wd) {
@@ -75,95 +48,143 @@ public:
     }
   }
 
-  static ttcore::LocalShapeAttr
-  convertLocalShapeAttr(MLIRContext *ctx, ttcore::LocalShapeAttr attr,
-                        ttcore::DataType targetDtype) {
-    auto newLocalShapeType = ttnn::utils::RankedTensorTypeFactory::create(
-        attr.getLocalShape(), targetDtype);
-    return ttcore::LocalShapeAttr::get(ctx, newLocalShapeType);
-  }
-
-  static void changeCacheArgTypes(func::FuncOp funcOp, ttcore::DataType targetDtype) {
-    auto *ctx = funcOp.getContext();
-    auto funcType = funcOp.getFunctionType();
-    llvm::SmallVector<Type> newArgTypes(funcType.getInputs());
-    llvm::SmallVector<Type> newResultTypes(funcType.getResults());
-
-    for (auto &arg : funcOp.getBody().getArguments()) {
-      unsigned idx = arg.getArgNumber();
-      if (!funcOp.getArgAttr(idx, ttcore::g_kvCacheAttrName)) {
-        continue;
-      }
-
-      auto oldType = mlir::cast<RankedTensorType>(arg.getType());
-      auto newType =
-          ttnn::utils::RankedTensorTypeFactory::create(oldType, targetDtype);
-
-      // Keep local_shape metadata aligned with the rewritten argument dtype.
-      if (auto localShapeAttr = funcOp.getArgAttrOfType<ttcore::LocalShapeAttr>(
-              idx, ttcore::LocalShapeAttr::name)) {
-        funcOp.setArgAttr(
-            idx, ttcore::LocalShapeAttr::name,
-            convertLocalShapeAttr(ctx, localShapeAttr, targetDtype));
-      }
-
-      arg.setType(newType);
-      newArgTypes[idx] = newType;
-    }
-
-    // Update result types to reflect KV cache args passed as return values.
-    Block &block = funcOp.getBody().back();
-    Operation *terminator = block.getTerminator();
-    if (auto returnOp = mlir::dyn_cast<func::ReturnOp>(terminator)) {
-      for (auto [i, operand] : llvm::enumerate(returnOp.getOperands())) {
-        newResultTypes[i] = operand.getType();
-
-        if (!mlir::isa<BlockArgument>(operand)) {
-          continue;
-        }
-
-        auto blockArg = mlir::cast<BlockArgument>(operand);
-        if (!funcOp.getArgAttr(blockArg.getArgNumber(),
-                               ttcore::g_kvCacheAttrName)) {
-          continue;
-        }
-
-        // Returned KV cache args need matching local_shape result metadata.
-        if (auto localShapeAttr =
-                funcOp.getResultAttrOfType<ttcore::LocalShapeAttr>(
-                    i, ttcore::LocalShapeAttr::name)) {
-          funcOp.setResultAttr(
-              i, ttcore::LocalShapeAttr::name,
-              convertLocalShapeAttr(ctx, localShapeAttr, targetDtype));
-        }
-      }
-    }
-
-    funcOp.setFunctionType(
-        mlir::FunctionType::get(ctx, newArgTypes, newResultTypes));
-  }
-
   void runOnOperation() final {
     if (targetDtype == WeightDtype::None) {
       return;
     }
 
     ttcore::DataType dtype = weightDtypeToDataType(targetDtype);
+    mlir::OpBuilder builder(&getContext());
 
-    // Change kv_cache argument types to the target dtype and update the
-    // function signature.
-    getOperation().walk([&](func::FuncOp funcOp) {
-      changeCacheArgTypes(funcOp, dtype);
+    getOperation()->walk([&](mlir::func::FuncOp funcOp) {
+      if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
+        return;
+      }
+      processFunc(funcOp, dtype, builder);
     });
+  }
 
-    // Insert typecast operations on the input operands of fill_cache op.
-    mlir::RewritePatternSet patterns(&getContext());
-    patterns.add<KVCacheDtypePattern<FillCacheOp>>(&getContext(), dtype);
+private:
+  // For each kv_cache function argument:
+  //   1. Create a private const-eval function containing the TypecastOp.
+  //   2. Replace inline uses with a LoadCachedOp at the top of the entry block.
+  void castKVCacheArgs(mlir::func::FuncOp funcOp, ttcore::DataType dtype,
+                       mlir::OpBuilder &builder) {
+    // Collect kv_cache args that need conversion.
+    struct KVCastInfo {
+      mlir::BlockArgument arg;
+      RankedTensorType castType;
+      std::string constEvalFuncName;
+    };
+    
+    llvm::SmallVector<KVCastInfo> infos;
 
-    if (failed(
-            mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
+    for (auto arg : funcOp.getArguments()) {
+      if (!funcOp.getArgAttr(arg.getArgNumber(), ttcore::g_kvCacheAttrName)) {
+        continue;
+      }
+
+      auto argType = mlir::cast<RankedTensorType>(arg.getType());
+      mlir::Type elType = argType.getElementType();
+
+      // Skip if already the target dtype or unused.
+      if (hasDtype(elType, dtype) || arg.use_empty()) {
+        continue;
+      }
+
+      auto castType =
+          ttnn::utils::RankedTensorTypeFactory::create(argType, dtype);
+      std::string constEvalFuncName =
+          (funcOp.getName() + "_kv_cache_const_eval_" +
+           llvm::Twine(arg.getArgNumber()))
+          .str();
+
+      builder.setInsertionPoint(funcOp);
+      auto constEvalFuncType =
+          builder.getFunctionType({argType}, {castType});
+      auto constEvalFuncOp = builder.create<func::FuncOp>(
+          funcOp.getLoc(), constEvalFuncName, constEvalFuncType);
+      
+      ttmlir::utils::setFunctionType(constEvalFuncOp,
+                                     ttmlir::utils::FunctionType::ConstEval);
+      constEvalFuncOp.setPrivate();
+
+      // Preserve ttcore.kv_cache on the const-eval function's argument so
+      // downstream passes treat it consistently.
+      constEvalFuncOp.setArgAttr(0, ttcore::g_kvCacheAttrName,
+                                  mlir::UnitAttr::get(builder.getContext()));
+
+      auto *entryBlock = constEvalFuncOp.addEntryBlock();
+      builder.setInsertionPointToStart(entryBlock);
+      auto innerCast = builder.create<TypecastOp>(
+          funcOp.getLoc(), castType, entryBlock->getArgument(0),
+          ttcore::DataTypeAttr::get(builder.getContext(), dtype));
+      builder.create<func::ReturnOp>(funcOp.getLoc(), innerCast.getResult());
+
+      infos.push_back({arg, castType, constEvalFuncName});
     }
+
+    // Insert LoadCachedOps at the top of the forward function's entry block,
+    // one per kv_cache arg
+    auto &entryBlock = funcOp.getBody().front();
+    auto insertPt = entryBlock.begin();
+
+    for (auto &info : infos) {
+      builder.setInsertionPoint(&entryBlock, insertPt);
+      auto calleeAttr =
+          mlir::SymbolRefAttr::get(builder.getContext(), info.constEvalFuncName);
+      auto loadOp = builder.create<ttcore::LoadCachedOp>(
+          funcOp.getLoc(), mlir::TypeRange{info.castType}, calleeAttr,
+          mlir::ValueRange{info.arg});
+
+      // Replace all non-return uses of the original arg with the cached result.
+      info.arg.replaceUsesWithIf(loadOp.getResult(0), [&](OpOperand &use) {
+        return use.getOwner() != loadOp &&
+               !mlir::isa<func::ReturnOp>(use.getOwner());
+      });
+
+      ++insertPt;
+    }
+  }
+
+  // Cast the input of cache write ops to the target dtype.
+  template <typename OpTy>
+  void castCacheOpInput(OpTy op, ttcore::DataType dtype,
+                        mlir::OpBuilder &builder) {
+    auto cacheType = mlir::cast<RankedTensorType>(op.getCache().getType());
+    if (!hasDtype(cacheType.getElementType(), dtype)) {
+      return;
+    }
+
+    auto input = op.getInput();
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    if (hasDtype(inputType.getElementType(), dtype)) {
+      return;
+    }
+
+    auto dtypeAttr = ttcore::DataTypeAttr::get(builder.getContext(), dtype);
+    builder.setInsertionPoint(op);
+    auto typecastOp = builder.create<TypecastOp>(
+        op.getLoc(),
+        ttnn::utils::RankedTensorTypeFactory::create(inputType, dtype), input,
+        dtypeAttr);
+    op.getInputMutable().assign(typecastOp.getResult());
+  }
+
+  void processFunc(mlir::func::FuncOp funcOp, ttcore::DataType dtype,
+                   mlir::OpBuilder &builder) {
+    castKVCacheArgs(funcOp, dtype, builder);
+
+    // fill_cache requires input and cache to have the same dtype — cast input.
+    // update_cache accepts bf16/float32 input even with a compressed cache;
+    // the kernel handles quantization internally, so no input cast is needed.
+    funcOp.walk([&](Operation *op) {
+      if (auto fillOp = mlir::dyn_cast<FillCacheOp>(op)) {
+        castCacheOpInput(fillOp, dtype, builder);
+      } else if (auto pagedFillOp = mlir::dyn_cast<PagedFillCacheOp>(op)) {
+        castCacheOpInput(pagedFillOp, dtype, builder);
+      }
+    });
   }
 };
 
