@@ -248,6 +248,36 @@ module {
     return %1: tensor<1x1xf32>
   }
 
+  // CHECK-LABEL: func @named_mean_reductions_R
+  func.func @named_mean_reductions_R(%arg: !ttype) -> (tensor<1x96xf32>) {
+    // CHECK: d2m.full
+    // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "parallel"]
+    // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim C>
+    %1 = "ttir.mean"(%arg) <{dim_arg = [-2: i32], keep_dim = true}> : (!ttype) -> tensor<1x96xf32>
+    return %1: tensor<1x96xf32>
+  }
+
+  // CHECK-LABEL: func @named_mean_reductions_C
+  func.func @named_mean_reductions_C(%arg: !ttype) -> (tensor<128x1xf32>) {
+    // CHECK: d2m.full
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction"]
+    // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim R>
+    %1 = "ttir.mean"(%arg) <{dim_arg = [-1: i32], keep_dim = true}> : (!ttype) -> tensor<128x1xf32>
+    return %1 : tensor<128x1xf32>
+  }
+
+  // CHECK-LABEL: func @named_mean_reductions_RC
+  func.func @named_mean_reductions_RC(%arg: !ttype) -> (tensor<1x1xf32>) {
+    // CHECK: d2m.full
+    // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #reduction]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "reduction"]
+    // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim RC>
+    %1 = "ttir.mean"(%arg) <{dim_arg = [-2: i32, -1: i32], keep_dim = true}> : (!ttype) -> tensor<1x1xf32>
+    return %1: tensor<1x1xf32>
+  }
+
   // Min is decomposed into neg -> max -> neg (no hardware reduce_min).
   // CHECK-LABEL: func @named_min_reduction_R
   func.func @named_min_reduction_R(%arg: !ttype) -> (tensor<1x96xf32>) {
@@ -329,7 +359,34 @@ module {
   func.func @named_slice_static(%arg0: tensor<96x96xf32>) -> tensor<32x32xf32> {
     // CHECK-NOT: slice
     // CHECK: %[[DEVICE_TENSOR:.*]] = d2m.to_layout %arg0
-    // CHECK: "d2m.stream_layout"(%[[DEVICE_TENSOR]], %{{.*}})
+    // CHECK: d2m.view_layout %[[DEVICE_TENSOR]]
+    // CHECK: d2m.generic
+    %0 = "ttir.slice_static"(%arg0) <{begins = [16 : i32, 0 : i32], ends = [48 : i32, 32 : i32], step = [1 : i32, 1 : i32]}> : (tensor<96x96xf32>) -> tensor<32x32xf32>
+    return %0 : tensor<32x32xf32>
+  }
+
+  // CHECK-LABEL: func @named_slice_static_w_unaligned
+  func.func @named_slice_static_w_unaligned(%arg0: tensor<96x96xf32>) -> tensor<32x32xf32> {
+    // Use the transpose-slice-transpose strategy.
+    // CHECK-NOT: slice
+    // CHECK: d2m.view_layout
+    // CHECK: d2m.generic
+    // CHECK: d2m.view_layout
+    // CHECK: d2m.view_layout
+    // CHECK: d2m.generic
+    %0 = "ttir.slice_static"(%arg0) <{begins = [32 : i32, 1 : i32], ends = [64 : i32, 64 : i32], step = [1 : i32, 2 : i32]}> : (tensor<96x96xf32>) -> tensor<32x32xf32>
+    return %0 : tensor<32x32xf32>
+  }
+
+  // CHECK-LABEL: func @named_slice_static_hw_unaligned
+  func.func @named_slice_static_hw_unaligned(%arg0: tensor<96x96xf32>) -> tensor<32x32xf32> {
+    // Use the slice-transpose-slice-transpose strategy.
+    // CHECK-NOT: slice
+    // CHECK: d2m.view_layout
+    // CHECK: d2m.view_layout
+    // CHECK: d2m.generic
+    // CHECK: d2m.view_layout
+    // CHECK: d2m.view_layout
     // CHECK: d2m.generic
     %0 = "ttir.slice_static"(%arg0) <{begins = [1 : i32, 0 : i32], ends = [96 : i32, 64 : i32], step = [3 : i32, 2 : i32]}> : (tensor<96x96xf32>) -> tensor<32x32xf32>
     return %0 : tensor<32x32xf32>

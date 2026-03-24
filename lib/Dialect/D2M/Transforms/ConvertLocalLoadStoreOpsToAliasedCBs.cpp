@@ -20,12 +20,17 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Helper function to check if an operand is local (i.e., NOT a stream op
-// and NOT in a DMA-only generic op)
+// Helper function to check if an operand is local (i.e., NOT a stream/view op
+// that implies data movement, and NOT in a DMA-only generic op).
+// Reinterpret view_layout ops are local (just type casts).
 static bool isLocalOperand(Value operand, Operation *op) {
-  // Check if operand comes from stream_layout op
-  if (mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp())) {
+  if (auto streamOp = operand.getDefiningOp<StreamLayoutOp>()) {
     return false;
+  }
+  if (auto viewOp = operand.getDefiningOp<ViewLayoutOp>()) {
+    // Reinterpret views are local (just type casts), but non-reinterpret
+    // views imply data rearrangement and are non-local.
+    return viewOp.getReinterpretLayout();
   }
 
   // Check if the operation is inside a DMA-only generic op

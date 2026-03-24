@@ -496,6 +496,7 @@ using ComputeOpMap = OpMap<
   // Reductions FPU
   std::pair<d2m::TileReduceSumOp,   std::pair<ttkernel::ComputeKernelHWStartupOp,  ttkernel::ReduceTileOp>>,
   std::pair<d2m::TileReduceMaxOp,   std::pair<ttkernel::ComputeKernelHWStartupOp,  ttkernel::ReduceTileOp>>,
+  std::pair<d2m::TileReduceMeanOp,  std::pair<ttkernel::ComputeKernelHWStartupOp,  ttkernel::ReduceTileOp>>,
 
   // Elementwise SFPU Unary.
   std::pair<d2m::TileAbsOp,         std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
@@ -722,13 +723,16 @@ public:
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
           ct_i32, rt_i32, kt_i32, nt_i32);
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp> ||
-                         std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp>) {
+                         std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp> ||
+                         std::is_same_v<ConcreteOp, d2m::TileReduceMeanOp>) {
       ttkernel::ReduceType reduce_type;
       d2m::ReduceDim reduce_dim = op.getReduceDim();
       if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp>) {
         reduce_type = ttkernel::ReduceType::Sum;
-      } else {
+      } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp>) {
         reduce_type = ttkernel::ReduceType::Max;
+      } else {
+        reduce_type = ttkernel::ReduceType::Avg;
       }
       ttkernel::ReduceDim kernel_reduce_dim;
       switch (reduce_dim) {
@@ -1913,23 +1917,27 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Type cbType = getTypeConverter()->convertType(op.getResult().getType());
 
-    int64_t port = op.getPort();
-    // The operand_index records which generic op operand this CB backs;
-    // the port is the actual hardware CB port number.
-    int64_t operandIndex = op.getOperandIndex().value_or(port);
+    assert(op.getOperandIndex() &&
+           "d2m.get_cb must have an operand_index by the time it reaches "
+           "D2MToTTKernel lowering");
+    int64_t operandIndex = *op.getOperandIndex();
 
     // Append a CBPort entry to the parent function's ArgSpec so that
     // D2MToTTNN can generate the corresponding cb_buffer_index in the
     // kernel descriptor's ct_args.  The operand index tells the runtime
-    // which operand this CB is associated with.
+    // which operand's buffer to associate with this CB.
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
     ArgAttr cbArg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, operandIndex);
-    rewriter.modifyOpInPlace(
-        entry, [&]() { ArgSpecAttr::appendCompileTimeArg(entry, cbArg); });
+    size_t ctArgIndex;
+    rewriter.modifyOpInPlace(entry, [&]() {
+      ctArgIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);
+    });
 
-    // Emit a direct CB port reference using the hardware port number.
-    rewriter.replaceOpWithNewOp<ttkernel::CBPortOp>(
-        op, cbType, rewriter.getI32IntegerAttr(static_cast<int32_t>(port)));
+    // Emit a get_compile_time_arg_val that reads the port from ct_args at
+    // runtime. This allows the spatial op to remap CB ports per grid range
+    // by overriding compile-time arguments.
+    rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
+        op, cbType, static_cast<int32_t>(ctArgIndex));
     return success();
   }
 };
@@ -2191,6 +2199,7 @@ void populateD2MToTTKernelPatterns(
                // Reductions FPU.
                ttkernel::D2MFPUOpsRewriter<d2m::TileReduceSumOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileReduceMaxOp>,
+               ttkernel::D2MFPUOpsRewriter<d2m::TileReduceMeanOp>,
 
                // Elementwise SFPU Unary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAbsOp>,

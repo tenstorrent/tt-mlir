@@ -87,7 +87,7 @@ def clear_program_cache_after_test(device):
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_conv3d(
     input_shape: Shape,
     weight_shape: Shape,

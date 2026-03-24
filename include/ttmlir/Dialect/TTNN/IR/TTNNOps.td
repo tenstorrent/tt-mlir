@@ -255,7 +255,7 @@ class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where", [ExplicateOperandBroadcastsTrait]> {
+def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
     let summary = "Eltwise where.";
     let description = [{
       Eltwise where operation.
@@ -3452,7 +3452,7 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
   let hasVerifier = 1;
 }
 
-def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
     let summary = "Scaled dot product attention operation.";
     let description = [{
       Scaled dot product attention.
@@ -3480,6 +3480,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
                          DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                          OptionalAttr<F32Attr>:$scale,
                          OptionalAttr<UI32Attr>:$sliding_window_size,
+                         Optional<AnyRankedTensor>:$attention_sink,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -3647,6 +3648,12 @@ def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {
 
   let results = (outs AnyRankedTensor:$values,
                       AnyRankedTensor:$indices);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(*this);
+    }
+  }];
 
   let hasVerifier = 1;
 }

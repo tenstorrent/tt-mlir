@@ -121,6 +121,8 @@ public:
       updateConstantValueAttr(constantOp);
     } else if (auto arangeOp = dyn_cast<ttir::ArangeOp>(newOp)) {
       updateArangeDimension(arangeOp);
+    } else if (auto sliceOp = dyn_cast<ttir::SliceStaticOp>(newOp)) {
+      updateSliceStaticAttrs(sliceOp);
     }
 
     rewriter.replaceOp(op, newOp->getResults());
@@ -178,6 +180,50 @@ private:
 
     OpBuilder builder(reshapeOp.getContext());
     reshapeOp.setShapeAttr(builder.getI32ArrayAttr(expandShape(currentShape)));
+  }
+
+  static void updateSliceStaticAttrs(ttir::SliceStaticOp sliceOp) {
+    auto resultType = dyn_cast<RankedTensorType>(sliceOp.getResult().getType());
+    auto inputType = dyn_cast<RankedTensorType>(sliceOp.getInput().getType());
+    if (!resultType || !inputType) {
+      return;
+    }
+
+    ArrayAttr beginsAttr = sliceOp.getBeginsAttr();
+    ArrayAttr endsAttr = sliceOp.getEndsAttr();
+    ArrayAttr stepAttr = sliceOp.getStepAttr();
+
+    // Check if attributes already match the expanded rank
+    if (static_cast<int64_t>(beginsAttr.size()) == inputType.getRank()) {
+      return;
+    }
+
+    // Extract current attribute values
+    SmallVector<int32_t> begins, ends, step;
+    for (Attribute attr : beginsAttr) {
+      begins.push_back(cast<IntegerAttr>(attr).getInt());
+    }
+    for (Attribute attr : endsAttr) {
+      ends.push_back(cast<IntegerAttr>(attr).getInt());
+    }
+    for (Attribute attr : stepAttr) {
+      step.push_back(cast<IntegerAttr>(attr).getInt());
+    }
+
+    // Prepend values for new leading dimensions
+    int64_t numDimsToAdd = inputType.getRank() - begins.size();
+    SmallVector<int32_t> newBegins(numDimsToAdd, 0);
+    SmallVector<int32_t> newEnds(numDimsToAdd, 1);
+    SmallVector<int32_t> newStep(numDimsToAdd, 1);
+
+    newBegins.append(begins.begin(), begins.end());
+    newEnds.append(ends.begin(), ends.end());
+    newStep.append(step.begin(), step.end());
+
+    OpBuilder builder(sliceOp.getContext());
+    sliceOp.setBeginsAttr(builder.getI32ArrayAttr(newBegins));
+    sliceOp.setEndsAttr(builder.getI32ArrayAttr(newEnds));
+    sliceOp.setStepAttr(builder.getI32ArrayAttr(newStep));
   }
 };
 

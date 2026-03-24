@@ -12,10 +12,9 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// ReduceScatterOp in TTNN currently does not support tensors with rank < 4
-// correctly. As a temporary workaround, we insert reshape ops front and back
-// to make the tensor as four dimensional tensor.
-// Related tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/15010
+// ReduceScatterOp in TTNN now supports 4d input tensors, but it seems that
+// there are some numerical accuracy issues when the input tensor has rank < 4.
+// Related tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/39953
 class TTNNReduceScatterWorkarounds
     : public OpRewritePattern<ttnn::ReduceScatterOp> {
 public:

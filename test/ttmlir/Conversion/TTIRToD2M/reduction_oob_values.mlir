@@ -32,6 +32,15 @@ module {
     return %0 : tensor<128x1xf32>
   }
 
+  // Mean uses the same 'zero' OOB fill as sum (identity for averaging).
+  // CHECK-LABEL: func @mean_reduce_C
+  func.func @mean_reduce_C(%arg: tensor<128x96xf32>) -> tensor<128x1xf32> {
+    // CHECK: d2m.empty{{.*}}#[[SUM_INPUT]]
+    // CHECK: d2m.tile_reduce_mean
+    %0 = "ttir.mean"(%arg) <{dim_arg = [-1: i32], keep_dim = true}> : (tensor<128x96xf32>) -> tensor<128x1xf32>
+    return %0 : tensor<128x1xf32>
+  }
+
   // CHECK-LABEL: func @eltwise_add
   func.func @eltwise_add(%a: tensor<128x96xf32>, %b: tensor<128x96xf32>) -> tensor<128x96xf32> {
     // CHECK: d2m.empty{{.*}}#[[ELT_LAYOUT]]

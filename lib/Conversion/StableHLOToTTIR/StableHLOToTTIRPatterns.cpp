@@ -6527,7 +6527,8 @@ public:
 
     rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
         srcOp, outputType, query, key, value, attentionMask, isCausalAttr,
-        scaleAttr, /*slidingWindowSize=*/nullptr);
+        scaleAttr, /*slidingWindowSize=*/nullptr,
+        /*attention_sink=*/Value());
 
     return success();
   }

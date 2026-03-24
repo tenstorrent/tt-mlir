@@ -243,18 +243,33 @@ public:
     return name;
   }
 
+  StringRef getReduceType(ttkernel::ReduceType reduceType) const {
+    switch (reduceType) {
+    case ttkernel::ReduceType::Max:
+      return "PoolType::MAX";
+    case ttkernel::ReduceType::Avg:
+      return "PoolType::AVG";
+    case ttkernel::ReduceType::Sum:
+      return "PoolType::SUM";
+    }
+  }
+
+  StringRef getReduceDim(ttkernel::ReduceDim reduceDim) const {
+    switch (reduceDim) {
+    case ttkernel::ReduceDim::Col:
+      return "ReduceDim::REDUCE_COL";
+    case ttkernel::ReduceDim::Row:
+      return "ReduceDim::REDUCE_ROW";
+    case ttkernel::ReduceDim::Scalar:
+      return "ReduceDim::REDUCE_SCALAR";
+    }
+  }
+
   std::pair<StringRef, StringRef>
   reduceTypeAndDimToString(ttkernel::ReduceTypeAttr reduceTypeAttr,
                            ttkernel::ReduceDimAttr reduceDimAttr) const {
-    StringRef reduceType =
-        reduceTypeAttr.getValue() == ttkernel::ReduceType::Max
-            ? "PoolType::MAX"
-            : "PoolType::SUM";
-    StringRef reduceDim = reduceDimAttr.getValue() == ttkernel::ReduceDim::Col
-                              ? "ReduceDim::REDUCE_COL"
-                          : reduceDimAttr.getValue() == ttkernel::ReduceDim::Row
-                              ? "ReduceDim::REDUCE_ROW"
-                              : "ReduceDim::REDUCE_SCALAR";
+    StringRef reduceType = getReduceType(reduceTypeAttr.getValue());
+    StringRef reduceDim = getReduceDim(reduceDimAttr.getValue());
     return {reduceType, reduceDim};
   }
 
@@ -435,23 +450,6 @@ public:
         op, getTypeConverter()->convertType(op.getResult().getType()),
         (Twine("get_compile_time_arg_val(") + Twine(op.getArgIndex()) + ")")
             .str());
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-class TTKernelToEmitCCBPortRewriter
-    : public OpConversionPattern<ttkernel::CBPortOp> {
-public:
-  using OpConversionPattern<ttkernel::CBPortOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttkernel::CBPortOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
-        op, getTypeConverter()->convertType(op.getResult().getType()),
-        (Twine("static_cast<::tt::CB>(") + Twine(op.getPort()) + ")").str());
     return success();
   }
 };
@@ -1083,8 +1081,7 @@ public:
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
     patterns.add<
-        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCCBPortRewriter,
-        TTKernelToEmitCDPrintRewriter,
+        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
@@ -1127,7 +1124,9 @@ public:
         // Datamovement
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::CopyBlockMatmulPartialsOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileBlockOp>,
         TTKernelToEmitCPackReconfigL1AccToEmitCRewriter,
 
         // FPU Ops
