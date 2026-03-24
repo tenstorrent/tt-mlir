@@ -116,6 +116,16 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device,
                        std::pair<MemRefType, AffineMap> memrefAndView,
                        size_t pageSize, size_t baseOffset = 0);
 
+// User-facing get memory map util function.
+AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input, bool isRemote);
+
+template <typename Builder>
+SmallVector<Value> applyMap(Builder &builder, Location loc, AffineMap map,
+                            ValueRange index, bool isRemote);
+
+std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
+getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape);
+
 // Finds a 2D grid (y, x) such that y * x = gridVolume. The returned grid aims
 // to be as square as possible while respecting the provided target grid shape
 // bounds. If either MxN or NxM grids are feasible where M > N, MxN is chosen.
