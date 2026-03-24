@@ -1876,3 +1876,46 @@ PopOp::bufferize(mlir::RewriterBase &rewriter,
                  mlir::bufferization::BufferizationState &) {
   return bufferizeCBOp(*this, rewriter, options);
 }
+
+//===----------------------------------------------------------------------===//
+// AliasOp
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult AliasOp::verify() {
+  auto inputType = mlir::cast<MemRefType>(getInput().getType());
+  auto resultType = mlir::cast<MemRefType>(getResult().getType());
+
+  if (inputType.getElementType() != resultType.getElementType()) {
+    return emitOpError() << "element type mismatch: input has "
+                         << inputType.getElementType() << " but result has "
+                         << resultType.getElementType();
+  }
+
+  // The input must have a device layout so we can extract the shard shape.
+  auto layout =
+      mlir::dyn_cast<ttcore::DeviceLayoutInterface>(inputType.getLayout());
+  if (!layout) {
+    return emitOpError()
+           << "input memref must have a device layout (grid + shard)";
+  }
+
+  SmallVector<int64_t> expectedShardShape =
+      llvm::to_vector(layout.getShardShape(inputType));
+
+  // The result rank must be strictly less than the input rank (grid dims
+  // have been stripped).
+  if (resultType.getRank() >= inputType.getRank()) {
+    return emitOpError() << "result rank (" << resultType.getRank()
+                         << ") must be less than input rank ("
+                         << inputType.getRank()
+                         << "); alias_buffer strips grid dimensions";
+  }
+
+  if (llvm::to_vector(resultType.getShape()) != expectedShardShape) {
+    return emitOpError() << "result shape " << resultType.getShape()
+                         << " does not match expected shard shape ["
+                         << expectedShardShape << "]";
+  }
+
+  return mlir::success();
+}
