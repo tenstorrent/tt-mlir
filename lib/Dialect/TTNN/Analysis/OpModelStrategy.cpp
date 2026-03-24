@@ -141,8 +141,9 @@ OutputHints getOutputHints(Operation *op,
 
 bool shouldExploreReshards(Operation *op) {
   return llvm::TypeSwitch<Operation *, bool>(op)
-      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp, ConcatOp>(
-          [](auto) { return false; })
+      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp, ConcatOp,
+            ScaledDotProductAttentionOp, ScaledDotProductAttentionDecodeOp,
+            PagedScaledDotProductAttentionDecodeOp>([](auto) { return false; })
       .Default([](Operation *) { return true; });
 }
 
