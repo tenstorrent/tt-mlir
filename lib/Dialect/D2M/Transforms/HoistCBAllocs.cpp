@@ -86,6 +86,15 @@ private:
       // Replace all uses of the in-generic alloc with the additionalArg
       // and erase the alloc.  Types match so this is safe.
       rewriter.replaceOp(allocOp, externalAlloc.getResult());
+
+      // Insert a dealloc right after the generic op to bound the
+      // hoisted alloc's live range.
+      {
+        OpBuilder::InsertionGuard deallocGuard(rewriter);
+        rewriter.setInsertionPointAfter(genericOp);
+        rewriter.create<memref::DeallocOp>(genericOp.getLoc(),
+                                           externalAlloc.getResult());
+      }
     }
   }
 
