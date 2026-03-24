@@ -551,8 +551,9 @@ handleD2MResetGlobalSemaphore(d2m::ResetGlobalSemaphoreOp op,
 }
 
 static LogicalResult
-materializeTTNNTensors(ModuleOp module, DenseMap<Value, Value> &valueMapping) {
-  IRRewriter rewriter(module.getContext());
+materializeTTNNTensors(ModuleOp moduleOp,
+                       DenseMap<Value, Value> &valueMapping) {
+  IRRewriter rewriter(moduleOp.getContext());
 
   // Walk all operations, handling each type.
   // We need to collect ops first because we insert new ops during traversal.
@@ -560,7 +561,7 @@ materializeTTNNTensors(ModuleOp module, DenseMap<Value, Value> &valueMapping) {
   SmallVector<d2m::EmptyOp> emptyOps;
   SmallVector<d2m::FullOp> fullOps;
 
-  module.walk([&](Operation *op) {
+  moduleOp.walk([&](Operation *op) {
     if (auto allocOp = dyn_cast<memref::AllocOp>(op)) {
       allocOps.push_back(allocOp);
     } else if (auto emptyOp = dyn_cast<d2m::EmptyOp>(op)) {
@@ -589,14 +590,14 @@ materializeTTNNTensors(ModuleOp module, DenseMap<Value, Value> &valueMapping) {
   return success();
 }
 
-static LogicalResult convertSemaphores(ModuleOp module,
+static LogicalResult convertSemaphores(ModuleOp moduleOp,
                                        DenseMap<Value, Value> &valueMapping) {
-  IRRewriter rewriter(module.getContext());
+  IRRewriter rewriter(moduleOp.getContext());
 
   SmallVector<d2m::CreateGlobalSemaphoreOp> createSemOps;
   SmallVector<d2m::ResetGlobalSemaphoreOp> resetSemOps;
 
-  module.walk([&](Operation *op) {
+  moduleOp.walk([&](Operation *op) {
     if (auto createOp = dyn_cast<d2m::CreateGlobalSemaphoreOp>(op)) {
       createSemOps.push_back(createOp);
     } else if (auto resetOp = dyn_cast<d2m::ResetGlobalSemaphoreOp>(op)) {
@@ -779,13 +780,13 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
   return success();
 }
 
-static LogicalResult convertGenerics(ModuleOp module,
+static LogicalResult convertGenerics(ModuleOp moduleOp,
                                      DenseMap<Value, Value> &valueMapping,
                                      ttmetal::MathFidelity mathFidelity) {
-  IRRewriter rewriter(module.getContext());
+  IRRewriter rewriter(moduleOp.getContext());
 
   SmallVector<d2m::GenericOp> genericOps;
-  module.walk([&](d2m::GenericOp op) { genericOps.push_back(op); });
+  moduleOp.walk([&](d2m::GenericOp op) { genericOps.push_back(op); });
 
   for (auto op : genericOps) {
     if (failed(
@@ -1060,10 +1061,10 @@ static LogicalResult convertSingleSpatial(d2m::SpatialOp spatialOp,
   return success();
 }
 
-static LogicalResult convertSpatials(ModuleOp module) {
-  IRRewriter rewriter(module.getContext());
+static LogicalResult convertSpatials(ModuleOp moduleOp) {
+  IRRewriter rewriter(moduleOp.getContext());
   SmallVector<d2m::SpatialOp> spatialOps;
-  module.walk([&](d2m::SpatialOp op) { spatialOps.push_back(op); });
+  moduleOp.walk([&](d2m::SpatialOp op) { spatialOps.push_back(op); });
   for (d2m::SpatialOp op : spatialOps) {
     if (failed(convertSingleSpatial(op, rewriter))) {
       return failure();
@@ -1072,7 +1073,7 @@ static LogicalResult convertSpatials(ModuleOp module) {
   return success();
 }
 
-static LogicalResult cleanupAndVerify(ModuleOp module,
+static LogicalResult cleanupAndVerify(ModuleOp moduleOp,
                                       DenseMap<Value, Value> &valueMapping) {
   // Replace all mapped values' uses with their TTNN equivalents.
   // This handles d2m.empty/full results used directly by func.return.
@@ -1083,7 +1084,7 @@ static LogicalResult cleanupAndVerify(ModuleOp module,
   // Resolve "exit" casts -- TTNNMetalLayoutCastOps whose result type
   // is a tensor (used by surviving TTNN ops like ttnn.to_memory_config or
   // function returns). Replace their uses with the resolved TTNN tensor.
-  module.walk([&](ttir::TTNNMetalLayoutCastOp op) {
+  moduleOp.walk([&](ttir::TTNNMetalLayoutCastOp op) {
     if (!isa<RankedTensorType>(op.getResult().getType())) {
       return;
     }
@@ -1097,7 +1098,7 @@ static LogicalResult cleanupAndVerify(ModuleOp module,
   // Collect and erase all remaining D2M/memref/cast ops. Generics are
   // already erased. External uses are resolved by the remapping.
   SmallVector<Operation *> opsToErase;
-  module.walk([&](Operation *op) {
+  moduleOp.walk([&](Operation *op) {
     if (isa<ttir::TTNNMetalLayoutCastOp, d2m::StreamLayoutOp, d2m::ViewLayoutOp,
             d2m::EmptyOp, d2m::FullOp, d2m::ResetGlobalSemaphoreOp,
             d2m::CreateGlobalSemaphoreOp, memref::DeallocOp, memref::AllocOp>(
@@ -1109,7 +1110,7 @@ static LogicalResult cleanupAndVerify(ModuleOp module,
     op->erase();
   }
 
-  WalkResult result = module.walk([](Operation *op) -> WalkResult {
+  WalkResult result = moduleOp.walk([](Operation *op) -> WalkResult {
     if (isa<d2m::D2MDialect>(op->getDialect())) {
       return op->emitError("unexpected D2M op after conversion"),
              WalkResult::interrupt();
@@ -1137,22 +1138,22 @@ static LogicalResult cleanupAndVerify(ModuleOp module,
 // Entry Point
 // ===----------------------------------------------------------------------===//
 
-LogicalResult runD2MToTTNNConversion(ModuleOp module,
+LogicalResult runD2MToTTNNConversion(ModuleOp moduleOp,
                                      ttmetal::MathFidelity mathFidelity) {
   DenseMap<Value, Value> valueMapping;
-  if (failed(materializeTTNNTensors(module, valueMapping))) {
+  if (failed(materializeTTNNTensors(moduleOp, valueMapping))) {
     return failure();
   }
-  if (failed(convertSemaphores(module, valueMapping))) {
+  if (failed(convertSemaphores(moduleOp, valueMapping))) {
     return failure();
   }
-  if (failed(convertGenerics(module, valueMapping, mathFidelity))) {
+  if (failed(convertGenerics(moduleOp, valueMapping, mathFidelity))) {
     return failure();
   }
-  if (failed(convertSpatials(module))) {
+  if (failed(convertSpatials(moduleOp))) {
     return failure();
   }
-  if (failed(cleanupAndVerify(module, valueMapping))) {
+  if (failed(cleanupAndVerify(moduleOp, valueMapping))) {
     return failure();
   }
   return success();
