@@ -87,6 +87,10 @@ void SingletonDeviceContext::openDevice(
 
   if (isMock) {
     assert(m_systemDesc && "System desc must be set for mock device mode");
+    // Disable inspector for mock devices — it crashes in
+    // Inspector/WatcherServer due to uninitialized global singletons.
+    // Tracked in https://github.com/tenstorrent/tt-metal/issues/40630
+    setenv("TT_METAL_INSPECTOR", "0", /*overwrite=*/0);
     auto arch = m_systemDesc.getChipDesc(0).getArch().getValue();
     uint32_t numChips = m_systemDesc.getChipDescIndices().size();
     ::tt::ARCH metalArch;
