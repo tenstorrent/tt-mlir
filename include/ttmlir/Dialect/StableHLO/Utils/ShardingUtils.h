@@ -27,6 +27,7 @@ inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
                         {1, 32},
                         {4, 8},
                         {4, 16},
+                        {16,4},
                         {4, 32},
                         {8, 4},
                         {8, 8},
