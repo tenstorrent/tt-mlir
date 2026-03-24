@@ -47,7 +47,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
             ),
         ),
         pytest.param(
-            (32, 128 * 320),
+            (32, 128 * 280),
             [1, 0],
             marks=pytest.mark.skip_config(
                 ["n150"],
