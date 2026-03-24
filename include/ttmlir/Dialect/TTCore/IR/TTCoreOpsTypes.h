@@ -404,14 +404,14 @@ inline void printCoordBracketStyle(::mlir::AsmPrinter &printer,
 inline ::mlir::ParseResult
 parseCoordBracketStyle(::mlir::AsmParser &parser,
                        CoreCoordAttr &coreCoordAttr) {
-  int64_t x, y;
+  int64_t y, x;
 
-  if (parser.parseLParen() || parser.parseInteger(x) || parser.parseComma() ||
-      parser.parseInteger(y) || parser.parseRParen()) {
+  if (parser.parseLParen() || parser.parseInteger(y) || parser.parseComma() ||
+      parser.parseInteger(x) || parser.parseRParen()) {
     return ::mlir::failure();
   }
 
-  coreCoordAttr = CoreCoordAttr::get(parser.getContext(), x, y);
+  coreCoordAttr = CoreCoordAttr::get(parser.getContext(), y, x);
   return ::mlir::success();
 }
 
