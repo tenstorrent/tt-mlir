@@ -30,8 +30,7 @@ pytestmark = pytest.mark.frontend("ttir")
 @pytest.mark.parametrize(
     "test_shape",
     [
-        (128, 128),
-        # (512, 512),
+        (256, 256),
         # (1, 32, 32, 32),
         # (1, 32, 32, 1),
         # (32, 32, 1, 1),
