@@ -75,6 +75,14 @@ public:
     }
   }
 
+  static ttcore::LocalShapeAttr
+  convertLocalShapeAttr(MLIRContext *ctx, ttcore::LocalShapeAttr attr,
+                        ttcore::DataType targetDtype) {
+    auto newLocalShapeType = ttnn::utils::RankedTensorTypeFactory::create(
+        attr.getLocalShape(), targetDtype);
+    return ttcore::LocalShapeAttr::get(ctx, newLocalShapeType);
+  }
+
   static void changeCacheArgTypes(func::FuncOp funcOp, ttcore::DataType targetDtype) {
     auto *ctx = funcOp.getContext();
     auto funcType = funcOp.getFunctionType();
@@ -91,6 +99,14 @@ public:
       auto newType =
           ttnn::utils::RankedTensorTypeFactory::create(oldType, targetDtype);
 
+      // Keep local_shape metadata aligned with the rewritten argument dtype.
+      if (auto localShapeAttr = funcOp.getArgAttrOfType<ttcore::LocalShapeAttr>(
+              idx, ttcore::LocalShapeAttr::name)) {
+        funcOp.setArgAttr(
+            idx, ttcore::LocalShapeAttr::name,
+            convertLocalShapeAttr(ctx, localShapeAttr, targetDtype));
+      }
+
       arg.setType(newType);
       newArgTypes[idx] = newType;
     }
@@ -101,6 +117,25 @@ public:
     if (auto returnOp = mlir::dyn_cast<func::ReturnOp>(terminator)) {
       for (auto [i, operand] : llvm::enumerate(returnOp.getOperands())) {
         newResultTypes[i] = operand.getType();
+
+        if (!mlir::isa<BlockArgument>(operand)) {
+          continue;
+        }
+
+        auto blockArg = mlir::cast<BlockArgument>(operand);
+        if (!funcOp.getArgAttr(blockArg.getArgNumber(),
+                               ttcore::g_kvCacheAttrName)) {
+          continue;
+        }
+
+        // Returned KV cache args need matching local_shape result metadata.
+        if (auto localShapeAttr =
+                funcOp.getResultAttrOfType<ttcore::LocalShapeAttr>(
+                    i, ttcore::LocalShapeAttr::name)) {
+          funcOp.setResultAttr(
+              i, ttcore::LocalShapeAttr::name,
+              convertLocalShapeAttr(ctx, localShapeAttr, targetDtype));
+        }
       }
     }
 
