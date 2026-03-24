@@ -2306,7 +2306,7 @@ public:
 
     auto inputTensorType = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto inputStreamTensorType =
-        d2m::utils::reblockTensor(inputTensorType, inputViewGrid);
+        d2m::utils::reblockShapedType(inputTensorType, inputViewGrid);
     auto inputStreamReblockMap = ttmlir::utils::calculateReblockMap(
         inputTensorType.getShape(), inputStreamTensorType.getShape(),
         rewriter.getContext());
@@ -2324,7 +2324,7 @@ public:
     auto outputTensorType =
         mlir::cast<mlir::RankedTensorType>(output.getType());
     auto outputStreamTensorType =
-        d2m::utils::reblockTensor(outputTensorType, outputViewGrid);
+        d2m::utils::reblockShapedType(outputTensorType, outputViewGrid);
     auto outputStreamReblockMap = ttmlir::utils::calculateReblockMap(
         outputTensorType.getShape(), outputStreamTensorType.getShape(),
         rewriter.getContext());
@@ -2982,7 +2982,6 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Permute (handles transpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter,
     D2MMatmulBlockToLinalgGeneric,
-    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>
     D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>,
     // CCL
     D2MAllGatherRewriter
