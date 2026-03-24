@@ -1031,6 +1031,7 @@ def test_sdpa_decode_mask_broadcast_no_workaround(
         pipeline_options=["disable-workarounds=true"],
     )
 
+
 @pytest.mark.parametrize("shape", [(1, 1, 1)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
