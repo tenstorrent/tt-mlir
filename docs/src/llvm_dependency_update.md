@@ -122,7 +122,7 @@ ld.lld: error: undefined symbol: mlir::sdy::log::LogMessage::stream()
 ld.lld: error: undefined symbol: mlir::sdy::log::LogMessageFatal::~LogMessageFatal()
 >>> referenced by dialect.cc:265 (/opt/ttmlir-toolchain/src/shardy/shardy/dialect/sdy/ir/dialect.cc:265)
 >>>               dialect.cc.o:(mlir::sdy::MeshAttr::getAxisSize(llvm::StringRef) const) in archive lib/libSdyDialect.a
-clang++-17: error: linker command failed with exit code 1 (use -v to see invocation)
+clang++-20: error: linker command failed with exit code 1 (use -v to see invocation)
   ```
   - This error pattern is similar to the file renaming issue but occurs when new files are added to Bazel build targets without corresponding updates to our CMake equivalents. To resolve this, examine the Shardy environment directory (e.g., `/opt/ttmlir-toolchain/src/shardy/shardy/common/CMakeLists.txt`) and ensure all .cc files are included in the library definition. For example:
   ```cpp
