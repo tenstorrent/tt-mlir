@@ -2270,8 +2270,8 @@ public:
     auto semaphorePtr =
         rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
 
-    rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreWaitOp>(op, semaphorePtr,
-                                                              op.getValue());
+    rewriter.replaceOpWithNewOp<ttkernel::SemaphoreWaitOp>(op, semaphorePtr,
+                                                           op.getValue());
     if (op.getResetValue()) {
       rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
                                                    op.getResetValue());
@@ -2327,8 +2327,8 @@ public:
           op, fcm, meshId, startDeviceId, globalSemAddr, incr);
     }
 
-    rewriter.create<ttkernel::NocSemaphoreWaitOp>(op.getLoc(), globalSemPtr,
-                                                  numReceivers);
+    rewriter.create<ttkernel::SemaphoreWaitOp>(op.getLoc(), globalSemPtr,
+                                               numReceivers);
 
     return success();
   }
