@@ -10,7 +10,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -735,9 +734,6 @@ SDPAFusing::matchAndRewrite(MatmulOp srcOp,
 
 mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
                                              SDPAComponents &c) const {
-  op_model::ScopedSingletonDeviceGuard deviceGuard(
-      c.attentionMatmul.getOperation());
-
   float scale = c.scale.value_or(1.0f);
   FloatAttr scaleAttr = rewriter.getF32FloatAttr(scale);
 
