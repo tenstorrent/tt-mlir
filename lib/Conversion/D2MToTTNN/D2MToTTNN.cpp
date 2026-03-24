@@ -845,10 +845,14 @@ public:
     // For now, additional args are only appended in order without extra policy.
     // If we need special handling later (e.g., dedup, ordering, or mapping
     // rules), this path will need to be extended.
+    // Keys match flat operand indices on ttnn.generic (IO operands first, then
+    // additional_args), same as ttkernel ArgAttr operand_index for globals.
+    const size_t ioOperandCount = generic.getInputsAndOutputs().size();
     for (const auto [idx, _] : llvm::enumerate(generic.getAdditionalArgs())) {
       size_t localIdx = static_cast<size_t>(idx);
+      size_t flatOperandIdx = ioOperandCount + localIdx;
       additionalArgMap_.insert(
-          {{generic, localIdx}, nextAdditionalUnified_ + localIdx});
+          {{generic, flatOperandIdx}, nextAdditionalUnified_ + localIdx});
     }
     nextAdditionalUnified_ += generic.getAdditionalArgs().size();
     for (Value additionalArg : generic.getAdditionalArgs()) {
@@ -870,11 +874,12 @@ public:
     return std::nullopt;
   }
 
-  // Keys use the index within getAdditionalArgs(). Returns flat merged
-  // operand index (unified IO count + additional slot).
+  // Key is flat operand index on the pre-merge generic (IO operands then
+  // additional_args). Returns flat merged operand index (unified IO count +
+  // additional slot).
   std::optional<size_t> lookupAdditional(ttnn::GenericOp generic,
-                                         size_t localAdditionalIdx) const {
-    auto it = additionalArgMap_.find({generic, localAdditionalIdx});
+                                         size_t flatOperandIndex) const {
+    auto it = additionalArgMap_.find({generic, flatOperandIndex});
     if (it != additionalArgMap_.end()) {
       return unifiedIO_.size() + it->second;
     }
