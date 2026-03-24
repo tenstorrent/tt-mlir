@@ -494,11 +494,13 @@ void createTTNNToEmitPyDevicePipeline(
       devicePm.addPass(createTTNNCreateInputGenerators());
     }
 
-    // Create main_for_test wrapper for frontend-driven execution (e.g.
-    // PythonModelRunner). This must run after the input generator/loader
+    // Optionally create main_for_test wrapper for frontend-driven execution
+    // (e.g. PythonModelRunner). This must run after the input generator/loader
     // pass so that _main already exists.
     //
-    devicePm.addPass(createTTNNCreateMainForTest());
+    if (options.createMainForTest) {
+      devicePm.addPass(createTTNNCreateMainForTest());
+    }
   }
 
   devicePm.addPass(createTTNNPrepareConstEvalCaching());
@@ -518,7 +520,8 @@ void createTTNNToEmitPyDevicePipeline(
   // applyFullConversion.
   //
   ConvertTTNNToEmitPyOptions emitpyOptions;
-  emitpyOptions.targetModule = true;
+  emitpyOptions.targetModule =
+      options.targetModule || options.createMainForTest;
   devicePm.addPass(createConvertTTNNToEmitPyPass(emitpyOptions));
 
   devicePm.addPass(createEmitPyConstEvalCachingPass());

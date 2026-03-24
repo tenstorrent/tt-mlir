@@ -6,8 +6,6 @@
 
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/runtime.h"
-#include "ttnn/operations/core/core.hpp"
-#include "ttnn/operations/creation.hpp"
 
 #include <cstdlib>
 #include <iostream>
