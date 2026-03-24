@@ -2021,10 +2021,10 @@ void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
         mlir::cast<RankedTensorType>(permuteOp.getType()).getShape();
     auto outShape =
         mlir::cast<RankedTensorType>(trailingReshape.getType()).getShape();
-    int64_t n = permuteOutShape.size() - outShape.size();
-    if (n <= 0) {
+    if (outShape.size() >= permuteOutShape.size()) {
       return failure();
     }
+    int64_t n = permuteOutShape.size() - outShape.size();
     if (!llvm::all_of(permuteOutShape.take_front(n),
                       [](int64_t d) { return d == 1; })) {
       return failure();
@@ -2049,14 +2049,15 @@ void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
     }
 
     // Build the new input reshape shape (drop leading 1s from permute input).
-    auto permuteInShape =
-        mlir::cast<RankedTensorType>(permuteOp.getInput().getType()).getShape();
+    auto permuteInType =
+        mlir::cast<RankedTensorType>(permuteOp.getInput().getType());
+    auto permuteInShape = permuteInType.getShape();
     SmallVector<int64_t> newMidShape(permuteInShape.drop_front(n));
 
     // Create new reshape: original input → reduced rank.
-    auto newMidType = RankedTensorType::get(
-        newMidShape, mlir::cast<RankedTensorType>(trailingReshape.getType())
-                         .getElementType());
+    auto newMidType =
+        RankedTensorType::get(newMidShape, permuteInType.getElementType(),
+                              permuteInType.getEncoding());
     SmallVector<int32_t> midShapeAttr(newMidShape.begin(), newMidShape.end());
     auto newReshape = rewriter.create<mlir::tt::ttir::ReshapeOp>(
         leadingReshape.getLoc(), newMidType, leadingReshape.getInput(),
@@ -2067,9 +2068,9 @@ void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
     for (int64_t i : newPerm) {
       newOutShape.push_back(newMidShape[i]);
     }
+    auto trailingType = mlir::cast<RankedTensorType>(trailingReshape.getType());
     auto newOutType = RankedTensorType::get(
-        newOutShape, mlir::cast<RankedTensorType>(trailingReshape.getType())
-                         .getElementType());
+        newOutShape, trailingType.getElementType(), trailingType.getEncoding());
     auto newPermute = rewriter.create<mlir::tt::ttir::PermuteOp>(
         permuteOp.getLoc(), newOutType, newReshape.getResult(), newPerm);
 
