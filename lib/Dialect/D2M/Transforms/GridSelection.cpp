@@ -853,8 +853,8 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
       auto viewTensorType = mlir::cast<RankedTensorType>(
           utils::reblockShapedType(inputType, inputOptimalGrid));
       builder.setInsertionPoint(compositeView);
-      auto view = builder.create<d2m::ViewLayoutOp>(compositeView.getLoc(),
-                                                    viewTensorType, input);
+      auto view = d2m::ViewLayoutOp::create(builder, compositeView.getLoc(),
+                                            viewTensorType, input);
       reblockedInputs.push_back(view.getResult());
     }
 
@@ -864,8 +864,8 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
         tensorWithOptimalGrid(outType, config, info.grid, builder);
 
     builder.setInsertionPoint(compositeView);
-    auto newCompositeView = builder.create<d2m::CompositeViewOp>(
-        compositeView.getLoc(), newOutType, reblockedInputs,
+    auto newCompositeView = d2m::CompositeViewOp::create(
+        builder, compositeView.getLoc(), newOutType, reblockedInputs,
         compositeView.getDim());
 
     compositeView.getResult().replaceAllUsesWith(newCompositeView.getResult());
