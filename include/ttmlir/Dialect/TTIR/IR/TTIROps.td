@@ -3693,65 +3693,6 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d", [DeclareOpInterfac
     let hasVerifier = 1;
 }
 
-def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
-    let summary = "Gather operation.";
-    let description = [{
-      The `gather` operation collects slices from an input tensor at positions specified by start indices.
-
-      This operation is based on the StableHLO Gather operation (https://openxla.org/stablehlo/spec#gather) and
-      allows for flexible slicing and indexing of tensors. It can be used to implement operations like array
-      indexing, slicing, dynamic indexing, and more complex gathering patterns.
-
-      Example:
-      ```mlir
-      // Basic gather example: gather elements from a 2D tensor using indices
-      %input = ... : tensor<5x3xf32>         // Input tensor with shape [5,3]
-      %indices = ... : tensor<2xi64>         // Indices tensor with values [2, 1]
-      %result = ttir.gather(%input, %indices) {
-          offset_dims = [0],                 // Output dimensions that are gathered from input
-          collapsed_slice_dims = [0],        // Input dimensions that are collapsed
-          operand_batching_dims = [],        // Batch dimensions of the input
-          start_indices_batching_dims = [],  // Batch dimensions of the indices
-          start_index_map = [0],             // Maps indices to input dimensions
-          index_vector_dim = 0,              // Which dimension of indices contains the index vector
-          slice_sizes = [1, 3],              // Size of the slice to extract from each position
-          indices_are_sorted = false         // Whether indices are sorted
-      } : (tensor<5x3xf32>, tensor<2xi64>) -> tensor<3xf32>
-
-      // This gathers a slice of size [1,3] starting at position [2,0] from the input tensor,
-      // which results in the values from the third row of the input tensor.
-      ```
-
-      Inputs:
-      - `input` (Tensor): The tensor from which to gather values.
-      - `start_indices` (Tensor): Tensor containing the starting indices for slices.
-
-      Attributes:
-      - `offset_dims` (Array of Integer): Output dimensions that correspond to dimensions of the gathered slice.
-      - `collapsed_slice_dims` (Array of Integer): Input dimensions that are collapsed when gathering.
-      - `operand_batching_dims` (Array of Integer): Batch dimensions of the input tensor.
-      - `start_indices_batching_dims` (Array of Integer): Batch dimensions of the indices tensor.
-      - `start_index_map` (Array of Integer): Maps index values to input dimensions.
-      - `index_vector_dim` (Integer): Which dimension of indices contains the index vector.
-      - `slice_sizes` (Array of Integer): Size of the slice to extract from each position.
-      - `indices_are_sorted` (Boolean): Whether indices are sorted (for optimization).
-
-      Output:
-      - `result` (Tensor): The gathered tensor.
-    }];
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$start_indices,
-                         DenseI64ArrayAttr:$offset_dims,
-                         DenseI64ArrayAttr:$collapsed_slice_dims,
-                         DenseI64ArrayAttr:$operand_batching_dims,
-                         DenseI64ArrayAttr:$start_indices_batching_dims,
-                         DenseI64ArrayAttr:$start_index_map,
-                         SI64Attr:$index_vector_dim,
-                         DenseI64ArrayAttr:$slice_sizes,
-                         BoolAttr:$indices_are_sorted);
-    let results = (outs AnyRankedTensor:$result);
-}
-
 def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
   let summary = "2D average pooling operation.";
   let description = [{
