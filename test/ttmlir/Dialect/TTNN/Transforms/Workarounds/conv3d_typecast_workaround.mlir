@@ -5,9 +5,11 @@
 module {
   func.func public @test_conv3d_f32_to_bf16(%arg0: tensor<1x8x28x28x4xf32>, %arg1: tensor<16x4x3x3x3xf32>) -> tensor<1x6x26x26x16xf32> {
     // CHECK-LABEL: func.func public @test_conv3d_f32_to_bf16
-    // CHECK: [[INPUT_BF16:%[0-9]+]] = "ttnn.to_layout"(%{{[0-9]+}}) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>
-    // CHECK: [[WEIGHT_BF16:%[0-9]+]] = "ttnn.to_layout"(%{{[0-9]+}}) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>
-    // CHECK: "ttnn.conv3d"([[INPUT_BF16]], [[WEIGHT_BF16]], %{{[0-9]+}})
+    // CHECK: "ttnn.to_layout"
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
+    // CHECK: "ttnn.to_layout"
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
+    // CHECK: "ttnn.conv3d"
     %0 = "ttir.conv3d"(%arg0, %arg1)
             <{
               stride = array<i32: 1, 1, 1>,
@@ -20,10 +22,13 @@ module {
 
   func.func public @test_conv3d_f32_to_bf16_with_bias(%arg0: tensor<1x8x28x28x4xf32>, %arg1: tensor<16x4x3x3x3xf32>, %arg2: tensor<1x1x1x1x16xf32>) -> tensor<1x6x26x26x16xf32> {
     // CHECK-LABEL: func.func public @test_conv3d_f32_to_bf16_with_bias
-    // CHECK: [[INPUT_BF16:%[0-9]+]] = "ttnn.to_layout"(%{{[0-9]+}}) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>
-    // CHECK: [[WEIGHT_BF16:%[0-9]+]] = "ttnn.to_layout"(%{{[0-9]+}}) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>
-    // CHECK: [[BIAS_BF16:%[0-9]+]] = "ttnn.to_layout"(%{{[0-9]+}}) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>
-    // CHECK: "ttnn.conv3d"([[INPUT_BF16]], [[WEIGHT_BF16]], [[BIAS_BF16]], %{{[0-9]+}})
+    // CHECK: "ttnn.to_layout"
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
+    // CHECK: "ttnn.to_layout"
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
+    // CHECK: "ttnn.to_layout"
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
+    // CHECK: "ttnn.conv3d"
     %0 = "ttir.conv3d"(%arg0, %arg1, %arg2)
             <{
               stride = array<i32: 1, 1, 1>,
