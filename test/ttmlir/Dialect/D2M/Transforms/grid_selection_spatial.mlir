@@ -13,9 +13,9 @@ module attributes {ttcore.device = #any_device} {
       -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout> {
     %0 = d2m.empty() : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
     // CHECK: d2m.spatial
-    // CHECK-SAME: grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0,0), (1,1)>]>
+    // CHECK-SAME: grid_ranges = [#ttcore.core_range<(0,0), (1,1)>]
     %1 = d2m.spatial {
-      grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0, 0), (1, 1)>]>
+      grid_ranges = [#ttcore.core_range<(0, 0), (1, 1)>]
     } ins() outs(%0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>) {
       ^region_0:
         %2 = d2m.generic {
@@ -47,9 +47,9 @@ module attributes {ttcore.device = #any_device} {
       -> tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1> {
     %0 = d2m.empty() : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>
     // CHECK: d2m.spatial
-    // CHECK-SAME: grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0,0), (0,0)>]>
+    // CHECK-SAME: grid_ranges = [#ttcore.core_range<(0,0), (0,0)>]
     %1 = d2m.spatial {
-      grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0, 0), (0, 0)>]>
+      grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>]
     } ins() outs(%0 : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>) {
       ^region_0:
         %2 = d2m.generic {
@@ -90,8 +90,8 @@ module attributes {ttcore.device = #any_device} {
     %view0 = d2m.view_layout %0 remapping = #id : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1> -> tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>
     %view1 = d2m.view_layout %1 remapping = #id : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout> -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
     // CHECK: d2m.spatial
-    // CHECK-SAME: grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0,0), (0,0)>, #ttcore.core_range<(1,1), (2,2)>]>
-    %2:2 = d2m.spatial {grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (2, 2)>]>}
+    // CHECK-SAME: grid_ranges = [#ttcore.core_range<(0,0), (0,0)>, #ttcore.core_range<(1,1), (2,2)>]
+    %2:2 = d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (2, 2)>]}
         ins() outs(%view0, %view1 : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>, tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>) {
       ^region_0:
         %3 = d2m.generic {
@@ -161,7 +161,7 @@ module attributes {ttcore.device = #any_device} {
     // CHECK-SAME: #ttcore.core_range<(0,4), (3,7)>
     // CHECK-SAME: #ttcore.core_range<(4,0), (7,3)>
     // CHECK-SAME: #ttcore.core_range<(4,4), (7,7)>
-    %4:4 = d2m.spatial {grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0, 0), (3, 3)>, #ttcore.core_range<(0, 4), (3, 7)>, #ttcore.core_range<(4, 0), (7, 3)>, #ttcore.core_range<(4, 4), (7, 7)>]>}
+    %4:4 = d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (3, 3)>, #ttcore.core_range<(0, 4), (3, 7)>, #ttcore.core_range<(4, 0), (7, 3)>, #ttcore.core_range<(4, 4), (7, 7)>]}
         ins() outs(%view0, %view1, %view2, %view3 : tensor<4x4x1x1x!ttcore.tile<32x32, f32>, #layout_4x4>, tensor<4x4x1x1x!ttcore.tile<32x32, f32>, #layout_4x4>, tensor<4x4x1x1x!ttcore.tile<32x32, f32>, #layout_4x4>, tensor<4x4x1x1x!ttcore.tile<32x32, f32>, #layout_4x4>) {
       ^region_0:
         %g0 = d2m.generic {
@@ -245,7 +245,7 @@ module attributes {ttcore.device = #any_device} {
     %0 = d2m.empty() : tensor<64x64xf32, #ttnn_layout_vgm>
     %1 = ttir.ttnn_metal_layout_cast %0 {virtual_grid_forward_mapping = #map_vgm_fwd, virtual_grid_inverse_mapping = #map_vgm_inv} : tensor<64x64xf32, #ttnn_layout_vgm> -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_cast>
     %2 = d2m.spatial {
-      grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(2, 2), (2, 2)>]>
+      grid_ranges = [#ttcore.core_range<(2, 2), (2, 2)>]
     } ins() outs(%1 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_cast>) {
     ^region_0:
       %3 = d2m.generic {

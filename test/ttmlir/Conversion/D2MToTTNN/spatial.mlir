@@ -53,7 +53,7 @@ module {
     %stream_tc1_0 = "d2m.stream_layout"(%cast, %alloc_tc1_0) <{remapping = #map3}> : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 2>, #l1_1>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %alloc_tc1_1 = memref.alloc() {address = 169248 : i64, alignment = 16 : i64} : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>
     %stream_tc1_1 = "d2m.stream_layout"(%cast_0, %alloc_tc1_1) <{remapping = #map3}> : (memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>) -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
-    d2m.spatial {grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0, 0), (0, 0)>]>}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>]}
         ins(%cast, %cast_0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>)
         outs(%cast_1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>) {
       ^region_0:
@@ -128,7 +128,7 @@ module {
     %stream_tc2_r0 = "d2m.stream_layout"(%cast, %alloc_tc2_r0) <{remapping = #map3}> : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 2>, #l1_1>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %alloc_tc2_r1 = memref.alloc() {address = 169248 : i64, alignment = 16 : i64} : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>
     %stream_tc2_r1 = "d2m.stream_layout"(%cast_0, %alloc_tc2_r1) <{remapping = #map3}> : (memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>) -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
-    d2m.spatial {grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]>}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]}
         ins(%cast, %cast_0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>)
         outs(%cast_1, %cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>) {
       ^region_0:
@@ -220,7 +220,7 @@ module {
     %stream_tc3_r1_0 = "d2m.stream_layout"(%cast, %alloc_tc3_r1_0) <{remapping = #map3}> : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 2>, #l1_1>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %alloc_tc3_r1_1 = memref.alloc() {address = 169248 : i64, alignment = 16 : i64} : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>
     %stream_tc3_r1_1 = "d2m.stream_layout"(%cast_0, %alloc_tc3_r1_1) <{remapping = #map3}> : (memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>) -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
-    d2m.spatial {grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]>}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]}
         ins(%cast, %cast, %cast_0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>)
         outs(%cast_1, %cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>) {
       ^region_0:
@@ -299,7 +299,7 @@ module {
     %stream_tc4_r1_0 = "d2m.stream_layout"(%cast, %alloc_tc4_r1_0) <{remapping = #map3}> : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 2>, #l1_1>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %alloc_tc4_r1_1 = memref.alloc() {address = 300000 : i64, alignment = 16 : i64} : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>
     %stream_tc4_r1_1 = "d2m.stream_layout"(%cast_0, %alloc_tc4_r1_1) <{remapping = #map3}> : (memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>) -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
-    d2m.spatial {grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]>}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]}
         ins(%cast, %cast_0, %cast, %cast_0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>)
         outs(%cast_1, %cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>) {
       ^region_0:
@@ -373,7 +373,7 @@ module {
     %stream_tc5_r0 = "d2m.stream_layout"(%cast, %alloc_tc5_r0) <{remapping = #map3}> : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 2>, #l1_1>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %alloc_tc5_r1 = memref.alloc() {address = 169248 : i64, alignment = 16 : i64} : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>
     %stream_tc5_r1 = "d2m.stream_layout"(%cast_0, %alloc_tc5_r1) <{remapping = #map3}> : (memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>) -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
-    d2m.spatial {grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]>}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]}
         ins(%cast, %cast_0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>)
         outs(%cast_1, %cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>) {
       ^region_0:
@@ -452,7 +452,7 @@ module {
     %stream_tc6_r0 = "d2m.stream_layout"(%cast, %alloc_tc6) <{remapping = #map3}> : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 2>, #l1_1>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %alloc_tc6_1 = memref.alloc() {address = 169248 : i64, alignment = 16 : i64} : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>
     %stream_tc6_r1 = "d2m.stream_layout"(%cast_0, %alloc_tc6_1) <{remapping = #map3}> : (memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>) -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
-    d2m.spatial {grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]>}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]}
         ins(%cast, %cast_0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>)
         outs(%cast_1, %cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>) {
       ^region_0:

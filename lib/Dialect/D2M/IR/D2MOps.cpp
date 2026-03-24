@@ -2173,16 +2173,15 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
 }
 // Spatialop verification
 ::mlir::LogicalResult d2m::SpatialOp::verify() {
-  auto gridRanges = getGridRanges();
-  auto coreRanges = gridRanges.getCoreRanges();
+  mlir::ArrayAttr gridRangesAttr = getGridRanges();
 
   // Check that grid_ranges has at least 1 CoreRange
-  if (coreRanges.empty()) {
+  if (!gridRangesAttr || gridRangesAttr.empty()) {
     return emitOpError("grid_ranges must contain at least one CoreRange");
   }
 
   // Check that the number of CoreRanges matches the number of Regions
-  size_t numCoreRanges = coreRanges.size();
+  size_t numCoreRanges = gridRangesAttr.size();
   size_t numRegions = getNumRegions();
 
   if (numCoreRanges != numRegions) {
@@ -2195,7 +2194,9 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
   // within the region: when mapping is empty, compare shape only; when
   // mapping is present, require virtual grid contained in region's virtual
   // bbox.
-  for (auto [region, coreRange] : llvm::zip(getRegions(), coreRanges)) {
+  for (auto [region, rangeAttr] :
+       llvm::zip(getRegions(), gridRangesAttr.getValue())) {
+    auto coreRange = mlir::cast<ttcore::CoreRangeAttr>(rangeAttr);
     utils::BoundingBox regionBox;
     regionBox.start = {coreRange.getStartCoord().getY(),
                        coreRange.getStartCoord().getX()};

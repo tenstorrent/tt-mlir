@@ -1022,14 +1022,15 @@ static LogicalResult convertSingleSpatial(d2m::SpatialOp spatialOp,
     remapTable.addOperands(generic);
   }
 
-  ArrayRef<ttcore::CoreRangeAttr> spatialGridRanges =
-      spatialOp.getGridRanges().getCoreRanges();
+  mlir::ArrayAttr spatialGridRanges = spatialOp.getGridRanges();
   SmallVector<Attribute> mergedKernels;
   SmallVector<ttnn::KernelCBAttr> mergedCBs;
   SmallVector<ttnn::KernelSemaphoreAttr> mergedSemaphores;
   for (const auto [regionIdx, generic] : llvm::enumerate(regionGenerics)) {
+    auto regionCoreRange =
+        mlir::cast<ttcore::CoreRangeAttr>(spatialGridRanges[regionIdx]);
     ttnn::CoreRangeSetAttr gridCoreRanges =
-        ttCoreRangeToTtnnCoreRangeSet(ctx, spatialGridRanges[regionIdx]);
+        ttCoreRangeToTtnnCoreRangeSet(ctx, regionCoreRange);
     auto program = llvm::cast<ttnn::ProgramAttr>(generic.getProgram());
     for (Attribute kernelAttr : program.getKernels()) {
       mergedKernels.push_back(remapSpatialKernelDescriptor(

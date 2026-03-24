@@ -1235,10 +1235,11 @@ private:
     mlir::Region *region = genericOp->getParentRegion();
     if (auto spatialOp =
             mlir::dyn_cast<d2m::SpatialOp>(region->getParentOp())) {
-      auto coreRanges = spatialOp.getGridRanges().getCoreRanges();
+      mlir::ArrayAttr gridRangesAttr = spatialOp.getGridRanges();
       unsigned regionIndex = region->getRegionNumber();
-      if (regionIndex < coreRanges.size()) {
-        ttcore::CoreRangeAttr range = coreRanges[regionIndex];
+      if (gridRangesAttr && regionIndex < gridRangesAttr.size()) {
+        ttcore::CoreRangeAttr range =
+            mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr[regionIndex]);
         return {range.getEndCoord().getY() - range.getStartCoord().getY() + 1,
                 range.getEndCoord().getX() - range.getStartCoord().getX() + 1};
       }

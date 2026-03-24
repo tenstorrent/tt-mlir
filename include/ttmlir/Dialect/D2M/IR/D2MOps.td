@@ -446,7 +446,7 @@ def D2M_SpatialOp: D2M_Op<"spatial",
 
     let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
                          Variadic<AnyRankedTensorOrMemRef>:$outputs,
-                         TTCore_CoreRangeSetAttr:$grid_ranges);
+                         TTCore_CoreRangeArrayAttr:$grid_ranges);
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
 

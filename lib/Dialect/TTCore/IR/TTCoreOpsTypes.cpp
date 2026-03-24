@@ -1825,25 +1825,4 @@ bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
 
   return ::llvm::success();
 }
-::llvm::LogicalResult CoreRangeSetAttr::verify(
-    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    llvm::ArrayRef<mlir::tt::ttcore::CoreRangeAttr> coreRanges) {
-  if (coreRanges.size() < 2) {
-    return ::llvm::success();
-  }
-
-  // Check each pair of core ranges for intersections
-  for (size_t i = 0; i < coreRanges.size() - 1; ++i) {
-    for (size_t j = i + 1; j < coreRanges.size(); ++j) {
-      CoreRangeAttr firstCoreRange = coreRanges[i];
-      CoreRangeAttr secondCoreRange = coreRanges[j];
-      if (firstCoreRange.intersects(secondCoreRange)) {
-        return emitError() << "Core ranges overlap: " << firstCoreRange
-                           << " and " << secondCoreRange;
-      }
-    }
-  }
-
-  return ::llvm::success();
-}
 } // namespace mlir::tt::ttcore

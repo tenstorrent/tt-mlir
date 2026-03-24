@@ -794,37 +794,7 @@ def TTCore_CoreRangeAttr: TTCore_Attr<"CoreRange", "core_range"> {
   let genVerifyDecl = 1;
 }
 
-def TTCore_CoreRangeSetAttr: TTCore_Attr<"CoreRangeSet", "core_range_set"> {
-  let summary = "Represents a set of core ranges in the core grid";
-  let description = [{
-    Defines a collection of core ranges within the core grid.
-    No two core ranges in the set should intersect.
+def TTCore_CoreRangeArrayAttr : TypedArrayAttrBase<
+    TTCore_CoreRangeAttr, "ordered array of ttcore core_range attributes">;
 
-    Parameters:
-    - `core_ranges`: An array of core ranges
-
-    Constraints:
-    - The set must contain non-intersecting core ranges
-    - Can be empty (no ranges)
-
-    Example:
-
-    ```mlir
-    // Define empty core range set
-    #empty_core_range_set = #ttcore.core_range_set<>
-
-    // Define three non-intersecting core ranges
-    #core_range_set = #ttcore.core_range_set<[
-      #ttcore.core_range<(0, 0), (2, 2)>,
-      #ttcore.core_range<(3, 3), (5, 5)>,
-      #ttcore.core_range<(6, 0), (7, 4)>
-    ]>
-    ```
-  }];
-
-  let parameters = (ins OptionalArrayRefParameter<"CoreRangeAttr">:$core_ranges);
-  let assemblyFormat = "`<` (`[` qualified($core_ranges)^ `]`)? `>`";
-
-  let genVerifyDecl = 1;
-}
 #endif // TTMLIR_DIALECT_TTCore_IR_TTCOREOPSTYPES_TD
