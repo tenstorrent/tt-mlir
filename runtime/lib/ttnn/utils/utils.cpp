@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <memory>
+#include <ostream>
 
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
@@ -386,11 +387,26 @@ fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange) {
 
 tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
+  std::cout << "toTNNNCoreRangeSet: " << std::endl;
   std::set<tt::tt_metal::CoreRange> coreRanges;
-  for (const tt::target::ttnn::CoreRange *coreRange :
-       *coreRangeSet.core_ranges()) {
-    coreRanges.emplace(toTTNNCoreRange(*coreRange));
+  if(coreRangeSet.core_ranges() == nullptr) {
+    std::cout << "core_ranges() is null" << std::endl;
+  } else {
+    std::cout << "core_ranges() is not null" << std::endl;
+    std::cout << "Number of core ranges: " << coreRangeSet.core_ranges()->size()
+            << std::endl;
   }
+  // if(coreRangeSet.core_ranges()->size() == 65536) {
+  //   std::cout << "CORE.RANGE.size = 65536" << std::endl;
+  // } else {
+  if (coreRangeSet.core_ranges() != nullptr) {
+    for (const tt::target::ttnn::CoreRange *coreRange :
+         *coreRangeSet.core_ranges()) {
+      coreRanges.emplace(toTTNNCoreRange(*coreRange));
+    }
+  }
+  // }
+
   return tt::tt_metal::CoreRangeSet(coreRanges);
 }
 

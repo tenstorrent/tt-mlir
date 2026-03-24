@@ -5,6 +5,7 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/workarounds.h"
+#include <iostream>
 
 namespace tt::runtime::ttnn::operations::utils {
 
@@ -334,6 +335,10 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOp *op) {
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   ::ttnn::Conv2dConfig conv2dConfig;
 
+  // config->UnPackTo(configNativeObj);;
+  // return createConv2dConfig(configNativeObj);
+  /// everything below goes to new function that takes Conv2dConfigT as input
+
   if (config->weights_dtype()) {
     conv2dConfig.weights_dtype =
         ::tt::runtime::ttnn::utils::toTTNNDataType(*config->weights_dtype());
@@ -375,7 +380,18 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
             *config->shard_layout());
   }
 
+  std::cout << "config->core_grid() = " << config->core_grid() << std::endl;       
   if (config->core_grid()) {
+    std::cout << "CORE_RANGE: " << config->core_grid() << config->core_grid()->core_ranges() << std::endl;
+    
+    // for(const auto *el : *config->core_grid()->core_ranges()) {
+      // static int i = 0;
+      // if(i++ > 10) break;
+      // std::cout << "(" << el->start_coord().x() << ", " << el->start_coord().y() << "), (" << el->end_coord().x() << ", " << el->end_coord().y() << "), ";
+    // }
+    std::cout << "\nEND:" << std::endl;
+    //(562949953486848, 0), (281474976841728, 562949953486848)
+    //Invalid core range for start_coord: (x=562949953486848,y=0), end_coord: (x=281474976841728,y=562949953486848)
     conv2dConfig.core_grid = std::make_optional(
         ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*config->core_grid()));
   }
