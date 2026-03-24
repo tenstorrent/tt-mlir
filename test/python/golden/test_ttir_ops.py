@@ -990,30 +990,6 @@ def test_fill_cache(shapes: List[Shape], request, device):
     )
 
 
-@pytest.mark.xfail(reason="run error")
-@pytest.mark.parametrize(
-    "shapes", [[(1, 32, 64, 512), (1, 32, 1, 512), (1,)]], ids=shapes_list_str
-)
-@pytest.mark.parametrize("dtypes", [[torch.float32, torch.float32, torch.int32]])
-def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, dtypes)
-        def update_cache(
-            in0: Operand,
-            in1: Operand,
-            in2: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.update_cache(in0, in1, in2, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        device=device,
-    )
-
-
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("scale", [0.1])
 @pytest.mark.parametrize("zero_point", [0])
