@@ -11,6 +11,8 @@
 #vgm_inv = affine_map<(d0, d1) -> (0, d0 - 2, d1)>
 #vgm_fwd = affine_map<(d0, d1) -> (d0 + 2, d1)>
 module  {
+  // CHECK-LABEL: func.func @multi_tanh_exp
+  // CHECK: "ttnn.generic"
   func.func @multi_tanh_exp(%shared_tensor: tensor<64x128xf32, #ttnn_layout>) -> (tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>) attributes {tt.function_type = "forward_device"} {
     %out_ttnn_0 = d2m.empty() : tensor<64x128xf32, #ttnn_layout>
     %out_ttnn_1 = d2m.empty() : tensor<64x128xf32, #ttnn_layout>

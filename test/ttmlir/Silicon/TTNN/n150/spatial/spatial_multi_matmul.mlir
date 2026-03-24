@@ -1,3 +1,7 @@
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path% ttnn-mode=true" -o %t.mlir %s
+// RUN: FileCheck %s --input-file=%t.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
+
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
 #layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, dram, interleaved>
@@ -17,6 +21,8 @@
 #ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = true>
 #ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), #ttcore.grid<1x1, (d0, d1) -> (0, d0 + 1, d1 + 1)>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = false>
 module {
+  // CHECK-LABEL: func.func @multi_matmul
+  // CHECK: "ttnn.generic"
   func.func @multi_matmul(%arg0: tensor<64x128xf32, #ttnn_layout>, %arg1: tensor<128x64xf32, #ttnn_layout1>) -> (tensor<64x64xf32, #ttnn_layout2>, tensor<64x64xf32, #ttnn_layout3>) attributes {tt.function_type = "forward_device"} {
     %in_cast_i_0 = ttir.ttnn_metal_layout_cast %arg0 : tensor<64x128xf32, #ttnn_layout> -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
     %in_cast_w_0 = ttir.ttnn_metal_layout_cast %arg1 : tensor<128x64xf32, #ttnn_layout1> -> tensor<1x1x4x2x!ttcore.tile<32x32, f32>, #layout1>
