@@ -920,14 +920,14 @@ applyMap<PatternRewriter>(PatternRewriter &builder, Location loc, AffineMap map,
 
 std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
 getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape) {
-  Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                 builder.getIndexAttr(0));
-  Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                builder.getIndexAttr(1));
+  Value zero = arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                         builder.getIndexAttr(0));
+  Value one = arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                        builder.getIndexAttr(1));
   SmallVector<Value> lbs(shardShape.size(), zero);
   SmallVector<Value> ubs(llvm::map_range(shardShape, [&](int64_t dim) {
-    return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                             builder.getIndexAttr(dim));
+    return arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                     builder.getIndexAttr(dim));
   }));
   SmallVector<Value> step(shardShape.size(), one);
   return std::make_tuple(lbs, ubs, step);
