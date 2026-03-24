@@ -1313,8 +1313,8 @@ LogicalResult d2m::CompositeViewOp::bufferize(
   }
 
   auto outMemrefType = mlir::cast<MemRefType>(*outMemrefTypeOr);
-  auto newOp = rewriter.create<d2m::CompositeViewOp>(
-      getLoc(), outMemrefType, bufferizedInputs, getDim());
+  auto newOp = d2m::CompositeViewOp::create(rewriter, getLoc(), outMemrefType,
+                                            bufferizedInputs, getDim());
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      newOp.getResult());
   return success();
