@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttir-decomposition --ttir-decompose-min-reduction --ttir-to-d2m --d2m-materialize-view-returns --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-decompose-min-reduction --ttir-to-d2m --d2m-materialize-view-returns --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verify that reduction ops set the correct identity OOB fill values on their
