@@ -14,7 +14,8 @@ static void runReductionOp(
     const ::tt::target::ttnn::ReductionOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &,
-        const std::optional<std::variant<int, ::ttsl::SmallVector<int>>> &,
+        const std::optional<
+            std::variant<int, int64_t, ::ttsl::SmallVector<int>>> &,
         const bool, const std::optional<::ttnn::MemoryConfig> &,
         const std::optional<::ttnn::DeviceComputeKernelConfig> &, float, bool,
         const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
