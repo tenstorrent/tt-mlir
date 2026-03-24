@@ -592,6 +592,30 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
     uint64_t l1Size =
         result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
     if (l1Size > 0) {
+      // Same contiguous-fit + CB frag checks as the main success path.
+      // Without these, ops that pass validation after eviction can still
+      // fail at runtime due to address-space fragmentation.
+      auto speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
+      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                   "    POST_OOM_FIT: l1Size={0}, speculativeAddr={1}, "
+                   "lowestOccupied={2}, occupied={3}/{4}, "
+                   "cbPeakUsage={5}",
+                   l1Size, speculativeAddr ? (int64_t)*speculativeAddr : -1,
+                   memoryTracker.getLowestOccupiedAddress(),
+                   memoryTracker.getOccupiedL1(), l1BudgetPerCore,
+                   result.cbPeakUsage);
+      if (!speculativeAddr) {
+        l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
+        speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
+      }
+      if (l1Size > 0 && speculativeAddr &&
+          wouldCBsOverlapTensors(op, pos, result.cbPeakUsage,
+                                 *speculativeAddr)) {
+        l1Size = handleFragmentation(op, pos, data, opL1Usage,
+                                     result.cbPeakUsage, l1Size);
+      }
+    }
+    if (l1Size > 0) {
       addResultsToLiveSet(l1Size);
       observer_->onLiveAdded(op, pos, l1Size, pos,
                              memoryTracker.getOccupiedL1());
@@ -800,12 +824,12 @@ bool L1SpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
     Operation *op, int64_t pos, uint64_t cbPeakUsage,
     uint64_t speculativeOutputAddr) {
   // Check if the op's CB region (growing bottom-up from base) would overlap
-  // with any live tensor or the speculative output tensor.
+  // with any live tensor or the speculative output tensor, OR if the
+  // fragmentation cushion alone exceeds the lowest tensor address (catches
+  // tight-fit scenarios where cbPeakUsage=0 but runtime allocator
+  // fragmentation from preceding ops' internal allocations can prevent
+  // contiguous allocation).
   // See: https://github.com/tenstorrent/tt-mlir/issues/7396
-  if (cbPeakUsage == 0) {
-    return false;
-  }
-
   uint64_t lowestExistingAddr = memoryTracker.getLowestOccupiedAddress();
   uint64_t effectiveLowest =
       std::min(speculativeOutputAddr, lowestExistingAddr);
