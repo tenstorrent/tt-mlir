@@ -225,7 +225,9 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
         memoryConfigOp) {
 
       MemoryConfigAttr currentMemoryConfig =
-          memoryConfigOp.getMemoryConfigAttr();
+          mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+              memoryConfigOp.getOperation())
+              .getMemoryConfigAttr();
 
       MemoryConfigAttr updatedMemoryConfig =
           MemoryConfigAttr::Builder(currentMemoryConfig)
@@ -235,7 +237,9 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
                   outputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
 
       // Update the changed memory config attribute.
-      memoryConfigOp.setMemoryConfigAttr(updatedMemoryConfig);
+      mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+          memoryConfigOp.getOperation())
+          .setMemoryConfigAttr(updatedMemoryConfig);
 
       TTNNDeviceOperandInterface deviceOperandOp =
           mlir::dyn_cast<TTNNDeviceOperandInterface>(op.getOperation());
@@ -448,8 +452,7 @@ public:
       reduceScatterInput = rewriter.create<ttnn::PadOp>(
           ttmlir::utils::appendLocationSuffix(loc, "_pad_for_reduce_scatter"),
           paddedType, op.getInput(), padding, /*pad_value=*/mlir::APFloat(0.0f),
-          /*use_multicore=*/false,
-          /*memory_config=*/nullptr);
+          /*use_multicore=*/false);
       reduceScatterInputType = paddedType;
     }
 
@@ -471,8 +474,7 @@ public:
         rewriter.create<ttnn::ReduceScatterOp>(
             ttmlir::utils::appendLocationSuffix(loc, "_reduce_scatter"),
             reduceScatterOutputType, reduceScatterInput, op.getReduceType(),
-            selectedDim, clusterAxis, nullptr, nullptr, nullptr, nullptr,
-            nullptr);
+            selectedDim, clusterAxis, nullptr, nullptr, nullptr, nullptr);
 
     // all_gather restores the reduce_scatter input shape.
     auto allGatherOutputType = ttnn::utils::RankedTensorTypeFactory::create(
@@ -480,8 +482,8 @@ public:
     ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_all_gather"),
         allGatherOutputType, reduceScatterOp.getResult(), selectedDim,
-        clusterAxis, nullptr /*sub_device_id*/, nullptr /*memory_config*/,
-        nullptr /*num_links*/, nullptr /*topology*/);
+        clusterAxis, nullptr /*sub_device_id*/, nullptr /*num_links*/,
+        nullptr /*topology*/);
 
     // If padding was added, crop back to the original shape.
     if (reduceScatterInputType.getShape() != inputType.getShape()) {
@@ -524,8 +526,7 @@ private:
 
     ttnn::ReshapeOp leadingReshapeOp = rewriter.create<ttnn::ReshapeOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_reshape"), reshapedInputType,
-        op.getInput(), reshapedInputShapeAttr,
-        /* memory_config */ nullptr);
+        op.getInput(), reshapedInputShapeAttr);
 
     // Create a new all gather op.
     expandedInputShape[0] = meshShape[clusterAxis];
@@ -535,8 +536,7 @@ private:
     ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
         allGatherOutputType, leadingReshapeOp.getResult(), 0, clusterAxis,
-        nullptr /*sub_device_id*/, nullptr /*memory_config*/,
-        nullptr /*num_links*/, nullptr /*topology*/);
+        nullptr /*sub_device_id*/, nullptr /*num_links*/, nullptr /*topology*/);
     // Create a new reduce op.
     ArrayAttr reduceDimAttr =
         rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});

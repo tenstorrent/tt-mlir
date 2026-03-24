@@ -15,13 +15,13 @@
 
 module {
     func.func @test(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> {
-        %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
+        %1 = "ttnn.to_memory_config"(%arg0) : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
 
         // CHECK-NOT: %{{[0-9]+}} = ttir.empty() : tensor<32x32xf32, #ttnn_layout1>
         // CHECK-NOT: %{{[0-9]+}} = "ttir.abs"(%{{[0-9]+}}, %{{[0-9]+}}) : (tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
         %2 = "ttnn.abs"(%1) : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
 
-        %3 = "ttnn.to_memory_config"(%2) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
+        %3 = "ttnn.to_memory_config"(%2) : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
 
         return %3 : tensor<32x32xf32, #dram_layout>
     }

@@ -14,7 +14,6 @@ module  {
 
     // f32 multiply gets converted to ttnn but stays as f32 (not bfp_bf8):
     // CHECK: "ttnn.multiply"
-    // CHECK-SAME: <{dtype = #ttcore.supportedDataTypes<f32>}>
     // CHECK-SAME: (tensor<32x32xf32{{.*}}>, tensor<32x32xf32{{.*}}>) -> tensor<32x32xf32{{.*}}>
 
     // ---- bf16 path (should be converted inside body to tile<bfp_bf8>) ----

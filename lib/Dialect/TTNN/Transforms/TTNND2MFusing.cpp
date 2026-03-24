@@ -241,7 +241,6 @@ private:
 
     // Get device for creating empty output buffers for DPS.
     auto device = utils::getOrInsertDevice(rewriter, firstOp);
-    ttcore::GridAttr deviceGrid = ttcore::lookupDevice(firstOp).getWorkerGrid();
     llvm::SmallVector<Type> inputTypes;
     llvm::transform(inputs, std::back_inserter(inputTypes),
                     [](Value v) { return v.getType(); });
@@ -260,11 +259,8 @@ private:
                                                  layoutAttr.getDataType());
       auto tensorLayoutAttr =
           LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
-      auto memoryConfigAttr = MemoryConfigAttr::get(layoutAttr, deviceGrid);
-
       auto emptyOp = rewriter.create<EmptyOp>(
-          loc, tensorType, device, shapeAttr, dtypeAttr, tensorLayoutAttr,
-          memoryConfigAttr);
+          loc, tensorType, device, shapeAttr, dtypeAttr, tensorLayoutAttr);
       outputBuffers.push_back(emptyOp.getResult());
       lastEmptyOp = emptyOp.getOperation();
     }

@@ -101,8 +101,7 @@ LogicalResult ReshapeNarrowTiledRewritePattern::matchAndRewrite(
 
   auto reshapeOp = rewriter.create<ttnn::ReshapeOp>(
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshape_wa_rm"),
-      rmOutputType, rmInputResult, op.getShapeAttr(),
-      /*memory_config=*/nullptr);
+      rmOutputType, rmInputResult, op.getShapeAttr());
 
   // Convert the reshaped result back to tiled layout.
   auto toTileOp = utils::createToLayoutOp(

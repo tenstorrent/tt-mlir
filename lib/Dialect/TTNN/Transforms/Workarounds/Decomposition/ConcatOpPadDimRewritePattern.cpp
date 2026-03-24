@@ -164,8 +164,7 @@ ConcatOpPadDimRewritePattern::matchAndRewrite(ttnn::ConcatOp op,
   // Create the new concat with padded inputs.
   auto newConcatOp = rewriter.create<ttnn::ConcatOp>(
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_padded_concat"),
-      paddedOutputType, paddedInputs, op.getDimAttr(),
-      op.getMemoryConfigAttr());
+      paddedOutputType, paddedInputs, op.getDimAttr());
 
   // Slice the result back to the original output shape.
   RankedTensorType originalOutputType = op.getResult().getType();

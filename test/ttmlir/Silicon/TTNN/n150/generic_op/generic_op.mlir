@@ -98,7 +98,7 @@ module {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
     // Move single tile from DRAM to L1
-    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #l1_memory_config}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
+    %1 = "ttnn.to_memory_config"(%arg0) : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
 
     // Allocate single tile in L1 for result
     %2 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #l1_memory_config, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
@@ -106,7 +106,7 @@ module {
     "ttnn.generic"(%1, %2) <{program = #program, operandSegmentSizes = array<i32: 2, 0>}> : (tensor<32x32xf32, #l1_layout>, tensor<32x32xf32, #l1_layout>) -> ()
 
     // Move single tile from L1 to DRAM
-    %3 = "ttnn.to_memory_config"(%2) <{memory_config = #dram_memory_config}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
+    %3 = "ttnn.to_memory_config"(%2) : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
 
     return %3 : tensor<32x32xf32, #dram_layout>
   }

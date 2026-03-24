@@ -12,7 +12,7 @@ module attributes {} {
   func.func @upsample2d_scale_unifrom(%arg0: tensor<4x32x64x3xf32, #ttnn_layout>) -> tensor<4x64x128x3xf32, #ttnn_layout1> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<4x32x64x3xf32, #ttnn_layout>) -> tensor<4x32x64x3xf32, #ttnn_layout2>
-    %2 = "ttnn.to_device"(%1, %0) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<4x32x64x3xf32, #ttnn_layout2>, !ttnn.device) -> tensor<4x32x64x3xf32, #ttnn_layout3>
+    %2 = "ttnn.to_device"(%1, %0) : (tensor<4x32x64x3xf32, #ttnn_layout2>, !ttnn.device) -> tensor<4x32x64x3xf32, #ttnn_layout3>
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<4x32x64x3xf32, #ttnn_layout2>) -> ()
     // CHECK: "ttnn.to_layout"
     // CHECK: "ttnn.to_layout"

@@ -38,7 +38,6 @@ GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Operation *op) {
       return deviceOp;
     }
   }
-
   ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
   auto currentInsertionPoint = rewriter.saveInsertionPoint();
   rewriter.setInsertionPoint(block, block->begin());
@@ -104,25 +103,13 @@ ToLayoutOp createToLayoutOp(Operation *op,
           mlir::tt::ttcore::dataTypeToElementType(rewriter.getContext(),
                                                   targetTensorDataType)),
       toLayoutOpResultEncoding);
-
-  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-
-  // Create the output memory config attribute.
-  ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
-      rewriter.getContext(), targetTensorMemoryLayout,
-      ttnn::BufferTypeAttr::get(rewriter.getContext(), targetTensorBufferType),
-      utils::createShardSpecIfNeeded(
-          mlir::cast<TTNNLayoutAttr>(toLayoutOpResultType.getEncoding()),
-          deviceAttr.getWorkerGrid()));
-
   Location loc = ttmlir::utils::appendLocationSuffix(op->getLoc(), locSuffix);
   // Create a ToLayoutOp to convert the input operand to the desired
   // tensor layout, buffer type and memory layout.
   return rewriter.create<ttnn::ToLayoutOp>(
       loc, toLayoutOpResultType, inputValue,
       LayoutAttr::get(rewriter.getContext(), targetTensorLayout),
-      ttcore::DataTypeAttr::get(rewriter.getContext(), targetTensorDataType),
-      outputMemConfigAttr);
+      ttcore::DataTypeAttr::get(rewriter.getContext(), targetTensorDataType));
 }
 
 } // namespace mlir::tt::ttnn::utils

@@ -250,6 +250,17 @@ mlir::Type TTNNLayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
 
+MemoryConfigAttr
+TTNNLayoutAttr::getMemoryConfigAttr(ttcore::GridAttr deviceGrid) const {
+  const auto memLayout = getMemLayout();
+
+  auto shardSpec = utils::createShardSpecIfNeeded(*this, deviceGrid);
+
+  return MemoryConfigAttr::get(
+      getContext(), memLayout,
+      mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()), shardSpec);
+}
+
 // If the element type is TileType, return the nested element type i.e
 // FloatType/IntegerType
 mlir::Type TTNNLayoutAttr::getScalarElementType() const {
@@ -1365,4 +1376,11 @@ bool TTNNNDLayoutAttr::isSharded() const {
 
 mlir::Type TTNNNDLayoutAttr::getElementType() const {
   return getMemref().getElementType();
+}
+
+MemoryConfigAttr TTNNNDLayoutAttr::getMemoryConfigAttr() const {
+  return MemoryConfigAttr::get(
+      getContext(), getMemLayout(),
+      mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()),
+      /*shardSpec=*/std::nullopt, utils::createNDShardSpecIfNeeded(*this));
 }

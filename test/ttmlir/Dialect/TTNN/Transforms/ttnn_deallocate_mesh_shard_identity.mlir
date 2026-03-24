@@ -12,7 +12,7 @@
 module {
   func.func @forward(%arg0: tensor<64x64xbf16, #host>) -> tensor<64x32xbf16, #perm> {
     %dev = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
-    %0 = "ttnn.to_device"(%arg0, %dev) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x64xbf16, #host>, !ttnn.device) -> tensor<64x64xbf16, #full>
+    %0 = "ttnn.to_device"(%arg0, %dev) : (tensor<64x64xbf16, #host>, !ttnn.device) -> tensor<64x64xbf16, #full>
     %1 = "ttnn.mesh_shard"(%0, %dev) <{shard_dims = array<i64: -1, 0>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 2, 1>, shard_type = #ttcore.shard_type<identity>}> : (tensor<64x64xbf16, #full>, !ttnn.device) -> tensor<32x64xbf16, #shard>
     %2 = "ttnn.permute"(%1) <{permutation = array<i64: 1, 0>}> : (tensor<32x64xbf16, #shard>) -> tensor<64x32xbf16, #perm>
     return %2 : tensor<64x32xbf16, #perm>

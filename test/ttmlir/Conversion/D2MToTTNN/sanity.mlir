@@ -29,7 +29,7 @@ module {
 
     // CHECK: %[[T1:.*]] = "ttnn.to_memory_config"
     // CHECK: %[[T2:.*]] = "ttnn.empty"
-    %ttnn_input_l1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #l1_memory_config}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
+    %ttnn_input_l1 = "ttnn.to_memory_config"(%arg0) : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
     %ttnn_output_l1 = d2m.empty() : tensor<32x32xf32, #l1_layout>
 
     // CHECK-NOT: ttir.ttnn_metal_layout_cast
@@ -80,7 +80,7 @@ module {
     // CHECK-NOT: ttir.ttnn_metal_layout_cast
     %output_l1 = ttir.ttnn_metal_layout_cast %metal_output_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>> -> tensor<32x32xf32, #l1_layout>
 
-    %output_dram = "ttnn.to_memory_config"(%output_l1) <{memory_config = #dram_memory_config}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
+    %output_dram = "ttnn.to_memory_config"(%output_l1) : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
     return %output_dram : tensor<32x32xf32, #dram_layout>
   }
   func.func @test_full() -> tensor<32x32xbf16, #l1_layout> {

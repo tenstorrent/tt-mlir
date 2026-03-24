@@ -54,7 +54,7 @@ ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern::matchAndRewrite(
       srcOp, srcOp.getResult().getType(), srcOp.getQuery(), srcOp.getKey(),
       srcOp.getValue(), srcOp.getIsCausal(), broadcastedMask,
       srcOp.getCurPosTensor(), srcOp.getAttentionSink(), srcOp.getScaleAttr(),
-      srcOp.getMemoryConfigAttr(), srcOp.getProgramConfigAttr());
+      srcOp.getProgramConfigAttr());
 
   return success();
 }

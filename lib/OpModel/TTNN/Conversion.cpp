@@ -357,16 +357,6 @@ getTensorMemoryLayout(const TensorMemoryLayoutAttr memLayoutAttr) {
   return getTensorMemoryLayout(tensorMemoryLayout);
 }
 
-::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout) {
-  auto tensorMemoryLayout = getTensorMemoryLayout(
-      layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved));
-  auto bufferType = getBufferType(layout);
-
-  auto shardSpec = getShardSpec(layout);
-  return ::tt::tt_metal::MemoryConfig(tensorMemoryLayout, bufferType,
-                                      shardSpec);
-}
-
 ::tt::tt_metal::MemoryConfig
 getMemoryConfig(const MemoryConfigAttr &memConfigAttr) {
   // Get tensor memory layout if available, otherwise use INTERLEAVED as default
@@ -390,6 +380,16 @@ getMemoryConfig(const MemoryConfigAttr &memConfigAttr) {
     shardSpec = getShardSpec(memConfigAttr.getShardSpec().value());
   }
 
+  return ::tt::tt_metal::MemoryConfig(tensorMemoryLayout, bufferType,
+                                      shardSpec);
+}
+
+::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout) {
+  auto tensorMemoryLayout = getTensorMemoryLayout(
+      layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved));
+  auto bufferType = getBufferType(layout);
+
+  auto shardSpec = getShardSpec(layout);
   return ::tt::tt_metal::MemoryConfig(tensorMemoryLayout, bufferType,
                                       shardSpec);
 }
