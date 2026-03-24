@@ -1956,6 +1956,98 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return nullptr;
 }
 
+// ReshapeOp canonicalization
+//
+// Fold Reshape(Permute(Reshape(x))) → Permute(Reshape(x)) when the trailing
+// reshape only removes leading unit dimensions. The permutation is adjusted to
+// operate at the lower rank.
+//
+// Example:
+//   reshape: 256x32 → 1x1x256x32
+//   permute [0,1,3,2]: 1x1x256x32 → 1x1x32x256
+//   reshape: 1x1x32x256 → 1x32x256
+// Becomes:
+//   reshape: 256x32 → 1x256x32
+//   permute [0,2,1]: 1x256x32 → 1x32x256
+//
+void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](mlir::tt::ttir::ReshapeOp trailingReshape,
+                   mlir::PatternRewriter &rewriter) -> LogicalResult {
+    auto permuteOp =
+        trailingReshape.getInput().getDefiningOp<mlir::tt::ttir::PermuteOp>();
+    if (!permuteOp || !permuteOp->hasOneUse()) {
+      return failure();
+    }
+
+    auto leadingReshape =
+        permuteOp.getInput().getDefiningOp<mlir::tt::ttir::ReshapeOp>();
+    if (!leadingReshape) {
+      return failure();
+    }
+
+    // Check that the trailing reshape only removes leading 1s.
+    auto permuteOutShape =
+        mlir::cast<RankedTensorType>(permuteOp.getType()).getShape();
+    auto outShape =
+        mlir::cast<RankedTensorType>(trailingReshape.getType()).getShape();
+    int64_t n = permuteOutShape.size() - outShape.size();
+    if (n <= 0) {
+      return failure();
+    }
+    if (!llvm::all_of(permuteOutShape.take_front(n),
+                      [](int64_t d) { return d == 1; })) {
+      return failure();
+    }
+    if (permuteOutShape.drop_front(n) != outShape) {
+      return failure();
+    }
+
+    // Check that the first n permuted dims come from the first n input dims
+    // (all unit dims mapping to unit dims).
+    auto perm = permuteOp.getPermutation();
+    for (int64_t i = 0; i < n; ++i) {
+      if (perm[i] >= n) {
+        return failure();
+      }
+    }
+
+    // Build the new lower-rank permutation.
+    SmallVector<int64_t> newPerm;
+    for (int64_t i = n; i < static_cast<int64_t>(perm.size()); ++i) {
+      newPerm.push_back(perm[i] - n);
+    }
+
+    // Build the new input reshape shape (drop leading 1s from permute input).
+    auto permuteInShape =
+        mlir::cast<RankedTensorType>(permuteOp.getInput().getType()).getShape();
+    SmallVector<int64_t> newMidShape(permuteInShape.drop_front(n));
+
+    // Create new reshape: original input → reduced rank.
+    auto newMidType = RankedTensorType::get(
+        newMidShape, mlir::cast<RankedTensorType>(trailingReshape.getType())
+                         .getElementType());
+    SmallVector<int32_t> midShapeAttr(newMidShape.begin(), newMidShape.end());
+    auto newReshape = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+        leadingReshape.getLoc(), newMidType, leadingReshape.getInput(),
+        rewriter.getI32ArrayAttr(midShapeAttr));
+
+    // Create new permute at reduced rank.
+    SmallVector<int64_t> newOutShape;
+    for (int64_t i : newPerm) {
+      newOutShape.push_back(newMidShape[i]);
+    }
+    auto newOutType = RankedTensorType::get(
+        newOutShape, mlir::cast<RankedTensorType>(trailingReshape.getType())
+                         .getElementType());
+    auto newPermute = rewriter.create<mlir::tt::ttir::PermuteOp>(
+        permuteOp.getLoc(), newOutType, newReshape.getResult(), newPerm);
+
+    rewriter.replaceOp(trailingReshape, newPermute.getResult());
+    return success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // RearrangeOp
 //===----------------------------------------------------------------------===//
