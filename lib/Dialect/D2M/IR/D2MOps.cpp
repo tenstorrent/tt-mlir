@@ -1721,9 +1721,24 @@ bool d2m::GenericOp::bufferizesToMemoryWrite(
 }
 
 mlir::bufferization::AliasingValueList
-d2m::GenericOp::getAliasingValues(mlir::OpOperand &,
-                                  const mlir::bufferization::AnalysisState &) {
+d2m::GenericOp::getAliasingValues(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
+  // Destination-style: each tensor output operand aliases the corresponding
+  // op result so one-shot bufferization reuses one memref for outs(...) and
+  // the generic's SSA result (e.g. remote_store + yield chains).
+  const unsigned opNum = operand.getOperandNumber();
+  const unsigned numIn = getInputs().size();
+  const unsigned numOut = getOutputs().size();
+  if (opNum < numIn || opNum >= numIn + numOut)
+    return result;
+  const unsigned outIdx = opNum - numIn;
+  if (outIdx >= getNumResults())
+    return result;
+  mlir::Value resultVal = getResult(outIdx);
+  if (!mlir::isa<mlir::RankedTensorType>(resultVal.getType()))
+    return result;
+  result.addAlias({resultVal, bufferization::BufferRelation::Equivalent});
   return result;
 }
 
@@ -2943,6 +2958,69 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
     }
     bufferOutputs.push_back(*maybeValue);
   }
+
+  // When the grid carries a virtual-core map, GenericOp verification requires
+  // each non-DRAM output memref to expose VGM on its defining op (see
+  // getVirtualGridInverseMapping). One-shot bufferization can assign a fresh
+  // plain memref.alloc to outs(...) while remote_store in the region already
+  // targets the d2m.empty buffer (with VGM). Prefer that destination memref so
+  // outs matches the body and carries the correct VGM attrs.
+  if (!getGrid().getMapping().isEmpty()) {
+    AffineMap gridInvMap = getGrid().getMapping();
+    auto isDramMemref = [](MemRefType ty) {
+      return ty && ttcore::getMemorySpace(ty) ==
+                       ttcore::MemorySpace::DeviceDRAM;
+    };
+    for (auto [idx, tensorOut] : llvm::enumerate(getOutputs())) {
+      Value &memrefOut = bufferOutputs[idx];
+      auto mty = dyn_cast<MemRefType>(memrefOut.getType());
+      if (!mty || isDramMemref(mty))
+        continue;
+      Operation *defOp = memrefOut.getDefiningOp();
+      if (defOp && defOp->getAttr(d2m::utils::kVirtualGridInverseMappingAttr))
+        continue;
+      Value replacement;
+      for (Region &reg : getRegions()) {
+        WalkResult wr = reg.walk([&](RemoteStoreOp store) -> WalkResult {
+          if (replacement)
+            return WalkResult::skip();
+          Value m = store.getMemref();
+          if (!mlir::isa<MemRefType>(m.getType()))
+            return WalkResult::advance();
+          Operation *mDef = m.getDefiningOp();
+          if (!mDef)
+            return WalkResult::advance();
+          auto invAttr = mDef->getAttrOfType<AffineMapAttr>(
+              d2m::utils::kVirtualGridInverseMappingAttr);
+          if (!invAttr || invAttr.getValue() != gridInvMap)
+            return WalkResult::advance();
+          replacement = m;
+          return WalkResult::interrupt();
+        });
+        (void)wr;
+        if (replacement)
+          break;
+      }
+      if (replacement)
+        memrefOut = replacement;
+    }
+    for (auto [tensorOut, memrefOut] : llvm::zip(getOutputs(), bufferOutputs)) {
+      auto mty2 = dyn_cast<MemRefType>(memrefOut.getType());
+      if (!mty2 || isDramMemref(mty2))
+        continue;
+      Operation *defOp2 = memrefOut.getDefiningOp();
+      if (!defOp2 || defOp2->getAttr(d2m::utils::kVirtualGridInverseMappingAttr))
+        continue;
+      if (auto invMap = d2m::utils::getVirtualGridInverseMapping(tensorOut)) {
+        defOp2->setAttr(d2m::utils::kVirtualGridInverseMappingAttr,
+                        AffineMapAttr::get(*invMap));
+        if (auto fwdMap = d2m::utils::getVirtualGridForwardMapping(tensorOut))
+          defOp2->setAttr(d2m::utils::kVirtualGridForwardMappingAttr,
+                          AffineMapAttr::get(*fwdMap));
+      }
+    }
+  }
+
   auto bufferGeneric = rewriter.create<d2m::GenericOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getAdditionalArgs(),
       getGrid(), getBlockFactors(), getIndexingMaps(), getIteratorTypes(),
