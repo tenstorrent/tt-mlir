@@ -542,6 +542,54 @@ Value SDPAFusing::unTransposeKeyIfNeeded(Value query, Value key, Value value,
 }
 
 // ============================================================================
+// Rank-3 → Rank-4 Unsqueezing
+// ============================================================================
+
+// If v is a rank-3 tensor with shape [1, A, B], reshape it to [1, 1, A, B]
+// so that the SDPA fuser can treat it as [B=1, H=1, S=A, D=B].
+// This handles single-head attention patterns where the head dimension was
+// elided (e.g. by AOTAutograd trace optimizations).
+Value SDPAFusing::unsqueezeToRank4(Value v, PatternRewriter &rewriter,
+                                   Location loc) {
+  auto type = mlir::dyn_cast<RankedTensorType>(v.getType());
+  if (!type || type.getRank() != 3) {
+    return v;
+  }
+
+  auto shape = type.getShape();
+  SmallVector<int64_t> newShape = {1, shape[0], shape[1], shape[2]};
+  auto newType = utils::RankedTensorTypeFactory::create(type, newShape);
+  SmallVector<int32_t> shapeAttr(newShape.begin(), newShape.end());
+  return rewriter
+      .create<ReshapeOp>(loc, newType, v, rewriter.getI32ArrayAttr(shapeAttr),
+                         /*memory_config=*/MemoryConfigAttr())
+      .getResult();
+}
+
+bool SDPAFusing::tryUnsqueezeInputs(SDPAComponents &c,
+                                    PatternRewriter &rewriter) const {
+  auto getRank = [](Value v) -> int64_t {
+    if (auto t = mlir::dyn_cast<RankedTensorType>(v.getType())) {
+      return t.getRank();
+    }
+    return -1;
+  };
+
+  // Only unsqueeze if at least one input is rank-3 and none are rank < 3.
+  bool anyRank3 =
+      getRank(c.query) == 3 || getRank(c.key) == 3 || getRank(c.value) == 3;
+  if (!anyRank3) {
+    return false;
+  }
+
+  Location loc = c.attentionMatmul.getLoc();
+  c.query = unsqueezeToRank4(c.query, rewriter, loc);
+  c.key = unsqueezeToRank4(c.key, rewriter, loc);
+  c.value = unsqueezeToRank4(c.value, rewriter, loc);
+  return true;
+}
+
+// ============================================================================
 // Validation
 // ============================================================================
 
@@ -642,13 +690,17 @@ SDPAFusing::matchAndRewrite(MatmulOp srcOp,
     return failure();
   }
 
+  // Try unsqueezing rank-3 [1, A, B] inputs to rank-4 [1, 1, A, B] for
+  // single-head attention patterns where the head dim was elided.
+  bool didUnsqueeze = tryUnsqueezeInputs(c, rewriter);
+
   if (!validateSemantics(c)) {
     return failure();
   }
 
   prepareInputsForSDPA(c, rewriter);
 
-  return createSDPAOp(rewriter, c);
+  return createSDPAOp(rewriter, c, didUnsqueeze);
 }
 
 // ============================================================================
@@ -656,7 +708,8 @@ SDPAFusing::matchAndRewrite(MatmulOp srcOp,
 // ============================================================================
 
 mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
-                                             SDPAComponents &c) const {
+                                             SDPAComponents &c,
+                                             bool squeezeOutput) const {
   op_model::ScopedSingletonDeviceGuard deviceGuard(
       c.attentionMatmul.getOperation());
 
@@ -739,6 +792,20 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
     finalResult =
         restoreElementTypeIfNeeded(finalResult, originalElementType, rewriter);
 
+    if (squeezeOutput) {
+      auto newType = utils::RankedTensorTypeFactory::create(
+          mlir::cast<RankedTensorType>(finalResult.getType()),
+          originalOutputType.getShape());
+      SmallVector<int32_t> shapeAttr(originalOutputType.getShape().begin(),
+                                     originalOutputType.getShape().end());
+      finalResult = rewriter
+                        .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType,
+                                           finalResult,
+                                           rewriter.getI32ArrayAttr(shapeAttr),
+                                           /*memory_config=*/MemoryConfigAttr())
+                        .getResult();
+    }
+
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   } else {
     auto validationResult =
@@ -765,6 +832,22 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
 
     Value finalResult = restoreElementTypeIfNeeded(
         sdpaOp.getResult(), originalElementType, rewriter);
+
+    // If we unsqueezed rank-3 inputs to rank-4, squeeze the SDPA output back
+    // to the original rank-3 shape so downstream consumers are unaffected.
+    if (squeezeOutput) {
+      auto newType = utils::RankedTensorTypeFactory::create(
+          mlir::cast<RankedTensorType>(finalResult.getType()),
+          originalOutputType.getShape());
+      SmallVector<int32_t> shapeAttr(originalOutputType.getShape().begin(),
+                                     originalOutputType.getShape().end());
+      finalResult = rewriter
+                        .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType,
+                                           finalResult,
+                                           rewriter.getI32ArrayAttr(shapeAttr),
+                                           /*memory_config=*/MemoryConfigAttr())
+                        .getResult();
+    }
 
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   }

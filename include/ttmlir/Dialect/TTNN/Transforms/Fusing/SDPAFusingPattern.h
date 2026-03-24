@@ -68,13 +68,19 @@ private:
                                mlir::PatternRewriter &rewriter,
                                Location loc) const;
 
+  // Rank-3 → Rank-4 unsqueezing for single-head attention patterns.
+  static Value unsqueezeToRank4(Value v, PatternRewriter &rewriter,
+                                Location loc);
+  bool tryUnsqueezeInputs(SDPAComponents &c, PatternRewriter &rewriter) const;
+
   // Validation
   bool validateShapes(Value query, Value key, Value value) const;
   bool validateSemantics(const SDPAComponents &c) const;
 
   // Op Creation
   mlir::LogicalResult createSDPAOp(mlir::PatternRewriter &rewriter,
-                                   SDPAComponents &c) const;
+                                   SDPAComponents &c,
+                                   bool squeezeOutput = false) const;
 };
 
 } // namespace mlir::tt::ttnn::fusing
