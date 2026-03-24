@@ -2657,7 +2657,6 @@ public:
     Value subscriptResult = rewriter.create<emitpy::SubscriptOp>(
         loc, resultType, adaptor.getOperand(), indexAsVal);
 
-    // Replace the original op with the expression op
     rewriter.replaceOp(getTupleElementOp, subscriptResult);
 
     return success();

@@ -5,12 +5,11 @@
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
-#include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "ttmlir/FunctionTypes.h"
+#include "mlir/Support/LLVM.h"
 
 namespace mlir::tt {
 
@@ -29,15 +28,13 @@ namespace mlir::tt {
 
 namespace {
 
-using ttnn_to_emitpy::kCreateListFunctionName;
-
 static bool hasSingleUse(Operation *op) {
   return op->getNumResults() == 1 && op->getResult(0).hasOneUse();
 }
-
 static bool isCreateListCall(Operation *op) {
   auto callOp = dyn_cast<emitpy::CallOpaqueOp>(op);
-  return callOp && callOp.getCallee() == kCreateListFunctionName;
+  return callOp &&
+         callOp.getCallee() == ttnn_to_emitpy::kCreateListFunctionName;
 }
 
 static bool isPyExprInterfaceSingleUseOp(Operation *op) {
@@ -54,6 +51,90 @@ static bool isPyExprInterfaceSingleUseOp(Operation *op) {
   return true;
 }
 
+// Walk a def-use chain starting from the expression op to collect all
+// ops to absorb.
+SetVector<Operation *> collectOpsToAbsorb(emitpy::ExpressionOp exprOp) {
+  SetVector<Operation *> worklist;
+  SetVector<Operation *> opsToAbsorb;
+  worklist.insert(exprOp.getOperation());
+  while (!worklist.empty()) {
+    Operation *op = worklist.pop_back_val();
+    for (auto operand : op->getOperands()) {
+      auto *operandDef = operand.getDefiningOp();
+      if (operandDef && isPyExprInterfaceSingleUseOp(operandDef) &&
+          opsToAbsorb.insert(operandDef)) {
+        worklist.insert(operandDef);
+      }
+    }
+  }
+  return opsToAbsorb;
+}
+
+// Collect all values used by the expression or absorbed ops that aren't
+// produced by another absorbed op. Those external operands will be
+// passed as new operands of the expression op.
+SetVector<Value> collectExternalOperands(emitpy::ExpressionOp exprOp,
+                                         SetVector<Operation *> &opsToAbsorb) {
+  SetVector<Value> externalOperands;
+  auto addIfExternal = [&opsToAbsorb](Value operand,
+                                      SetVector<Value> &externalOperands) {
+    auto *operandDef = operand.getDefiningOp();
+    if (!operandDef || !opsToAbsorb.contains(operandDef)) {
+      externalOperands.insert(operand);
+    }
+  };
+
+  for (auto *op : llvm::reverse(opsToAbsorb)) {
+    for (auto operand : op->getOperands()) {
+      addIfExternal(operand, externalOperands);
+    }
+  }
+  for (auto operand : exprOp.getOperands()) {
+    addIfExternal(operand, externalOperands);
+  }
+  return externalOperands;
+}
+
+static void
+rewireExpressionOperandsAndArgs(emitpy::ExpressionOp exprOp,
+                                DenseMap<Value, Value> &operandsToBlockArgsMap,
+                                SetVector<Value> &newOperands) {
+  auto *exprBody = exprOp.getBodyBlock();
+  unsigned oldNumArgs = exprBody->getNumArguments();
+
+  // Redirect old block args and erase them.
+  for (unsigned i = 0; i < oldNumArgs; ++i) {
+    auto it = operandsToBlockArgsMap.find(exprOp.getOperand(i));
+    exprBody->getArgument(i).replaceAllUsesWith(
+        (it != operandsToBlockArgsMap.end()) ? it->second
+                                             : exprOp.getOperand(i));
+  }
+  for (int i = oldNumArgs - 1; i >= 0; --i) {
+    exprBody->eraseArgument(i);
+  }
+
+  // Assign new operands to the expression op.
+  exprOp.getOperandsMutable().assign(
+      SmallVector<Value>(newOperands.begin(), newOperands.end()));
+}
+
+// Move absorbed ops into the expression op body and rewire their
+// operands to block args.
+static void rewireAbsorbedOps(emitpy::ExpressionOp exprOp,
+                              DenseMap<Value, Value> &operandsToBlockArgsMap,
+                              SetVector<Operation *> &opsToAbsorb) {
+  Operation *insertPt = &exprOp.getBodyBlock()->front();
+  for (auto *op : llvm::reverse(opsToAbsorb)) {
+    op->moveBefore(insertPt);
+    for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+      auto it = operandsToBlockArgsMap.find(op->getOperand(i));
+      if (it != operandsToBlockArgsMap.end()) {
+        op->setOperand(i, it->second);
+      }
+    }
+  }
+}
+
 class EmitPyFormExpressions
     : public impl::EmitPyFormExpressionsBase<EmitPyFormExpressions> {
 public:
@@ -62,7 +143,7 @@ public:
   // Wrap single-use PyExpressionInterface ops into ExpressionOps.
   void foldSingleUseOps(func::FuncOp funcOp) {
     SmallVector<Operation *> candidates;
-    funcOp.walk([&](Operation *op) {
+    funcOp.walk([&candidates](Operation *op) {
       if (isa<emitpy::ExpressionOp>(op->getParentOp())) {
         return;
       }
@@ -102,94 +183,32 @@ public:
   // into the expression body for more compact inlined output.
   void absorbOperandsIntoExpressions(func::FuncOp funcOp) {
     SmallVector<emitpy::ExpressionOp> exprs;
-    funcOp.walk([&](emitpy::ExpressionOp exprOp) { exprs.push_back(exprOp); });
+    funcOp.walk(
+        [&exprs](emitpy::ExpressionOp exprOp) { exprs.push_back(exprOp); });
 
     for (auto exprOp : exprs) {
-      // Walk a def-use chain starting from the expression op to collect all
-      // ops to absorb.
-      SetVector<Operation *> opsToAbsorb;
-      SetVector<Operation *> worklist;
-      worklist.insert(exprOp.getOperation());
-      while (!worklist.empty()) {
-        Operation *op = worklist.pop_back_val();
-        for (auto operand : op->getOperands()) {
-          auto *operandDef = operand.getDefiningOp();
-          if (operandDef && isPyExprInterfaceSingleUseOp(operandDef) &&
-              opsToAbsorb.insert(operandDef)) {
-            worklist.insert(operandDef);
-          }
-        }
-      }
+      SetVector<Operation *> opsToAbsorb = collectOpsToAbsorb(exprOp);
 
       if (opsToAbsorb.empty()) {
         continue;
       }
 
-      SmallVector<Operation *> sortedOps(opsToAbsorb.begin(),
-                                         opsToAbsorb.end());
-      llvm::sort(sortedOps, [](Operation *a, Operation *b) {
-        return a->isBeforeInBlock(b);
-      });
-
-      // Collect all values used by the expression or absorbed ops that aren't
-      // produced by another absorbed op. Those external operands will be
-      // passed as new operands of the expression op.
-      SetVector<Value> externalOperands;
-      auto addIfExternal = [&](Value operand) {
-        auto *operandDef = operand.getDefiningOp();
-        if (!operandDef || !opsToAbsorb.contains(operandDef)) {
-          externalOperands.insert(operand);
-        }
-      };
-
-      for (auto *op : sortedOps) {
-        for (auto operand : op->getOperands()) {
-          addIfExternal(operand);
-        }
-      }
-      for (auto operand : exprOp.getOperands()) {
-        addIfExternal(operand);
-      }
-
-      auto loc = exprOp.getLoc();
-      auto *exprBody = exprOp.getBodyBlock();
-      unsigned oldNumArgs = exprBody->getNumArguments();
+      SetVector<Value> externalOperands =
+          collectExternalOperands(exprOp, opsToAbsorb);
 
       // Add new block arguments for external operands. Build a value map
       // from external operands to block arguments for rewiring.
+      auto loc = exprOp.getLoc();
+      auto *exprBody = exprOp.getBodyBlock();
       DenseMap<Value, Value> extOperandsToBlockArgsMap;
       for (auto extOperand : externalOperands) {
         extOperandsToBlockArgsMap[extOperand] =
             exprBody->addArgument(extOperand.getType(), loc);
       }
 
-      // Redirect old block args and erase them.
-      for (unsigned i = 0; i < oldNumArgs; ++i) {
-        auto it = extOperandsToBlockArgsMap.find(exprOp.getOperand(i));
-        exprBody->getArgument(i).replaceAllUsesWith(
-            (it != extOperandsToBlockArgsMap.end()) ? it->second
-                                                    : exprOp.getOperand(i));
-      }
-      for (int i = oldNumArgs - 1; i >= 0; --i) {
-        exprBody->eraseArgument(i);
-      }
-
-      // Assign new operands to the expression op.
-      exprOp.getOperandsMutable().assign(
-          SmallVector<Value>(externalOperands.begin(), externalOperands.end()));
-
-      // Move absorbed ops into the expression op body and rewire their
-      // operands to block args.
-      Operation *insertPt = &exprBody->front();
-      for (auto *op : sortedOps) {
-        op->moveBefore(insertPt);
-        for (unsigned i = 0; i < op->getNumOperands(); ++i) {
-          auto it = extOperandsToBlockArgsMap.find(op->getOperand(i));
-          if (it != extOperandsToBlockArgsMap.end()) {
-            op->setOperand(i, it->second);
-          }
-        }
-      }
+      rewireExpressionOperandsAndArgs(exprOp, extOperandsToBlockArgsMap,
+                                      externalOperands);
+      rewireAbsorbedOps(exprOp, extOperandsToBlockArgsMap, opsToAbsorb);
     }
   }
 
