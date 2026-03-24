@@ -7437,6 +7437,177 @@ class StableHLOBuilder(Builder):
 
         return convolution_module, convolution_builder
 
+    ############### stablehlo.GatherOp ###############
+
+    @tag(stablehlo.GatherOp)
+    def gather(
+        self,
+        operand: Operand,
+        start_indices: Operand,
+        offset_dims: List[int],
+        collapsed_slice_dims: List[int],
+        operand_batching_dims: List[int],
+        start_indices_batching_dims: List[int],
+        start_index_map: List[int],
+        index_vector_dim: int,
+        slice_sizes: List[int],
+        indices_are_sorted: bool = False,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.gather)
+
+        dimension_numbers = stablehlo.GatherDimensionNumbers.get(
+            offset_dims=offset_dims,
+            collapsed_slice_dims=collapsed_slice_dims,
+            operand_batching_dims=operand_batching_dims,
+            start_indices_batching_dims=start_indices_batching_dims,
+            start_index_map=start_index_map,
+            index_vector_dim=index_vector_dim,
+            context=self._ctx,
+        )
+
+        slice_sizes_attr = DenseI64ArrayAttr.get(slice_sizes, self._ctx)
+        indices_are_sorted_attr = BoolAttr.get(indices_are_sorted, self._ctx)
+        mlir_output_type = self.get_type(operand)
+
+        input_golden = self._get_golden_tensor(operand)
+        indices_golden = self._get_golden_tensor(start_indices)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input_golden,
+            indices_golden,
+            dimension_numbers,
+            slice_sizes_attr,
+            indices_are_sorted_attr,
+        )
+        result_type = self._create_ranked_tensor_type(
+            golden_output.shape, mlir_output_type
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            operand,
+            start_indices,
+            dimension_numbers,
+            slice_sizes_attr,
+            indices_are_sorted=indices_are_sorted_attr,
+            results=[result_type],
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.GatherOp)
+    def gather_parser(
+        self,
+        old_op: stablehlo.GatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.gather_parser)
+        in0 = global_dict[old_op.operand]
+        in1 = global_dict[old_op.start_indices]
+        result_type = old_op.result.type
+        dimension_numbers = stablehlo.GatherDimensionNumbers(old_op.dimension_numbers)
+
+        new_op = stablehlo_op(
+            in0,
+            in1,
+            dimension_numbers,
+            old_op.slice_sizes,
+            indices_are_sorted=old_op.indices_are_sorted,
+            results=[result_type],
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input0,
+            input1,
+            dimension_numbers,
+            old_op.slice_sizes,
+            old_op.indices_are_sorted,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.GatherOp)
+    def gather_split(
+        self,
+        old_op: stablehlo.GatherOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.gather_split)
+
+        old_context = old_op.context
+        old_location = Location.unknown(old_context)
+        dimension_numbers = stablehlo.GatherDimensionNumbers(old_op.dimension_numbers)
+        with old_context, old_location:
+
+            gather_module = Module.create()
+            gather_builder = StableHLOBuilder(old_context, old_location)
+            op_input_types = [
+                self._get_type(old_op.operand),
+                self._get_type(old_op.start_indices),
+            ]
+
+            with InsertionPoint(gather_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="gather_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    in1 = inputs[1]
+                    result_type = old_op.result.type
+
+                    new_op = stablehlo_op(
+                        in0,
+                        in1,
+                        dimension_numbers,
+                        old_op.slice_sizes,
+                        indices_are_sorted=old_op.indices_are_sorted,
+                        results=[result_type],
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.operand)
+                    input1 = self._get_golden_tensor(old_op.start_indices)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    gather_builder._set_golden_tensor(new_op_result, old_op_result)
+                    gather_builder._set_golden_tensor(in0, input0)
+                    gather_builder._set_golden_tensor(in1, input1)
+                    ordered_inputs.extend([in0, in1])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                gather_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return gather_module, gather_builder
+
     def dot_general(
         self,
         in0: Operand,
