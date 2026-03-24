@@ -8,7 +8,7 @@
 // CHECK: ttcore.device_module {
 // CHECK: builtin.module
 
-// --- Test 1: Basic const-eval hoisting ---
+// --- Basic const-eval hoisting ---
 
 // CHECK-LABEL: func.func private @basic_const_eval
 // CHECK: ttir.to_layout
@@ -23,7 +23,7 @@ func.func private @basic_const_eval(
   return %0 : tensor<32x32xbf16>
 }
 
-// --- Test 2: Creation op between hoisted ops ---
+// --- Creation op between hoisted ops ---
 // Zeros is returned and sandwiched between hoisted ops. It should not be hoisted.
 
 // CHECK-LABEL: func.func private @creation_op_between_hoisted_ops
@@ -40,7 +40,7 @@ func.func private @creation_op_between_hoisted_ops(
   return %mul, %zeros : tensor<32x32xbf16>, tensor<32x32xbf16>
 }
 
-// --- Test 3: Multiple creation ops interleaved ---
+// --- Multiple creation ops interleaved ---
 
 // CHECK-LABEL: func.func private @multiple_creation_ops_interleaved
 // CHECK: ttir.zeros
@@ -59,7 +59,7 @@ func.func private @multiple_creation_ops_interleaved(
   return %sub, %zeros, %ones : tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>
 }
 
-// --- Test 4: Creation op at the end ---
+// --- Creation op at the end ---
 
 // CHECK-LABEL: func.func private @creation_op_at_end
 // CHECK: ttir.zeros
@@ -74,7 +74,7 @@ func.func private @creation_op_at_end(
   return %add, %zeros : tensor<32x32xbf16>, tensor<32x32xbf16>
 }
 
-// --- Test 5: All creation ops - nothing to hoist ---
+// --- All creation ops - nothing to hoist ---
 
 // CHECK-LABEL: func.func private @all_creation_ops
 // CHECK-NOT: call @cpu_hoisted
@@ -85,7 +85,7 @@ func.func private @all_creation_ops() -> tensor<32x32xbf16> attributes {tt.funct
   return %zeros : tensor<32x32xbf16>
 }
 
-// --- Test 6: Creation op with transparent chain (reshape) ---
+// --- Creation op with transparent chain (reshape) ---
 
 // CHECK-LABEL: func.func private @creation_with_transparent_chain
 // CHECK: ttir.zeros
@@ -102,7 +102,7 @@ func.func private @creation_with_transparent_chain(
   return %add, %reshaped : tensor<32x32xbf16>, tensor<1x1024xbf16>
 }
 
-// --- Test 7: Non-const-eval function is not affected ---
+// --- Non-const-eval function is not affected ---
 
 // CHECK-LABEL: func.func @non_const_eval_func
 // CHECK-NOT: call @cpu_hoisted
@@ -115,7 +115,7 @@ func.func @non_const_eval_func(
   return %0 : tensor<32x32xbf16>
 }
 
-// --- Test 8: f32 types need no conversion ---
+// --- f32 types need no conversion ---
 
 // CHECK-LABEL: func.func private @const_eval_f32
 // CHECK: call @cpu_hoisted_const_eval_{{.*}}
@@ -128,7 +128,7 @@ func.func private @const_eval_f32(
   return %0 : tensor<32x32xf32>
 }
 
-// --- Test 9: Multiple outputs ---
+// --- Multiple outputs ---
 
 // CHECK-LABEL: func.func private @const_eval_multiple_outputs
 // CHECK: call @cpu_hoisted_const_eval_{{.*}}
@@ -141,7 +141,7 @@ func.func private @const_eval_multiple_outputs(
   return %add, %sub : tensor<32x32xbf16>, tensor<32x32xbf16>
 }
 
-// --- Test 10: Non-lowerable op skips hoisting ---
+// --- Non-lowerable op skips hoisting ---
 // RMS norm has no Linalg lowering, so the entire const-eval subgraph
 // should NOT be hoisted.
 
