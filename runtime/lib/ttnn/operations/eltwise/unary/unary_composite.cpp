@@ -14,8 +14,9 @@ static void runEltwiseUnaryCompositeOp(
     const ::tt::target::ttnn::EltwiseUnaryCompositeOp *op,
     ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
-        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &)>
-        &ttnnOp) {
+        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
+        const std::optional<::ttnn::Tensor> &,
+        const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
@@ -26,7 +27,8 @@ static void runEltwiseUnaryCompositeOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ttnnOp(in, outputMemoryConfig);
+  ::ttnn::Tensor out =
+      ttnnOp(in, outputMemoryConfig, std::nullopt, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -89,7 +91,9 @@ static void runEltwiseUnaryCompositeWithFastAndApproximateModeOp(
     ProgramTensorPool &tensorPool,
     const std::function<
         ::ttnn::Tensor(const ::ttnn::Tensor &, const bool,
-                       const std::optional<::ttnn::MemoryConfig> &)> &ttnnOp) {
+                       const std::optional<::ttnn::MemoryConfig> &,
+                       const std::optional<::ttnn::Tensor> &,
+                       const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
@@ -100,8 +104,8 @@ static void runEltwiseUnaryCompositeWithFastAndApproximateModeOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out =
-      ttnnOp(in, /*fast_and_approximate_mode=*/false, outputMemoryConfig);
+  ::ttnn::Tensor out = ttnnOp(in, /*fast_and_approximate_mode=*/false,
+                              outputMemoryConfig, std::nullopt, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

@@ -38,6 +38,10 @@ struct SmallVector {
 };
 } // namespace ttsl
 
+namespace reduction_common {
+enum class ReduceType;
+} // namespace reduction_common
+
 namespace tt {
 namespace tt_fabric {
 enum class Topology;
@@ -102,9 +106,6 @@ struct Conv2dConfig;
 struct Conv2dSliceConfig;
 } // namespace conv::conv2d
 
-namespace reduction {
-enum class ReduceType;
-} // namespace reduction
 } // namespace operations
 } // namespace ttnn
 
@@ -333,9 +334,8 @@ struct TypeName<::ttnn::Shape> {
 };
 
 template <>
-struct TypeName<::ttnn::operations::reduction::ReduceType> {
-  inline static const std::string value =
-      "::ttnn::operations::reduction::ReduceType";
+struct TypeName<::reduction_common::ReduceType> {
+  inline static const std::string value = "::reduction_common::ReduceType";
 };
 
 template <>
@@ -864,7 +864,7 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     std::string buf;
     llvm::raw_string_ostream rso(buf);
 
-    rso << TypeNameV<::ttnn::operations::reduction::ReduceType> << "::";
+    rso << TypeNameV<::reduction_common::ReduceType> << "::";
     switch (attr) {
     case ttcore::ReduceType::Sum:
       rso << "SUM";
