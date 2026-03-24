@@ -2642,6 +2642,8 @@ def update_cache_golden(
     cache_tensor: GoldenMapTensor,
     update_tensor: GoldenMapTensor,
     indices_tensor,
+    batch_offset=None,
+    output_type_mlir=None,
     **kwargs,
 ) -> GoldenMapTensor:
     """
@@ -2655,8 +2657,12 @@ def update_cache_golden(
         Tensor containing update data
     indices_tensor : GoldenMapTensor
         Tensor containing update indices
+    batch_offset : IntegerAttr, optional
+        Batch offset attribute (ignored in golden computation)
+    output_type_mlir : Type, optional
+        MLIR output type (ignored in golden computation)
     **kwargs : dict
-        Additional keyword arguments (batch_offset is ignored)
+        Additional keyword arguments
 
     Returns
     -------
@@ -2665,8 +2671,15 @@ def update_cache_golden(
     """
     result = cache_tensor.clone()
 
+    # indices_tensor contains the position(s) in the sequence dimension
+    # where update_tensor values should be written
+    indices = indices_tensor.shard_at(0).to(torch.long)
+    seq_len = update_tensor.shape[2]
     for device_id, shard in result.shard_map.items():
-        shard[:, :, : update_tensor.shape[2], :] = update_tensor.shard_at(device_id)
+        update_data = update_tensor.shard_at(device_id)
+        for i in range(seq_len):
+            idx = indices[i].item()
+            shard[:, :, idx, :] = update_data[:, :, i, :]
     return result
 
 
