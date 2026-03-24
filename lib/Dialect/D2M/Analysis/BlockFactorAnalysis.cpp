@@ -112,40 +112,54 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
   const auto baseBytes = computeCBBytesForCandidate(
       genericOp, indexingMaps, gridExtents, shardExtents, *scalableDim, device,
       l1Attr, numBuffers);
-  if (!baseBytes.has_value()) {
-    return blockFactors;
+
+  int64_t bestScale = shardFactors[*scalableDim];
+  uint64_t bestBytes = 0;
+
+  if (baseBytes.has_value()) {
+    // Try to find a partial scale that reduces CB memory while still
+    // fully blocking the reduction dim.  If no candidate improves on the
+    // base, bestScale stays at the full shard factor.
+    bestBytes = *baseBytes;
+    for (int64_t scale = shardFactors[*scalableDim]; scale >= 2; --scale) {
+      if (shardFactors[*scalableDim] % scale != 0) {
+        continue;
+      }
+
+      SmallVector<int64_t> candidateGridExtents(gridExtents.begin(),
+                                                gridExtents.end());
+      SmallVector<int64_t> candidateShardExtents(shardExtents.begin(),
+                                                 shardExtents.end());
+      candidateGridExtents[*scalableDim] *= scale;
+      candidateShardExtents[*scalableDim] /= scale;
+
+      const auto candidateBytes = computeCBBytesForCandidate(
+          genericOp, indexingMaps, candidateGridExtents, candidateShardExtents,
+          *scalableDim, device, l1Attr, numBuffers);
+      if (!candidateBytes.has_value()) {
+        continue;
+      }
+
+      // Break ties toward the larger scale so we maximize blocking at the
+      // same CB buffer cost.
+      if (*candidateBytes < bestBytes ||
+          (*candidateBytes == bestBytes && scale > bestScale)) {
+        bestBytes = *candidateBytes;
+        bestScale = scale;
+      }
+    }
   }
 
-  int64_t bestScale = 1;
-  uint64_t bestBytes = *baseBytes;
-  for (int64_t scale = shardFactors[*scalableDim]; scale >= 2; --scale) {
-    if (shardFactors[*scalableDim] % scale != 0) {
-      continue;
-    }
-
-    SmallVector<int64_t> candidateGridExtents(gridExtents.begin(),
-                                              gridExtents.end());
-    SmallVector<int64_t> candidateShardExtents(shardExtents.begin(),
-                                               shardExtents.end());
-    candidateGridExtents[*scalableDim] *= scale;
-    candidateShardExtents[*scalableDim] /= scale;
-
-    const auto candidateBytes = computeCBBytesForCandidate(
-        genericOp, indexingMaps, candidateGridExtents, candidateShardExtents,
-        *scalableDim, device, l1Attr, numBuffers);
-    if (!candidateBytes.has_value()) {
-      continue;
-    }
-
-    // Break ties toward the larger scale so we maximize blocking at the
-    // same CB buffer cost.
-    if (*candidateBytes < bestBytes ||
-        (*candidateBytes == bestBytes && scale > bestScale)) {
-      bestBytes = *candidateBytes;
-      bestScale = scale;
-    }
+  // InsertDstRegisterAccess assumes reduction dimensions fully collapse after
+  // reblocking; a partial auto scale can leave multiple trips and corrupt the
+  // DST accumulator, so force the full shard factor when the search picked
+  // less.
+  if (bestScale < shardFactors[*scalableDim]) {
+    TT_ALLOC_DEBUG("auto policy scale {} does not fully collapse reduction "
+                   "dim {}, forcing full shard factor {}",
+                   bestScale, *scalableDim, shardFactors[*scalableDim]);
+    bestScale = shardFactors[*scalableDim];
   }
-
   blockFactors[*scalableDim] *= bestScale;
   TT_ALLOC_DEBUG("applying auto policy scale {} on dim {}, new block "
                  "factors {}, CB bytes {}",

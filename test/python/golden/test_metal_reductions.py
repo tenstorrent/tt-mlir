@@ -135,6 +135,77 @@ def test_sum_3d(
     )
 
 
+@pytest.mark.parametrize("b", [2, 3, 8, 16, 64])
+@pytest.mark.parametrize("m", [1, 2, 4])
+@pytest.mark.parametrize("n", [1, 2, 8])
+@pytest.mark.parametrize("dim_arg", [[0]])
+@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_sum_3d_outer(
+    b: int,
+    m: int,
+    n: int,
+    dim_arg: List[int],
+    keep_dim: bool,
+    target: str,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    tile_size = 32
+    shape = (
+        b,
+        m * tile_size,
+        n * tile_size,
+    )
+
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim, dtype),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=_sum_atol(shape, dtype),
+    )
+
+
+@pytest.mark.parametrize("a", [2, 3, 4, 8, 16, 32, 64])
+@pytest.mark.parametrize("b", [2, 4, 8])
+@pytest.mark.parametrize("m", [2])
+@pytest.mark.parametrize("n", [4])
+@pytest.mark.parametrize("dim_arg", [[0], [1]])
+@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_sum_4d_outer(
+    a: int,
+    b: int,
+    m: int,
+    n: int,
+    dim_arg: List[int],
+    keep_dim: bool,
+    target: str,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    tile_size = 32
+    shape = (
+        a,
+        b,
+        m * tile_size,
+        n * tile_size,
+    )
+
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim, dtype),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=_sum_atol(shape, dtype),
+    )
+
+
 @pytest.mark.parametrize("a", [1, 2])
 @pytest.mark.parametrize("b", [1, 2])
 @pytest.mark.parametrize("m", [4, 8])

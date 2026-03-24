@@ -736,7 +736,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
     }
 
-    return scalableInputCount >= 2;
+    return scalableInputCount >= 1;
   }
 
   // Internal helper used by `analyzeGenericOps()` to create analysis entries

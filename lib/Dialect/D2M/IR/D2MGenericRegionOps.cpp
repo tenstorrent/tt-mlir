@@ -1117,6 +1117,29 @@ bool RemoteLoadOp::hasTensorSemantics() {
   return memrefIsTensor || resultIsTensor;
 }
 
+bool RemoteLoadOp::isNotConflicting(
+    mlir::OpOperand *uRead, mlir::OpOperand *uConflictingWrite,
+    const mlir::bufferization::AnalysisState &) {
+  if (uRead->get() != getMemref()) {
+    return false;
+  }
+
+  auto *parentOp = (*this)->getParentOp();
+  if (!parentOp) {
+    return false;
+  }
+  auto parentGeneric = mlir::dyn_cast<d2m::GenericOp>(parentOp);
+  if (!parentGeneric) {
+    return false;
+  }
+
+  if (uConflictingWrite->getOwner() != parentGeneric.getOperation()) {
+    return false;
+  }
+
+  return llvm::is_contained(parentGeneric.getOutputs(), getMemref());
+}
+
 //===----------------------------------------------------------------------===//
 // RemoteStoreOp Bufferization Interface Implementation
 //===----------------------------------------------------------------------===//
