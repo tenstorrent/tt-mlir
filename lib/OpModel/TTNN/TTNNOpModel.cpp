@@ -48,10 +48,10 @@ namespace mlir::tt::ttnn::op_model {
   }
 
 #define QUERY_OP_CONSTRAINTS(op, device, ...)                                  \
-  ::ttnn::graph::query_op_constraints(OP_WRAPPER(op), device, __VA_ARGS__)
+  ::ttnn::graph::query_op_constraints(WRAP_OP(op), device, __VA_ARGS__)
 
 #define QUERY_OP_RUNTIME(op, device, ...)                                      \
-  ::ttnn::graph::query_op_runtime(OP_WRAPPER(op), device, __VA_ARGS__)
+  ::ttnn::graph::query_op_runtime(WRAP_OP(op), device, __VA_ARGS__)
 // clang-format on
 
 namespace operation {
