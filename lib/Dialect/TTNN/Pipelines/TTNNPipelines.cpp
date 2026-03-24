@@ -293,6 +293,13 @@ void createTTIRToTTNNDevicePipeline(
     if (options.dramSpaceSavingOptimizationEnabled) {
       devicePm.addPass(createTTNNMemoryManagement());
     }
+
+    if (options.experimentalKVCacheDtype != WeightDtype::None) {
+      TTNNKVCacheDtypeConversionOptions convOpts;
+      convOpts.targetDtype = options.experimentalKVCacheDtype;
+      devicePm.addPass(createTTNNKVCacheDtypeConversion(convOpts));
+    }
+
     createTTNNPipelineWorkaroundPass(devicePm, options);
     // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
@@ -314,12 +321,6 @@ void createTTIRToTTNNDevicePipeline(
         convOpts.targetDtype = resolvedWeightDtype;
         devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
       }
-    }
-
-    if (options.experimentalKVCacheDtype != WeightDtype::None) {
-      TTNNKVCacheDtypeConversionOptions convOpts;
-      convOpts.targetDtype = options.experimentalKVCacheDtype;
-      devicePm.addPass(createTTNNKVCacheDtypeConversion(convOpts));
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.
