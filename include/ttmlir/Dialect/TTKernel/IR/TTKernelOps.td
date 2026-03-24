@@ -3078,8 +3078,8 @@ def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
     }];
 }
 
-def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"experimental::semaphore_wait"> {
-    let summary = "NocSemaphoreWait";
+def TTKernel_SemaphoreWaitOp : TTKernel_Op<"experimental::semaphore_wait"> {
+    let summary = "SemaphoreWait";
     let description = [{
       A blocking call that waits until the value of a local L1 memory address on
       the Tensix core executing this function becomes equal to a target value.
@@ -3094,8 +3094,8 @@ def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"experimental::semaphore_wait"> {
     }];
 }
 
-def TTKernel_NocSemaphoreWaitMinOp : TTKernel_Op<"experimental::semaphore_wait_min"> {
-    let summary = "NocSemaphoreWaitMin";
+def TTKernel_SemaphoreWaitMinOp : TTKernel_Op<"experimental::semaphore_wait_min"> {
+    let summary = "SemaphoreWaitMin";
     let description = [{
       A blocking call that waits until the value of a local L1 memory address on
       the Tensix core executing this function becomes equal or greater than a target value.
