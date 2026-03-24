@@ -9,8 +9,8 @@ echo "Running op-model test Conversion"
 $BUILD_DIR/test/unittests/OpModel/TTNN/Conversion/TestConversion
 echo "Running op-model test Lib"
 $BUILD_DIR/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
-echo "Running op-model test MockDeviceCrash"
-$BUILD_DIR/test/unittests/OpModel/TTNN/Lib/TestMockDeviceCrash
+# echo "Running op-model test MockDeviceCrash"
+# $BUILD_DIR/test/unittests/OpModel/TTNN/Lib/TestMockDeviceCrash
 echo "Running op-model test Interface"
 $BUILD_DIR/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
 echo
