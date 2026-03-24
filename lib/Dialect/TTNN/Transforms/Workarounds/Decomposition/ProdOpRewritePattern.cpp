@@ -35,12 +35,45 @@ ProdOpRewritePattern::matchAndRewrite(ProdOp srcOp,
   RankedTensorType rewrittenResultType = resultType;
   bool needsResultReshape = false;
 
+  bool reduceHeight = !newDimArgAttr;
+  bool reduceWidth = !newDimArgAttr;
+  if (newDimArgAttr) {
+    int64_t normalizedDim = newDimArgAttr.getInt();
+    if (normalizedDim < 0) {
+      normalizedDim += rank;
+    }
+    reduceHeight = (rank == 1) || (normalizedDim == rank - 2);
+    reduceWidth = (rank == 1) || (normalizedDim == rank - 1);
+  }
+
+  if (!reduceHeight && !reduceWidth) {
+    return failure();
+  }
+
+  llvm::SmallVector<int64_t> effectiveShape = inputShape;
   if (rank == 1) {
-    llvm::SmallVector<int64_t> reshapedShape = {inputShape[0], 1};
-    llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
-                                                reshapedShape.end());
+    effectiveShape.push_back(1);
+  }
+  auto tilePadding = [](int64_t dim, int64_t tile) {
+    return (tile - dim % tile) % tile;
+  };
+  int64_t effectiveRank = rank > 1 ? rank : 2;
+  int64_t paddingAmountWidth =
+      reduceWidth ? tilePadding(effectiveShape[effectiveRank - 1], TILE_WIDTH)
+                  : 0;
+  int64_t paddingAmountHeight =
+      reduceHeight ? tilePadding(effectiveShape[effectiveRank - 2], TILE_HEIGHT)
+                   : 0;
+
+  if (paddingAmountWidth == 0 && paddingAmountHeight == 0) {
+    return failure();
+  }
+
+  if (rank == 1) {
+    llvm::SmallVector<int32_t> reshapedShapeI32(effectiveShape.begin(),
+                                                effectiveShape.end());
     auto reshapedType =
-        utils::RankedTensorTypeFactory::create(inputType, reshapedShape);
+        utils::RankedTensorTypeFactory::create(inputType, effectiveShape);
 
     rewrittenInput = rewriter.create<ttnn::ReshapeOp>(
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_reshape_to_2d"),
@@ -49,8 +82,6 @@ ProdOpRewritePattern::matchAndRewrite(ProdOp srcOp,
         /*memory_config=*/nullptr);
 
     inputType = reshapedType;
-    inputShape = reshapedShape;
-    rank = inputType.getRank();
     // Reduction should collapse all dimensions of rank 1 tensor.
     newDimArgAttr = nullptr;
 
@@ -61,43 +92,13 @@ ProdOpRewritePattern::matchAndRewrite(ProdOp srcOp,
     }
   }
 
-  bool reduceHeight = !newDimArgAttr;
-  bool reduceWidth = !newDimArgAttr;
-  if (newDimArgAttr) {
-    int64_t normalizedDim = newDimArgAttr.getInt();
-    if (normalizedDim < 0) {
-      normalizedDim += rank;
-    }
-    reduceHeight = normalizedDim == rank - 2;
-    reduceWidth = normalizedDim == rank - 1;
-  }
+  llvm::SmallVector<int64_t> paddedShape(effectiveShape);
+  paddedShape[effectiveRank - 1] += paddingAmountWidth;
+  paddedShape[effectiveRank - 2] += paddingAmountHeight;
 
-  if (!reduceHeight && !reduceWidth) {
-    return failure();
-  }
-
-  int64_t paddingAmountWidth =
-      reduceWidth
-          ? llvm::divideCeil(inputShape[rank - 1], TILE_WIDTH) * TILE_WIDTH -
-                inputShape[rank - 1]
-          : 0;
-  int64_t paddingAmountHeight =
-      reduceHeight
-          ? llvm::divideCeil(inputShape[rank - 2], TILE_HEIGHT) * TILE_HEIGHT -
-                inputShape[rank - 2]
-          : 0;
-
-  if (paddingAmountWidth == 0 && paddingAmountHeight == 0) {
-    return failure();
-  }
-
-  llvm::SmallVector<int64_t> paddedShape(inputShape);
-  paddedShape[rank - 1] += paddingAmountWidth;
-  paddedShape[rank - 2] += paddingAmountHeight;
-
-  llvm::SmallVector<int32_t> padding(rank * 2, 0);
-  padding[(rank - 2) * 2 + 1] = paddingAmountHeight;
-  padding[(rank - 1) * 2 + 1] = paddingAmountWidth;
+  llvm::SmallVector<int32_t> padding(effectiveRank * 2, 0);
+  padding[(effectiveRank - 2) * 2 + 1] = paddingAmountHeight;
+  padding[(effectiveRank - 1) * 2 + 1] = paddingAmountWidth;
 
   auto paddedInputType =
       utils::RankedTensorTypeFactory::create(inputType, paddedShape);
