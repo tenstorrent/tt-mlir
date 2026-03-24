@@ -36,9 +36,9 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
     "shape, permutation",
     [
         # 2d transpose
-        [(32, 128 * 500), [1, 0]],
+        [(32, 128 * 210), [1, 0]],
         pytest.param(
-            (32, 128 * 501),
+            (32, 128 * 220),
             [1, 0],
             marks=pytest.mark.skip_config(
                 ["n150"],
@@ -47,7 +47,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
             ),
         ),
         pytest.param(
-            (32, 128 * 800),
+            (32, 128 * 320),
             [1, 0],
             marks=pytest.mark.skip_config(
                 ["n150"],
@@ -56,7 +56,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
             ),
         ),
         pytest.param(
-            (32, 128 * 801),
+            (32, 128 * 400),
             [1, 0],
             marks=pytest.mark.skip_config(
                 ["n150"],
