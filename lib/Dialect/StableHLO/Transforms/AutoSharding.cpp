@@ -25,7 +25,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <cmath>
+#include <limits>
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_AUTOSHARDINGPASS
@@ -635,7 +635,7 @@ private:
     MLIRContext *context = rootModule.getContext();
     ShardingCostModel costModel;
 
-    double bestCost = INFINITY;
+    double bestCost = std::numeric_limits<double>::infinity();
     size_t bestIdx = 0;
     bool anySucceeded = false;
 
