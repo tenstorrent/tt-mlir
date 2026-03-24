@@ -2497,8 +2497,7 @@ public:
 //
 namespace {
 class SliceWriteOpConversionPattern
-    : public TTNNToEmitPyBaseOpConversionPattern<
-          mlir::tt::ttnn::SliceWriteOp> {
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::SliceWriteOp> {
 private:
   std::string getPrefixSearchPattern() const override {
     return mlir::tt::ttnn::SliceWriteOp::getOperationName().str();

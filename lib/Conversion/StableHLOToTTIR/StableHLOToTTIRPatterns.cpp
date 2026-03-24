@@ -4387,8 +4387,8 @@ public:
       startIndices1D.push_back(reshaped);
     }
 
-    auto indicesTensorType = RankedTensorType::get(
-        {static_cast<int64_t>(rank)}, startIndexElementType);
+    auto indicesTensorType = RankedTensorType::get({static_cast<int64_t>(rank)},
+                                                   startIndexElementType);
     auto startIndicesTensor = rewriter.create<ttir::ConcatOp>(
         loc,
         RankedTensorType::get(indicesTensorType.getShape(),
@@ -4399,8 +4399,8 @@ public:
     // Step 2: Create constant tensors for clamping.
     // zeros = [0, 0, ..., 0]
     SmallVector<int32_t> zerosVec(rank, 0);
-    auto constType =
-        RankedTensorType::get({static_cast<int64_t>(rank)}, rewriter.getI32Type());
+    auto constType = RankedTensorType::get({static_cast<int64_t>(rank)},
+                                           rewriter.getI32Type());
     auto zerosAttr =
         mlir::DenseElementsAttr::get(constType, llvm::ArrayRef(zerosVec));
     auto zerosConst =
@@ -4409,9 +4409,8 @@ public:
     // maxStarts = shape(operand) - shape(update)
     SmallVector<int32_t> maxStartsVec;
     for (int64_t i = 0; i < rank; ++i) {
-      maxStartsVec.push_back(
-          static_cast<int32_t>(operandType.getDimSize(i) -
-                               updateType.getDimSize(i)));
+      maxStartsVec.push_back(static_cast<int32_t>(operandType.getDimSize(i) -
+                                                  updateType.getDimSize(i)));
     }
     auto maxStartsAttr =
         mlir::DenseElementsAttr::get(constType, llvm::ArrayRef(maxStartsVec));
@@ -4426,8 +4425,7 @@ public:
     // Step 4: Compute end indices = clampedStarts + shape(update).
     SmallVector<int32_t> updateShapeVec;
     for (int64_t i = 0; i < rank; ++i) {
-      updateShapeVec.push_back(
-          static_cast<int32_t>(updateType.getDimSize(i)));
+      updateShapeVec.push_back(static_cast<int32_t>(updateType.getDimSize(i)));
     }
     auto updateShapeAttr =
         mlir::DenseElementsAttr::get(constType, llvm::ArrayRef(updateShapeVec));

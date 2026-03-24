@@ -75,8 +75,7 @@ SHAPES_F32 = [
 def _shape_id(shape_tuple):
     op_shape, _, starts = shape_tuple
     return (
-        f"{'x'.join(str(d) for d in op_shape)}"
-        f"_at{'_'.join(str(s) for s in starts)}"
+        f"{'x'.join(str(d) for d in op_shape)}" f"_at{'_'.join(str(s) for s in starts)}"
     )
 
 
@@ -98,9 +97,7 @@ def test_dynamic_update_slice_bf16(
 
     def module(builder: StableHLOBuilder):
         @builder.func([operand_shape, update_shape], [dtype, dtype])
-        def dynamic_update_slice(
-            in0: Operand, in1: Operand, builder: StableHLOBuilder
-        ):
+        def dynamic_update_slice(in0: Operand, in1: Operand, builder: StableHLOBuilder):
             builder.set_graph_level_check(True)
             start_indices = [
                 builder.constant(torch.tensor(idx, dtype=torch.int64))
@@ -136,9 +133,7 @@ def test_dynamic_update_slice_f32(
 
     def module(builder: StableHLOBuilder):
         @builder.func([operand_shape, update_shape], [dtype, dtype])
-        def dynamic_update_slice(
-            in0: Operand, in1: Operand, builder: StableHLOBuilder
-        ):
+        def dynamic_update_slice(in0: Operand, in1: Operand, builder: StableHLOBuilder):
             builder.set_graph_level_check(True)
             start_indices = [
                 builder.constant(torch.tensor(idx, dtype=torch.int64))

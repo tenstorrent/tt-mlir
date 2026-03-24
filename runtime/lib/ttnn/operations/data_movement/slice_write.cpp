@@ -12,8 +12,7 @@ namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::SliceWriteOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  ::ttnn::Tensor &operand =
-      tensorPool.getTTNNTensorAndValidate(op->operand());
+  ::ttnn::Tensor &operand = tensorPool.getTTNNTensorAndValidate(op->operand());
   const ::ttnn::Tensor &input =
       tensorPool.getTTNNTensorAndValidate(op->input());
   const ::ttnn::Tensor &beginsTensor =

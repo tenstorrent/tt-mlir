@@ -917,8 +917,8 @@ public:
     // We create the TTNN op and replace uses of the TTIR result with the
     // operand, following the same pattern as UpdateCacheOp.
     rewriter.create<ttnn::SliceWriteOp>(op.getLoc(), adaptor.getOperand(),
-                                        adaptor.getInput(),
-                                        adaptor.getBegins(), adaptor.getEnds());
+                                        adaptor.getInput(), adaptor.getBegins(),
+                                        adaptor.getEnds());
 
     rewriter.replaceOp(op, adaptor.getOperand());
     return success();
