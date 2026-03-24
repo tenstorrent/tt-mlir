@@ -496,6 +496,7 @@ using ComputeOpMap = OpMap<
   // Reductions FPU
   std::pair<d2m::TileReduceSumOp,   std::pair<ttkernel::ComputeKernelHWStartupOp,  ttkernel::ReduceTileOp>>,
   std::pair<d2m::TileReduceMaxOp,   std::pair<ttkernel::ComputeKernelHWStartupOp,  ttkernel::ReduceTileOp>>,
+  std::pair<d2m::TileReduceMeanOp,  std::pair<ttkernel::ComputeKernelHWStartupOp,  ttkernel::ReduceTileOp>>,
 
   // Elementwise SFPU Unary.
   std::pair<d2m::TileAbsOp,         std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
@@ -722,13 +723,16 @@ public:
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
           ct_i32, rt_i32, kt_i32, nt_i32);
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp> ||
-                         std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp>) {
+                         std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp> ||
+                         std::is_same_v<ConcreteOp, d2m::TileReduceMeanOp>) {
       ttkernel::ReduceType reduce_type;
       d2m::ReduceDim reduce_dim = op.getReduceDim();
       if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp>) {
         reduce_type = ttkernel::ReduceType::Sum;
-      } else {
+      } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp>) {
         reduce_type = ttkernel::ReduceType::Max;
+      } else {
+        reduce_type = ttkernel::ReduceType::Avg;
       }
       ttkernel::ReduceDim kernel_reduce_dim;
       switch (reduce_dim) {
@@ -2195,6 +2199,7 @@ void populateD2MToTTKernelPatterns(
                // Reductions FPU.
                ttkernel::D2MFPUOpsRewriter<d2m::TileReduceSumOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileReduceMaxOp>,
+               ttkernel::D2MFPUOpsRewriter<d2m::TileReduceMeanOp>,
 
                // Elementwise SFPU Unary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAbsOp>,

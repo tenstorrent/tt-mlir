@@ -35,6 +35,37 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
 @pytest.mark.parametrize(
     "shape, permutation",
     [
+        # 2d transpose
+        [(32, 128 * 500), [1, 0]],
+        pytest.param(
+            (32, 128 * 501),
+            [1, 0],
+            marks=pytest.mark.skip_config(
+                ["n150"],
+                ["n300"],
+                reason="L1 memory usage exceeds capacity #7559",
+            ),
+        ),
+        pytest.param(
+            (32, 128 * 800),
+            [1, 0],
+            marks=pytest.mark.skip_config(
+                ["n150"],
+                ["n300"],
+                reason="L1 memory usage exceeds capacity #7559",
+            ),
+        ),
+        pytest.param(
+            (32, 128 * 801),
+            [1, 0],
+            marks=pytest.mark.skip_config(
+                ["n150"],
+                ["n300"],
+                ["p150"],
+                ["p300"],
+                reason="L1 memory usage exceeds capacity #7559",
+            ),
+        ),
         # 3d inner permutes
         [(3, 32, 32), [0, 2, 1]],
         [(3, 32, 64), [0, 2, 1]],
