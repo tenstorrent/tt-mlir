@@ -1373,6 +1373,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   L1memInfo, analysis.sequencing))) {
             return failure();
           }
+        } else {
+          // Operand does not require streaming -- replace the in-generic
+          // alloc with d2m.alias_buffer to make the aliasing explicit.
+          if (failed(insertAlias(rewriter, genericOp, operandCtx))) {
+            return failure();
+          }
         }
       }
 
@@ -1662,6 +1668,61 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
     }
     rewriter.finalizeOpModification(op);
+
+    return success();
+  }
+
+  /// Replace the in-generic alloc for a non-streamed operand with
+  /// `d2m.alias_buffer`, making it explicit that the operand's shard is used
+  /// directly without a separate allocation.
+  LogicalResult insertAlias(RewriterBase &rewriter, d2m::GenericOp genericOp,
+                            const OperandContext &operandCtx) {
+    const auto operandIndex = operandCtx.operand->getOperandNumber();
+    Value operandValue = operandCtx.operand->get();
+    auto operandMemRefType = mlir::cast<MemRefType>(operandValue.getType());
+
+    // Compute the shard shape from the operand's device layout.
+    // Skip alias insertion if the operand lacks a device layout -- this
+    // should not happen in well-formed IR but we guard against it.
+    auto layout = mlir::dyn_cast<ttcore::DeviceLayoutInterface>(
+        operandMemRefType.getLayout());
+    if (!layout) {
+      return success();
+    }
+    SmallVector<int64_t> shardShape =
+        llvm::to_vector(layout.getShardShape(operandMemRefType));
+
+    Type elementType = operandMemRefType.getElementType();
+    auto resultType =
+        MemRefType::get(shardShape, elementType, /*layout=*/nullptr,
+                        operandMemRefType.getMemorySpace());
+
+    rewriter.startOpModification(genericOp);
+    {
+      for (Region &region : genericOp->getRegions()) {
+        TT_assert(region.hasOneBlock());
+
+        Value oldAlloc = d2m::GenericOp::getOperandAlloc(region, operandIndex);
+        if (!oldAlloc || !oldAlloc.getDefiningOp()) {
+          continue;
+        }
+
+        // Only replace plain memref.allocs; skip get_cb ops and others.
+        if (!mlir::isa<memref::AllocOp>(oldAlloc.getDefiningOp())) {
+          continue;
+        }
+
+        OpBuilder::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPoint(oldAlloc.getDefiningOp());
+
+        auto aliasOp = rewriter.create<d2m::AliasOp>(oldAlloc.getLoc(),
+                                                     resultType, operandValue);
+
+        rewriter.replaceAllUsesWith(oldAlloc, aliasOp.getResult());
+        rewriter.eraseOp(oldAlloc.getDefiningOp());
+      }
+    }
+    rewriter.finalizeOpModification(genericOp);
 
     return success();
   }

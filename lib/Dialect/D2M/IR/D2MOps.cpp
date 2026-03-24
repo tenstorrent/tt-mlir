@@ -3162,7 +3162,8 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
             return;
           }
         }
-      } else if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
+      } else if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp,
+                           d2m::AliasOp>(&op)) {
         if (idx == operandIndex) {
           result = op.getResult(0);
           return;

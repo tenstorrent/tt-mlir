@@ -1037,6 +1037,10 @@ public:
           return cb;
         }
         return nullptr;
+      } else if (mlir::isa<d2m::AliasOp>(definingOp)) {
+        // AliasOp represents a direct buffer alias (no CB indirection).
+        // Return the alias result as the buffer value.
+        return memref;
       }
     }
     if (mlir::isa<BlockArgument>(memref)) {

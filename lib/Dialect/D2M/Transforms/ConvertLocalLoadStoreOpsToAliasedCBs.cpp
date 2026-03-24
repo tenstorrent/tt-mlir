@@ -143,10 +143,10 @@ static Operation *findLastUse(Value value, Block *block) {
   return lastUse;
 }
 
-// Helper function to find the memref.alloc operation that produces a given
-// value, potentially through a chain of operations. Returns the alloc op if
-// found, null otherwise.
-static memref::AllocOp findAllocOp(Value value) {
+// Helper function to find the buffer-producing operation (memref.alloc or
+// d2m.alias_buffer) that produces a given value, potentially through a chain
+// of operations. Returns the op if found, null otherwise.
+static Operation *findBufferOp(Value value) {
   if (!value) {
     return nullptr;
   }
@@ -156,16 +156,16 @@ static memref::AllocOp findAllocOp(Value value) {
     return nullptr;
   }
 
-  // Direct case: value is directly produced by memref.alloc
-  if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(definingOp)) {
-    return allocOp;
+  // Direct case: value is produced by memref.alloc or d2m.alias_buffer
+  if (mlir::isa<memref::AllocOp, d2m::AliasOp>(definingOp)) {
+    return definingOp;
   }
 
   // Trace through operations that might pass the buffer through
   // (e.g., view-like ops, cast ops, etc.)
   for (Value operand : definingOp->getOperands()) {
-    if (auto allocOp = findAllocOp(operand)) {
-      return allocOp;
+    if (auto *bufOp = findBufferOp(operand)) {
+      return bufOp;
     }
   }
 
@@ -236,19 +236,20 @@ public:
         continue;
       }
 
-      // Find the memref.alloc that produces the local buffer
-      memref::AllocOp allocOp = findAllocOp(localBuffer);
-      if (!allocOp) {
+      // Find the buffer-producing op (memref.alloc or d2m.alias_buffer)
+      Operation *bufferOp = findBufferOp(localBuffer);
+      if (!bufferOp) {
         remoteLoad.emitWarning(
-            "could not find memref.alloc for local buffer operand, skipping "
+            "could not find buffer op for local buffer operand, skipping "
             "conversion");
         continue;
       }
+      Value bufferResult = bufferOp->getResult(0);
 
-      // Find the last use of the alloc result or remote_load result BEFORE we
+      // Find the last use of the buffer result or remote_load result BEFORE we
       // modify the IR
-      Block *block = allocOp->getBlock();
-      Operation *lastUseOfAlloc = findLastUse(allocOp.getResult(), block);
+      Block *block = bufferOp->getBlock();
+      Operation *lastUseOfAlloc = findLastUse(bufferResult, block);
       Operation *lastUseOfRemoteLoad =
           findLastUse(remoteLoad.getResult(), block);
 
@@ -270,18 +271,18 @@ public:
       }
 
       {
-        // Insert reserve, push, and wait where the alloc was, so they
+        // Insert reserve, push, and wait where the buffer op was, so they
         // dominate all uses of the buffer (including view operations like
         // collapse_shape that may occur before the remote_load).
-        rewriter.setInsertionPoint(allocOp);
+        rewriter.setInsertionPoint(bufferOp);
 
         rewriter.create<ReserveOp>(loc, assocCb);
         rewriter.create<PushOp>(loc, assocCb);
         auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
 
-        rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
+        rewriter.replaceAllUsesWith(bufferResult, waitOp.getResult());
         rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
-        rewriter.eraseOp(allocOp);
+        rewriter.eraseOp(bufferOp);
 
         // Insert pop after the last use
         if (lastUse) {
@@ -327,21 +328,22 @@ public:
         continue;
       }
 
-      // Find the memref.alloc that produces the local buffer being stored
-      memref::AllocOp allocOp = findAllocOp(localBuffer);
+      // Find the buffer-producing op (memref.alloc or d2m.alias_buffer)
+      Operation *bufferOp = findBufferOp(localBuffer);
 
-      if (!allocOp) {
+      if (!bufferOp) {
         remoteStore.emitWarning(
-            "could not find memref.alloc for local buffer operand, skipping "
+            "could not find buffer op for local buffer operand, skipping "
             "conversion");
         continue;
       }
 
-      // Replace memref.alloc with reserve
-      rewriter.setInsertionPoint(allocOp);
+      // Replace buffer op with reserve
+      rewriter.setInsertionPoint(bufferOp);
       auto reserveOp = rewriter.create<ReserveOp>(loc, assocCb);
-      rewriter.replaceAllUsesWith(allocOp.getResult(), reserveOp.getResult());
-      rewriter.eraseOp(allocOp);
+      rewriter.replaceAllUsesWith(bufferOp->getResult(0),
+                                  reserveOp.getResult());
+      rewriter.eraseOp(bufferOp);
 
       // At remote_store location, insert: push, wait, pop
       rewriter.setInsertionPoint(remoteStore);

@@ -173,19 +173,21 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
 
     // Get the shared localBuffer before erasing operations
     Value localBuffer = loadOp.getLocalBuffer();
-    memref::AllocOp allocToErase = nullptr;
+    Operation *bufferToErase = nullptr;
     if (localBuffer) {
-      allocToErase = mlir::dyn_cast_if_present<memref::AllocOp>(
-          localBuffer.getDefiningOp());
+      Operation *defOp = localBuffer.getDefiningOp();
+      if (defOp && mlir::isa<memref::AllocOp, d2m::AliasOp>(defOp)) {
+        bufferToErase = defOp;
+      }
     }
 
     // Erase the original load and store operations
     rewriter.eraseOp(storeOp);
     rewriter.eraseOp(loadOp);
 
-    // Erase the shared alloc if it's now unused
-    if (allocToErase && allocToErase->use_empty()) {
-      rewriter.eraseOp(allocToErase);
+    // Erase the shared buffer op if it's now unused
+    if (bufferToErase && bufferToErase->use_empty()) {
+      rewriter.eraseOp(bufferToErase);
     }
   }
 }
@@ -233,15 +235,16 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     // Get the local buffer (destination) from implicit form remote_load
     // Downstream operations may reference this buffer directly
     Value localBuffer = remoteLoad.getLocalBuffer();
-    // Only erase allocs that live inside the generic (local working buffers).
-    // Hoisted CB allocs live outside as additionalArgs and must not be erased.
+    // Only erase buffer ops that live inside the generic (local working
+    // buffers). Hoisted CB allocs live outside as additionalArgs and must
+    // not be erased.
     GenericOp generic = remoteLoad->getParentOfType<GenericOp>();
-    memref::AllocOp allocToErase = nullptr;
+    Operation *bufferToErase = nullptr;
     if (localBuffer) {
-      if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
-              localBuffer.getDefiningOp())) {
-        if (generic && generic->isAncestor(allocOp)) {
-          allocToErase = allocOp;
+      Operation *defOp = localBuffer.getDefiningOp();
+      if (defOp && mlir::isa<memref::AllocOp, d2m::AliasOp>(defOp)) {
+        if (generic && generic->isAncestor(defOp)) {
+          bufferToErase = defOp;
         }
       }
     }
@@ -307,8 +310,8 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     // Erase the original remote_load operation
     rewriter.eraseOp(remoteLoad);
 
-    if (allocToErase) {
-      rewriter.eraseOp(allocToErase);
+    if (bufferToErase) {
+      rewriter.eraseOp(bufferToErase);
     }
   }
 
