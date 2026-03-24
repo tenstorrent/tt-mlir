@@ -34,14 +34,14 @@ std::optional<ToLayoutOp> getWorkaroundedInput(NLPConcatHeadsDecodeOp op,
   auto physicalGrid =
       ttcore::getCurrentScopeSystemDesc(op).getChipDescs()[0].getGrid();
 
-  auto affineMap =
+  auto [virtToPhysicalMap, physicalToVirtMap] =
       optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
           rewriter.getContext(), TensorMemoryLayout::HeightSharded,
           physicalGrid);
 
   SmallVector<int64_t> virtualGridSize = {batchSize, 1};
-  auto grid =
-      ttcore::GridAttr::get(rewriter.getContext(), virtualGridSize, affineMap);
+  auto grid = ttcore::GridAttr::get(rewriter.getContext(), virtualGridSize,
+                                    virtToPhysicalMap, physicalToVirtMap);
 
   auto memLayoutAttr = TensorMemoryLayoutAttr::get(
       rewriter.getContext(), TensorMemoryLayout::HeightSharded);

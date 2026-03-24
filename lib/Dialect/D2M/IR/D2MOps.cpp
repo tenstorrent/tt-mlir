@@ -2500,7 +2500,8 @@ createParallelizedGenericShell(d2m::GenericOp thisOp, OpBuilder &builder,
       thisOp.getAdditionalArgs(), newGrid,
       builder.getI64ArrayAttr(newBlockFactors), thisOp.getIndexingMaps(),
       thisOp.getIteratorTypes(), thisOp.getThreads(),
-      thisOp.getScratchInputsAttr(), thisOp.getNumRegions());
+      thisOp.getScratchInputsAttr(), thisOp.getFabricConnectionConfigAttr(),
+      thisOp.getNumRegions());
 }
 
 // Clone one generic region and retarget its block args to reblocked operands.
@@ -2760,8 +2761,10 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
         mlir::cast<ShapedType>((*reblockedTypes)[numInputs]));
     if (derivedGridShape.size() == normalizedGrid.getShape().size() &&
         !llvm::equal(derivedGridShape, normalizedGrid.getShape())) {
-      normalizedGrid = ttcore::GridAttr::get(
-          builder.getContext(), derivedGridShape, normalizedGrid.getMapping());
+      normalizedGrid =
+          ttcore::GridAttr::get(builder.getContext(), derivedGridShape,
+                                normalizedGrid.getVirtToPhysicalMap(),
+                                normalizedGrid.getPhysicalToVirtMap());
       reblockedTypes = computeReblockedTypes(normalizedGrid.getShape());
       if (failed(reblockedTypes)) {
         this->emitOpError()
