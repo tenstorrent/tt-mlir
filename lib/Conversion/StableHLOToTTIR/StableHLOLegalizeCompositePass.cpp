@@ -190,9 +190,9 @@ public:
     }
 
     auto input = adaptor.getOperands()[0];
-    auto topKOp = rewriter.create<ttir::TopKOp>(
-        srcOp.getLoc(), valuesType, indicesType, input, kAttr, dimAttr,
-        largestAttr, sortedAttr);
+    auto topKOp =
+        ttir::TopKOp::create(rewriter, srcOp.getLoc(), valuesType, indicesType,
+                             input, kAttr, dimAttr, largestAttr, sortedAttr);
 
     if (isTopKWithBoth) {
       rewriter.replaceOp(srcOp, {topKOp.getValues(), topKOp.getIndices()});

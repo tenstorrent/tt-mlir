@@ -1175,9 +1175,9 @@ private:
       llvm_unreachable("unexpected input element type");
     }
 
-    return builder.create<d2m::FullOp>(
-        loc, scalerType, llvm::to_vector_of<int32_t>(scalerType.getShape()),
-        fillAttr);
+    return d2m::FullOp::create(
+        builder, loc, scalerType,
+        llvm::to_vector_of<int32_t>(scalerType.getShape()), fillAttr);
   }
 
   static d2m::ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {
