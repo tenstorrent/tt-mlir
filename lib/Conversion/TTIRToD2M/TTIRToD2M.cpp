@@ -937,7 +937,8 @@ private:
   static constexpr ttcore::OOBVal getReductionOOBVal() {
     if constexpr (std::is_same_v<TileOp, d2m::TileReduceMaxOp>) {
       return ttcore::OOBVal::NegInf;
-    } else if constexpr (std::is_same_v<TileOp, d2m::TileReduceSumOp>) {
+    } else if constexpr (std::is_same_v<TileOp, d2m::TileReduceSumOp> ||
+                         std::is_same_v<TileOp, d2m::TileReduceMeanOp>) {
       return ttcore::OOBVal::Zero;
     } else {
       static_assert(ttmlir::utils::always_false<TileOp>(),
@@ -959,7 +960,8 @@ private:
     SmallVector<mlir::Value> newInputs(origInputs.begin(), origInputs.end());
     newInputs.emplace_back(createScaler(
         rewriter, loc,
-        mlir::cast<mlir::RankedTensorType>(origInputs.front().getType())));
+        mlir::cast<mlir::RankedTensorType>(origInputs.front().getType()),
+        getScaleValue(op)));
     auto inputTensorType =
         mlir::cast<RankedTensorType>(origInputs.front().getType());
     bool noCollapse = (inputTensorType.getRank() > 2);
@@ -1116,10 +1118,29 @@ private:
     return iterators;
   }
 
+  // For mean reduction, the scaler must encode 1/N where N is the product of
+  // the reduction dimension sizes. For all other reductions, the scaler is 1.0.
+  static double getScaleValue(ConcreteOp op) {
+    if constexpr (std::is_same_v<ConcreteOp, ttir::MeanOp>) {
+      auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+      ArrayRef<int64_t> shape = inputType.getShape();
+      mlir::ArrayAttr dimArg = getDimArg(op);
+      int64_t reductionSize = 1;
+      for (auto dimAttr : dimArg) {
+        int64_t dim = mlir::cast<IntegerAttr>(dimAttr).getInt();
+        dim = (dim + shape.size()) % shape.size();
+        reductionSize *= shape[dim];
+      }
+      return 1.0 / static_cast<double>(reductionSize);
+    }
+    return 1.0;
+  }
+
   // Create a reduction scaler value for a given type of tensor operand
   // (at the current 'builder' insertion point).
   static mlir::Value createScaler(mlir::OpBuilder &builder, mlir::Location loc,
-                                  mlir::RankedTensorType inputType) {
+                                  mlir::RankedTensorType inputType,
+                                  double fillValue = 1.0) {
 
     Type elementType = inputType.getElementType();
     Attribute encoding = nullptr;
@@ -1146,18 +1167,19 @@ private:
         ttcore::TileType::getDefaultShape(), elementType, encoding);
 
     // d2m.full requires fill_value to be 32-bit float or 32-bit integer.
-    mlir::Attribute one;
+    mlir::Attribute fillAttr;
     if (mlir::isa<mlir::FloatType>(elementType)) {
-      one = mlir::FloatAttr::get(builder.getF32Type(), 1.0);
+      fillAttr = mlir::FloatAttr::get(builder.getF32Type(), fillValue);
     } else if (mlir::isa<mlir::IntegerType>(elementType)) {
-      one = mlir::IntegerAttr::get(builder.getI32Type(), 1);
+      fillAttr = mlir::IntegerAttr::get(builder.getI32Type(),
+                                        static_cast<int64_t>(fillValue));
     } else {
       llvm_unreachable("unexpected input element type");
     }
 
     return builder.create<d2m::FullOp>(
         loc, scalerType, llvm::to_vector_of<int32_t>(scalerType.getShape()),
-        one);
+        fillAttr);
   }
 
   static d2m::ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {
@@ -2603,6 +2625,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::LessEqualOp,       d2m::TileLezOp>,
     // Reduction.
     D2MNamedReductionRewriter<ttir::MaxOp,               d2m::TileReduceMaxOp>,
+    D2MNamedReductionRewriter<ttir::MeanOp,              d2m::TileReduceMeanOp>,
     D2MNamedReductionRewriter<ttir::SumOp,               d2m::TileReduceSumOp>,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,

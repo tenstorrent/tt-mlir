@@ -248,6 +248,36 @@ module {
     return %1: tensor<1x1xf32>
   }
 
+  // CHECK-LABEL: func @named_mean_reductions_R
+  func.func @named_mean_reductions_R(%arg: !ttype) -> (tensor<1x96xf32>) {
+    // CHECK: d2m.full
+    // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "parallel"]
+    // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim C>
+    %1 = "ttir.mean"(%arg) <{dim_arg = [-2: i32], keep_dim = true}> : (!ttype) -> tensor<1x96xf32>
+    return %1: tensor<1x96xf32>
+  }
+
+  // CHECK-LABEL: func @named_mean_reductions_C
+  func.func @named_mean_reductions_C(%arg: !ttype) -> (tensor<128x1xf32>) {
+    // CHECK: d2m.full
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction"]
+    // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim R>
+    %1 = "ttir.mean"(%arg) <{dim_arg = [-1: i32], keep_dim = true}> : (!ttype) -> tensor<128x1xf32>
+    return %1 : tensor<128x1xf32>
+  }
+
+  // CHECK-LABEL: func @named_mean_reductions_RC
+  func.func @named_mean_reductions_RC(%arg: !ttype) -> (tensor<1x1xf32>) {
+    // CHECK: d2m.full
+    // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #reduction]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "reduction"]
+    // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim RC>
+    %1 = "ttir.mean"(%arg) <{dim_arg = [-2: i32, -1: i32], keep_dim = true}> : (!ttype) -> tensor<1x1xf32>
+    return %1: tensor<1x1xf32>
+  }
+
   // CHECK-LABEL: func @named_contractions
   func.func @named_contractions(%lhs: !lhs, %rhs: !rhs) -> (!matmul_result) {
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel, #reduction]
