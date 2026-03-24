@@ -2199,8 +2199,8 @@ public:
       dim += mlir::cast<RankedTensorType>(origInputs[0].getType()).getRank();
     }
 
-    auto compositeView = rewriter.create<d2m::CompositeViewOp>(
-        op.getLoc(), outputs[0].getType(), inputs, dim);
+    auto compositeView = d2m::CompositeViewOp::create(
+        rewriter, op.getLoc(), outputs[0].getType(), inputs, dim);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, compositeView->getResult(0),
                                           op.getResult().getType()));
