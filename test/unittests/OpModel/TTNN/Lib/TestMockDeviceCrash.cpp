@@ -3,19 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // ============================================================================
-// Canary test for tt-metal mock device crash.
+// Crash canary for tt-metal inspector + mock device interaction.
 //
-// Currently segfaults in Inspector/WatcherServer because CreateKernel
-// dereferences global singletons that aren't initialized for mock contexts.
-// Tracked in https://github.com/tenstorrent/tt-metal/issues/39849
+// Forces TT_METAL_INSPECTOR=1 to override the default workaround
+// (TT_METAL_INSPECTOR=0 set by SingletonDeviceContext::openDevice) and verify
+// the inspector crash (tt-metal#40630) still exists.
 //
-// Uses EXPECT_DEATH so this is an expected failure:
-//   - While #39849 is open: subprocess crashes -> EXPECT_DEATH passes -> CI
-//   green
-//   - When #39849 is fixed: subprocess doesn't crash -> EXPECT_DEATH fails ->
-//   CI red
-//     This signals that the fix has landed and the TTMLIR_DISABLE_MOCK_DEVICE
-//     default can be flipped to OFF.
+// Uses EXPECT_DEATH with "threadsafe" style (fork+exec) so the child gets a
+// clean process with TT_METAL_INSPECTOR=1 set before device initialization.
+//
+//   - While #40630 is open: subprocess crashes -> EXPECT_DEATH passes -> green
+//   - When #40630 is fixed: subprocess exits cleanly -> EXPECT_DEATH fails
+//     Remove this test and the TT_METAL_INSPECTOR=0 workaround in openDevice.
 // ============================================================================
 
 #include "MockDeviceFixture.h"
@@ -24,7 +23,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -34,13 +32,9 @@
 
 namespace mlir::tt::ttnn::op_model {
 
-// Fixture that sets up MLIR context on top of the mock device opened by
-// MockDeviceEnvironment. Mirrors OpModelLibMockDeviceBase but for a 1x1 mesh.
 class MockDeviceCrashTest : public OpModelFixture {
 public:
   void SetUp() override {
-    // Do NOT call OpModelFixture::SetUp — it opens a real device.
-    // MockDeviceEnvironment already opened the mock device.
     context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
     context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
@@ -48,15 +42,10 @@ public:
     mlir::tt::ttcore::registerDevice(module.get());
   }
 
-  void TearDown() override {
-    // MockDeviceEnvironment handles the final close.
-  }
+  void TearDown() override {}
 };
 
-// IMPORTANT: If this test FAILS (EXPECT_DEATH fails because code doesn't
-// crash), it means tt-metal#39849 is fixed and uplifted.
-// In that case, flip TTMLIR_DISABLE_MOCK_DEVICE default to OFF in CMakeLists.
-TEST_F(MockDeviceCrashTest, ExpectCrashUntil39849IsFixed) {
+TEST_F(MockDeviceCrashTest, InspectorCrashUntil40630IsFixed) {
   const llvm::SmallVector<int64_t> shape = {1, 1, 64, 128};
   const auto workerGrid = CreateWorkerGrid();
   const TTNNLayoutAttr layout = CreateTiledLayout(
@@ -80,8 +69,11 @@ TEST_F(MockDeviceCrashTest, ExpectCrashUntil39849IsFixed) {
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  // Force mock mode via env var so openMockDevice actually uses mock mode.
-  setenv("TTMLIR_DISABLE_MOCK_DEVICE", "0", /*overwrite=*/1);
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  // Force inspector ON to trigger the crash — overrides the openDevice
+  // workaround which uses overwrite=0.
+  setenv("TT_METAL_INSPECTOR", "1", /*overwrite=*/1);
+
   // NOLINTNEXTLINE(cppcoreguidelines-owning-memory) - GTest takes ownership.
   ::testing::AddGlobalTestEnvironment(new MockDeviceEnvironment());
   return RUN_ALL_TESTS();
