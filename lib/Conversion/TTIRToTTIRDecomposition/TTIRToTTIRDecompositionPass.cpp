@@ -84,11 +84,6 @@ struct TTIRToTTIRDecompositionPass
           [](ttir::Conv2dOp op) { return op.isNHWC(); });
       target.addDynamicallyLegalOp<ttir::ConvTranspose2dOp>(
           [](ttir::ConvTranspose2dOp op) { return op.isNHWC(); });
-      if (decompConfig == DecompMode::TTMetal) {
-        // TTMetal decomposes min(x) into neg(max(neg(x))) because there is no
-        // hardware reduce_min.  TTNN has native ttnn.min support.
-        target.addIllegalOp<ttir::MinOp>();
-      }
       break;
     }
 

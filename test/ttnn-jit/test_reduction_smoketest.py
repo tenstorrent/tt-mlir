@@ -48,7 +48,7 @@ def test_reductions(device, shape, max_grid, dim, op, dtype, buffer_type):
     # single core.  The neg→max→neg decomposition produces incorrect results
     # when the intermediate negated tensor is L1 block-sharded with a small
     # grid.  DRAM min and L1 min on larger grids work correctly.
-    # TODO(sgholami): Investigate L1 block-sharded min PCC failures.
+    # TODO(7617): Investigate L1 block-sharded min PCC failures.
     if (
         op == ttnn.min
         and buffer_type == ttnn.BufferType.L1

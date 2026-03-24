@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttir-decomposition="config=ttmetal" --ttir-to-d2m --d2m-materialize-view-returns --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttir-decomposition --ttir-decompose-min-reduction --ttir-to-d2m --d2m-materialize-view-returns --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verify that reduction ops set the correct identity OOB fill values on their
@@ -44,7 +44,7 @@ module {
   // The max's input uses 'neginf' OOB so padded tiles don't corrupt the result.
   // CHECK-LABEL: func @min_reduce_R
   // CHECK: d2m.tile_negative
-  // CHECK: d2m.to_layout
+  // CHECK: d2m.to_layout{{.*}}#[[MAX_INPUT]]
   // CHECK: d2m.tile_reduce_max
   // CHECK: d2m.tile_negative
   func.func @min_reduce_R(%arg: tensor<128x96xf32>) -> tensor<1x96xf32> {

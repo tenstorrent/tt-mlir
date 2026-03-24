@@ -1474,30 +1474,6 @@ public:
 };
 } // namespace
 
-// Decompose min(x) into neg(max(neg(x))) so that the D2M backend can reuse
-// the existing reduce_max tile op.
-namespace {
-struct MinOpDecompositionPattern : public OpConversionPattern<ttir::MinOp> {
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::MinOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    RankedTensorType resultType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(op.getResult().getType()));
-
-    auto negInput = rewriter.create<ttir::NegOp>(op.getLoc(), inputType,
-                                                 adaptor.getInput());
-    auto maxOp = rewriter.create<ttir::MaxOp>(
-        op.getLoc(), resultType, negInput.getResult(), op.getKeepDimAttr(),
-        op.getDimArgAttr());
-    rewriter.replaceOpWithNewOp<ttir::NegOp>(op, resultType, maxOp.getResult());
-    return success();
-  }
-};
-} // namespace
-
 //===----------------------------------------------------------------------===//
 // BatchNorm decomposition helpers
 //===----------------------------------------------------------------------===//
@@ -2663,11 +2639,8 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
     patterns.add<ReductionOrPattern>(typeConverter, ctx);
     break;
   case DecompMode::TTNN:
-    patterns.add<ReductionOrTTNNPattern>(typeConverter, ctx);
-    break;
   case DecompMode::TTMetal:
     patterns.add<ReductionOrTTNNPattern>(typeConverter, ctx);
-    patterns.add<MinOpDecompositionPattern>(typeConverter, ctx);
     break;
   }
   patterns.add<ConvChannelLastDecompositionPattern<ttir::Conv2dOp>>(
