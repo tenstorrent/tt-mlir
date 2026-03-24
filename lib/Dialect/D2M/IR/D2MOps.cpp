@@ -2324,7 +2324,8 @@ createParallelizedGenericShell(d2m::GenericOp thisOp, OpBuilder &builder,
       thisOp.getAdditionalArgs(), newGrid,
       builder.getI64ArrayAttr(newBlockFactors), thisOp.getIndexingMaps(),
       thisOp.getIteratorTypes(), thisOp.getThreads(),
-      thisOp.getScratchInputsAttr(), thisOp.getNumRegions());
+      thisOp.getScratchInputsAttr(), thisOp.getFabricConnectionConfigAttr(),
+      thisOp.getNumRegions());
 }
 
 // Clone one generic region and retarget its block args to reblocked operands.
