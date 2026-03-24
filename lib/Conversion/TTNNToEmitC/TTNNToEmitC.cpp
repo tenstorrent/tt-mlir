@@ -4520,7 +4520,7 @@ private:
   }
 
   std::string getPrefixSwapPattern() const override {
-    return "ttnn::experimental::slice_write";
+    return "::ttnn::sliceWriteFromTensors";
   }
 
 public:
@@ -4534,13 +4534,11 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SliceWriteOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // TODO(#slice_write): begins/ends are tensors in the IR but
-    // ttnn::experimental::slice_write expects SmallVector<uint32_t>.
-    // The EmitC-generated code will need a tensor-to-vector conversion
-    // helper at the call site for standalone C++ execution.
+    // sliceWriteFromTensors(operand, input, begins, ends) handles the
+    // tensor-to-vector conversion for begins/ends internally.
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getOperand()),
+        emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getBegins()),
         emitter.emit(srcOp.getEnds()),
     };

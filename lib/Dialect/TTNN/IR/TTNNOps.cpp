@@ -1805,6 +1805,11 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   ::mlir::RankedTensorType beginsType = getBegins().getType();
   ::mlir::RankedTensorType endsType = getEnds().getType();
 
+  // Operand must be at least 1D tensor.
+  if (operandType.getRank() < 1) {
+    return emitOpError("Operand must be at least a 1D tensor");
+  }
+
   // Input and operand must have the same rank.
   if (inputType.getRank() != operandType.getRank()) {
     return emitOpError("Input and operand must have the same rank");
@@ -1818,6 +1823,17 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   // Begins and ends must be 1D tensors.
   if (beginsType.getRank() != 1 || endsType.getRank() != 1) {
     return emitOpError("Begins and ends must be 1D tensors");
+  }
+
+  // Begins and ends must have integer element types.
+  if (!beginsType.getElementType().isIntOrIndex() ||
+      !endsType.getElementType().isIntOrIndex()) {
+    return emitOpError("Begins and ends must have integer element types");
+  }
+
+  // Begins and ends must have the same element type.
+  if (beginsType.getElementType() != endsType.getElementType()) {
+    return emitOpError("Begins and ends must have the same element type");
   }
 
   // Begins and ends must have elements equal to the operand rank.

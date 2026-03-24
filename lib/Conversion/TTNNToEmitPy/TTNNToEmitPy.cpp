@@ -2505,7 +2505,7 @@ private:
   }
 
   std::string getPrefixSwapPattern() const override {
-    return "ttnn.experimental.slice_write";
+    return "utils.slice_write_from_tensors";
   }
 
 public:
@@ -2519,12 +2519,11 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::SliceWriteOp> emitter(
         srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
 
-    // TODO(#slice_write): begins/ends are tensors in the IR but
-    // ttnn.experimental.slice_write expects list[int] arguments.
-    // The EmitPy-generated code will need tensor-to-list conversion.
+    // utils.slice_write_from_tensors(operand, input, begins, ends)
+    // handles tensor-to-list conversion for begins/ends internally.
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getOperand()),
+        emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getBegins()),
         emitter.emit(srcOp.getEnds()),
     };

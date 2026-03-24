@@ -2476,6 +2476,11 @@ mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
   ::mlir::RankedTensorType endsType = getEnds().getType();
   ::mlir::RankedTensorType resultType = getResult().getType();
 
+  // Operand must be at least 1D tensor.
+  if (operandType.getRank() < 1) {
+    return emitOpError("Operand must be at least a 1D tensor");
+  }
+
   // Result must match operand type.
   if (operandType != resultType) {
     return emitOpError("Result type must match operand type");
@@ -2494,6 +2499,17 @@ mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
   // Begins and ends must be 1D tensors.
   if (beginsType.getRank() != 1 || endsType.getRank() != 1) {
     return emitOpError("Begins and ends must be 1D tensors");
+  }
+
+  // Begins and ends must have integer element types.
+  if (!beginsType.getElementType().isIntOrIndex() ||
+      !endsType.getElementType().isIntOrIndex()) {
+    return emitOpError("Begins and ends must have integer element types");
+  }
+
+  // Begins and ends must have the same element type.
+  if (beginsType.getElementType() != endsType.getElementType()) {
+    return emitOpError("Begins and ends must have the same element type");
   }
 
   // Begins and ends must have elements equal to the operand rank.
