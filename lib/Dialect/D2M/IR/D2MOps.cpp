@@ -2768,24 +2768,55 @@ bool d2m::GenericOp::isAffineBlockedForm() {
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
-  auto maps = getIndexingMapsValue();
-  // Priority doesn't matter here, so reverse can be false.
+  auto allMaps = getIndexingMapsValue();
+  // Omit scratch/broadcast inputs; see getGridAndShardExtents in Allocate.cpp.
+  SmallVector<AffineMap> maps;
+  SmallVector<SmallVector<int64_t>> filteredShardShapesPerOperand;
+  for (auto [idx, v] : llvm::enumerate(getInputsAndOutputs())) {
+    AffineMap m = allMaps[idx];
+    if (idx < getInputs().size() &&
+        isScratchInput(static_cast<int64_t>(idx))) {
+      continue;
+    }
+    if (idx < getInputs().size() && !m.getResults().empty()) {
+      bool usesLoopDim = false;
+      for (AffineExpr e : m.getResults()) {
+        if (mlir::isa<AffineDimExpr>(e)) {
+          usesLoopDim = true;
+          break;
+        }
+      }
+      if (!usesLoopDim)
+        continue;
+    }
+    maps.push_back(m);
+    auto [_, shardShape] = getGridAndShardFromValue(v);
+    filteredShardShapesPerOperand.push_back(std::move(shardShape));
+  }
+  TT_assertv(!maps.empty(),
+             "expected a non-scratch operand for full block factors");
+
   auto flatInverseMap =
       ttmlir::utils::concatInversePermutationMap(maps, /*reverse=*/false);
 
-  SmallVector<int64_t> flattenedOperandShardShapes;
-  for (Value v : getInputsAndOutputs()) {
-    auto [_, shardShape] = getGridAndShardFromValue(v);
-    flattenedOperandShardShapes.append(shardShape.begin(), shardShape.end());
-  }
-
   auto currentBlockFactors = getBlockFactorsValue();
-  auto factorizations = flatInverseMap.compose(flattenedOperandShardShapes);
+  SmallVector<int64_t> factorizations;
+  if (!flatInverseMap) {
+    std::optional<SmallVector<int64_t>> fromConstraints =
+        d2m::utils::computeDimConstraints(maps, filteredShardShapesPerOperand);
+    TT_assertv(fromConstraints.has_value(),
+               "could not derive full block factors for generic");
+    factorizations = std::move(*fromConstraints);
+  } else {
+    SmallVector<int64_t> flattenedOperandShardShapes;
+    for (ArrayRef<int64_t> sh : filteredShardShapesPerOperand)
+      flattenedOperandShardShapes.append(sh.begin(), sh.end());
+    factorizations = flatInverseMap.compose(flattenedOperandShardShapes);
+  }
   TT_assertv(currentBlockFactors.size() == factorizations.size(),
              "full block factor count {} does not match factorization count {}",
              currentBlockFactors.size(), factorizations.size());
 
-  // Multiply back in the current block factors to normalize the result.
   for (std::size_t i = 0; i < currentBlockFactors.size(); ++i) {
     factorizations[i] *= currentBlockFactors[i];
   }

@@ -8,6 +8,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
@@ -1984,13 +1985,66 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   static std::tuple</* grid */ SmallVector<int64_t>,
                     /* shard */ SmallVector<int64_t>>
   getGridAndShardExtents(d2m::GenericOp genericOp) {
-    auto flatInverseMap = ttmlir::utils::concatInversePermutationMap(
-        genericOp.getIndexingMapsValue(), /*reverse=*/false);
+    // Scratch/broadcast inputs use all-constant maps; including them in concat
+    // breaks inversePermutation (null map) and crashes compose — same issue as
+    // deriveBlockFactorsFromOperandGrids / GridSelection recreateGenericOp.
+    //
+    // After removing those, the remaining maps can still be non-invertible as
+    // a full permutation (e.g. outer reduction output (d0,d1,d2)->(0,d1,d2)).
+    // Then use computeDimConstraints (inverseAndBroadcastProjectedPermutation).
+    auto allMaps = genericOp.getIndexingMapsValue();
+    auto gridShapes = genericOp.getInputOutputOperandGridShapes();
+    auto shardShapes = genericOp.getInputOutputOperandShardShapes();
+    TT_assert(allMaps.size() == gridShapes.size());
+    TT_assert(gridShapes.size() == shardShapes.size());
 
-    return {flatInverseMap.compose(
-                concatToVector(genericOp.getInputOutputOperandGridShapes())),
-            flatInverseMap.compose(
-                concatToVector(genericOp.getInputOutputOperandShardShapes()))};
+    auto skipOperand = [&](unsigned idx, AffineMap m) -> bool {
+      if (idx < genericOp.getInputs().size() &&
+          genericOp.isScratchInput(static_cast<int64_t>(idx)))
+        return true;
+      // All-constant input maps (broadcast); also if scratch_inputs was lost.
+      if (idx < genericOp.getInputs().size() && !m.getResults().empty()) {
+        bool usesLoopDim = false;
+        for (AffineExpr e : m.getResults()) {
+          if (mlir::isa<AffineDimExpr>(e)) {
+            usesLoopDim = true;
+            break;
+          }
+        }
+        if (!usesLoopDim)
+          return true;
+      }
+      return false;
+    };
+
+    SmallVector<AffineMap> maps;
+    SmallVector<SmallVector<int64_t>> filteredGrids;
+    SmallVector<SmallVector<int64_t>> filteredShards;
+    for (auto [idx, m] : llvm::enumerate(allMaps)) {
+      if (skipOperand(static_cast<unsigned>(idx), m))
+        continue;
+      maps.push_back(m);
+      filteredGrids.push_back(gridShapes[idx]);
+      filteredShards.push_back(shardShapes[idx]);
+    }
+    TT_assertv(!maps.empty(),
+               "grid/shard extents need a non-scratch operand");
+
+    auto flatInverseMap =
+        ttmlir::utils::concatInversePermutationMap(maps, /*reverse=*/false);
+
+    if (!flatInverseMap) {
+      std::optional<SmallVector<int64_t>> gridExtents =
+          d2m::utils::computeDimConstraints(maps, filteredGrids);
+      std::optional<SmallVector<int64_t>> shardExtents =
+          d2m::utils::computeDimConstraints(maps, filteredShards);
+      TT_assertv((gridExtents.has_value() && shardExtents.has_value()),
+                 "could not derive grid/shard extents for generic");
+      return {std::move(*gridExtents), std::move(*shardExtents)};
+    }
+
+    return {flatInverseMap.compose(concatToVector(filteredGrids)),
+            flatInverseMap.compose(concatToVector(filteredShards))};
   }
 
   /// Return a bitmask that indicates which of the dims are "participating"

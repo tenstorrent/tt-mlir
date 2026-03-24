@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
@@ -962,15 +963,6 @@ private:
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, op, physicalRank);
 
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
-        rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes));
-
-    auto insertPoint = rewriter.saveInsertionPoint();
-    rewriter.startOpModification(generic);
-    mlir::Region &region = generic->getRegions().front();
-    rewriter.createBlock(&region);
     auto getShardType = [](Type t) -> RankedTensorType {
       auto tensorType = mlir::cast<mlir::RankedTensorType>(t);
       ttcore::MetalLayoutAttr layout =
@@ -980,6 +972,166 @@ private:
     };
     auto inputShardType = getShardType(inputs.front().getType());
     auto outputShardType = getShardType(outputs.front().getType());
+    const std::size_t shardRank = outputShardType.getRank();
+
+    // Sum reductions need a zero-initialized output buffer. Use a dedicated
+    // d2m.generic (same grid as the reduction) so tile_fill runs with proper
+    // RemoteStore / DST lowering, then thread the result into the reduction.
+    SmallVector<Value> reduceOutputs(outputs.begin(), outputs.end());
+    if constexpr (std::is_same_v<TileAccumulateOp, d2m::TileAddOp>) {
+      // Scratch d2m.empty as input (constant map → same slice every iteration),
+      // matching D2MArangeOpRewriter. Avoids a 1-operand generic, which breaks
+      // passes that assume input+output layout (e.g. inferDst / grid helpers).
+      auto outTensorType =
+          mlir::cast<RankedTensorType>(outputs[0].getType());
+      auto outLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(outTensorType.getEncoding());
+      // Physical rank must stay even: [grid..., shard...] with equal halves.
+      // Only appending {1,1} gives gridHalf+2, which is odd when gridHalf is
+      // odd (e.g. rank-6 tensor → 3+2), tripping MetalLayout getGridShape.
+      llvm::ArrayRef<int64_t> fillGridShape =
+          outLayout.getGridShape(outTensorType);
+      const unsigned gridHalfRank = fillGridShape.size();
+      SmallVector<int64_t> scratchShape(fillGridShape.begin(),
+                                        fillGridShape.end());
+      scratchShape.append(gridHalfRank, 1);
+      mlir::Type scratchTileType = outTensorType.getElementType();
+      // Match the output layout's logical rank, collapse, and alignments so
+      // getPhysicalShape(scratch) matches the reduction operand. A minimal
+      // {1,1} logical shape yields a shorter physical rank than the output;
+      // GridSelection then asserts indexing map results match optimal grid
+      // size (see normalizeOperandGridsForGeneric).
+      llvm::ArrayRef<int64_t> outLogical = outLayout.getLogicalShape();
+      SmallVector<int64_t> scratchLogicalShape(outLogical.size(), 1);
+      ttcore::MetalLayoutAttr scratchLayout;
+      if (scratchLogicalShape.size() >= 2) {
+        scratchLayout = ttcore::MetalLayoutAttr::get(
+            rewriter.getContext(), scratchLogicalShape, ttcore::OOBVal::Undef,
+            ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded,
+            outLayout.getCollapsedIntervals(), outLayout.getDimAlignments());
+      } else {
+        scratchLogicalShape.assign({1, 1});
+        scratchLayout = ttcore::MetalLayoutAttr::get(
+            rewriter.getContext(), scratchLogicalShape, ttcore::OOBVal::Undef,
+            ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded);
+      }
+      mlir::Value scratchEmpty =
+          rewriter
+              .create<d2m::EmptyOp>(loc, scratchShape, scratchTileType,
+                                    scratchLayout)
+              .getResult();
+
+      SmallVector<mlir::AffineExpr> zeroExprs;
+      zeroExprs.reserve(physicalRank);
+      for (unsigned i = 0; i < physicalRank; ++i) {
+        zeroExprs.push_back(rewriter.getAffineConstantExpr(0));
+      }
+      mlir::AffineMap constantMap = mlir::AffineMap::get(
+          physicalRank, 0, zeroExprs, rewriter.getContext());
+      SmallVector<mlir::AffineMap> fillIndexingMaps = {constantMap,
+                                                     indexingMaps[numInputs]};
+
+      // GenericOp derives block_factors via inversePermutation(concat(maps)).
+      // The scratch operand uses an all-constant map, so concat is not a
+      // permutation and derivation fails. Reuse factors from the reduction
+      // generic (same iteration space and output map; scratch is broadcast).
+      SmallVector<SmallVector<int64_t>> reductionOperandGrids;
+      reductionOperandGrids.reserve(inputs.size() + outputs.size());
+      for (mlir::Value v : llvm::concat<mlir::Value>(inputs, outputs)) {
+        auto shapedType = mlir::cast<ShapedType>(v.getType());
+        ttcore::DeviceLayoutInterface layout =
+            ttcore::getDeviceLayout(shapedType);
+        reductionOperandGrids.emplace_back(
+            layout.getGridShape(shapedType).begin(),
+            layout.getGridShape(shapedType).end());
+      }
+      SmallVector<int64_t> reductionOutGrid =
+          llvm::to_vector(ttcore::getGridShape(outputs[0]));
+      SmallVector<int64_t> zeroFillBlockFactors =
+          d2m::utils::deriveBlockFactorsFromOperandGrids(
+              indexingMaps, reductionOperandGrids, reductionOutGrid);
+
+      auto zeroFillGeneric = rewriter.create<d2m::GenericOp>(
+          loc, ValueRange{scratchEmpty}, ValueRange{outputs[0]},
+          /*additionalArgs=*/ValueRange(),
+          rewriter.getAffineMapArrayAttr(fillIndexingMaps),
+          rewriter.getArrayAttr(iteratorTypes),
+          d2m::ThreadType::Unified, /*grid=*/nullptr, zeroFillBlockFactors);
+      zeroFillGeneric.setScratchInputsAttr(rewriter.getDenseI64ArrayAttr({0}));
+
+      rewriter.startOpModification(zeroFillGeneric);
+      {
+        mlir::Region &zRegion = zeroFillGeneric.getRegions().front();
+        mlir::Block *zBlock = rewriter.createBlock(&zRegion);
+        auto zBlockArgsVec = createBlockArguments(
+            rewriter, zBlock, loc, TypeRange{scratchEmpty.getType()},
+            TypeRange{outputs[0].getType()}, zeroFillGeneric,
+            enableMulticastInference);
+        mlir::Value shardScratch = zBlockArgsVec[1];
+
+        auto tileTy = mlir::cast<ttcore::TileType>(
+            outputShardType.getElementType());
+        mlir::Type scalarElemTy = tileTy.getElementType();
+        SmallVector<mlir::utils::IteratorType> fillIterTypes(
+            shardRank, mlir::utils::IteratorType::parallel);
+        SmallVector<mlir::AffineMap> shardFillMaps = {
+            rewriter.getMultiDimIdentityMap(shardRank)};
+        auto fillLinalg = rewriter.create<mlir::linalg::GenericOp>(
+            loc, TypeRange{outputShardType},
+            /*inputs=*/ValueRange{},
+            /*outputs=*/ValueRange{shardScratch},
+            shardFillMaps, fillIterTypes,
+            [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                mlir::ValueRange) {
+              mlir::TypedAttr zeroAttr;
+              if (mlir::isa<mlir::FloatType>(scalarElemTy)) {
+                zeroAttr = bbBuilder.getFloatAttr(
+                    mlir::cast<mlir::FloatType>(scalarElemTy), 0.0);
+              } else if (auto intTy =
+                             mlir::dyn_cast<mlir::IntegerType>(scalarElemTy)) {
+                zeroAttr = bbBuilder.getIntegerAttr(intTy, 0);
+              } else {
+                llvm_unreachable(
+                    "outer sum reduction: unsupported tile scalar element type "
+                    "for zero fill");
+              }
+              mlir::Value zeroScalar =
+                  bbBuilder.create<mlir::arith::ConstantOp>(bbLoc, scalarElemTy,
+                                                            zeroAttr);
+              mlir::Value filled =
+                  bbBuilder.create<d2m::TileFillOp>(bbLoc, tileTy, zeroScalar);
+              bbBuilder.create<mlir::linalg::YieldOp>(bbLoc,
+                                                      mlir::ValueRange{filled});
+            });
+
+        mlir::AffineMap zOutMap = zeroFillGeneric.getIndexingMap(1);
+        SmallVector<Value> zIndices =
+            d2m::utils::buildGridIndices(rewriter, loc, zOutMap);
+        mlir::Value zStore =
+            rewriter
+                .create<d2m::RemoteStoreOp>(
+                    loc, zeroFillGeneric->getOperand(1).getType(),
+                    zeroFillGeneric->getOperand(1), zIndices,
+                    fillLinalg.getResult(0))
+                .getResult();
+        rewriter.create<d2m::YieldOp>(loc, zStore);
+      }
+      rewriter.finalizeOpModification(zeroFillGeneric);
+      reduceOutputs[0] = zeroFillGeneric.getResult(0);
+      // startOpModification leaves the IP inside the zero-fill region; the
+      // reduction generic must be a sibling, not appended after d2m.yield.
+      rewriter.setInsertionPointAfter(zeroFillGeneric.getOperation());
+    }
+
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, inputs, reduceOutputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
+
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    mlir::Region &region = generic->getRegions().front();
+    rewriter.createBlock(&region);
 
     // Load one reduced-input slice and one accumulator/output slice.
     AffineMap inputIndexingMap = generic.getIndexingMap(0);
@@ -1023,8 +1175,6 @@ private:
                                        generic->getOperand(numInputs),
                                        outputIndices)
             .getResult();
-
-    std::size_t shardRank = outputShardType.getRank();
     std::optional<ArrayAttr> maybeDimArg = op.getDimArg();
     assert(maybeDimArg.has_value() && "expected dim_arg attribute to be set");
     mlir::AffineExpr zero =

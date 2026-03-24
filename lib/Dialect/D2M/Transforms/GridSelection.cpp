@@ -1068,8 +1068,21 @@ recreateGenericOp(d2m::GenericOp genericOp,
   ArrayRef<int64_t> outputGridShape = optimalOperandGrids[outputOperandIndex];
   ttcore::GridAttr grid =
       deriveGenericGridAttr(genericOp, optimalOperandGrids, builder);
-  SmallVector<int64_t> blockFactors = utils::deriveBlockFactorsFromOperandGrids(
-      genericOp.getIndexingMapsValue(), optimalOperandGrids, outputGridShape);
+  // Broadcast/scratch inputs often use all-constant indexing maps; those do not
+  // concatenate to an invertible permutation, so deriveBlockFactorsFromOperandGrids
+  // returns a null map and crashes in compose. Keep the op's existing factors.
+  bool anyScratchInput = false;
+  for (unsigned i = 0, e = genericOp.getInputs().size(); i < e; ++i) {
+    if (genericOp.isScratchInput(static_cast<int64_t>(i))) {
+      anyScratchInput = true;
+      break;
+    }
+  }
+  SmallVector<int64_t> blockFactors =
+      anyScratchInput ? genericOp.getBlockFactorsValue()
+                      : utils::deriveBlockFactorsFromOperandGrids(
+                            genericOp.getIndexingMapsValue(),
+                            optimalOperandGrids, outputGridShape);
   auto ret = genericOp.withParallelization(builder, grid, blockFactors,
                                            /*generateReturnView=*/false);
   if (failed(ret)) {

@@ -441,6 +441,12 @@ public:
 
     unsigned getCurrSliceIndex() { return currSliceIndex; }
 
+    /// True once at least one load has popped a slice from the stack (see
+    /// \p allocate(false)). In-place stores reuse the last loaded slice; if no
+    /// load ran, \p getCurrSliceIndex() is uninitialized and a store slot must
+    /// be allocated with \p allocate(true).
+    bool hasAllocatedLoadSlice() const { return !inputStack.empty(); }
+
   private:
     unsigned dstSliceCapacity = 0;
 
@@ -819,6 +825,12 @@ public:
                 "would reference wrong tile, but those ops should be setting "
                 "output tile.");
             dstSlice = dstSliceAllocationState.getCurrSliceIndex();
+            // No CB->DST load was collected (e.g. memref.load on affine path);
+            // allocate slice 0 instead of -1 from getCurrSliceIndex().
+            if (dstSlice < 0) {
+              dstSlice = dstSliceAllocationState.allocate();
+              dstSliceAllocationState.setStoreToDst();
+            }
           } else {
             dstSlice = dstSliceAllocationState.allocate();
             dstSliceAllocationState.setStoreToDst();
@@ -842,6 +854,9 @@ public:
               (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1))
                   ? dstSliceAllocationState.getCurrSliceIndex()
                   : dstSliceAllocationState.allocate();
+          if (dstSlice < 0) {
+            dstSlice = dstSliceAllocationState.allocate();
+          }
 
           // Exception: the CB load of the load-bcast pair won't be captured by
           // the CB->DST load handling loop above.
@@ -1633,7 +1648,14 @@ public:
                 "ops "
                 "would reference wrong tile, but those ops should be setting "
                 "output tile.");
-            dstSliceIndex = dstStackAllocator.getCurrSliceIndex();
+            if (!dstStackAllocator.hasAllocatedLoadSlice()) {
+              dstSliceIndex =
+                  static_cast<int64_t>(dstStackAllocator.allocate(true));
+              dstStackAllocator.setStoreToDst();
+            } else {
+              dstSliceIndex =
+                  static_cast<int64_t>(dstStackAllocator.getCurrSliceIndex());
+            }
           } else {
             dstSliceIndex = dstStackAllocator.allocate(true);
             dstStackAllocator.setStoreToDst();

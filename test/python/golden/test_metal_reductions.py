@@ -99,7 +99,7 @@ def test_sum(
 # @pytest.mark.parametrize("keep_dim", [True, False])
 # @pytest.mark.parametrize("target", ["ttmetal"])
 # @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-@pytest.mark.parametrize("b", [2])
+@pytest.mark.parametrize("b", [1, 2, 3, 8, 16, 32, 64])
 @pytest.mark.parametrize("m", [1])
 @pytest.mark.parametrize("n", [1])
 @pytest.mark.parametrize("dim_arg", [[0]])
