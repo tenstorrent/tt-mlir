@@ -25,7 +25,6 @@ bool hasFlattenedCompatInfoAttr(Operation *op) {
     for (auto attr : innerOp->getAttrs()) {
       if (llvm::isa<ttir::FlattenedCompatInfoAttr>(attr.getValue())) {
         hasAttr = true;
-
         return WalkResult::interrupt();
       }
     }
