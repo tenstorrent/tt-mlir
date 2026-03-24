@@ -13,6 +13,7 @@
 // - multi_cb_2_plus_3: 2 regions, r0: 2 CBs, r1: 3 CBs, shared in0; r1 uses local CB 0,1,2 in kernels; unified IO order in0,out0,in1,out1 with in0 deduped.
 // - multi_region: 2 regions, 2 shared inputs, 2 outputs; each region ct_args CB 0,1,2; address 0,1,2,3 (last).
 // - multi_region_semaphore: 2 regions; semaphore_at<0,1> per region; merged semaphores keep id 0,1 per region (listed twice).
+// - two_global_semaphores: 2 regions; each generic has one additional global semaphore; merged common_rt_args remap flat operand_index 2 to unified slots 4 and 5.
 
 // -----
 // TC1: Single region.
@@ -407,6 +408,91 @@ module {
     return
   }
   func.func private @cp_r1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    return
+  }
+}
+
+// -----
+// TC6: Two regions, one global semaphore additional arg per region.
+// additional args append sem0 then sem1 -> kernel_arg_global_semaphore<4> and <5>.
+#dram = #ttnn.buffer_type<dram>
+#l1 = #ttnn.buffer_type<l1>
+#dram1 = #ttcore.memory_space<dram>
+#l1_1 = #ttcore.memory_space<l1>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>, exactGrid = true>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>, exactGrid = true>
+#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = true>
+#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, (d0, d1) -> (0, d0 + 1, d1 + 1)>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>>
+#map3 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK-LABEL: func.func @spatial_two_global_semaphores
+module {
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+  // Merged operand list: four IO tensors then two !ttnn.global_semaphore; per-region local operand_index 2 maps to flat 4 then 5.
+  // CHECK: "ttnn.generic"
+  // CHECK-SAME: symbol_ref = @dm_g0_0
+  // CHECK-SAME: kernel_arg_global_semaphore<4>
+  // CHECK-SAME: symbol_ref = @dm_g0_1
+  // CHECK-SAME: kernel_arg_global_semaphore<4>
+  // CHECK-SAME: symbol_ref = @dm_g1_0
+  // CHECK-SAME: kernel_arg_global_semaphore<5>
+  // CHECK-SAME: symbol_ref = @dm_g1_1
+  // CHECK-SAME: kernel_arg_global_semaphore<5>
+  func.func @spatial_two_global_semaphores(%arg0: tensor<64x128xf32, #ttnn_layout>, %arg1: tensor<128x64xf32, #ttnn_layout1>) -> (tensor<64x64xf32, #ttnn_layout2>, tensor<64x64xf32, #ttnn_layout3>) {
+    %0 = d2m.empty() : tensor<64x64xf32, #ttnn_layout2>
+    %1 = d2m.empty() : tensor<64x64xf32, #ttnn_layout3>
+    %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<64x128xf32, #ttnn_layout> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>
+    %cast_0 = ttir.ttnn_metal_layout_cast %arg1 : tensor<128x64xf32, #ttnn_layout1> -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>
+    %cast_1 = ttir.ttnn_metal_layout_cast %0 : tensor<64x64xf32, #ttnn_layout2> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
+    %cast_2 = ttir.ttnn_metal_layout_cast %1 : tensor<64x64xf32, #ttnn_layout3> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
+    %alloc_sem0 = memref.alloc() {address = 200000 : i64, alignment = 16 : i64} : memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #l1_1>
+    %alloc_sem1 = memref.alloc() {address = 200016 : i64, alignment = 16 : i64} : memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #l1_1>
+    %sem0 = d2m.create_global_semaphore(%alloc_sem0) {value = 0 : ui32} : memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #l1_1> -> !d2m.global_semaphore
+    %sem1 = d2m.create_global_semaphore(%alloc_sem1) {value = 0 : ui32} : memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #l1_1> -> !d2m.global_semaphore
+    %alloc_tc6 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 2>, #l1_1>
+    %stream_tc6_r0 = "d2m.stream_layout"(%cast, %alloc_tc6) <{remapping = #map3}> : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 2>, #l1_1>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
+    %alloc_tc6_1 = memref.alloc() {address = 169248 : i64, alignment = 16 : i64} : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>
+    %stream_tc6_r1 = "d2m.stream_layout"(%cast_0, %alloc_tc6_1) <{remapping = #map3}> : (memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>) -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
+    d2m.spatial {grid_ranges = #ttcore.core_range_set<[#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]>}
+        ins(%cast, %cast_0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>)
+        outs(%cast_1, %cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>) {
+      ^region_0:
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_g0_0, noc = 0>, #d2m.thread<datamovement, @dm_g0_1, noc = 1>, #d2m.thread<compute, @cp_g0>]}
+            ins(%stream_tc6_r0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>)
+            outs(%cast_1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>)
+            additionalArgs(%sem0 : !d2m.global_semaphore)
+      }, {
+      ^region_1:
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_g1_0, noc = 0>, #d2m.thread<datamovement, @dm_g1_1, noc = 1>, #d2m.thread<compute, @cp_g1>]}
+            ins(%stream_tc6_r1 : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>)
+            outs(%cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>)
+            additionalArgs(%sem1 : !d2m.global_semaphore)
+      }
+    memref.dealloc %alloc_tc6_1 : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 2>, #l1_1>
+    memref.dealloc %alloc_tc6 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 2>, #l1_1>
+    d2m.reset_global_semaphore(%sem0) {value = 0 : ui32} : !d2m.global_semaphore
+    d2m.reset_global_semaphore(%sem1) {value = 0 : ui32} : !d2m.global_semaphore
+    memref.dealloc %alloc_sem1 : memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #l1_1>
+    memref.dealloc %alloc_sem0 : memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #l1_1>
+    %cast_3 = ttir.ttnn_metal_layout_cast %cast_1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1> -> tensor<64x64xf32, #ttnn_layout2>
+    %cast_4 = ttir.ttnn_metal_layout_cast %cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1> -> tensor<64x64xf32, #ttnn_layout3>
+    return %cast_3, %cast_4 : tensor<64x64xf32, #ttnn_layout2>, tensor<64x64xf32, #ttnn_layout3>
+  }
+  func.func private @dm_g0_0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>, <arg_type = global_semaphore, operand_index = 2>] ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+    return
+  }
+  func.func private @dm_g0_1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>, <arg_type = global_semaphore, operand_index = 2>] ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+    return
+  }
+  func.func private @cp_g0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    return
+  }
+  func.func private @dm_g1_0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>, <arg_type = global_semaphore, operand_index = 2>] ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+    return
+  }
+  func.func private @dm_g1_1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>, <arg_type = global_semaphore, operand_index = 2>] ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+    return
+  }
+  func.func private @cp_g1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     return
   }
 }
