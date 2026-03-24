@@ -17,18 +17,19 @@ namespace mlir::tt {
 #define GEN_PASS_DEF_EMITPYFORMEXPRESSIONS
 #include "ttmlir/Conversion/Passes.h.inc"
 
-// This pass packs certain patterns into expression ops so that they can be
-// inlined. Patterns supported:
-// 1. get dict value chain -> expression op   (from a forward function)
-// 2. util_create_list call -> expression op  (from a consteval wrapper
-// function)
-// 3. absorb single-use operand chains into existing expressions (from a
-// consteval wrapper function)
+// This pass packs certain op patterns into expression ops so that they can be
+// inlined during code emission. Two transformations are applied:
+//
+// 1. foldSingleUseOps: Wraps single-use PyExpressionInterface ops into an
+//    ExpressionOp.
+//
+// 2. absorbOperandsIntoExpressions: Walks operand def-use chains of existing
+//    ExpressionOps and absorbs single-use ops into the expression body.
+//
 
 namespace {
 
 using ttnn_to_emitpy::kCreateListFunctionName;
-using ttnn_to_emitpy::kWrapperAttr;
 
 static bool hasSingleUse(Operation *op) {
   return op->getNumResults() == 1 && op->getResult(0).hasOneUse();
@@ -39,14 +40,18 @@ static bool isCreateListCall(Operation *op) {
   return callOp && callOp.getCallee() == kCreateListFunctionName;
 }
 
-static bool isPartOfSetDictValueChain(Operation *op) {
+static bool isPyExprInterfaceSingleUseOp(Operation *op) {
   if (!hasSingleUse(op)) {
     return false;
   }
-  if (isa<emitpy::ConstantOp, emitpy::SubscriptOp, emitpy::LiteralOp>(op)) {
-    return true;
+  if (!isa<emitpy::PyExpressionInterface>(op)) {
+    return false;
   }
-  return isCreateListCall(op);
+  // As for the CallOpaqueOp, only inline when it is a util_create_list call.
+  if (dyn_cast<emitpy::CallOpaqueOp>(op) && !isCreateListCall(op)) {
+    return false;
+  }
+  return true;
 }
 
 class EmitPyFormExpressions
@@ -54,129 +59,42 @@ class EmitPyFormExpressions
 public:
   using impl::EmitPyFormExpressionsBase<
       EmitPyFormExpressions>::EmitPyFormExpressionsBase;
-  void foldSubscriptPattern(func::FuncOp funcOp) {
-    SmallVector<emitpy::SubscriptOp> candidates;
-    funcOp.walk([&](emitpy::SubscriptOp subscriptOp) {
-      if (isa<emitpy::ExpressionOp>(subscriptOp->getParentOp())) {
+  // Wrap single-use PyExpressionInterface ops into ExpressionOps.
+  void foldSingleUseOps(func::FuncOp funcOp) {
+    SmallVector<Operation *> candidates;
+    funcOp.walk([&](Operation *op) {
+      if (isa<emitpy::ExpressionOp>(op->getParentOp())) {
         return;
       }
-      if (isa<emitpy::LiteralOp>(subscriptOp.getIndex().getDefiningOp())) {
-        candidates.push_back(subscriptOp);
+      if (!isPyExprInterfaceSingleUseOp(op)) {
+        return;
       }
+      candidates.push_back(op);
     });
 
     OpBuilder builder(&getContext());
-    for (auto subscriptOp : candidates) {
-      auto loc = subscriptOp.getLoc();
-      auto literalOp =
-          cast<emitpy::LiteralOp>(subscriptOp.getIndex().getDefiningOp());
+    for (auto *op : candidates) {
+      auto loc = op->getLoc();
+      ValueRange operands = op->getOperands();
 
-      builder.setInsertionPoint(literalOp);
+      builder.setInsertionPoint(op);
       auto exprOp = builder.create<emitpy::ExpressionOp>(
-          loc, subscriptOp.getResult().getType(),
-          ValueRange{subscriptOp.getContainer()});
+          loc, op->getResult(0).getType(), operands);
 
       auto *body = &exprOp.getBody().emplaceBlock();
-      auto containerArg =
-          body->addArgument(subscriptOp.getContainer().getType(),
-                            subscriptOp.getContainer().getLoc());
+      for (auto operand : operands) {
+        body->addArgument(operand.getType(), operand.getLoc());
+      }
 
-      subscriptOp.replaceAllUsesWith(exprOp.getResult());
+      op->getResult(0).replaceAllUsesWith(exprOp.getResult());
 
-      literalOp->moveBefore(body, body->end());
-      subscriptOp->moveBefore(body, body->end());
-      subscriptOp.getContainerMutable().assign(containerArg);
+      op->moveBefore(body, body->end());
+      for (unsigned i = 0; i < operands.size(); ++i) {
+        op->setOperand(i, body->getArgument(i));
+      }
 
       builder.setInsertionPointToEnd(body);
-      builder.create<emitpy::YieldOp>(loc, subscriptOp.getResult());
-    }
-  }
-
-  // Collect all ops from the get dict value chain into one
-  // expression op.
-  void foldDictGetPattern(func::FuncOp funcOp) {
-    SmallVector<emitpy::SubscriptOp> candidates;
-    funcOp.walk([&](emitpy::SubscriptOp subscriptOp) {
-      if (!isa<emitpy::DictType>(subscriptOp.getContainer().getType())) {
-        return;
-      }
-      auto *indexDef = subscriptOp.getIndex().getDefiningOp();
-      if (!indexDef || !isa<emitpy::ConstantOp>(indexDef)) {
-        return;
-      }
-      if (!isa<emitpy::StringType>(indexDef->getResult(0).getType())) {
-        return;
-      }
-      if (!hasSingleUse(indexDef)) {
-        return;
-      }
-      if (subscriptOp->getParentOfType<emitpy::ExpressionOp>()) {
-        return;
-      }
-      candidates.push_back(subscriptOp);
-    });
-
-    OpBuilder builder(&getContext());
-    for (auto subscriptOp : candidates) {
-      auto loc = subscriptOp.getLoc();
-      auto constantOp =
-          cast<emitpy::ConstantOp>(subscriptOp.getIndex().getDefiningOp());
-      auto dict = subscriptOp.getContainer();
-
-      builder.setInsertionPoint(constantOp);
-      auto exprOp = builder.create<emitpy::ExpressionOp>(
-          loc, subscriptOp.getResult().getType(), ValueRange{dict});
-
-      auto *body = &exprOp.getBody().emplaceBlock();
-      auto dictArg = body->addArgument(dict.getType(), dict.getLoc());
-
-      subscriptOp.replaceAllUsesWith(exprOp.getResult());
-
-      constantOp->moveBefore(body, body->end());
-      subscriptOp->moveBefore(body, body->end());
-      subscriptOp.getContainerMutable().assign(dictArg);
-
-      // Add terminator at the end of the expression body.
-      builder.setInsertionPointToEnd(body);
-      builder.create<emitpy::YieldOp>(loc, subscriptOp.getResult());
-    }
-  }
-
-  // Pack util_create_list call into an expression op so it can be inlined.
-  void foldListIntoCallPattern(func::FuncOp funcOp) {
-    SmallVector<emitpy::CallOpaqueOp> createListOp;
-    funcOp.walk([&](emitpy::CallOpaqueOp listOp) {
-      if (!isCreateListCall(listOp) || !hasSingleUse(listOp)) {
-        return;
-      }
-      /* auto *user = *listOp->getResult(0).getUsers().begin();
-      if (!isa<emitpy::CallOpaqueOp, emitpy::AssignOp>(user)) {
-        return;
-      } */
-      createListOp.push_back(listOp);
-    });
-
-    OpBuilder builder(&getContext());
-    for (auto listOp : createListOp) {
-      auto loc = listOp.getLoc();
-      ValueRange args = listOp.getOperands();
-
-      builder.setInsertionPoint(listOp);
-      auto exprOp = builder.create<emitpy::ExpressionOp>(
-          loc, listOp.getResult(0).getType(), args);
-
-      auto *body = &exprOp.getBody().emplaceBlock();
-      for (auto arg : args) {
-        body->addArgument(arg.getType(), arg.getLoc());
-      }
-
-      listOp.getResult(0).replaceAllUsesWith(exprOp.getResult());
-
-      listOp->moveBefore(body, body->end());
-      listOp.getOperandsMutable().assign(body->getArguments());
-
-      builder.setInsertionPointToEnd(body);
-      builder.create<emitpy::YieldOp>(loc, listOp.getResult(0));
+      builder.create<emitpy::YieldOp>(loc, op->getResult(0));
     }
   }
 
@@ -196,7 +114,7 @@ public:
         Operation *op = worklist.pop_back_val();
         for (auto operand : op->getOperands()) {
           auto *operandDef = operand.getDefiningOp();
-          if (operandDef && isPartOfSetDictValueChain(operandDef) &&
+          if (operandDef && isPyExprInterfaceSingleUseOp(operandDef) &&
               opsToAbsorb.insert(operandDef)) {
             worklist.insert(operandDef);
           }
@@ -282,11 +200,7 @@ public:
       if (funcOp.isDeclaration()) {
         return;
       }
-      if (ttmlir::utils::isForwardDeviceFunc(funcOp)) {
-        foldDictGetPattern(funcOp);
-      }
-      foldSubscriptPattern(funcOp);
-      foldListIntoCallPattern(funcOp);
+      foldSingleUseOps(funcOp);
       absorbOperandsIntoExpressions(funcOp);
     });
   }
