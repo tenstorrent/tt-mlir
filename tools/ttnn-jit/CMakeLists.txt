@@ -37,12 +37,6 @@ if (USE_TTNN_JIT_WHEEL)
     COMPONENT TTNNJITWheel
     EXCLUDE_FROM_ALL
   )
-  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/_jit_site_initialize_0.py
-    DESTINATION ttnn_jit/ttmlir/_mlir_libs
-    COMPONENT TTNNJITWheel
-    EXCLUDE_FROM_ALL
-    RENAME _site_initialize_0.py
-  )
 
   add_custom_command(
     COMMAND rm -rf build ttnn_jit.egg-info
@@ -107,6 +101,9 @@ else ()
   add_custom_target(ttnn-jit ALL
     COMMENT "ttnn-jit package"
     DEPENDS TTNNJITModules _ttnn_jit _ttmlir_runtime TTMLIRPythonModules)
+  # In the non-wheel dev path, ttnn_jit source files use
+  # "from ttnn_jit.ttmlir.*" imports. Symlink ttmlir into the ttnn_jit
+  # package so that ttnn_jit.ttmlir resolves to the build's ttmlir.
   add_custom_command(
     TARGET ttnn-jit POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E create_symlink
