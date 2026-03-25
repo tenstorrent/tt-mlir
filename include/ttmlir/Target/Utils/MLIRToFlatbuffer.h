@@ -16,14 +16,11 @@
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
 
-// #include "/opt/ttmlir-toolchain/include/flatbuffers/flatbuffer_builder.h"
-
 #include "flatbuffers/buffer.h"
 #include "llvm/ADT/STLForwardCompat.h"
 
 #include <algorithm>
 #include <cstdint>
-#include <iostream>
 #include <memory>
 #include <optional>
 #include <type_traits>
@@ -431,18 +428,6 @@ toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
   return vec;
 }
 
-template <typename T, std::enable_if_t<IsNativeFlatbufferTypeV<T>, int> = 0>                                                                                                                                                                               
-flatbuffers::Offset<flatbuffers::Vector<const ToFlatbufferReturnType<T> *>>                                                                                                                                                                                
-toFlatbufferViaNative(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {                                                                                                                                                                           
-  static_assert(std::is_trivially_copyable_v<ToFlatbufferReturnType<T>>);                                                                                                                                                                                  
-  std::vector<ToFlatbufferReturnType<T>> nativeVec;                                                                                                                                                                                                        
-  nativeVec.reserve(arr.size());                                                                                                                                                                                                                           
-  for (auto elem : arr) {                                                                                                                                                                                                                                  
-    nativeVec.push_back(toNative(elem));
-  }                                                                                                                                                                                                                                                        
-  return cache.fbb->CreateVectorOfStructs(nativeVec.data(), nativeVec.size());
-}  
-
 template <typename T, std::enable_if_t<!IsNativeFlatbufferTypeV<T>, int> = 0>
 flatbuffers::Offset<flatbuffers::Vector<ToFlatbufferReturnType<T>>>
 toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
@@ -634,86 +619,19 @@ toNative(ttnn::CoreRangeSetAttr coreRangeSetAttr) {
   for (auto core_range : core_ranges) {
     coreRangeSetT.core_ranges.push_back(toNative(core_range));
   }
-  // if(coreRangeSetT.core_ranges.size() == 0) {
-  //   coreRangeSetT.core_ranges.push_back(::tt::target::ttnn::CoreRange(
-  //       ::tt::target::ttnn::CoreCoord(0, 0), ::tt::target::ttnn::CoreCoord(0, 0)));
-  // }
-  // std::cout << "\nsizeT: " << coreRangeSetT.core_ranges.size() << "\n";
 
   return coreRangeSetT;
-}
-
-// inline ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
-// toFlatbuffer(FlatbufferObjectCache &cache,
-//              ttnn::CoreRangeSetAttr coreRangeSetAttr) {
-//   if (!coreRangeSetAttr) {
-//     return 0;
-//   }
-
-//   return ::tt::target::ttnn::CreateCoreRangeSet(
-//       *cache.fbb, toFlatbuffer(cache, coreRangeSetAttr.getCoreRanges()));
-// }
-
-// inline ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
-// toFlatbuffer(FlatbufferObjectCache &cache,
-//              ttnn::CoreRangeSetAttr coreRangeSetAttr) {
-//   if (!coreRangeSetAttr) {
-//     return 0;
-//   }
-
-//   std::cout << "FB - CORE GRID SET: " << std::endl;
-//   for(auto el : coreRangeSetAttr.getCoreRanges()) {
-//     std::cout << "(" << el.getStartCoord().getX() << ", " << el.getStartCoord().getY() << "), (" << el.getEndCoord().getX() << ", " << el.getEndCoord().getY() << "), ";
-//   }
-
-
-//   auto ret = ::tt::target::ttnn::CreateCoreRangeSet(
-//       *cache.fbb, toFlatbuffer(cache, coreRangeSetAttr.getCoreRanges()));
-  
-//   std::cout << "toFB: ret.isNULL=" << ret.IsNull() << std::endl;
-
-//   return ret;
-// }
-
-inline ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
-toFlatbufferDefault(FlatbufferObjectCache &cache,
-             ttnn::CoreRangeSetAttr coreRangeSetAttr) {
-  if (!coreRangeSetAttr) {
-    return 0;
-  }
-
-  return ::tt::target::ttnn::CreateCoreRangeSet(
-      *cache.fbb, toFlatbuffer(cache, coreRangeSetAttr.getCoreRanges()));
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::CoreRangeSetAttr coreRangeSetAttr) {
-
-  // std::cout << "toNative(CoreRangeSetAttr)\n";
   if (!coreRangeSetAttr) {
     return 0;
   }
 
-
-  auto t = toNative(coreRangeSetAttr);                  
-                                                                                                                                                                                                  
-  auto coreRangesVec = cache.fbb->CreateVectorOfStructs(
-      t.core_ranges.data(), t.core_ranges.size());                                                                                                                                                                                                           
-  return ::tt::target::ttnn::CreateCoreRangeSet(*cache.fbb, coreRangesVec);
-
-
-  std::cout << "CORE GRID SET: " << std::endl;
-  std::cout << "Tsize = " << t.core_ranges.size() << std::endl;
-  for(auto el : t.core_ranges) {
-    std::cout << "(" << el.start_coord().x() << ", " << el.start_coord().y() << "), (" << el.end_coord().x() << ", " << el.end_coord().y() << "), ";
-  }
-  std::cout << "END\n";
-  auto ret = ::tt::target::ttnn::CoreRangeSet::Pack(*cache.fbb, &t);
-  std::cout << "ret.isNull = " << ret.IsNull() << std::endl;
-
-  return ret;
-  // return ::tt::target::ttnn::CoreRangeSet::Pack(*cache.fbb, &t);
+  auto t = toNative(coreRangeSetAttr);
+  return ::tt::target::ttnn::CoreRangeSet::Pack(*cache.fbb, &t);
 }
 
 inline ::tt::target::ttnn::UnaryOpType toNative(ttnn::UnaryOpType unaryOpType) {
@@ -838,30 +756,11 @@ toNative(ttnn::UnaryWithParamAttr unaryWithParam) {
   return unaryWithParamT;
 }
 
-// inline ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam>
-// toFlatbuffer(FlatbufferObjectCache &cache,
-//              ttnn::UnaryWithParamAttr unaryWithParam) {
-//   auto t = toNative(unaryWithParam);
-//   std::cout << "OP TYPE: " << static_cast<uint32_t>(t.op_type) << std::endl;
-//   std::cout << "PARAMS(toFlatbuffer): ";
-//   for(auto el : t.params) {
-//     std::cout << el << " , ";
-//   }
-//   auto ret =  ::tt::target::ttnn::UnaryWithParam::Pack(*cache.fbb, &t);
-//   // auto *r = flatbuffers::GetTemporaryPointer(*cache.fbb, ret);
-//   // std::cout << "OP TYPE: " << static_cast<uint32_t>(r->op_type()) << std::endl << "PARAMS";
-//   // for(auto el : *r->params()) {
-//   //   std::cout << el << " , ";
-//   // }
-//   return ret;
-// }
-
 inline ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::UnaryWithParamAttr unaryWithParam) {
-  return ::tt::target::ttnn::CreateUnaryWithParam(
-      *cache.fbb, toFlatbuffer(cache, unaryWithParam.getOpType()),
-      toFlatbuffer(cache, unaryWithParam.getParams()));
+  auto t = toNative(unaryWithParam);
+  return ::tt::target::ttnn::UnaryWithParam::Pack(*cache.fbb, &t);
 }
 
 inline ::flatbuffers::Offset<
@@ -1019,38 +918,10 @@ toNative(ttnn::Conv2dConfigAttr config) {
   return conv2dConfigT;
 }
 
-// inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
-// toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
-//   auto t = toNative(config);
-//   return ::tt::target::ttnn::Conv2dConfig::Pack(*cache.fbb, &t);
-// }
-
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
-  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> activation;
-  if (config.getActivation()) {
-    activation = toFlatbuffer(cache, config.getActivation());
-  }
-  auto core_grid = toFlatbuffer(cache, config.getCoreGrid());
-  std::cout << "core_grid: " << core_grid.o << "\n";
-
-
-  return ::tt::target::ttnn::CreateConv2dConfig(
-      *cache.fbb, toFlatbuffer(cache, config.getWeightsDtype()), activation,
-      toFlatbuffer(cache, config.getDeallocateActivation()),
-      toFlatbuffer(cache, config.getReallocateHaloOutput()),
-      toFlatbuffer(cache, config.getActBlockHOverride()),
-      toFlatbuffer(cache, config.getActBlockWDiv()),
-      toFlatbuffer(cache, config.getReshardIfNotOptimal()),
-      toFlatbuffer(cache, config.getOverrideShardingConfig()),
-      toFlatbuffer(cache, config.getShardLayout()),
-      core_grid,
-      toFlatbuffer(cache, config.getTransposeShards()),
-      toFlatbuffer(cache, config.getOutputLayout()),
-      toFlatbuffer(cache, config.getEnableActDoubleBuffer()),
-      toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
-      toFlatbuffer(cache, config.getEnableKernelStrideFolding()),
-      toFlatbuffer(cache, config.getConfigTensorsInDram()));
+  auto t = toNative(config);
+  return ::tt::target::ttnn::Conv2dConfig::Pack(*cache.fbb, &t);
 }
 
 inline ::tt::target::ttnn::Conv2dSliceType
