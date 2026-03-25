@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Run all parametrized tests in perf_tests.py in a single pytest session.
+# Run all perf test files in the perf_ci/ directory in a single pytest session.
 # The conftest.py perf_device fixture reads device profiler data after each
 # test and writes a combined perf_results.json to OUT_DIR.
 # summarize_perf_results.py then turns that into one JSON report per test case.
@@ -42,8 +42,14 @@ export TT_METAL_PROFILER_DIR="$OUT_DIR"
 REPORT_DIR="$OUT_DIR/reports"
 mkdir -p "$REPORT_DIR"
 
+PERF_CI_DIR="test/ttnn-jit/perf_ci"
+
 echo "Running all perf tests..."
-if ! pytest test/ttnn-jit/perf_ci/perf_tests.py "$@"; then
+if ! pytest \
+  "$PERF_CI_DIR/perf_tests.py" \
+  "$PERF_CI_DIR/perf_matmul_tests.py" \
+  "$PERF_CI_DIR/perf_subgraph_tests.py" \
+  "$@"; then
   echo "Warning: pytest exited with non-zero status (results may still be present)."
 fi
 
