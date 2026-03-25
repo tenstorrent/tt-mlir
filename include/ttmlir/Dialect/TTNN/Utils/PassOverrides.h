@@ -27,6 +27,8 @@ struct OptionNames {
   static constexpr StringRef l1InterleavedFallbackAnalysisEnabled =
       "l1-interleaved-fallback-analysis-enabled";
   static constexpr StringRef memReconfigEnabled = "memreconfig-enabled";
+  static constexpr StringRef enablePrepareConv2dWeightsAndBias =
+      "enable-prepare-conv2d-weights-and-bias";
   static constexpr StringRef memoryLayoutAnalysisPolicy =
       "memory-layout-analysis-policy";
   static constexpr StringRef systemDescPath = "system-desc-path";
