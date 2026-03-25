@@ -8,6 +8,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -2297,7 +2298,6 @@ public:
     assert(workerCoreSplitDim != inputRank &&
            "No dim found for worker core split");
 
-    // create input and output stream (TODO: change to view)
     llvm::SmallVector<int64_t> inputViewGrid(inputRank, 1);
     llvm::SmallVector<int64_t> outputViewGrid(inputRank, 1);
     inputViewGrid[workerCoreSplitDim] *= num_cores;
@@ -2310,15 +2310,10 @@ public:
     auto inputStreamReblockMap = ttmlir::utils::calculateReblockMap(
         inputTensorType.getShape(), inputStreamTensorType.getShape(),
         rewriter.getContext());
-    auto inputStreamstorage =
-        rewriter.create<d2m::EmptyOp>(op.getLoc(), inputStreamTensorType,
-                                      /*virtualGridInverseMapping=*/nullptr,
-                                      /*virtualGridForwardMapping=*/nullptr);
     Value inputStreamResult =
         rewriter
-            .create<d2m::StreamLayoutOp>(op.getLoc(), inputStreamTensorType,
-                                         input, inputStreamReblockMap,
-                                         inputStreamstorage.getResult())
+            .create<d2m::ViewLayoutOp>(op.getLoc(), inputStreamTensorType,
+                                       input, inputStreamReblockMap)
             ->getResult(0);
 
     auto outputTensorType =
@@ -2328,15 +2323,10 @@ public:
     auto outputStreamReblockMap = ttmlir::utils::calculateReblockMap(
         outputTensorType.getShape(), outputStreamTensorType.getShape(),
         rewriter.getContext());
-    auto outputStreamStorage =
-        rewriter.create<d2m::EmptyOp>(op.getLoc(), outputStreamTensorType,
-                                      /*virtualGridInverseMapping=*/nullptr,
-                                      /*virtualGridForwardMapping=*/nullptr);
     Value outputStreamResult =
         rewriter
-            .create<d2m::StreamLayoutOp>(op.getLoc(), outputStreamTensorType,
-                                         output, outputStreamReblockMap,
-                                         outputStreamStorage.getResult())
+            .create<d2m::ViewLayoutOp>(op.getLoc(), outputStreamTensorType,
+                                       output, outputStreamReblockMap)
             ->getResult(0);
 
     // Create generic in explicit form: block factors, indexing maps, and
