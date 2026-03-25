@@ -2359,13 +2359,23 @@ public:
 
       // Populate 'block'.
       {
-        SmallVector<Value> startDevice = {
-            rewriter.create<d2m::MeshPositionOp>(loc, 1 - clusterAxis),
-            rewriter.create<arith::ConstantIndexOp>(loc, 0)};
-        SmallVector<Value> endDevice = {
-            rewriter.create<d2m::MeshPositionOp>(loc, 1 - clusterAxis),
-            rewriter.create<arith::ConstantIndexOp>(
-                loc, meshShape[clusterAxis] - 1)};
+        // get the start device on the cluster axis and shape to multicast along
+        // that axis
+        SmallVector<Value> startDevice;
+        SmallVector<Value> deviceMcastShape;
+        for (uint32_t dim = 0; dim < meshShape.size(); dim++) {
+          if (dim == clusterAxis) {
+            startDevice.push_back(
+                rewriter.create<arith::ConstantIndexOp>(loc, 0));
+            deviceMcastShape.push_back(rewriter.create<arith::ConstantIndexOp>(
+                loc, meshShape[clusterAxis]));
+          } else {
+            startDevice.push_back(
+                rewriter.create<d2m::MeshPositionOp>(loc, dim));
+            deviceMcastShape.push_back(
+                rewriter.create<arith::ConstantIndexOp>(loc, 1));
+          }
+        }
 
         SmallVector<Value> coreIndices;
         for (uint32_t i = 0; i < inputRank; i++) {
@@ -2375,7 +2385,7 @@ public:
         // Synchronize: fabric semaphore increment mcast to all devices in
         // cluster axis then wait till value is (num devices - 1)
         rewriter.create<d2m::DeviceSynchronizeOp>(loc, startSemaphore,
-                                                  startDevice, endDevice,
+                                                  startDevice, deviceMcastShape,
                                                   num_devices - 1, coreIndices);
 
         SmallVector<Value> inputIndices;
@@ -2423,8 +2433,8 @@ public:
         SmallVector<Value> storeResults;
         auto remoteStoreOp = rewriter.create<d2m::RemoteStoreOp>(
             loc, outputStreamResult.getType(), outputStreamResult,
-            outputIndices, loadResult, startDevice, endDevice, endSemaphore,
-            inputIndices);
+            outputIndices, loadResult, startDevice, deviceMcastShape,
+            endSemaphore, inputIndices);
         Value storeResult = remoteStoreOp.getResult();
         storeResults.push_back(storeResult);
 
