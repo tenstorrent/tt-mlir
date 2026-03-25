@@ -172,10 +172,10 @@ def TTKernel_PackReconfigDataFormatOp : TTKernel_Op<"pack_reconfig_data_format">
       during L1 accumulation.
     }];
 
-    let arguments = (ins TTKernel_CB:$output_cb);
+    let arguments = (ins TTKernel_CB:$out_cb);
 
     let assemblyFormat = [{
-      `(` $output_cb `)` attr-dict `:` functional-type(operands, results)
+      `(` $out_cb `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
