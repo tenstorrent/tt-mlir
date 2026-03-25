@@ -1589,7 +1589,7 @@ void d2m::GenericOp::build(
               indexMap.getNumInputs() == kExpectedDimsFor2DDeviceShape;
 
           if (indexMapIs2DPermutation) {
-            auto [invMap, fwdMap] =
+            auto [fwdMap, invMap] =
                 ttmlir::utils::createGridForwardAndInverseMapFor2DPermutation(
                     indexMap, gridShape.size(), builder.getContext());
             grid = builder.getAttr<ttcore::GridAttr>(gridShape, fwdMap, invMap);

@@ -190,12 +190,13 @@ createIdentityGridInverseMap(mlir::MLIRContext *context) {
 }
 
 // Utility function to create an identity forward map for grid virtualization
-// Returns a map: (d0, d1, d2) -> (d1, d2)
+// Returns a map: (d0, d1) -> (0, d0, d1)
 inline mlir::AffineMap
 createIdentityGridForwardMap(mlir::MLIRContext *context) {
-  mlir::AffineExpr d1 = mlir::getAffineDimExpr(0, context);
-  mlir::AffineExpr d2 = mlir::getAffineDimExpr(1, context);
-  return mlir::AffineMap::get(3, 0, {d1, d2}, context);
+  mlir::AffineExpr d0 = mlir::getAffineDimExpr(0, context);
+  mlir::AffineExpr d1 = mlir::getAffineDimExpr(1, context);
+  mlir::AffineExpr zero = mlir::getAffineConstantExpr(0, context);
+  return mlir::AffineMap::get(2, 0, {zero, d0, d1}, context);
 }
 
 // Derives a grid inverse map _specifically_ for 2D->2D permutation index maps
@@ -212,8 +213,8 @@ createGridForwardAndInverseMapFor2DPermutation(mlir::AffineMap indexMap,
                                                mlir::MLIRContext *context) {
   // If no index_map or it's empty/identity, return identity grid inverse map
   if (!indexMap || indexMap.isEmpty() || indexMap.isIdentity()) {
-    return {createIdentityGridInverseMap(context),
-            createIdentityGridForwardMap(context)};
+    return {createIdentityGridForwardMap(context),
+            createIdentityGridInverseMap(context)};
   }
 
   // Extract grid portion of the index_map (first gridRank results).
@@ -244,7 +245,7 @@ createGridForwardAndInverseMapFor2DPermutation(mlir::AffineMap indexMap,
   auto invMap = mlir::AffineMap::get(gridRank, 0, invResults, context);
   auto fwdMap = gridMap.shiftDims(/*shift=*/1, /*offset=*/0);
 
-  return {invMap, fwdMap};
+  return {fwdMap, invMap};
 }
 
 // Calculate a reblocking affine map from inputShape to outputShape.
