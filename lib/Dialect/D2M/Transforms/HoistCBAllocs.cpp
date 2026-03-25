@@ -89,8 +89,8 @@ private:
       {
         OpBuilder::InsertionGuard deallocGuard(rewriter);
         rewriter.setInsertionPointAfter(genericOp);
-        rewriter.create<memref::DeallocOp>(genericOp.getLoc(),
-                                           externalAlloc.getResult());
+        memref::DeallocOp::create(rewriter, genericOp.getLoc(),
+                                  externalAlloc.getResult());
       }
     }
   }
