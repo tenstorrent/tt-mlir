@@ -3847,6 +3847,45 @@ public:
 };
 } // namespace
 
+// LayerNormPreAllGatherOp conversion pattern
+//
+namespace {
+class LayerNormPreAllGatherOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::LayerNormPreAllGatherOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormPreAllGatherOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormPreAllGatherOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LayerNormPreAllGatherOp>
+        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    // Args match tt-metal invoke parameter order with named kwargs.
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getResidualInput(), "residual_input_tensor"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(srcOp.getProgramConfig(), "program_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(srcOp.getRecip(), "recip_tensor"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // GroupNormOp conversion pattern
 //
 namespace {
@@ -4479,11 +4518,12 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Normalization ops
   //
-  patterns.add<BatchNormInferenceOpConversionPattern,
-               BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-               DistributedRMSNormOpConversionPattern,
-               LayerNormOpConversionPattern, GroupNormOpConversionPattern>(
-      typeConverter, ctx, enableGoldenMode);
+  patterns
+      .add<BatchNormInferenceOpConversionPattern,
+           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+           DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
+           LayerNormPreAllGatherOpConversionPattern,
+           GroupNormOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
 
   // Transformers ops
   //

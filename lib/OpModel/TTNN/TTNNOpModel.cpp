@@ -6452,6 +6452,105 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints>
+OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+    std::optional<TTNNLayoutAttr> residualInputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> recipShape,
+    std::optional<TTNNLayoutAttr> recipLayout,
+    std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> residualInputSpec =
+      detail::convertToOptionalTensorSpec(device, residualInputShape,
+                                          residualInputLayout);
+  std::optional<::ttnn::TensorSpec> recipSpec =
+      detail::convertToOptionalTensorSpec(device, recipShape, recipLayout);
+
+  ::ttnn::DataType metalDtype = ::ttnn::DataType::BFLOAT16;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::layer_norm_pre_all_gather, device, inputSpec,
+        /*dtype=*/metalDtype,
+        /*residual_input_tensor=*/residualInputSpec,
+        /*compute_kernel_config=*/std::nullopt,
+        /*program_config=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*recip_tensor=*/recipSpec);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+    std::optional<TTNNLayoutAttr> residualInputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> recipShape,
+    std::optional<TTNNLayoutAttr> recipLayout,
+    std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> residualInputSpec =
+      detail::convertToOptionalTensorSpec(device, residualInputShape,
+                                          residualInputLayout);
+  std::optional<::ttnn::TensorSpec> recipSpec =
+      detail::convertToOptionalTensorSpec(device, recipShape, recipLayout);
+
+  ::ttnn::DataType metalDtype = ::ttnn::DataType::BFLOAT16;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::layer_norm_pre_all_gather, device, inputSpec,
+        /*dtype=*/metalDtype,
+        /*residual_input_tensor=*/residualInputSpec,
+        /*compute_kernel_config=*/std::nullopt,
+        /*program_config=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*recip_tensor=*/recipSpec);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // GroupNormOp
 //===----------------------------------------------------------------------===//
 

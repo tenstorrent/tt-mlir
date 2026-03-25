@@ -1530,6 +1530,50 @@ createOp(FlatbufferObjectCache &cache, LayerNormOp op) {
                                                memoryConfig, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormPreAllGatherOp>
+createOp(FlatbufferObjectCache &cache, LayerNormPreAllGatherOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> residualInput = 0;
+  if (op.getResidualInput()) {
+    residualInput = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getResidualInput()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> recip = 0;
+  if (op.getRecip()) {
+    recip = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getRecip()));
+  }
+
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  ::tt::target::DataType dtype = ::tt::target::DataType::BFloat16;
+  if (op.getDtype()) {
+    dtype = toFlatbuffer(cache, op.getDtype().value());
+  }
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+      programConfig = 0;
+  if (op.getProgramConfig()) {
+    programConfig = toFlatbuffer(cache, op.getProgramConfig().value());
+  }
+
+  return ::tt::target::ttnn::CreateLayerNormPreAllGatherOp(
+      *cache.fbb, input, residualInput, recip, dtype, memoryConfig,
+      computeConfig.value_or(0), programConfig, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::GroupNormOp>
 createOp(FlatbufferObjectCache &cache, GroupNormOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -4260,6 +4304,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto layerNormOp = dyn_cast<LayerNormOp>(op); layerNormOp) {
     return createOperation(cache, createOp(cache, layerNormOp), debugString,
                            locInfo);
+  }
+  if (auto layerNormPreAllGatherOp = dyn_cast<LayerNormPreAllGatherOp>(op);
+      layerNormPreAllGatherOp) {
+    return createOperation(cache, createOp(cache, layerNormPreAllGatherOp),
+                           debugString, locInfo);
   }
   if (auto groupNormOp = dyn_cast<GroupNormOp>(op); groupNormOp) {
     return createOperation(cache, createOp(cache, groupNormOp), debugString,

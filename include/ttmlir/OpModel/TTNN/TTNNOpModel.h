@@ -1516,6 +1516,31 @@ struct OpModel<LayerNormOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// LayerNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<LayerNormPreAllGatherOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+      std::optional<TTNNLayoutAttr> residualInputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> recipShape,
+      std::optional<TTNNLayoutAttr> recipLayout,
+      std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+               std::optional<TTNNLayoutAttr> residualInputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> recipShape,
+               std::optional<TTNNLayoutAttr> recipLayout,
+               std::optional<ttcore::DataType> dtype,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // GroupNormOp
 //===----------------------------------------------------------------------===//
 

@@ -80,6 +80,7 @@ union OpType {
   GlobalAvgPool2dOp,
   GroupNormOp,
   LayerNormOp,
+  LayerNormPreAllGatherOp,
   LinearOp,
   LoadCachedOp,
   // ANCHOR: adding_an_op_matmul_fbs_op_type

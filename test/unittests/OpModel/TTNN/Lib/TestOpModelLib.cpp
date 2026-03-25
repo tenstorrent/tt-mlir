@@ -4633,6 +4633,131 @@ INSTANTIATE_TEST_SUITE_P(LayerNormTests, OpModelLayerNormParam,
                          layerNormTestValues);
 
 //===----------------------------------------------------------------------===//
+// LayerNormPreAllGatherOp Tests
+//===----------------------------------------------------------------------===//
+
+class OpModelLayerNormPreAllGatherParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,                // input
+                     detail::TestTensor,                // output
+                     std::optional<detail::TestTensor>, // residual_input
+                     std::optional<detail::TestTensor>, // recip
+                     std::optional<ttcore::DataType>,   // dtype
+                     detail::ExpectedResult             // expected result
+                     >> {};
+
+TEST_P(OpModelLayerNormPreAllGatherParam, LayerNormPreAllGatherParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto residualOpt = std::get<2>(params);
+  const auto recipOpt = std::get<3>(params);
+  const auto dtype = std::get<4>(params);
+  const auto expectedResult = std::get<5>(params);
+  const auto expectedLegal = expectedResult.expectedLegal;
+
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  // Create optional layouts for residual_input and recip
+  std::optional<llvm::ArrayRef<int64_t>> residualInputShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> residualInputLayout = std::nullopt;
+  if (residualOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] = residualOpt.value();
+    residualInputShape = shape;
+    residualInputLayout =
+        CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  std::optional<llvm::ArrayRef<int64_t>> recipShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> recipLayout = std::nullopt;
+  if (recipOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] = recipOpt.value();
+    recipShape = shape;
+    recipLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  // Test getOpConstraints
+  auto constraintsExp =
+      op_model::OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, residualInputShape,
+          residualInputLayout, recipShape, recipLayout, dtype, outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  if (constraintsExp) {
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBacks] = constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(totalPeakSize, 0);
+    EXPECT_GE(outputSize, 0);
+  } else {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  // Test getOpRuntime
+  auto runtimeExp = op_model::OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
+      inputShape, inputLayout, residualInputShape, residualInputLayout,
+      recipShape, recipLayout, dtype, outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+// Test values for LayerNormPreAllGatherOp
+const auto layerNormPreAllGatherTestValues = ::testing::Values(
+    // Test case 1: Basic with input only (no optional tensors)
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, std::nullopt, std::nullopt, detail::ExpectedResult{true}),
+
+    // Test case 2: With residual_input
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional(detail::TestTensor{{1, 1, 32, 128},
+                                              TensorMemoryLayout::Interleaved,
+                                              BufferType::DRAM}),
+        std::nullopt, std::nullopt, detail::ExpectedResult{true}),
+
+    // Test case 3: With explicit BFloat16 dtype
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 1, 32, 512}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, std::nullopt,
+        std::make_optional(ttcore::DataType::BFloat16),
+        detail::ExpectedResult{true}),
+
+    // Test case 4: With L1 memory buffers
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1, 1, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::nullopt, std::nullopt, std::nullopt,
+        detail::ExpectedResult{true}));
+
+INSTANTIATE_TEST_SUITE_P(LayerNormPreAllGatherTests,
+                         OpModelLayerNormPreAllGatherParam,
+                         layerNormPreAllGatherTestValues);
+
+//===----------------------------------------------------------------------===//
 // GroupNormOp Tests
 //===----------------------------------------------------------------------===//
 

@@ -3516,6 +3516,45 @@ public:
 };
 } // namespace
 
+// LayerNormPreAllGatherOp conversion pattern
+//
+namespace {
+class LayerNormPreAllGatherOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::LayerNormPreAllGatherOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormPreAllGatherOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormPreAllGatherOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::LayerNormPreAllGatherOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // Args must match tt-metal invoke parameter order:
+    // input, dtype, residual_input, compute_kernel_config,
+    // program_config, memory_config, recip_tensor
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getResidualInput()),
+        emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getRecip()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // GroupNormOp conversion pattern
 //
 namespace {
@@ -4946,8 +4985,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
                CumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
                BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-               LayerNormOpConversionPattern, GroupNormOpConversionPattern>(
-      typeConverter, ctx);
+               LayerNormOpConversionPattern,
+               LayerNormPreAllGatherOpConversionPattern,
+               GroupNormOpConversionPattern>(typeConverter, ctx);
 
   // CCL ops
   //
