@@ -48,6 +48,16 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(false)};
 
+  // Enable the TTNNPrepareConv2dWeightsAndBias pass.
+  // Only relevant when the optimizer is enabled.
+  // Default false: conv2d runtime handler prepares weights on first call and
+  // caches the result, avoiding the allocator state mismatch from consteval
+  // preparation. See issue #7414.
+  Option<bool> enablePrepareConv2dWeightsAndBias{
+      *this, OptionNames::enablePrepareConv2dWeightsAndBias,
+      llvm::cl::desc("Enable prepare conv2d weights and bias pass."),
+      llvm::cl::init(false)};
+
   // If this option is true, run a pass that checks if all ops relevant
   // to the optimizer (e.g. toLayout is ignored) have unique named locations.
   // If not, it will emit an error. This is necessary for the overrides to be
