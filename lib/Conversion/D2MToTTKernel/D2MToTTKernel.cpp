@@ -83,6 +83,22 @@ static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
               index(rewriter, loc, 1))};
 }
 
+static SmallVector<Value>
+getEndDeviceFromStartAndShape(OpBuilder &rewriter, OperandRange startDevice,
+                              OperandRange deviceMcastShape) {
+  assert(startDevice.size() == deviceMcastShape.size() &&
+         "startDevice and deviceMcastShape must have the same size");
+  SmallVector<Value> endDevice;
+  endDevice.reserve(startDevice.size());
+  for (auto [start, shape] : llvm::zip(startDevice, deviceMcastShape)) {
+    Value sum = rewriter.create<arith::AddIOp>(start.getLoc(), start, shape);
+    Value end = rewriter.create<arith::SubIOp>(
+        start.getLoc(), sum, index(rewriter, start.getLoc(), 1));
+    endDevice.push_back(end);
+  }
+  return endDevice;
+}
+
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   if (memref::LoadOp loadOp =
           mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
@@ -1767,7 +1783,7 @@ public:
       auto fcm = getFabricConnectionManager(op);
 
       // fabric unicast
-      if (op.getEndDevice().size() == 0) {
+      if (op.getDeviceMcastShape().size() == 0) {
         auto deviceId =
             rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
                 op.getLoc(), fcm, op.getStartDevice());
@@ -1779,9 +1795,11 @@ public:
         auto startDeviceId =
             rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
                 op.getLoc(), fcm, op.getStartDevice());
+        auto endDevice = getEndDeviceFromStartAndShape(
+            rewriter, op.getStartDevice(), op.getDeviceMcastShape());
         auto endDeviceId =
             rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
-                op.getLoc(), fcm, op.getEndDevice());
+                op.getLoc(), fcm, endDevice);
         rewriter.create<ttkernel::FabricMulticastWriteOp>(
             op.getLoc(), fcm, meshId, startDeviceId, endDeviceId, dstNocAddr,
             srcL1Addr, size);
@@ -2239,7 +2257,7 @@ public:
       auto fcm = getFabricConnectionManager(op);
 
       // fabric unicast
-      if (op.getEndDevice().size() == 0) {
+      if (op.getDeviceMcastShape().size() == 0) {
         auto deviceId =
             rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
                 op.getLoc(), fcm, op.getStartDevice());
@@ -2251,9 +2269,11 @@ public:
         auto startDeviceId =
             rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
                 op.getLoc(), fcm, op.getStartDevice());
+        auto endDevice = getEndDeviceFromStartAndShape(
+            rewriter, op.getStartDevice(), op.getDeviceMcastShape());
         auto endDeviceId =
             rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
-                op.getLoc(), fcm, op.getEndDevice());
+                op.getLoc(), fcm, endDevice);
         // TODO: fix to be conditioned on if device is contained within mcast
         // region
         rewriter.replaceOpWithNewOp<ttkernel::FabricMulticastSemIncOp>(
@@ -2370,13 +2390,15 @@ public:
     auto numReceivers = i32(rewriter, op->getLoc(), op.getNumReceivers());
 
     // fabric unicast
-    if (op.getSenderEndDevice().size()) {
+    if (op.getSenderDeviceMcastShape().size()) {
       auto startDeviceId =
           rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
               op.getLoc(), fcm, op.getSenderStartDevice());
+      auto endDevice = getEndDeviceFromStartAndShape(
+          rewriter, op.getSenderStartDevice(), op.getSenderDeviceMcastShape());
       auto endDeviceId =
           rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
-              op.getLoc(), fcm, op.getSenderEndDevice());
+              op.getLoc(), fcm, endDevice);
       rewriter.replaceOpWithNewOp<ttkernel::FabricMulticastSemIncOp>(
           op, fcm, meshId, startDeviceId, endDeviceId, globalSemAddr, incr);
     }
