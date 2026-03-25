@@ -18,11 +18,11 @@ namespace {
 // func arg. If it carries "ttcore.weight_dtype", set it on the consumer op.
 static void resolveAndSetWeightDtype(mlir::Value weight,
                                      mlir::Operation *consumerOp) {
-  // Trace backward through TM ops and BroadcastOp.
+  // Trace backward through TM ops, BroadcastOp, and MeshShardOp.
   mlir::Value source = weight;
   while (auto *op = source.getDefiningOp()) {
     if (op->hasTrait<TensorManipulation::Trait>() ||
-        mlir::isa<BroadcastOp>(op)) {
+        mlir::isa<BroadcastOp, MeshShardOp>(op)) {
       source = op->getOperand(0);
     } else {
       break;
