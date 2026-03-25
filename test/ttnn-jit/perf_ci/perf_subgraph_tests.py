@@ -69,26 +69,50 @@ def test_subgraph_perf(
     bias = 1.0
     alpha = 1.702
 
-    left_input = create_dram_tensor(device, shape, dtype)
-    right_input = create_dram_tensor(device, shape, dtype)
+    left_input = create_dram_tensor(device, shape, dtype, ttnn_dtype=ttnn_dtype)
+    right_input = create_dram_tensor(device, shape, dtype, ttnn_dtype=ttnn_dtype)
 
     left_min = create_dram_tensor(
-        device, shape, dtype, input_transform=lambda t: t.fill_(-limit)
+        device,
+        shape,
+        dtype,
+        ttnn_dtype=ttnn_dtype,
+        input_transform=lambda t: t.fill_(-limit),
     )
     left_max = create_dram_tensor(
-        device, shape, dtype, input_transform=lambda t: t.fill_(limit)
+        device,
+        shape,
+        dtype,
+        ttnn_dtype=ttnn_dtype,
+        input_transform=lambda t: t.fill_(limit),
     )
     right_min = create_dram_tensor(
-        device, shape, dtype, input_transform=lambda t: t.fill_(float("-inf"))
+        device,
+        shape,
+        dtype,
+        ttnn_dtype=ttnn_dtype,
+        input_transform=lambda t: t.fill_(float("-inf")),
     )
     right_max = create_dram_tensor(
-        device, shape, dtype, input_transform=lambda t: t.fill_(limit)
+        device,
+        shape,
+        dtype,
+        ttnn_dtype=ttnn_dtype,
+        input_transform=lambda t: t.fill_(limit),
     )
     bias_value = create_dram_tensor(
-        device, shape, dtype, input_transform=lambda t: t.fill_(bias)
+        device,
+        shape,
+        dtype,
+        ttnn_dtype=ttnn_dtype,
+        input_transform=lambda t: t.fill_(bias),
     )
     alpha_value = create_dram_tensor(
-        device, shape, dtype, input_transform=lambda t: t.fill_(alpha)
+        device,
+        shape,
+        dtype,
+        ttnn_dtype=ttnn_dtype,
+        input_transform=lambda t: t.fill_(alpha),
     )
 
     if jit_enabled:

@@ -11,8 +11,14 @@ import torch
 
 import pytest
 
+from ttnn_jit._src.utils import get_maximal_block_sharding_grid
+
 from op_definitions import matmul
-from utils import create_sharded_tile_tensor, create_dram_tensor
+from utils import (
+    create_sharded_tile_tensor,
+    create_dram_tensor,
+    get_core_grid_from_device,
+)
 
 MATMUL_SHAPES = [
     (512, 512, 512),
@@ -28,8 +34,6 @@ MATMUL_SHAPES = [
     (2048, 2048, 2048),
 ]
 
-GRID_8x8 = (7, 7)
-
 # (memory_config_id, input_a_mem, input_b_mem)
 # TTNN matmul requires input_b to have INTERLEAVED memory layout.
 MEMORY_CONFIGS = [
@@ -40,10 +44,12 @@ MEMORY_CONFIGS = [
 
 def _create_tensor(device, shape, dtype, ttnn_dtype, mem_type):
     if mem_type == "l1_block_sharded":
+        core_grid = get_core_grid_from_device(device)
+        grid = get_maximal_block_sharding_grid(shape, core_grid)
         return create_sharded_tile_tensor(
             device,
             shape,
-            GRID_8x8,
+            grid,
             dtype,
             shard_strategy=ttnn.ShardStrategy.BLOCK,
             ttnn_dtype=ttnn_dtype,
