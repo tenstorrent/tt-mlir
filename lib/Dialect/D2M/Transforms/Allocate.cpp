@@ -966,6 +966,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       const SmallVector<int64_t> shardShapeRescaled =
           canonicalMap.compose(candidateShardExtents);
 
+      // Minimum shard size is 4 tiles.
       if (ttmlir::utils::volume<int64_t>(shardShapeRescaled) < 4) {
         return std::nullopt;
       }
