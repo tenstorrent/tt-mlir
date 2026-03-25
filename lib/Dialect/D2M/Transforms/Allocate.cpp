@@ -1047,52 +1047,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             } else if (forceSpillToDram) {
               b.bind(PlannerSpace::Spill);
             }
-
-            // For each possible variable placement, add mem requests for L1
-            // stream buffers if the variable must be streamed when it backs a
-            // generic op operand.
-            for (PlannerSpace placement = PlannerSpace::begin;
-                 placement < PlannerSpace::end; ++placement) {
-
-              const MemorySpace placementMemspace = asMemorySpace(placement);
-              if (bound && placementMemspace != memspace) {
-                // A bound variable only needs its domain populated for its
-                // fixed (incoming) memspace.
-                continue;
-              }
-              if (forceSpillToDram && placement != PlannerSpace::Spill) {
-                // Forced-to-spill variables only populate the DRAM domain.
-                continue;
-              }
-
-              for (d2m::GenericOp user : memrefCtx.genericUsers) {
-                GenericOpContext &genericCtx = analysis.generics[user];
-
-                // Generics in "explicit datamovement" form manage their own
-                // streams; the planner does not insert streams for them.
-                if (genericCtx.isExplicitDatamovement) {
-                  continue;
-                }
-
-                // A given user can have multiple uses of `memref` at
-                // different operand positions; each position will have its own
-                // stream.
-                for (OperandContext &operandCtx : genericCtx.operands) {
-                  if (operandCtx.primaryRoot != memref) {
-                    continue;
-                  }
-
-                  // The goal is to have streams for all operands (other than
-                  // exempt outputs) that don't have them already.
-                  // DRAM outputs always need streams to write data back from
-                  // L1 circular buffers to DRAM.
-
-                  if (isOperandExemptFromStreaming(operandCtx, memspace)) {
-                    continue;
-                  }
-                }
-              }
-            }
           });
     }
 
