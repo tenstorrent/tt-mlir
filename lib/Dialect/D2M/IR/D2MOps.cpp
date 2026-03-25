@@ -3234,9 +3234,9 @@ mlir::LogicalResult d2m::SpatialOp::bufferize(
     }
     bufferOutputs.push_back(*maybeValue);
   }
-  auto bufferSpatial = rewriter.create<d2m::SpatialOp>(
-      getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGridRanges(),
-      getNumRegions());
+  auto bufferSpatial =
+      d2m::SpatialOp::create(rewriter, getLoc(), ValueRange(), bufferInputs,
+                             bufferOutputs, getGridRanges(), getNumRegions());
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
   for (mlir::Region &region : bufferSpatial.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
