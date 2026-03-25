@@ -38,6 +38,11 @@ struct SumL1MemoryTracker {
   uint64_t getOccupiedL1() const;
   void addTensor(Value result, uint64_t l1SizePerCore);
   void removeTensor(Value result);
+
+  /// Remove tensor from size tracking only (tensorSizes, currentOccupied).
+  /// Does NOT touch address simulation (freeList, tensorAddresses).
+  /// Used in eviction paths where addresses are rebuilt via replay.
+  void removeTensorFromSizes(Value result);
   bool hasTensor(Value result) const;
   uint64_t getTensorSize(Value result) const;
 
@@ -45,18 +50,43 @@ struct SumL1MemoryTracker {
   /// Returns l1Budget if no tensors are allocated.
   uint64_t getLowestOccupiedAddress() const;
 
-  /// Return all Values with simulated address below the given threshold.
-  llvm::SmallVector<Value> getTensorsBelow(uint64_t address) const;
-
   /// Speculative allocation query: returns the address where a tensor of the
   /// given size would be placed (top-down first-fit, 32-byte aligned), without
   /// actually allocating. Returns nullopt if no contiguous block fits.
   std::optional<uint64_t> wouldAllocateAt(uint64_t l1SizePerCore) const;
 
-  /// Rebuild the address simulation (freeList, tensorAddresses) from
-  /// the current tensorSizes map, allocating in the given schedule order.
-  /// Does NOT change tensorSizes or currentOccupied — only addresses.
-  void rebuildAddresses(llvm::ArrayRef<Value> allocationOrder);
+  void logState() const;
+
+  // --- Public types for snapshot/replay ---
+
+  struct FreeBlock {
+    uint64_t start;
+    uint64_t end;
+    uint64_t size() const { return end - start; }
+  };
+
+  /// Snapshot of the address simulation state (freeList + tensorAddresses).
+  /// Captured before each allocation event so that eviction can replay from
+  /// any point in the schedule.
+  struct Snapshot {
+    llvm::SmallVector<FreeBlock> freeList;
+    llvm::DenseMap<Value, std::pair<uint64_t, uint64_t>> tensorAddresses;
+  };
+
+  /// Take a snapshot of the current address simulation state.
+  Snapshot takeSnapshot() const;
+
+  /// Restore the address simulation state from a snapshot (freeList +
+  /// tensorAddresses). Does NOT change tensorSizes or currentOccupied.
+  void restoreSnapshot(const Snapshot &snapshot);
+
+  /// Allocate an address block for a tensor (top-down first-fit, aligned).
+  /// Address-only: does not update tensorSizes/currentOccupied.
+  void allocateAddress(Value result, uint64_t l1SizePerCore);
+
+  /// Free a tensor's address block and merge with adjacent free blocks.
+  /// Address-only: does not update tensorSizes/currentOccupied.
+  void freeAddress(Value result);
 
 private:
   uint64_t currentOccupied = 0;
@@ -66,18 +96,10 @@ private:
   static constexpr uint64_t kL1Alignment = 32;
   uint64_t l1Budget = 0;
 
-  struct FreeBlock {
-    uint64_t start;
-    uint64_t end;
-    uint64_t size() const { return end - start; }
-  };
   llvm::SmallVector<FreeBlock> freeList;
 
   // Allocated tensor addresses: Value -> (start, alignedSize).
   llvm::DenseMap<Value, std::pair<uint64_t, uint64_t>> tensorAddresses;
-
-  /// Allocate an address block for a tensor (top-down first-fit, aligned).
-  void allocateAddressBlock(Value result, uint64_t l1SizePerCore);
 };
 
 /// L1SpillManagement enforces L1 budget constraints using Belady's optimal
@@ -132,9 +154,32 @@ private:
       liveSet;
   llvm::DenseSet<Value> liveValues;
 
-  /// Values in the order they were added to the tracker (schedule order).
-  /// Used to rebuild addresses after eviction.
-  llvm::SmallVector<Value> allocationOrder;
+  /// Event log entry for address reconstruction. Records every L1 allocation
+  /// and deallocation in schedule order so that eviction can replay the full
+  /// history (including dead tensors) to compute accurate addresses.
+  struct L1Event {
+    enum Kind { kAlloc, kDealloc };
+    Kind kind;
+    Value tensor;
+    uint64_t sizePerCore; // meaningful for kAlloc only
+    bool skipped = false; // set true when tensor is evicted
+  };
+
+  /// Ordered log of all L1 alloc/dealloc events during the sweep.
+  llvm::SmallVector<L1Event> l1EventLog;
+
+  /// Snapshots of tracker state taken before each alloc event, keyed by
+  /// event-log index. Used as starting points for replay after eviction.
+  llvm::DenseMap<size_t, typename MemoryTracker::Snapshot> addressSnapshots;
+
+  /// Maps each tensor Value to its alloc event index in l1EventLog.
+  /// Provides O(1) lookup in markEvictedAndRebuild instead of linear scan.
+  llvm::DenseMap<Value, size_t> allocEventIndex;
+
+  /// Mark all events for a tensor as skipped and rebuild from its alloc
+  /// snapshot. Updates snapshots during replay so future evictions start
+  /// from accurate state.
+  void markEvictedAndRebuild(Value victim);
 
   /// Extract OpConfig from op's current IR state (result type + op-specific
   /// attrs like Conv2dConfig, MatmulProgramConfig).
@@ -222,10 +267,11 @@ private:
   /// choice is a full flush.
   void evictAllFromL1(int64_t pos, const ScheduleData &data);
 
-  /// Evict all live tensors whose simulated address falls below |threshold|.
-  /// Spills each victim to DRAM, removes it from the memory tracker and live
-  /// set, and revalidates downstream consumers.
-  void evictTensorsBelow(uint64_t threshold, int64_t pos,
+  /// Evict live tensors using Belady's algorithm until no tensor's simulated
+  /// address falls below the cushioned CB threshold. Replaces the former
+  /// evictTensorsBelow, which was incorrect after address rebuild (addresses
+  /// shift, making the threshold check stale).
+  void evictForCBOverlap(uint64_t cushionedCBUsage, int64_t pos,
                          const ScheduleData &data);
 
   /// Evict tensors using Belady's algorithm until shouldStop() returns true
