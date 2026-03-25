@@ -164,7 +164,11 @@ def run_cmd(cmd: list[str], label: str, log_path: Path | None = None) -> bool:
 
 
 def run_auto_sharding(
-    clean_input: str, mesh_shape: str, dump_dir: Path, dump_variants: bool
+    clean_input: str,
+    mesh_shape: str,
+    dump_dir: Path,
+    dump_variants: bool,
+    manual_ref: str = "",
 ) -> str | None:
     """Run the auto-sharding pass and return path to the winner MLIR."""
     dump_dir.mkdir(parents=True, exist_ok=True)
@@ -174,6 +178,8 @@ def run_auto_sharding(
     )
     if dump_variants:
         pipeline_opts += " dump-variants=true"
+    if manual_ref:
+        pipeline_opts += f" manual-ref={manual_ref}"
 
     cmd = [
         str(TTMLIR_OPT),
@@ -410,7 +416,11 @@ def main():
         input_stem = Path(args.auto_input).stem
         auto_sharding_dir = GENERATED_DIR / "auto_sharding" / input_stem
         winner = run_auto_sharding(
-            args.auto_input, args.mesh_shape, auto_sharding_dir, args.dump_variants
+            args.auto_input,
+            args.mesh_shape,
+            auto_sharding_dir,
+            args.dump_variants,
+            manual_ref=args.manual_input,
         )
         if winner is None:
             print("\nAuto-sharding search failed. Aborting.")

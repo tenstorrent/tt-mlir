@@ -22,7 +22,9 @@ ShardingResult ShardingCostModel::evaluate(ModuleOp module,
                                            const ShardingConfig &config,
                                            func::FuncOp originalFuncOp,
                                            int64_t meshAxisSize) const {
-  int64_t maxElements = computeMaxElements(originalFuncOp);
+  int64_t maxElements = options.maxElementsOverride > 0
+                            ? options.maxElementsOverride
+                            : computeMaxElements(originalFuncOp);
   double commCost = evaluateCommunicationCost(module, maxElements);
   commCost += evaluateOutputShardingCost(module, maxElements);
   double memBenefit =
@@ -116,7 +118,7 @@ double ShardingCostModel::evaluateCommunicationCost(ModuleOp module,
     }
     double volumeFactor =
         static_cast<double>(commElements) / static_cast<double>(maxElements);
-    double cost = options.baseCCLLatency + opWeight * volumeFactor;
+    double cost = (options.baseCCLLatency + opWeight) * volumeFactor;
 
     if (isCCLBeforeCompute(op)) {
       cost += kCriticalPathPenalty;
@@ -256,7 +258,7 @@ double ShardingCostModel::evaluateOutputShardingCost(
                                 static_cast<double>(maxElements);
           totalCost +=
               options.outputGatherCostWeight *
-              (options.baseCCLLatency + 1.0 * volumeFactor);
+              (options.baseCCLLatency + 1.0) * volumeFactor;
         }
       }
     }

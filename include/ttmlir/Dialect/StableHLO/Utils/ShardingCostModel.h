@@ -45,6 +45,11 @@ struct ShardingCostModelOptions {
   double computeBenefitWeight = 1.0;
   // Cost penalty for sharded function outputs that need gathering.
   double outputGatherCostWeight = 1.0;
+  // Override maxElements instead of computing from all func args.
+  // When > 0, used as the normalization constant for volume factors
+  // and memory benefit. Useful for multi-layer models where a single
+  // outlier arg (e.g., embedding table) would dominate normalization.
+  int64_t maxElementsOverride = 0;
 };
 
 // Cost model for evaluating sharding configurations by estimating communication

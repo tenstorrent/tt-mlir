@@ -25,6 +25,8 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "llvm/Support/MemoryBuffer.h"
+
 #include <limits>
 
 namespace mlir::tt::stablehlo {
@@ -67,6 +69,67 @@ static std::optional<MeshInfo> extractMeshInfo(ModuleOp &module) {
     }
   }
   return info;
+}
+
+//===----------------------------------------------------------------------===//
+// Manual sharding reference parsing.
+//===----------------------------------------------------------------------===//
+
+// Parse sdy.sharding attributes from a manual MLIR file for comparison.
+// Each arg's sharding is extracted from #sdy.sharding<@mesh, [dims]> where
+// {} = replicated, {"axis_name"} = sharded on that dimension.
+static llvm::SmallVector<llvm::SmallVector<bool>>
+parseManualShardings(const std::string &filePath) {
+  llvm::SmallVector<llvm::SmallVector<bool>> result;
+
+  auto bufferOrErr = llvm::MemoryBuffer::getFile(filePath);
+  if (!bufferOrErr) {
+    llvm::errs() << "AutoSharding: cannot read manual ref file: " << filePath
+                 << "\n";
+    return result;
+  }
+
+  llvm::StringRef content = (*bufferOrErr)->getBuffer();
+  size_t pos = 0;
+  while (pos < content.size()) {
+    size_t shardingStart = content.find("#sdy.sharding<@", pos);
+    if (shardingStart == llvm::StringRef::npos) {
+      break;
+    }
+
+    size_t bracketStart = content.find('[', shardingStart);
+    if (bracketStart == llvm::StringRef::npos) {
+      break;
+    }
+
+    size_t bracketEnd = content.find(']', bracketStart);
+    if (bracketEnd == llvm::StringRef::npos) {
+      break;
+    }
+
+    llvm::StringRef dimList = content.slice(bracketStart + 1, bracketEnd);
+    llvm::SmallVector<bool> argSharding;
+
+    size_t dimPos = 0;
+    while (dimPos < dimList.size()) {
+      size_t openBrace = dimList.find('{', dimPos);
+      if (openBrace == llvm::StringRef::npos) {
+        break;
+      }
+      size_t closeBrace = dimList.find('}', openBrace);
+      if (closeBrace == llvm::StringRef::npos) {
+        break;
+      }
+      llvm::StringRef dimContent = dimList.slice(openBrace + 1, closeBrace);
+      argSharding.push_back(!dimContent.empty());
+      dimPos = closeBrace + 1;
+    }
+
+    result.push_back(std::move(argSharding));
+    pos = bracketEnd + 1;
+  }
+
+  return result;
 }
 
 //===----------------------------------------------------------------------===//
@@ -196,6 +259,90 @@ struct RepeatPattern {
   size_t numRepeats;
   size_t suffixLen;
 };
+
+//===----------------------------------------------------------------------===//
+// Subgraph template database.
+//===----------------------------------------------------------------------===//
+
+// A functional subgraph within a repeating layer block (e.g., attention, MLP).
+// Positions refer to indices within the repeat period.
+struct SubgraphFamily {
+  std::string name;
+  llvm::SmallVector<size_t> periodPositions;
+};
+
+// Architecture-specific template mapping repeat period to subgraph families.
+struct SubgraphTemplate {
+  std::string archName;
+  size_t period;
+  llvm::SmallVector<SubgraphFamily> families;
+};
+
+static llvm::SmallVector<SubgraphTemplate> getKnownTemplates() {
+  llvm::SmallVector<SubgraphTemplate> templates;
+
+  // Llama-family: period=11
+  //   pos 0: rotation cos  (1x8x128x128)
+  //   pos 1: k_proj         (1024x3072)
+  //   pos 2: rotation sin  (1x8x128x128)
+  //   pos 3: v_proj         (1024x3072)
+  //   pos 4: rms_norm       (3072) -- pruned
+  //   pos 5: gate_proj      (3072x8192)
+  //   pos 6: down_proj      (8192x3072)
+  //   pos 7: rms_norm       (3072) -- pruned
+  //   pos 8: q_proj         (3072x3072)
+  //   pos 9: o_proj         (3072x3072)
+  //   pos 10: up_proj       (8192x3072)
+  SubgraphTemplate llama;
+  llama.archName = "llama";
+  llama.period = 11;
+  llama.families.push_back({"attention", {0, 1, 2, 3, 8, 9}});
+  llama.families.push_back({"mlp", {5, 6, 10}});
+  templates.push_back(std::move(llama));
+
+  return templates;
+}
+
+// Match a detected repeat pattern against the known template database.
+// Returns the matched template if the period matches and the template has
+// at least one family with >= 2 shardable groups.
+static std::optional<SubgraphTemplate>
+matchSubgraphTemplate(const RepeatPattern &pattern,
+                      const llvm::SmallVector<ShapeClass> &groups) {
+  auto templates = getKnownTemplates();
+  for (auto &tmpl : templates) {
+    if (tmpl.period != pattern.period) {
+      continue;
+    }
+
+    // Verify at least one family has >= 2 shardable groups present.
+    bool hasViableFamily = false;
+    for (const auto &family : tmpl.families) {
+      size_t shardableCount = 0;
+      for (size_t pos : family.periodPositions) {
+        std::string groupPrefix =
+            "layer_pos" + std::to_string(pos) + "_";
+        for (const auto &g : groups) {
+          if (g.key.find(groupPrefix) == 0) {
+            ++shardableCount;
+            break;
+          }
+        }
+      }
+      if (shardableCount >= 2) {
+        hasViableFamily = true;
+        break;
+      }
+    }
+
+    if (hasViableFamily) {
+      llvm::errs() << "AutoSharding: matched subgraph template '"
+                   << tmpl.archName << "' (period=" << tmpl.period << ")\n";
+      return tmpl;
+    }
+  }
+  return std::nullopt;
+}
 
 // Auto-detect a repeating period in the sequence of argument shapes.
 // Transformers have a fixed block of args per layer that repeats N times,
@@ -929,7 +1076,9 @@ public:
     auto &analysis = *analysisOpt;
 
     std::optional<SearchResult> searchResult;
-    if (analysis.useHierarchical) {
+    if (analysis.useSubgraphWise) {
+      searchResult = evaluateConfigsSubgraphWise(rootModule, analysis);
+    } else if (analysis.useHierarchical) {
       searchResult = evaluateConfigsHierarchical(rootModule, analysis);
     } else {
       searchResult = evaluateConfigs(rootModule, analysis);
@@ -957,12 +1106,15 @@ private:
 
     // Hierarchical / shape-class / layer-position search fields.
     bool useHierarchical = false;
+    bool useSubgraphWise = false;
     bool usesLayerPositionGroups = false;
     std::optional<RepeatPattern> repeatPattern;
+    std::optional<SubgraphTemplate> subgraphTemplate;
     llvm::SmallVector<llvm::SmallVector<llvm::SmallVector<bool>>> perArgOptions;
     llvm::SmallVector<size_t> prunedArgs;
     llvm::SmallVector<ShapeClass> shapeClasses;
     std::string searchStrategy;
+    std::string manualRefPath;
   };
 
   struct VariantResult {
@@ -989,7 +1141,8 @@ private:
 
   EvalResult evaluateSingleConfig(ModuleOp rootModule,
                                   const AnalysisResult &analysis,
-                                  const ShardingConfig &config) {
+                                  const ShardingConfig &config,
+                                  int64_t maxElementsOverride = 0) {
     MLIRContext *context = rootModule.getContext();
     ModuleOp clonedModule = cast<ModuleOp>(rootModule->clone());
     auto cleanup =
@@ -1007,7 +1160,9 @@ private:
       return {false, 0.0, 0.0, 0.0};
     }
 
-    ShardingCostModel costModel;
+    ShardingCostModel::Options costOpts;
+    costOpts.maxElementsOverride = maxElementsOverride;
+    ShardingCostModel costModel(costOpts);
     ShardingResult sr = costModel.evaluate(clonedModule, config,
                                            analysis.originalFuncOp,
                                            analysis.meshAxisSize);
@@ -1083,15 +1238,29 @@ private:
     }
 
     if (analysis.tier1Configs.empty() && !analysis.perArgOptions.empty()) {
-      analysis.useHierarchical = true;
-      if (analysis.usesLayerPositionGroups) {
+      // Try subgraph-wise search first when layer-position groups and a
+      // matching subgraph template are available.
+      if (analysis.usesLayerPositionGroups && analysis.repeatPattern) {
+        analysis.subgraphTemplate = matchSubgraphTemplate(
+            *analysis.repeatPattern, analysis.shapeClasses);
+      }
+
+      if (analysis.subgraphTemplate) {
+        analysis.useSubgraphWise = true;
         analysis.searchStrategy =
-            "hierarchical over layer-position groups (greedy + pairwise)";
-      } else if (!analysis.shapeClasses.empty()) {
-        analysis.searchStrategy =
-            "hierarchical over shape classes (greedy + pairwise)";
+            "subgraph-wise exhaustive (template: " +
+            analysis.subgraphTemplate->archName + ")";
       } else {
-        analysis.searchStrategy = "hierarchical (greedy + pairwise)";
+        analysis.useHierarchical = true;
+        if (analysis.usesLayerPositionGroups) {
+          analysis.searchStrategy =
+              "hierarchical over layer-position groups (greedy + pairwise)";
+        } else if (!analysis.shapeClasses.empty()) {
+          analysis.searchStrategy =
+              "hierarchical over shape classes (greedy + pairwise)";
+        } else {
+          analysis.searchStrategy = "hierarchical (greedy + pairwise)";
+        }
       }
       llvm::errs() << "AutoSharding: using " << analysis.searchStrategy << "\n";
     } else if (analysis.tier1Configs.empty()) {
@@ -1115,7 +1284,7 @@ private:
     llvm::errs() << "AutoSharding: " << analysis.candidates.size()
                  << " Tier 2 constraint candidate(s)\n";
 
-    if (!analysis.useHierarchical) {
+    if (!analysis.useHierarchical && !analysis.useSubgraphWise) {
       // 3. Cross-product Tier 1 with Tier 2 constraint options.
       analysis.configs =
           expandWithConstraints(analysis.tier1Configs, analysis.candidates);
@@ -1132,6 +1301,8 @@ private:
                      << "\n";
       }
     }
+
+    analysis.manualRefPath = manualRef;
 
     return analysis;
   }
@@ -1528,6 +1699,258 @@ private:
     return SearchResult{bestIdx, bestCost, std::move(allResults)};
   }
 
+  //===--------------------------------------------------------------------===//
+  // Subgraph-wise exhaustive search.
+  //===--------------------------------------------------------------------===//
+
+  std::optional<SearchResult>
+  evaluateConfigsSubgraphWise(ModuleOp rootModule, AnalysisResult &analysis) {
+    const auto &perArgOptions = analysis.perArgOptions;
+    const auto &groups = analysis.shapeClasses;
+    const auto &tmpl = *analysis.subgraphTemplate;
+    size_t numArgs = perArgOptions.size();
+
+    constexpr int64_t kMaxExhaustiveConfigs = 50000;
+
+    // Compute layer-local maxElements from repeating period args only,
+    // excluding prefix/suffix outliers (e.g., embedding tables) that would
+    // inflate the normalization constant and suppress layer-weight benefits.
+    int64_t layerMaxElements = 0;
+    if (analysis.repeatPattern) {
+      auto funcOps = rootModule.getOps<func::FuncOp>();
+      if (!funcOps.empty()) {
+        func::FuncOp funcOp = *funcOps.begin();
+        size_t periodStart = analysis.repeatPattern->prefixLen;
+        size_t periodEnd = periodStart + analysis.repeatPattern->period;
+        for (size_t i = periodStart; i < periodEnd && i < numArgs; ++i) {
+          if (auto tt = dyn_cast<RankedTensorType>(
+                  funcOp.getArgument(i).getType())) {
+            layerMaxElements =
+                std::max(layerMaxElements, tt.getNumElements());
+          }
+        }
+      }
+    }
+    if (layerMaxElements <= 0) {
+      layerMaxElements = ShardingCostModel::computeMaxElements(
+          analysis.originalFuncOp);
+    }
+    llvm::errs() << "AutoSharding: subgraph-wise using layer-local "
+                 << "maxElements=" << layerMaxElements << " (vs global="
+                 << ShardingCostModel::computeMaxElements(
+                        analysis.originalFuncOp)
+                 << ")\n";
+
+    // Build all-replicated baseline.
+    ShardingConfig bestConfig;
+    for (size_t a = 0; a < numArgs; ++a) {
+      bestConfig.argDimSharded.push_back(perArgOptions[a][0]);
+    }
+
+    llvm::SmallVector<ShardingConfig> allConfigs;
+    llvm::SmallVector<VariantResult> allResults;
+    size_t bestIdx = 0;
+    double bestCost = std::numeric_limits<double>::infinity();
+
+    auto tryConfig = [&](const ShardingConfig &config) -> bool {
+      size_t idx = allConfigs.size();
+      allConfigs.push_back(config);
+
+      auto er = evaluateSingleConfig(rootModule, analysis, config,
+                                     layerMaxElements);
+      allResults.push_back({idx, formatConfig(config), er.succeeded,
+                            er.netCost, er.commCost, er.memBenefit});
+
+      llvm::errs() << "AutoSharding: eval " << idx;
+      if (er.succeeded) {
+        llvm::errs() << " comm=" << er.commCost << " benefit=" << er.memBenefit
+                     << " net=" << er.netCost << "\n";
+      } else {
+        llvm::errs() << " FAILED\n";
+      }
+
+      if (er.succeeded && er.netCost < bestCost) {
+        bestCost = er.netCost;
+        bestIdx = idx;
+        return true;
+      }
+      return false;
+    };
+
+    // Evaluate all-replicated baseline.
+    tryConfig(bestConfig);
+
+    // Helper: find the group index for a given period position.
+    auto findGroupForPosition = [&](size_t pos) -> std::optional<size_t> {
+      std::string prefix = "layer_pos" + std::to_string(pos) + "_";
+      for (size_t gi = 0; gi < groups.size(); ++gi) {
+        if (groups[gi].key.find(prefix) == 0) {
+          return gi;
+        }
+      }
+      return std::nullopt;
+    };
+
+    // Collect prefix/suffix groups not covered by any template family.
+    llvm::DenseSet<size_t> templatePositions;
+    for (const auto &family : tmpl.families) {
+      for (size_t pos : family.periodPositions) {
+        templatePositions.insert(pos);
+      }
+    }
+
+    llvm::SmallVector<size_t> otherGroupIndices;
+    for (size_t gi = 0; gi < groups.size(); ++gi) {
+      bool coveredByFamily = false;
+      for (const auto &family : tmpl.families) {
+        for (size_t pos : family.periodPositions) {
+          std::string prefix = "layer_pos" + std::to_string(pos) + "_";
+          if (groups[gi].key.find(prefix) == 0) {
+            coveredByFamily = true;
+            break;
+          }
+        }
+        if (coveredByFamily) {
+          break;
+        }
+      }
+      if (!coveredByFamily) {
+        otherGroupIndices.push_back(gi);
+      }
+    }
+
+    // Build the sequence of families to search: template families + "other".
+    struct FamilySearch {
+      std::string name;
+      llvm::SmallVector<size_t> groupIndices;
+    };
+
+    llvm::SmallVector<FamilySearch> familySearches;
+    for (const auto &family : tmpl.families) {
+      FamilySearch fs;
+      fs.name = family.name;
+      for (size_t pos : family.periodPositions) {
+        auto gi = findGroupForPosition(pos);
+        if (gi) {
+          fs.groupIndices.push_back(*gi);
+        }
+      }
+      if (!fs.groupIndices.empty()) {
+        familySearches.push_back(std::move(fs));
+      }
+    }
+
+    if (!otherGroupIndices.empty()) {
+      FamilySearch fs;
+      fs.name = "other";
+      fs.groupIndices = otherGroupIndices;
+      familySearches.push_back(std::move(fs));
+    }
+
+    // Search each family exhaustively.
+    for (const auto &fs : familySearches) {
+      llvm::errs() << "AutoSharding: searching subgraph family '" << fs.name
+                   << "' (" << fs.groupIndices.size() << " groups)\n";
+
+      // Build per-group options for this family.
+      llvm::SmallVector<llvm::SmallVector<llvm::SmallVector<bool>>>
+          familyGroupOptions;
+      for (size_t gi : fs.groupIndices) {
+        familyGroupOptions.push_back(groups[gi].options);
+        llvm::errs() << "  group '" << groups[gi].key << "': "
+                     << groups[gi].options.size() << " options, "
+                     << groups[gi].argIndices.size() << " args\n";
+      }
+
+      // Check search space size.
+      int64_t familySpace = 1;
+      bool overflow = false;
+      for (const auto &opts : familyGroupOptions) {
+        familySpace *= static_cast<int64_t>(opts.size());
+        if (familySpace > kMaxExhaustiveConfigs) {
+          overflow = true;
+          break;
+        }
+      }
+
+      if (overflow) {
+        llvm::errs() << "AutoSharding: family '" << fs.name
+                     << "' search space too large (>" << kMaxExhaustiveConfigs
+                     << "), using greedy within family\n";
+
+        // Fall back to greedy coordinate descent within this family.
+        constexpr int kMaxIterations = 5;
+        for (int iter = 0; iter < kMaxIterations; ++iter) {
+          bool improved = false;
+          for (size_t fi = 0; fi < fs.groupIndices.size(); ++fi) {
+            size_t gi = fs.groupIndices[fi];
+            auto currentSharding =
+                bestConfig.argDimSharded[groups[gi].argIndices[0]];
+
+            for (size_t optIdx = 0; optIdx < groups[gi].options.size();
+                 ++optIdx) {
+              if (groups[gi].options[optIdx] == currentSharding) {
+                continue;
+              }
+
+              ShardingConfig candidate = bestConfig;
+              for (size_t argIdx : groups[gi].argIndices) {
+                candidate.argDimSharded[argIdx] = groups[gi].options[optIdx];
+              }
+              tryConfig(candidate);
+            }
+
+            bestConfig = allConfigs[bestIdx];
+            if (bestConfig.argDimSharded[groups[gi].argIndices[0]] !=
+                currentSharding) {
+              improved = true;
+            }
+          }
+          if (!improved) {
+            break;
+          }
+        }
+      } else {
+        llvm::errs() << "AutoSharding: family '" << fs.name
+                     << "' search space = " << familySpace
+                     << " configs, using exhaustive\n";
+
+        // Exhaustive enumeration over this family's groups.
+        auto familyConfigs = cartesianProduct(familyGroupOptions);
+        for (const auto &fc : familyConfigs) {
+          ShardingConfig candidate = bestConfig;
+
+          // Apply this family config to the corresponding args.
+          for (size_t fi = 0; fi < fs.groupIndices.size(); ++fi) {
+            size_t gi = fs.groupIndices[fi];
+            for (size_t argIdx : groups[gi].argIndices) {
+              candidate.argDimSharded[argIdx] = fc.argDimSharded[fi];
+            }
+          }
+
+          tryConfig(candidate);
+        }
+
+        bestConfig = allConfigs[bestIdx];
+      }
+
+      llvm::errs() << "AutoSharding: family '" << fs.name
+                   << "' done, best cost=" << bestCost << "\n";
+    }
+
+    llvm::errs() << "AutoSharding: subgraph-wise search complete, "
+                 << allConfigs.size() << " total evaluations, best cost="
+                 << bestCost << "\n";
+
+    analysis.configs = std::move(allConfigs);
+
+    if (bestCost == std::numeric_limits<double>::infinity()) {
+      return std::nullopt;
+    }
+
+    return SearchResult{bestIdx, bestCost, std::move(allResults)};
+  }
+
   void applyBestConfig(ModuleOp rootModule, const AnalysisResult &analysis,
                        const SearchResult &search) {
     MLIRContext *context = rootModule.getContext();
@@ -1614,7 +2037,22 @@ private:
       }
     }
 
-    if (!analysis.useHierarchical) {
+    if (analysis.subgraphTemplate) {
+      fos << "Subgraph template: " << analysis.subgraphTemplate->archName
+          << " (period=" << analysis.subgraphTemplate->period << ")\n";
+      for (const auto &family : analysis.subgraphTemplate->families) {
+        fos << "  family '" << family.name << "': positions [";
+        for (size_t i = 0; i < family.periodPositions.size(); ++i) {
+          if (i > 0) {
+            fos << ", ";
+          }
+          fos << family.periodPositions[i];
+        }
+        fos << "]\n";
+      }
+    }
+
+    if (!analysis.useHierarchical && !analysis.useSubgraphWise) {
       fos << "Tier 1 configs: " << analysis.tier1Configs.size() << "\n";
       fos << "Tier 2 constraint candidates: " << analysis.candidates.size()
           << "\n";
@@ -1654,6 +2092,135 @@ private:
     fos << "\nSelected: config " << search.bestIdx << " "
         << formatConfig(analysis.configs[search.bestIdx])
         << " with net cost=" << llvm::format("%.3f", search.bestCost) << "\n";
+
+    // Winner sharding by layer position for easy comparison with manual.
+    if (analysis.useSubgraphWise && analysis.repeatPattern &&
+        analysis.subgraphTemplate) {
+      const auto &winConfig = analysis.configs[search.bestIdx];
+      const auto &rp = *analysis.repeatPattern;
+      const auto &tmpl = *analysis.subgraphTemplate;
+      const auto &groups = analysis.shapeClasses;
+
+      llvm::SmallVector<llvm::SmallVector<bool>> manualShardings;
+      bool hasManual = false;
+      if (!analysis.manualRefPath.empty()) {
+        manualShardings = parseManualShardings(analysis.manualRefPath);
+        hasManual = !manualShardings.empty();
+      }
+
+      fos << "\nWinner Sharding by Layer Position (period=" << rp.period
+          << ")\n";
+      fos << std::string(80, '=') << "\n";
+      if (hasManual) {
+        fos << "  pos  group                        auto        "
+               "manual      family\n";
+        fos << std::string(80, '-') << "\n";
+      }
+
+      auto formatSharding = [](const llvm::SmallVector<bool> &dims) {
+        std::string s = "[";
+        for (size_t d = 0; d < dims.size(); ++d) {
+          s += dims[d] ? "S" : "R";
+          if (d + 1 < dims.size()) {
+            s += ",";
+          }
+        }
+        s += "]";
+        return s;
+      };
+
+      auto findGroupForPos = [&](size_t pos) -> std::optional<size_t> {
+        std::string pfx = "layer_pos" + std::to_string(pos) + "_";
+        for (size_t gi = 0; gi < groups.size(); ++gi) {
+          if (groups[gi].key.find(pfx) == 0) {
+            return gi;
+          }
+        }
+        return std::nullopt;
+      };
+
+      auto getFamilyForPos = [&](size_t pos) -> std::string {
+        for (const auto &fam : tmpl.families) {
+          for (size_t fi = 0; fi < fam.periodPositions.size(); ++fi) {
+            if (fam.periodPositions[fi] == pos) {
+              return fam.name;
+            }
+          }
+        }
+        return "other";
+      };
+
+      for (size_t pos = 0; pos < rp.period; ++pos) {
+        auto gi = findGroupForPos(pos);
+        std::string famName = getFamilyForPos(pos);
+
+        fos << "  pos " << llvm::format("%-3zu", pos);
+        if (gi) {
+          size_t repArgIdx = groups[*gi].argIndices[0];
+          std::string autoSharding =
+              formatSharding(winConfig.argDimSharded[repArgIdx]);
+          fos << llvm::format("%-28s", groups[*gi].key.c_str())
+              << llvm::format("%-12s", autoSharding.c_str());
+
+          if (hasManual) {
+            size_t manualArgIdx = rp.prefixLen + pos;
+            std::string manualSharding =
+                (manualArgIdx < manualShardings.size())
+                    ? formatSharding(manualShardings[manualArgIdx])
+                    : "?";
+            bool match = (manualArgIdx < manualShardings.size()) &&
+                         (winConfig.argDimSharded[repArgIdx] ==
+                          manualShardings[manualArgIdx]);
+            fos << llvm::format("%-12s", manualSharding.c_str())
+                << (match ? " " : "*") << "(" << famName << ")";
+          } else {
+            fos << "(" << famName << ")";
+          }
+        } else {
+          fos << "(pruned)";
+          if (hasManual) {
+            size_t manualArgIdx = rp.prefixLen + pos;
+            if (manualArgIdx < manualShardings.size()) {
+              std::string manualSharding =
+                  formatSharding(manualShardings[manualArgIdx]);
+              fos << std::string(28, ' ')
+                  << std::string(12, ' ')
+                  << llvm::format("%-12s", manualSharding.c_str());
+            }
+          }
+        }
+        fos << "\n";
+      }
+
+      // Show prefix/suffix args.
+      if (rp.prefixLen > 0 || rp.suffixLen > 0) {
+        fos << "\n  Prefix/Suffix args:\n";
+        for (size_t gi = 0; gi < groups.size(); ++gi) {
+          bool isLayerGroup = groups[gi].key.find("layer_pos") == 0;
+          if (!isLayerGroup && !groups[gi].argIndices.empty()) {
+            size_t argIdx = groups[gi].argIndices[0];
+            std::string autoSharding =
+                formatSharding(winConfig.argDimSharded[argIdx]);
+            fos << "  " << llvm::format("%-34s", groups[gi].key.c_str())
+                << llvm::format("%-12s", autoSharding.c_str());
+
+            if (hasManual && argIdx < manualShardings.size()) {
+              std::string manualSharding =
+                  formatSharding(manualShardings[argIdx]);
+              bool match =
+                  (winConfig.argDimSharded[argIdx] == manualShardings[argIdx]);
+              fos << llvm::format("%-12s", manualSharding.c_str())
+                  << (match ? " " : "*");
+            }
+            fos << "(" << groups[gi].argIndices.size() << " args)\n";
+          }
+        }
+      }
+
+      if (hasManual) {
+        fos << "\n  (* = auto differs from manual)\n";
+      }
+    }
   }
 };
 

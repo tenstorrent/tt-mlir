@@ -59,6 +59,12 @@ struct StableHLOPipelineOptions
                      "directory)."),
       llvm::cl::init("")};
 
+  Option<std::string> autoShardingManualRef{
+      *this, OptionNames::manualRef,
+      llvm::cl::desc("Path to manual-sharding MLIR file for comparison in "
+                     "summary."),
+      llvm::cl::init("")};
+
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
           *this, ttcore::OptionNames::argumentTypes,

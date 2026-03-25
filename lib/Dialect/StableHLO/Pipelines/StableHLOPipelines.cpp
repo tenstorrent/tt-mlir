@@ -57,6 +57,7 @@ void createStableHLOPipeline(OpPassManager &pm,
     AutoShardingPassOptions searchOptions;
     searchOptions.dumpVariants = options.autoShardingDumpVariants;
     searchOptions.dumpDir = options.autoShardingDumpDir;
+    searchOptions.manualRef = options.autoShardingManualRef;
     pm.addPass(createAutoShardingPass(searchOptions));
   }
 

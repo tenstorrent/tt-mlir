@@ -277,6 +277,9 @@ def AutoShardingPass : Pass<"auto-sharding", "::mlir::ModuleOp"> {
            /*default=*/"5",
            "Maximum number of intermediate ops to consider for "
            "Tier 2 sharding constraints (0 disables Tier 2)">,
+    Option<"manualRef", "manual-ref", "std::string",
+           /*default=*/"\"\"",
+           "Path to manual-sharding MLIR file for comparison in summary">,
   ];
 
   let dependentDialects = [
