@@ -52,6 +52,7 @@ try:
         wait,
         to_host,
         get_device_tensors,
+        get_num_shards,
         to_layout,
         get_layout,
         get_op_output_tensor,
