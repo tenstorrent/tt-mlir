@@ -1056,155 +1056,118 @@ void LayoutPropagation::consolidateBeam() {
     }
   });
 
-  // Initialize: all ops default to candidate 0 (best from forward pass).
-  for (auto *op : opsInOrder) {
-    finalChoice[op] = 0;
-  }
-
-  // Track which fork points have been resolved.
-  llvm::DenseSet<Operation *> resolvedForks;
-
-  // Process in reverse order (backward pass).
+  // Process in reverse topological order. This guarantees all consumers of an
+  // op are resolved (have finalChoice entries) before the op itself is visited.
   for (auto it = opsInOrder.rbegin(); it != opsInOrder.rend(); ++it) {
     Operation *op = *it;
     if (!beamState.count(op) || beamState[op].empty()) {
       continue;
     }
 
-    size_t chosenIdx = finalChoice[op];
-    if (chosenIdx >= beamState[op].size()) {
-      chosenIdx = 0;
-    }
-    const BeamCandidate &chosen = beamState[op][chosenIdx];
-
-    // Follow back pointers to set producer choices.
-    for (size_t i = 0; i < chosen.producerCandidateIndices.size(); ++i) {
-      Operation *producer = getProducerForOperandIdx(op, i);
-      if (!producer || !beamState.count(producer)) {
-        continue;
-      }
-
-      // Check if producer is a fork point (multiple consumers in beamState).
-      // Iterate all results for multi-output producers.
-      bool isFork = false;
-      for (auto result : producer->getResults()) {
-        for (Operation *user : result.getUsers()) {
-          if (user != op && beamState.count(user)) {
-            isFork = true;
-            break;
-          }
+    // Collect consumers of this op that are tracked in beamState.
+    SmallVector<Operation *> consumers;
+    for (auto result : op->getResults()) {
+      for (Operation *user : result.getUsers()) {
+        if (beamState.count(user)) {
+          consumers.push_back(user);
         }
-        if (isFork) {
+      }
+    }
+
+    if (consumers.empty()) {
+      // Sink op (no consumers in beam): use best candidate from forward pass.
+      finalChoice[op] = 0;
+    } else if (consumers.size() == 1) {
+      // Single consumer: follow its back-pointer for this producer.
+      Operation *consumer = consumers[0];
+      size_t consumerIdx = finalChoice[consumer];
+      const BeamCandidate &consumerChosen = beamState[consumer][consumerIdx];
+
+      // Find which tensor operand of consumer connects to this op.
+      for (size_t opIdx = 0;
+           opIdx < consumerChosen.producerCandidateIndices.size(); ++opIdx) {
+        if (getProducerForOperandIdx(consumer, opIdx) == op) {
+          size_t prodIdx = consumerChosen.producerCandidateIndices[opIdx];
+          finalChoice[op] = prodIdx < beamState[op].size() ? prodIdx : 0;
           break;
         }
       }
+      if (!finalChoice.count(op)) {
+        finalChoice[op] = 0;
+      }
+    } else {
+      // Fork point: all consumers are guaranteed resolved (reverse topo order).
+      finalChoice[op] = resolveForForkPoint(op, consumers);
 
-      if (isFork) {
-        // Fork point: resolve once (first consumer to reach it sets it).
-        if (!resolvedForks.contains(producer)) {
-          finalChoice[producer] = resolveForForkPoint(producer);
-          resolvedForks.insert(producer);
-          TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                       "consolidateBeam: fork at {0} resolved to candidate {1}",
-                       producer->getName(), finalChoice[producer]);
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "consolidateBeam: fork at {0} resolved to candidate {1}",
+                   op->getName(), finalChoice[op]);
+      observer->onForkResolved(op, finalChoice[op], consumers);
 
-          // Collect consumers for the observer (across all results).
-          llvm::SmallVector<Operation *> consumers;
-          for (auto result : producer->getResults()) {
-            for (Operation *user : result.getUsers()) {
-              if (beamState.count(user)) {
-                consumers.push_back(user);
-              }
-            }
-          }
-          observer->onForkResolved(producer, finalChoice[producer], consumers);
-
-          // Patch reshardLayouts for consumers that assumed a different
-          // producer candidate. Without this, applyToIR won't insert a
-          // ToMemoryConfigOp and the consumer gets a mismatched input layout.
-          size_t chosenK = finalChoice[producer];
-          for (auto result : producer->getResults()) {
-            for (Operation *user : result.getUsers()) {
-              if (!beamState.count(user)) {
-                continue;
-              }
-
-              size_t userChosenIdx =
-                  finalChoice.count(user) ? finalChoice[user] : 0;
-              if (userChosenIdx >= beamState[user].size()) {
-                continue;
-              }
-              BeamCandidate &userChosen = beamState[user][userChosenIdx];
-
-              // Find which tensor operand connects to this fork producer.
-              for (size_t opIdx = 0;
-                   opIdx < userChosen.producerCandidateIndices.size();
-                   ++opIdx) {
-                if (getProducerForOperandIdx(user, opIdx) != producer) {
-                  continue;
-                }
-
-                size_t assumedK = userChosen.producerCandidateIndices[opIdx];
-                if (assumedK == chosenK) {
-                  break; // Consumer already aligned, no reshard needed.
-                }
-
-                // Consumer assumed a different producer candidate.
-                // Record a reshard so applyToIR inserts a ToMemoryConfigOp.
-                userChosen.reshardLayouts[opIdx] =
-                    userChosen.inputLayouts[opIdx];
-                TTMLIR_TRACE(
-                    ttmlir::LogComponent::GreedyOptimizer,
-                    "consolidateBeam: fork reshard needed for {0} operand "
-                    "{1} (assumed producer candidate {2}, chosen {3})",
-                    user->getName(), opIdx, assumedK, chosenK);
-                break;
-              }
-            }
-          }
+      // Patch reshardLayouts for consumers that assumed a different producer
+      // candidate. Without this, applyToIR won't insert a ToMemoryConfigOp
+      // and the consumer gets a mismatched input layout.
+      size_t chosenK = finalChoice[op];
+      for (Operation *user : consumers) {
+        size_t userChosenIdx = finalChoice[user];
+        if (userChosenIdx >= beamState[user].size()) {
+          continue;
         }
-      } else {
-        // Single consumer: follow back pointer directly.
-        size_t prodIdx = chosen.producerCandidateIndices[i];
-        if (prodIdx < beamState[producer].size()) {
-          finalChoice[producer] = prodIdx;
+        BeamCandidate &userChosen = beamState[user][userChosenIdx];
+
+        // Find which tensor operand connects to this fork producer.
+        for (size_t opIdx = 0;
+             opIdx < userChosen.producerCandidateIndices.size(); ++opIdx) {
+          if (getProducerForOperandIdx(user, opIdx) != op) {
+            continue;
+          }
+
+          size_t assumedK = userChosen.producerCandidateIndices[opIdx];
+          if (assumedK == chosenK) {
+            break;
+          }
+
+          // Consumer assumed a different producer candidate.
+          // Record a reshard so applyToIR inserts a ToMemoryConfigOp.
+          userChosen.reshardLayouts[opIdx] = userChosen.inputLayouts[opIdx];
+          TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                       "consolidateBeam: fork reshard needed for {0} operand "
+                       "{1} (assumed producer candidate {2}, chosen {3})",
+                       user->getName(), opIdx, assumedK, chosenK);
+          break;
         }
       }
     }
   }
 
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-               "consolidateBeam: resolved {0} fork points",
-               resolvedForks.size());
+               "consolidateBeam: backward pass complete");
 }
 
-size_t LayoutPropagation::resolveForForkPoint(Operation *forkOp) {
+size_t
+LayoutPropagation::resolveForForkPoint(Operation *forkOp,
+                                       llvm::ArrayRef<Operation *> consumers) {
   const auto &forkBeam = beamState[forkOp];
   size_t bestK = 0;
   int bestFreeCount = -1;
 
   for (size_t k = 0; k < forkBeam.size(); ++k) {
     int freeCount = 0;
-    // Iterate all results for multi-output fork ops.
-    for (auto result : forkOp->getResults()) {
-      for (Operation *user : result.getUsers()) {
-        if (!beamState.count(user)) {
-          continue;
-        }
-        size_t userChosenIdx = finalChoice.count(user) ? finalChoice[user] : 0;
-        if (userChosenIdx >= beamState[user].size()) {
-          continue;
-        }
-        const BeamCandidate &userChosen = beamState[user][userChosenIdx];
-        // Check if this consumer's chosen candidate used producer candidate k.
-        for (size_t opIdx = 0;
-             opIdx < userChosen.producerCandidateIndices.size(); ++opIdx) {
-          if (getProducerForOperandIdx(user, opIdx) == forkOp) {
-            if (userChosen.producerCandidateIndices[opIdx] == k) {
-              ++freeCount;
-            }
-            break;
+    // All consumers are guaranteed resolved (reverse topo order).
+    for (Operation *user : consumers) {
+      size_t userChosenIdx = finalChoice[user];
+      if (userChosenIdx >= beamState[user].size()) {
+        continue;
+      }
+      const BeamCandidate &userChosen = beamState[user][userChosenIdx];
+      // Check if this consumer's chosen candidate used producer candidate k.
+      for (size_t opIdx = 0; opIdx < userChosen.producerCandidateIndices.size();
+           ++opIdx) {
+        if (getProducerForOperandIdx(user, opIdx) == forkOp) {
+          if (userChosen.producerCandidateIndices[opIdx] == k) {
+            ++freeCount;
           }
+          break;
         }
       }
     }
