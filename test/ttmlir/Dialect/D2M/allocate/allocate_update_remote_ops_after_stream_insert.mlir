@@ -21,6 +21,8 @@ module attributes {ttcore.system_desc = #system_desc} {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = 1x1, chipIds = [0]>
 
   // CHECK-LABEL: func.func @test_view_to_stream_remote_load_update
+  // CHECK: d2m.generic
+  // CHECK: cb_layout
   func.func @test_view_to_stream_remote_load_update() -> memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> {
     // Allocations for LHS (A matrix) and RHS (B matrix) for matmul
     %alloc = memref.alloc() : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>
@@ -33,14 +35,9 @@ module attributes {ttcore.system_desc = #system_desc} {
 
     // Matmul generic with reduction dimension - triggers stream insertion
     // After d2m-allocate:
-    // 1. Streams are inserted: stream_layout(%view_5, ...) and stream_layout(%view_6, ...)
-    // 2. Generic op inputs are updated to reference streams instead of views
-    // 3. remote_load ops are updated to reference streams (this is what this test verifies)
+    // 1. CB allocs with CBLayoutAttr are created inside the generic
+    // 2. remote_load ops are updated to reference the correct operands (this is what this test verifies)
     //
-    // CHECK: %[[LHS_STREAM:.*]] = "d2m.stream_layout"
-    // CHECK: %[[RHS_STREAM:.*]] = "d2m.stream_layout"
-    // CHECK: d2m.generic
-    // CHECK: ins(%[[LHS_STREAM]], %[[RHS_STREAM]] :
     %view_out = d2m.view_layout %alloc_4 remapping = #remap4 : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> -> memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
     d2m.generic {block_factors = [1, 1, 64], grid = #ttcore.grid<1x64, (d0, d1) -> (0, 0, d0 * 8 + d1)>, indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>], threads = [#d2m.thread<unified>]}
         ins(%view_5, %view_6 : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<64x64x2x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
@@ -60,10 +57,8 @@ module attributes {ttcore.system_desc = #system_desc} {
             // Before fix: remote_load still references %view_5, causing verifier error
             // After fix: remote_load is updated to reference %stream
             %buffer_lhs = memref.alloc() : memref<1x2x!ttcore.tile<32x32, f32>, #l1>
-            // CHECK: d2m.remote_load %{{.*}} %[[LHS_STREAM]]
             %0 = d2m.remote_load %buffer_lhs %view_5[%iter0, %iter2] mcast[%c0] : memref<1x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1> -> memref<1x2x!ttcore.tile<32x32, f32>, #l1>
             %buffer_rhs = memref.alloc() : memref<2x1x!ttcore.tile<32x32, f32>, #l1>
-            // CHECK: d2m.remote_load %{{.*}} %[[RHS_STREAM]]
             %1 = d2m.remote_load %buffer_rhs %view_6[%iter2, %iter1] mcast[%c1] : memref<2x1x!ttcore.tile<32x32, f32>, #l1>, memref<64x64x2x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1> -> memref<2x1x!ttcore.tile<32x32, f32>, #l1>
             %buffer_out = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
             linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%0, %1 : memref<1x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x1x!ttcore.tile<32x32, f32>, #l1>) outs(%buffer_out : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {

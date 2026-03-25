@@ -15,16 +15,11 @@ func.func @explicit_datamovement_multi_region(
   %arg1: tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>,
   %arg2: tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
 ) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout> {
-  %0 = "d2m.empty"() : () -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
-  %stream0 = "d2m.stream_layout"(%arg0, %0) {remapping = #remap} : (tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
-  %1 = "d2m.empty"() : () -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
-  %stream1 = "d2m.stream_layout"(%arg1, %1) {remapping = #remap} : (tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
-
   // CHECK: d2m.generic
   // CHECK-SAME: block_factors = []
   // CHECK-SAME: indexing_maps = []
   // CHECK-SAME: iterator_types = []
-  %result = "d2m.generic"(%stream0, %stream1, %arg2) <{
+  %result = "d2m.generic"(%arg0, %arg1, %arg2) <{
     block_factors = [],
     grid = #ttcore.grid<1x1>,
     indexing_maps = [],
