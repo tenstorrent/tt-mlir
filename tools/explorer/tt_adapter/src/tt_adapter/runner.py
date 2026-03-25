@@ -460,8 +460,16 @@ class ModelRunner:
         ############################## TTRT Perf #################################
 
         ttrt_perf_command = [
+            "python",
+            "-m",
+            "tracy",
+            "-r",
+            "-v",
+            "--output-folder",
+            self._explorer_artifacts_dir,
+            "-m",
             "ttrt",
-            "perf",
+            "run",
             flatbuffer_file,
             f"--artifact-dir={self._explorer_artifacts_dir}",
             "--memory",
