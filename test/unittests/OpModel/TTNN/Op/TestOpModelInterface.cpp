@@ -2251,8 +2251,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterfaceWithAttentionSink) {
   auto outputType =
       createRankedTensorType(queryShape, tiledElemType, queryLayout);
 
-  auto sdpAttention = builder.create<ScaledDotProductAttentionOp>(
-      builder.getUnknownLoc(), outputType, query, key, value,
+  auto sdpAttention = ScaledDotProductAttentionOp::create(
+      builder, builder.getUnknownLoc(), outputType, query, key, value,
       /*attention_mask=*/attentionMask,
       /*is_causal=*/false,
       /*scale=*/nullptr,
