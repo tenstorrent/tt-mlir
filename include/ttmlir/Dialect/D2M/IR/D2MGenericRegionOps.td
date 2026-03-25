@@ -796,10 +796,10 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
 // D2M Masking Ops
 //===----------------------------------------------------------------------===//
 
-def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
+def D2M_TileFillOp : D2M_GenericRegionComputeOp<"fill_tile"> {
     let summary = "D2M Tile Fill Op";
     let description = [{
-        The `tile_fill` operation creates a tile filled with a constant scalar value.
+        The `fill_tile` operation creates a tile filled with a constant scalar value.
         All elements in the resulting tile will have the same value as the input scalar.
 
         This operation abstracts away the complexity of creating a constant-filled tile,
@@ -807,7 +807,7 @@ def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
         for element-wise operations.
     }];
 
-    let arguments = (ins AnyFloat:$value);
+    let arguments = (ins AnyTypeOf<[AnyFloat, AnyInteger]>:$value);
     let results = (outs TTCore_Tile:$result);
 
     let assemblyFormat = [{
