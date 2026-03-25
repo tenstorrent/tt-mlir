@@ -1567,6 +1567,93 @@ def TTKernel_SinTileOp : TTKernel_SFPUOp<"sin_tile", [TTKernel_UnaryOpTrait]> {
     }];
 }
 
+def TTKernel_AsinTileInitOp : TTKernel_InitOp<"asin_tile_init"> {
+    let summary = "Init function for asin_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before asin_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_AsinTileOp : TTKernel_SFPUOp<"asin_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Arcsine tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of arcsine operation
+      DST[dst0_index] <- asin(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_AcosTileInitOp : TTKernel_InitOp<"acos_tile_init"> {
+    let summary = "Init function for acos_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before acos_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_AcosTileOp : TTKernel_SFPUOp<"acos_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Arccosine tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of arccosine operation
+      DST[dst0_index] <- acos(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_AtanTileInitOp : TTKernel_InitOp<"atan_tile_init"> {
+    let summary = "Init function for atan_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before atan_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_AtanTileOp : TTKernel_SFPUOp<"atan_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Arctangent tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of arctangent operation
+      DST[dst0_index] <- atan(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_RoundingTileInitOp : TTKernel_InitOp<"rounding_op_tile_init"> {
     let summary = "Init function for ceil/floor/round_tile operation. Refer to documentation for any init function.";
     let description = [{
