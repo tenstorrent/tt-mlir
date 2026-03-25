@@ -445,12 +445,13 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def(
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary &executable,
-         std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs)
-          -> std::vector<::tt::runtime::Tensor> {
-        return ::tt::runtime::submit(device, executable, programIndex, inputs);
+         std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs,
+         bool registerRuntimeGoldens) -> std::vector<::tt::runtime::Tensor> {
+        return ::tt::runtime::submit(device, executable, programIndex, inputs,
+                                     registerRuntimeGoldens);
       },
       nb::arg("device"), nb::arg("executable"), nb::arg("program_index"),
-      nb::arg("inputs"),
+      nb::arg("inputs"), nb::arg("register_runtime_goldens") = false,
       "Submit a ttnn binary for execution, returns a vector of output tensors."
       "The input tensors will be moved and consumed.");
   m.def(

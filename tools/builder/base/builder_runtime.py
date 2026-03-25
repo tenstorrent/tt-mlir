@@ -627,6 +627,7 @@ def execute_fb(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    enable_runtime_goldens: bool = False,
     bypass_ops: List[str] = None,
     save_artifacts: bool = False,
     artifact_dir: str = ".",
@@ -661,6 +662,8 @@ def execute_fb(
         Enable relative tolerance check. TTBuilderGoldenException will be raised if relative tolerance is above threshold.
     enable_intermediate_verification : bool
         Enable runtime callbacks to verify intermediate device outputs match intermediate golden outputs.
+    enable_runtime_goldens : bool
+        Enable runtime golden registration and verification.
     bypass_ops : List[str]
         List of op locations to bypass. Runtime outputs will be replaced on device with intermediate golden tensors to allow for continued intermediate golden verification.
     save_artifacts : bool
@@ -782,6 +785,7 @@ def execute_fb(
                 fbb,
                 program_index,
                 converted_inputs,
+                enable_runtime_goldens,
             )
             tt_runtime.runtime.wait(runtime_outputs)
         except Exception as e:

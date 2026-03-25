@@ -254,6 +254,8 @@ def get_request_kwargs(request):
         kwargs["check_rtol"] = True
     if request.config.getoption("--enable-intermediate-verification"):
         kwargs["enable_intermediate_verification"] = True
+    if request.config.getoption("--enable-runtime-goldens"):
+        kwargs["enable_runtime_goldens"] = True
     if request.config.getoption("--disable-golden"):
         kwargs["disable_golden"] = True
     if request.config.getoption("--skip-exec"):
@@ -338,6 +340,11 @@ def pytest_addoption(parser):
         "--enable-intermediate-verification",
         action="store_true",
         help="Enable runtime callbacks to verify intermediate outputs match golden outputs.",
+    )
+    parser.addoption(
+        "--enable-runtime-goldens",
+        action="store_true",
+        help="Enable runtime golden registration and verification.",
     )
     parser.addoption(
         "--disable-golden",

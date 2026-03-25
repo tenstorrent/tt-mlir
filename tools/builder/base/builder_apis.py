@@ -59,6 +59,7 @@ def _compile_and_execute(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    enable_runtime_goldens: bool = False,
     dump_memory: bool = False,
     **compile_kwargs,
 ) -> str:
@@ -86,6 +87,7 @@ def _compile_and_execute(
             intermediate_goldens=intermediate_goldens,
             bypass_ops=builder._bypass_ops,
             enable_intermediate_verification=enable_intermediate_verification,
+            enable_runtime_goldens=enable_runtime_goldens,
             save_artifacts=compile_kwargs.get("save_artifacts", False),
             artifact_dir=compile_kwargs.get("artifact_dir", "."),
             dump_memory=dump_memory,
@@ -231,6 +233,7 @@ def compile_and_execute_d2m(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    enable_runtime_goldens: bool = False,
     dump_memory: bool = False,
 ) -> str:
     """
@@ -314,6 +317,7 @@ def compile_and_execute_d2m(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        enable_runtime_goldens=enable_runtime_goldens,
         dump_memory=dump_memory,
     )
 
@@ -343,6 +347,7 @@ def compile_and_execute_shlo(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    enable_runtime_goldens: bool = False,
     dump_memory: bool = False,
 ) -> str:
     """
@@ -432,6 +437,7 @@ def compile_and_execute_shlo(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        enable_runtime_goldens=enable_runtime_goldens,
         dump_memory=dump_memory,
     )
 
@@ -459,6 +465,7 @@ def compile_and_execute_ttnn(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    enable_runtime_goldens: bool = False,
     dump_memory: bool = False,
 ) -> str:
     """
@@ -545,6 +552,7 @@ def compile_and_execute_ttnn(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        enable_runtime_goldens=enable_runtime_goldens,
         dump_memory=dump_memory,
     )
 
@@ -572,6 +580,7 @@ def compile_and_execute_ttir(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    enable_runtime_goldens: bool = False,
     dump_memory: bool = False,
 ) -> str:
     """
@@ -655,6 +664,7 @@ def compile_and_execute_ttir(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        enable_runtime_goldens=enable_runtime_goldens,
         dump_memory=dump_memory,
     )
 

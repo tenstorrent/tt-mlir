@@ -1943,16 +1943,19 @@ void registerCallback() {
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
-       std::vector<::tt::runtime::Tensor> &inputs) {
+       std::vector<::tt::runtime::Tensor> &inputs,
+       bool registerRuntimeGoldens) {
 
-  if (!Py_IsInitialized()) {
-    std::cout << "Initializing New Python interpreter" << std::endl;
-    Py_Initialize();
-  } else {
-    std::cout << "Python interpreter already initialized" << std::endl;
+  if (registerRuntimeGoldens) {
+    if (!Py_IsInitialized()) {
+      std::cout << "Initializing New Python interpreter" << std::endl;
+      Py_Initialize();
+    } else {
+      std::cout << "Python interpreter already initialized" << std::endl;
+    }
+
+    registerCallback();
   }
-
-  registerCallback();
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   ::tt::runtime::utils::logMemoryStateIfNeeded(
       ::tt::runtime::ttnn::utils::getMemoryView, deviceHandle,
@@ -1976,6 +1979,15 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
       "Device memory state after submit");
 #endif
 
+  /*
+  if (registerRuntimeGoldens) {
+    // Finalize the Python interpreter if we initialized it in this function
+    if (Py_IsInitialized()) {
+      std::cout << "Finalizing Python interpreter" << std::endl;
+      Py_Finalize();
+    }
+  }
+  */
   return outputTensors;
 }
 
