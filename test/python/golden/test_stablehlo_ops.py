@@ -1750,7 +1750,6 @@ def module_reduce_window_max(builder: StableHLOBuilder):
         )
 
 
-@pytest.mark.xfail(reason="Golden comparison failure")
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
