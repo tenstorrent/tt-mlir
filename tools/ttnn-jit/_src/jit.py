@@ -39,6 +39,7 @@ class JitFunction:
         math_fidelity: ttnn.MathFidelity,
         memory_config: ttnn.MemoryConfig,
         fallback: bool = False,
+        extra_pipeline_options: str = "",
     ):
         self.func = func
         self.source_code = cleanup_source_code(func)
@@ -47,6 +48,7 @@ class JitFunction:
         self.out_dir = os.path.join("generated", "ttnn-jit", func.__name__)
         self.math_fidelity = math_fidelity
         self.memory_config = memory_config
+        self.extra_pipeline_options = extra_pipeline_options
         if fallback and compile_only:
             raise ValueError(
                 "fallback=True is incompatible with compile_only=True. "
@@ -157,6 +159,8 @@ class JitFunction:
 
         options = f"system-desc-path={self.system_desc_path} ttnn-mode=true set-math-fidelity={self.math_fidelity.name}"
         options += memory_analyzer.get_l1_range_str()
+        if self.extra_pipeline_options:
+            options += f" {self.extra_pipeline_options}"
         if self.compile_only:
             ttnn_to_ttmetal_pipeline(ir, options)
             print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
