@@ -8,6 +8,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
+#include "ttmlir/Dialect/D2M/Analysis/BlockFactorAnalysis.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
@@ -727,7 +728,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   // for each operand of `genericOp`.
   void createOperandContexts(FuncAnalysisData &analysis,
                              d2m::GenericOp genericOp,
-                             GenericOpContext &genericCtx) {
+                             GenericOpContext &genericCtx,
+                             const BlockFactorAnalysis &blockFactorAnalysis) {
     [[maybe_unused]] AsOperandPrinter asOperand{genericOp->getParentOp()};
     [[maybe_unused]] ttcore::DeviceAttr device =
         ttcore::lookupDevice(genericOp);
@@ -780,14 +782,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           asSeq(getShardBlockFactors(genericOp)),
           getParticipatingDimMask(genericOp));
 
-      // Select execution blocking for would-be operand streams.
-      // `max` preserves the original blocking,
-      // `min` shrinks all non-participating dims
-      // `auto` considers legal divisors of the reduction shard factor and
-      // rejects candidates that shrink tuned-input shards below 4 tiles.
-      blockFactors =
-          chooseReblockedFactors(genericOp, indexingMaps, iteratorTypes,
-                                 gridExtents, shardExtents, device);
+      // Look up pre-computed execution blocking from the block factor
+      // analysis.
+      if (const auto *bfResult = blockFactorAnalysis.lookup(genericOp)) {
+        blockFactors = bfResult->reblockedFactors;
+      }
 
       for (std::size_t d = 0; d < rank; ++d) {
         const int64_t rescaling = blockFactors[d] / originalBlockFactors[d];
@@ -915,176 +914,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
   }
 
-  /// Returns the index of the single reduction dimension, if any.
-  static std::optional<std::size_t>
-  getSingleTuningDim(ArrayRef<ttcore::IteratorType> iteratorTypes) {
-    std::optional<std::size_t> tuningDim;
-    for (auto [dim, iteratorType] : llvm::enumerate(iteratorTypes)) {
-      if (iteratorType != ttcore::IteratorType::Reduction) {
-        continue;
-      }
-      if (tuningDim.has_value()) {
-        return std::nullopt;
-      }
-      tuningDim = dim;
-    }
-    return tuningDim;
-  }
-
-  /// Estimates the total stream buffer bytes for a candidate grid and shard
-  /// extents.
-  std::optional<uint64_t> estimateStreamBytesForCandidate(
-      d2m::GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
-      ArrayRef<int64_t> candidateGridExtents,
-      ArrayRef<int64_t> candidateShardExtents, std::size_t tuningDim,
-      ttcore::DeviceAttr device) const {
-    uint64_t totalBytes = 0;
-    bool sawTunedInput = false;
-
-    for (auto [operandIndex, operand] :
-         llvm::enumerate(genericOp.getInputsAndOutputs())) {
-      if (genericOp.isOutputOperandIdx(operandIndex) ||
-          genericOp.isScratchInput(operandIndex)) {
-        continue;
-      }
-
-      const AffineMap indexingMap = indexingMaps[operandIndex];
-      if (!indexingMap.isFunctionOfDim(tuningDim)) {
-        continue;
-      }
-
-      auto operandType = mlir::dyn_cast<MemRefType>(operand.getType());
-      if (!operandType ||
-          !mlir::isa<ttcore::TileType>(operandType.getElementType())) {
-        return std::nullopt;
-      }
-
-      sawTunedInput = true;
-      const AffineMap canonicalMap = canonicalizeBroadcasts(indexingMap);
-      const SmallVector<int64_t> gridShapeRescaled =
-          canonicalMap.compose(candidateGridExtents);
-      const SmallVector<int64_t> shardShapeRescaled =
-          canonicalMap.compose(candidateShardExtents);
-
-      // Minimum shard size is 4 tiles.
-      if (ttmlir::utils::volume<int64_t>(shardShapeRescaled) < 4) {
-        return std::nullopt;
-      }
-
-      const MemRefType bufferType = getStreamBufferType(
-          gridShapeRescaled, shardShapeRescaled, operandType.getElementType(),
-          L1Attr, numStreamBuffers);
-      totalBytes += getStreamBufferSizeBytes(bufferType, device);
-    }
-
-    if (!sawTunedInput) {
-      return std::nullopt;
-    }
-
-    return totalBytes;
-  }
-
-  /// Applies the `min` policy to the block factors which shrinks all
-  /// non-participating dims.
-  SmallVector<int64_t> applyMinPolicy(d2m::GenericOp genericOp,
-                                      ArrayRef<int64_t> shardFactors) const {
-    SmallVector<int64_t> blockFactors = genericOp.getBlockFactorsValue();
-    const std::size_t rank = genericOp.getNumDims();
-    SmallVector<int64_t> dimScales(rank, 1);
-    const llvm::BitVector participationMask =
-        getParticipatingDimMask(genericOp);
-    for (auto d = participationMask.find_first_unset(); d >= 0;
-         d = participationMask.find_next_unset(d)) {
-      dimScales[d] = shardFactors[d];
-    }
-
-    for (std::size_t d = 0; d < rank; ++d) {
-      blockFactors[d] *= dimScales[d];
-    }
-    TT_ALLOC_DEBUG("applying min policy scales {}, new block factors {}",
-                   asSeq(dimScales), asSeq(blockFactors));
-    return blockFactors;
-  }
-
-  SmallVector<int64_t>
-  applyAutoPolicy(d2m::GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
-                  ArrayRef<ttcore::IteratorType> iteratorTypes,
-                  ArrayRef<int64_t> gridExtents, ArrayRef<int64_t> shardExtents,
-                  ArrayRef<int64_t> shardFactors,
-                  ttcore::DeviceAttr device) const {
-    SmallVector<int64_t> blockFactors = genericOp.getBlockFactorsValue();
-    const std::optional<std::size_t> tuningDim =
-        getSingleTuningDim(iteratorTypes);
-    if (!tuningDim.has_value()) {
-      return blockFactors;
-    }
-
-    if (shardFactors[*tuningDim] <= 1) {
-      return blockFactors;
-    }
-
-    const auto baseBytes = estimateStreamBytesForCandidate(
-        genericOp, indexingMaps, gridExtents, shardExtents, *tuningDim, device);
-    if (!baseBytes.has_value()) {
-      return blockFactors;
-    }
-
-    int64_t bestScale = 1;
-    uint64_t bestBytes = *baseBytes;
-    for (int64_t scale = shardFactors[*tuningDim]; scale >= 2; --scale) {
-      if (shardFactors[*tuningDim] % scale != 0) {
-        continue;
-      }
-
-      SmallVector<int64_t> candidateGridExtents(gridExtents.begin(),
-                                                gridExtents.end());
-      SmallVector<int64_t> candidateShardExtents(shardExtents.begin(),
-                                                 shardExtents.end());
-      candidateGridExtents[*tuningDim] *= scale;
-      candidateShardExtents[*tuningDim] /= scale;
-
-      const auto candidateBytes = estimateStreamBytesForCandidate(
-          genericOp, indexingMaps, candidateGridExtents, candidateShardExtents,
-          *tuningDim, device);
-      if (!candidateBytes.has_value()) {
-        continue;
-      }
-
-      // Break ties toward the larger scale so we maximize blocking at the
-      // same estimated stream-buffer cost.
-      if (*candidateBytes < bestBytes ||
-          (*candidateBytes == bestBytes && scale > bestScale)) {
-        bestBytes = *candidateBytes;
-        bestScale = scale;
-      }
-    }
-
-    blockFactors[*tuningDim] *= bestScale;
-    TT_ALLOC_DEBUG("applying auto policy scale {} on dim {}, new block "
-                   "factors {}, estimated stream bytes {}",
-                   bestScale, *tuningDim, asSeq(blockFactors), bestBytes);
-    return blockFactors;
-  }
-
-  SmallVector<int64_t> chooseReblockedFactors(
-      d2m::GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
-      ArrayRef<ttcore::IteratorType> iteratorTypes,
-      ArrayRef<int64_t> gridExtents, ArrayRef<int64_t> shardExtents,
-      ttcore::DeviceAttr device) const {
-    const SmallVector<int64_t> shardFactors = getShardBlockFactors(genericOp);
-    switch (bufferSizePolicy) {
-    case BufferSizePolicy::Max:
-      return genericOp.getBlockFactorsValue();
-    case BufferSizePolicy::Min:
-      return applyMinPolicy(genericOp, shardFactors);
-    case BufferSizePolicy::Auto:
-      return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes,
-                             gridExtents, shardExtents, shardFactors, device);
-    }
-
-    llvm_unreachable("unknown buffer size policy");
-  }
-
   /// Populate `analysis.generics`:
   ///
   /// - Collect `d2m.generic`s present in `funcOp` into `analysis.generics`.
@@ -1110,6 +939,26 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     MLIRContext *ctx = &getContext();
     IRRewriter rewriter(ctx);
 
+    // Select execution blocking for would-be operand streams.
+    // `max` preserves the original blocking,
+    // `min` shrinks all non-participating dims
+    // `auto` considers legal divisors of the reduction shard factor and
+    // rejects candidates that shrink tuned-input shards below 4 tiles.
+    BlockFactorAnalysis::Options bfOpts;
+    switch (bufferSizePolicy) {
+    case BufferSizePolicy::Auto:
+      bfOpts.policy = BlockFactorAnalysis::BufferSizePolicy::Auto;
+      break;
+    case BufferSizePolicy::Min:
+      bfOpts.policy = BlockFactorAnalysis::BufferSizePolicy::Min;
+      break;
+    case BufferSizePolicy::Max:
+      bfOpts.policy = BlockFactorAnalysis::BufferSizePolicy::Max;
+      break;
+    }
+    bfOpts.numBuffers = numStreamBuffers;
+    BlockFactorAnalysis blockFactorAnalysis(funcOp, bfOpts);
+
     [[maybe_unused]] int32_t genericsInDMAOnlyForm = 0;
     [[maybe_unused]] int32_t genericsInExplicitDatamovementForm = 0;
 
@@ -1119,7 +968,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       genericsInDMAOnlyForm += genericCtx.isDMAOnly;
       genericsInExplicitDatamovementForm += genericCtx.isExplicitDatamovement;
 
-      createOperandContexts(analysis, genericOp, genericCtx);
+      createOperandContexts(analysis, genericOp, genericCtx,
+                            blockFactorAnalysis);
     });
 
     if (TT_DEBUG_ENABLED()) {
@@ -1903,47 +1753,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return false;
   }
 
-  /// @return `map` with all broadcast result expressions replaced with
-  /// const-1 expression
-  static AffineMap canonicalizeBroadcasts(AffineMap map) {
-    auto *ctx = map.getContext();
-
-    // This could almost be a simple AffineMap::replace() but need to make
-    // sure only complete `0`-result expressions are replaced, not other
-    // possible zero const terms within result expression trees, however
-    // unlikely that seems.
-
-    const auto replacement = mlir::getAffineConstantExpr(1, ctx);
-    SmallVector<AffineExpr> exprs;
-
-    for (auto expr : map.getResults()) {
-      if (auto constExpr = llvm::dyn_cast<AffineConstantExpr>(expr)) {
-        if (constExpr.getValue() == 0) {
-          exprs.push_back(replacement);
-          continue;
-        }
-      }
-      exprs.push_back(expr);
-    }
-
-    return AffineMap::get(map.getNumDims(), map.getNumSymbols(), exprs, ctx);
-  }
-
-  static MemRefType getStreamBufferType(ArrayRef<int64_t> gridShape,
-                                        ArrayRef<int64_t> shardShape,
-                                        Type elementType,
-                                        ttcore::MemorySpaceAttr memSpaceAttr,
-                                        uint32_t buffers) {
-    TT_debug(gridShape.size() == shardShape.size());
-
-    const SmallVector<int64_t> fullShape =
-        concatToVector<int64_t>(gridShape, shardShape);
-    const auto bufferLayout =
-        ttcore::ShardLayoutAttr::get(shardShape, elementType, buffers);
-
-    return MemRefType::get(fullShape, elementType, bufferLayout, memSpaceAttr);
-  }
-
   static std::tuple</* input */ SmallVector<int64_t>,
                     /* output */ SmallVector<int64_t>>
   getOperandTileShapes(d2m::GenericOp genericOp) {
@@ -1976,49 +1785,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return SmallVector<int64_t>(tileType.getShape());
     }
     return {1, 1};
-  }
-
-  static std::tuple</* grid */ SmallVector<int64_t>,
-                    /* shard */ SmallVector<int64_t>>
-  getGridAndShardExtents(d2m::GenericOp genericOp) {
-    auto flatInverseMap = ttmlir::utils::concatInversePermutationMap(
-        genericOp.getIndexingMapsValue(), /*reverse=*/false);
-
-    return {flatInverseMap.compose(
-                concatToVector(genericOp.getInputOutputOperandGridShapes())),
-            flatInverseMap.compose(
-                concatToVector(genericOp.getInputOutputOperandShardShapes()))};
-  }
-
-  /// Return a bitmask that indicates which of the dims are "participating"
-  /// (defined as dims that are used by any of the `genericOp`'s output
-  /// expressions.
-  static llvm::BitVector getParticipatingDimMask(d2m::GenericOp genericOp) {
-    TT_debug(genericOp.getOutputs().size() == 1u);
-    AffineMap outputMap = genericOp.getIndexingMapsValue().back();
-
-    const std::size_t rank = outputMap.getNumDims();
-
-    llvm::BitVector mask(rank, false);
-    for (std::size_t d = 0; d < rank; ++d) {
-      mask[d] = outputMap.isFunctionOfDim(d);
-    }
-    return mask;
-  }
-
-  /// Calculate full "shard-only" blocking factors (defined as full blocking
-  /// factors divided by blocking factors)
-  static SmallVector<int64_t> getShardBlockFactors(d2m::GenericOp genericOp) {
-    SmallVector<int64_t> r = genericOp.getFullBlockFactors();
-    SmallVector<int64_t> blockFactors = genericOp.getBlockFactorsValue();
-    TT_debug(r.size() == blockFactors.size());
-    for (std::size_t d = 0; d < r.size(); ++d) {
-      TT_debugv(blockFactors[d] > 0, "unexpected block factor {} for dim {}",
-                blockFactors[d], d);
-      r[d] /= blockFactors[d];
-    }
-
-    return r;
   }
 
   static void assignAddressAndAlignment(RewriterBase &rewriter,
@@ -2124,18 +1890,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // A tighter size calculation is possible for memrefs that don't map to
     // CBs which we don't attempt here except to ignore `buffers` multiplier.
     return device.getMemrefSizeBytes(bufferType, 0, false);
-  }
-
-  // Factor out defaults passed into DeviceAttr::getMemrefSizeBytes()
-  // for stream buffer memrefs.
-  static int64_t getStreamBufferSizeBytes(MemRefType bufferType,
-                                          ttcore::DeviceAttr device) {
-    TT_assertv(ttcore::getMemorySpace(bufferType) ==
-                   ttcore::MemorySpace::DeviceL1,
-               "stream buffers must be allocated in L1");
-    // Stream buffers map to CBs and therefore are subject to CB size
-    // alignment requirements (invoke with `pageSize` default of 0).
-    return device.getMemrefSizeBytes(bufferType, 0, true);
   }
 
   /// @return aligned allocation sizes for a `type` buffer for different
