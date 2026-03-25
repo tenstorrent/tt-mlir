@@ -143,20 +143,20 @@ getProgram(const ::tt::runtime::Binary &executableHandle,
   return program;
 }
 
-::ttnn::operations::reduction::ReduceType getReduceType(uint32_t reduceType) {
+::reduction_common::ReduceType getReduceType(uint32_t reduceType) {
   switch (reduceType) {
   case 0:
-    return ::ttnn::operations::reduction::ReduceType::Sum;
+    return ::reduction_common::ReduceType::Sum;
   case 1:
-    return ::ttnn::operations::reduction::ReduceType::Mean;
+    return ::reduction_common::ReduceType::Mean;
   case 2:
-    return ::ttnn::operations::reduction::ReduceType::Max;
+    return ::reduction_common::ReduceType::Max;
   case 3:
-    return ::ttnn::operations::reduction::ReduceType::Min;
+    return ::reduction_common::ReduceType::Min;
   case 4:
-    return ::ttnn::operations::reduction::ReduceType::Std;
+    return ::reduction_common::ReduceType::Std;
   case 5:
-    return ::ttnn::operations::reduction::ReduceType::Var;
+    return ::reduction_common::ReduceType::Var;
   default:
     LOG_FATAL("Unsupported reduce type");
   }

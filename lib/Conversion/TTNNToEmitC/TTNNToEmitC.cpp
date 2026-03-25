@@ -235,7 +235,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC)),
         rewriter.getAttr<emitc::OpaqueAttr>(
-            "::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE"),
+            "::ttnn::operations::unary::SigmoidMode::ACCURATE"),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
@@ -4839,7 +4839,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                mlir::tt::ttnn::ErfcOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CeilOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SinOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AsinOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CosOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AcosOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Expm1Op>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::TanOp>,
            EltwiseUnaryWithOutputAndApproxModeOpConversionPattern<

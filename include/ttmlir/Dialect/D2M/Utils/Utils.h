@@ -72,6 +72,17 @@ SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
 // grid shape used if the tensor/memref was the output of a GenericOp.
 SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref);
 
+// N-dimensional axis-aligned bounding box (start and end inclusive).
+// start.size() must equal end.size() (dimension).
+struct BoundingBox {
+  llvm::SmallVector<int64_t> start;
+  llvm::SmallVector<int64_t> end;
+};
+
+// Maps `source` into the affine map's output space using its start/end corners.
+BoundingBox getProjectedBoundingBox(const BoundingBox &source,
+                                    mlir::AffineMap map);
+
 // Returns the remapping associated with a value, if any.
 // Traces back through the defining op to find a ViewLayoutOp or StreamLayoutOp
 // and returns its remapping attribute. Returns std::nullopt if the value has

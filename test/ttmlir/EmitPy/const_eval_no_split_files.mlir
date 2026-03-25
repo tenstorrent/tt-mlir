@@ -17,7 +17,7 @@
 // CHECK:   ttnn.add.golden_function(
 // CHECK-LABEL: def forward_const_eval_0(
 // CHECK: _cached_forward = {}
-// CHECK-LABEL: def forward(input):
+// CHECK: def forward(input
 // CHECK:   global _cached_forward
 // CHECK:   _cached_forward = consteval_forward(
 // CHECK:   ttnn.add(
