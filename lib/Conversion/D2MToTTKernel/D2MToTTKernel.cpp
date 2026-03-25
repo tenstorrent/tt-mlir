@@ -85,6 +85,11 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
     return rewriter.getRemappedValue(loadOp.getMemref());
   }
 
+  if (auto affLoad =
+          mlir::dyn_cast_if_present<affine::AffineLoadOp>(cb.getDefiningOp())) {
+    return rewriter.getRemappedValue(affLoad.getMemRef());
+  }
+
   if (mlir::isa<memref::SubViewOp>(cb.getDefiningOp())) {
     memref::SubViewOp subViewOp =
         mlir::cast<memref::SubViewOp>(cb.getDefiningOp());
@@ -120,42 +125,93 @@ static Value getDstIdxFromResult(Value d2mOpResult) {
   return storeOp.getIndices().front();
 }
 
-// This is a workaround special case for getting an in/out CB. This whole
-// routine should go away with issue:
-// https://github.com/tenstorrent/tt-mlir/issues/3602
-template <typename LoadOrStoreOp>
-static Value getInOrOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
-  static_assert(std::is_same_v<LoadOrStoreOp, memref::LoadOp> ||
-                std::is_same_v<LoadOrStoreOp, memref::StoreOp>);
-  func::FuncOp func = op->getParentOfType<func::FuncOp>();
-  assert(func && "Expected func op.");
+// If \p v is a tile loaded from L1, return the remapped `!ttkernel.cb` handle
+// for that buffer. Returns null when the tile comes from DST only (e.g. after
+// d2m.tile_fill) or from another defining op.
+static Value tryGetL1CbFromTensorShardLoad(ConversionPatternRewriter &rewriter,
+                                           Value v) {
+  Operation *def = v.getDefiningOp();
+  if (!def) {
+    return nullptr;
+  }
+  Value memref;
+  if (auto load = mlir::dyn_cast<memref::LoadOp>(def)) {
+    memref = load.getMemref();
+  } else if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(def)) {
+    memref = load.getMemRef();
+  } else {
+    return nullptr;
+  }
+  if (ttcore::getMemorySpace(memref) != ttcore::MemorySpace::DeviceL1) {
+    return nullptr;
+  }
+  return rewriter.getRemappedValue(memref);
+}
+
+// Walk the enclosing host `func.func` for the first L1 load / store (memref or
+// affine). Used when operand-local CB resolution is insufficient.
+static Value findFirstL1InputCbMemref(func::FuncOp func) {
   Value cb = nullptr;
-  func.walk([&](LoadOrStoreOp loadStore) {
-    if (ttcore::getMemorySpace(loadStore.getMemRef()) ==
+  func.walk([&](memref::LoadOp loadOp) {
+    if (ttcore::getMemorySpace(loadOp.getMemRef()) ==
         ttcore::MemorySpace::DeviceL1) {
-      cb = loadStore.getMemRef();
+      cb = loadOp.getMemRef();
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
+  if (cb) {
+    return cb;
+  }
+  func.walk([&](affine::AffineLoadOp loadOp) {
+    if (ttcore::getMemorySpace(loadOp.getMemRef()) ==
+        ttcore::MemorySpace::DeviceL1) {
+      cb = loadOp.getMemRef();
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return cb;
+}
+
+static Value findFirstL1OutputCbMemref(func::FuncOp func) {
+  Value cb = nullptr;
+  func.walk([&](memref::StoreOp storeOp) {
+    if (ttcore::getMemorySpace(storeOp.getMemRef()) ==
+        ttcore::MemorySpace::DeviceL1) {
+      cb = storeOp.getMemRef();
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (cb) {
+    return cb;
+  }
+  func.walk([&](affine::AffineStoreOp storeOp) {
+    if (ttcore::getMemorySpace(storeOp.getMemRef()) ==
+        ttcore::MemorySpace::DeviceL1) {
+      cb = storeOp.getMemRef();
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return cb;
+}
+
+static Value getInCB(ConversionPatternRewriter &rewriter, Operation *op) {
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  assert(func && "Expected func op.");
+  Value cb = findFirstL1InputCbMemref(func);
   assert(cb && "CB not found.");
   return rewriter.getRemappedValue(cb);
 }
 
-// This is a workaround special case for getting an input CB. This whole
-// routine should go away with issue:
-// https://github.com/tenstorrent/tt-mlir/issues/3602
-static Value getInCB(ConversionPatternRewriter &rewriter, Operation *op) {
-  // Search for a load from L1.
-  return getInOrOutCB<memref::LoadOp>(rewriter, op);
-}
-
-// This is a workaround special case for getting an output CB. This whole
-// routine should go away with issue:
-// https://github.com/tenstorrent/tt-mlir/issues/3602
 static Value getOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
-  // Search for a store to L1.
-  return getInOrOutCB<memref::StoreOp>(rewriter, op);
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  assert(func && "Expected func op.");
+  Value cb = findFirstL1OutputCbMemref(func);
+  assert(cb && "CB not found.");
+  return rewriter.getRemappedValue(cb);
 }
 
 // Check if an operand comes from DST.
@@ -824,8 +880,18 @@ public:
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto insertionPoint = rewriter.getInsertionPoint();
-    auto inCB = getInCB(rewriter, op);
-    auto outCB = getOutCB(rewriter, op);
+    Value outCB = getOutCB(rewriter, op);
+    Value inCB;
+    if constexpr (arity == 1) {
+      inCB = tryGetL1CbFromTensorShardLoad(rewriter, op.getInput());
+      if (!inCB) {
+        // Unary SFPU on a tile that only lives in DST (e.g. tile_fill -> cos)
+        // has no L1 unpack; init_sfpu still needs an icb — use the output CB.
+        inCB = outCB;
+      }
+    } else {
+      inCB = getInCB(rewriter, op);
+    }
     rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
     setInsertionPointAfterOperands(rewriter, {inCB, outCB},
                                    /*allowHoisting*/ true);
