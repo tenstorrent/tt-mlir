@@ -364,6 +364,9 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
 
     // Trace through view/stream ops via ViewOpInterface.
     if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
+      if (viewOp.isComposite()) {
+        return std::nullopt;
+      }
       return getVirtualGridInverseMapping(viewOp.getInput());
     }
 
@@ -412,6 +415,9 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
 
     // Trace through view/stream ops via ViewOpInterface.
     if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
+      if (viewOp.isComposite()) {
+        return std::nullopt;
+      }
       return getVirtualGridForwardMapping(viewOp.getInput());
     }
 
@@ -618,6 +624,93 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device,
                        size_t pageSize, size_t baseOffset) {
   return getMemoryMapImpl(device, memrefAndView.first, pageSize,
                           memrefAndView.second, baseOffset);
+}
+
+static AffineMap canonicalStridedMap(MLIRContext *context,
+                                     ArrayRef<int64_t> shape, Type elementType,
+                                     AffineMap map) {
+  assert(map.isIdentity() && "Only identity maps are supported for now.");
+  auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
+  int64_t elementSizeBytes = tileType ? tileType.getSizeBytes()
+                                      : elementType.getIntOrFloatBitWidth() / 8;
+  int64_t currentStride = elementSizeBytes;
+  int64_t rank = shape.size();
+  mlir::AffineExpr strideExpr = mlir::getAffineConstantExpr(0, context);
+  for (int64_t i = rank - 1; i >= 0; i--) {
+    mlir::AffineExpr dim = mlir::getAffineDimExpr(i, context);
+    mlir::AffineExpr stride =
+        mlir::getAffineConstantExpr(currentStride, context);
+    strideExpr = dim * stride + strideExpr;
+    currentStride *= shape[i];
+  }
+  return mlir::AffineMap::get(shape.size(), 0, strideExpr, context);
+}
+
+AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input, bool isRemote) {
+  if (isRemote) {
+    // d2m::utils::getMemoryMap handles view tracing (applyViews) and
+    // VGM lookup (getVirtualGridForwardMapping) internally.
+    return d2m::utils::getMemoryMap(device, input,
+                                    /*pageSize=*/static_cast<size_t>(0));
+  }
+
+  // For local memrefs (including CB values), get the underlying memref type.
+  MemRefType inputType;
+  if (auto cbType = mlir::dyn_cast<CBType>(input.getType())) {
+    inputType = cbType.getUnderlyingAs<MemRefType>();
+  } else {
+    inputType = mlir::cast<MemRefType>(input.getType());
+  }
+  auto layoutMap = d2m::utils::resolveEffectiveAffineMap(input, inputType);
+  return canonicalStridedMap(device.getContext(), inputType.getShape(),
+                             inputType.getElementType(), layoutMap);
+}
+
+template <typename Builder>
+SmallVector<Value> applyMap(Builder &builder, Location loc, AffineMap map,
+                            ValueRange index, bool isRemote) {
+  auto affineApply = [&](AffineMap map, ValueRange index) {
+    return builder.template create<affine::AffineApplyOp>(loc, map, index);
+  };
+
+  if (isRemote) {
+    assert(map.getNumResults() == 4);
+    // Break the map into respective gridY, gridX, offset "single result"
+    // parts. AffineApply only supports single result affine maps.
+    map = map.dropResults(0); // Drop the device index.
+    auto gridY = map.dropResults({1, 2});
+    auto gridX = map.dropResults({0, 2});
+    auto offset = map.dropResults({0, 1});
+    return {affineApply(gridY, index), affineApply(gridX, index),
+            affineApply(offset, index)};
+  }
+
+  assert(map.getNumResults() == 1);
+  return {affineApply(map, index)};
+}
+
+// Instantiate for the two types of builders.
+template SmallVector<Value> applyMap<OpBuilder>(OpBuilder &builder,
+                                                Location loc, AffineMap map,
+                                                ValueRange index,
+                                                bool isRemote);
+template SmallVector<Value>
+applyMap<PatternRewriter>(PatternRewriter &builder, Location loc, AffineMap map,
+                          ValueRange index, bool isRemote);
+
+std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
+getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape) {
+  Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                                 builder.getIndexAttr(0));
+  Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                                builder.getIndexAttr(1));
+  SmallVector<Value> lbs(shardShape.size(), zero);
+  SmallVector<Value> ubs(llvm::map_range(shardShape, [&](int64_t dim) {
+    return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                             builder.getIndexAttr(dim));
+  }));
+  SmallVector<Value> step(shardShape.size(), one);
+  return std::make_tuple(lbs, ubs, step);
 }
 
 llvm::SmallVector<int64_t>

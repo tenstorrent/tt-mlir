@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -311,6 +311,14 @@ def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos"> {
     }];
 }
 
+def TTNN_AcosOp: TTNN_ElementwiseUnaryOp<"acos"> {
+    let summary = "Eltwise arccosine op.";
+    let description = [{
+      Performs an elementwise arccosine (`acos`) on the input tensor; result
+      range [0, π] for inputs in [-1, 1]. Floating-point tensors.
+    }];
+}
+
 def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
     let summary = "Eltwise exponential.";
     let description = [{
@@ -446,6 +454,14 @@ def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin"> {
     let summary = "Eltwise sine.";
     let description = [{
       Eltwise sine operation.
+    }];
+}
+
+def TTNN_AsinOp: TTNN_ElementwiseUnaryOp<"asin"> {
+    let summary = "Eltwise arcsine op.";
+    let description = [{
+      Performs an elementwise arcsine (`asin`) on the input tensor; result
+      range [-π/2, π/2] for inputs in [-1, 1]. Floating-point tensors.
     }];
 }
 
@@ -3648,6 +3664,12 @@ def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {
 
   let results = (outs AnyRankedTensor:$values,
                       AnyRankedTensor:$indices);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(*this);
+    }
+  }];
 
   let hasVerifier = 1;
 }

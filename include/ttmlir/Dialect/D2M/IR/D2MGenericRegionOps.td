@@ -268,10 +268,30 @@ def D2M_TileCosOp : D2M_GenericRegionComputeUnaryDstOp<"tile_cos", D2M_TileCompu
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileAcosOp : D2M_GenericRegionComputeUnaryDstOp<"tile_acos", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Acos Op";
+    let description = [{
+        The `tile_acos` operation computes the arccosine of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileTanOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tan", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Tan Op";
     let description = [{
         The `tile_tan` operation computes the tangent function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileAtanOp : D2M_GenericRegionComputeUnaryDstOp<"tile_atan", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Atan Op";
+    let description = [{
+        The `tile_atan` operation computes the arctangent of each element in the input tile.
     }];
 
     let arguments = (ins TTCore_Tile:$input);
@@ -312,6 +332,16 @@ def D2M_TileSinOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sin", D2M_TileCompu
     let summary = "D2M Tile Sin Op";
     let description = [{
         The `tile_sin` operation computes the sine function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileAsinOp : D2M_GenericRegionComputeUnaryDstOp<"tile_asin", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Asin Op";
+    let description = [{
+        The `tile_asin` operation computes the arcsine of each element in the input tile.
     }];
 
     let arguments = (ins TTCore_Tile:$input);
@@ -617,6 +647,28 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max", D2M_Tile
   let summary = "D2M Tile Reduce Max Op";
   let description = [{
         The `tile_reduce_max` operation computes the max of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- max<dims>(A * B, C)
+    }];
+
+  let arguments = (ins TTCore_Tile:$a,
+                       TTCore_Tile:$b,
+                       TTCore_Tile:$c,
+                       D2M_ReduceDimAttr:$reduce_dim);
+  let results = (outs TTCore_Tile:$result);
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {2};
+    }
+    bool getDstRegInPlace() {
+      return true;
+    }
+  }];
+}
+
+def D2M_TileReduceMeanOp : D2M_GenericRegionComputeOp<"tile_reduce_mean", D2M_TileComputeOpTraitBundle> {
+  let summary = "D2M Tile Reduce Mean Op";
+  let description = [{
+        The `tile_reduce_mean` operation computes the mean of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- avg<dims>(A * B, C)
     }];
 
   let arguments = (ins TTCore_Tile:$a,

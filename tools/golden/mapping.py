@@ -3579,6 +3579,20 @@ def ttir_cos_golden(
     return torch.cos(input_tensor).to(output_dtype)
 
 
+def ttir_acos_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.acos(input_tensor).to(output_dtype)
+
+
+def ttir_asin_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.asin(input_tensor).to(output_dtype)
+
+
 def ttir_sin_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -5925,6 +5939,13 @@ def ttnn_cos_golden(
     return torch.cos(input_tensor).to(dtype)
 
 
+def ttnn_acos_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.acos(input_tensor).to(dtype)
+
+
 def ttnn_erf_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -6049,6 +6070,13 @@ def ttnn_sin_golden(
 ) -> GoldenMapTensor:
     dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.sin(input_tensor).to(dtype)
+
+
+def ttnn_asin_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.asin(input_tensor).to(dtype)
 
 
 def ttnn_sqrt_golden(
@@ -6584,6 +6612,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AbsOp: ttir_abs_golden,
     ttir.CeilOp: torch.ceil,
     ttir.CosOp: ttir_cos_golden,
+    ttir.AcosOp: ttir_acos_golden,
     ttir.ErfOp: ttir_erf_golden,
     ttir.ErfcOp: torch.erfc,
     ttir.FloorOp: ttir_floor_golden,
@@ -6604,6 +6633,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SignOp: torch.sign,
     ttir.SiluOp: silu_golden,
     ttir.SinOp: ttir_sin_golden,
+    ttir.AsinOp: ttir_asin_golden,
     ttir.SqrtOp: ttir_sqrt_golden,
     ttir.LogOp: ttir_log_golden,
     ttir.Log1pOp: ttir_log1p_golden,
@@ -6807,6 +6837,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.CbrtOp: ttnn_cbrt_golden,
     ttnn.CeilOp: ttnn_ceil_golden,
     ttnn.CosOp: ttnn_cos_golden,
+    ttnn.AcosOp: ttnn_acos_golden,
     ttnn.ErfOp: ttnn_erf_golden,
     ttnn.ErfcOp: ttnn_erfc_golden,
     ttnn.FloorOp: ttnn_floor_golden,
@@ -6825,6 +6856,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.SignOp: ttnn_sign_golden,
     ttnn.SiluOp: ttnn_silu_golden,
     ttnn.SinOp: ttnn_sin_golden,
+    ttnn.AsinOp: ttnn_asin_golden,
     ttnn.SqrtOp: ttnn_sqrt_golden,
     ttnn.LogOp: ttnn_log_golden,
     ttnn.Log1pOp: ttnn_log1p_golden,

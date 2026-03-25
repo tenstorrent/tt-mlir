@@ -898,6 +898,17 @@ def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir:
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
 
+def D2MExpandDMAReadCompositeView : Pass<"d2m-expand-dma-read-composite-view", "::mlir::ModuleOp"> {
+  let summary = "Expand shard-level DMA reads that act on composite views.";
+  let description = [{
+    This pass expands GenericOps that contain shard-level DMA reads that act on
+    composite views. The original "place holder" composite view operand is
+    replaced with the list of the actual inputs. The dma read is expanded to
+    an if-else chain of fully-indexed DMA reads that assembles the inputs.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
 def D2MLowerDMAToFullyIndexedForm : Pass<"d2m-lower-dma-to-fully-indexed-form", "::mlir::ModuleOp"> {
   let summary = "Lower shard-level DMA ops to fully indexed form.";
   let description = [{

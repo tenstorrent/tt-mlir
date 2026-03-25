@@ -535,6 +535,14 @@ struct TTNNToEmitPyDevicePipelineOptions
   Option<bool> splitFiles{*this, "split-files",
                           llvm::cl::desc("Enables TTNNFileSplit pass"),
                           llvm::cl::init(true)};
+
+  Option<bool> createMainForTest{
+      *this, "create-main-for-test",
+      llvm::cl::desc(
+          "Create main_for_test wrapper for frontend-driven execution "
+          "(e.g. PythonModelRunner). Injects device as an explicit "
+          "argument into the forward function."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to TTNN backend pipeline options.

@@ -15,9 +15,9 @@
 // CHECK: import utils
 // CHECK: from consteval import cpu_hoisted_const_eval_{{.*}}, consteval_forward
 // CHECK: _cached_forward = {}
-// CHECK-LABEL: def forward(input):
+// CHECK: def forward(input
 // CHECK:   global _cached_forward
-// CHECK:   _cached_forward = consteval_forward(_cached_forward, input)
+// CHECK:   _cached_forward = consteval_forward(_cached_forward
 // CHECK:   ttnn.add(
 // CHECK:   ttnn.add(
 // CHECK-LABEL: # File: "consteval"
@@ -25,9 +25,9 @@
 // CHECK: import utils
 // CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}(
 // CHECK:   ttnn.add.golden_function(
-// CHECK-LABEL: def forward_const_eval_0(input):
+// CHECK: def forward_const_eval_0(input
 // CHECK:   cpu_hoisted_const_eval_{{.*}}(
-// CHECK-LABEL: def consteval_forward(ce_cache, input_1):
+// CHECK: def consteval_forward(ce_cache, input_1
 // CHECK:   if not ce_cache:
 // CHECK:     forward_const_eval_0(
 // CHECK:   return ce_cache

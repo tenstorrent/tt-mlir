@@ -4,7 +4,6 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
-#include "ttmlir/AffineMapAnalysis.h"
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -59,10 +58,6 @@ findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
   }
   return {maxDimIndex, aspectRatio};
 }
-
-static llvm::SmallVector<int64_t>
-computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
-                               ArrayRef<int64_t> targetSquareGridShape);
 
 static llvm::SmallVector<int64_t>
 computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
@@ -584,12 +579,19 @@ struct ViewLayoutUpdateInfo {
   llvm::SmallVector<int64_t> grid;
 };
 
+struct CompositeViewUpdateInfo {
+  d2m::CompositeViewOp op;
+  unsigned operandIndex;
+  llvm::SmallVector<int64_t> grid;
+};
+
 struct GridAnalysisResult {
   llvm::SmallVector<llvm::SmallVector<int64_t>> optimalOperandGrids;
   llvm::SmallVector<ToLayoutUpdateInfo> toLayouts;
   llvm::SmallVector<TTNNTensorUpdateInfo> ttnnTensors;
   llvm::SmallVector<EmptyUpdateInfo> emptyOps;
   llvm::SmallVector<ViewLayoutUpdateInfo> viewLayouts;
+  llvm::SmallVector<CompositeViewUpdateInfo> compositeViews;
 };
 
 // This function normalizes the operand grids for a generic operation by
@@ -759,6 +761,9 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
           result.toLayouts.push_back({toLayoutOp, idx, inputOptimalGrid});
         }
       }
+    } else if (auto compositeViewOp =
+                   operand.getDefiningOp<d2m::CompositeViewOp>()) {
+      result.compositeViews.push_back({compositeViewOp, idx, optimalGrid});
     } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
       result.toLayouts.push_back({toLayoutOp, idx, optimalGrid});
     } else if (auto emptyOp = operand.getDefiningOp<d2m::EmptyOp>()) {
@@ -826,6 +831,67 @@ updateTTNNTensors(ArrayRef<TTNNTensorUpdateInfo> TTNNTensorsToUpdate,
     } else {
       llvm_unreachable("Expected a TTNNMetalLayoutCastOp or a ViewLayoutOp");
     }
+  }
+}
+
+static void
+updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
+                       const GridSelectionConfig &config) {
+  if (compositeViewsToUpdate.empty()) {
+    return;
+  }
+
+  OpBuilder builder(compositeViewsToUpdate.front().op->getContext());
+  for (const auto &info : compositeViewsToUpdate) {
+    auto compositeView = info.op;
+
+    // The composite_view handles its own inputs instead of relying on
+    // updateToLayoutOps, and does not use computePhysicalShape to recreate the
+    // input with its grid-aligned shape.
+    // Views don't own the data and we want to stack other views on top of the
+    // composite_view, it might be difficult to update the upstream to_layout:
+    // e.g. one input is from a slicing view.
+    SmallVector<Value> reblockedInputs;
+    for (Value input : compositeView.getInputs()) {
+      auto inputType = mlir::cast<RankedTensorType>(input.getType());
+      auto inputLayout =
+          mlir::dyn_cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+      if (!inputLayout) {
+        reblockedInputs.push_back(input);
+        continue;
+      }
+
+      auto tileType = mlir::cast<ttcore::TileType>(inputType.getElementType());
+      auto inputPhysShape = inputLayout.getPhysicalShape(tileType.getShape());
+      auto inputOptimalGrid =
+          computeOptimalGrid(inputType, inputPhysShape, config);
+
+      auto currentGrid = inputLayout.getGridShape(inputType);
+      if (llvm::ArrayRef(currentGrid) == llvm::ArrayRef(inputOptimalGrid)) {
+        reblockedInputs.push_back(input);
+        continue;
+      }
+
+      auto viewTensorType = mlir::cast<RankedTensorType>(
+          utils::reblockShapedType(inputType, inputOptimalGrid));
+      builder.setInsertionPoint(compositeView);
+      auto view = builder.create<d2m::ViewLayoutOp>(compositeView.getLoc(),
+                                                    viewTensorType, input);
+      reblockedInputs.push_back(view.getResult());
+    }
+
+    auto outType =
+        mlir::cast<RankedTensorType>(compositeView.getResult().getType());
+    RankedTensorType newOutType =
+        tensorWithOptimalGrid(outType, config, info.grid, builder);
+
+    builder.setInsertionPoint(compositeView);
+    auto newCompositeView = builder.create<d2m::CompositeViewOp>(
+        compositeView.getLoc(), newOutType, reblockedInputs,
+        compositeView.getDim());
+
+    compositeView.getResult().replaceAllUsesWith(newCompositeView.getResult());
+    compositeView.erase();
   }
 }
 
@@ -1029,6 +1095,8 @@ static void assignGrids(d2m::GenericOp genericOp,
   updateTTNNTensors(analysis.ttnnTensors, config);
 
   updateEmptyOps(analysis.emptyOps, config);
+
+  updateCompositeViewOps(analysis.compositeViews, config);
 
   updateViewLayoutOps(analysis.viewLayouts, config);
 
