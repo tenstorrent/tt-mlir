@@ -161,7 +161,9 @@ enum EltwiseUnaryOpType: uint32 {
   Relu6,
   Silu,
   Hardsigmoid,
-  Mish
+  Mish,
+  Acos,
+  Asin
 }
 
 union EltwiseUnaryOpParams {
