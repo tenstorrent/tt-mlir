@@ -171,8 +171,6 @@ def run_ttir_pipeline(
 
     pipeline_options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
 
-    pipeline_options.append(f"mesh-topology=linear,ring")
-
     # Now, pass it through the pipeline. Module gets modified in place.
     pipeline_fn(module, " ".join(pipeline_options))
 

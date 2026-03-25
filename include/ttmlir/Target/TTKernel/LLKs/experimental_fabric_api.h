@@ -6,8 +6,6 @@
 #define TTMLIR_TARGET_TTKERNEL_LLKS_EXPERIMENTAL_FABRIC_API_H
 
 // #include "experimental_fabric_topology_info.h"
-#include "api/debug/dprint.h" // required in all kernels using DPRINT
-#include "tt_metal/tools/profiler/fabric_event_profiler.hpp"
 
 namespace experimental {
 
@@ -107,23 +105,17 @@ FORCE_INLINE uint32_t get_device_id_from_logical_mesh_position(
 
 FORCE_INLINE void
 setup_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
-  // DPRINT << "setup_fabric_connections" << ENDL();
   uint32_t num_topology_args =
       get_arg_val<uint32_t>(fabric_setup_args_start_idx);
   uint32_t num_fabric_connection_args =
       get_arg_val<uint32_t>(fabric_setup_args_start_idx + num_topology_args);
   uint32_t num_send_dir = get_arg_val<uint32_t>(fabric_setup_args_start_idx +
                                                 num_topology_args + 1);
-  // DPRINT << "num_topology_args: " << num_topology_args << ENDL();
-  // DPRINT << "num_fabric_connection_args: " << num_fabric_connection_args
-  //        << ENDL();
-  // DPRINT << "num_send_dir: " << num_send_dir << ENDL();
 
   if (!fabric_connection_manager.initialized) {
     // set up topology
     size_t topology_arg_idx = fabric_setup_args_start_idx + 1;
     fabric_connection_manager.topology_info.build_from_args(topology_arg_idx);
-    // DPRINT << "build_from_args done" << ENDL();
 
     // set up routing plane connection manager
     size_t fabric_connection_arg_idx =
@@ -139,23 +131,17 @@ setup_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
         PacketHeaderPool::allocate_header_n(num_send_dir);
     WAYPOINT("DA19");
     ASSERT(fabric_connection_manager.route_id != -1);
-    // DPRINT << "allocate_header_n done" << ENDL();
   }
   fabric_connection_manager.initialized = true;
-  // DPRINT << "setup_fabric_connections done" << ENDL();
 }
 
 // teardown fabric connections (packet header pool and topology don't need
 // teardown)
 FORCE_INLINE void
 close_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
-  // DPRINT << "close start" << ENDL();
-  WAYPOINT("ABC3");
   if (fabric_connection_manager.initialized) {
     fabric_connection_manager.fabric_connections.close();
   }
-  // DPRINT << "close done" << ENDL();
-  WAYPOINT("ABC4");
 }
 
 ////////////////// Routing Helper Functions (emitted separately)
@@ -228,8 +214,6 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
     FabricConnectionManager &fabric_connection_manager, uint16_t dst_mesh_id,
     uint16_t dst_dev_id_start, uint16_t dst_dev_id_end, uint64_t dest_addr,
     uint32_t src_addr, uint32_t len_bytes) {
-  WAYPOINT("ABC1");
-  DPRINT << "mcast write start" << ENDL();
   tt_l1_ptr routing_l1_info_t *routing_table =
       reinterpret_cast<tt_l1_ptr routing_l1_info_t *>(
           MEM_TENSIX_ROUTING_TABLE_BASE);
@@ -288,8 +272,6 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
                         len_bytes);
     }
   }
-  WAYPOINT("ABC2");
-  DPRINT << "mcast write done" << ENDL();
 }
 
 FORCE_INLINE void fabric_semaphore_increment_helper(
@@ -344,8 +326,6 @@ fabric_mcast_sem_inc(FabricConnectionManager &fabric_connection_manager,
                      uint16_t dst_mesh_id, uint16_t dst_dev_id_start,
                      uint16_t dst_dev_id_end, uint64_t dest_addr,
                      uint32_t incr) {
-  WAYPOINT("ABC1");
-  DPRINT << "mcast start" << ENDL();
   tt_l1_ptr routing_l1_info_t *routing_table =
       reinterpret_cast<tt_l1_ptr routing_l1_info_t *>(
           MEM_TENSIX_ROUTING_TABLE_BASE);
@@ -389,9 +369,6 @@ fabric_mcast_sem_inc(FabricConnectionManager &fabric_connection_manager,
                                         incr);
     }
   }
-
-  WAYPOINT("ABC2");
-  DPRINT << "mcast done" << ENDL();
 }
 
 } // namespace experimental
