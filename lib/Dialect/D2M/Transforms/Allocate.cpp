@@ -709,9 +709,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   template <typename OpTy>
   static bool operandChainContains(ArrayRef<ChainRoot> chainRoots) {
     return llvm::any_of(chainRoots, [](const ChainRoot &chainRoot) {
-      return llvm::any_of(chainRoot.defChain, [](Operation *op) {
-        return mlir::isa<OpTy>(op);
-      });
+      return llvm::any_of(chainRoot.defChain,
+                          [](Operation *op) { return mlir::isa<OpTy>(op); });
     });
   }
 
@@ -844,7 +843,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
       // Use the first root as the primary root for the OperandContext.
       operandCtx.primaryRoot = chainRoots.front().root;
-      operandCtx.hasStream = operandChainContains<d2m::StreamLayoutOp>(chainRoots);
+      operandCtx.hasStream =
+          operandChainContains<d2m::StreamLayoutOp>(chainRoots);
       operandCtx.hasViewLayout =
           operandChainContains<d2m::ViewLayoutOp>(chainRoots);
       MemRefType memrefType = chainRoots.front().type;
@@ -874,8 +874,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         Value operandValue = operandCtx.operand->get();
         // Generics in "explicit datamovement" form manage their own streams
         // and it is an error for the incoming IR not to have them.
-        TT_assertv((!genericCtx.isExplicitDatamovement ||
-                    operandCtx.hasStream),
+        TT_assertv((!genericCtx.isExplicitDatamovement || operandCtx.hasStream),
                    "[allow-l1-output-spilling: {}] {} operand '{}' of a "
                    "generic op in explicit datamovement form must have a "
                    "stream",
@@ -1566,7 +1565,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             auto preStreamIt =
                 preStreamOperandValues.find(operandCtx.operandIndex());
             if (preStreamIt != preStreamOperandValues.end()) {
-              operandReplaceMap[preStreamIt->second] = operandCtx.operand->get();
+              operandReplaceMap[preStreamIt->second] =
+                  operandCtx.operand->get();
               operandCBTypeMap[preStreamIt->second] = cbUnderlyingType;
             }
             for (const auto &[aliasValue, aliasOperandIndex] :
