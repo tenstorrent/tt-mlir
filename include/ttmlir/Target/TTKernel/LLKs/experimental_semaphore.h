@@ -5,8 +5,6 @@
 #ifndef TTMLIR_TARGET_TTKERNEL_LLKS_EXPERIMENTAL_SEMAPHORE_H
 #define TTMLIR_TARGET_TTKERNEL_LLKS_EXPERIMENTAL_SEMAPHORE_H
 
-#include "api/debug/dprint.h" // required in all kernels using DPRINT
-
 namespace experimental {
 
 FORCE_INLINE

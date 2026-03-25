@@ -500,8 +500,7 @@ public:
     // Create the variable
     auto var = rewriter.create<emitc::VariableOp>(
         loc, emitc::LValueType::get(type),
-        emitc::OpaqueAttr::get(rewriter.getContext(), "") // initializerListStr
-    );
+        emitc::OpaqueAttr::get(rewriter.getContext(), ""));
 
     // Initialize it via VerbatimOp
     std::string initStr = "{} = " + callee;
@@ -1189,8 +1188,7 @@ public:
     patterns.add<
         TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
         TTKernelToEmitCGetDeviceIdFromLogicalMeshPositionOpRewriter,
-        TTKernelToEmitCGetMyLogicalMeshPositionOpRewriter, // try to use
-                                                           // TTKernelToEmitCOpaqueRewriter???
+        TTKernelToEmitCGetMyLogicalMeshPositionOpRewriter,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,

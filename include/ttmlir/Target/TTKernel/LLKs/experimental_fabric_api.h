@@ -89,7 +89,6 @@ struct FabricConnectionManager {
   }
 };
 
-// TODO: store my mesh position directly in fcm?
 FORCE_INLINE uint32_t get_my_logical_mesh_position(
     FabricConnectionManager &fabric_connection_manager, size_t dim) {
   return fabric_connection_manager.get_topology().get_logical_mesh_position(
@@ -159,7 +158,6 @@ fabric_fast_write(WorkerToFabricEdmSender &connection,
   connection.wait_for_empty_write_slot();
   connection.send_payload_without_header_non_blocking_from_address(src_addr,
                                                                    len_bytes);
-  RECORD_FABRIC_HEADER(packet_header);
   connection.send_payload_flush_non_blocking_from_address(
       reinterpret_cast<uint32_t>(packet_header), sizeof(PACKET_HEADER_TYPE));
 

@@ -160,7 +160,6 @@ struct ConvertD2MToTTKernel
     // If there is any fabric related writes,
     // insert fabric connection manager ops and setup fabric connections at the
     // start of the function and close at the end.
-    // TODO: should this be a separate pass or pattern
     ModuleOp moduleOp = getOperation();
     moduleOp->walk([&](func::FuncOp func) {
       bool fabric_write_present = false;
