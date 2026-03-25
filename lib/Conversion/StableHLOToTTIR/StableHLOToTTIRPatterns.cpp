@@ -2439,16 +2439,9 @@ public:
           srcOp, "Invalid structure of reduce window block.");
     }
 
-    // Validate input shapes and ranks.
+    // Validate input ranks.
     RankedTensorType firstInputType =
         mlir::cast<RankedTensorType>(srcOp.getInputs()[0].getType());
-    for (Value input : srcOp.getInputs()) {
-      if (mlir::cast<RankedTensorType>(input.getType()).getShape() !=
-          firstInputType.getShape()) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "All inputs must have the same shape.");
-      }
-    }
     int64_t inputRank = firstInputType.getRank();
     if (inputRank > 5) {
       return rewriter.notifyMatchFailure(srcOp, "Invalid input tensor rank.");
@@ -2461,11 +2454,6 @@ public:
       return rewriter.notifyMatchFailure(
           srcOp, "Failed to extract constant init values.");
     }
-    if (initValues->size() != srcOp.getInputs().size()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Mismatch between inputs and init values.");
-    }
-
     // Validate block body.
     Block &block = srcOp.getBody().getBlocks().front();
     auto &operations = block.getOperations();
@@ -2488,41 +2476,22 @@ public:
     // Validate op attributes or assign default values if not provided.
 
     DenseI64ArrayAttr windowDimensions = adaptor.getWindowDimensionsAttr();
-    if (windowDimensions.size() != inputRank) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "Invalid pooling window dimensions.");
-    }
 
     DenseI64ArrayAttr windowStrides = adaptor.getWindowStridesAttr();
     if (!windowStrides) {
       windowStrides = rewriter.getDenseI64ArrayAttr(
           SmallVector<int64_t>(windowDimensions.size(), 1));
     }
-    if (windowStrides.size() != inputRank) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "Invalid pooling window strides.");
-    }
-
     DenseI64ArrayAttr windowDilations = adaptor.getWindowDilationsAttr();
     if (!windowDilations) {
       windowDilations = rewriter.getDenseI64ArrayAttr(
           SmallVector<int64_t>(windowDimensions.size(), 1));
     }
-    if (windowDilations.size() != inputRank) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "Invalid pooling window dilations.");
-    }
-
     DenseI64ArrayAttr baseDilations = adaptor.getBaseDilationsAttr();
     if (!baseDilations) {
       baseDilations = rewriter.getDenseI64ArrayAttr(
           SmallVector<int64_t>(windowDimensions.size(), 1));
     }
-    if (baseDilations.size() != inputRank) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "Invalid base dilations in pooling.");
-    }
-
     DenseI64ArrayAttr padding =
         adaptor.getPaddingAttr()
             ? rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(
@@ -2546,6 +2515,13 @@ public:
             rewriter.getI64IntegerAttr(*dimension));
         return success();
       }
+    }
+
+    // TTIR pooling ops do not support base dilations.
+    if (!llvm::all_of(baseDilations.asArrayRef(),
+                      [](int64_t d) { return d == 1; })) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Base dilations other than 1 are not supported.");
     }
 
     // Handle 5D input (3D pooling) by decomposing into two 2D pooling passes.
@@ -2818,6 +2794,18 @@ private:
       }
     }
 
+    // Non-spatial dimensions are folded into batch, so they must have trivial
+    // window attributes. Stride > 1 would subsample, padding would change the
+    // output size — neither is handled by the batch-folding reshapes.
+    for (size_t dim : nonSpatialDims) {
+      if (windowStrides[dim] != 1 || padding[dim * 2] != 0 ||
+          padding[dim * 2 + 1] != 0) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Non-spatial dimensions must have stride=1 and no padding "
+                   "for 5D decomposition.");
+      }
+    }
+
     // Canonical layout: [nonSpatial0, nonSpatial1, spatial0, spatial1,
     // spatial2] i.e. NCDHW where N,C are non-spatial and D,H,W are spatial.
     bool needsPermute =
@@ -3070,9 +3058,6 @@ private:
     }
     const auto &ops = blocks.front().getOperations();
     if (ops.size() < 2) {
-      return false;
-    }
-    if (srcOp.getInputs().size() != srcOp.getResults().size()) {
       return false;
     }
     return true;
