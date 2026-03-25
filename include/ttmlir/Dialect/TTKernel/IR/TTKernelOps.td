@@ -164,6 +164,21 @@ def TTKernel_PackReconfigL1AccOp : TTKernel_Op<"pack_reconfig_l1_acc"> {
     }];
 }
 
+def TTKernel_PackReconfigDataFormatOp : TTKernel_Op<"pack_reconfig_data_format"> {
+    let summary = "Reconfigure packer data format for the given output CB.";
+    let description = [{
+      Reconfigures the packer data format to match the output circular buffer.
+      Must be called before pack_reconfig_l1_acc to ensure format consistency
+      during L1 accumulation.
+    }];
+
+    let arguments = (ins TTKernel_CB:$out_cb);
+
+    let assemblyFormat = [{
+      `(` $out_cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_CopyTileInitOp : TTKernel_InitOp<"copy_tile_init"> {
     let summary = "Perform the init for copy tile. This does not reconfigure the unpacker data types.";
     let description = [{
