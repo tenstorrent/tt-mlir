@@ -121,7 +121,7 @@ def test_all_gather(
                 shard_dims=shard_dims,
             )
 
-    options = [
+    pipeline_options = [
         f"mesh-topology=linear,ring",
     ]
 
@@ -131,8 +131,6 @@ def test_all_gather(
         device=device,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        pipeline_options=pipeline_options,
         **get_request_kwargs(request),
-        print_ir=True,
-        save_artifacts=True,
     )
