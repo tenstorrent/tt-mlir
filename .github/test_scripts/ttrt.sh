@@ -15,7 +15,7 @@ echo "Running TTRT tests"
 TTRT_TEST_PATH=$(eval echo "$2")
 TTRT_TEST_PATH="${TTRT_TEST_PATH//n300-llmbox/llmbox}"
 if [ "$1" == "perf" ]; then
-  export METAL_HOME=$(ttrt --metal-home-path)
+  export TT_METAL_HOME=$(ttrt --metal-home-path)
   python -m tracy -r -v --output-folder prof -m ttrt run "$BUILD_DIR/test/ttmlir/$TTRT_TEST_PATH" "${@:3}"
 else
   ttrt "$1" "$BUILD_DIR/test/ttmlir/$TTRT_TEST_PATH" "${@:3}"

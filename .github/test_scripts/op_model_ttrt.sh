@@ -22,7 +22,7 @@ if [ "$IMAGE_NAME" = "speedy" ]; then
 fi
 echo "Running op-model ttrt test"
 if [ "$1" == "perf" ]; then
-    export METAL_HOME=$(ttrt --metal-home-path)
+    export TT_METAL_HOME=$(ttrt --metal-home-path)
     python -m tracy -r -v --output-folder prof -m ttrt run $BUILD_DIR/test/ttmlir/Silicon/TTNN/n150/optimizer
 else
     ttrt $1 $BUILD_DIR/test/ttmlir/Silicon/TTNN/n150/optimizer
