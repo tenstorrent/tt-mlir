@@ -4,7 +4,6 @@
 
 import os
 import ast
-import time
 import torch
 import numpy as np
 from functools import reduce
@@ -767,7 +766,6 @@ def execute_fb(
             program_index=program_index,
         )
 
-        start_submit = time.perf_counter_ns()
         try:
             runtime_outputs = tt_runtime.runtime.submit(
                 device,
@@ -780,10 +778,6 @@ def execute_fb(
             raise TTBuilderRuntimeException(e)
         finally:
             tt_runtime.runtime.unregister_hooks()
-        end_submit = time.perf_counter_ns()
-        e2e_duration_nanoseconds_submit = end_submit - start_submit
-
-        e2e_duration_nanoseconds_output = 0
 
         golden_outputs_torch = []
         outputs_torch = []
@@ -810,12 +804,9 @@ def execute_fb(
             outputs.append(new_output)
 
         for i, runtime_output_tensor in enumerate(runtime_outputs):
-            start_get_output = time.perf_counter_ns()
             output_host = tt_runtime.runtime.to_host(
                 runtime_output_tensor, untilize=True
             )
-            end_get_output = time.perf_counter_ns()
-            e2e_duration_nanoseconds_output += end_get_output - start_get_output
 
             if disable_golden:
                 continue
