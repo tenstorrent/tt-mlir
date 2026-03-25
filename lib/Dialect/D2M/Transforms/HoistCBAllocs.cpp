@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -107,6 +108,14 @@ private:
         Value memref = remoteStore.getMemref();
         for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
           if (genericOp->getOperand(i) == memref) {
+            return static_cast<int64_t>(i);
+          }
+        }
+      }
+      if (auto l1Copy = mlir::dyn_cast<d2m::L1CopyOp>(user)) {
+        Value src = l1Copy.getSrc();
+        for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
+          if (genericOp->getOperand(i) == src) {
             return static_cast<int64_t>(i);
           }
         }

@@ -11,12 +11,82 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/RegionUtils.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSPLITUNIFIEDTHREAD
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
+
+// Recursively erase dead operations from a block after thread splitting.
+// Standard type-based filtering only removes remote/DMA ops, leaving behind
+// orphaned CB management ops (wait, pop, get_cb, etc.) whose results are
+// unused. This function performs targeted DCE to clean them up.
+static void eraseDeadOpsAfterSplit(PatternRewriter &rewriter, Block *block) {
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    SmallVector<Operation *> toErase;
+
+    std::function<void(Block *)> collect = [&](Block *b) {
+      for (Operation &op : b->getOperations()) {
+        if (op.hasTrait<OpTrait::IsTerminator>()) {
+          continue;
+        }
+        if (auto forOp = dyn_cast<scf::ForOp>(&op)) {
+          collect(forOp.getBody());
+          continue;
+        }
+
+        // Pure ops (GetCBOp, CoreIndexOp, arith.constant,
+        // memref.collapse_shape, etc.) with no uses are trivially dead.
+        if (isOpTriviallyDead(&op)) {
+          toErase.push_back(&op);
+          changed = true;
+          continue;
+        }
+
+        // WaitOp, ReserveOp, and AcquireDstOp declare memory effects for
+        // the CB semaphore protocol, but are semantically dead when their
+        // results are unused in this thread. Ops like tile_tilize_block
+        // also have unused results but perform real in-place writes and
+        // must NOT be erased.
+        if (op.use_empty() && isa<WaitOp, ReserveOp, AcquireDstOp>(&op)) {
+          toErase.push_back(&op);
+          changed = true;
+          continue;
+        }
+
+        // Pop/push have no results, so standard DCE can't detect them as dead.
+        // Check if the CB they reference has any real users (wait, reserve,
+        // l1_copy, remote_load/store) — if not, the pop/push is orphaned.
+        Value cb;
+        if (auto popOp = dyn_cast<PopOp>(&op)) {
+          cb = popOp.getCb();
+        } else if (auto pushOp = dyn_cast<PushOp>(&op)) {
+          cb = pushOp.getCb();
+        }
+        if (cb) {
+          bool hasRealUsers =
+              llvm::any_of(cb.getUsers(), [&op](Operation *user) {
+                return user != &op && !isa<PopOp, PushOp>(user);
+              });
+          if (!hasRealUsers) {
+            toErase.push_back(&op);
+            changed = true;
+          }
+        }
+      }
+    };
+
+    collect(block);
+
+    for (Operation *op : llvm::reverse(toErase)) {
+      rewriter.eraseOp(op);
+    }
+  }
+}
 
 class D2MSplitUnifiedThreadRewriter : public OpRewritePattern<GenericOp> {
 public:
@@ -121,7 +191,7 @@ public:
               continue;
             }
 
-            bool isRemoteOp = isa<RemoteLoadOp, RemoteStoreOp>(opPtr);
+            bool isRemoteOp = isa<RemoteLoadOp, RemoteStoreOp, L1CopyOp>(opPtr);
             // Semaphore waits are replicated: preserved in both threads.
             bool isReplicatedOp = isa<SemaphoreWaitOp>(opPtr);
             if (keepRemoteOps) {
@@ -180,6 +250,11 @@ public:
     // Filter operations in compute region: remove RemoteLoadOp and
     // RemoteStoreOp (preserve loops and terminators)
     eraseOpsIteratively(computeBlock, /*keepRemoteOps=*/false);
+
+    // Clean up orphaned CB ops (dead waits, pops, get_cbs) left behind
+    // after type-based filtering removed their consumers.
+    eraseDeadOpsAfterSplit(rewriter, datamovementBlock);
+    eraseDeadOpsAfterSplit(rewriter, computeBlock);
 
     rewriter.replaceOp(generic, newGeneric.getResults());
 

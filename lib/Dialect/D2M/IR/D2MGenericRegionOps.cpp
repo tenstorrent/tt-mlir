@@ -129,12 +129,11 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 ::mlir::LogicalResult DMAReadOp::verify() {
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
   ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
-  auto isRemote = [&](auto operand) {
-    return ttcore::hasDeviceLayout(operand);
+  auto isLocal = [](Value operand) {
+    return !ttcore::hasDeviceLayout(operand);
   };
-  auto isLocal = [&](auto operand) { return !isRemote(operand); };
-  if (!(isRemote(getSrc()) && isLocal(getDst()))) {
-    return emitOpError("For DMARead, src must be remote and dst must be local");
+  if (!isLocal(getDst())) {
+    return emitOpError("For DMARead, dst must be local");
   }
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError("Operands to DMARead must have the same element type");
@@ -150,14 +149,63 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
   } else {
     constexpr int64_t kExpectedIndicesRemote = 3;
     constexpr int64_t kExpectedIndicesLocal = 1;
-    if (numSrcIndices != kExpectedIndicesRemote) {
-      return emitOpError("Must have 3 src indices for remote src operand");
+    if (isSrcLocal()) {
+      if (numSrcIndices != kExpectedIndicesLocal) {
+        return emitOpError("Must have 1 src index for local src operand");
+      }
+    } else {
+      if (numSrcIndices != kExpectedIndicesRemote) {
+        return emitOpError("Must have 3 src indices for remote src operand");
+      }
     }
     if (numDstIndices != kExpectedIndicesLocal) {
       return emitOpError("Must have 1 dst index for local dst operand");
     }
   }
   return success();
+}
+
+::mlir::LogicalResult L1CopyOp::verify() {
+  auto isLocal = [](Value operand) {
+    return !ttcore::hasDeviceLayout(operand);
+  };
+  if (!isLocal(getSrc())) {
+    return emitOpError("L1CopyOp src must be a local memref");
+  }
+  bool hasDst = static_cast<bool>(getDst());
+  bool hasCb = static_cast<bool>(getCb());
+  if (hasDst == hasCb) {
+    return emitOpError(
+        "L1CopyOp must have exactly one of dst or cb (not both, not neither)");
+  }
+  if (hasDst && !isLocal(getDst())) {
+    return emitOpError("L1CopyOp dst must be a local memref");
+  }
+  ArrayRef<Attribute> maps = getIndexingMaps().getValue();
+  if (maps.size() != 2) {
+    return emitOpError("L1CopyOp requires exactly 2 indexing maps");
+  }
+  MemRefType dstType = getDstMemRefType();
+  int64_t dstRank = dstType.getRank();
+  for (auto [idx, mapAttr] : llvm::enumerate(maps)) {
+    auto affineMap = mlir::cast<AffineMapAttr>(mapAttr).getValue();
+    if (static_cast<int64_t>(affineMap.getNumDims()) != dstRank) {
+      return emitOpError("indexing map #")
+             << idx << " has " << affineMap.getNumDims()
+             << " dims but dst rank is " << dstRank;
+    }
+  }
+  return success();
+}
+
+void L1CopyOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       mlir::SideEffects::DefaultResource::get());
 }
 
 void DMAReadOp::getAsmResultNames(

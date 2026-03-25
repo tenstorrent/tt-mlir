@@ -296,6 +296,32 @@ public:
   }
 };
 
+class D2MLowerL1CopyRewritePattern : public OpRewritePattern<L1CopyOp> {
+public:
+  using OpRewritePattern<L1CopyOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(L1CopyOp l1Copy,
+                                PatternRewriter &rewriter) const final {
+    if (!l1Copy.isExplicitCBForm()) {
+      return rewriter.notifyMatchFailure(l1Copy,
+                                         "l1_copy is not in explicit CB form");
+    }
+
+    Location loc = l1Copy.getLoc();
+    Value cb = l1Copy.getCb();
+
+    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
+
+    rewriter.create<L1CopyOp>(loc, l1Copy.getSrc(), localMemref,
+                              /*cb=*/Value{}, l1Copy.getIndexingMaps());
+
+    rewriter.eraseOp(l1Copy);
+
+    rewriter.create<PushOp>(loc, cb);
+    return success();
+  }
+};
+
 class D2MLowerLoadStoreOpsToDMA
     : public impl::D2MLowerLoadStoreOpsToDMABase<D2MLowerLoadStoreOpsToDMA> {
 public:
@@ -306,6 +332,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MLowerRemoteLoadRewritePattern>(&getContext());
     patterns.add<D2MLowerRemoteStoreRewritePattern>(&getContext());
+    patterns.add<D2MLowerL1CopyRewritePattern>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

@@ -13,6 +13,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/RegionUtils.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSCHEDULEDMA
@@ -33,13 +34,30 @@ struct DMAThreadAssignment {
   int32_t nocIndex = -1;
 };
 
-// Get the CB port number from a remote_load or remote_store operation.
+// Get the CB port number from a remote_load, remote_store, or l1_copy
+// operation.
 static unsigned getCBPort(Operation *dmaOp) {
   if (auto load = mlir::dyn_cast<RemoteLoadOp>(dmaOp)) {
     return load.getCBPort();
   }
   if (auto store = mlir::dyn_cast<RemoteStoreOp>(dmaOp)) {
     return store.getCBPort();
+  }
+  if (auto l1Copy = mlir::dyn_cast<L1CopyOp>(dmaOp)) {
+    if (l1Copy.isExplicitCBForm()) {
+      return l1Copy.getCBPort();
+    }
+    Value dst = l1Copy.getDst();
+    if (auto reserveOp = dst.getDefiningOp<ReserveOp>()) {
+      if (auto getCBOp = reserveOp.getCb().getDefiningOp<GetCBOp>()) {
+        return getCBOp.getPort();
+      }
+    }
+    if (auto waitOp = dst.getDefiningOp<WaitOp>()) {
+      if (auto getCBOp = waitOp.getCb().getDefiningOp<GetCBOp>()) {
+        return getCBOp.getPort();
+      }
+    }
   }
   llvm_unreachable("getCBPort called on non-DMA op");
 }
@@ -55,7 +73,7 @@ collectDMAOps(Block *block,
       continue;
     }
 
-    if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(&op)) {
+    if (mlir::isa<RemoteLoadOp, RemoteStoreOp, L1CopyOp>(&op)) {
       dmaOps.push_back({&op, getCBPort(&op)});
     }
   }
@@ -160,7 +178,7 @@ assignCBsToThreads(const DenseMap<unsigned, size_t> &cbWorkloads,
 // Returns true if the operation uses a CB assigned to this thread.
 static bool shouldKeepOpForThread(Operation *op,
                                   const DenseSet<unsigned> &assignedCBs) {
-  if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(op)) {
+  if (mlir::isa<RemoteLoadOp, RemoteStoreOp, L1CopyOp>(op)) {
     return assignedCBs.contains(getCBPort(op));
   }
   return false;
@@ -187,7 +205,7 @@ static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
       }
 
       // Check if this is a DMA op.
-      if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(&op)) {
+      if (mlir::isa<RemoteLoadOp, RemoteStoreOp, L1CopyOp>(&op)) {
         if (!shouldKeepOpForThread(&op, assignedCBs)) {
           if (op.use_empty()) {
             toErase.push_back(&op);
@@ -196,6 +214,65 @@ static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
         }
       }
     }
+
+    for (Operation *op : llvm::reverse(toErase)) {
+      rewriter.eraseOp(op);
+    }
+  }
+}
+
+// Recursively erase dead operations from a block after DMA scheduling.
+// After filtering DMA ops by thread assignment, non-DMA ops like d2m.wait,
+// d2m.pop, and d2m.get_cb may become orphaned. This performs targeted DCE
+// to clean them up.
+static void eraseDeadOpsAfterSplit(PatternRewriter &rewriter, Block *block) {
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    SmallVector<Operation *> toErase;
+
+    std::function<void(Block *)> collect = [&](Block *b) {
+      for (Operation &op : b->getOperations()) {
+        if (op.hasTrait<OpTrait::IsTerminator>()) {
+          continue;
+        }
+        if (auto forOp = dyn_cast<scf::ForOp>(&op)) {
+          collect(forOp.getBody());
+          continue;
+        }
+
+        if (isOpTriviallyDead(&op)) {
+          toErase.push_back(&op);
+          changed = true;
+          continue;
+        }
+
+        if (op.use_empty() && isa<WaitOp, ReserveOp, AcquireDstOp>(&op)) {
+          toErase.push_back(&op);
+          changed = true;
+          continue;
+        }
+
+        Value cb;
+        if (auto popOp = dyn_cast<PopOp>(&op)) {
+          cb = popOp.getCb();
+        } else if (auto pushOp = dyn_cast<PushOp>(&op)) {
+          cb = pushOp.getCb();
+        }
+        if (cb) {
+          bool hasRealUsers =
+              llvm::any_of(cb.getUsers(), [&op](Operation *user) {
+                return user != &op && !isa<PopOp, PushOp>(user);
+              });
+          if (!hasRealUsers) {
+            toErase.push_back(&op);
+            changed = true;
+          }
+        }
+      }
+    };
+
+    collect(block);
 
     for (Operation *op : llvm::reverse(toErase)) {
       rewriter.eraseOp(op);
@@ -318,6 +395,9 @@ public:
 
       // Filter to keep only DMA ops for this thread's assigned CBs.
       filterOpsForThread(rewriter, newDMBlock, assignments[i].assignedCBs);
+
+      // Clean up orphaned CB ops left behind after DMA filtering.
+      eraseDeadOpsAfterSplit(rewriter, newDMBlock);
     }
 
     // Clone the compute region to the new generic (not move, to preserve SSA).

@@ -904,12 +904,12 @@ public:
     }
 
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
-    Value assocCB = lookThroughSubView(loadOrStore.getMemRef());
+    // Value assocCB = lookThroughSubView(loadOrStore.getMemRef());
 
     SmallVector<Value> guardIVs;
-    if (assocCB) {
-      guardIVs = getGuardLoopIVs(loadOrStore, outermostInnerComputeLoop);
-    }
+    // if (assocCB) {
+    guardIVs = getGuardLoopIVs(loadOrStore, outermostInnerComputeLoop);
+    // }
 
     iter->second.record(loadOrStore, dstSlice, guardIVs);
   }
@@ -927,12 +927,12 @@ public:
     }
 
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
-    Value assocCB = lookThroughSubView(loadOp.getMemRef());
+    // Value assocCB = lookThroughSubView(loadOp.getMemRef());
 
     SmallVector<Value> guardIVs;
-    if (assocCB) {
-      guardIVs = getGuardLoopIVs(loadOp, outermostInnerComputeLoop);
-    }
+    // if (assocCB) {
+    guardIVs = getGuardLoopIVs(loadOp, outermostInnerComputeLoop);
+    // }
 
     iter->second.record(loadOp, bcastOp, dstSlice, guardIVs);
   }

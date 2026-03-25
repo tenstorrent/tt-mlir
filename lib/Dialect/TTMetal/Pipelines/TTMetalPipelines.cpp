@@ -124,15 +124,15 @@ void createTTIRToTTMetalFrontendPipeline(
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
-  {
-    elementwiseFusionOptions.maxDstPhysicalSizeTiles =
-        options.maxDstPhysicalSizeTiles;
-  }
-  pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
-  pm.addPass(createLinalgElementwiseOpFusionPass());
-  pm.addPass(mlir::createCanonicalizerPass());
-  createTTIRBufferizationPipeline(pm, options);
+  // d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
+  // {
+  //   elementwiseFusionOptions.maxDstPhysicalSizeTiles =
+  //       options.maxDstPhysicalSizeTiles;
+  // }
+  // pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
+  // pm.addPass(createLinalgElementwiseOpFusionPass());
+  // pm.addPass(mlir::createCanonicalizerPass());
+  // createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MAddScratchInputs());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
@@ -284,7 +284,7 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
-  createTTIRToTTMetalFrontendPipeline(devicePm, options);
+  // createTTIRToTTMetalFrontendPipeline(devicePm, options);
   createTTIRToTTMetalMiddleendPipeline(devicePm, options);
   createTTIRToTTMetalBackendPipeline(devicePm, options);
 

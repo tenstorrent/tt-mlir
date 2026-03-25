@@ -52,7 +52,8 @@ ALWI void tilize_block(uint32_t icb, uint32_t ocb, uint32_t block_r,
           (llk_math_eltwise_unary_datacopy<A2D, DST_ACCUM_MODE,
                                            BroadcastType::NONE, UnpackToDestEn>(
               0 /*dst index*/)));
-      PACK((llk_pack<false, false>(0 /*tile index*/, ocb)));
+      PACK((llk_pack<DST_ACCUM_MODE, true, false>(0 /*tile index*/, ocb,
+                                                  i * block_c + t)));
 
       // Release dest
       MATH((llk_math_dest_section_done<DST_ACCUM_MODE>()));

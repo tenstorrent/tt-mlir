@@ -1021,16 +1021,25 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
 
     let summary = "Lowered D2M DMA Read Op.";
     let description = [{
-      This op performs a DMA read operation from src memref to dst memref. The dst memref must be local!
+      This op performs a DMA read operation from src memref to dst memref.
+      The dst memref must be local. The src memref can be either remote or local.
 
       It supports two forms distinguished by numElems:
       Fully indexed form (numElems > 0): src and dst indices are fully
       resolved (all view and memspace-specific affine maps applied). Corresponds
       1:1 to a single concrete DMA read operation.
 
+      Remote-to-local form:
       ```mlir
       %tx = d2m.dma_read %src[%gridy, %gridx, %offset], %dst[%offset], <8>
         : (memref<2x2x2x4x!ttcore.tile<32x32, f32>, #dram>,
+           memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+      ```
+
+      Local-to-local form (L1 copy):
+      ```mlir
+      %tx = d2m.dma_read %src[%offset], %dst[%offset], <8>
+        : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>,
            memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
       ```
 
@@ -1048,7 +1057,6 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
       This operation only supports unicast (multicast are write-only).
 
       Constraints:
-      - src MUST be a REMOTE memref! if both operands are local, use DMAWriteOp
       - dst MUST be a LOCAL memref!
       - src and dst must have the same element type.
     }];
@@ -1081,8 +1089,100 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
           ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
         return getNumElems() * elementSizeBytes;
       }
+      bool isSrcLocal() { return !isSrcRemote(); }
+      bool isSrcRemote() { return ::mlir::tt::ttcore::hasDeviceLayout(getSrc()); }
       ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
         return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
+      }
+    }];
+}
+
+def D2M_L1CopyOp : D2M_GenericRegionDatamovementOp<"l1_copy",
+  [ AttrSizedOperandSegments
+  , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+
+    let summary = "Local L1-to-L1 copy with affine map indexing.";
+    let description = [{
+      Copies data between two local L1 memrefs using affine maps
+      to describe the source/destination indexing relationship.
+      Iteration bounds are inferred from the destination memref shape.
+      Both operands must be local L1 memrefs.
+
+      The operation has two forms:
+
+      Implicit form (with dst memref, no CB):
+      ```mlir
+      d2m.l1_copy %src, %dst indexing_maps = [#src_map, #dst_map]
+        : memref<...>, memref<...>
+      ```
+
+      Explicit CB form (with CB, no dst):
+      ```mlir
+      d2m.l1_copy %src into %cb indexing_maps = [#src_map, #dst_map]
+        : memref<...> into !d2m.cb<memref<...>>
+      ```
+
+      In explicit CB form, the destination is the circular buffer. The CB
+      semantics (reserve/push) are handled by later passes.
+    }];
+
+    let arguments = (ins
+      AnyRankedTensorOrMemRef:$src,
+      Optional<AnyRankedTensorOrMemRef>:$dst,
+      Optional<D2M_CB>:$cb,
+      AffineMapArrayAttr:$indexing_maps
+    );
+
+    let builders = [
+      // Explicit CB form: l1_copy %src into %cb indexing_maps = [...]
+      OpBuilder<(ins "Value":$src, "Value":$cb, "ArrayAttr":$indexingMaps), [{
+        build($_builder, $_state, src, /*dst=*/Value{}, cb, indexingMaps);
+      }]>
+    ];
+
+    let assemblyFormat = [{
+      $src (`,` $dst^)? (`into` $cb^)?
+      `indexing_maps` `=` $indexing_maps
+      attr-dict `:` type($src) (`,` type($dst)^)? (`into` type($cb)^)?
+    }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      /// Returns true if in explicit CB form (has CB, no dst).
+      bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
+
+      /// Returns true if in implicit form (has dst, no CB).
+      bool isImplicitForm() { return static_cast<bool>(getDst()); }
+
+      /// Returns the CB type, or null if CB is not present.
+      CBType getCbType() {
+        Value cb = getCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
+      }
+
+      /// Returns the CB port. Requires explicit CB form.
+      unsigned getCBPort() {
+        assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
+        auto getCBOp = getCb().getDefiningOp<GetCBOp>();
+        assert(getCBOp && "CB operand must be defined by a GetCBOp");
+        return getCBOp.getPort();
+      }
+
+      /// Returns the source memref type.
+      MemRefType getSrcMemRefType() {
+        return mlir::cast<MemRefType>(getSrc().getType());
+      }
+
+      /// Returns the destination memref type from dst or CB underlying type.
+      MemRefType getDstMemRefType() {
+        if (getDst())
+          return mlir::cast<MemRefType>(getDst().getType());
+        if (getCb())
+          return getCbType().template getUnderlyingAs<MemRefType>();
+        llvm_unreachable("L1CopyOp has neither dst nor cb");
       }
     }];
 }

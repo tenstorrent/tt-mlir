@@ -196,62 +196,37 @@ static size_t calculateCoalescingFactorWithFallback(
   return coalescingFactor;
 }
 
-// Callback type for creating a single fully-indexed DMA op. Used by
-// generateFullyIndexedDMAOps to abstract over DMAReadOp vs DMAWriteOp creation.
-using CreateDMAOpFn = llvm::function_ref<Value(
-    OpBuilder &builder, Location loc, SmallVector<Value> &remoteIndices,
-    SmallVector<Value> &localIndices, size_t coalescingFactor)>;
+// Callback that receives the current loop iteration indices and must emit a
+// single DMA operation, returning its transaction Value.
+using EmitDMAForIterFn =
+    llvm::function_ref<Value(OpBuilder &builder, Location loc, ValueRange iters,
+                             size_t coalescingFactor, Value prevTx)>;
 
-// Generate fully-indexed DMA operations with proper coalescing.
-// Returns the last DMA transaction value (for waiting).
-// Handles both contiguous (single DMA) and strided (loop with guarded DMAs)
-// cases.
-static Value generateFullyIndexedDMAOps(
-    OpBuilder &builder, Location loc, SmallVector<Value> gridIndices,
-    ArrayRef<int64_t> shardShape, AffineMap remoteMemoryMap,
-    AffineMap localMemoryMap, size_t coalescingFactor, size_t shardVolume,
-    CreateDMAOpFn createDMAOp) {
+// Core loop generation with coalescing guard.  Handles both the fully
+// contiguous case (single call at zero indices) and the strided case
+// (nested scf.for loops with an `if (flat_index % CF == 0)` guard).
+// The caller supplies `emitDMA` which builds the actual DMA op for a
+// given set of iteration indices.
+static Value generateDMAWithCoalescing(OpBuilder &builder, Location loc,
+                                       ArrayRef<int64_t> iterShape,
+                                       size_t coalescingFactor,
+                                       EmitDMAForIterFn emitDMA) {
+  size_t volume = ttmlir::utils::volume(iterShape);
 
-  if (coalescingFactor == shardVolume) {
-    // Fully contiguous: single DMA operation.
-    SmallVector<Value> remoteIndices = gridIndices;
-    SmallVector<Value> localIndices;
-
+  if (coalescingFactor == volume) {
     Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
                                                    builder.getIndexAttr(0));
-    for (size_t i = 0; i < shardShape.size(); ++i) {
-      remoteIndices.push_back(zero);
-      localIndices.push_back(zero);
-    }
-
-    remoteIndices =
-        applyMap(builder, loc, remoteMemoryMap, remoteIndices, true);
-    localIndices = applyMap(builder, loc, localMemoryMap, localIndices, false);
-
-    return createDMAOp(builder, loc, remoteIndices, localIndices,
-                       coalescingFactor);
+    SmallVector<Value> zeros(iterShape.size(), zero);
+    return emitDMA(builder, loc, zeros, coalescingFactor, Value());
   }
 
-  // Strided/non-contiguous: generate loops with guarded DMAs.
-  auto [lbs, ubs, steps] = getLoopBounds(builder, loc, shardShape);
+  auto [lbs, ubs, steps] = getLoopBounds(builder, loc, iterShape);
   auto nullDmaTx = builder.create<NullTxOp>(loc);
 
   scf::LoopNest loopNest = scf::buildLoopNest(
       builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
       [&](OpBuilder &loopBuilder, Location innerLoc, ValueRange iters,
           ValueRange args) {
-        // Build full indices: grid indices + shard iteration indices.
-        SmallVector<Value> remoteIndices =
-            llvm::to_vector(llvm::concat<Value>(gridIndices, iters));
-        SmallVector<Value> localIndices = llvm::to_vector(iters);
-
-        // Apply memory maps.
-        remoteIndices = applyMap(loopBuilder, innerLoc, remoteMemoryMap,
-                                 remoteIndices, true);
-        localIndices = applyMap(loopBuilder, innerLoc, localMemoryMap,
-                                localIndices, false);
-
-        // Create guarded DMA operation based on coalescing factor.
         Value cfExpr = loopBuilder.create<arith::ConstantOp>(
             innerLoc, loopBuilder.getIndexType(),
             loopBuilder.getIndexAttr(coalescingFactor));
@@ -259,7 +234,7 @@ static Value generateFullyIndexedDMAOps(
             innerLoc, loopBuilder.getIndexType(),
             loopBuilder.getIntegerAttr(loopBuilder.getIndexType(), 0));
 
-        // Construct guard function: flat_index(iters) % coalescingFactor == 0
+        // flat_index(iters) % coalescingFactor == 0
         auto totalIterCount = zero;
         size_t currStride = 1;
         for (int i = iters.size() - 1; i >= 0; i--) {
@@ -274,7 +249,7 @@ static Value generateFullyIndexedDMAOps(
               loopBuilder
                   .create<arith::AddIOp>(innerLoc, scaledCount, totalIterCount)
                   .getResult();
-          currStride *= shardShape[i];
+          currStride *= iterShape[i];
         }
         auto moduloIterCount =
             loopBuilder.create<arith::RemSIOp>(innerLoc, totalIterCount, cfExpr)
@@ -284,14 +259,13 @@ static Value generateFullyIndexedDMAOps(
 
         auto nulltx = loopBuilder.create<NullTxOp>(innerLoc);
 
-        // Build guarded DMA.
         auto ifExpr = loopBuilder.create<scf::IfOp>(
             innerLoc, TypeRange(SmallVector<Value>{nulltx}), predicate,
             true /*addThenBlock*/, true /*addElseBlock*/);
 
         auto thenBuilder = ifExpr.getThenBodyBuilder();
-        Value dmaTx = createDMAOp(thenBuilder, innerLoc, remoteIndices,
-                                  localIndices, coalescingFactor);
+        Value dmaTx =
+            emitDMA(thenBuilder, innerLoc, iters, coalescingFactor, args[0]);
         thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
 
         auto elseBuilder = ifExpr.getElseBodyBuilder();
@@ -301,6 +275,37 @@ static Value generateFullyIndexedDMAOps(
       });
 
   return loopNest.results.front();
+}
+
+// Callback type for creating a single fully-indexed DMA op. Used by
+// generateFullyIndexedDMAOps to abstract over DMAReadOp vs DMAWriteOp creation.
+using CreateDMAOpFn = llvm::function_ref<Value(
+    OpBuilder &builder, Location loc, SmallVector<Value> &remoteIndices,
+    SmallVector<Value> &localIndices, size_t coalescingFactor)>;
+
+// Generate fully-indexed DMA operations with proper coalescing for
+// remote-to-local and local-to-remote transfers.  Wraps
+// generateDMAWithCoalescing by prepending grid indices and applying memory maps
+// before calling the DMA creation callback.
+static Value generateFullyIndexedDMAOps(
+    OpBuilder &builder, Location loc, SmallVector<Value> gridIndices,
+    ArrayRef<int64_t> shardShape, AffineMap remoteMemoryMap,
+    AffineMap localMemoryMap, size_t coalescingFactor, size_t shardVolume,
+    CreateDMAOpFn createDMAOp) {
+
+  return generateDMAWithCoalescing(
+      builder, loc, shardShape, coalescingFactor,
+      [&](OpBuilder &b, Location l, ValueRange iters, size_t cf,
+          Value /*prevTx*/) -> Value {
+        SmallVector<Value> remoteIndices =
+            llvm::to_vector(llvm::concat<Value>(gridIndices, iters));
+        SmallVector<Value> localIndices = llvm::to_vector(iters);
+
+        remoteIndices = applyMap(b, l, remoteMemoryMap, remoteIndices, true);
+        localIndices = applyMap(b, l, localMemoryMap, localIndices, false);
+
+        return createDMAOp(b, l, remoteIndices, localIndices, cf);
+      });
 }
 
 namespace {
@@ -452,6 +457,120 @@ public:
   }
 };
 
+class D2MLowerL1CopyToFullyIndexed : public OpRewritePattern<L1CopyOp> {
+public:
+  D2MLowerL1CopyToFullyIndexed(MLIRContext *context)
+      : OpRewritePattern<L1CopyOp>(context) {}
+
+  LogicalResult matchAndRewrite(L1CopyOp op,
+                                PatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    Value src = op.getSrc();
+    Value dst = op.getDst();
+
+    MemRefType srcType;
+    if (auto cbType = mlir::dyn_cast<CBType>(src.getType())) {
+      srcType = cbType.getUnderlyingAs<MemRefType>();
+    } else {
+      srcType = mlir::cast<MemRefType>(src.getType());
+    }
+    MemRefType dstType;
+    if (auto cbType = mlir::dyn_cast<CBType>(dst.getType())) {
+      dstType = cbType.getUnderlyingAs<MemRefType>();
+    } else {
+      dstType = mlir::cast<MemRefType>(dst.getType());
+    }
+
+    ArrayRef<int64_t> dstShape = dstType.getShape();
+    size_t elemSizeBytes = getElementSizeBytes(srcType);
+
+    ArrayRef<Attribute> maps = op.getIndexingMaps().getValue();
+    AffineMap srcIndexingMap = mlir::cast<AffineMapAttr>(maps[0]).getValue();
+    AffineMap dstIndexingMap = mlir::cast<AffineMapAttr>(maps[1]).getValue();
+
+    MLIRContext *ctx = rewriter.getContext();
+    AffineMap srcMemoryMap = canonicalStridedMap(
+        ctx, srcType.getShape(), srcType.getElementType(),
+        AffineMap::getMultiDimIdentityMap(srcType.getRank(), ctx));
+    AffineMap dstMemoryMap = canonicalStridedMap(
+        ctx, dstType.getShape(), dstType.getElementType(),
+        AffineMap::getMultiDimIdentityMap(dstType.getRank(), ctx));
+
+    AffineMap composedSrcMap = srcMemoryMap.compose(srcIndexingMap);
+    AffineMap composedDstMap = dstMemoryMap.compose(dstIndexingMap);
+
+    // calculateCoalescingFactor requires at least one grid dim for its
+    // sampling loop.  L1Copy is local-only (no grid in the map), so we
+    // prepend a single dummy grid dim of size 1 and shift the existing
+    // map dimensions by one.
+    unsigned dstRank = dstType.getRank();
+    SmallVector<AffineExpr> dimShift;
+    for (unsigned i = 0; i < dstRank; ++i) {
+      dimShift.push_back(getAffineDimExpr(i + 1, ctx));
+    }
+    AffineMap paddedSrcMap =
+        composedSrcMap.replaceDimsAndSymbols(dimShift, {}, dstRank + 1, 0);
+    SmallVector<int64_t> fullShape = {1};
+    fullShape.append(dstShape.begin(), dstShape.end());
+    size_t coalescingFactor = ttmlir::utils::calculateCoalescingFactor(
+        paddedSrcMap, fullShape, static_cast<int64_t>(elemSizeBytes),
+        /*numGridDims=*/1);
+
+    // Find enclosing blocking loop (scf.for or affine.for with
+    // d2m.blocking_loop attribute).
+    Value blockIV;
+    int64_t blockingDim = -1;
+    for (Operation *parent = op->getParentOp(); parent;
+         parent = parent->getParentOp()) {
+      if (auto forOp = dyn_cast<scf::ForOp>(parent)) {
+        if (auto attr =
+                forOp->getAttrOfType<IntegerAttr>("d2m.blocking_loop")) {
+          blockIV = forOp.getInductionVar();
+          blockingDim = attr.getInt();
+          break;
+        }
+      }
+      if (auto forOp = dyn_cast<affine::AffineForOp>(parent)) {
+        if (auto attr =
+                forOp->getAttrOfType<IntegerAttr>("d2m.blocking_loop")) {
+          blockIV = forOp.getInductionVar();
+          blockingDim = attr.getInt();
+          break;
+        }
+      }
+    }
+
+    Value newTx = generateDMAWithCoalescing(
+        rewriter, loc, dstShape, coalescingFactor,
+        [&](OpBuilder &b, Location l, ValueRange iters, size_t cf,
+            Value /*prevTx*/) -> Value {
+          // Source indices need blocking adjustment for global indexing.
+          SmallVector<Value> srcEvalIters(iters.begin(), iters.end());
+          if (blockIV && blockingDim >= 0) {
+            Value blockSize = b.create<arith::ConstantOp>(
+                l, b.getIndexType(), b.getIndexAttr(dstShape[blockingDim]));
+            Value offset = b.create<arith::MulIOp>(l, blockIV, blockSize);
+            srcEvalIters[blockingDim] =
+                b.create<arith::AddIOp>(l, offset, iters[blockingDim]);
+          }
+
+          SmallVector<Value> srcIndices =
+              applyMap(b, l, composedSrcMap, srcEvalIters, false);
+          SmallVector<Value> dstIndices =
+              applyMap(b, l, composedDstMap, iters, false);
+
+          return b
+              .create<DMAReadOp>(l, src, srcIndices, dst, dstIndices,
+                                 b.getI64IntegerAttr(cf))
+              .getResult();
+        });
+
+    rewriter.create<DMAWaitOp>(loc, newTx);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 class D2MLowerDMAToFullyIndexedForm
     : public impl::D2MLowerDMAToFullyIndexedFormBase<
           D2MLowerDMAToFullyIndexedForm> {
@@ -465,6 +584,7 @@ public:
                                                 debugCoalescingInference);
     patterns.add<D2MLowerDMAWriteToFullyIndexed>(&getContext(),
                                                  debugCoalescingInference);
+    patterns.add<D2MLowerL1CopyToFullyIndexed>(&getContext());
     populateAffineToStdConversionPatterns(patterns);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

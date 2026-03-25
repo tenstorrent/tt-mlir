@@ -12,6 +12,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -302,6 +303,104 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     }
   }
 
+  // Transform L1CopyOp (implicit form -> explicit CB form).
+  // The l1_copy destination may be a memref.alloc (pre-CB) or a
+  // d2m.reserve result (if ConvertLocalLoadStoreOpsToAliasedCBs already
+  // created a CB for the alloc).  Both cases are handled.
+  SmallVector<L1CopyOp> l1CopiesToConvert;
+  moduleOp->walk([&](L1CopyOp l1Copy) {
+    if (!l1Copy.isImplicitForm()) {
+      return;
+    }
+    l1CopiesToConvert.push_back(l1Copy);
+  });
+
+  for (L1CopyOp l1Copy : l1CopiesToConvert) {
+    Location loc = l1Copy.getLoc();
+
+    GenericOp generic = l1Copy->getParentOfType<GenericOp>();
+    if (!generic) {
+      l1Copy.emitWarning(
+          "l1_copy not inside a d2m.generic, skipping conversion");
+      continue;
+    }
+
+    Value dst = l1Copy.getDst();
+    Value cb;
+
+    if (auto reserveOp =
+            mlir::dyn_cast_if_present<ReserveOp>(dst.getDefiningOp())) {
+      cb = reserveOp.getCb();
+
+      rewriter.setInsertionPoint(l1Copy);
+      rewriter.create<L1CopyOp>(loc, l1Copy.getSrc(), cb,
+                                l1Copy.getIndexingMaps());
+      auto waitOp = rewriter.create<WaitOp>(loc, cb);
+
+      rewriter.replaceAllUsesWith(reserveOp.getResult(), waitOp.getResult());
+
+      info.cbsNeedingPop.push_back({cb, loc});
+
+      rewriter.eraseOp(l1Copy);
+      if (reserveOp->use_empty()) {
+        rewriter.eraseOp(reserveOp);
+      }
+    } else if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
+                   dst.getDefiningOp())) {
+      Region *region = nullptr;
+      if (generic.getNumRegions() == 1) {
+        region = &generic.getRegion(0);
+      } else {
+        region = ttmlir::utils::getRegionWithParentOfType<GenericOp>(
+            l1Copy.getOperation());
+      }
+      if (!region || region->empty()) {
+        l1Copy.emitWarning(
+            "could not find region for l1_copy, skipping conversion");
+        continue;
+      }
+
+      auto L1Attr = mlir::tt::ttcore::MemorySpaceAttr::get(
+          generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1);
+      MemRefType allocType = allocOp.getType();
+      MemRefType cbUnderlyingType = MemRefType::get(
+          allocType.getShape(), allocType.getElementType(), nullptr, L1Attr);
+      auto cbType = CBType::get(cbUnderlyingType);
+
+      unsigned port =
+          getNextAvailablePort(*region, portCounters, generic.getOperation());
+      unsigned ioSize = generic.getInputsAndOutputs().size();
+      if (port < ioSize) {
+        port = ioSize;
+      }
+      portCounters[generic.getOperation()] = port + 1;
+
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(&region->front());
+      auto getCBOp =
+          rewriter.create<GetCBOp>(generic.getLoc(), cbType, port, nullptr);
+      cb = getCBOp.getResult();
+
+      rewriter.setInsertionPoint(l1Copy);
+      rewriter.create<L1CopyOp>(loc, l1Copy.getSrc(), cb,
+                                l1Copy.getIndexingMaps());
+      auto waitOp = rewriter.create<WaitOp>(loc, cb);
+
+      rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
+
+      info.cbsNeedingPop.push_back({cb, loc});
+
+      rewriter.eraseOp(l1Copy);
+      if (allocOp->use_empty()) {
+        rewriter.eraseOp(allocOp);
+      }
+    } else {
+      l1Copy.emitWarning("could not find memref.alloc or d2m.reserve for "
+                         "l1_copy dst, skipping conversion");
+      continue;
+    }
+  }
+
   // Convert memref.alloc -> ReserveOp for remote operands
   SmallVector<memref::AllocOp> allocsToConvert;
   moduleOp->walk([&](memref::AllocOp allocOp) {
@@ -353,6 +452,61 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     info.reserveOpsNeedingPush.push_back({reserveOp, assocCb});
 
     // Erase the original memref.alloc operation
+    rewriter.eraseOp(allocOp);
+  }
+
+  // Convert ALL remaining memref.alloc ops inside d2m.generic regions to CBs.
+  // These are compute-internal buffers (tilize/matmul/untilize intermediates)
+  // that aren't backed by any generic operand.
+  SmallVector<memref::AllocOp> remainingAllocs;
+  moduleOp->walk([&](memref::AllocOp allocOp) {
+    if (!allocOp->getParentOfType<GenericOp>()) {
+      return;
+    }
+    remainingAllocs.push_back(allocOp);
+  });
+
+  for (memref::AllocOp allocOp : remainingAllocs) {
+    GenericOp generic = allocOp->getParentOfType<GenericOp>();
+    if (!generic) {
+      continue;
+    }
+
+    Region *region = nullptr;
+    if (generic.getNumRegions() == 1) {
+      region = &generic.getRegion(0);
+    } else {
+      region = ttmlir::utils::getRegionWithParentOfType<GenericOp>(
+          allocOp.getOperation());
+    }
+    if (!region || region->empty()) {
+      continue;
+    }
+
+    auto L1Attr = mlir::tt::ttcore::MemorySpaceAttr::get(
+        generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1);
+    MemRefType allocType = allocOp.getType();
+    MemRefType cbUnderlyingType = MemRefType::get(
+        allocType.getShape(), allocType.getElementType(), nullptr, L1Attr);
+    auto cbType = CBType::get(cbUnderlyingType);
+
+    unsigned port =
+        getNextAvailablePort(*region, portCounters, generic.getOperation());
+    unsigned ioSize = generic.getInputsAndOutputs().size();
+    if (port < ioSize) {
+      port = ioSize;
+    }
+    portCounters[generic.getOperation()] = port + 1;
+
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(&region->front());
+    auto getCBOp =
+        rewriter.create<GetCBOp>(generic.getLoc(), cbType, port, nullptr);
+
+    rewriter.setInsertionPoint(allocOp);
+    auto reserveOp =
+        rewriter.create<ReserveOp>(allocOp.getLoc(), getCBOp.getResult());
+    rewriter.replaceAllUsesWith(allocOp.getResult(), reserveOp.getResult());
     rewriter.eraseOp(allocOp);
   }
 
@@ -483,32 +637,74 @@ static void insertPushAndPopOps(ModuleOp moduleOp, IRRewriter &rewriter,
     rewriter.create<PopOp>(loc, assocCb);
   }
 
-  // Insert push ops for each reserve op
-  for (auto &[reserveOp, assocCb] : info.reserveOpsNeedingPush) {
+  // Insert push ops for each reserve op.
+  // When the corresponding remote_store is inside a blocking loop, the
+  // reserve/push must happen per-iteration to match the wait/pop that
+  // D2MLowerLoadStoreOpsToDMA inserts on the DM side.
+  for (auto &entry : info.reserveOpsNeedingPush) {
+    ReserveOp reserveOp = entry.first;
+    Value cb = entry.second;
     Location loc = reserveOp.getLoc();
 
     GenericOp generic = reserveOp->getParentOfType<GenericOp>();
-    Region *genericRegion = nullptr;
-    if (generic.getNumRegions() == 1) {
-      genericRegion = &generic.getRegion(0);
-    } else {
-      genericRegion = ttmlir::utils::getRegionWithParentOfType<GenericOp>(
-          reserveOp.getOperation());
+
+    // Find the innermost blocking loop that contains a remote_store using
+    // this CB.  After LowerAffinePass, blocking loops are scf::ForOp.
+    scf::ForOp blockingLoop = nullptr;
+    if (generic) {
+      generic->walk([&](RemoteStoreOp storeOp) {
+        if (storeOp.getCb() != cb) {
+          return;
+        }
+        for (Operation *parent = storeOp->getParentOp();
+             parent && parent != generic.getOperation();
+             parent = parent->getParentOp()) {
+          if (auto forOp = dyn_cast<scf::ForOp>(parent)) {
+            if (forOp->hasAttr("d2m.blocking_loop")) {
+              blockingLoop = forOp;
+              return;
+            }
+          }
+        }
+      });
     }
 
-    if (genericRegion && !genericRegion->empty()) {
-      Block *topLevelBlock = &genericRegion->front();
-      // Insert before the terminator (YieldOp)
-      if (!topLevelBlock->empty() &&
-          topLevelBlock->back().hasTrait<OpTrait::IsTerminator>()) {
-        rewriter.setInsertionPoint(&topLevelBlock->back());
+    if (blockingLoop) {
+      // Move reserve to start of the blocking loop body so it runs
+      // per-iteration, matching the wait/pop inside the loop.
+      Block *loopBody = blockingLoop.getBody();
+      reserveOp->moveBefore(&loopBody->front());
+
+      // Insert push at end of loop body (before yield).
+      if (loopBody->mightHaveTerminator()) {
+        rewriter.setInsertionPoint(loopBody->getTerminator());
       } else {
-        rewriter.setInsertionPointToEnd(topLevelBlock);
+        rewriter.setInsertionPointToEnd(loopBody);
       }
-      rewriter.create<PushOp>(loc, assocCb);
+      rewriter.create<PushOp>(loc, cb);
     } else {
-      reserveOp.emitWarning(
-          "could not find top-level region block for push insertion");
+      // No blocking loop: push at generic region end (original behavior).
+      Region *genericRegion = nullptr;
+      if (generic.getNumRegions() == 1) {
+        genericRegion = &generic.getRegion(0);
+      } else {
+        genericRegion = ttmlir::utils::getRegionWithParentOfType<GenericOp>(
+            reserveOp.getOperation());
+      }
+
+      if (genericRegion && !genericRegion->empty()) {
+        Block *topLevelBlock = &genericRegion->front();
+        if (!topLevelBlock->empty() &&
+            topLevelBlock->back().hasTrait<OpTrait::IsTerminator>()) {
+          rewriter.setInsertionPoint(&topLevelBlock->back());
+        } else {
+          rewriter.setInsertionPointToEnd(topLevelBlock);
+        }
+        rewriter.create<PushOp>(loc, cb);
+      } else {
+        reserveOp.emitWarning(
+            "could not find top-level region block for push insertion");
+      }
     }
   }
 }

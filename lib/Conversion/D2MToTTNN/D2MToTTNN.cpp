@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -317,17 +318,8 @@ public:
 
     for (auto [i, cb] : llvm::enumerate(cbs)) {
       auto cb_memref = dyn_cast<MemRefType>(cb.getType());
-      TT_assertv(mlir::isa<ttcore::TileType>(cb_memref.getElementType()),
-                 "Only TileType supported.");
       ttcore::DataType dtype =
           ttcore::elementTypeToDataType(cb_memref.getElementType());
-      size_t pageSize = device.getMemrefCBPageSizeBytes(cb_memref);
-      size_t totalSize = device.getMemrefSizeBytes(cb_memref, pageSize, true);
-
-      ttnn::KernelCBFormatAttr cbFormat =
-          ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
-
-      ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
 
       // TODO (#7158): This is brittle. Ideally we should specifically identify
       // outputs and handle them separately from inputs, but that will require a
@@ -343,12 +335,40 @@ public:
             return mlir::isa<d2m::StreamLayoutOp>(user);
           });
 
-      if ((mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-               cb.getDefiningOp()) ||
-           isAliasedOutput) &&
-          ttcore::getMemorySpace(cb_memref) !=
-              ttcore::MemorySpace::DeviceDRAM) {
+      bool isGloballyAllocated =
+          ((mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+                cb.getDefiningOp()) ||
+            isAliasedOutput) &&
+           ttcore::getMemorySpace(cb_memref) !=
+               ttcore::MemorySpace::DeviceDRAM);
 
+      // Compute page size:
+      // - TileType CBs: page = one tile (e.g. 2048 B for 32x32 bf16).
+      // - Globally-allocated scalar CBs (aliased to a sharded tensor):
+      //   page = one row of the shard (innermost dim * element size).
+      //   Matches tt-metal conv's ACT_SHARDED pattern.
+      // - Locally-allocated scalar CBs (intermediates): page = tile size.
+      //   Matches tt-metal conv's intermediate row-major CB pattern.
+      size_t pageSize;
+      if (mlir::isa<ttcore::TileType>(cb_memref.getElementType())) {
+        pageSize = device.getMemrefCBPageSizeBytes(cb_memref);
+      } else if (isGloballyAllocated) {
+        auto devLayout =
+            mlir::cast<ttcore::DeviceLayoutInterface>(cb_memref.getLayout());
+        auto shardShape = devLayout.getShardShape(cb_memref);
+        pageSize = shardShape.back() *
+                   ttcore::getElementSizeBytes(cb_memref.getElementType());
+      } else {
+        pageSize = device.getMemrefCBPageSizeBytes(cb_memref);
+      }
+
+      size_t totalSize = device.getMemrefSizeBytes(cb_memref, pageSize, true);
+
+      ttnn::KernelCBFormatAttr cbFormat =
+          ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
+
+      ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
+      if (isGloballyAllocated) {
         globalCBIndexOfTensor =
             ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
       }
@@ -512,20 +532,75 @@ public:
       }
     }
 
-    // Create CB descriptors.
+    // Create CB descriptors from operand-derived CBs.
     llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors =
         createCBDescriptors(rewriter, cbs, device, coreRangeSet);
 
+    // Scan kernel functions for internally-allocated CBs (cb_port ops with
+    // port indices beyond the operand-derived CBs).  These arise from
+    // memref.alloc ops inside d2m.generic that were converted to CBs by
+    // LowerLoadStoreOpsToExplicitCBForm but are not operands of the generic.
+    SymbolTable moduleSymTable(op->getParentOfType<ModuleOp>());
+    llvm::DenseMap<unsigned, ttkernel::CBType> extraCBPorts;
+    for (Attribute threadAttr : op.getThreads()) {
+      auto thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
+      auto kernelFunc = moduleSymTable.lookup<func::FuncOp>(
+          thread.getKernelSymbol().getRootReference());
+      if (!kernelFunc) {
+        continue;
+      }
+      kernelFunc.walk([&](ttkernel::CBPortOp cbPortOp) {
+        unsigned port = static_cast<unsigned>(cbPortOp.getPort());
+        if (port >= cbDescriptors.size()) {
+          auto cbType =
+              mlir::cast<ttkernel::CBType>(cbPortOp.getResult().getType());
+          extraCBPorts.try_emplace(port, cbType);
+        }
+      });
+    }
+
+    if (!extraCBPorts.empty()) {
+      unsigned maxPort = 0;
+      for (auto &[port, _] : extraCBPorts) {
+        maxPort = std::max(maxPort, port);
+      }
+      cbDescriptors.resize(maxPort + 1);
+
+      for (auto &[port, cbType] : extraCBPorts) {
+        Type elemType = cbType.getElementType();
+        ttcore::DataType dtype = ttcore::elementTypeToDataType(elemType);
+
+        size_t pageSize;
+        size_t totalSize;
+        if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elemType)) {
+          pageSize = tileType.getSizeBytes();
+          totalSize = cbType.getNumElements() * pageSize;
+        } else {
+          size_t elemSizeBytes = elemType.getIntOrFloatBitWidth() / 8;
+          pageSize = 32 * 32 * elemSizeBytes;
+          totalSize = cbType.getNumElements() * elemSizeBytes;
+          if (totalSize < pageSize) {
+            totalSize = pageSize;
+          }
+        }
+
+        ttnn::KernelCBFormatAttr cbFormat =
+            ttnn::KernelCBFormatAttr::get(ctx, port, dtype, pageSize);
+        cbDescriptors[port] =
+            ttnn::KernelCBAttr::get(ctx, totalSize, coreRangeSet, {cbFormat},
+                                    /*globalCBIndexOfTensor=*/nullptr);
+      }
+    }
+
     // Create KernelDescriptors.
-    SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
     llvm::SmallVector<mlir::Attribute> kernelDescriptors =
         createKernelDescriptors(rewriter, op.getThreads(), coreRangeSet,
-                                opSymTable, this->mathFidelity);
+                                moduleSymTable, this->mathFidelity);
 
     // Extract semaphore descriptors from kernel functions.
     llvm::SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors =
         createSemaphoreDescriptors(rewriter, op.getThreads(), coreRangeSet,
-                                   opSymTable);
+                                   moduleSymTable);
 
     ttnn::ProgramAttr program = ttnn::ProgramAttr::get(
         ctx, kernelDescriptors, cbDescriptors, semaphoreDescriptors);

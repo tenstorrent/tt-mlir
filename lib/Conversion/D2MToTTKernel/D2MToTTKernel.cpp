@@ -1230,7 +1230,7 @@ public:
   using OpConversionPattern<ConcreteOp>::OpConversionPattern;
 
   static Value findPreLinearizedMemref(Value memref) {
-    if (mlir::isa_and_nonnull<d2m::WaitOp, d2m::ReserveOp>(
+    if (mlir::isa_and_nonnull<d2m::WaitOp, d2m::ReserveOp, memref::AllocOp>(
             memref.getDefiningOp())) {
       return memref;
     }
@@ -1263,6 +1263,7 @@ public:
                                  ttkernel::ExperimentalTilizeBlockOp>) {
       rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
       rewriter.create<BlockOp>(op->getLoc(), src, dst, blockR, blockC);
+      rewriter.create<ttkernel::TilizeUninitOp>(op->getLoc(), src, dst);
     } else if constexpr (std::is_same_v<
                              BlockOp,
                              ttkernel::ExperimentalPackUntilizeBlockOp>) {
@@ -1613,24 +1614,38 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
+    Location loc = op.getLoc();
 
-    // NOTE: All reads must be from remote locations in DMAReadOp
-    // local->local transfers are lowered as nocAsyncWrites, which require
-    // write barriers.
-    auto srcNocAddr =
-        buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
-                        op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
     auto dstCBMapping = cbProducerConsumer->get(op.getDst());
     TT_assertv((dstCBMapping == d2m::ThreadCBOrientation::Producer ||
                 dstCBMapping == d2m::ThreadCBOrientation::Default),
                "Expected dst cb of a read op to have a producer or default "
                "orientation, failing.");
     Value dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
-        rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
+        rewriter, loc, adaptor.getDst(), op.getDstIndices());
 
-    auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
-    rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
-                                              dstL1Addr, size);
+    auto size = i32(rewriter, loc, op.getSizeBytes());
+
+    if (op.isSrcLocal()) {
+      // L1-to-L1 via noc_async_read from self.
+      Value srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
+          rewriter, loc, adaptor.getSrc(), op.getSrcIndices());
+      auto myY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
+      auto myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
+      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+          rewriter, loc, chipDesc, ValueRange{myY, myX});
+      auto srcNocAddr =
+          rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, srcL1Addr);
+      rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, dstL1Addr,
+                                                size);
+    } else {
+      // Remote-to-local via noc_async_read.
+      auto srcNocAddr =
+          buildNocAddress(rewriter, loc, adaptor.getSrc(), op.getSrcIndices(),
+                          chipDesc, op.getSrcMemorySpace());
+      rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, dstL1Addr,
+                                                size);
+    }
 
     // Add attribute marking whether the DMA wait is for a read or write
     // operation This will be used when loweing the wait ops because the current
