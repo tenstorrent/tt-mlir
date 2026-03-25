@@ -730,7 +730,7 @@ private:
     rewriter.setInsertionPointToEnd(block);
 
     func::FuncOp mainForTestOp =
-        rewriter.create<func::FuncOp>(loc, "main_for_test", forwardFuncType);
+        func::FuncOp::create(rewriter, loc, "main_for_test", forwardFuncType);
 
     // Set emitpy.name attributes for parameters.
     //
@@ -768,7 +768,7 @@ private:
       // Extract tensor from tuple.
       //
       ttcore::GetTupleElementOp getElem =
-          rewriter.create<ttcore::GetTupleElementOp>(loc, inputTuple, i);
+          ttcore::GetTupleElementOp::create(rewriter, loc, inputTuple, i);
 
       TTNNLayoutAttr layoutAttr =
           mlir::cast<TTNNLayoutAttr>(rankedTensorType.getEncoding());
@@ -783,8 +783,8 @@ private:
 
         // Move tensor to device with the expected memory config.
         //
-        Value deviceTensor = rewriter.create<ttnn::ToDeviceOp>(
-            loc, rankedTensorType, getElem, deviceArg, memConfigAttr);
+        Value deviceTensor = ttnn::ToDeviceOp::create(
+            rewriter, loc, rankedTensorType, getElem, deviceArg, memConfigAttr);
         preparedTensors.push_back(deviceTensor);
       } else {
         preparedTensors.push_back(getElem);
@@ -794,8 +794,8 @@ private:
     // Create a new tuple from prepared tensors.
     //
     SmallVector<Type> tupleResultTypes = {inputTupleType};
-    ttcore::TupleOp newTuple = rewriter.create<ttcore::TupleOp>(
-        loc, tupleResultTypes, preparedTensors);
+    ttcore::TupleOp newTuple = ttcore::TupleOp::create(
+        rewriter, loc, tupleResultTypes, preparedTensors);
 
     // Call the forward function, passing the prepared inputs and device.
     //
@@ -804,11 +804,11 @@ private:
                     newTuple->getResults().end());
     callArgs.push_back(deviceArg);
     func::CallOp callOp =
-        rewriter.create<func::CallOp>(loc, forwardFuncOp, callArgs);
+        func::CallOp::create(rewriter, loc, forwardFuncOp, callArgs);
 
     // Return the results.
     //
-    rewriter.create<func::ReturnOp>(loc, callOp->getResults());
+    func::ReturnOp::create(rewriter, loc, callOp->getResults());
   }
 };
 
