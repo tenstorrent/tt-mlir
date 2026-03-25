@@ -71,8 +71,19 @@ void SumL1MemoryTracker::init(uint64_t l1BudgetPerCore) {
   tensorAddresses.clear();
 }
 
-void SumL1MemoryTracker::allocateAddressBlock(Value result,
-                                              uint64_t l1SizePerCore) {
+SumL1MemoryTracker::Snapshot SumL1MemoryTracker::takeSnapshot() const {
+  return {freeList, tensorAddresses};
+}
+
+void SumL1MemoryTracker::restoreSnapshot(const Snapshot &snapshot) {
+  freeList = snapshot.freeList;
+  tensorAddresses = snapshot.tensorAddresses;
+}
+
+void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
+  if (l1SizePerCore == 0 || l1Budget == 0) {
+    return;
+  }
   uint64_t alignedSize =
       (l1SizePerCore + kL1Alignment - 1) & ~(kL1Alignment - 1);
 
@@ -103,39 +114,10 @@ void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore) {
   currentOccupied += l1SizePerCore;
 
   // Address simulation: top-down allocation with 32-byte alignment.
-  if (l1SizePerCore == 0 || l1Budget == 0) {
-    return;
-  }
-  allocateAddressBlock(result, l1SizePerCore);
+  allocateAddress(result, l1SizePerCore);
 }
 
-void SumL1MemoryTracker::rebuildAddresses(
-    llvm::ArrayRef<Value> allocationOrder) {
-  freeList.clear();
-  freeList.push_back({0, l1Budget});
-  tensorAddresses.clear();
-
-  for (Value val : allocationOrder) {
-    auto it = tensorSizes.find(val);
-    if (it == tensorSizes.end()) {
-      continue;
-    }
-    uint64_t l1Size = it->second;
-    if (l1Size == 0) {
-      continue;
-    }
-    allocateAddressBlock(val, l1Size);
-  }
-}
-
-void SumL1MemoryTracker::removeTensor(Value result) {
-  auto it = tensorSizes.find(result);
-  if (it != tensorSizes.end()) {
-    currentOccupied -= it->second;
-    tensorSizes.erase(it);
-  }
-
-  // Address simulation: free the block and merge with adjacent free blocks.
+void SumL1MemoryTracker::freeAddress(Value result) {
   auto addrIt = tensorAddresses.find(result);
   if (addrIt == tensorAddresses.end()) {
     return;
@@ -157,7 +139,6 @@ void SumL1MemoryTracker::removeTensor(Value result) {
       insertIdx < freeList.size() && freeList[insertIdx].start == freedEnd;
 
   if (mergePrev && mergeNext) {
-    // Three-way merge: extend previous to cover freed + next.
     freeList[insertIdx - 1].end = freeList[insertIdx].end;
     freeList.erase(freeList.begin() + insertIdx);
   } else if (mergePrev) {
@@ -167,6 +148,34 @@ void SumL1MemoryTracker::removeTensor(Value result) {
   } else {
     freeList.insert(freeList.begin() + insertIdx, {freedStart, freedEnd});
   }
+}
+
+void SumL1MemoryTracker::logState() const {
+  for ([[maybe_unused]] const auto &entry : tensorAddresses) {
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                 "Tensor {}: address {} - {} (size {})", entry.first,
+                 entry.second.first, entry.second.first + entry.second.second,
+                 entry.second.second);
+  }
+
+  for ([[maybe_unused]] const auto &entry : freeList) {
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                 "Free block: address {} - {} (size {})", entry.start,
+                 entry.end, entry.size());
+  }
+}
+
+void SumL1MemoryTracker::removeTensorFromSizes(Value result) {
+  auto it = tensorSizes.find(result);
+  if (it != tensorSizes.end()) {
+    currentOccupied -= it->second;
+    tensorSizes.erase(it);
+  }
+}
+
+void SumL1MemoryTracker::removeTensor(Value result) {
+  removeTensorFromSizes(result);
+  freeAddress(result);
 }
 
 bool SumL1MemoryTracker::hasTensor(Value result) const {
@@ -203,17 +212,6 @@ SumL1MemoryTracker::wouldAllocateAt(uint64_t l1SizePerCore) const {
     }
   }
   return std::nullopt;
-}
-
-llvm::SmallVector<Value>
-SumL1MemoryTracker::getTensorsBelow(uint64_t address) const {
-  llvm::SmallVector<Value> result;
-  for (const auto &entry : tensorAddresses) {
-    if (entry.second.first < address) {
-      result.push_back(entry.first);
-    }
-  }
-  return result;
 }
 
 //===----------------------------------------------------------------------===//
@@ -527,6 +525,7 @@ void L1SpillManagement<MemoryTracker>::processDeadTensors(
   }
   for (Value deadVal : it->second) {
     if (liveValues.erase(deadVal)) {
+      l1EventLog.push_back({L1Event::kDealloc, deadVal, 0, /*skipped=*/false});
       memoryTracker.removeTensor(deadVal);
       Operation *deadOp = deadVal.getDefiningOp();
       observer_->onDeadRemoval(deadOp, pos, memoryTracker.getOccupiedL1());
@@ -637,6 +636,52 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
 }
 
 //===----------------------------------------------------------------------===//
+// markEvictedAndRebuild
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
+  // O(1) lookup of victim's alloc event.
+  auto idxIt = allocEventIndex.find(victim);
+  assert(idxIt != allocEventIndex.end() &&
+         "victim not found in allocEventIndex");
+  size_t allocIdx = idxIt->second;
+
+  // Mark alloc event as skipped.
+  l1EventLog[allocIdx].skipped = true;
+
+  // Search forward from allocIdx for the dealloc event (at most one).
+  for (size_t i = allocIdx + 1; i < l1EventLog.size(); ++i) {
+    if (l1EventLog[i].tensor == victim &&
+        l1EventLog[i].kind == L1Event::kDealloc) {
+      l1EventLog[i].skipped = true;
+      break;
+    }
+  }
+
+  // Restore snapshot taken before the victim's allocation.
+  auto snapIt = addressSnapshots.find(allocIdx);
+  assert(snapIt != addressSnapshots.end() &&
+         "snapshot not found for evicted tensor");
+  memoryTracker.restoreSnapshot(snapIt->second);
+
+  // Replay events from the alloc point forward, skipping evicted tensors.
+  // Update snapshots during replay so future evictions see accurate state.
+  for (size_t i = allocIdx; i < l1EventLog.size(); ++i) {
+    if (l1EventLog[i].skipped) {
+      continue;
+    }
+    if (l1EventLog[i].kind == L1Event::kAlloc) {
+      addressSnapshots[i] = memoryTracker.takeSnapshot();
+      memoryTracker.allocateAddress(l1EventLog[i].tensor,
+                                    l1EventLog[i].sizePerCore);
+    } else {
+      memoryTracker.freeAddress(l1EventLog[i].tensor);
+    }
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // evictUntil
 //===----------------------------------------------------------------------===//
 
@@ -663,14 +708,8 @@ bool L1SpillManagement<MemoryTracker>::evictUntil(
     observer_->onEviction(victimOp, pos, freedBytes);
 
     spillToDram(victim);
-    memoryTracker.removeTensor(victim);
-
-    // Remove from allocation order and rebuild address simulation.
-    auto *orderIt = llvm::find(allocationOrder, victim);
-    if (orderIt != allocationOrder.end()) {
-      allocationOrder.erase(orderIt);
-    }
-    memoryTracker.rebuildAddresses(allocationOrder);
+    memoryTracker.removeTensorFromSizes(victim);
+    markEvictedAndRebuild(victim);
 
     // Insert reshards for already-processed consumers instead of cascade
     // revalidation. This preserves downstream ops' sharded layouts.
@@ -805,6 +844,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    FRAG_RESOLVED: L1 now {0}/{1}",
                  memoryTracker.getOccupiedL1(), l1BudgetPerCore);
+    memoryTracker.logState();
     return freshL1;
   }
 
@@ -851,6 +891,7 @@ bool L1SpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
                  "effectiveLowest={3} (occupied={4})",
                  cbPeakUsage, cbFragCushion, cushionedCBUsage, effectiveLowest,
                  memoryTracker.getOccupiedL1());
+    memoryTracker.logState();
     observer_->onFragmentationDemote(op, pos, cbPeakUsage, cbPeakUsage,
                                      /*inputL1Size=*/0, /*holeL1Size=*/0,
                                      effectiveLowest,
@@ -934,10 +975,14 @@ void L1SpillManagement<MemoryTracker>::run() {
         auto luIt = data.lastUsePositions.find(val);
         int64_t resultLastUse =
             (luIt != data.lastUsePositions.end()) ? luIt->second : pos;
+        // Snapshot before allocation and record event for replay.
+        allocEventIndex[val] = l1EventLog.size();
+        addressSnapshots[l1EventLog.size()] = memoryTracker.takeSnapshot();
+        l1EventLog.push_back(
+            {L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
         memoryTracker.addTensor(val, perResultL1);
         liveValues.insert(val);
         liveSet.push({resultLastUse, val});
-        allocationOrder.push_back(val);
       }
     };
 
@@ -1136,8 +1181,11 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(
     evictedOps.push_back(victimOp);
   }
   liveValues.clear();
-  allocationOrder.clear();
-  memoryTracker.rebuildAddresses(allocationOrder);
+  // Mark all events as skipped and reset tracker to empty state.
+  for (auto &event : l1EventLog) {
+    event.skipped = true;
+  }
+  memoryTracker.init(l1BudgetPerCore);
 
   // Revalidate consumers after all evictions to avoid revalidating against
   // transient intermediate IR states.
@@ -1147,38 +1195,15 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(
 }
 
 //===----------------------------------------------------------------------===//
-// evictTensorsBelow
+// evictForCBOverlap
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::evictTensorsBelow(
-    uint64_t threshold, int64_t pos, const ScheduleData &data) {
-  auto dangerTensors = memoryTracker.getTensorsBelow(threshold);
-  for (Value victim : dangerTensors) {
-    if (!liveValues.count(victim)) {
-      continue;
-    }
-    uint64_t freedBytes = memoryTracker.getTensorSize(victim);
-    if (freedBytes == 0) {
-      continue;
-    }
-    Operation *victimOp = victim.getDefiningOp();
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    CB_EVICT: {0} (L1: {1} bytes, addr below {2})",
-                 ttmlir::opToString(victimOp), freedBytes, threshold);
-    observer_->onEviction(victimOp, pos, freedBytes);
-    spillToDram(victim);
-    memoryTracker.removeTensor(victim);
-    liveValues.erase(victim);
-    auto *orderIt = llvm::find(allocationOrder, victim);
-    if (orderIt != allocationOrder.end()) {
-      allocationOrder.erase(orderIt);
-    }
-    memoryTracker.rebuildAddresses(allocationOrder);
-    if (victimOp) {
-      revalidateConsumers(victimOp, pos, data.positionMap);
-    }
-  }
+void L1SpillManagement<MemoryTracker>::evictForCBOverlap(
+    uint64_t cushionedCBUsage, int64_t pos, const ScheduleData &data) {
+  evictUntil(pos, data, [&]() {
+    return cushionedCBUsage <= memoryTracker.getLowestOccupiedAddress();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -1212,7 +1237,7 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
                result.cbPeakUsage, cbFragCushion, dramCBCushioned,
                memoryTracker.getLowestOccupiedAddress());
 
-  evictTensorsBelow(dramCBCushioned, pos, data);
+  evictForCBOverlap(dramCBCushioned, pos, data);
 }
 
 //===----------------------------------------------------------------------===//
