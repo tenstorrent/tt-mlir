@@ -121,13 +121,18 @@ def test_all_gather(
                 shard_dims=shard_dims,
             )
 
+    options = [
+        f"mesh-topology=linear,ring",
+    ]
+
     compile_and_execute_ttir(
         module,
-        mesh_name="mesh",
-        device=device,
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         target="ttmetal",
-        print_ir=True,
+        device=device,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
+        print_ir=True,
         save_artifacts=True,
     )
