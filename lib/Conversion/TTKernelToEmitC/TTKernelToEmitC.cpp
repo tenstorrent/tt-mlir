@@ -999,7 +999,7 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     rewriter.create<emitc::CallOpaqueOp>(op->getLoc(), TypeRange{},
                                          "pack_reconfig_data_format",
-                                         ValueRange{adaptor.getOutputCb()});
+                                         ValueRange{adaptor.getOutCb()});
     rewriter.eraseOp(op);
     return success();
   }
