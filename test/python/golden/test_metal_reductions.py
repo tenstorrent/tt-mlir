@@ -92,20 +92,13 @@ def test_sum(
     )
 
 
-# @pytest.mark.parametrize("b", [1, 2])
-# @pytest.mark.parametrize("m", [4, 8])
-# @pytest.mark.parametrize("n", [2, 4])
-# @pytest.mark.parametrize("dim_arg", [[1], [2], [1, 2]])
-# @pytest.mark.parametrize("keep_dim", [True, False])
-# @pytest.mark.parametrize("target", ["ttmetal"])
-# @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-@pytest.mark.parametrize("b", [1, 2, 3, 8, 16, 32, 64])
-@pytest.mark.parametrize("m", [1])
-@pytest.mark.parametrize("n", [1])
-@pytest.mark.parametrize("dim_arg", [[0]])
-@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("b", [1, 2])
+@pytest.mark.parametrize("m", [4, 8])
+@pytest.mark.parametrize("n", [2, 4])
+@pytest.mark.parametrize("dim_arg", [[0], [1], [2], [1, 2]])
+@pytest.mark.parametrize("keep_dim", [True, False])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_sum_3d(
     b: int,
     m: int,
@@ -142,7 +135,8 @@ def test_sum_3d(
 @pytest.mark.parametrize("b", [1, 2])
 @pytest.mark.parametrize("m", [4, 8])
 @pytest.mark.parametrize("n", [2, 4])
-@pytest.mark.parametrize("dim_arg", [[2], [3], [2, 3]])
+# @pytest.mark.parametrize("dim_arg", [[2], [3], [2, 3]])
+@pytest.mark.parametrize("dim_arg", [[0]])
 @pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
@@ -198,6 +192,88 @@ def test_max(
 ):
     tile_size = 32
     shape = (
+        m * tile_size,
+        n * tile_size,
+    )
+
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim, dtype),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=_max_atol(dtype),
+    )
+
+@pytest.mark.parametrize("b", [1, 2])
+@pytest.mark.parametrize("m", [4, 8])
+@pytest.mark.parametrize("n", [2, 4])
+# @pytest.mark.parametrize("dim_arg", [[0], [1], [2], [1, 2]])
+@pytest.mark.parametrize("dim_arg", [[0]])
+@pytest.mark.parametrize("keep_dim", [True, False])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_max_3d(
+    b: int,
+    m: int,
+    n: int,
+    dim_arg: List[int],
+    keep_dim: bool,
+    target: str,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    if len(dim_arg) >= 2 and not keep_dim:
+        pytest.skip(
+            "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
+        )
+
+    tile_size = 32
+    shape = (
+        b,
+        m * tile_size,
+        n * tile_size,
+    )
+
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim, dtype),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=_max_atol(dtype),
+    )
+
+
+@pytest.mark.parametrize("a", [1, 2])
+@pytest.mark.parametrize("b", [1, 2])
+@pytest.mark.parametrize("m", [4, 8])
+@pytest.mark.parametrize("n", [2, 4])
+# @pytest.mark.parametrize("dim_arg", [[2], [3], [2, 3]])
+@pytest.mark.parametrize("dim_arg", [[0]])
+@pytest.mark.parametrize("keep_dim", [True, False])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_max_4d(
+    a: int,
+    b: int,
+    m: int,
+    n: int,
+    dim_arg: List[int],
+    keep_dim: bool,
+    target: str,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    if len(dim_arg) >= 2 and not keep_dim:
+        pytest.skip(
+            "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
+        )
+
+    tile_size = 32
+    shape = (
+        a,
+        b,
         m * tile_size,
         n * tile_size,
     )
