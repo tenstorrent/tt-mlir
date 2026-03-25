@@ -231,7 +231,7 @@ unary_ops = [
     log,
     log1p | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_not,
-    mish | Marks(pytest.mark.skip_config(["ttmetal"])),
+    mish | Marks(pytest.mark.skip_config(["ttmetal", "emitc"])),
     neg,
     reciprocal,
     relu,
@@ -269,11 +269,6 @@ def test_unary_ops(
         logical_not,
     ]:
         pytest.skip("int32 unary op is not supported yet for this operation")
-
-    if target == "emitc" and test_fn == mish:
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
