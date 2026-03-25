@@ -345,6 +345,12 @@ public:
     bool didStoreToDst() { return storedToDst; }
     int getCurrSliceIndex() { return nextSliceIndex - 1; }
 
+    /// True once at least one operand load has allocated a DST slice (so
+    /// getCurrSliceIndex() refers to a loaded tile). Ops that only generate
+    /// tiles (e.g. tile_fill) have no loads; in-place / scalar-rhs paths must
+    /// allocate a slice instead of reusing a non-existent "current" slot.
+    bool hasIssuedLoadSlices() const { return nextSliceIndex > 0; }
+
   private:
     int64_t nextSliceIndex = 0;
     bool storedToDst = false;
@@ -818,7 +824,13 @@ public:
                 "ops "
                 "would reference wrong tile, but those ops should be setting "
                 "output tile.");
-            dstSlice = dstSliceAllocationState.getCurrSliceIndex();
+            if (dstSliceAllocationState.hasIssuedLoadSlices()) {
+              dstSlice = dstSliceAllocationState.getCurrSliceIndex();
+            } else {
+              // e.g. tile_fill: isScalarOperand(1) is true but no CB->DST load
+              // ran, so there is no in-place slot to reuse.
+              dstSlice = dstSliceAllocationState.allocate();
+            }
           } else {
             dstSlice = dstSliceAllocationState.allocate();
             dstSliceAllocationState.setStoreToDst();
@@ -836,11 +848,14 @@ public:
           assert(computeOp->getNumResults() == 1);
           assert(!dstIntermediates.contains(computeOp));
 
-          // If op stores to dst in place or has scalar rhs, we don't need to
-          // allocate a new dst register, just use the current dst index.
+          // If op stores to dst in place or has scalar rhs, reuse the current
+          // dst index when a load slice exists; otherwise allocate (e.g. output
+          // of tile_fill feeding another compute op).
           int dstSlice =
               (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1))
-                  ? dstSliceAllocationState.getCurrSliceIndex()
+                  ? (dstSliceAllocationState.hasIssuedLoadSlices()
+                         ? dstSliceAllocationState.getCurrSliceIndex()
+                         : dstSliceAllocationState.allocate())
                   : dstSliceAllocationState.allocate();
 
           // Exception: the CB load of the load-bcast pair won't be captured by
@@ -1633,7 +1648,14 @@ public:
                 "ops "
                 "would reference wrong tile, but those ops should be setting "
                 "output tile.");
-            dstSliceIndex = dstStackAllocator.getCurrSliceIndex();
+            if (numLoads > 0) {
+              dstSliceIndex = dstStackAllocator.getCurrSliceIndex();
+            } else {
+              // tile_fill and similar: no CB->DST load; must pop a slice from
+              // the stack instead of reusing currSliceIndex (uninitialized
+              // path).
+              dstSliceIndex = dstStackAllocator.allocate(true);
+            }
           } else {
             dstSliceIndex = dstStackAllocator.allocate(true);
             dstStackAllocator.setStoreToDst();

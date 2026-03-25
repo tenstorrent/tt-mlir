@@ -1317,10 +1317,20 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Value dstIdx = getDstIdxFromResult(op.getResult());
 
-    Value fillValue = adaptor.getValue();
     Location loc = op->getLoc();
+    Value fillValue = adaptor.getValue();
+    // ttkernel.fill_tile takes f32; widen narrower floats for the Metal API.
+    if (!fillValue.getType().isF32()) {
+      if (!mlir::isa<FloatType>(fillValue.getType())) {
+        return rewriter.notifyMatchFailure(
+            op, "tile_fill value must be a float type");
+      }
+      fillValue =
+          rewriter.create<arith::ExtFOp>(loc, rewriter.getF32Type(), fillValue);
+    }
 
-    rewriter.create<ttkernel::ExperimentalTileFillOp>(loc, dstIdx, fillValue);
+    rewriter.create<ttkernel::FillTileInitOp>(loc);
+    rewriter.create<ttkernel::FillTileOp>(loc, dstIdx, fillValue);
 
     // Replace the op with its DST index so users (like TileWhereOp) get the
     // correct operand value.
