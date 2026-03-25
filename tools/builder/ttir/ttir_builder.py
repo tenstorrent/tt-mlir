@@ -961,6 +961,149 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    ############### ttir.MeshPartitionOp ###############
+
+    @tag(ttir.MeshPartitionOp)
+    def mesh_partition(
+        self,
+        input: Operand,
+        dim: int,
+        cluster_axis: Optional[int] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.mesh_partition)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        dim_attr = IntegerAttr.get(IntegerType.get_signed(32), dim)
+        if cluster_axis is not None:
+            cluster_axis_attr = IntegerAttr.get(
+                IntegerType.get_unsigned(32), cluster_axis
+            )
+        else:
+            cluster_axis_attr = None
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0, dim_attr, cluster_axis_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            dim_attr,
+            cluster_axis=cluster_axis_attr,
+            loc=loc,
+        )
+        new_op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op_result
+
+    @parse(ttir.MeshPartitionOp)
+    def mesh_partition_parser(
+        self,
+        old_op: ttir.MeshPartitionOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.mesh_partition_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        dim_attr = old_op.dim
+        cluster_axis_attr = old_op.cluster_axis
+
+        new_op = ttir_op(
+            result,
+            in0,
+            dim_attr,
+            cluster_axis=cluster_axis_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            dim_attr,
+            cluster_axis_attr,
+            old_op.result.type.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.MeshPartitionOp)
+    def mesh_partition_split(
+        self,
+        old_op: ttir.MeshPartitionOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.mesh_partition_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            mesh_partition_module = Module.create()
+            mesh_partition_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(mesh_partition_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="mesh_partition_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        old_op.dim,
+                        cluster_axis=old_op.cluster_axis,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    mesh_partition_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+                    input0 = self._get_golden_tensor(old_op.input)
+                    mesh_partition_builder._set_golden_tensor(in0, input0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                mesh_partition_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return mesh_partition_module, mesh_partition_builder
+
     ############### ttir.ToLayoutOp ###############
 
     @tag(ttir.ToLayoutOp)

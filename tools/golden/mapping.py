@@ -4615,6 +4615,32 @@ def ttir_to_layout_golden(
     return output_tensor.to(output_dtype)
 
 
+def ttir_mesh_partition_golden(
+    input: GoldenMapTensor,
+    dim_attr: IntegerAttr,
+    cluster_axis_attr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim = unpack_mlir_attr(dim_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    if cluster_axis_attr is not None:
+        cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    else:
+        cluster_axis = 0
+
+    grouped_shards = input.group_by_axis(cluster_axis)
+    num_partitions = len(grouped_shards[0]) if grouped_shards else 1
+    output_shards = {}
+    for group in grouped_shards:
+        group_ids = list(group.keys())
+        for idx, device_id in enumerate(group_ids):
+            shard = group[device_id]
+            chunks = torch.chunk(shard, num_partitions, dim=dim)
+            output_shards[device_id] = chunks[idx].clone().to(output_dtype)
+    return GoldenMapTensor(output_shards, input.mesh_shape)
+
+
 def ttir_all_gather_golden(
     input: GoldenMapTensor,
     all_gather_dim_attr: IntegerAttr,
@@ -6750,6 +6776,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.UpdateCacheOp: update_cache_golden,
     # CCL (Collective Communication Library) operations
     ttir.MeshShardOp: ttir_mesh_shard_golden,
+    ttir.MeshPartitionOp: ttir_mesh_partition_golden,
     ttir.AllGatherOp: ttir_all_gather_golden,
     ttir.AllReduceOp: ttir_all_reduce_golden,
     ttir.ReduceScatterOp: ttir_reduce_scatter_golden,
