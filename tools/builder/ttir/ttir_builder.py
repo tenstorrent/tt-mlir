@@ -6352,10 +6352,16 @@ class TTIRBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.constant)
-        value_attr = DenseElementsAttr.get(tensor.numpy())
         result = self._create_ranked_tensor_type(
             tensor.shape, self._get_type_from_torch_dtype(tensor.dtype)
         )
+        # PyTorch bfloat16 -> numpy is not supported by DenseElementsAttr.get(array);
+        # pack as uint16 bits and attach the tensor<...xbf16> type explicitly.
+        if tensor.dtype == torch.bfloat16:
+            u16 = tensor.detach().cpu().view(torch.int16).numpy().astype(np.uint16)
+            value_attr = DenseElementsAttr.get(u16, type=result)
+        else:
+            value_attr = DenseElementsAttr.get(tensor.numpy())
 
         if loc is None:
             loc = self._get_location()

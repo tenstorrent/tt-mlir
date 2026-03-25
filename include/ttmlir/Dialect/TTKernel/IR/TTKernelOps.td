@@ -2161,6 +2161,20 @@ def TTKernel_FillTileOp : TTKernel_SFPUOp<"fill_tile", [TTKernel_UnaryOpTrait]> 
     }];
 }
 
+def TTKernel_FillTileIntOp : TTKernel_SFPUOp<"fill_tile_int", [TTKernel_UnaryOpTrait]> {
+    let summary = "Fill tile with specified int32 value.";
+    let description = [{
+      Fills supplied DST register tile with a supplied i32 value. The DST
+      register must be in acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike: $dst_index, I32:$value);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $value `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_SigmoidTileInitOp : TTKernel_InitOp<"sigmoid_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of sigmoid_tile.";
     let description = [{
@@ -2616,22 +2630,6 @@ def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_u
 
     let assemblyFormat = [{
       `(` $cbIn `,` $cbOut `,` $blockR `,` $blockC `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_ExperimentalTileFillOp : TTKernel_SFPUOp<"experimental::tile_fill", [TTKernel_UnaryOpTrait]> {
-    let summary = "Experimental Tile Fill Op";
-    let description = [{
-      Creates a tile in DST filled with a constant scalar value. All elements in the
-      resulting tile will have the same value as the input scalar. The DST register
-      buffer must be in acquired state via *tile_regs_acquire* call. This call is
-      blocking and is only available on the compute engine.
-    }];
-
-    let arguments = (ins IndexLike:$dst_index, AnyFloat:$value);
-
-    let assemblyFormat = [{
-      `(` $dst_index `,` $value `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
