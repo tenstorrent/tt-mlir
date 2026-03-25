@@ -383,7 +383,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   // Reblock it back to original shape to preserve IR correctness.
   // The view chain that applyViews composes through depends on this
   // ViewLayoutOp existing between the optimal-grid ToLayout and downstream
-  // StreamLayoutOps / GenericOps.
+  // ViewLayoutOps / GenericOps.
   auto viewOutputType = mlir::cast<RankedTensorType>(utils::reblockShapedType(
       newTensorType, oldLayout.getGridShape(outputType)));
   auto reblockMap = ttmlir::utils::calculateReblockMap(
@@ -395,7 +395,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
 
   // We expect the ToLayout to be used in one of two ways:
   // 1. Directly by a single GenericOp (or operations within its region)
-  // 2. By a stream_layout or view_layout operation, where the result is then
+  // 2. By a view_layout operation, where the result is then
   //    used by a single GenericOp
   d2m::GenericOp parentGeneric = nullptr;
 
@@ -441,7 +441,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
 
     TT_assertv(useGeneric,
                "ToLayout result must be used by a single GenericOp or a "
-               "single StreamLayout/ViewLayout that feeds a single GenericOp");
+               "single ViewLayout that feeds a single GenericOp");
 
     if (!parentGeneric) {
       parentGeneric = useGeneric;
@@ -1019,7 +1019,7 @@ updateViewLayoutOps(ArrayRef<ViewLayoutUpdateInfo> viewLayoutsToUpdate,
 
     // Compose the original remapping with a reblock map that maps from the
     // old output shape to the new output shape. This mirrors what
-    // updateStreamLayoutOps did for stream_layout storage.
+    // the old grid selection did for view storage.
     llvm::SmallVector<int64_t> oldShape(oldResultType.getShape());
     llvm::SmallVector<int64_t> newShape(newResultType.getShape());
 
@@ -1058,7 +1058,7 @@ updateViewLayoutOps(ArrayRef<ViewLayoutUpdateInfo> viewLayoutsToUpdate,
 }
 
 // Phase 5: Recreate the d2m.generic with updated operands.
-// After updating ToLayout and StreamLayout ops, the generic's operands have
+// After updating ToLayout and ViewLayout ops, the generic's operands have
 // new types with the selected grids. The generic grid is still anchored by the
 // output operand's chosen grid, but we must re-materialize the generic attrs
 // from the selected operand grids after those rewrites so the rebuilt op stays

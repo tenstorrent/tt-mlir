@@ -632,10 +632,6 @@ findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping,
   }
 
   auto *def = operand.getDefiningOp();
-  if (auto stream = dyn_cast<d2m::StreamLayoutOp>(def)) {
-    return findIOTensor(stream.getInput(), valueMapping,
-                        OperandLocality::L1Remote);
-  }
   if (auto view = dyn_cast<d2m::ViewLayoutOp>(def)) {
     return findIOTensor(view.getInput(), valueMapping,
                         OperandLocality::L1Remote);
@@ -658,16 +654,6 @@ static Value findCBMemref(Value operand) {
     TT_assertv(isa<MemRefType>(operand.getType()),
                "expected operand to be a memref");
     return operand;
-  }
-
-  if (auto stream = dyn_cast<d2m::StreamLayoutOp>(def)) {
-    return stream.getStorage();
-  }
-  if (auto view = dyn_cast<d2m::ViewLayoutOp>(def)) {
-    if (auto stream =
-            dyn_cast<d2m::StreamLayoutOp>(view.getInput().getDefiningOp())) {
-      return stream.getStorage();
-    }
   }
 
   TT_assertv(isa<MemRefType>(operand.getType()),
@@ -741,6 +727,8 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       unsigned targetIdx = static_cast<unsigned>(cbForOp.getInt());
       TT_assertv(targetIdx < infos.size(), "d2m.cb_for_operand out of range");
       infos[targetIdx].cbMemref = arg;
+      // The CB has its own L1 allocation (not backed by the input tensor).
+      infos[targetIdx].locality = OperandLocality::L1Remote;
     } else if (isa<ttnn::GlobalSemaphoreType>(arg.getType()) ||
                isa<RankedTensorType>(arg.getType())) {
       Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
@@ -1100,8 +1088,8 @@ static LogicalResult cleanupAndVerify(ModuleOp moduleOp,
   // already erased. External uses are resolved by the remapping.
   SmallVector<Operation *> opsToErase;
   moduleOp.walk([&](Operation *op) {
-    if (isa<ttir::TTNNMetalLayoutCastOp, d2m::StreamLayoutOp, d2m::ViewLayoutOp,
-            d2m::EmptyOp, d2m::FullOp, d2m::ResetGlobalSemaphoreOp,
+    if (isa<ttir::TTNNMetalLayoutCastOp, d2m::ViewLayoutOp, d2m::EmptyOp,
+            d2m::FullOp, d2m::ResetGlobalSemaphoreOp,
             d2m::CreateGlobalSemaphoreOp, memref::DeallocOp, memref::AllocOp>(
             op)) {
       opsToErase.push_back(op);

@@ -235,9 +235,9 @@ def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayo
   let summary = "View layout attribute in TT dialect";
   let description = [{
     Placeholder attr to indicate a view layout of a memref buffer.  Actual affine map
-    is encoded on the view_layout/stream_layout op itself.
+    is encoded on the view_layout op itself.
 
-    Only the view_layout or stream_layout ops should return memref's with this attribute.
+    Only the view_layout op should return memref's with this attribute.
     The view layout attribute is necessary for two reasons:
       - It provides a way to reblock the data view into a different shape (via affine map).
         Usually this would be some subblock of the original backing memory to chunk the data
@@ -289,25 +289,20 @@ def TTCore_CBLayoutAttr : TTCore_Attr<"CBLayout", "cb_layout", [MemRefLayoutAttr
   let description = [{
     Describes the layout of a core-local circular buffer in L1 memory.
     Unlike ShardLayoutAttr, this layout does not imply a grid+shard shape
-    split — the entire memref shape is the local buffer shape.
+    split — the entire memref shape is the per-core local buffer shape.
+    CBs are always core-local (implicitly 1x1 grid).
 
     - Stride: Stride of each dimension in bytes.
     - Buffers: Number of backing buffers (1 = single, 2 = double-buffered, etc.)
-    - GridShape: Physical grid shape for the buffer (resolved from the
-      external operand's device layout at stream insertion time).  Used at
-      conversion/serialization to construct the full [grid..shard..] +
-      ShardLayoutAttr type for CreateBufferOp.
   }];
   let parameters = (ins ArrayRefParameter<"int64_t">:$stride,
-                        "uint32_t":$buffers,
-                        ArrayRefParameter<"int64_t">:$gridShape);
+                        "uint32_t":$buffers);
 
-  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers `,` `grid` `=` `[` custom<DimensionList>($gridShape) `]` `>`";
+  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers `>`";
 
   let extraClassDeclaration = [{
     static CBLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
     static CBLayoutAttr get(ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
-    static CBLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers, ArrayRef<int64_t> gridShape);
 
     AffineMap getAffineMap() const;
 

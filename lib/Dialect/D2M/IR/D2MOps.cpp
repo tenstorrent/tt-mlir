@@ -616,10 +616,9 @@ ToLayoutOp::fold(FoldAdaptor,
   mlir::RankedTensorType outputType =
       dyn_cast<mlir::RankedTensorType>(getOutput().getType());
   if (inputType && outputType && inputType == outputType) {
-    // Don't fold if the input is a stream/view — the remapping it carries
+    // Don't fold if the input is a view — the remapping it carries
     // must be materialized by this to_layout, even if the types match.
-    if (getInput().getDefiningOp<StreamLayoutOp>() ||
-        getInput().getDefiningOp<ViewLayoutOp>()) {
+    if (getInput().getDefiningOp<ViewLayoutOp>()) {
       return mlir::failure();
     }
     // Don't fold when the virtualGridInverseMappings of the input and output
@@ -1041,133 +1040,6 @@ ToHostOp::getBufferType(mlir::Value value,
 }
 
 //===----------------------------------------------------------------------===//
-// StreamLayoutOp
-//===----------------------------------------------------------------------===//
-
-void d2m::StreamLayoutOp::getAsmResultNames(
-    function_ref<void(Value, StringRef)> setNameFn) {
-  setNameFn(getResult(), "stream");
-}
-
-bool d2m::StreamLayoutOp::bufferizesToMemoryRead(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  return false;
-}
-
-bool d2m::StreamLayoutOp::bufferizesToMemoryWrite(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  return false;
-}
-
-mlir::LogicalResult d2m::StreamLayoutOp::bufferize(
-    mlir::RewriterBase &rewriter,
-    const mlir::bufferization::BufferizationOptions &options,
-    mlir::bufferization::BufferizationState &state) {
-  if (!mlir::isa<::mlir::RankedTensorType>(getResult().getType())) {
-    return failure();
-  }
-
-  auto maybeInput =
-      mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
-  if (failed(maybeInput)) {
-    return maybeInput;
-  }
-
-  auto maybeStorage =
-      mlir::bufferization::getBuffer(rewriter, getStorage(), options, state);
-  if (failed(maybeStorage)) {
-    return maybeStorage;
-  }
-
-  ::llvm::SmallVector<mlir::Value> invocationStack;
-  Value result = rewriter.create<d2m::StreamLayoutOp>(
-      getLoc(), *getBufferType(getResult(), options, state, invocationStack),
-      *maybeInput, getRemapping(), *maybeStorage);
-  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, result);
-  return success();
-}
-
-mlir::bufferization::AliasingValueList d2m::StreamLayoutOp::getAliasingValues(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  bufferization::AliasingValueList result;
-  result.addAlias({getResult(), bufferization::BufferRelation::Equivalent});
-  return result;
-}
-
-mlir::FailureOr<mlir::bufferization::BufferLikeType>
-d2m::StreamLayoutOp::getBufferType(
-    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
-    const mlir::bufferization::BufferizationState &,
-    ::llvm::SmallVector<mlir::Value> &) {
-  return ttcore::getBufferType(value.getType(), /*isView=*/true);
-}
-
-void d2m::StreamLayoutOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  patterns.add(+[](StreamLayoutOp op, mlir::PatternRewriter &rewriter) {
-    ViewLayoutOp viewOp = op.getInput().getDefiningOp<ViewLayoutOp>();
-    if (!viewOp) {
-      return failure();
-    }
-
-    auto viewMemref = mlir::dyn_cast<MemRefType>(viewOp.getResult().getType());
-    if (!viewMemref) {
-      return failure();
-    }
-
-    auto currentResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
-    auto composedMap = viewOp.getRemapping().compose(op.getRemapping());
-    auto newMemref = MemRefType::get(
-        currentResultMemref.getShape(), currentResultMemref.getElementType(),
-        rewriter.getAttr<ttcore::ViewLayoutAttr>(currentResultMemref.getRank()),
-        currentResultMemref.getMemorySpace());
-    rewriter.replaceOpWithNewOp<StreamLayoutOp>(
-        op, newMemref, viewOp.getInput(), AffineMapAttr::get(composedMap),
-        op.getStorage());
-    return success();
-  });
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
-}
-
-mlir::LogicalResult StreamLayoutOp::verify() {
-  auto inputStorageVerification = verifyLayoutOp(
-      *this, "input", "storage", getInput().getType(), getStorage().getType(),
-      /*checkSameElementType*/ true,
-      /*checkSameMemorySpace*/ false,
-      /*checkSameRank*/ false,
-      /*checkSameGridShape*/ false,
-      /*checkSameShardShape*/ false);
-  if (failed(inputStorageVerification)) {
-    return inputStorageVerification;
-  }
-
-  auto storageResultVerification = verifyLayoutOp(
-      *this, "storage", "result", getStorage().getType(), getResult().getType(),
-      /*checkSameElementType*/ true,
-      /*checkSameMemorySpace*/ false,
-      /*checkSameRank*/ false,
-      /*checkSameGridShape*/ false,
-      /*checkSameShardShape*/ false);
-  if (failed(storageResultVerification)) {
-    return storageResultVerification;
-  }
-
-  auto inputResultVerification = verifyLayoutOp(
-      *this, "input", "result", getInput().getType(), getResult().getType(),
-      /*checkSameElementType*/ true,
-      /*checkSameMemorySpace*/ true,
-      /*checkSameRank*/ false,
-      /*checkSameGridShape*/ false,
-      /*checkSameShardShape*/ false);
-  if (failed(inputResultVerification)) {
-    return inputResultVerification;
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // ViewLayoutOp
 //===----------------------------------------------------------------------===//
 
@@ -1390,37 +1262,7 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 
 void d2m::ViewLayoutOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
-  // Fold view(stream) -> stream with composed layout.
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  patterns.add(+[](ViewLayoutOp op, mlir::PatternRewriter &rewriter) {
-    StreamLayoutOp streamOp = op.getInput().getDefiningOp<StreamLayoutOp>();
-    if (!streamOp) {
-      return failure();
-    }
-
-    auto streamMemref =
-        mlir::dyn_cast<MemRefType>(streamOp.getResult().getType());
-    if (!streamMemref) {
-      return failure();
-    }
-
-    auto viewResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
-
-    // Compose the stream's remapping with the view's remapping.
-    mlir::AffineMap composedRemapping =
-        streamOp.getRemapping().compose(op.getRemapping());
-
-    auto composedAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
-        static_cast<unsigned>(viewResultMemref.getRank()));
-    auto newMemref = MemRefType::get(
-        viewResultMemref.getShape(), viewResultMemref.getElementType(),
-        composedAttr, viewResultMemref.getMemorySpace());
-    rewriter.replaceOpWithNewOp<StreamLayoutOp>(
-        op, newMemref, streamOp.getInput(),
-        AffineMapAttr::get(composedRemapping), streamOp.getStorage());
-    return success();
-  });
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+  // No patterns currently needed.
 }
 
 //===----------------------------------------------------------------------===//
@@ -1661,14 +1503,9 @@ void d2m::GenericOp::build(
     auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
         tensorType.getEncoding());
 
-    // If the operand is a view/stream, get the layout from its source.
+    // If the operand is a view, get the layout from its source.
     if (!layout) {
-      if (auto streamOp = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
-        auto storageType =
-            mlir::cast<RankedTensorType>(streamOp.getStorage().getType());
-        layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-            storageType.getEncoding());
-      } else if (auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+      if (auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
         auto inputType =
             mlir::cast<RankedTensorType>(viewOp.getInput().getType());
         layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
@@ -1676,8 +1513,7 @@ void d2m::GenericOp::build(
       }
     }
 
-    assert(layout &&
-           "Expected MetalLayoutAttr or ViewLayoutAttr with StreamLayoutOp");
+    assert(layout && "Expected MetalLayoutAttr on operand or its view source");
     auto shardShape = layout.getShardShape(tensorType);
     auto emptyOp = builder.create<mlir::tensor::EmptyOp>(
         state.location, shardShape, tensorType.getElementType());
@@ -2129,21 +1965,6 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       return emitOpError("threads must have a kernel symbol in external symbol "
                          "form (i.e. without regions)");
     }
-  }
-
-  auto isReductionIterator = [](Attribute iteratorType) {
-    return mlir::cast<ttcore::IteratorTypeAttr>(iteratorType).getValue() ==
-           ttcore::IteratorType::Reduction;
-  };
-  auto isStreamingOutput = [](Value output) {
-    return output.getDefiningOp() != nullptr &&
-           mlir::dyn_cast<d2m::StreamLayoutOp>(output.getDefiningOp()) !=
-               nullptr;
-  };
-  if (llvm::any_of(getIteratorTypes(), isReductionIterator) &&
-      llvm::any_of(getOutputs(), isStreamingOutput)) {
-    return emitOpError("Streaming outputs are not supported for reduction "
-                       "iterators. Issue #5446");
   }
 
   // Verify that any values used in regions that are defined outside
