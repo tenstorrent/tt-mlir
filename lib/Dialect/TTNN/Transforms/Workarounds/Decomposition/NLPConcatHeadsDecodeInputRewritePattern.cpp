@@ -35,7 +35,7 @@ std::optional<ToLayoutOp> getWorkaroundedInput(NLPConcatHeadsDecodeOp op,
       ttcore::getCurrentScopeSystemDesc(op).getChipDescs()[0].getGrid();
 
   auto [virtToPhysicalMap, physicalToVirtMap] =
-      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
+      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
           rewriter.getContext(), TensorMemoryLayout::HeightSharded,
           physicalGrid);
 

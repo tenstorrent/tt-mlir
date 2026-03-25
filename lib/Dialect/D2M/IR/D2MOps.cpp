@@ -2237,7 +2237,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
              << gridShape.size() << "D";
     }
 
-    if (grid.getMapping().isEmpty()) {
+    if (grid.getVirtToPhysicalMap().isEmpty()) {
       if (gridShape[0] > regionShapeY || gridShape[1] > regionShapeX) {
         return emitOpError("generic op grid shape [")
                << gridShape[0] << ", " << gridShape[1]
@@ -2245,7 +2245,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
                << regionShapeX << "]";
       }
     } else {
-      AffineMap physicalToVirtual = grid.getMapping();
+      AffineMap physicalToVirtual = grid.getVirtToPhysicalMap();
       if (physicalToVirtual.getNumResults() == 3u) {
         physicalToVirtual = physicalToVirtual.dropResult(0);
       }

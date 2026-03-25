@@ -21,7 +21,7 @@
 
 namespace mlir::tt::ttnn::optimizer_utils {
 
-std::pair<AffineMap, AffineMap> createSingleDeviceVirtualToPhysicalAffineMap(
+std::pair<AffineMap, AffineMap> createSingleDeviceVirtualToPhysicalAffineMaps(
     MLIRContext *context,
     const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
     const llvm::ArrayRef<int64_t> physicalGridShape) {
@@ -31,7 +31,7 @@ std::pair<AffineMap, AffineMap> createSingleDeviceVirtualToPhysicalAffineMap(
   switch (tensorMemoryLayout) {
   case mlir::tt::ttnn::TensorMemoryLayout::WidthSharded: {
     // Create affine map that maps width sharded virtual grid 1xN to the
-    // physical grid gridShape[0] x gridShape[1]
+    // physical grid gridShape[0] x gridShape[1] and vice versa.
     AffineExpr virtualWidth = mlir::getAffineDimExpr(1, context); // d1
     AffineExpr workerCoreW =
         mlir::getAffineConstantExpr(physicalGridShape[1], context);
@@ -51,7 +51,7 @@ std::pair<AffineMap, AffineMap> createSingleDeviceVirtualToPhysicalAffineMap(
   }
   case mlir::tt::ttnn::TensorMemoryLayout::HeightSharded: {
     // Create affine map that maps height sharded virtual grid Mx1 to the
-    // physical grid gridShape[0] x gridShape[1]
+    // physical grid gridShape[0] x gridShape[1] and vice versa.
     AffineExpr virtualHeight = mlir::getAffineDimExpr(0, context); // d0
     AffineExpr workerCoreW =
         mlir::getAffineConstantExpr(physicalGridShape[1], context);

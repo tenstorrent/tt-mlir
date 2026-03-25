@@ -139,7 +139,7 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
            "Max device grid is expected to be 2D.");
     // Block Sharded
     auto [virtToPhysicalMapBlock, physicalToVirtMapBlock] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
+        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
             ctx, TensorMemoryLayout::BlockSharded, maxGrid.getShape());
     for (int height = 1; height <= maxGrid.getShape()[0]; ++height) {
       for (int width = 1; width <= maxGrid.getShape()[1]; ++width) {
@@ -162,7 +162,7 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
     int64_t numCores = maxGrid.getGridVolume();
     // Height Sharded
     auto [virtToPhysicalMapHeight, physicalToVirtMapHeight] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
+        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
             ctx, TensorMemoryLayout::HeightSharded, maxGrid.getShape());
 
     for (int height = 1; height <= numCores; ++height) {
@@ -184,7 +184,7 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
 
     // Width Sharded
     auto [virtToPhysicalMapWidth, physicalToVirtMapWidth] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
+        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
             ctx, TensorMemoryLayout::WidthSharded, maxGrid.getShape());
     for (int width = 1; width <= numCores; ++width) {
       shardedResults.push_back(

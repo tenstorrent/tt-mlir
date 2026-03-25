@@ -1006,7 +1006,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
         mlir::AffineMap mapping =
             shardGrid.getVirtToPhysicalMap().isEmpty()
                 ? ttnn::optimizer_utils::
-                      createSingleDeviceVirtualToPhysicalAffineMap(
+                      createSingleDeviceVirtualToPhysicalAffineMaps(
                           ctx, memLayoutAttr.getValue(), deviceGrid.getShape())
                           .first
                 : shardGrid.getVirtToPhysicalMap();

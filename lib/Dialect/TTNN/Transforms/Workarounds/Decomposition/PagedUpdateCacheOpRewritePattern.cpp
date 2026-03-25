@@ -42,7 +42,7 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
   // of [32, 1] and a physical grid of [8, 8], this affine map would produce a
   // core range of [0, 0] to [7, 3].
   auto [virtToPhysicalMap, physicalToVirtMap] = mlir::tt::ttnn::
-      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
+      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
           rewriter.getContext(), ttnn::TensorMemoryLayout::HeightSharded,
           physicalGrid);
   auto grid =

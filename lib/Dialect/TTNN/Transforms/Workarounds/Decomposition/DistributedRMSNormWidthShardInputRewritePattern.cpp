@@ -83,7 +83,7 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // Create an affine map that translates the virtual grid layout to the
   // physical grid layout.
   auto [virtToPhysicalMap, physicalToVirtMap] = mlir::tt::ttnn::
-      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
+      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
           rewriter.getContext(), ttnn::TensorMemoryLayout::WidthSharded,
           physicalGrid);
   auto grid =
