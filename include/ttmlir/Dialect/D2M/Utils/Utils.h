@@ -153,14 +153,6 @@ llvm::SmallVector<int64_t, 2>
 collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
                          ArrayRef<int64_t> deviceGridShape);
 
-// Compute optimal grid shape for a given physical shape and target grid by
-// finding the largest grid dimensions that evenly divide the physical shape.
-// This ensures maximum utilization of available worker cores while maintaining
-// even distribution of work.
-llvm::SmallVector<int64_t>
-computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
-                               ArrayRef<int64_t> targetSquareGridShape);
-
 } // namespace mlir::tt::d2m::utils
 
 #endif
