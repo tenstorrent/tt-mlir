@@ -58,20 +58,20 @@ struct CQBuilder {
   std::vector<flatbuffers::Offset<target::metal::BufferRef>> inputs;
   std::vector<flatbuffers::Offset<target::metal::BufferRef>> outputs;
   std::vector<flatbuffers::Offset<target::metal::Command>> commands;
-  OpPrintingFlags printFlags;
+  mlir::AsmState printState;
 
-  CQBuilder(flatbuffers::FlatBufferBuilder *fbb) : fbb(fbb) {
-    printFlags = printFlags.elideLargeElementsAttrs()
-                     .elideLargeResourceString()
-                     .skipRegions()
-                     .enableDebugInfo()
-                     .assumeVerified();
-  }
+  CQBuilder(flatbuffers::FlatBufferBuilder *fbb, func::FuncOp entry)
+      : fbb(fbb), printState(entry, OpPrintingFlags()
+                                        .elideLargeElementsAttrs()
+                                        .elideLargeResourceString()
+                                        .skipRegions()
+                                        .enableDebugInfo()
+                                        .assumeVerified()) {}
 
   std::string getDebugString(mlir::Operation *op) {
     std::string str;
     llvm::raw_string_ostream os(str);
-    op->print(os, printFlags);
+    op->print(os, printState);
     return str;
   };
 
@@ -860,7 +860,7 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
     std::vector<flatbuffers::Offset<target::metal::TensorRef>> tensorInputs;
     std::vector<flatbuffers::Offset<target::metal::TensorRef>> tensorOutputs;
 
-    CQBuilder cqBuilder(&fbb);
+    CQBuilder cqBuilder(&fbb, entry);
     cqBuilder.name = entry.getSymName().data();
 
     cqBuilder.inputs.reserve(entry.getBody().getArguments().size());

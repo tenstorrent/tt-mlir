@@ -51,4 +51,14 @@ target_link_libraries(TestOpModelLibMockDevice
     MLIRTTTransforms
 )
 
+add_executable(TestMockDeviceCrash TestMockDeviceCrash.cpp)
+target_compile_options(TestMockDeviceCrash PRIVATE -fno-rtti)
+target_include_directories(TestMockDeviceCrash PUBLIC
+    ${PROJECT_SOURCE_DIR}/lib/OpModel/TTNN/
+    ${PROJECT_SOURCE_DIR}/test/unittests/OpModel/TTNN/
+)
+target_link_libraries(TestMockDeviceCrash PRIVATE
+    gtest TTNNOpModelLib MLIRTTCoreDialect MLIRTTNNDialect MLIRTTTransforms
+)
+
 endif()

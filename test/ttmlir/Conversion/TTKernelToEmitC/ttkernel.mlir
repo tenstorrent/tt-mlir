@@ -101,6 +101,24 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @pack_reconfig_l1_acc
+    func.func @pack_reconfig_l1_acc() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[ENABLE:.*]] = "emitc.constant"
+      %enable = arith.constant 1 : i32
+      // CHECK: emitc.verbatim "PACK((llk_pack_reconfig_l1_acc({})));" args %[[ENABLE]]
+      "ttkernel.pack_reconfig_l1_acc"(%enable) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @pack_reconfig_data_format
+    func.func @pack_reconfig_data_format() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: emitc.call_opaque "pack_reconfig_data_format"(%[[CB]])
+      "ttkernel.pack_reconfig_data_format"(%cb) : (!cb0_tiles) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @copy_block_matmul_partials
     func.func @copy_block_matmul_partials() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"

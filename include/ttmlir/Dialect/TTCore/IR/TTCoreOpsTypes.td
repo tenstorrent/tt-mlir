@@ -755,4 +755,41 @@ def TTCore_ArgumentTypeAttr : EnumAttr<TTCore_Dialect, TTCore_ArgumentType, "arg
 def TTCore_TopologyAttr : EnumAttr<TTCore_Dialect, TTCore_Topology, "topology"> {
   let assemblyFormat = "`<` $value `>`";
 }
+
+def TTCore_CoreRangeAttr: TTCore_Attr<"CoreRange", "core_range"> {
+  let summary = "A range of cores in the core grid";
+  let description = [{
+    Defines a range of cores in the core grid.
+
+    Parameters:
+    - `start_coord`: Lower-left corner of the core range
+    - `end_coord`: Upper-right corner of the core range
+
+    Constraints:
+    - `start_coord` and `end_coord` must use non-negative core indices (lowering
+      uses unsigned TTNN core coordinates; negative values can wrap).
+    - The condition `start_coord` <= `end_coord` must be satisfied
+
+    Example:
+
+    ```mlir
+    // Define a core range spanning from (1,1) to (3,4)
+    // This represents a 3x4 rectangular grid of cores
+    #core_range = #ttcore.core_range<(1, 1), (3, 4)>
+    ```
+  }];
+
+  let parameters = (ins "CoreCoordAttr":$start_coord, "CoreCoordAttr":$end_coord);
+  let assemblyFormat = "`<` custom<CoordBracketStyle>($start_coord) `,` custom<CoordBracketStyle>($end_coord) `>`";
+
+  let extraClassDeclaration = [{
+    bool intersects(CoreRangeAttr other) const;
+  }];
+
+  let genVerifyDecl = 1;
+}
+
+def TTCore_CoreRangeArrayAttr : TypedArrayAttrBase<
+    TTCore_CoreRangeAttr, "ordered array of ttcore core_range attributes">;
+
 #endif // TTMLIR_DIALECT_TTCore_IR_TTCOREOPSTYPES_TD
