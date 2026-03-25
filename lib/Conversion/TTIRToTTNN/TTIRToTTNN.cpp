@@ -1709,11 +1709,27 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AllToAllCombineOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto outputType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    auto inputType = cast<RankedTensorType>(adaptor.getInputTensor().getType());
+    auto inputShape = inputType.getShape();
+
+    // Auto-detect output_shard_dim from input tensor shape.
+    // input_tensor: [E_local, BD, S, H] (default, shard_dim=1)
+    // For decode (S=1), use shard_dim=2 to avoid tile waste on S dimension.
+    // inputShape[2] is the S dimension in [E, BD, S, H] layout.
+    int64_t outputShardDim = (inputShape.size() >= 4 && inputShape[2] == 1)
+                                 ? 2  // decode mode
+                                 : 1; // prefill mode
+
+    // NOTE: runtime decode workaround (output_shard_dim=2 -> 1+reshape) is
+    // handled in TTNN MoE decomposition workarounds.
+
     rewriter.replaceOpWithNewOp<ttnn::AllToAllCombineOp>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInputTensor(), adaptor.getExpertMetadata(),
+        op, outputType, adaptor.getInputTensor(), adaptor.getExpertMetadata(),
         adaptor.getExpertMapping(), op.getNumDevicesAttr(),
         op.getClusterAxisAttr(), op.getNumExpertsPerTokAttr(),
+        rewriter.getI64IntegerAttr(outputShardDim),
         /*memory_config=*/nullptr);
     return success();
   }
