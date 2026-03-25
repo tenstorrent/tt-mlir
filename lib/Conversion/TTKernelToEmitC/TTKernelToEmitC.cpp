@@ -1001,9 +1001,9 @@ public:
   matchAndRewrite(ttkernel::PackReconfigDataFormatOp op,
                   ttkernel::PackReconfigDataFormatOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.create<emitc::CallOpaqueOp>(op->getLoc(), TypeRange{},
-                                         "pack_reconfig_data_format",
-                                         ValueRange{adaptor.getOutCb()});
+    emitc::CallOpaqueOp::create(rewriter, op->getLoc(), TypeRange{},
+                                "pack_reconfig_data_format",
+                                ValueRange{adaptor.getOutCb()});
     rewriter.eraseOp(op);
     return success();
   }
