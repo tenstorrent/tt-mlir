@@ -121,7 +121,8 @@ private:
 
   /// Resolve fork point: pick the producer candidate that minimizes
   /// total reshard count across all consumers.
-  size_t resolveForForkPoint(Operation *forkOp);
+  size_t resolveForForkPoint(Operation *forkOp,
+                             llvm::ArrayRef<Operation *> consumers);
 
   /// Validate that a reshard (ToMemoryConfigOp) from producerOutputLayout to
   /// reshardLayout is feasible via backend constraint validation.
