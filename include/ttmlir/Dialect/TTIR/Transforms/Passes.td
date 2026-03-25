@@ -481,4 +481,18 @@ def TTIRFoldFullToScalar: Pass<"ttir-fold-full-to-scalar", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRCPUBooleanNarrowing : Pass<"ttir-cpu-boolean-narrowing", "::mlir::ModuleOp"> {
+  let summary = "Narrow boolean-producing ops to i1 in the CPU module.";
+  let description = [{
+    ElementTypeNormalization converts i1 to bf16 because TT hardware
+    doesn't support boolean tensor storage. On the CPU path this is unnecessary
+    and inflates memory (e.g. a 32768x32768 causal mask becomes 4 GiB in f32
+    instead of 1 GiB in i1).
+
+    This pass runs on the CPU module before linalg lowering and narrows
+    comparison/logical ops back to i1. Typecasts are inserted at boundaries
+    where i1 values flow into non-boolean consumers.
+  }];
+}
+
 #endif
