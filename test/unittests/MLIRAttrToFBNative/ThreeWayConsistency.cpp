@@ -11,7 +11,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
-#include <iostream>
 #include <optional>
 
 template <typename Attr, typename RetType>
@@ -151,17 +150,6 @@ protected:
     ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig> conv2dConfigFB =
         mlir::tt::toFlatbuffer(cache, conv2dConfigAttr);
     auto *r = flatbuffers::GetTemporaryPointer(fbb, conv2dConfigFB);
-
-    if(r->override_sharding_config())
-      std::cout << "override sharding config " << *r->override_sharding_config() << std::endl;
-    if(r->reshard_if_not_optimal()) 
-      std::cout << "reshard if not opitmal " << *r->reshard_if_not_optimal() << std::endl;
-    std::cout << "temporary pointer: " << r->core_grid() << std::endl;
-    std::cout << "temporary pointer: " << r->core_grid()->core_ranges() << std::endl;
-    //for(auto el : *r->core_grid()->core_ranges()) {
-    //  std::cout << el->start_coord().x() << "," << el->start_coord().y() << " ";
-    //}
-    std::cout << std::endl;
     return tt::runtime::ttnn::operations::utils::createConv2dConfig(r);
   }
 
@@ -221,21 +209,6 @@ protected:
     EXPECT_EQ(pathA->shard_layout, pathB->shard_layout);
     EXPECT_EQ(pathA->shard_layout, pathC->shard_layout);
 
-    if(pathA->core_grid.has_value()) {  
-      std::cout << "pathA" << pathA->core_grid->size() << "\n";
-    } else {
-      std::cout << "pathA je nullopt\n";
-    }
-    if(pathB->core_grid.has_value()) {  
-      std::cout << "pathB" << pathB->core_grid->size() << "\n";
-    } else {
-      std::cout << "pathB je nullopt\n";
-    }
-    if(pathC->core_grid.has_value()) {  
-      std::cout << "pathC" << pathC->core_grid->size() << "\n";
-    } else {
-      std::cout << "pathC je nullopt\n";
-    }
     EXPECT_EQ(pathA->core_grid, pathB->core_grid);
     EXPECT_EQ(pathB->core_grid, pathC->core_grid);
 
@@ -265,8 +238,6 @@ TEST_P(DeviceComputeKernelConfigTest, DeviceComputeKernelConfig) {
   RunTest(params);
 }
 
-mlir::MLIRContext *contextDeviceComputeKernelConfig =
-    DeviceComputeKernelConfigTest::getContext();
 const std::initializer_list<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
     deviceComputeKernelConfigAttrlist = {
         mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
@@ -274,16 +245,24 @@ const std::initializer_list<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
         mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
             DeviceComputeKernelConfigTest::getContext(),
             mlir::tt::ttnn::MathFidelity::HiFi2,
-            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, false),
-            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, true),
-            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, true),
-            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, false)),
+            mlir::BoolAttr::get(DeviceComputeKernelConfigTest::getContext(),
+                                false),
+            mlir::BoolAttr::get(DeviceComputeKernelConfigTest::getContext(),
+                                true),
+            mlir::BoolAttr::get(DeviceComputeKernelConfigTest::getContext(),
+                                true),
+            mlir::BoolAttr::get(DeviceComputeKernelConfigTest::getContext(),
+                                false)),
         mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
             DeviceComputeKernelConfigTest::getContext(), std::nullopt,
-            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, true),
-            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, false),
-            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, false),
-            mlir::BoolAttr::get(contextDeviceComputeKernelConfig, true))};
+            mlir::BoolAttr::get(DeviceComputeKernelConfigTest::getContext(),
+                                true),
+            mlir::BoolAttr::get(DeviceComputeKernelConfigTest::getContext(),
+                                false),
+            mlir::BoolAttr::get(DeviceComputeKernelConfigTest::getContext(),
+                                false),
+            mlir::BoolAttr::get(DeviceComputeKernelConfigTest::getContext(),
+                                true))};
 
 INSTANTIATE_TEST_SUITE_P(
     DeviceComputeKernelConfigTest, DeviceComputeKernelConfigTest,
@@ -294,124 +273,123 @@ TEST_P(Conv2dConfigTest, Conv2dConfig) {
   RunTest(params);
 }
 
-mlir::MLIRContext *contextConv2dConfig = Conv2dConfigTest::getContext();
 const std::initializer_list<mlir::tt::ttnn::Conv2dConfigAttr>
     conv2dConfigAttrlist = {
-        // mlir::tt::ttnn::Conv2dConfigAttr::get(Conv2dConfigTest::getContext()),
+        mlir::tt::ttnn::Conv2dConfigAttr::get(Conv2dConfigTest::getContext()),
         mlir::tt::ttnn::Conv2dConfigAttr::get(
             Conv2dConfigTest::getContext(),
             mlir::tt::ttcore::DataType::BFP_BFloat4,
             mlir::tt::ttnn::UnaryWithParamAttr::get(
-                contextConv2dConfig, mlir::tt::ttnn::UnaryOpType::Relu,
+                Conv2dConfigTest::getContext(),
+                mlir::tt::ttnn::UnaryOpType::Relu,
                 ::llvm::ArrayRef<mlir::FloatAttr>()),
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false), 4, 7,
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false), 4, 7,
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false),
             mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
             mlir::tt::ttnn::CoreRangeSetAttr::get(
-                contextConv2dConfig,
+                Conv2dConfigTest::getContext(),
                 llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>(
                     {mlir::tt::ttnn::CoreRangeAttr::get(
-                        contextConv2dConfig,
-                        mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
-                                                           0, 0),
-                        mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
-                                                           7, 0))})),
-            mlir::BoolAttr::get(contextConv2dConfig, true),
+                        Conv2dConfigTest::getContext(),
+                        mlir::tt::ttnn::CoreCoordAttr::get(
+                            Conv2dConfigTest::getContext(), 0, 0),
+                        mlir::tt::ttnn::CoreCoordAttr::get(
+                            Conv2dConfigTest::getContext(), 7, 0))})),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
             mlir::tt::ttnn::Layout::Tile,
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false),
-            mlir::BoolAttr::get(contextConv2dConfig, true)),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true)),
         mlir::tt::ttnn::Conv2dConfigAttr::get(
             Conv2dConfigTest::getContext(), std::nullopt,
             mlir::tt::ttnn::UnaryWithParamAttr::get(
-                contextConv2dConfig, mlir::tt::ttnn::UnaryOpType::UnaryGt,
+                Conv2dConfigTest::getContext(),
+                mlir::tt::ttnn::UnaryOpType::UnaryGt,
                 llvm::ArrayRef<mlir::FloatAttr>()),
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false), std::nullopt, 7,
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false),
+            std::nullopt, 7,
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false),
             mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
             mlir::tt::ttnn::CoreRangeSetAttr::get(
-                contextConv2dConfig,
+                Conv2dConfigTest::getContext(),
                 llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>(
                     {mlir::tt::ttnn::CoreRangeAttr::get(
-                         contextConv2dConfig,
-                         mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
-                                                            1, 2),
-                         mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
-                                                            3, 5))
-                                                            ,
+                         Conv2dConfigTest::getContext(),
+                         mlir::tt::ttnn::CoreCoordAttr::get(
+                             Conv2dConfigTest::getContext(), 1, 2),
+                         mlir::tt::ttnn::CoreCoordAttr::get(
+                             Conv2dConfigTest::getContext(), 3, 5)),
                      mlir::tt::ttnn::CoreRangeAttr::get(
-                         contextConv2dConfig,
-                         mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
-                                                            35, 442),
-                         mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
-                                                            333, 555)),
+                         Conv2dConfigTest::getContext(),
+                         mlir::tt::ttnn::CoreCoordAttr::get(
+                             Conv2dConfigTest::getContext(), 35, 442),
+                         mlir::tt::ttnn::CoreCoordAttr::get(
+                             Conv2dConfigTest::getContext(), 333, 555)),
                      mlir::tt::ttnn::CoreRangeAttr::get(
-                         contextConv2dConfig,
-                         mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
-                                                            822, 772),
-                         mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
-                                                            865, 5456)),
+                         Conv2dConfigTest::getContext(),
+                         mlir::tt::ttnn::CoreCoordAttr::get(
+                             Conv2dConfigTest::getContext(), 822, 772),
+                         mlir::tt::ttnn::CoreCoordAttr::get(
+                             Conv2dConfigTest::getContext(), 865, 5456)),
                      mlir::tt::ttnn::CoreRangeAttr::get(
-                         contextConv2dConfig,
-                         mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
-                                                            10000, 2100),
-                         mlir::tt::ttnn::CoreCoordAttr::get(contextConv2dConfig,
-                          11111, 2111))
-                        })),
-            mlir::BoolAttr::get(contextConv2dConfig, false), std::nullopt,
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false),
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false)
-          )
-          , 
-          mlir::tt::ttnn::Conv2dConfigAttr::get(
+                         Conv2dConfigTest::getContext(),
+                         mlir::tt::ttnn::CoreCoordAttr::get(
+                             Conv2dConfigTest::getContext(), 10000, 2100),
+                         mlir::tt::ttnn::CoreCoordAttr::get(
+                             Conv2dConfigTest::getContext(), 11111, 2111))})),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false),
+            std::nullopt,
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false)),
+        mlir::tt::ttnn::Conv2dConfigAttr::get(
             Conv2dConfigTest::getContext(),
             mlir::tt::ttcore::DataType::BFP_BFloat4,
             mlir::tt::ttnn::UnaryWithParamAttr::get(
-                contextConv2dConfig, mlir::tt::ttnn::UnaryOpType::Relu,
+                Conv2dConfigTest::getContext(),
+                mlir::tt::ttnn::UnaryOpType::Relu,
                 ::llvm::ArrayRef<mlir::FloatAttr>()),
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false), 4, 7,
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false), 4, 7,
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false),
             mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
             mlir::tt::ttnn::CoreRangeSetAttr::get(
-                contextConv2dConfig,
+                Conv2dConfigTest::getContext(),
                 llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>()),
-            mlir::BoolAttr::get(contextConv2dConfig, true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
             mlir::tt::ttnn::Layout::Tile,
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false),
-            mlir::BoolAttr::get(contextConv2dConfig, true))
-            , 
-          mlir::tt::ttnn::Conv2dConfigAttr::get(
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true)),
+        mlir::tt::ttnn::Conv2dConfigAttr::get(
             Conv2dConfigTest::getContext(),
             mlir::tt::ttcore::DataType::BFP_BFloat4,
             mlir::tt::ttnn::UnaryWithParamAttr::get(
-                contextConv2dConfig, mlir::tt::ttnn::UnaryOpType::Relu,
+                Conv2dConfigTest::getContext(),
+                mlir::tt::ttnn::UnaryOpType::Relu,
                 ::llvm::ArrayRef<mlir::FloatAttr>()),
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false), 4, 7,
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false), 4, 7,
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false),
             mlir::tt::ttnn::TensorMemoryLayout::BlockSharded,
             mlir::tt::ttnn::CoreRangeSetAttr::get(
-                contextConv2dConfig,
+                Conv2dConfigTest::getContext(),
                 llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>()),
-            mlir::BoolAttr::get(contextConv2dConfig, true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
             mlir::tt::ttnn::Layout::Tile,
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, true),
-            mlir::BoolAttr::get(contextConv2dConfig, false),
-            mlir::BoolAttr::get(contextConv2dConfig, true))
-          };
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), false),
+            mlir::BoolAttr::get(Conv2dConfigTest::getContext(), true))};
 
 INSTANTIATE_TEST_SUITE_P(Conv2dConfigTest, Conv2dConfigTest,
                          ::testing::ValuesIn(conv2dConfigAttrlist));
