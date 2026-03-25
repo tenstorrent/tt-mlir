@@ -31,6 +31,7 @@
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
+#define GEN_PASS_DEF_TTNNCREATEMAINFORTEST
 #define GEN_PASS_DEF_TTNNLOADINPUTTENSORS
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
@@ -566,6 +567,247 @@ private:
         loc, tensorType, filePathAttr, device);
 
     return loadTensorOp;
+  }
+};
+
+class TTNNCreateMainForTest
+    : public impl::TTNNCreateMainForTestBase<TTNNCreateMainForTest> {
+
+public:
+  using impl::TTNNCreateMainForTestBase<
+      TTNNCreateMainForTest>::TTNNCreateMainForTestBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    assert(moduleOp->getRegions().size() == 1);
+    assert(moduleOp->getRegion(0).hasOneBlock());
+
+    Block *block = moduleOp.getBody(0);
+
+    // Find the forward function (_main after tuplification).
+    //
+    func::FuncOp forwardFuncOp = nullptr;
+    block->walk([&](func::FuncOp funcOp) {
+      if (ttmlir::utils::isForwardDeviceFunc(funcOp)) {
+        forwardFuncOp = funcOp;
+        return mlir::WalkResult::interrupt();
+      }
+      return mlir::WalkResult::advance();
+    });
+
+    if (!forwardFuncOp) {
+      return;
+    }
+
+    FunctionType forwardFuncType = forwardFuncOp.getFunctionType();
+    if (forwardFuncType.getInputs().empty()) {
+      return;
+    }
+
+    // Inject device argument into the forward function, replacing GetDeviceOp
+    // uses. This follows the same pattern as TTNNPrepareModuleForExport so
+    // that the EmitPy LoadCachedOpConversionPattern can find the device arg
+    // in the enclosing function and propagate it to const-eval wrapper calls.
+    //
+    // Const-eval functions get device injected separately by
+    // targetModuleConversion in the EmitPy conversion pass (it must happen
+    // there because load_cached ops only accept tensors, not device types,
+    // so the module verifier would reject a device operand on load_cached).
+    //
+    injectDeviceArg(rewriter, forwardFuncOp);
+
+    // After modifying _main's signature, existing callers (e.g. the main()
+    // entry point created by input generators) need to pass device too.
+    //
+    fixExistingCallsToForward(rewriter, moduleOp, forwardFuncOp);
+
+    createMainForTestFunction(rewriter, moduleOp, forwardFuncOp);
+  }
+
+private:
+  // Add a device argument to a function and replace all GetDeviceOp uses
+  // with it. Mirrors TTNNPrepareModuleForExport's device handling.
+  //
+  void injectDeviceArg(IRRewriter &rewriter, func::FuncOp funcOp) {
+    MLIRContext *ctx = rewriter.getContext();
+    DeviceType deviceType = DeviceType::get(ctx);
+
+    // Add device argument to the function signature.
+    //
+    auto originalFuncType = funcOp.getFunctionType();
+    SmallVector<Type> newInputTypes(originalFuncType.getInputs().begin(),
+                                    originalFuncType.getInputs().end());
+    newInputTypes.push_back(deviceType);
+    FunctionType newFuncType =
+        FunctionType::get(ctx, newInputTypes, originalFuncType.getResults());
+
+    funcOp.setFunctionType(newFuncType);
+
+    // Pad the existing arg_attrs array to match the new argument count.
+    // setArgAttr does not auto-resize, so accessing the new index would
+    // trigger an out-of-bounds assertion.
+    //
+    ArrayAttr existingArgAttrs = funcOp.getAllArgAttrs();
+    if (existingArgAttrs) {
+      SmallVector<Attribute> paddedAttrs(existingArgAttrs.begin(),
+                                         existingArgAttrs.end());
+      paddedAttrs.resize(newInputTypes.size(), DictionaryAttr::get(ctx));
+      funcOp.setAllArgAttrs(paddedAttrs);
+    }
+
+    Block &entryBlock = funcOp.getBody().front();
+    BlockArgument deviceArg =
+        entryBlock.addArgument(deviceType, funcOp.getLoc());
+    funcOp.setArgAttr(newInputTypes.size() - 1, "emitpy.name",
+                      rewriter.getStringAttr("device"));
+
+    // Replace all GetDeviceOp operations with the new device argument.
+    //
+    SmallVector<ttnn::GetDeviceOp> getDeviceOps;
+    funcOp.walk([&](ttnn::GetDeviceOp op) { getDeviceOps.push_back(op); });
+    for (ttnn::GetDeviceOp op : getDeviceOps) {
+      rewriter.replaceOp(op, deviceArg);
+    }
+  }
+
+  // Fix existing CallOps to the forward function after its signature changed.
+  // The main() entry point (created by input generators) calls _main(tuple),
+  // but after device injection _main expects (tuple, device).
+  //
+  void fixExistingCallsToForward(IRRewriter &rewriter, ModuleOp moduleOp,
+                                 func::FuncOp forwardFuncOp) {
+    StringRef forwardName = forwardFuncOp.getName();
+    SmallVector<func::CallOp> callsToFix;
+
+    moduleOp.walk([&](func::CallOp callOp) {
+      if (callOp.getCallee() == forwardName &&
+          callOp.getNumOperands() < forwardFuncOp.getNumArguments()) {
+        callsToFix.push_back(callOp);
+      }
+    });
+
+    for (func::CallOp callOp : callsToFix) {
+      rewriter.setInsertionPoint(callOp);
+      ttnn::GetDeviceOp deviceOp =
+          ttnn::utils::getOrInsertDevice(rewriter, callOp->getBlock());
+
+      SmallVector<Value> newOperands(callOp.getOperands());
+      newOperands.push_back(deviceOp);
+      rewriter.replaceOpWithNewOp<func::CallOp>(callOp, forwardFuncOp,
+                                                newOperands);
+    }
+  }
+
+  // Inject device argument into all const-eval functions in the module.
+  // Mirrors targetModuleConversion in the EmitPy conversion pass.
+  //
+  void injectDeviceArgIntoConstEvalFuncs(IRRewriter &rewriter,
+                                         ModuleOp moduleOp) {
+    moduleOp.walk([&](func::FuncOp funcOp) {
+      if (!ttmlir::utils::isConstEvalFunc(funcOp) || funcOp.isExternal()) {
+        return;
+      }
+      injectDeviceArg(rewriter, funcOp);
+    });
+  }
+
+  void createMainForTestFunction(IRRewriter &rewriter, ModuleOp moduleOp,
+                                 func::FuncOp forwardFuncOp) {
+    MLIRContext *ctx = rewriter.getContext();
+    Location loc = forwardFuncOp.getLoc();
+
+    // After injectDeviceArg, the forward function already has the device arg.
+    // main_for_test has the same signature: (input_tuple, device) -> results.
+    //
+    FunctionType forwardFuncType = forwardFuncOp.getFunctionType();
+
+    // Create the function at end of module.
+    //
+    Block *block = moduleOp.getBody(0);
+    rewriter.setInsertionPointToEnd(block);
+
+    func::FuncOp mainForTestOp =
+        rewriter.create<func::FuncOp>(loc, "main_for_test", forwardFuncType);
+
+    // Set emitpy.name attributes for parameters.
+    //
+    unsigned numArgs = forwardFuncType.getNumInputs();
+    mainForTestOp.setArgAttr(0, "emitpy.name", rewriter.getStringAttr("input"));
+    mainForTestOp.setArgAttr(numArgs - 1, "emitpy.name",
+                             rewriter.getStringAttr("device"));
+
+    // Add entry block.
+    //
+    rewriter.modifyOpInPlace(mainForTestOp, [&]() {
+      rewriter.setInsertionPointToStart(mainForTestOp.addEntryBlock());
+    });
+
+    // Get the input tuple and device arguments.
+    //
+    Value inputTuple = mainForTestOp.getArgument(0);
+    Value deviceArg = mainForTestOp.getArgument(numArgs - 1);
+
+    // The forward function should have (tuple, device) as inputs after
+    // device injection.
+    //
+    assert(forwardFuncType.getNumInputs() == 2 &&
+           "Expected forward function to have (tuple, device) inputs!");
+
+    TupleType inputTupleType =
+        mlir::cast<TupleType>(forwardFuncType.getInputs()[0]);
+
+    SmallVector<Value> preparedTensors;
+    for (size_t i = 0; i < inputTupleType.getTypes().size(); i++) {
+      Type tensorType = inputTupleType.getType(i);
+      RankedTensorType rankedTensorType =
+          mlir::cast<RankedTensorType>(tensorType);
+
+      // Extract tensor from tuple.
+      //
+      ttcore::GetTupleElementOp getElem =
+          rewriter.create<ttcore::GetTupleElementOp>(loc, inputTuple, i);
+
+      TTNNLayoutAttr layoutAttr =
+          mlir::cast<TTNNLayoutAttr>(rankedTensorType.getEncoding());
+
+      if (layoutAttr.isDeviceBufferType()) {
+        // Create MemoryConfigAttr from the layout's memory configuration.
+        //
+        MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
+            ctx, layoutAttr.getMemLayout(),
+            BufferTypeAttr::get(ctx, layoutAttr.getBufferType()),
+            /*shardSpec=*/std::nullopt);
+
+        // Move tensor to device with the expected memory config.
+        //
+        Value deviceTensor = rewriter.create<ttnn::ToDeviceOp>(
+            loc, rankedTensorType, getElem, deviceArg, memConfigAttr);
+        preparedTensors.push_back(deviceTensor);
+      } else {
+        preparedTensors.push_back(getElem);
+      }
+    }
+
+    // Create a new tuple from prepared tensors.
+    //
+    SmallVector<Type> tupleResultTypes = {inputTupleType};
+    ttcore::TupleOp newTuple = rewriter.create<ttcore::TupleOp>(
+        loc, tupleResultTypes, preparedTensors);
+
+    // Call the forward function, passing the prepared inputs and device.
+    //
+    SmallVector<Value> callArgs;
+    callArgs.append(newTuple->getResults().begin(),
+                    newTuple->getResults().end());
+    callArgs.push_back(deviceArg);
+    func::CallOp callOp =
+        rewriter.create<func::CallOp>(loc, forwardFuncOp, callArgs);
+
+    // Return the results.
+    //
+    rewriter.create<func::ReturnOp>(loc, callOp->getResults());
   }
 };
 

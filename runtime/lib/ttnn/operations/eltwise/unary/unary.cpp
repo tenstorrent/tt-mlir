@@ -9,10 +9,33 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
+#include "ttnn/operations/eltwise/unary/unary.hpp"
 
 namespace tt::runtime::ttnn::operations::eltwise::unary {
 
 static void runEltwiseUnaryOp(
+    const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
+    const std::function<::ttnn::Tensor(
+        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
+        const std::optional<::ttnn::Tensor> &,
+        const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
+
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  ::ttnn::Tensor out =
+      ttnnOp(in, outputMemoryConfig, /*optional_output_tensor=*/std::nullopt,
+             /*sub_core_grids=*/std::nullopt);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
+static void runEltwiseUnaryOpNoSubCoreGrids(
     const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
@@ -26,7 +49,8 @@ static void runEltwiseUnaryOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ttnnOp(in, outputMemoryConfig, std::nullopt);
+  ::ttnn::Tensor out =
+      ttnnOp(in, outputMemoryConfig, /*optional_output_tensor=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -46,7 +70,8 @@ static void runEltwiseUnaryTanhOp(
              "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out =
-      ttnnOp(in, outputMemoryConfig, std::nullopt, /* approx= */ false);
+      ttnnOp(in, outputMemoryConfig, /*optional_output_tensor=*/std::nullopt,
+             /*approx=*/false);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -56,7 +81,8 @@ static void runEltwiseUnaryWithFastAndApproximateModeOp(
     const std::function<
         ::ttnn::Tensor(const ::ttnn::Tensor &, const bool,
                        const std::optional<::ttnn::MemoryConfig> &,
-                       const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
+                       const std::optional<::ttnn::Tensor> &,
+                       const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
@@ -66,17 +92,18 @@ static void runEltwiseUnaryWithFastAndApproximateModeOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out =
-      ttnnOp(in, /*parameter=*/false, outputMemoryConfig, std::nullopt);
+  ::ttnn::Tensor out = ttnnOp(in, /*parameter=*/false, outputMemoryConfig,
+                              /*optional_output_tensor=*/std::nullopt,
+                              /*sub_core_grids=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
-static void runEltwiseUnaryWithVectorAndFastAndApproximateModeOp(
+static void runEltwiseUnarySigmoidOp(
     const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
     const std::function<
         ::ttnn::Tensor(const ::ttnn::Tensor &, const int,
-                       const ::ttnn::operations::unary::Sigmoid::SigmoidMode,
+                       const ::ttnn::operations::unary::SigmoidMode,
                        const std::optional<::ttnn::MemoryConfig> &,
                        const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
 
@@ -88,10 +115,10 @@ static void runEltwiseUnaryWithVectorAndFastAndApproximateModeOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  auto sigmoidMode = ::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE;
-  ::ttnn::Tensor out =
-      ttnnOp(in, static_cast<int>(::ttnn::operations::unary::VecMode::RC),
-             sigmoidMode, outputMemoryConfig, std::nullopt);
+  auto sigmoidMode = ::ttnn::operations::unary::SigmoidMode::ACCURATE;
+  ::ttnn::Tensor out = ttnnOp(
+      in, static_cast<int>(::ttnn::operations::unary::VecMode::RC), sigmoidMode,
+      outputMemoryConfig, /*optional_output_tensor=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -100,7 +127,9 @@ static void runEltwiseUnaryWithFloatParameterOp(
     const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
     const std::function<
         ::ttnn::Tensor(const ::ttnn::Tensor &, float,
-                       const std::optional<::ttnn::MemoryConfig> &)> &ttnnOp) {
+                       const std::optional<::ttnn::MemoryConfig> &,
+                       const std::optional<::ttnn::Tensor> &,
+                       const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
   float parameter = op->params_as_EltwiseOpWithFloatParams()->parameter();
@@ -111,7 +140,9 @@ static void runEltwiseUnaryWithFloatParameterOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ttnnOp(in, parameter, outputMemoryConfig);
+  ::ttnn::Tensor out = ttnnOp(in, parameter, outputMemoryConfig,
+                              /*optional_output_tensor=*/std::nullopt,
+                              /*sub_core_grids=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -121,7 +152,13 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseUnaryOpType::Abs: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::abs);
+    // Use static cast to avoid type deduction issues with the overloaded abs
+    // function
+    using AbsFn = ::ttnn::Tensor (*)(
+        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
+        const std::optional<::ttnn::Tensor> &);
+    runEltwiseUnaryOpNoSubCoreGrids(op, tensorPool,
+                                    static_cast<AbsFn>(::ttnn::abs));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Ceil: {
@@ -177,8 +214,7 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sigmoid: {
-    runEltwiseUnaryWithVectorAndFastAndApproximateModeOp(op, tensorPool,
-                                                         ::ttnn::sigmoid);
+    runEltwiseUnarySigmoidOp(op, tensorPool, ::ttnn::sigmoid);
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Silu: {
@@ -198,7 +234,14 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Reciprocal: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::reciprocal);
+    // Use static cast to avoid type deduction issues with the overloaded
+    // reciprocal function
+    using ReciprocalFn = ::ttnn::Tensor (*)(
+        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
+        const std::optional<::ttnn::Tensor> &,
+        const std::optional<::ttnn::CoreRangeSet> &);
+    runEltwiseUnaryOp(op, tensorPool,
+                      static_cast<ReciprocalFn>(::ttnn::reciprocal));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sign: {
