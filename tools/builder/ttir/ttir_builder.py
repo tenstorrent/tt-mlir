@@ -3956,6 +3956,102 @@ class TTIRBuilder(Builder):
 
         return op_values, op_indices
 
+    @parse(ttir.SortOp)
+    def sort_parser(
+        self,
+        old_op: ttir.SortOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.sort_parser)
+        input_tensor = global_dict[old_op.input]
+        dim_attr = old_op.dim
+        descending_attr = old_op.descending
+        stable_attr = old_op.stable
+        values_type = old_op.values.type
+        indices_type = old_op.indices.type
+
+        new_op = ttir_op(
+            values_type,
+            indices_type,
+            input_tensor,
+            dim=dim_attr,
+            descending=descending_attr,
+            stable=stable_attr,
+            loc=old_op.location,
+        )
+        new_op_values = new_op.values
+        new_op_indices = new_op.indices
+
+        input0 = self._get_golden_tensor(input_tensor)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_values, golden_indices = op_golden_function(
+            input0, dim_attr, descending_attr, stable_attr, values_type.element_type
+        )
+        self._set_golden_tensor(new_op_values, golden_values)
+        self._set_golden_tensor(new_op_indices, golden_indices)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.values] = new_op_values
+        op_map_dictionary[old_op.indices] = new_op_indices
+        return new_op, op_map_dictionary
+
+    @split(ttir.SortOp)
+    def sort_split(
+        self,
+        old_op: ttir.SortOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.sort_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+
+            sort_module = Module.create()
+            sort_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(sort_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="sort_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    values_type = old_op.values.type
+                    indices_type = old_op.indices.type
+
+                    new_op = ttir_op(
+                        values_type,
+                        indices_type,
+                        in0,
+                        dim=old_op.dim,
+                        descending=old_op.descending,
+                        stable=old_op.stable,
+                        loc=old_op.location,
+                    )
+                    new_op_values = new_op.values
+                    new_op_indices = new_op.indices
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    golden_values = self._get_golden_tensor(old_op.values)
+                    golden_indices = self._get_golden_tensor(old_op.indices)
+                    sort_builder._set_golden_tensor(new_op_values, golden_values)
+                    sort_builder._set_golden_tensor(new_op_indices, golden_indices)
+                    sort_builder._set_golden_tensor(in0, input0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.extend([new_op_values, new_op_indices])
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                sort_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return sort_module, sort_builder
+
     ############### ttir.ReverseOp ###############
 
     @tag(ttir.ReverseOp)
