@@ -41,8 +41,8 @@ struct ConvertD2MToTTNNPass final
       : ConvertD2MToTTNNBase(options) {}
 
   void runOnOperation() final {
-    ModuleOp module = getOperation();
-    auto result = runD2MToTTNNConversion(module, mathFidelity);
+    ModuleOp moduleOp = getOperation();
+    auto result = runD2MToTTNNConversion(moduleOp, mathFidelity);
     if (failed(result)) {
       signalPassFailure();
     }

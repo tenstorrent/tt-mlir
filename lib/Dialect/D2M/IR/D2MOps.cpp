@@ -2161,13 +2161,96 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
         // It's defined outside - check if it's one of our operands.
         bool isOurOperand = llvm::is_contained(getOperands(), operand);
         if (!isOurOperand) {
-          emitOpError("region uses value defined outside that is "
-                      "not an operand of this generic op: ")
+          emitOpError("region uses value defined outside that is not an "
+                      "operand of this generic op: ")
               << operand;
         }
       }
     }
   });
+
+  return success();
+}
+// Spatialop verification
+::mlir::LogicalResult d2m::SpatialOp::verify() {
+  mlir::ArrayAttr gridRangesAttr = getGridRanges();
+
+  // Check that grid_ranges has at least 1 CoreRange
+  if (!gridRangesAttr || gridRangesAttr.empty()) {
+    return emitOpError("grid_ranges must contain at least one CoreRange");
+  }
+
+  // Check that the number of CoreRanges matches the number of Regions
+  size_t numCoreRanges = gridRangesAttr.size();
+  size_t numRegions = getNumRegions();
+
+  if (numCoreRanges != numRegions) {
+    return emitOpError("number of CoreRanges (")
+           << numCoreRanges << ") must match the number of Regions ("
+           << numRegions << ")";
+  }
+
+  // Each region has exactly one generic op. Verify its grid (2D only) fits
+  // within the region: when mapping is empty, compare shape only; when
+  // mapping is present, require virtual grid contained in region's virtual
+  // bbox.
+  for (auto [region, rangeAttr] :
+       llvm::zip(getRegions(), gridRangesAttr.getValue())) {
+    auto coreRange = mlir::cast<ttcore::CoreRangeAttr>(rangeAttr);
+    utils::BoundingBox regionBox;
+    regionBox.start = {coreRange.getStartCoord().getY(),
+                       coreRange.getStartCoord().getX()};
+    regionBox.end = {coreRange.getEndCoord().getY(),
+                     coreRange.getEndCoord().getX()};
+    int64_t regionShapeY = regionBox.end[0] - regionBox.start[0] + 1;
+    int64_t regionShapeX = regionBox.end[1] - regionBox.start[1] + 1;
+
+    if (region.empty()) {
+      return emitOpError("each spatial region must not be empty");
+    }
+    auto genericOps = llvm::to_vector(region.getOps<GenericOp>());
+    if (genericOps.size() != 1) {
+      return emitOpError(
+                 "each region must contain exactly one d2m.generic op, got ")
+             << genericOps.size();
+    }
+    GenericOp genericOp = genericOps.front();
+
+    auto grid = genericOp.getGrid();
+    llvm::ArrayRef<int64_t> gridShape = grid.getShape();
+
+    if (gridShape.size() != 2) {
+      return emitOpError("d2m.generic inside d2m.spatial: only 2D "
+                         "grid is considered for now, got ")
+             << gridShape.size() << "D";
+    }
+
+    if (grid.getMapping().isEmpty()) {
+      if (gridShape[0] > regionShapeY || gridShape[1] > regionShapeX) {
+        return emitOpError("generic op grid shape [")
+               << gridShape[0] << ", " << gridShape[1]
+               << "] exceeds region CoreRange shape [" << regionShapeY << ", "
+               << regionShapeX << "]";
+      }
+    } else {
+      AffineMap physicalToVirtual = grid.getMapping();
+      if (physicalToVirtual.getNumResults() == 3u) {
+        physicalToVirtual = physicalToVirtual.dropResult(0);
+      }
+      utils::BoundingBox regionVirtualBbox =
+          utils::getProjectedBoundingBox(regionBox, physicalToVirtual);
+      int64_t gridEndY = gridShape[0] - 1, gridEndX = gridShape[1] - 1;
+      if (regionVirtualBbox.start[0] > 0 ||
+          regionVirtualBbox.end[0] < gridEndY ||
+          regionVirtualBbox.start[1] > 0 ||
+          regionVirtualBbox.end[1] < gridEndX) {
+        return emitOpError(
+                   "generic op grid not contained in region grid_ranges [")
+               << regionBox.start[0] << ", " << regionBox.start[1] << "] to ["
+               << regionBox.end[0] << ", " << regionBox.end[1] << "]";
+      }
+    }
+  }
 
   return success();
 }
@@ -3255,4 +3338,106 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
   return result;
 }
 
+bool d2m::SpatialOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // If the operand is an input, it is bufferized to a memory read.
+  return isDpsInput(&operand);
+}
+
+bool d2m::SpatialOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // If the operand is an output, it is bufferized to a memory write.
+  return isDpsInit(&operand);
+}
+
+mlir::LogicalResult d2m::SpatialOp::bufferize(
+    // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+
+  for (mlir::OpResult result : getResults()) {
+    if (!mlir::isa<mlir::RankedTensorType>(result.getType())) {
+      return failure();
+    }
+  }
+  if (getNumResults() != 0 && getNumResults() != getOutputs().size()) {
+    return failure();
+  }
+  mlir::SmallVector<mlir::Value> bufferInputs;
+  bufferInputs.reserve(getInputs().size());
+  for (auto input : getInputs()) {
+    auto maybeValue = bufferization::getBuffer(rewriter, input, options, state);
+    if (failed(maybeValue)) {
+      return maybeValue;
+    }
+    bufferInputs.push_back(*maybeValue);
+  }
+  mlir::SmallVector<mlir::Value> bufferOutputs;
+  bufferOutputs.reserve(getOutputs().size());
+  for (auto output : getOutputs()) {
+    auto maybeValue =
+        bufferization::getBuffer(rewriter, output, options, state);
+    if (failed(maybeValue)) {
+      return maybeValue;
+    }
+    bufferOutputs.push_back(*maybeValue);
+  }
+  auto bufferSpatial = rewriter.create<d2m::SpatialOp>(
+      getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGridRanges(),
+      getNumRegions());
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+  for (mlir::Region &region : bufferSpatial.getRegions()) {
+    region.takeBody(getRegion(region.getRegionNumber()));
+  }
+
+  // One-shot bufferization uses BottomUp: inner GenericOps are bufferized
+  // first, so region bodies already use buffer SSA. We only replace the
+  // boundary (operands/results) with buffers and move the body.
+  if (getNumResults() == 0) {
+    mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, {});
+  } else {
+    mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                       bufferOutputs);
+  }
+  return success();
+}
+
+mlir::bufferization::AliasingValueList
+d2m::SpatialOp::getAliasingValues(mlir::OpOperand &,
+                                  const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+d2m::SpatialOp::getBufferType(mlir::Value value,
+                              const mlir::bufferization::BufferizationOptions &,
+                              const mlir::bufferization::BufferizationState &,
+                              ::llvm::SmallVector<mlir::Value> &) {
+  // SpatialOp operands/results are tensors from outside or results; no block
+  // arguments on SpatialOp's regions.
+  auto tensorType = mlir::cast<RankedTensorType>(value.getType());
+  return ttcore::getBufferType(tensorType, /*isView=*/false);
+}
+
+bool d2m::SpatialOp::isWritable(mlir::Value value,
+                                const mlir::bufferization::AnalysisState &) {
+  // SpatialOp has no region block arguments; only outputs (OpResults) are
+  // writable.
+  return mlir::isa<mlir::OpResult>(value);
+}
+
+bool d2m::SpatialOp::hasTensorSemantics() {
+  auto isaTensor = [](Type t) { return isa<bufferization::TensorLikeType>(t); };
+  if (any_of(getResultTypes(), isaTensor)) {
+    return true;
+  }
+  return any_of(getOperandTypes(), isaTensor);
+}
+
+void d2m::SpatialOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  d2m::getDpsEffects(*this, effects);
+}
 } // namespace mlir::tt::d2m
