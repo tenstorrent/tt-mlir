@@ -1087,7 +1087,7 @@ static LogicalResult cleanupAndVerify(ModuleOp moduleOp,
   // Collect and erase all remaining D2M/memref/cast ops. Generics are
   // already erased. External uses are resolved by the remapping.
   SmallVector<Operation *> opsToErase;
-  module.walk([&](Operation *op) {
+  moduleOp.walk([&](Operation *op) {
     if (isa<ttir::TTNNMetalLayoutCastOp, d2m::ViewLayoutOp, d2m::EmptyOp,
             d2m::FullOp, d2m::ResetGlobalSemaphoreOp,
             d2m::CreateGlobalSemaphoreOp, memref::DeallocOp, memref::AllocOp>(
