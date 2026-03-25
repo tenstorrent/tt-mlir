@@ -210,7 +210,7 @@ const auto createSin = [](OpBuilder &b, Location loc, Type type,
 };
 const auto createAsin = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<AsinOp>(loc, type, ops).getOperation();
+  return AsinOp::create(b, loc, type, ops).getOperation();
 };
 const auto createAsinh = [](OpBuilder &b, Location loc, Type type,
                             ValueRange ops) {
@@ -222,7 +222,7 @@ const auto createCos = [](OpBuilder &b, Location loc, Type type,
 };
 const auto createAcos = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<AcosOp>(loc, type, ops).getOperation();
+  return AcosOp::create(b, loc, type, ops).getOperation();
 };
 const auto createExp = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
