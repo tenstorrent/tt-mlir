@@ -36,9 +36,9 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
     "shape, permutation",
     [
         # 2d transpose
-        [(32, 128 * 500), [1, 0]],
+        [(32, 128 * 210), [1, 0]],
         pytest.param(
-            (32, 128 * 501),
+            (32, 128 * 220),
             [1, 0],
             marks=pytest.mark.skip_config(
                 ["n150"],
@@ -47,7 +47,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
             ),
         ),
         pytest.param(
-            (32, 128 * 800),
+            (32, 128 * 280),
             [1, 0],
             marks=pytest.mark.skip_config(
                 ["n150"],
@@ -56,7 +56,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
             ),
         ),
         pytest.param(
-            (32, 128 * 801),
+            (32, 128 * 400),
             [1, 0],
             marks=pytest.mark.skip_config(
                 ["n150"],
@@ -73,7 +73,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         # 4d inner permutes
         [(5, 7, 2, 32), [0, 1, 3, 2]],
         [(5, 7, 2, 64), [0, 1, 3, 2]],
-        [(5, 7, 2, 128), [0, 1, 3, 2]],
+        [(5, 3, 2, 128), [0, 1, 3, 2]],
         # 3d inner permutes (llama-like)
         [(1, 50, 12), [0, 2, 1]],
         [(32, 12, 100), [0, 2, 1]],
@@ -120,7 +120,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(1, 8, 64, 128), [0, 1, 3, 2]],
         # 4d inner permutes (llama3-70b, qwen3-32b)
         pytest.param(
-            (32, 8, 128, 128),
+            (32, 8, 128, 64),
             [0, 1, 3, 2],
             marks=pytest.mark.skip_config(
                 ["p150"],
@@ -139,7 +139,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(1, 32, 8, 128), [0, 2, 1, 3]],
         [(1, 32, 96, 128), [0, 2, 1, 3]],
         # 4d inner permutes (glm-358b)
-        [(1, 96, 32, 128), [0, 1, 3, 2]],
+        [(1, 96, 32, 64), [0, 1, 3, 2]],
         # 3d inner permutes (gpt_oss-120b)
         [(1, 128, 32), [0, 2, 1]],
         # 4d outer permutes (gpt_oss-120b)

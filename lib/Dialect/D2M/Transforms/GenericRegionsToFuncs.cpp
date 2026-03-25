@@ -64,6 +64,11 @@ static void rewriteAdditionalArgOperands(OpBuilder &builder,
   //  operands that are not the generic operation itself.
   for (auto [idx, operand] : llvm::enumerate(generic.getAdditionalArgs())) {
     unsigned capturedOperandIndex = *getCapturedOperandIndex(generic, operand);
+    auto cbForOperandAttr =
+        operand.getDefiningOp()
+            ? operand.getDefiningOp()->getAttrOfType<IntegerAttr>(
+                  "d2m.cb_for_operand")
+            : IntegerAttr();
     for (OpOperand &use : llvm::make_early_inc_range(operand.getUses())) {
       if (use.getOwner() != generic.getOperation() &&
           generic->isAncestor(use.getOwner())) {
@@ -71,6 +76,9 @@ static void rewriteAdditionalArgOperands(OpBuilder &builder,
         //  And insert a get_global_operand op where the generic operand is being used.
         auto globalOperand = builder.create<GetGlobalOperandOp>(
             use.getOwner()->getLoc(), operand.getType(), capturedOperandIndex);
+        if (cbForOperandAttr) {
+          globalOperand->setAttr("d2m.cb_for_operand", cbForOperandAttr);
+        }
         use.set(globalOperand.getResult());
       }
     }

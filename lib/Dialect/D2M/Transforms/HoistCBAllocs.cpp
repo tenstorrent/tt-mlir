@@ -39,7 +39,7 @@ private:
         auto memrefType = allocOp.getType();
         if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout()) &&
             allocOp->getAttrOfType<IntegerAttr>("address")) {
-          int64_t idx = findRegularOperandIndex(genericOp, allocOp);
+          int64_t idx = findRegularOperandIndex(genericOp, region, allocOp);
           allocsToHoist.push_back({allocOp, idx});
         }
       });
@@ -50,6 +50,14 @@ private:
     }
 
     for (auto [allocOp, operandIdx] : allocsToHoist) {
+      if (operandIdx >= 0) {
+        if (memref::AllocOp storageAlloc =
+                getStreamStorageAlloc(genericOp, operandIdx)) {
+          moveAttrsToStreamStorage(allocOp, storageAlloc);
+          continue;
+        }
+      }
+
       auto allocType = allocOp.getType();
 
       // The CBLayoutAttr already carries the per-operand grid shape
@@ -98,30 +106,52 @@ private:
     }
   }
 
-  /// Find the regular operand index for a CB alloc by tracing through
-  /// its remote_load/remote_store memref operand back to the generic's
-  /// operands.
+  /// Find the regular operand index whose associated CB/allocation in |region|
+  /// is |allocOp|. GenericOp::getOperandAlloc uses d2m.get_cb as the source of
+  /// truth when present, and falls back to positional alloc order otherwise.
   static int64_t findRegularOperandIndex(d2m::GenericOp genericOp,
+                                         Region &region,
                                          memref::AllocOp allocOp) {
-    for (Operation *user : allocOp.getResult().getUsers()) {
-      if (auto remoteLoad = mlir::dyn_cast<d2m::RemoteLoadOp>(user)) {
-        Value memref = remoteLoad.getMemref();
-        for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
-          if (genericOp->getOperand(i) == memref) {
-            return static_cast<int64_t>(i);
-          }
-        }
-      }
-      if (auto remoteStore = mlir::dyn_cast<d2m::RemoteStoreOp>(user)) {
-        Value memref = remoteStore.getMemref();
-        for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
-          if (genericOp->getOperand(i) == memref) {
-            return static_cast<int64_t>(i);
-          }
-        }
+    unsigned ioSize = genericOp.getInputsAndOutputs().size();
+    for (unsigned operandIdx = 0; operandIdx < ioSize; ++operandIdx) {
+      Value assocAlloc = d2m::GenericOp::getOperandAlloc(region, operandIdx);
+      if (assocAlloc == allocOp.getResult()) {
+        return static_cast<int64_t>(operandIdx);
       }
     }
     return -1;
+  }
+
+  static memref::AllocOp getStreamStorageAlloc(d2m::GenericOp genericOp,
+                                               int64_t operandIdx) {
+    Value operand = genericOp.getInputsAndOutputs()[operandIdx];
+    auto streamOp = operand.getDefiningOp<d2m::StreamLayoutOp>();
+    if (!streamOp) {
+      return nullptr;
+    }
+
+    return streamOp.getStorage().getDefiningOp<memref::AllocOp>();
+  }
+
+  static void moveAttrsToStreamStorage(memref::AllocOp allocOp,
+                                       memref::AllocOp storageAlloc) {
+    if (auto addressAttr = allocOp->getAttrOfType<IntegerAttr>("address")) {
+      storageAlloc->setAttr("address", addressAttr);
+      allocOp->removeAttr("address");
+    }
+    if (auto alignAttr = allocOp.getAlignmentAttr()) {
+      storageAlloc.setAlignmentAttr(alignAttr);
+      allocOp->removeAttr("alignment");
+    }
+
+    llvm::SmallVector<StringAttr> discardableAttrNames;
+    for (NamedAttribute attr : allocOp->getDiscardableAttrDictionary()) {
+      storageAlloc->setDiscardableAttr(attr.getName(), attr.getValue());
+      discardableAttrNames.push_back(attr.getName());
+    }
+    for (StringAttr attrName : discardableAttrNames) {
+      allocOp->removeDiscardableAttr(attrName);
+    }
   }
 
   /// Copy VGM attrs from the stream's *storage* buffer onto |externalAlloc|.
