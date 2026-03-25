@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 import inspect
+import functools
 from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Sequence
 import torch
@@ -33,9 +34,20 @@ class D2MBuilder(Builder):
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
         ] = OrderedDict([("x", 1), ("y", 1)]),
-        disable_golden_check: bool = False,
     ):
-        super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
+        super().__init__(ctx, location, mesh_name, mesh_dict)
+        self.goldens_set = False
+
+    def set_goldens(self, *args, **kwargs):
+        super().set_goldens(*args, **kwargs)
+        self.goldens_set = True
+
+    def _get_golden_tensor(self, *args, **kwargs):
+        if not self.goldens_set:
+            raise RuntimeError(
+                "You must manually use builder.set_goldens(...) API for D2MBuilder"
+            )
+        return super()._get_golden_tensor(*args, **kwargs)
 
     # ----- Private methods -----
 
@@ -45,27 +57,19 @@ class D2MBuilder(Builder):
         inputs: List[Operand],
         unit_attrs: Optional[List[str]] = None,
         organize_d2m_args: Optional[Callable] = None,
-        organize_golden_args: Optional[Callable] = None,
         output_shape: Optional[Shape] = None,
         output_type: Optional[Type] = None,
         output_create_fn: Optional[Callable] = None,
-        golden_kwargs: dict = {},
         d2m_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
-        skip_golden: bool = False,
     ) -> Any:
         """
         Proxy method for creating D2M operations with golden tensor support.
         Similar to TTIRBuilder._op_proxy but for D2M operations.
         """
-        if not golden_kwargs:
-            golden_kwargs = d2m_kwargs
 
         if organize_d2m_args is None:
             organize_d2m_args = self._organize_eltwise_d2m
-
-        if organize_golden_args is None:
-            organize_golden_args = self._organize_eltwise_golden
 
         if output_create_fn is None:
             output_create_fn = self._create_empty_from_tensor_type
@@ -92,19 +96,6 @@ class D2MBuilder(Builder):
             if unit_attrs is not None:
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-
-            if not skip_golden and not self._disable_golden_check:
-                op_golden_function = get_golden_function(
-                    op_d2m_function, **golden_kwargs
-                )
-                if op_golden_function is not None:
-                    if len(inputs) == 0:
-                        golden_output = op_golden_function(**golden_kwargs)
-                    else:
-                        golden_output = op_golden_function(
-                            *(organize_golden_args(inputs)), **golden_kwargs
-                        )
-                    self._set_golden_tensor(op.result, golden_output)
 
             return op.result
 
@@ -236,7 +227,6 @@ class D2MBuilder(Builder):
                 o,
             ),
             unit_attrs=unit_attrs,
-            golden_kwargs={"tilize": True},
         )
 
     def untilize(
@@ -262,7 +252,173 @@ class D2MBuilder(Builder):
                 o,
             ),
             unit_attrs=unit_attrs,
-            golden_kwargs={"tilize": False},
         )
 
-    # NOTE: GenericRegionOperations are not implemented here; currently, we have no testcases which require generating a generic op from these bindings as opposed to going through ttir named ops.
+    def reblock(
+        self,
+        input: Operand,
+        new_grid: List[int],
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        assert (
+            len(input.type.shape) % 2 == 0
+        ), f"Input shape must be multiple of 2 {input.type.shape}"
+        grid_rank = len(input.type.shape) // 2
+        old_grid = list(input.type.shape)[:grid_rank]
+        old_shard = list(input.type.shape)[grid_rank:]
+        assert (
+            len(new_grid) == grid_rank
+        ), f"Mismatched input/output grid rank for in {new_grid} and out {old_grid}"
+        canonical_shape = [gd * sd for gd, sd in zip(old_grid, old_shard)]
+        output_shape = list(new_grid)
+        for i, d in enumerate(canonical_shape):
+            assert (
+                d % new_grid[i] == 0
+            ), f"Illegal dims for new grid that don't divide canonical shape at dim[{i}] {d} % {new_grid[i]} != 0"
+            output_shape.append(d // new_grid[i])
+        layout = input.type.encoding
+        output_type = RankedTensorType.get(
+            output_shape, input.type.element_type, layout
+        )
+        remapping = d2m.ir.calculate_reblock_map(
+            input.type.shape, output_shape, output_type.context
+        )
+        return self.view_layout(
+            input,
+            output_type,
+            remapping,
+            unit_attrs=unit_attrs,
+        )
+
+    # ----- D2M Generic + Region ops -----
+
+    def _create_generic(
+        self,
+        operands,
+        grid,
+        block_factors,
+        indexing_maps,
+        iterator_types,
+    ):
+        if (
+            isinstance(block_factors, list)
+            and len(block_factors) > 0
+            and isinstance(block_factors[0], tuple)
+        ):
+            assert isinstance(block_factors, list)
+            assert isinstance(block_factors[0], tuple)
+            block_factors = [b for bs in block_factors for b in bs]
+
+        inputs = operands[:-1]
+        outputs = operands[-1:]
+        assert len(outputs) == 1
+        ret_type = outputs[0].type
+        ctx = ret_type.context
+        threads = ArrayAttr.get([d2m.ir.ThreadAttr.get(ctx, "unified")])
+        return d2m.GenericOp(
+            [ret_type],
+            inputs,
+            outputs,
+            [],  # additional_args
+            ttcore.ir.GridAttr.get(ctx, grid),
+            block_factors,
+            list(map(affine_map_from_lambda, indexing_maps)),
+            ArrayAttr.get(
+                list(
+                    ttcore.ir.IteratorTypeAttr.get(
+                        ctx, ttcore.IteratorType[i.title()].value
+                    )
+                    for i in iterator_types
+                )
+            ),
+            threads,
+            len(threads),
+        )
+
+    def generic(
+        self,
+        grid=None,
+        block_factors=None,
+        indexing_maps=None,
+        iterator_types=None,
+        skip_grid_selection=False,
+    ):
+        assert (
+            not skip_grid_selection or grid is not None
+        ), "grid must be specified if skip_grid_selection is set"
+        implicit_blocked_form = block_factors is not None
+        if implicit_blocked_form:
+            assert (
+                indexing_maps is not None
+            ), "indexing_maps must be set for generic in implicit blocked form"
+            assert (
+                iterator_types is not None
+            ), "iterator_types must be set for generic in implicit blocked form"
+            for indexing_map in indexing_maps:
+                num_dims = len(inspect.signature(indexing_map).parameters)
+                if iterator_types is not None:
+                    assert num_dims == len(iterator_types)
+                assert len(block_factors) == num_dims
+                num_results = len(indexing_map(*tuple(range(num_dims))))
+                if grid is None:
+                    grid = [1] * num_results
+                assert num_results == len(grid)
+        else:
+            assert (
+                indexing_maps is None
+            ), "indexing_maps must not be set for generic in explicit blocked form"
+            assert (
+                iterator_types is None
+            ), "iterator_types must not be set for generic in explicit blocked form"
+            assert (
+                grid is not None
+            ), "grid must be set for generic in explicit blocked form"
+            indexing_maps = []
+            iterator_types = []
+
+        def _decorator(f):
+            @functools.wraps(f)
+            def _wrapper(*args, **kwargs):
+                nonlocal self
+                nonlocal grid
+                nonlocal block_factors
+                nonlocal indexing_maps
+                nonlocal iterator_types
+                nonlocal skip_grid_selection
+
+                generic = self._create_generic(
+                    args,
+                    grid,
+                    block_factors,
+                    indexing_maps,
+                    iterator_types,
+                )
+                assert len(generic.regions[0].blocks) == 0
+                generic.regions[0].blocks.append()
+                block = generic.regions[0].blocks[0]
+                ctx = generic.context
+                loc = generic.location
+                if skip_grid_selection:
+                    generic.attributes["d2m.skip_grid_selection"] = UnitAttr.get(ctx)
+                with InsertionPoint(block):
+                    f(*args, **kwargs)
+
+                return generic.result
+
+            return _wrapper
+
+        return _decorator
+
+    def remote_load(
+        self, src, indices, mcast_start_index=None, mcast_shape=None, mcast_dims=None
+    ):
+        dst = tensor.empty(src.type.shape[len(indices) :], src.type.element_type)
+        return d2m.remote_load(
+            RankedTensorType.get(dst.type.shape, dst.type.element_type),
+            src,
+            indices,
+            mcast_start_index=mcast_start_index,
+            mcast_shape=mcast_shape,
+            mcast_dims=mcast_dims,
+            local_buffer=dst,
+        )

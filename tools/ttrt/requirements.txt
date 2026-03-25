@@ -1,3 +1,4 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.9.1+cpu
+torch@https://download.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl; sys_platform == "linux"
+torch==2.9.1; sys_platform == "darwin"
 nanobind==2.10.2

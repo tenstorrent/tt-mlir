@@ -15,30 +15,41 @@ module {
     return %3 : tensor<1x5x64x64xbf16>
   }
 
-  // Only input A squeezed -- pattern fires via batch broadcasting.
+  // Only input A squeezed -- pattern does not fire (both inputs must be merged).
   func.func @matmul_one_input_squeezed(%arg0: tensor<1x64x128xbf16>, %arg1: tensor<128x32xbf16>) -> tensor<1x64x32xbf16> {
     // CHECK-LABEL: @matmul_one_input_squeezed
-    // CHECK-NOT: "ttir.reshape"
-    // CHECK: "ttir.matmul"(%arg0, %arg1)
-    // CHECK-SAME: -> tensor<1x64x32xbf16>
-    // CHECK-NOT: "ttir.reshape"
+    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.reshape"
     %0 = "ttir.reshape"(%arg0) <{shape = [64 : i32, 128 : i32]}> : (tensor<1x64x128xbf16>) -> tensor<64x128xbf16>
     %1 = "ttir.matmul"(%0, %arg1) : (tensor<64x128xbf16>, tensor<128x32xbf16>) -> tensor<64x32xbf16>
     %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 64 : i32, 32 : i32]}> : (tensor<64x32xbf16>) -> tensor<1x64x32xbf16>
     return %2 : tensor<1x64x32xbf16>
   }
 
-  // Only input B squeezed -- pattern fires via batch broadcasting.
+  // Only input B squeezed -- pattern does not fire (both inputs must be merged).
   func.func @matmul_one_input_b_squeezed(%arg0: tensor<64x128xbf16>, %arg1: tensor<1x128x32xbf16>) -> tensor<1x64x32xbf16> {
     // CHECK-LABEL: @matmul_one_input_b_squeezed
-    // CHECK-NOT: "ttir.reshape"
-    // CHECK: "ttir.matmul"(%arg0, %arg1)
-    // CHECK-SAME: -> tensor<1x64x32xbf16>
-    // CHECK-NOT: "ttir.reshape"
+    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.reshape"
     %0 = "ttir.reshape"(%arg1) <{shape = [128 : i32, 32 : i32]}> : (tensor<1x128x32xbf16>) -> tensor<128x32xbf16>
     %1 = "ttir.matmul"(%arg0, %0) : (tensor<64x128xbf16>, tensor<128x32xbf16>) -> tensor<64x32xbf16>
     %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 64 : i32, 32 : i32]}> : (tensor<64x32xbf16>) -> tensor<1x64x32xbf16>
     return %2 : tensor<1x64x32xbf16>
+  }
+
+  // Only one input squeezed -- pattern does not fire (both inputs must be
+  // merged).
+  func.func @matmul_one_input_squeezed_batch_gt1(%arg0: tensor<1x12x577x64xbf16>, %arg1: tensor<12x577x577xbf16>) -> tensor<1x12x577x64xbf16> {
+    // CHECK-LABEL: @matmul_one_input_squeezed_batch_gt1
+    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.matmul"
+    // CHECK: "ttir.reshape"
+    %0 = "ttir.reshape"(%arg0) <{shape = [12 : i32, 577 : i32, 64 : i32]}> : (tensor<1x12x577x64xbf16>) -> tensor<12x577x64xbf16>
+    %1 = "ttir.matmul"(%arg1, %0) : (tensor<12x577x577xbf16>, tensor<12x577x64xbf16>) -> tensor<12x577x64xbf16>
+    %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 12 : i32, 577 : i32, 64 : i32]}> : (tensor<12x577x64xbf16>) -> tensor<1x12x577x64xbf16>
+    return %2 : tensor<1x12x577x64xbf16>
   }
 
   // No squeeze/unsqueeze reshapes -- pattern does not fire.
@@ -80,7 +91,8 @@ module {
     return %3 : tensor<1x5x64x64xbf16>
   }
 
-  // Non-leading squeeze (middle dim) -- pattern does not fire.
+  // Non-leading squeeze (middle dim) -- pattern does not fire (only one input
+  // merged).
   func.func @matmul_non_leading_squeeze(%arg0: tensor<5x1x64x32xbf16>, %arg1: tensor<5x32x64xbf16>) -> tensor<5x1x64x64xbf16> {
     // CHECK-LABEL: @matmul_non_leading_squeeze
     // CHECK: "ttir.reshape"
@@ -106,8 +118,8 @@ module {
     return %3 : tensor<1x1x5x64x64xbf16>
   }
 
-    // One original matmul operand is 1D after squeeze. Pattern must not fire
-  // because un-squeezing would change 1D matmul semantics.
+  // One original matmul operand is 1D after squeeze -- pattern does not fire
+  // (only one input merged).
   func.func @matmul_rank1_operand_no_rewrite(%arg0: tensor<64x32xbf16>, %arg1: tensor<1x32xbf16>) -> tensor<1x64xbf16> {
     // CHECK-LABEL: @matmul_rank1_operand_no_rewrite
     // CHECK: "ttir.reshape"
@@ -119,8 +131,7 @@ module {
     return %2 : tensor<1x64xbf16>
   }
 
-  // Leading unsqueeze cannot be absorbed when batch-prefix broadcast would
-  // drop the added leading-1 dimension. Pattern must not fire.
+  // Only one input merged with broadcast prefix -- pattern does not fire.
   func.func @matmul_non_absorbable_broadcast_prefix(%arg0: tensor<1x5x64x32xbf16>, %arg1: tensor<7x5x32x64xbf16>) -> tensor<1x7x5x64x64xbf16> {
     // CHECK-LABEL: @matmul_non_absorbable_broadcast_prefix
     // CHECK: "ttir.reshape"

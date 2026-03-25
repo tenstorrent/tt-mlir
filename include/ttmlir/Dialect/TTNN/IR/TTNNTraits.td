@@ -11,11 +11,11 @@ include "mlir/IR/OpBase.td"
 // TTNN traits definition.
 //===----------------------------------------------------------------------===//
 
-// bfp8_b is tile type so we need some way to check if op which returns
-// it has correct layout information in encoding.
-def CheckBFloat8BTrait : NativeOpTrait<"CheckBFloat8BTrait">
+// For ops that return tile-typed tensors, verify that the element type
+// on the tensor matches the element type in the TTNNLayoutAttr encoding.
+def CheckTileTypeTrait : NativeOpTrait<"CheckTileTypeTrait">
 {
-  let cppNamespace = "mlir::tt::ttnn";
+  let cppNamespace = "::mlir::tt::ttnn";
 }
 
 // Trait to mark ops that can execute on host.

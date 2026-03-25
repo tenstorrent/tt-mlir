@@ -53,12 +53,26 @@ struct IndexToSliceConversionPattern
     }
 
     int64_t rank = inputType.getRank();
+    int64_t dim = op.getDim();
+    int32_t begin = adaptor.getBegin();
+    int32_t end = adaptor.getEnd();
+    int64_t dimSize = inputType.getDimSize(dim);
+
+    // Normalize negative bounds so downstream slice folding composes canonical
+    // coordinates instead of raw Python-style negative offsets.
+    if (begin < 0) {
+      begin += dimSize;
+    }
+    if (end < 0) {
+      end += dimSize;
+    }
+
     llvm::SmallVector<mlir::Attribute, 4> begins, ends, steps;
 
     for (int64_t i = 0; i < rank; ++i) {
-      if (i == op.getDim()) {
-        begins.push_back(rewriter.getI32IntegerAttr(adaptor.getBegin()));
-        ends.push_back(rewriter.getI32IntegerAttr(adaptor.getEnd()));
+      if (i == dim) {
+        begins.push_back(rewriter.getI32IntegerAttr(begin));
+        ends.push_back(rewriter.getI32IntegerAttr(end));
         steps.push_back(rewriter.getI32IntegerAttr(adaptor.getStep()));
       } else {
         begins.push_back(rewriter.getI32IntegerAttr(0));
@@ -83,7 +97,7 @@ struct IndexToSliceConversionPattern
 // Reverse Pattern Matching
 //===----------------------------------------------------------------------===//
 
-// Decomposing Reverse Op into Gather Op.
+// Decomposing Reverse Op into Embedding Op.
 // As soon as tenstorrent/tt-metal#16618 is finished, this decomposition can be
 // removed.
 namespace {
@@ -96,47 +110,78 @@ struct ReverseOpConversionPattern
                   ConversionPatternRewriter &rewriter) const override {
 
     ArrayRef<int64_t> dimensions = adaptor.getDimensions();
-    ArrayRef<int64_t> shape = op.getInput().getType().getShape();
-    Value currentInput = adaptor.getInput();
-    for (int32_t dim : dimensions) {
-      SmallVector<int32_t> indices;
-      for (int32_t i = shape[dim] - 1; i >= 0; i--) {
-        indices.push_back(i);
+    auto inputType = op.getInput().getType();
+    ArrayRef<int64_t> shape = inputType.getShape();
+    int64_t rank = shape.size();
+    Value current = adaptor.getInput();
+    Location loc = op.getLoc();
+
+    // Build permutation: reversing dims first (sorted), then non-reversing
+    // dims.
+    SmallVector<int64_t> permutation(dimensions);
+    llvm::sort(permutation);
+    for (int64_t i = 0; i < rank; i++) {
+      if (!llvm::is_contained(dimensions, i)) {
+        permutation.push_back(i);
       }
-
-      auto tensorType =
-          RankedTensorType::get({shape[dim]}, rewriter.getI32Type());
-
-      auto denseAttr = DenseIntElementsAttr::get(tensorType, indices);
-
-      Value reversedIndices =
-          rewriter.create<ttir::ConstantOp>(op.getLoc(), tensorType, denseAttr);
-
-      SmallVector<int64_t> offsetDims;
-      for (int64_t i = 0; i < static_cast<int64_t>(shape.size()); i++) {
-        if (i != dim) {
-          offsetDims.push_back(i);
-        }
-      }
-
-      SmallVector<int64_t> sliceSizes(shape.begin(), shape.end());
-      sliceSizes[dim] = 1;
-
-      currentInput = rewriter.create<ttir::GatherOp>(
-          op.getLoc(), getTypeConverter()->convertType(op.getType()),
-          /*input=*/currentInput,
-          /*start_indices=*/reversedIndices,
-          /*offset_dims=*/offsetDims,
-          /*collapsed_slice_dims=*/SmallVector<int64_t>{dim},
-          /*operand_batching_dims=*/SmallVector<int64_t>{},
-          /*start_indices_batching_dims=*/SmallVector<int64_t>{},
-          /*start_index_map=*/SmallVector<int64_t>{dim},
-          /*index_vector_dim=*/1,
-          /*slice_sizes=*/sliceSizes,
-          /*indices_are_sorted=*/false);
     }
 
-    rewriter.replaceOp(op, currentInput);
+    // Step 1: Permute reversing dims to front.
+    auto permutedShape = ttmlir::utils::applyPermutation(shape, permutation);
+    current = rewriter.create<ttir::PermuteOp>(
+        loc,
+        RankedTensorType::get(permutedShape, inputType.getElementType(),
+                              inputType.getEncoding()),
+        current, permutation);
+
+    // Step 2: Reshape to 2D [N_reversing, N_non_reversing].
+    int32_t nReversing = std::accumulate(
+        permutedShape.begin(), permutedShape.begin() + dimensions.size(),
+        int32_t{1}, std::multiplies<>());
+    int32_t nNonReversing =
+        std::accumulate(permutedShape.begin() + dimensions.size(),
+                        permutedShape.end(), int64_t{1}, std::multiplies<>());
+
+    SmallVector<int64_t> flatShape{nReversing, nNonReversing};
+    auto shapeAttr = rewriter.getI32ArrayAttr(
+        SmallVector<int32_t>(flatShape.begin(), flatShape.end()));
+    auto flatType = RankedTensorType::get(flatShape, inputType.getElementType(),
+                                          inputType.getEncoding());
+    current =
+        rewriter.create<ttir::ReshapeOp>(loc, flatType, current, shapeAttr);
+
+    // Step 3: Create reversed linear indices [N-1, N-2, ..., 0].
+    SmallVector<int32_t> indices(nReversing);
+    for (int32_t i = 0; i < nReversing; i++) {
+      indices[i] = nReversing - 1 - i;
+    }
+    auto idxType = RankedTensorType::get(
+        {nReversing}, rewriter.getIntegerType(32, /*isSigned=*/true));
+    auto idxAttr = DenseIntElementsAttr::get(idxType, indices);
+    Value idxConst = rewriter.create<ttir::ConstantOp>(loc, idxType, idxAttr);
+
+    // Step 4: EmbeddingOp to reorder rows.
+    current =
+        rewriter.create<ttir::EmbeddingOp>(loc, flatType, idxConst, current);
+
+    // Step 5: Reshape back to permuted shape.
+    auto permShapeAttr = rewriter.getI32ArrayAttr(
+        SmallVector<int32_t>(permutedShape.begin(), permutedShape.end()));
+    auto permType = RankedTensorType::get(
+        permutedShape, inputType.getElementType(), inputType.getEncoding());
+    current =
+        rewriter.create<ttir::ReshapeOp>(loc, permType, current, permShapeAttr);
+
+    // Step 6: Inverse permute back to original shape.
+    SmallVector<int64_t> invPerm =
+        ttmlir::utils::inversePermutation(permutation);
+    current = rewriter.create<ttir::PermuteOp>(
+        loc,
+        RankedTensorType::get(shape, inputType.getElementType(),
+                              inputType.getEncoding()),
+        current, invPerm);
+
+    rewriter.replaceOp(op, current);
 
     return success();
   }

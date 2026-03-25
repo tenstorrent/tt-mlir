@@ -14,7 +14,7 @@ Use this guide to set up your hardware - [Hardware Setup](https://docs.tenstorre
 
 You can use tt-mlir with Ubuntu or Mac OS, however the runtime does not work on Mac OS. tt-mlir project has the following system dependencies:
 
-- Ubuntu 22.04 OS or Mac OS
+- Ubuntu 24.04 OS or Mac OS
 - Clang >= 14 & <= 18
 - Ninja
 - CMake 3.24 or higher
@@ -79,7 +79,7 @@ This section explains how to manually build the environment so you can use tt-ml
 
 1. Navigate into the **tt-mlir** folder.
 
-2. The environment gets installed into a toolchain directory, which is by default set to `/opt/ttmlir-toolchain`, but can be overrideen by setting (and persisting in your environment) the environment variable `TTMLIR_TOOLCHAIN_DIR`. You need to manually create the toolchain directory as follows:
+2. The environment gets installed into a toolchain directory, which is by default set to `/opt/ttmlir-toolchain`, but can be overridden by setting (and persisting in your environment) the environment variable `TTMLIR_TOOLCHAIN_DIR`. You need to manually create the toolchain directory as follows:
 
 ```bash
 export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/
@@ -110,7 +110,7 @@ You have now configured tt-mlir.
 
 You can add different flags to your build. Here are some options to consider:
 
-- To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`. Clang 17 is the minimum required version when enabling the runtime.
+- To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`. Clang 20 is the minimum required version when enabling the runtime.
 - To enable the ttnn/metal perf runtime add `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
 - To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
 - To workaround OOM issues it can be useful to decrease the number of parallel jobs with `-DCMAKE_BUILD_PARALLEL_LEVEL=4`.
@@ -118,11 +118,11 @@ You can add different flags to your build. Here are some options to consider:
 - To enable `tt-explorer` add the `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`, `-DTTMLIR_ENABLE_RUNTIME=ON`, and `-DTT_RUNTIME_DEBUG=ON`.
 - To enable optimizer pass that uses the op model library, add `-DTTMLIR_ENABLE_OPMODEL=ON`.
 - The TTNN build is automatically integrated / handled by the tt-mlir cmake build system. For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html).
-- The runtime build depends on the `TT_METAL_RUNTIME_ROOT` variable, which is also set in `env/activate` script. For more information, please refer to [TT-NN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
+- The runtime build depends on the `TT_METAL_RUNTIME_ROOT` variable, which is also set in `env/activate` script. For more information, please refer to [TT-NN and TT-Metalium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
 
 | OS           | Offline Compiler Only | Runtime Enabled Build | Runtime + Perf Enabled Build |
 | ------------ | --------------------- | --------------------- | ---------------------------- |
-| Ubuntu 22.04 | ✅                    | ✅                    | ✅                           |
+| Ubuntu 24.04 | ✅                    | ✅                    | ✅                           |
 | Ubuntu 20.04 | ✅                    | ❌                    | ❌                           |
 | MacOS        | ✅                    | ❌                    | ❌                           |
 

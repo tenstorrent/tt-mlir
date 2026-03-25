@@ -488,7 +488,7 @@ builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir
 
 ## interface with mlir runtime
 
-All mlir runtime C++ APIs are nanobinded. See full list here: `runtime/python/runtime/runtime.cpp`. You can also pass in `enable_intermediate_verification` in `compile_and_execute_ttir` to give you back a report of all intermediate golden results.
+All mlir runtime C++ APIs are exposed through nanobind. See full list here: `runtime/python/runtime/runtime.cpp`. You can also pass in `enable_intermediate_verification` in `compile_and_execute_ttir` to give you back a report of all intermediate golden results.
 
 ```python
 import _ttmlir_runtime as tt_runtime
@@ -501,7 +501,7 @@ device = tt_runtime.runtime.open_mesh_device(mesh_options)
 tt_runtime.runtime.close_mesh_device(device)
 ```
 
-## nanobinds
+## nanobind
 
 runtime: `runtime/python/runtime/runtime.cpp`
 ttcore, ttir, ttnn, d2m: `python/`
@@ -1329,6 +1329,18 @@ module, builder = load_mlir_file(mlir_ir_string, target="ttir", golden_inputs={"
 print(module)
 ```
 
+## load large mlir file
+
+The process of loading large modules can get killed for exceeding memory storage limits. Builder's deallocate_goldens feature dumps goldens to file as it parses a module.
+
+```python
+mlir_file_path = "test.mlir"
+with open(mlir_file_path, 'r') as f:
+    mlir_ir_string = f.read()
+
+module, builder = load_mlir_file(mlir_ir_string, target="ttir", deallocate_goldens=True)
+```
+
 ## execute loaded mlir file
 
 ```python
@@ -1505,7 +1517,7 @@ print(module)
 
 ```mlir
 module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x2>]>} {
-  func.func @model(%arg0: tensor<1x1x256x512xf32> {ttcore.runtime_tensor_sharding = #ttcore<runtime_tensor_sharding shard_status = <presharded>, local_shape = tensor<1x1x256x256xf32>>}) -> tensor<1x1x256x512xf32> {
+  func.func @model(%arg0: tensor<1x1x256x512xf32> {ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<1x1x256x256xf32>>}) -> tensor<1x1x256x512xf32> {
     %0 = "ttir.mesh_shard"(%arg0) <{shard_dims = array<i64: -1, 3>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 1, 1, 2>, shard_type = #ttcore.shard_type<identity>}> : (tensor<1x1x256x512xf32>) -> tensor<1x1x256x256xf32>
     %1 = "ttir.exp"(%0) : (tensor<1x1x256x256xf32>) -> tensor<1x1x256x256xf32>
     %2 = "ttir.mesh_shard"(%1) <{shard_dims = array<i64: -1, 3>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 1, 1, 1, 2>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x256x256xf32>) -> tensor<1x1x256x512xf32>

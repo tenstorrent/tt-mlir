@@ -1081,8 +1081,12 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_MatmulOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
-    tensorRef = opContext.type_as_MorehCumSumOp()->out();
+  case ::tt::target::ttnn::OpType::SparseMatmulOp: {
+    tensorRef = opContext.type_as_SparseMatmulOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CumSumOp: {
+    tensorRef = opContext.type_as_CumSumOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::RandOp: {
@@ -1209,6 +1213,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_LayerNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::GroupNormOp: {
+    tensorRef = opContext.type_as_GroupNormOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
@@ -1227,6 +1235,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
     tensorRef = opContext.type_as_MeshPartitionOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
+    tensorRef = opContext.type_as_AllToAllCombineOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
@@ -1316,6 +1328,8 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
+  case ::tt::target::ttnn::OpType::AllToAllDispatchOp:
+  case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp:
   case ::tt::target::ttnn::OpType::TopKOp:
   case ::tt::target::ttnn::OpType::BreakpointOp:
@@ -1349,6 +1363,12 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::RegionEndOp: {
     tensorRef = opContext.type_as_RegionEndOp()->result();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CreateGlobalSemaphoreOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1465,8 +1485,14 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_MatmulOp()->b()};
     break;
   }
-  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
-    tensorRefs = {opContext.type_as_MorehCumSumOp()->in()};
+  case ::tt::target::ttnn::OpType::SparseMatmulOp: {
+    tensorRefs = {opContext.type_as_SparseMatmulOp()->a(),
+                  opContext.type_as_SparseMatmulOp()->b(),
+                  opContext.type_as_SparseMatmulOp()->sparsity()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CumSumOp: {
+    tensorRefs = {opContext.type_as_CumSumOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
@@ -1630,6 +1656,19 @@ getOpInputRefs(OpContext opContextHandle,
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::GroupNormOp: {
+    tensorRefs = {opContext.type_as_GroupNormOp()->input()};
+    if (opContext.type_as_GroupNormOp()->input_mask()) {
+      tensorRefs.push_back(opContext.type_as_GroupNormOp()->input_mask());
+    }
+    if (opContext.type_as_GroupNormOp()->weight()) {
+      tensorRefs.push_back(opContext.type_as_GroupNormOp()->weight());
+    }
+    if (opContext.type_as_GroupNormOp()->bias()) {
+      tensorRefs.push_back(opContext.type_as_GroupNormOp()->bias());
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRefs = {opContext.type_as_AllGatherOp()->in()};
     break;
@@ -1648,6 +1687,24 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
     tensorRefs = {opContext.type_as_MeshPartitionOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchOp: {
+    tensorRefs = {opContext.type_as_AllToAllDispatchOp()->input_tensor(),
+                  opContext.type_as_AllToAllDispatchOp()->expert_indices(),
+                  opContext.type_as_AllToAllDispatchOp()->expert_mapping()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
+    tensorRefs = {opContext.type_as_AllToAllCombineOp()->input_tensor(),
+                  opContext.type_as_AllToAllCombineOp()->expert_metadata(),
+                  opContext.type_as_AllToAllCombineOp()->expert_mapping()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp: {
+    tensorRefs = {opContext.type_as_MoeExpertTokenRemapOp()->topk_tensor(),
+                  opContext.type_as_MoeExpertTokenRemapOp()->expert_mapping(),
+                  opContext.type_as_MoeExpertTokenRemapOp()->expert_metadata()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
@@ -1773,7 +1830,8 @@ getOpInputRefs(OpContext opContextHandle,
         opContext.type_as_ScaledDotProductAttentionOp()->query(),
         opContext.type_as_ScaledDotProductAttentionOp()->key(),
         opContext.type_as_ScaledDotProductAttentionOp()->value(),
-        opContext.type_as_ScaledDotProductAttentionOp()->attention_mask()};
+        opContext.type_as_ScaledDotProductAttentionOp()->attention_mask(),
+        opContext.type_as_ScaledDotProductAttentionOp()->attention_sink()};
     break;
   }
   case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
@@ -1847,6 +1905,12 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
     tensorRefs = {opContext.type_as_MemorySnapshotOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CreateGlobalSemaphoreOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1969,7 +2033,6 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   executor->execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor->gatherOutputTensors();
-
   executor.reset();
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1

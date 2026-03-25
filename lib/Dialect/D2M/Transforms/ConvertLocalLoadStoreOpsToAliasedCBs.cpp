@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -19,12 +20,17 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Helper function to check if an operand is local (i.e., NOT a stream op
-// and NOT in a DMA-only generic op)
+// Helper function to check if an operand is local (i.e., NOT a stream/view op
+// that implies data movement, and NOT in a DMA-only generic op).
+// Reinterpret view_layout ops are local (just type casts).
 static bool isLocalOperand(Value operand, Operation *op) {
-  // Check if operand comes from stream_layout op
-  if (mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp())) {
+  if (auto streamOp = operand.getDefiningOp<StreamLayoutOp>()) {
     return false;
+  }
+  if (auto viewOp = operand.getDefiningOp<ViewLayoutOp>()) {
+    // Reinterpret views are local (just type casts), but non-reinterpret
+    // views imply data rearrangement and are non-local.
+    return viewOp.getReinterpretLayout();
   }
 
   // Check if the operation is inside a DMA-only generic op
@@ -34,56 +40,6 @@ static bool isLocalOperand(Value operand, Operation *op) {
   }
 
   return true;
-}
-
-// Helper function to find the CB block argument that corresponds to a memref
-// operand in a generic op. Returns the CB block argument if found, null
-// otherwise.
-// Assumes that the operand index in the generic op equals the CB block arg
-// index.
-static Value findAssociatedCB(Operation *op, Value memrefOperand) {
-  GenericOp generic = op->getParentOfType<GenericOp>();
-  if (!generic) {
-    return Value();
-  }
-
-  // Find which operand index this memref corresponds to.
-  std::optional<unsigned> operandIndex;
-  for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
-    if (generic->getOperand(i) == memrefOperand) {
-      operandIndex = i;
-      break;
-    }
-  }
-
-  if (!operandIndex.has_value()) {
-    return Value();
-  }
-
-  // Find the generic op's thread region that contains this operation
-  // If there's only one region, use it directly. Otherwise, use the utility
-  // function
-  Region *genericRegion = nullptr;
-  if (generic.getNumRegions() == 1) {
-    genericRegion = &generic.getRegion(0);
-  } else {
-    genericRegion = ttmlir::utils::getRegionWithParentOfType<GenericOp>(op);
-  }
-
-  if (!genericRegion || genericRegion->empty()) {
-    return Value();
-  }
-
-  // Get the first block of the generic region (thread region block)
-  Block *threadBlock = &genericRegion->front();
-
-  // The CB block arguments are in the same order as the generic operands.
-  // The operand index equals the CB block arg index (confirmed by user).
-  if (threadBlock->getNumArguments() > *operandIndex) {
-    return threadBlock->getArgument(*operandIndex);
-  }
-
-  return Value();
 }
 
 // Helper function to recursively walk a block and find the last operation that
@@ -230,6 +186,8 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
+    CBCache cbCache;
+    PortCounter portCounters;
 
     // Collect remote_load operations to convert
     SmallVector<RemoteLoadOp> remoteLoadsToConvert;
@@ -252,11 +210,12 @@ public:
     for (RemoteLoadOp remoteLoad : remoteLoadsToConvert) {
       Location loc = remoteLoad.getLoc();
       Value memref = remoteLoad.getMemref();
-      Value assocCb = findAssociatedCB(remoteLoad.getOperation(), memref);
+      Value assocCb = findAssociatedCB(remoteLoad.getOperation(), memref,
+                                       rewriter, cbCache, portCounters);
 
       if (!assocCb) {
         remoteLoad.emitWarning(
-            "could not find associated CB block argument, skipping conversion");
+            "could not find associated CB, skipping conversion");
         continue;
       }
 
@@ -346,11 +305,12 @@ public:
     for (RemoteStoreOp remoteStore : remoteStoresToConvert) {
       Location loc = remoteStore.getLoc();
       Value memref = remoteStore.getMemref();
-      Value assocCb = findAssociatedCB(remoteStore.getOperation(), memref);
+      Value assocCb = findAssociatedCB(remoteStore.getOperation(), memref,
+                                       rewriter, cbCache, portCounters);
 
       if (!assocCb) {
         remoteStore.emitWarning(
-            "could not find associated CB block argument, skipping conversion");
+            "could not find associated CB, skipping conversion");
         continue;
       }
 

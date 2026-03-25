@@ -12,6 +12,7 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
 
 #include <filesystem>
@@ -53,17 +54,37 @@ bool TTAlchemist::modelToPython(const std::string &input_file) {
 
   // Convert MLIR module to Python
   //
-  std::string pythonCode;
-  llvm::raw_string_ostream pythonStream(pythonCode);
-  if (mlir::failed(
-          mlir::tt::emitpy::translateToPython(module.get(), pythonStream))) {
-    std::cout << "Failed to translate MLIR module to Python" << std::endl;
-    return false;
-  }
-  pythonStream.flush();
+  std::string output;
+  llvm::raw_string_ostream outputStream(output);
 
-  // Output the generated Python code
-  std::cout << pythonCode << std::endl;
+  // Check if the module has file ops (split-files mode).
+  llvm::SmallVector<mlir::tt::emitpy::FileOp> fileOps;
+  module->walk(
+      [&fileOps](mlir::tt::emitpy::FileOp op) { fileOps.push_back(op); });
+
+  // Generate output
+  if (fileOps.empty()) {
+    if (mlir::failed(
+            mlir::tt::emitpy::translateToPython(*module, outputStream))) {
+      std::cout << "Failed to translate MLIR module to main.py" << std::endl;
+      return false;
+    }
+    outputStream.flush();
+    std::cout << output << std::endl;
+  } else {
+    for (auto fileOp : fileOps) {
+      auto fileId = fileOp.getId().str();
+      std::cout << "#=== " << fileId << ".py ===#\n";
+      if (mlir::failed(mlir::tt::emitpy::translateToPython(
+              *module, outputStream, std::optional<std::string>(fileId)))) {
+        std::cout << "Failed to translate MLIR module to " << fileId << ".py"
+                  << std::endl;
+        return false;
+      }
+      outputStream.flush();
+      std::cout << output << std::endl;
+    }
+  }
 
   return true;
 }

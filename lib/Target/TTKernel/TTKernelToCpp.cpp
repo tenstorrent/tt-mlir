@@ -14,6 +14,7 @@
 #include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_topology_info_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_pack_untilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_padding_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
@@ -79,6 +80,12 @@ public:
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc,
                                         "api/compute/eltwise_binary_sfpu.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/add_int_sfpu.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/sub_int_sfpu.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/mul_int_sfpu.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "api/compute/compute_kernel_api.h", // max ops
@@ -149,6 +156,8 @@ public:
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc,
                                         "api/compute/eltwise_unary/clamp.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/pack_untilize.h",
                                         /*isStandard=*/false);
       // Helper for float-to-uint32 bit reinterpretation (used by scalar tile
       // ops).
@@ -249,6 +258,13 @@ void dprint(Arg &&arg, ArgV&&... argv) {
           StringRef(experimental_untilize_llks_generated,
                     experimental_untilize_llks_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalUntilizeLLKs);
+    }
+
+    if (hasCall("experimental::pack_untilize_block")) {
+      auto experimentalPackUntilizeLLKs =
+          StringRef(experimental_pack_untilize_llks_generated,
+                    experimental_pack_untilize_llks_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalPackUntilizeLLKs);
     }
 
     if (hasCall("experimental::get_noc_multicast_addr")) {

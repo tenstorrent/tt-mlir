@@ -32,6 +32,7 @@ import ttnn
 import utils
 import _ttmlir_runtime as tt_runtime
 import torch
+from test_utils import SystemDesc
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
@@ -225,6 +226,15 @@ def device(request, pytestconfig):
     return _get_device_for_target(target, mesh_shape, pytestconfig, fabric_config)
 
 
+@pytest.fixture(scope="session")
+def system_desc(request, pytestconfig):
+    return SystemDesc(
+        fbb_as_dict(
+            tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
+        )["system_desc"]
+    )
+
+
 def get_request_kwargs(request):
     """
     Extracts and organizes request-related arguments into a dictionary.
@@ -397,6 +407,21 @@ def configure_debug_env(pytestconfig):
             kernel_source_dir,  # kernelSourceDir
             True,  # deviceAddressValidation (safe default)
             False,  # blockingCQ
+        )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def configure_perf_env(pytestconfig):
+    if "TT_METAL_DEVICE_PROFILER" in os.environ:
+        tt_runtime.runtime.PerfEnv.get(
+            enable_perf_trace=True,
+            tracy_program_metadata=str(
+                {
+                    "disable_eth_dispatch": False,
+                    "enable_program_cache": True,
+                    "dump_device_rate": 1000,
+                }
+            ),
         )
 
 
@@ -593,7 +618,7 @@ def _extract_frontend(item: pytest.Item) -> None:
     raise KeyError("No frontend marker found!")
 
 
-@pytest.hookimpl(hookwrapper=True)
+@pytest.hookimpl(wrapper=True)
 def pytest_runtest_setup(item: pytest.Item):
     """
     Extract test metadata during setup phase for XML reporting.
@@ -637,7 +662,7 @@ def pytest_runtest_setup(item: pytest.Item):
     </properties>
 
     Note that the above example excludes the "failure_stage" entry. This is
-    handled by the hookwrapper for `pytest_runtest_makereport` below
+    handled by the wrapper for `pytest_runtest_call` below
     """
     yield
 
@@ -649,12 +674,13 @@ def pytest_runtest_setup(item: pytest.Item):
         _extract_frontend(item)
 
 
-@pytest.hookimpl(hookwrapper=True)
+@pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item):
     """
     Extract runtime information from tests that actually execute.
 
     This includes failure classification and error reporting during the call phase.
+    Exceptions are re-raised so tests fail normally while still recording metadata.
 
     Runtime report data includes:
     - failure_stage: Categorizes where in the compilation pipeline the test failed
@@ -675,9 +701,8 @@ def pytest_runtest_call(item: pytest.Item):
 
     failure_stage = "success"  # Default to success.
 
-    outcome = yield
     try:
-        outcome.get_result()
+        yield
     except Exception as exc:
         exc_type = type(exc)
         exc_name = exc_type.__name__
@@ -686,6 +711,7 @@ def pytest_runtest_call(item: pytest.Item):
                 f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {exc}:{type(exc)}"
             )
         failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
+        raise
     finally:
         _safe_add_property(item, "failure_stage", failure_stage)
 
@@ -699,13 +725,12 @@ def _mark_item_for_skip(
     skip_handler_fn,
     negate_check=False,
 ):
+    matches = []
     for marker in item.iter_markers(name=marker_name):
         for platform_config in marker.args:
 
             # All of the operations we need to do on these are set membership based
             platform_config = set(platform_config)
-
-            reason = marker.kwargs.get("reason", "")
 
             # Verify this is a valid configuration
             if not platform_config <= ALL_CONFIGS:
@@ -714,16 +739,22 @@ def _mark_item_for_skip(
                     f"Invalid {marker_name}: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_CONFIGS}"
                 )
 
-            should_skip = platform_config <= set(
+            match = platform_config <= set(
                 [current_target, board_id, current_environment]
             )
+            matches.append(match)
 
-            # For only_config we want to skip if config is NOT in the allowed list
-            if negate_check:
-                should_skip = not should_skip
+    if len(matches) == 0:
+        return
 
-            if should_skip:
-                skip_handler_fn(item, platform_config, reason)
+    should_skip = any(matches)
+
+    # For only_config we want to skip if config is NOT in the allowed list
+    if negate_check:
+        should_skip = not should_skip
+
+    if should_skip:
+        skip_handler_fn(item)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -764,24 +795,24 @@ def pytest_collection_modifyitems(config, items):
         current_environment = _get_current_environment()
         board_id = get_board_id(system_desc)
 
-        def skip_config_handler(item, platform_config, reason):
+        def skip_config_handler(item):
             item.add_marker(
                 pytest.mark.skip(
-                    reason=f"Operation not supported on following platform/target combination: {platform_config}. {reason}"
+                    reason="Test marked as skip for this platform/target combination"
                 )
             )
 
-        def only_config_handler(item, platform_config, reason):
+        def only_config_handler(item):
             item.add_marker(
                 pytest.mark.skip(
-                    reason=f"Test only runs on following platform/target combination: {platform_config}. {reason}"
+                    reason="Test marked as skip for this platform/target combination"
                 )
             )
 
-        def skip_exec_handler(item, platform_config, reason):
+        def skip_exec_handler(item):
             # Set skip_exec attribute on the item instead of marking as skipped
             item.skip_exec = True
-            xfail_reason = f"Execution skipped for platform/target combination: {platform_config}. {reason}"
+            xfail_reason = f"Execution marked as skip"
             item.skip_exec_reason = xfail_reason
             # Mark test as xfail so it's expected to fail
             item.add_marker(pytest.mark.xfail(reason=xfail_reason, strict=False))

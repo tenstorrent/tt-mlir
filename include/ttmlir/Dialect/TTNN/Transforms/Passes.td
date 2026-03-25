@@ -136,6 +136,38 @@ def TTNNLoadInputTensors: Pass<"ttnn-load-input-tensors", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTNNCreateMainForTest: Pass<"ttnn-create-main-for-test", "::mlir::ModuleOp"> {
+  let summary = "Create main_for_test wrapper for frontend-driven execution.";
+  let description = [{
+    This pass creates a `main_for_test` function that wraps the forward function
+    (`_main`) for use by frontend execution drivers like PythonModelRunner.
+
+    The generated function accepts the same input tuple as the forward function
+    plus a device argument. It moves each input tensor to the device with the
+    appropriate memory configuration, then calls the forward function.
+
+    Given a forward function after tuplification and input loading:
+
+    ```mlir
+    func.func @_main(%arg0: tuple<tensor<32x32xbf16>>) -> tuple<tensor<32x32xbf16>> { ... }
+    func.func @load_inputs_for__main() -> tuple<tensor<32x32xbf16>> { ... }
+    func.func @main() -> i32 { ... }
+    ```
+
+    The pass will add:
+
+    ```mlir
+    func.func @main_for_test(%arg0: tuple<tensor<32x32xbf16>>, %arg1: !ttnn.device) -> tuple<tensor<32x32xbf16>> {
+      %0 = ttcore.get_tuple_element %arg0[0] : ...
+      %1 = "ttnn.to_device"(%0, %arg1) {memory_config = ...} : ...
+      %2 = ttcore.tuple %1 : ...
+      %3 = call @_main(%2) : ...
+      return %3 : ...
+    }
+    ```
+  }];
+}
+
 def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
   let summary = "Tuplify tensors in all funcs within a module.";
   let description = [{
@@ -236,7 +268,15 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
     Option<"enableOpConstraints",
             "enable-op-constraints",
             "bool", /*default=*/"false",
-            "When enabled fusing pass includes patterns which check for op constraints.">
+            "Enable op model constraint validation for fusion patterns. "
+            "Requires TTMLIR_ENABLE_OPMODEL. When enabled, fused ops are "
+            "validated in an isolated module before being applied.">,
+    Option<"maxFallbackAttempts",
+            "max-fallback-attempts",
+            "uint32_t", /*default=*/"10000",
+            "Maximum number of fallback configurations to try before "
+            "giving up (0 = unlimited). Only used when "
+            "enable-op-constraints is true.">
   ];
 }
 
@@ -325,10 +365,6 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
     to find working configurations.
   }];
   let options = [
-    Option<"tensorL1UsageCap",
-           "tensor-l1-usage-cap",
-           "float", /*default=*/"1.0",
-           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">,
     Option<"maxFallbackAttempts",
            "max-fallback-attempts",
            "uint32_t", /*default=*/"10000",
@@ -349,13 +385,6 @@ def TTNNRowMajorLayoutPropagation : Pass<"ttnn-rm-layout-propagation", "::mlir::
 
     This pass should run before the optimizer to provide better initial layout hints.
   }];
-
-  let options = [
-    Option<"tensorL1UsageCap",
-           "tensor-l1-usage-cap",
-           "float", /*default=*/"1.0",
-           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">
-  ];
 }
 
 def TTNNEmitPyWorkarounds: Pass<"ttnn-emitpy-workarounds", "::mlir::ModuleOp"> {
@@ -373,18 +402,24 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
   }];
 }
 
-def TTNNWeightBFP8Conversion: Pass<"ttnn-weight-bfp8-conversion", "::mlir::ModuleOp"> {
-  let summary = "Convert weight tensors to BFP8 format in matmul and linear operations.";
+def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::ModuleOp"> {
+  let summary = "Convert weight tensors to a specified dtype in matmul and linear operations.";
   let description = [{
     This pass converts weight tensors in matrix multiplication and linear
-    operations to BFP8 format while keeping activations and outputs in
-    high precision (bf16/f32).
+    operations to a specified data type while keeping activations and outputs
+    in high precision (bf16/f32).
 
     For matmul/linear operations:
-      - Inserts ttnn.typecast operations to convert weights to BFP8
+      - Inserts ttnn.typecast operations to convert weights to the target dtype
       - Only converts weights that trace back to constant/parameter arguments
       - Keeps activation inputs and outputs in their original precision
   }];
+
+  list<Option> options = [
+    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::WeightDtype",
+           /*default=*/"::mlir::tt::ttnn::WeightDtype::None",
+           "Target data type for weight conversion (bfp_bf8, bfp_bf4).">,
+  ];
 }
 
 def TTNNConstEvalInputsToSystemMemory : Pass<"ttnn-force-const-eval-to-system-memory", "::mlir::ModuleOp"> {
@@ -501,6 +536,48 @@ def TTNNSimplifyLocsForCodegen: Pass<"ttnn-simplify-locs-for-codegen", "::mlir::
   }];
 }
 
+def TTNNPrepareConstEvalCaching : Pass<"ttnn-prepare-const-eval-caching", "::mlir::ModuleOp"> {
+  let summary = "Prepare const-eval results for caching.";
+  let description = [{
+    Packs the results of all LoadCachedOps into a single global caching
+    dictionary per forward function.  For each forward function containing
+    LoadCachedOps it creates a global dictionary (e.g. `_cached_forward`),
+    retrieves it at the top of the function body, and stores each
+    LoadCachedOp result under its callee name.
+  }];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect"];
+}
+
+def TTNNFileSplit : Pass<"ttnn-file-split", "::mlir::ModuleOp"> {
+  let summary = "Organize TTNN IR into FileOp containers before lowering.";
+  let description = [{
+    Organizes TTNN IR into FileOp containers (emitpy::FileOp or emitc::FileOp,
+    selected via the `target` pass option) before lowering to a target dialect.
+
+    Example usage:
+    ```bash
+    ttmlir-opt --ttnn-file-split="target=emitpy" input.mlir
+    ```
+  }];
+
+  let dependentDialects = [
+    "mlir::tt::emitpy::EmitPyDialect",
+    "mlir::emitc::EmitCDialect",
+    "mlir::tt::ttcore::TTCoreDialect"
+  ];
+
+  let options = [
+    Option<"target", "target", "FileSplitTarget",
+           /*default=*/"",
+           "Target dialect for file splitting",
+           [{::llvm::cl::values(
+              clEnumValN(FileSplitTarget::EmitPy, "emitpy", "EmitPy target"),
+              clEnumValN(FileSplitTarget::EmitC, "emitc", "EmitC target")
+           )}]>
+  ];
+}
+
 def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
   let summary = "Remove all ttnn.deallocate operations for debugging.";
   let description = [{
@@ -522,6 +599,13 @@ def TTNNConfigureCCLOps : Pass<"ttnn-configure-ccl-ops", "::mlir::ModuleOp"> {
     This pass configures all device-specific parameters on CCL operations
     (AllGather, AllReduce, ReduceScatter) based on the DeviceAttr. This
     includes setting the topology attribute from the per-axis mesh topology.
+  }];
+}
+
+def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
+  let summary = "Memory usage optimization pass.";
+  let description = [{
+    This pass moves slice ops and reorganizes repeat ops to reduce memory usage.
   }];
 }
 

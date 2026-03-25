@@ -41,6 +41,8 @@ def D2M_ViewLayoutOp
   let assemblyFormat = [{
     $input `remapping` `=` $remapping attr-dict `:` type($input) `->` type($result)  }];
 
+  let builders = [OpBuilder<(ins "Type":$outputType, "Value":$input)>];
+
   let extraClassDeclaration = [{
     bool isReblockOnly();
   }];
@@ -48,6 +50,31 @@ def D2M_ViewLayoutOp
   let hasVerifier = 1;
   let hasFolder = 1;
   let hasCanonicalizer = 1;
+}
+
+def D2M_CompositeViewOp : D2M_Op<"composite_view",
+                                 [Pure, D2M_ViewOpInterface,
+                                  DeclareOpInterfaceMethods<D2M_ViewOpInterface,
+                                                            ["getInput",
+                                                             "isComposite",
+                                                             "getCompositeInputs"]>,
+                                  DeclareOpInterfaceMethods<BufferizableOpInterface,
+                                                            ["bufferizesToMemoryRead",
+                                                             "bufferizesToMemoryWrite",
+                                                             "bufferize",
+                                                             "getAliasingValues",
+                                                             "getBufferType"]>]> {
+  let summary = "Piecewise view over multiple input tensors";
+  let description = [{
+    Represents a piecewise-affine view that aggregates multiple input tensors
+    along a certain dimension.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs, SI32Attr:$dim);
+
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -369,10 +396,20 @@ def D2M_GenericOp
       bool isAllParallel();
       bool hasComputeOpsInRegion(unsigned regionIndex = 0);
       bool isNontriviallyEltwiseFused();
+      FailureOr<ParallelizedGeneric> withParallelization(
+          OpBuilder &builder, std::optional<ttcore::GridAttr> newGrid,
+          std::optional<ArrayRef<int64_t>> newBlockFactors,
+          bool generateReturnView = true);
       static Value findAssocOperand(memref::AllocOp allocOp);
       static Value findAssocOperand(::mlir::tensor::EmptyOp emptyOp);
       static Value findAssocCBByOperandIndex(Operation *op, unsigned operandIndex);
       static Value findAssocCBByOperand(Operation *op, Value operand);
+
+      /// Get the allocation (tensor.empty or memref.alloc) op result at
+      /// position `operandIndex` from the region's first block using
+      /// positional counting.  Returns null if not found.
+      static Value getOperandAlloc(Region &region, unsigned operandIndex);
+
       bool isScratchInput(int64_t inputIndex) {
         auto scratchAttr = getScratchInputsAttr();
         if (!scratchAttr) return false;
@@ -389,7 +426,7 @@ def D2M_GenericOp
 
 def D2M_EmptyOp
     : D2M_Op<
-          "empty", [MemoryEffects<[MemAlloc]>,
+          "empty", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                     DeclareOpInterfaceMethods<
                         BufferizableOpInterface,
                         ["bufferizesToMemoryRead", "bufferizesToMemoryWrite",
@@ -407,16 +444,23 @@ def D2M_EmptyOp
                        OptionalAttr<AffineMapAttr>:$virtualGridForwardMapping);
   let results = (outs AnyRankedTensor:$result);
 
-  let builders = [OpBuilder<(ins "ArrayRef<int64_t>":$shape,
-                                "Type":$elementType, "Attribute":$encoding),
-                            [{
-      build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding),
-            /*virtualGridInverseMapping=*/nullptr, /*virtualGridForwardMapping=*/nullptr);
+  let builders = [
+    OpBuilder<(ins "ArrayRef<int64_t>":$shape, "Type":$elementType,
+                   "Attribute":$encoding), [{
+      build($_builder, $_state,
+            RankedTensorType::get(shape, elementType, encoding),
+            /*virtualGridInverseMapping=*/nullptr,
+            /*virtualGridForwardMapping=*/nullptr);
     }]>,
-                  OpBuilder<
-                      (ins "ArrayRef<int64_t>":$shape, "Type":$elementType), [{
+    OpBuilder<(ins "ArrayRef<int64_t>":$shape, "Type":$elementType), [{
       build($_builder, $_state, shape, elementType, nullptr);
-    }]>];
+    }]>,
+    // Builder that computes and sets virtual grid mapping attrs when the
+    // tensor's grid requires virtualization for the given target device grid.
+    OpBuilder<(ins "ArrayRef<int64_t>":$shape, "Type":$elementType,
+                   "Attribute":$encoding,
+                   "ArrayRef<int64_t>":$targetGridShape)>,
+  ];
 
   let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
 }

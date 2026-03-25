@@ -22,6 +22,7 @@ class SliceDynamicOp;
 class SliceStaticOp;
 class RotaryEmbeddingOp;
 class Conv3dOp;
+class TopKOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -298,6 +299,10 @@ public:
 
   static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
 
+  // Create workarounds for group norm op operands.
+  static TTNNOperandsWorkarounds
+  createGroupNormOpOperandsWorkarounds(mlir::Operation *op);
+
   // Create workarounds for ArgMax op operands.
   static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();
 
@@ -333,6 +338,35 @@ public:
   static TTNNOperandsWorkarounds
   createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
+
+  // Create workarounds for sparse_matmul op operands.
+  // Sparsity tensor must be in ROW_MAJOR layout.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/39126
+  static TTNNOperandsWorkarounds createSparseMatmulOpOperandsWorkarounds();
+
+  // Create workarounds for all_to_all_dispatch op operands.
+  // Expert indices and mapping require uint16 dtype and ROW_MAJOR layout.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
+  static TTNNOperandsWorkarounds createAllToAllDispatchOpOperandsWorkarounds();
+
+  // Create workarounds for all_to_all_combine op operands.
+  // Expert metadata and mapping require uint16 dtype and ROW_MAJOR layout.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
+  static TTNNOperandsWorkarounds createAllToAllCombineOpOperandsWorkarounds();
+
+  // Create workarounds for moe_expert_token_remap op operands.
+  // expert_metadata requires uint16 dtype and ROW_MAJOR layout.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/39128
+  static TTNNOperandsWorkarounds
+  createMoeExpertTokenRemapOpOperandsWorkarounds();
+
+  // Create workarounds for topk ops.
+  // Input must be BFloat16 or BFP_BFloat8.
+  // Output values must be same data type as input.
+  // Output indices must be uint16.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/40086
+  static TTNNOperandsWorkarounds
+  createTopKOpOperandsWorkarounds(ttnn::TopKOp op);
 };
 
 } // namespace mlir::tt::ttnn::wa

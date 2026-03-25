@@ -3,10 +3,10 @@ add_mlir_dialect_library(MLIRD2MTransforms
         Allocate.cpp
         DecomposeArange.cpp
         DecomposeMasking.cpp
-        DecomposeComplexPermute.cpp
         GenericApplyInterchange.cpp
         GenericLinearizeMemref.cpp
         GenericRegionsToFuncs.cpp
+        HoistCBAllocs.cpp
         GenericReplaceGlobals.cpp
         GenericTileComputeLoops.cpp
         GridSelection.cpp
@@ -19,8 +19,6 @@ add_mlir_dialect_library(MLIRD2MTransforms
         ElementwiseFusion.cpp
         OpScheduler.cpp
         SFPUTileLoopFission.cpp
-        GlobalDataFormatConversion.cpp
-        RankNormalization.cpp
         ScalarizeConstTensors.cpp
         GenerateOuterLoops.cpp
         LowerToExplicitForm.cpp
@@ -28,8 +26,10 @@ add_mlir_dialect_library(MLIRD2MTransforms
         SplitUnifiedThread.cpp
         PreallocateMcastSemaphores.cpp
         ScheduleDMA.cpp
+        LowerDMAToFullyIndexedForm.cpp
         LowerLoadStoreOpsToDMA.cpp
         LowerLoadStoreOpsToExplicitCBForm.cpp
+        ExpandDMAReadCompositeView.cpp
         ConvertLocalLoadStoreOpsToAliasedCBs.cpp
 
         ADDITIONAL_HEADER_DIRS

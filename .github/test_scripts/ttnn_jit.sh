@@ -38,12 +38,16 @@ pip install ttnn_jit*.whl --find-links . --upgrade
 
 echo "Running ttnn-jit tests..."
 if [ "$1" == "nightly" ]; then
+    # Run perf tests for Superset
+    $WORK_DIR/test/ttnn-jit/perf_ci/run_perf_collect.sh "$WORK_DIR/jit_perf_results" -v --junit-xml=$TEST_REPORT_PATH
     # Run tests that are exclusive to the nightly workflow
     pytest -v $WORK_DIR/test/ttnn-jit/nightly/ --junit-xml=$TEST_REPORT_PATH
 else
     if [[ "$RUNS_ON" == "n300-llmbox" ]]; then
         # only run multichip tests and matmul smoketests for llmbox
         pytest -v $WORK_DIR/test/ttnn-jit/test_mesh_tensor_eltwise.py $WORK_DIR/test/ttnn-jit/test_matmul_smoketest.py --junit-xml=$TEST_REPORT_PATH
+    elif [[ "$RUNS_ON" == "p150" ]]; then
+        pytest -v $WORK_DIR/test/ttnn-jit/test_matmul_smoketest.py --junit-xml=$TEST_REPORT_PATH
     else
         # Only run tests in the top level directory. These are always run.
         llvm-lit -v --xunit-xml-output $TEST_REPORT_PATH $BUILD_DIR/test/ttnn-jit/lit

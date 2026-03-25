@@ -809,7 +809,8 @@ public:
             bool isUnaryOp = computeOp->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
             bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
-                               mlir::isa<d2m::TileReduceSumOp>(computeOp);
+                               mlir::isa<d2m::TileReduceSumOp>(computeOp) ||
+                               mlir::isa<d2m::TileReduceMeanOp>(computeOp);
             assert(
                 (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
                 "Only unary ops, tile matmul, reductions, and tile+scalar ops "
@@ -860,7 +861,9 @@ public:
     return {copyInfos, dstIntermediates};
   }
 
-  static BlockArgument lookThroughSubView(Value memref) {
+  // Look through subview/wait/reserve to find the associated CB or
+  // tensor.empty/memref.alloc value for a given memref.
+  static Value lookThroughSubView(Value memref) {
     if (!memref) {
       return nullptr;
     }
@@ -872,21 +875,22 @@ public:
       if (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
         memref = definingOp->getOperand(0);
       } else if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(definingOp)) {
-        // memref.alloc: find the associated operand by tracing uses, then
-        // find the corresponding CB block argument
         Value assocOperand = GenericOp::findAssocOperand(allocOp);
         if (!assocOperand) {
           return nullptr;
         }
         Value cb = GenericOp::findAssocCBByOperand(allocOp.getOperation(),
                                                    assocOperand);
-        if (!cb) {
-          return nullptr;
+        if (cb) {
+          return cb;
         }
-        return mlir::dyn_cast_or_null<BlockArgument>(cb);
+        return nullptr;
       }
     }
-    return mlir::dyn_cast_or_null<BlockArgument>(memref);
+    if (mlir::isa<BlockArgument>(memref)) {
+      return memref;
+    }
+    return nullptr;
   }
 
   // Collect a single load or store and determine its loop guard.
@@ -901,10 +905,10 @@ public:
     }
 
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
-    BlockArgument blockArg = lookThroughSubView(loadOrStore.getMemRef());
+    Value assocCB = lookThroughSubView(loadOrStore.getMemRef());
 
     SmallVector<Value> guardIVs;
-    if (blockArg) {
+    if (assocCB) {
       guardIVs = getGuardLoopIVs(loadOrStore, outermostInnerComputeLoop);
     }
 
@@ -924,10 +928,10 @@ public:
     }
 
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
-    BlockArgument blockArg = lookThroughSubView(loadOp.getMemRef());
+    Value assocCB = lookThroughSubView(loadOp.getMemRef());
 
     SmallVector<Value> guardIVs;
-    if (blockArg) {
+    if (assocCB) {
       guardIVs = getGuardLoopIVs(loadOp, outermostInnerComputeLoop);
     }
 
@@ -1620,7 +1624,8 @@ public:
             bool isUnaryOp = computeOp->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
             bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
-                               mlir::isa<d2m::TileReduceSumOp>(computeOp);
+                               mlir::isa<d2m::TileReduceSumOp>(computeOp) ||
+                               mlir::isa<d2m::TileReduceMeanOp>(computeOp);
             assert(
                 (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
                 "Only unary ops, tile matmul, reductions, and tile+scalar ops "

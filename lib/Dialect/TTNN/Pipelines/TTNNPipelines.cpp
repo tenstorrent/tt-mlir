@@ -54,6 +54,10 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRQuantDequantConversion());
   }
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(mlir::createCanonicalizerPass());
+  if (options.implicitBroadcastFoldingEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
+  }
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -104,7 +108,6 @@ void createTTNNPipelineAnalysisPasses(
     wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
-    validationOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
     pm.addPass(createDevicePassesWrapper(
@@ -156,10 +159,12 @@ void createTTNNFusingPass(OpPassManager &pm,
       wrapperOptions.devicePtr = options.devicePtr;
       wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
+      uint32_t fallbackAttempts = options.maxFallbackAttempts;
       pm.addPass(createDevicePassesWrapper(
-          [](OpPassManager &innerPm) {
+          [fallbackAttempts](OpPassManager &innerPm) {
             TTNNFusingOptions fusingOptions;
             fusingOptions.enableOpConstraints = true;
+            fusingOptions.maxFallbackAttempts = fallbackAttempts;
             innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
           },
           wrapperOptions));
@@ -236,9 +241,6 @@ void createTTIRToTTNNDevicePipeline(
   // identifying Device Forward functions downstream.
   pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
 
-  pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::createCSEPass());
-
   // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
 
@@ -249,6 +251,9 @@ void createTTIRToTTNNDevicePipeline(
   {
     auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
+    // Element type normalization must run before canonicalization and other
+    // transformative passes. Canonicalization patterns assume normalized types
+    // (e.g., no i64/f64) and may produce incorrect results otherwise.
     // Element type normalization should be applied only to the ops in the
     // Device Module, since we aren't restricted with element types on CPU.
     ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
@@ -262,6 +267,8 @@ void createTTIRToTTNNDevicePipeline(
     ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
     quantOptions.targetBitWidth = options.quantBitWidth;
     devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
+
+    devicePm.addPass(mlir::createCSEPass());
 
     // Const-eval hoisting pass.
     if (options.enableConstEval) {
@@ -283,11 +290,30 @@ void createTTIRToTTNNDevicePipeline(
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
 
+    if (options.dramSpaceSavingOptimizationEnabled) {
+      devicePm.addPass(createTTNNMemoryManagement());
+    }
     createTTNNPipelineWorkaroundPass(devicePm, options);
-    // Add BFP8 weight conversion pass before analysis passes.
+    // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
-    if (options.experimentalBfp8Weights) {
-      devicePm.addPass(createTTNNWeightBFP8Conversion());
+    {
+      WeightDtype resolvedWeightDtype = options.experimentalWeightDtype;
+
+      // Handle deprecated experimental-bfp8-weights flag.
+      if (options.experimentalBfp8Weights) {
+        if (resolvedWeightDtype != WeightDtype::None) {
+          llvm::report_fatal_error(
+              "Cannot set both experimental-bfp8-weights and "
+              "experimental-weight-dtype. Use experimental-weight-dtype only.");
+        }
+        resolvedWeightDtype = WeightDtype::BFP_BFloat8;
+      }
+
+      if (resolvedWeightDtype != WeightDtype::None) {
+        TTNNWeightDtypeConversionOptions convOpts;
+        convOpts.targetDtype = resolvedWeightDtype;
+        devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
+      }
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.
@@ -467,11 +493,38 @@ void createTTNNToEmitPyDevicePipeline(
     } else {
       devicePm.addPass(createTTNNCreateInputGenerators());
     }
+
+    // Optionally create main_for_test wrapper for frontend-driven execution
+    // (e.g. PythonModelRunner). This must run after the input generator/loader
+    // pass so that _main already exists.
+    //
+    if (options.createMainForTest) {
+      devicePm.addPass(createTTNNCreateMainForTest());
+    }
   }
 
+  devicePm.addPass(createTTNNPrepareConstEvalCaching());
+  // Optionally run TTNNFileSplit pass.
+  if (options.splitFiles) {
+    TTNNFileSplitOptions fileSplitOptions;
+    fileSplitOptions.target = FileSplitTarget::EmitPy;
+    devicePm.addPass(createTTNNFileSplit(fileSplitOptions));
+  }
+
+  // Both paths (targetModule and TTNNCreateMainForTest) inject device as an
+  // explicit argument into the forward function. Const-eval functions also
+  // need device injected, but this can't be done as a separate MLIR pass
+  // because load_cached ops verify callee argument count between passes
+  // (issue #6746). Setting targetModule=true on the EmitPy pass tells it to
+  // handle const-eval device injection inside its runOnOperation, before
+  // applyFullConversion.
+  //
   ConvertTTNNToEmitPyOptions emitpyOptions;
-  emitpyOptions.targetModule = options.targetModule;
+  emitpyOptions.targetModule =
+      options.targetModule || options.createMainForTest;
   devicePm.addPass(createConvertTTNNToEmitPyPass(emitpyOptions));
+
+  devicePm.addPass(createEmitPyConstEvalCachingPass());
 
   devicePm.addPass(createEmitPyNameVarsPass());
 }

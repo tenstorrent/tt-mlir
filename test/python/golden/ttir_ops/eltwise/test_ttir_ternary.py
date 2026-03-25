@@ -13,6 +13,7 @@ from builder.base.builder_apis import (
 )
 from test_utils import (
     Marks,
+    SkipIf,
     shape_str,
     shapes_list_str,
 )
@@ -42,7 +43,9 @@ def module_where(dtype: torch.dtype):
 
 def module_clamp_tensor(dtype: torch.dtype):
     def _module_clamp_tensor(builder: TTIRBuilder):
-        @builder.func([(128, 128), (128, 128), (128, 128)], [dtype] * 3)
+        shape = (128, 128)
+
+        @builder.func([shape, shape, shape], [dtype] * 3)
         def clamp_tensor(
             in0: Operand,
             in1: Operand,
@@ -50,6 +53,19 @@ def module_clamp_tensor(dtype: torch.dtype):
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
+            # int64 on ttmetal is normalized to int32; use int32-range values so
+            # truncation is a no-op and golden matches device output.
+            if dtype == torch.int64:
+                in0_golden = torch.randint(
+                    -(2**31), 2**31, shape, dtype=torch.int64
+                )
+                in1_golden = torch.randint(
+                    -(2**31), 2**31, shape, dtype=torch.int64
+                )
+                in2_golden = torch.randint(
+                    -(2**31), 2**31, shape, dtype=torch.int64
+                )
+                builder.set_goldens({in0: in0_golden, in1: in1_golden, in2: in2_golden})
             return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
 
     return _module_clamp_tensor
@@ -62,12 +78,24 @@ ternary_ops = [
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.int32 | SkipIf("sim"),
+        torch.int64 | SkipIf("sim"),
+        torch.bool | SkipIf("sim"),
+    ],
+    ids=["f32", "bf16", "i32", "i64", "i1"],
+)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", ternary_ops)
 def test_ternary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    if target != "ttmetal" and dtype == torch.int64:
+        pytest.xfail("int64 not guaranteed to work on non-ttmetal backends")
     pipeline_options = []
     compile_and_execute_ttir(
         test_fn(dtype),
@@ -152,45 +180,111 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     )
 
 
-@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
-@pytest.mark.parametrize("max_arg,min_arg", [(0.8, -0.5)])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_clamp_scalar(shape: Shape, max_arg, min_arg, target: str, request, device):
-    def module_clamp_scalar(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
-        def clamp_scalar(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+# Test where op with NaN/Inf in false_value to exercise the legacy fallback
+# path bug where pred*true + (1-pred)*false produces wrong results because
+# 0 * Inf = NaN.  See: https://github.com/tenstorrent/tt-metal/issues/39181
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        # 2D: broadcast true_value col-dim
+        [(32, 64), (32, 1), (32, 64)],
+        # 2D: broadcast false_value col-dim
+        [(128, 128), (128, 128), (128, 1)],
+        # 3D: broadcast condition on all dims
+        [(1, 1, 1), (8, 16, 32), (8, 16, 32)],
+        # 3D: broadcast true_value and false_value (different dims)
+        [(1, 16, 32), (8, 1, 32), (8, 16, 1)],
+        # 3D: GPT-2 attention mask pattern — scalar false_value
+        [(1, 4, 1), (1, 4, 768), (1, 1, 1)],
+        # 4D: broadcast false_value on all dims
+        [(1, 1, 1, 4), (1, 1, 1, 4), (1, 1, 1, 1)],
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.bfloat16],
+    ids=["f32", "bf16"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "special_value",
+    [float("nan"), float("inf"), float("-inf")],
+    ids=["nan", "inf", "neg_inf"],
+)
+def test_where_nan_inf_implicit_broadcast(
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    special_value: float,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * 3)
+        def where(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
         ):
-            input_tensor = torch.rand(shape, dtype=torch.float32) * 2 - 1
-            builder.set_goldens(inputs={in0: input_tensor})
-            return builder.clamp_scalar(
-                in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
+            # All-ones condition so golden is entirely true_value (normal
+            # numbers).  The legacy fallback computes
+            # pred*true + (1-pred)*false; with pred=1 and false=Inf/NaN
+            # this gives true + 0*Inf = true + NaN = NaN, which PCC
+            # will clearly catch against the all-normal golden.
+            condition_tensor = torch.ones(shapes[0], dtype=dtype)
+            true_tensor = torch.randn(shapes[1]).to(dtype)
+            false_tensor = torch.full(shapes[2], special_value, dtype=dtype)
+            output_shape = torch.broadcast_shapes(*shapes)
+            output_golden = true_tensor.broadcast_to(output_shape).clone()
+            result = builder.where(in0, in1, in2, unit_attrs=unit_attrs)
+            builder.set_goldens(
+                inputs={
+                    in0: condition_tensor,
+                    in1: true_tensor,
+                    in2: false_tensor,
+                },
+                outputs={result: output_golden},
             )
+            return result
 
     compile_and_execute_ttir(
-        module_clamp_scalar,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        module,
+        **get_request_kwargs(request),
         target=target,
+        device=device,
     )
 
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize(
-    "max_arg,min_arg",
-    [(3, 0)],
-    ids=["i32"],
+    "max_arg,min_arg,dtype",
+    [
+        (0.8, -0.5, torch.float32),
+        (0.8, -0.5, torch.bfloat16),
+        pytest.param(3, 0, torch.int32, marks=pytest.mark.skip_config(["sim"])),
+        pytest.param(3, 0, torch.int64, marks=pytest.mark.skip_config(["sim"])),
+    ],
+    ids=["f32", "bf16", "i32", "i64"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_clamp_scalar_i32(shape: Shape, max_arg, min_arg, target: str, request, device):
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_clamp_scalar(
+    shape: Shape, max_arg, min_arg, dtype: torch.dtype, target: str, request, device
+):
+    if target != "ttmetal" and dtype == torch.int64:
+        pytest.xfail("int64 not guaranteed to work on non-ttmetal backends")
+
     def module_clamp_scalar(builder: TTIRBuilder):
-        @builder.func([shape], [torch.int32])
+        @builder.func([shape], [dtype])
         def clamp_scalar(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            input_tensor = torch.randint(-5, 10, shape, dtype=torch.int32)
+            if dtype == torch.int32 or dtype == torch.int64:
+                input_tensor = torch.randint(-5, 10, shape, dtype=torch.int32)
+            else:
+                input_tensor = torch.rand(shape, dtype=dtype) * 2 - 1
             builder.set_goldens(inputs={in0: input_tensor})
             return builder.clamp_scalar(
                 in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
@@ -198,10 +292,8 @@ def test_clamp_scalar_i32(shape: Shape, max_arg, min_arg, target: str, request, 
 
     compile_and_execute_ttir(
         module_clamp_scalar,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 

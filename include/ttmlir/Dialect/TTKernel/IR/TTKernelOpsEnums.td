@@ -23,11 +23,13 @@ def TTKernel_ThreadType : I32EnumAttr<"ThreadType", "TTKernel ThreadTypes",
 
 def TTKernel_ReduceSum : I32EnumAttrCase<"Sum", 0, "reduce_sum">;
 def TTKernel_ReduceMax : I32EnumAttrCase<"Max", 1, "reduce_max">;
+def TTKernel_ReduceAvg : I32EnumAttrCase<"Avg", 2, "reduce_avg">;
 
 def TTKernel_ReduceType : I32EnumAttr<"ReduceType", "TTKernel Reduce Types",
                           [
                             TTKernel_ReduceSum,
-                            TTKernel_ReduceMax
+                            TTKernel_ReduceMax,
+                            TTKernel_ReduceAvg
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttkernel";

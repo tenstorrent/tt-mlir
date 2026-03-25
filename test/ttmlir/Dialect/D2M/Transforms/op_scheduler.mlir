@@ -16,11 +16,21 @@ module {
     %alloc_34 = memref.alloc() : memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
 
     // CHECK-LABEL: d2m.generic
-    // CHECK: ^unified0
     d2m.generic {block_factors = [], grid = #ttcore.grid<4x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%alloc_32, %alloc_4, %alloc_8, %alloc_12, %alloc_16, %alloc_20, %alloc_24, %alloc_28, %alloc_29, %alloc_30 : memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>, memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>, memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>, memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>, memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>, memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>, memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>, memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>, memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>, memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>)
         outs(%alloc_34 : memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>)  {
-    ^unified0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, %cb3: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, %cb4: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, %cb5: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, %cb6: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, %cb7: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, %cb8: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, %cb9: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, %cb10: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>):
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+      %cb3 = d2m.get_cb(3) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+      %cb4 = d2m.get_cb(4) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+      %cb5 = d2m.get_cb(5) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+      %cb6 = d2m.get_cb(6) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+      %cb7 = d2m.get_cb(7) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+      %cb8 = d2m.get_cb(8) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+      %cb9 = d2m.get_cb(9) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+      %cb10 = d2m.get_cb(10) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
       %c1 = arith.constant 1 : index
       %c0 = arith.constant 0 : index
       %7 = d2m.wait %cb8 : <memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>> -> memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>

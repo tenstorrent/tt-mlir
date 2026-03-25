@@ -35,6 +35,37 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
 @pytest.mark.parametrize(
     "shape, permutation",
     [
+        # 2d transpose
+        [(32, 128 * 500), [1, 0]],
+        pytest.param(
+            (32, 128 * 501),
+            [1, 0],
+            marks=pytest.mark.skip_config(
+                ["n150"],
+                ["n300"],
+                reason="L1 memory usage exceeds capacity #7559",
+            ),
+        ),
+        pytest.param(
+            (32, 128 * 800),
+            [1, 0],
+            marks=pytest.mark.skip_config(
+                ["n150"],
+                ["n300"],
+                reason="L1 memory usage exceeds capacity #7559",
+            ),
+        ),
+        pytest.param(
+            (32, 128 * 801),
+            [1, 0],
+            marks=pytest.mark.skip_config(
+                ["n150"],
+                ["n300"],
+                ["p150"],
+                ["p300"],
+                reason="L1 memory usage exceeds capacity #7559",
+            ),
+        ),
         # 3d inner permutes
         [(3, 32, 32), [0, 2, 1]],
         [(3, 32, 64), [0, 2, 1]],
@@ -187,7 +218,6 @@ def test_concatenate_heads(
         concatenate_heads_module,
         target=target,
         device=device,
-        print_ir=True,
         **get_request_kwargs(request),
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
     )
@@ -296,7 +326,11 @@ def shapes_to_id(shapes) -> str:
 @pytest.mark.parametrize(
     "shapes", RESHAPE_SHAPES, ids=[shapes_to_id(s) for s in RESHAPE_SHAPES]
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.bfloat16, torch.int32, torch.int64, torch.bool],
+    ids=["f32", "bf16", "i32", "i64", "i1"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reshape(
     shapes: Tuple[Tuple[int, ...], Tuple[int, ...]],

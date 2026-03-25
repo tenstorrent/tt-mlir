@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -113,10 +114,11 @@ static void runTraceProgramAndCaptureTrace(
   }
 
   TraceData traceData{.traceId = meshTraceId,
-                      .inputTensors = inputSlots,
-                      .outputTensors = outputSlots};
+                      .inputTensors = std::move(inputSlots),
+                      .outputTensors = std::move(outputSlots),
+                      .generationId = traceCache.getGenerationId()};
   auto [mainProgramKey, captureExecuteKey] = getTraceCacheKeys(op, context);
-  traceCache.insert(mainProgramKey, captureExecuteKey, traceData);
+  traceCache.insert(mainProgramKey, captureExecuteKey, std::move(traceData));
 }
 
 static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
@@ -152,7 +154,7 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                inputSlotWrapper.getTensor());
 
     // Input slot will now contain identical data as the input tensor
-    // Thus we can syncronize their versions
+    // Thus we can synchronize their versions
     inputSlotWrapper.syncVersion(inputTensorWrapper);
   }
 
@@ -183,10 +185,6 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
 
   LOG_ASSERT(meshDevice.get_program_cache().is_enabled(),
              "Program cache must be enabled");
-  LOG_ASSERT(meshDevice.allocator()
-                     ->get_statistics(::ttnn::BufferType::TRACE)
-                     .total_allocatable_size_bytes > 0,
-             "Trace region size must be greater than 0");
 
   auto traceCache =
       deviceHandle.getTraceCache()
@@ -197,6 +195,7 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
 
   if (!traceCache->contains(mainProgramKey, captureExecuteKey)) {
     LOG_DEBUG("Trace cache miss, running program and capturing trace");
+    traceCache->incrementGeneration();
     runTraceProgramAndCaptureTrace(op, context, *traceCache);
     debug::Stats::get().incrementStat("TraceCacheMiss");
     debug::Stats::get().incrementStat("CapturedTrace");
@@ -205,6 +204,28 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
 
   TraceData *traceData = traceCache->get(mainProgramKey, captureExecuteKey);
   LOG_ASSERT(traceData, "TraceData must be populated in TraceCache");
+
+  // Check if the trace is stale by comparing the generation id of the trace
+  // with the current generation id of the cache.
+  //
+  // If the trace is stale, that means that we have new allocations on the
+  // device since the trace was captured, so we need to re-capture it again.
+  // Otherwise, we would possibly be overwriting new allocations when replaying
+  // (executing) the stale trace.
+  if (traceData->generationId < traceCache->getGenerationId()) {
+    LOG_DEBUG("Trace is stale (captured at gen ", traceData->generationId,
+              ", current gen ", traceCache->getGenerationId(),
+              "), invalidating and recapturing");
+
+    // Remove the stale trace from the cache and recapture it.
+    traceCache->erase(mainProgramKey, captureExecuteKey);
+    runTraceProgramAndCaptureTrace(op, context, *traceCache);
+
+    debug::Stats::get().incrementStat("TraceCacheMiss");
+    debug::Stats::get().incrementStat("TraceStaleRecapture");
+    return;
+  }
+
   LOG_DEBUG("Trace cache hit, executing trace directly");
   executeTrace(op, context, *traceData);
   debug::Stats::get().incrementStat("ExecutedTrace");

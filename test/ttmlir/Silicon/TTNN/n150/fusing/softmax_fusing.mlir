@@ -43,7 +43,7 @@ module {
     return %7 : tensor<32x32xbf16>
   }
 
-  // Test case where rehape is fused into reduction and we can fuse into softmax.
+  // Test case where reshape is fused into reduction and we can fuse into softmax.
   func.func @no_fusion_keep_dim_false(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
     // CHECK-NOT: ttir.exp
     // CHECK-NOT: ttir.sum

@@ -27,6 +27,7 @@ DRAM_SHAPES = [
 
 SHARD_SHAPES_GRIDS = [
     ((1024, 1024), (7, 7), ttnn.ShardStrategy.BLOCK),
+    ((96, 576), (5, 0), ttnn.ShardStrategy.BLOCK),
     ((2048, 32), (7, 7), ttnn.ShardStrategy.HEIGHT),
     ((32, 2048), (7, 7), ttnn.ShardStrategy.WIDTH),
 ]
@@ -81,6 +82,7 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op):
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
         ttnn_dtype=ttnn_dtype,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
     )
 
 
@@ -164,6 +166,7 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
     )
 
 
@@ -225,6 +228,7 @@ def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op):
         buffer_type=ttnn.BufferType.DRAM,
         ttnn_dtype=ttnn_dtype,
         compile_only=compile_only,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
     )
 
 
@@ -335,6 +339,7 @@ def test_bitwise_binary_ops_dram(device, shape, dtype, op):
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.DRAM,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
     )
 
 
@@ -509,7 +514,9 @@ def test_interop_two_jit_to_ttnn_binary_l1(
 def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary_op):
     input_tensor = create_dram_tensor(device, shape, dtype)
 
-    compiled_op = ttnn_jit.jit(debug=True)(jit_op)
+    compiled_op = ttnn_jit.jit(debug=True, memory_config=ttnn.DRAM_MEMORY_CONFIG)(
+        jit_op
+    )
     jit_output = compiled_op(input_tensor)
     interop_result = ttnn_unary_op(jit_output)
 
@@ -517,10 +524,9 @@ def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_unary_op(golden_jit_output)
 
-    expected_memory_config = get_expected_block_sharded_memory_config(
-        golden_result.shape, device
+    assert memory_configs_equal(
+        interop_result.memory_config(), golden_result.memory_config()
     )
-    assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
 
@@ -543,8 +549,12 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     input1 = create_dram_tensor(device, shape, dtype)
     input2 = create_dram_tensor(device, shape, dtype)
 
-    compiled_op1 = ttnn_jit.jit(debug=True)(jit_op1)
-    compiled_op2 = ttnn_jit.jit(debug=True)(jit_op2)
+    compiled_op1 = ttnn_jit.jit(debug=True, memory_config=ttnn.DRAM_MEMORY_CONFIG)(
+        jit_op1
+    )
+    compiled_op2 = ttnn_jit.jit(debug=True, memory_config=ttnn.DRAM_MEMORY_CONFIG)(
+        jit_op2
+    )
     jit_output1 = compiled_op1(input1)
     jit_output2 = compiled_op2(input2)
     interop_result = ttnn_binary_op(jit_output1, jit_output2)
@@ -555,8 +565,7 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     golden_output2 = golden_jit_op2(input2)
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
-    expected_memory_config = get_expected_block_sharded_memory_config(
-        golden_result.shape, device
+    assert memory_configs_equal(
+        interop_result.memory_config(), golden_result.memory_config()
     )
-    assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)

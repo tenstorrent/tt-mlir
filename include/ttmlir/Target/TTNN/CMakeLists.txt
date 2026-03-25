@@ -20,7 +20,7 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/matmul.fbs
   # ANCHOR_END: adding_an_op_matmul_fbs_cmake
   operations/mlir_native.fbs
-  operations/moreh_cumsum.fbs
+  operations/cumsum.fbs
   operations/normalization.fbs
   operations/pool.fbs
   operations/rand.fbs
@@ -28,6 +28,7 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/tensor_serialization.fbs
   operations/trace.fbs
   operations/transformer.fbs
+  operations/global_semaphore.fbs
 )
 
 set(TTNN_FBS_GEN_SOURCES

@@ -5,11 +5,10 @@
 
 module {
   // CHECK-LABEL: func.func @binary_dest_reuse_dst_index_mismatch
-  func.func @binary_dest_reuse_dst_index_mismatch(
-      %arg0_: !d2m.cb<memref<1x!ttcore.tile<32x32, f32>, #l1_>>,
-      %arg1_: !d2m.cb<memref<1x!ttcore.tile<32x32, f32>, #l1_>>,
-      %arg2_: !d2m.cb<memref<1x!ttcore.tile<32x32, f32>, #l1_>>)
-      attributes {d2m.thread = #d2m.thread<compute>} {
+  func.func @binary_dest_reuse_dst_index_mismatch() attributes {d2m.thread = #d2m.thread<compute>} {
+    %arg0_ = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<1x!ttcore.tile<32x32, f32>, #l1_>>
+    %arg1_ = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<1x!ttcore.tile<32x32, f32>, #l1_>>
+    %arg2_ = d2m.get_cb(2) operand_index = 2 : !d2m.cb<memref<1x!ttcore.tile<32x32, f32>, #l1_>>
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
 

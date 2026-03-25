@@ -9,9 +9,9 @@
   - [JIT Flags](#jit-flags)
 - [Current Support](#current-support)
 - [How It Works](#how-it-works)
-  - [Level 1: Python Decorator](#level-1-python-decorator)
-  - [Level 2: D2M Compilation Pipeline](#level-2-d2m-compilation-pipeline)
-  - [Level 3: Runtime Execution](#level-3-runtime-execution)
+  - [Step 1: Python Decorator](#step-1-python-decorator)
+  - [Step 2: D2M Compilation Pipeline](#step-2-d2m-compilation-pipeline)
+  - [Step 3: Runtime Execution](#step-3-runtime-execution)
   - [JIT Caching](#jit-caching)
   - [Op Fusion](#op-fusion)
 - [Debugging FAQ](#debugging-faq)
@@ -34,6 +34,8 @@ For profiling purposes, add the following flag to enable Tracy:
 ```bash
 -DTT_RUNTIME_ENABLE_PERF_TRACE=ON
 ```
+
+A [Superset dashboard](https://superset.tenstorrent.com/superset/dashboard/479) is available to track nightly JIT performance across a set of representative ops.
 
 After building, make sure to generate a system descriptor using [ttrt](./ttrt.md).
 ```bash
@@ -71,7 +73,7 @@ def model(input_0, input_1):
   return ttnn.matmul(x, y)
 ```
 
-This demo is available [here](../../test/ttnn-jit/test_jit_demos.py).
+This demo is available [here](../../test/ttnn-jit/demo/test_cosh.py).
 
 ### JIT Flags
 
@@ -80,8 +82,9 @@ This demo is available [here](../../test/ttnn-jit/test_jit_demos.py).
 | `enable_cache` | `bool` | `False` | Enables caching for compiled JIT graphs. |
 | `math_fidelity` | `ttnn.MathFidelity` | `ttnn.MathFidelity.HiFi4` | Sets the math fidelity setting for the JIT graph. |
 | `debug` | `bool` | `False` | Enables debug prints during compilation and execution. |
-| `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer and kernel source files will be dumped to `generated/jit`. |
+| `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer and kernel source files will be dumped to `generated/ttnn-jit/<func_name>`. |
 | `memory_config` | `ttnn.MemoryConfig` | `None` | Output memory configuration for the JIT function. If specified, the output tensor will use this exact layout. If unspecified, a maximally L1 block sharded layout will be used as default. |
+| `fallback` | `bool` | `False` | When enabled, falls back to running the original function eagerly through TTNN if JIT compilation or execution fails. Cannot be used together with `compile_only`. |
 
 ## Current Support
 
@@ -93,8 +96,11 @@ The following major categories of operations are supported:
 - Binary Bitwise
 - Matrix Multiplication
 - Reductions
+- Tensor Manipulation
+- Data Movement
+- Collective Communication (CCL)
 
-Not every operation is supported within the above categories.
+Not every operation is supported within the above categories. Tensor manipulation, data movement, and CCL ops are currently supported at the IR generation level; end-to-end support through D2M may vary.
 
 ### Supported Tensor Layouts
 - Unary Elementwise and Bitwise
@@ -104,12 +110,11 @@ Not every operation is supported within the above categories.
   - If both operands are sharded, they must have identical shard specs.
 - Matrix Multiplication:
   - Block sharded tensors in L1 and DRAM interleaved.
-  - The output will always be block sharded in L1. DRAM outputs are not supported.
 - Reductions:
   - Height, width, and block sharded tensors in L1.
   - DRAM tensors are not supported.
 
-Note: Only tiled tensors with tile-aligned dimensions are currently supported. Padding is not supported. Row-major layouts are not supported.
+Note: Only tiled tensors with tile-aligned dimensions are currently supported. Padding is not supported. Row-major layouts are not supported. ND sharded tensors are also supported.
 
 ### Supported Datatypes
 | Operation Category | Supported Datatypes |
@@ -120,9 +125,12 @@ Note: Only tiled tensors with tile-aligned dimensions are currently supported. P
 | Binary Bitwise | `int32` |
 | Matrix Multiplication | `f32`, `bf16`, `bfp8` |
 | Reductions | `f32`, `bf16` |
+| Tensor Manipulation | `f32`, `bf16`, `bfp8` |
+| Data Movement | `f32`, `bf16`, `bfp8` |
+| CCL | `f32`, `bf16`, `bfp8` |
 
 ### Notes
-- The `memory_config` arguments on JIT ops are ignored; only the `memory_config` passed to the `@ttnn_jit.jit()` decorator is used. Setting the output layout to DRAM interleaved when the input layout is L1 sharded is not supported.
+- The `memory_config` arguments on individual JIT ops are ignored; only the `memory_config` passed to the `@ttnn_jit.jit()` decorator is used.
 - See the current [test suite](../../test/ttnn-jit/) for what is guaranteed to be working.
 
 ## How It Works
@@ -133,23 +141,28 @@ The `ttnn.jit` decorator implements a three-step compilation and execution pipel
 
 When you decorate a function with `@ttnn_jit.jit()`, the decorator wraps it in a `JitFunction` object. On the first call:
 
-- The function is traced during execution to capture all TTNN operations.
-- Each TTNN operation (eg: `ttnn.exp`, `ttnn.add`) is converted to its corresponding MLIR operation in the TTIR dialect.
+- The function's source code is rewritten so that `ttnn.*` calls are redirected through JIT-aware handlers.
+- The rewritten function is executed, tracing each TTNN operation and converting it to its corresponding MLIR operation in the TTIR dialect.
 
 The output is a valid MLIR module in the TTIR dialect. The previous `cosh` [example](#how-to-use-ttnnjit) will be compiled into TTIR operations like:
 
 ```mlir
 module {
   func.func @cosh(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> {
-    %0 = ttir.exp %arg0 : tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
-    %1 = ttir.neg %arg0 : tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
-    %2 = ttir.exp %1 : tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
-    %3 = ttir.add %0, %2 : tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
-    %4 = ttir.multiply %3, 0.5 : tensor<32x32xbf16, #ttnn_layout>, f32 -> tensor<32x32xbf16, #ttnn_layout>
-    return %4 : tensor<32x32xbf16, #ttnn_layout>
+    %0 = "ttir.exp"(%arg0) : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16>
+    %1 = "ttir.neg"(%arg0) : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16>
+    %2 = "ttir.exp"(%1) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %3 = "ttir.add"(%0, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %cst = "ttir.full"() <{shape = array<i32: 32, 32>, fill_value = 5.000000e-01 : f32}> : () -> tensor<32x32xf32>
+    %4 = "ttir.multiply"(%3, %cst) : (tensor<32x32xbf16>, tensor<32x32xf32>) -> tensor<32x32xbf16>
+    %5 = ttir.empty() : tensor<32x32xbf16, #ttnn_layout>
+    %6 = ttir.to_layout %4, %5 : tensor<32x32xbf16> into tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
+    return %6 : tensor<32x32xbf16, #ttnn_layout>
   }
 }
 ```
+
+Only function arguments and the final return value carry a `#ttnn_layout` encoding that specifies the exact tensor layout (sharding, memory space, grid). Intermediate results are left as bare tensor types; the D2M GridSelection pass infers optimal layouts for these during compilation.
 
 ### Step 2: D2M Compilation Pipeline
 
@@ -333,7 +346,7 @@ Unary Op Chains
 - DST is double buffered (benefits degrade dramatically as chain gets longer)
 
 ```Python
-@ttnn_jit.jit(backend="ttnn", max_grid=(7, 7), debug=False)
+@ttnn_jit.jit()
 def unary_chain(input_tensor):
     res_0 = ttnn.abs(input_tensor)
     res_1 = ttnn.sin(res_0)
@@ -398,7 +411,7 @@ Arbitrary Binary + Unary Op Trees
 Sample op tree to be fused and rescheduled:
 
 ```Python
-@ttnn_jit.jit(backend="ttnn", max_grid=(7, 7), debug=False)
+@ttnn_jit.jit()
 def add_tree_8_to_1(
         in0, in1, in2, in3,
         in4, in5, in6, in7
@@ -526,10 +539,10 @@ This indicates the decorated TTNN op is not supported yet in the TTNN dialect. O
 
 To start, check whether the desired TTNN op is supported in the [tablegen](../../include/ttmlir/Dialect/TTNN/IR/TTNNOps.td). If not, please file an issue.
 
-Note: as mentioned in [Current Limitations](#current-support), only *select* unary and binary operations are supported.
+Note: as mentioned in [Current Support](#current-support), not every operation within each category is supported.
 
 ### `Failed to run pass manager`
-This means the [compilation pipeline](#step-2-d2m-compilation-pipeline) failed at a certain stage. The easiest way to debug is to copy the IR output from the AST traversal, and manaully run each individual pipeline:
+This means the [compilation pipeline](#step-2-d2m-compilation-pipeline) failed at a certain stage. The easiest way to debug is to copy the IR output from the tracing step (use `debug=True`), and manually run each individual pipeline:
 
 ```bash
 ttmlir-opt --convert-ttnn-to-ttir *.mlir

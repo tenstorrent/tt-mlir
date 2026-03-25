@@ -159,6 +159,4 @@ def run_flatbuffer(flatbuffer: Binary) -> int:
     ------
     RuntimeError if any errors happen.
     """
-    return run_flatbuffer_execution_process(
-        run_flatbuffer_worker, (flatbuffer.file_path,)
-    )
+    return run_flatbuffer_execution_process(flatbuffer.file_path)

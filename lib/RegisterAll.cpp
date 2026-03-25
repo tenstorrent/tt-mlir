@@ -62,6 +62,7 @@
 #include "shardy/dialect/sdy/ir/register.h"
 #include "shardy/dialect/sdy/transforms/passes.h"
 #include "stablehlo/dialect/Register.h"
+#include "stablehlo/transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Pipelines/StableHLOPipelines.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #endif
@@ -157,6 +158,7 @@ void mlir::tt::registerAllPasses() {
 
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::tt::stablehlo::registerPasses();
+  mlir::stablehlo::registerStablehloComplexMathExpanderPass();
 #endif
 
   // Register pipelines.
@@ -195,13 +197,13 @@ void mlir::tt::MLIRModuleLogger::attachContext(
         }
 
         // Might make more sense to hold the module after a transformation has
-        // occured.
+        // occurred.
         transform(); // Run the transformation pass.
 
         // Now save the module if it should be Cached.
         if (mlir::isa<mlir::PassExecutionAction>(action)) {
           auto passAction = mlir::cast<mlir::PassExecutionAction>(action);
-          // A Pass action has occured, need to store the previous module
+          // A Pass action has occurred, need to store the previous module
           // before transform is completed.
           std::string passName = passAction.getPass().getName().str();
 

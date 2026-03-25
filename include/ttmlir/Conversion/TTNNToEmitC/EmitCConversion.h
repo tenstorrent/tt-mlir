@@ -38,6 +38,10 @@ struct SmallVector {
 };
 } // namespace ttsl
 
+namespace reduction_common {
+enum class ReduceType;
+} // namespace reduction_common
+
 namespace tt {
 namespace tt_fabric {
 enum class Topology;
@@ -51,6 +55,7 @@ struct ShardSpec;
 struct CoreRangeSet;
 struct CoreRange;
 struct CoreCoord;
+struct CoreGrid;
 
 struct DataType;
 struct TensorMemoryLayout;
@@ -101,9 +106,6 @@ struct Conv2dConfig;
 struct Conv2dSliceConfig;
 } // namespace conv::conv2d
 
-namespace reduction {
-enum class ReduceType;
-} // namespace reduction
 } // namespace operations
 } // namespace ttnn
 
@@ -245,6 +247,11 @@ struct TypeName<::ttnn::WormholeComputeKernelConfig> {
   inline static const std::string value = "::ttnn::WormholeComputeKernelConfig";
 };
 
+// Marker type for MatmulMultiCoreReuseMultiCast1DProgramConfig (used by
+// sparse_matmul). The actual C++ type is not included here; this is only used
+// for EmitC code-generation purposes.
+struct SparseMatmulProgramConfig {};
+
 template <>
 struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
   inline static const std::string value =
@@ -264,6 +271,11 @@ struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
 template <>
 struct TypeName<::ttnn::CoreCoord> {
   inline static const std::string value = "::ttnn::CoreCoord";
+};
+
+template <>
+struct TypeName<::ttnn::CoreGrid> {
+  inline static const std::string value = "::ttnn::CoreGrid";
 };
 
 template <>
@@ -322,9 +334,8 @@ struct TypeName<::ttnn::Shape> {
 };
 
 template <>
-struct TypeName<::ttnn::operations::reduction::ReduceType> {
-  inline static const std::string value =
-      "::ttnn::operations::reduction::ReduceType";
+struct TypeName<::reduction_common::ReduceType> {
+  inline static const std::string value = "::reduction_common::ReduceType";
 };
 
 template <>
@@ -497,6 +508,34 @@ struct EmitCTypeConverter<::ttnn::CoreCoord> {
 };
 
 template <>
+struct EmitCTypeConverter<::ttnn::CoreGrid> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto coreCoordAttr =
+            mlir::dyn_cast_if_present<ttnn::CoreCoordAttr>(attr)) {
+      return convert(coreCoordAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::CoreCoordAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::CoreGrid>;
+    rso << "{";
+    rso << EmitCTypeConverter<size_t>::convert(attr.getX()) << ", ";
+    rso << EmitCTypeConverter<size_t>::convert(attr.getY());
+    rso << "}";
+
+    return buf;
+  }
+};
+
+template <>
 struct EmitCTypeConverter<::ttnn::CoreRange> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto coreRangeAttr =
@@ -653,6 +692,9 @@ struct EmitCTypeConverter<::ttnn::TensorMemoryLayout> {
       return buf;
     case ttnn::TensorMemoryLayout::WidthSharded:
       rso << "WIDTH_SHARDED";
+      return buf;
+    case ttnn::TensorMemoryLayout::NDSharded:
+      rso << "ND_SHARDED";
       return buf;
     }
 
@@ -822,7 +864,7 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     std::string buf;
     llvm::raw_string_ostream rso(buf);
 
-    rso << TypeNameV<::ttnn::operations::reduction::ReduceType> << "::";
+    rso << TypeNameV<::reduction_common::ReduceType> << "::";
     switch (attr) {
     case ttcore::ReduceType::Sum:
       rso << "SUM";
@@ -966,6 +1008,55 @@ struct EmitCTypeConverter<::ttnn::WormholeComputeKernelConfig> {
       rso << ".dst_full_sync_en = "
           << (dstFullSyncEn.getValue() ? "true" : "false");
     }
+
+    rso << "}";
+    return buf;
+  }
+};
+
+// Specialization for SparseMatmulProgramConfig (marker type)
+template <>
+struct EmitCTypeConverter<SparseMatmulProgramConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    auto configAttr = mlir::dyn_cast_if_present<
+        tt::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(attr);
+    if (!configAttr) {
+      return {};
+    }
+    return convert(configAttr);
+  }
+
+  static std::string
+  convert(tt::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << "::ttnn::operations::matmul::"
+           "MatmulMultiCoreReuseMultiCast1DProgramConfig{";
+
+    rso << ".compute_with_storage_grid_size = "
+        << EmitCTypeConverter<::ttnn::CoreCoord>::convert(
+               attr.getComputeWithStorageGridSize());
+    rso << ", .in0_block_w = "
+        << EmitCTypeConverter<size_t>::convert(attr.getIn0BlockW());
+    rso << ", .out_subblock_h = "
+        << EmitCTypeConverter<size_t>::convert(attr.getOutSubblockH());
+    rso << ", .out_subblock_w = "
+        << EmitCTypeConverter<size_t>::convert(attr.getOutSubblockW());
+    rso << ", .out_block_h = "
+        << EmitCTypeConverter<size_t>::convert(attr.getOutBlockH());
+    rso << ", .out_block_w = "
+        << EmitCTypeConverter<size_t>::convert(attr.getOutBlockW());
+    rso << ", .per_core_M = "
+        << EmitCTypeConverter<size_t>::convert(attr.getPerCoreM());
+    rso << ", .per_core_N = "
+        << EmitCTypeConverter<size_t>::convert(attr.getPerCoreN());
+    rso << ", .fuse_batch = " << (attr.getFuseBatch() ? "true" : "false");
+    rso << ", .fused_activation = ::std::nullopt";
+    rso << ", .mcast_in0 = " << (attr.getMcastIn0() ? "true" : "false");
+    rso << ", .gather_in0 = " << (attr.getGatherIn0() ? "true" : "false");
+    rso << ", .num_global_cb_receivers = "
+        << EmitCTypeConverter<size_t>::convert(attr.getNumGlobalCbReceivers());
+    rso << ", .untilize_out = " << (attr.getUntilizeOut() ? "true" : "false");
 
     rso << "}";
     return buf;
@@ -1756,6 +1847,11 @@ struct TTNNTarget<tt::ttcore::TopologyAttr> {
   using type = ::mlir::tt::ttcore::Topology;
 };
 
+template <>
+struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
+  using type = ::ttnn::WormholeComputeKernelConfig;
+};
+
 template <typename T>
 struct IsMLIRType {
   static constexpr bool value = std::is_convertible_v<T, mlir::Attribute> ||
@@ -2218,6 +2314,14 @@ public:
                                              deviceAttr.getWorkerGrid()));
 
     return emit(memoryConfigAttr);
+  }
+
+  ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
+    auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    return ttcore::DataTypeAttr::get(resultLayoutAttr.getContext(),
+                                     resultLayoutAttr.getDataType());
   }
 
   // Creates MeshShape code from integer attributes.

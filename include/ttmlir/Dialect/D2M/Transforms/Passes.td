@@ -487,47 +487,6 @@ def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
   let options = D2MStreamingOptions;
 }
 
-def D2MGlobalDataFormatConversion: Pass<"d2m-global-data-format-conversion", "::mlir::ModuleOp">
-{
-  let summary = "Convert all tensor data types to a target format.";
-  let description = [{
-    This pass converts all tensor element types in the function body
-    to a specified target format. Function signatures are preserved, and typecast operations
-    are automatically inserted at boundaries where type conversions are needed.
-
-    Supported target formats:
-      - "f32" (Float32)
-      - "bf16" (BFloat16, default)
-      - "bfp_bf8" (BFP_BFloat8)
-
-    Example:
-      Before:
-       func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-        %0 = ttir.empty() : tensor<64x128xf32>
-        %1 = "ttir.exp"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-        return %1 : tensor<64x128xf32>
-       }
-
-      After (with target-format="bf16"):
-        func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-          %0 = ttir.empty() : tensor<64x128xbf16>
-          %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = false}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-          %2 = ttir.empty() : tensor<64x128xbf16>
-          %3 = "ttir.exp"(%1, %2) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-          %4 = ttir.empty() : tensor<64x128xf32>
-          %5 = "ttir.typecast"(%3, %4) <{conservative_folding = false}> : (tensor<64x128xbf16>, tensor<64x128xf32>) -> tensor<64x128xf32>
-          return %5 : tensor<64x128xf32>
-        }
-  }];
-
-  let options = [
-    Option<"targetFormat", "target-format", "std::string", /*default=*/"\"bf16\"",
-           "Target data format for conversion: f32, bf16 (default), or bfp_bf8">
-  ];
-
-  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
-}
-
 def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
   let summary = "Optimized grid selection for D2M generic ops.";
   let description = [{
@@ -547,6 +506,8 @@ def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
   let options = [
     ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
         "Override the device shape for grid optimization.">,
+    Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false",
+        "Enable TTNN mode which hardcodes collapsed intervals and dim alignments.">,
   ];
 }
 
@@ -774,97 +735,6 @@ def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::Modu
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::arith::ArithDialect"];
 }
 
-def D2MDecomposeComplexPermute: Pass<"d2m-decompose-complex-permute", "::mlir::ModuleOp"> {
-  let summary = "Decompose complex permute operations into inner/outer permutes.";
-  let description = [{
-    This pass decomposes complex permute operations into a sequence of inner and outer
-    permutes. An inner permute swaps only the last two dimensions, while an outer permute
-    handles any other permutation on the outer dimensions.
-
-    The permute will at most be decomposed into an Outer -> Inner -> Outer permute.
-
-    Example:
-      Before:
-        %0 = "ttir.permute"(%input, %output) {permutation = array<i64: 0, 3, 1, 2>}
-            : (tensor<2x3x4x5xf32>, tensor<2x5x3x4xf32>) -> tensor<2x5x3x4xf32>
-
-      After:
-        // First: inner permute (swap last two dimensions)
-        %1 = "ttir.permute"(%input, %tmp1) {permutation = array<i64: 0, 1, 3, 2>}
-            : (tensor<2x3x4x5xf32>, tensor<2x3x5x4xf32>) -> tensor<2x3x5x4xf32>
-        // Then: outer permute
-        %2 = "ttir.permute"(%1, %output) {permutation = array<i64: 0, 3, 1, 2>}
-            : (tensor<2x3x5x4xf32>, tensor<2x5x3x4xf32>) -> tensor<2x5x3x4xf32>
-  }];
-}
-
-def D2MRankNormalization: Pass<"d2m-rank-normalization", "::mlir::ModuleOp"> {
-  let summary = "Normalize tensor ranks by promoting low-rank tensors to 2D.";
-  let description = [{
-    This pass destructively rewrites tensor ranks to ensure all tensors have at
-    least rank 2. This is needed because the device compute kernels work with
-    2D+ tensors.
-
-    The pass directly modifies types in place - no reshape operations are inserted.
-    This is safe because adding 1's to the outer dimensions doesn't change the
-    memory layout in any way; a scalar is packed the same way regardless of rank.
-
-    The pass performs the following transformations:
-
-    1. Function argument types are promoted: tensor<N> -> tensor<1xN>,
-       tensor<f32> -> tensor<1x1xf32>
-
-    2. All operation result types are promoted similarly.
-
-    3. The function signature is updated to match the new types.
-
-    Example 1 - Scalar tensor:
-      Before:
-        func.func @main(%a: tensor<f32>) -> tensor<f32> {
-          %0 = "ttir.exp"(%a) : (tensor<f32>) -> tensor<f32>
-          return %0 : tensor<f32>
-        }
-
-      After:
-        func.func @main(%a: tensor<1x1xf32>) -> tensor<1x1xf32> {
-          %0 = "ttir.exp"(%a) : (tensor<1x1xf32>) -> tensor<1x1xf32>
-          return %0 : tensor<1x1xf32>
-        }
-
-    Example 2 - 1D tensor:
-      Before:
-        func.func @forward(%arg0: tensor<32xf32>) -> tensor<32xf32> {
-          %0 = "ttir.abs"(%arg0) : (tensor<32xf32>) -> tensor<32xf32>
-          return %0 : tensor<32xf32>
-        }
-
-      After:
-        func.func @forward(%arg0: tensor<1x32xf32>) -> tensor<1x32xf32> {
-          %0 = "ttir.abs"(%arg0) : (tensor<1x32xf32>) -> tensor<1x32xf32>
-          return %0 : tensor<1x32xf32>
-        }
-
-    Example 3 - Chained ops:
-      Before:
-        func.func @forward(%arg0: tensor<128xf32>) -> tensor<128xf32> {
-          %0 = "ttir.abs"(%arg0) : (tensor<128xf32>) -> tensor<128xf32>
-          %1 = "ttir.neg"(%0) : (tensor<128xf32>) -> tensor<128xf32>
-          return %1 : tensor<128xf32>
-        }
-
-      After:
-        func.func @forward(%arg0: tensor<1x128xf32>) -> tensor<1x128xf32> {
-          %0 = "ttir.abs"(%arg0) : (tensor<1x128xf32>) -> tensor<1x128xf32>
-          %1 = "ttir.neg"(%0) : (tensor<1x128xf32>) -> tensor<1x128xf32>
-          return %1 : tensor<1x128xf32>
-        }
-
-    This pass runs in isolation and requires no changes to existing code.
-    It should run early in the D2M pipeline, before layout lowering.
-  }];
-  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
-}
-
 def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp"> {
   let summary = "Generate outer loops.";
   let description = [{
@@ -1017,9 +887,33 @@ def D2MScheduleDMA : Pass<"d2m-schedule-dma", "::mlir::ModuleOp"> {
 }
 
 def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir::ModuleOp"> {
-  let summary = "Lower D2M load/store operations to DMA operations.";
+  let summary = "Lower D2M load/store operations to shard-level DMA operations.";
   let description = [{
-    This pass performs lowering of D2M load/store operations to DMA operations.
+    This pass lowers d2m.remote_load and d2m.remote_store operations to
+    shard-level d2m.dma_read and d2m.dma_write operations with CB protocol
+    (reserve/push/wait/pop). The resulting DMA ops use grid-level indices
+    only. Full address indexing and coalescing is deferred
+    to D2MLowerDMAToFullyIndexedForm.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MExpandDMAReadCompositeView : Pass<"d2m-expand-dma-read-composite-view", "::mlir::ModuleOp"> {
+  let summary = "Expand shard-level DMA reads that act on composite views.";
+  let description = [{
+    This pass expands GenericOps that contain shard-level DMA reads that act on
+    composite views. The original "place holder" composite view operand is
+    replaced with the list of the actual inputs. The dma read is expanded to
+    an if-else chain of fully-indexed DMA reads that assembles the inputs.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MLowerDMAToFullyIndexedForm : Pass<"d2m-lower-dma-to-fully-indexed-form", "::mlir::ModuleOp"> {
+  let summary = "Lower shard-level DMA ops to fully indexed form.";
+  let description = [{
+    This pass expands shard-level d2m.dma_read and d2m.dma_write operations into fully-indexed form with resolved
+    byte-offset indices, coalescing loops, and concrete numElems.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
   let options = [
@@ -1027,6 +921,23 @@ def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir:
            /*default=*/"false",
            "Enable debug mode for coalescing inference. Runs both analytical and "
            "sampling-based coalescing checks and prints debug output comparing them.">,
+  ];
+}
+
+def D2MHoistCBAllocs : Pass<"d2m-hoist-cb-allocs", "::mlir::ModuleOp"> {
+  let summary = "Hoist in-generic CB allocs to external additionalArgs.";
+  let description = [{
+    This pass scans in-generic memref.alloc ops that carry a CBLayoutAttr
+    (set by the Allocate pass to mark circular buffer storage).  For each such
+    alloc it creates an external memref.alloc (with ShardLayoutAttr) as an
+    additionalArg on the enclosing d2m.generic op.  The in-generic alloc is
+    annotated with a `d2m.hoisted_operand_idx` attr pointing to the
+    additionalArg's operand index so that downstream passes (getOrCreateCB)
+    can wire the CB to the correct external buffer.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect"
   ];
 }
 

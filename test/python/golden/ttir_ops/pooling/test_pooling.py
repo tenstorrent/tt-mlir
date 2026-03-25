@@ -15,6 +15,17 @@ from test_utils import (
 
 pytestmark = pytest.mark.frontend("ttir")
 
+# Shapes used for hoisted pooling tests. All are NHWC 4D tensors.
+# Include varying batch sizes, spatial dimensions, and channel counts.
+hoisted_pooling_shapes = [
+    (1, 32, 32, 64),  # Standard square spatial dims
+    (1, 16, 16, 128),  # Smaller spatial, more channels
+    (2, 8, 8, 32),  # Batch > 1, small spatial
+    (1, 7, 7, 256),  # Odd spatial dims
+    (1, 28, 28, 3),  # Few channels
+    (4, 14, 14, 64),  # Larger batch
+]
+
 
 # Max pool 2d tests
 
@@ -75,37 +86,24 @@ def test_max_pool2d(
 
 
 @x86_only
-@pytest.mark.parametrize("shape", [(1, 32, 32, 64)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("shape", hoisted_pooling_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize(
     "kernel,stride,dilation,padding,ceil_mode",
     [
         ([3, 3], [1, 1], [1, 1], [0, 0, 0, 0], False),
         ([3, 3], [2, 2], [1, 1], [0, 0, 0, 0], False),
-        pytest.param(
-            [3, 3],
-            [2, 2],
-            [2, 2],
-            [0, 0, 0, 0],
-            False,
-            marks=pytest.mark.skip(
-                reason="Dilation > 1 crashes in TTIRToLinalg with assertion"
-            ),
-        ),
-        pytest.param(
-            [3, 3],
-            [2, 2],
-            [2, 2],
-            [1, 1, 1, 1],
-            False,
-            marks=pytest.mark.skip(
-                reason="Dilation > 1 crashes in TTIRToLinalg with assertion"
-            ),
-        ),
+        ([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False),
+        ([4, 4], [2, 2], [1, 1], [2, 2, 2, 2], False),
+        ([3, 3], [2, 2], [2, 2], [0, 0, 0, 0], False),
+        ([3, 3], [2, 2], [2, 2], [1, 1, 1, 1], False),
+        ([3, 3], [1, 1], [1, 1], [1, 1, 1, 1], False),
         ([3, 3], [2, 2], [1, 1], [1, 1, 1, 1], True),
+        ([3, 3], [2, 2], [1, 1], [0, 0, 0, 0], True),
+        ([3, 3], [2, 2], [2, 2], [1, 1, 1, 1], True),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_max_pool2d(
     shape: Shape,
     dtype: torch.dtype,
@@ -207,8 +205,8 @@ def test_avg_pool2d(
 
 
 @x86_only
-@pytest.mark.parametrize("shape", [(1, 32, 32, 64)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("shape", hoisted_pooling_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize(
     "kernel,stride,dilation,padding,ceil_mode,count_include_pad",
     [
@@ -216,11 +214,13 @@ def test_avg_pool2d(
         ([3, 3], [2, 2], [1, 1], [0, 0, 0, 0], False, True),
         ([4, 4], [2, 2], [1, 1], [2, 2, 2, 2], False, True),
         ([3, 3], [2, 2], [1, 1], [1, 1, 1, 1], True, True),
+        ([3, 3], [2, 2], [1, 1], [0, 0, 0, 0], True, True),
+        ([3, 3], [2, 2], [1, 1], [1, 1, 1, 1], True, False),
         ([4, 4], [2, 2], [1, 1], [2, 2, 2, 2], False, False),
         ([8, 8], [1, 1], [1, 1], [7, 7, 7, 7], False, True),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_avg_pool2d(
     shape: Shape,
     dtype: torch.dtype,
@@ -320,6 +320,64 @@ def test_max_pool2d_with_indices(
     )
 
 
+@x86_only
+@pytest.mark.parametrize("shape", hoisted_pooling_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize(
+    "kernel,stride,dilation,padding,ceil_mode",
+    [
+        ([3, 3], [1, 1], [1, 1], [0, 0, 0, 0], False),
+        ([3, 3], [2, 2], [1, 1], [0, 0, 0, 0], False),
+        ([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False),
+        ([4, 4], [2, 2], [1, 1], [2, 2, 2, 2], False),
+        ([3, 3], [2, 2], [2, 2], [0, 0, 0, 0], False),
+        ([3, 3], [2, 2], [2, 2], [1, 1, 1, 1], False),
+        ([3, 3], [1, 1], [1, 1], [1, 1, 1, 1], False),
+        ([3, 3], [2, 2], [1, 1], [1, 1, 1, 1], True),
+        ([3, 3], [2, 2], [1, 1], [0, 0, 0, 0], True),
+        ([3, 3], [2, 2], [2, 2], [1, 1, 1, 1], True),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_max_pool2d_with_indices(
+    shape: Shape,
+    dtype: torch.dtype,
+    kernel: List[int],
+    stride: List[int],
+    dilation: List[int],
+    padding: List[int],
+    ceil_mode: bool,
+    target: str,
+    request,
+    device,
+):
+    """Test hoisted max_pool2d_with_indices operation"""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype, torch.int64])
+        def hoisted_max_pool2d_with_indices(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.max_pool2d_with_indices(
+                in0,
+                kernel=kernel,
+                stride=stride,
+                dilation=dilation,
+                padding=padding,
+                ceil_mode=ceil_mode,
+                unit_attrs=["ttir.should_hoist"],
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 # Global avg pool 2d tests
 
 
@@ -359,8 +417,8 @@ def test_global_avg_pool2d(
 
 
 @x86_only
-@pytest.mark.parametrize("shape", [(1, 32, 32, 64), (1, 7, 7, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("shape", hoisted_pooling_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_global_avg_pool2d(
     shape: Shape,

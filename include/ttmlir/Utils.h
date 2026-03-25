@@ -46,8 +46,14 @@ enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
 
 template <typename T>
 T alignUp(const T val, const T alignment) {
-  assert(alignment > 0);
+  assert(val >= 0 && alignment > 0);
   return ((val + alignment - 1) / alignment) * alignment;
+}
+
+template <typename T>
+T alignDown(const T val, const T alignment) {
+  assert(val >= 0 && alignment > 0);
+  return val - (val % alignment);
 }
 
 template <typename Iter>
@@ -759,6 +765,26 @@ denseElementsAttrTo2D(mlir::DenseElementsAttr attr) {
     }
   }
   return result;
+}
+
+// Traces backward from a value through specified ops to find the source value.
+template <typename... Ops>
+mlir::Value lookThrough(mlir::Value value) {
+  while (auto *op = value.getDefiningOp()) {
+    if (llvm::isa<Ops...>(op)) {
+      value = op->getOperand(0);
+    } else {
+      break;
+    }
+  }
+  return value;
+}
+
+// Traces backward from a value through specified ops to find an operation of
+// type OpTy.
+template <typename OpTy, typename... Ops>
+OpTy findOpThrough(mlir::Value value) {
+  return lookThrough<Ops...>(value).template getDefiningOp<OpTy>();
 }
 
 } // namespace ttmlir::utils

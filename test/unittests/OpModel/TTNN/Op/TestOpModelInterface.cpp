@@ -11,6 +11,8 @@
 #include "ttmlir/OpModel/TTNN/TTNNOpsModelCache.h"
 #include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
 
+#include "Constants.h"
+
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
@@ -217,9 +219,17 @@ const auto createSin = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<SinOp>(loc, type, ops).getOperation();
 };
+const auto createAsin = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<AsinOp>(loc, type, ops).getOperation();
+};
 const auto createCos = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<CosOp>(loc, type, ops).getOperation();
+};
+const auto createAcos = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<AcosOp>(loc, type, ops).getOperation();
 };
 const auto createExp = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
@@ -310,7 +320,9 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Hardsigmoid", createHardsigmoid, expected},
     {"Silu", createSilu, expected},
     {"Sin", createSin, expected},
+    {"Asin", createAsin, expected},
     {"Cos", createCos, expected},
+    {"Acos", createAcos, expected},
     {"Exp", createExp, expected},
     {"Tanh", createTanh, expected},
     {"Log", createLog, expected},
@@ -1611,20 +1623,20 @@ TEST_F(OpModelBase, transposeOp) {
   }
 }
 
-TEST_F(OpModelBase, morehCumSumOp) {
-  // create MorehCumSumOp
+TEST_F(OpModelBase, cumSumOp) {
+  // create CumSumOp
   llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
   llvm::SmallVector<int64_t> tensorShapeO = {128, 128};
 
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
-  auto morehCumSum = builder.create<MorehCumSumOp>(
-      builder.getUnknownLoc(), output.getType(), input,
-      builder.getI64IntegerAttr(0), nullptr);
+  auto cumSum =
+      builder.create<CumSumOp>(builder.getUnknownLoc(), output.getType(), input,
+                               builder.getI32IntegerAttr(0), nullptr, nullptr);
 
-  // test morehCumSum Op interface
-  auto constraintsExp = getOpConstraints(morehCumSum.getOperation());
+  // test cumSum Op interface
+  auto constraintsExp = getOpConstraints(cumSum.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
@@ -1637,7 +1649,7 @@ TEST_F(OpModelBase, morehCumSumOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeExp = getOpRuntime(morehCumSum.getOperation());
+  auto runtimeExp = getOpRuntime(cumSum.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
@@ -2160,6 +2172,7 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
       /*is_causal=*/false,
       /*scale=*/nullptr,
       /*sliding_window_size=*/nullptr,
+      /*attention_sink=*/Value(),
       /*memory_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttention.getOperation());
@@ -2188,6 +2201,88 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
     FAIL() << "Runtime test failed for ScaledDotProductAttentionOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, ScaledDotProductAttentionOpInterfaceWithAttentionSink) {
+  int64_t batchSize = 1;
+  int64_t numHeads = 1;
+  int64_t seqLen = 32;
+  int64_t kvLen = 128;
+  int64_t headSize = 32;
+  int64_t sinkLen = 1;
+
+  llvm::SmallVector<int64_t> queryShape{batchSize, numHeads, seqLen, headSize};
+  llvm::SmallVector<int64_t> keyValueShape{batchSize, numHeads, kvLen,
+                                           headSize};
+  llvm::SmallVector<int64_t> maskShape{batchSize, 1, seqLen, kvLen};
+  llvm::SmallVector<int64_t> sinkShape{batchSize, numHeads, sinkLen, sinkLen};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto queryLayout =
+      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto keyValueLayout =
+      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto maskLayout =
+      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto sinkLayout =
+      TTNNLayoutAttr::get(&context, sinkShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto value = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto attentionMask = createEmptyTensor(maskShape, tiledElemType, maskLayout);
+  auto attentionSink = createEmptyTensor(sinkShape, tiledElemType, sinkLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto sdpAttention = builder.create<ScaledDotProductAttentionOp>(
+      builder.getUnknownLoc(), outputType, query, key, value,
+      /*attention_mask=*/attentionMask,
+      /*is_causal=*/false,
+      /*scale=*/nullptr,
+      /*sliding_window_size=*/nullptr,
+      /*attention_sink=*/attentionSink,
+      /*memory_config=*/nullptr);
+
+  OpModel backend = dyn_cast<OpModel>(sdpAttention.getOperation());
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(sdpAttention),
+                                                 OpConfig(queryLayout));
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(totalPeakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+
+    ASSERT_FALSE(outputLayouts.empty());
+    EXPECT_EQ(outputLayouts[0].getLayout(), Layout::Tile);
+    EXPECT_TRUE(outputLayouts[0].hasInterleavedDRAMTensorMemoryLayout());
+  } else {
+    FAIL() << "Missing L1 constraints for "
+              "ScaledDotProductAttentionOp with attention sink; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(sdpAttention.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for "
+              "ScaledDotProductAttentionOp with attention sink; Error="
            << llvm::toString(runtimeExp.takeError());
   }
 }
@@ -4374,6 +4469,111 @@ TEST_F(OpModelBase, layerNormOpL1Memory) {
   }
 }
 
+TEST_F(OpModelBase, groupNormOp) {
+  // Test case 1: Basic GroupNorm with weight and bias
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 64, 480};
+  llvm::SmallVector<int64_t> inputMaskShape = {1, 8, 32, 96};
+  llvm::SmallVector<int64_t> weightShape = {1, 1, inputShape.back() / 32, 32};
+  llvm::SmallVector<int64_t> biasShape = {1, 1, inputShape.back() / 32, 32};
+
+  auto input = createEmptyTensor(inputShape);
+  auto inputMask = createEmptyTensor(inputMaskShape);
+  const TTNNLayoutAttr tensorLayout_DRAMRowMajor = CreateRowMajorLayout(
+      weightShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  auto weight = createEmptyTensor(weightShape, builder.getBF16Type(),
+                                  tensorLayout_DRAMRowMajor);
+  auto bias = createEmptyTensor(biasShape, builder.getBF16Type(),
+                                tensorLayout_DRAMRowMajor);
+  auto outputType = createRankedTensorType(inputShape);
+
+  int64_t numGroups = 8;
+  llvm::APFloat epsilon(1e-12f);
+
+  // group_norm requires explicit core_grid; use a fixed test value.
+  auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
+
+  GroupNormOp groupNormOp = builder.create<GroupNormOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*input_mask=*/inputMask, weight, bias, numGroups, epsilon,
+      /*memoryConfig=*/nullptr, coreGrid);
+  groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(groupNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(groupNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, groupNormOpL1Memory) {
+  // Test case 2: GroupNorm with L1 memory buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 64, 480};
+  llvm::SmallVector<int64_t> inputMaskShape = {1, 8, 32, 96};
+  llvm::SmallVector<int64_t> weightShape = {1, 1, inputShape.back() / 32, 32};
+  llvm::SmallVector<int64_t> biasShape = {1, 1, inputShape.back() / 32, 32};
+
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputMaskLayout_L1 = CreateTiledLayout(
+      inputMaskShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr tensorLayout_L1RowMajor = CreateRowMajorLayout(
+      weightShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto inputMask = createEmptyTensor(inputMaskShape, builder.getBF16Type(),
+                                     inputMaskLayout_L1);
+  auto weight = createEmptyTensor(weightShape, builder.getBF16Type(),
+                                  tensorLayout_L1RowMajor);
+  auto bias = createEmptyTensor(biasShape, builder.getBF16Type(),
+                                tensorLayout_L1RowMajor);
+  auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
+
+  int64_t numGroups = 8;
+  llvm::APFloat epsilon(1e-12f);
+
+  // group_norm requires explicit core_grid; use a fixed test value.
+  auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
+
+  GroupNormOp groupNormOp = builder.create<GroupNormOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*input_mask=*/inputMask, weight, bias, numGroups, epsilon,
+      /*memoryConfig=*/nullptr, coreGrid);
+  groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(groupNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(groupNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, EmptyOpInterface) {
   // create EmptyOp with full TTNN layout attributes
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
@@ -5562,5 +5762,90 @@ TEST_F(OpModelBase, DropoutOpInterface) {
            << llvm::toString(runtimeExp.takeError()) << std::endl;
   }
 }
+
+struct MeshPartitionRuntimeParam {
+  size_t meshRows;
+  size_t meshCols;
+  int32_t dim;
+  uint32_t clusterAxis;
+};
+
+class OpModelMeshPartitionInterfaceRuntimeTest
+    : public OpModelBase,
+      public ::testing::WithParamInterface<MeshPartitionRuntimeParam> {};
+
+TEST_P(OpModelMeshPartitionInterfaceRuntimeTest,
+       MeshPartitionOpInterfaceRuntime) {
+  const auto &p = GetParam();
+  const size_t numChips = p.meshRows * p.meshCols;
+
+  // Runtime queries require a real multi-chip device.
+  // Try to reopen with the requested mesh; if the system doesn't have enough
+  // devices the open will throw, so catch and skip gracefully.
+  op_model::SingletonDeviceContext::closeInstance();
+  try {
+    op_model::SingletonDeviceContext::getInstance().openDevice(
+        ::tt::constants::opModelDefaultTraceRegionSize,
+        /*isMock=*/false,
+        /*meshShape=*/std::make_pair(p.meshRows, p.meshCols));
+  } catch (...) {
+    // Reopen the default device for TearDown before skipping.
+    op_model::SingletonDeviceContext::getInstance().openDevice();
+    GTEST_SKIP() << "Unable to open {" << p.meshRows << "," << p.meshCols
+                 << "} mesh device; not enough hardware";
+  }
+
+  const size_t meshDims[] = {p.meshRows, p.meshCols};
+  const int64_t splitFactor = static_cast<int64_t>(meshDims[p.clusterAxis]);
+
+  llvm::SmallVector<int64_t> inputShape = {static_cast<int64_t>(numChips),
+                                           1024};
+  llvm::SmallVector<int64_t> outputShape = inputShape;
+  outputShape[p.dim] = inputShape[p.dim] / splitFactor;
+
+  auto inputLayout = CreateRowMajorLayout(inputShape, BufferType::L1,
+                                          TensorMemoryLayout::Interleaved);
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+  auto outputType = createRankedTensorType(outputShape);
+
+  auto meshPartitionOp = builder.create<MeshPartitionOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*dim=*/builder.getSI32IntegerAttr(p.dim),
+      /*cluster_axis=*/builder.getUI32IntegerAttr(p.clusterAxis),
+      /*memory_config=*/nullptr);
+  meshPartitionOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto runtimeExp = getOpRuntime(meshPartitionOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Missing runtime; Error="
+           << llvm::toString(runtimeExp.takeError()) << std::endl;
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(MeshPartitionRuntime,
+                         OpModelMeshPartitionInterfaceRuntimeTest,
+                         ::testing::Values(
+                             // {1,2} mesh: only axis 1 splits.
+                             MeshPartitionRuntimeParam{1, 2, 0, 1},
+                             MeshPartitionRuntimeParam{1, 2, 1, 1},
+                             // {1,4} mesh: only axis 1 splits.
+                             MeshPartitionRuntimeParam{1, 4, 0, 1},
+                             MeshPartitionRuntimeParam{1, 4, 1, 1},
+                             // {1,8} mesh: only axis 1 splits.
+                             MeshPartitionRuntimeParam{1, 8, 0, 1},
+                             MeshPartitionRuntimeParam{1, 8, 1, 1},
+                             // {2,2} mesh: both axes split.
+                             MeshPartitionRuntimeParam{2, 2, 0, 0},
+                             MeshPartitionRuntimeParam{2, 2, 0, 1},
+                             MeshPartitionRuntimeParam{2, 2, 1, 0},
+                             MeshPartitionRuntimeParam{2, 2, 1, 1},
+                             // {2,4} mesh: both axes split.
+                             MeshPartitionRuntimeParam{2, 4, 0, 0},
+                             MeshPartitionRuntimeParam{2, 4, 0, 1},
+                             MeshPartitionRuntimeParam{2, 4, 1, 0},
+                             MeshPartitionRuntimeParam{2, 4, 1, 1}));
 
 } // namespace mlir::tt::ttnn

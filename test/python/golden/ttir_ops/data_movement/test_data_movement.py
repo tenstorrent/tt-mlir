@@ -17,29 +17,72 @@ pytestmark = pytest.mark.frontend("ttir")
 
 # Concat tests
 @pytest.mark.parametrize(
-    "shapes",
+    "shapes,dim",
     [
-        [
-            (64, 128),
-            (32, 128),
-            (16, 128),
-        ]
+        ##################################
+        #               2D               #
+        ##################################
+        # Trivial aligned inputs
+        ([(32, 32), (32, 32)], 1),
+        ([(32, 32), (32, 32)], 0),
+        # Larger aligned inputs
+        ([(64, 96), (64, 1024)], 1),
+        ([(96, 64), (1024, 64)], 0),
+        ([(256, 256), (256, 256)], 1),
+        ([(256, 256), (256, 256)], 0),
+        # Unaligned in the non-concat dim
+        ([(7, 64), (7, 96)], 1),
+        ([(96, 3), (64, 3)], 0),
+        # 3-concat, last input unaligned in the concat dim
+        ([(128, 64), (128, 32), (128, 16)], 1),
+        ([(64, 128), (32, 128), (16, 128)], 0),
+        # 4-concat
+        ([(64, 64), (64, 32), (64, 128), (64, 96)], 1),
+        ([(64, 64), (32, 64), (128, 64), (96, 64)], 0),
+        # Max-concat (limited by max 32 CBs on WH)
+        ([(64, 32)] * 31, 1),
+        ([(32, 64)] * 31, 0),
+        ##################################
+        #               3D               #
+        ##################################
+        # Aligned inputs
+        ([(17, 32, 64), (17, 32, 96)], 2),
+        ([(19, 64, 32), (19, 96, 32)], 1),
+        ([(11, 64, 64), (13, 64, 64)], 0),
+        # 3-concat
+        ([(10, 64, 32), (10, 64, 64), (10, 64, 96)], 2),
+        ([(10, 96, 64), (10, 32, 64), (10, 64, 64)], 1),
+        ([(11, 64, 64), (12, 64, 64), (13, 64, 64)], 0),
+        ##################################
+        #               4D               #
+        ##################################
+        # Aligned inputs
+        ([(3, 7, 32, 64), (3, 7, 32, 96)], 3),
+        ([(7, 3, 64, 64), (7, 3, 32, 64)], 2),
+        ([(2, 6, 64, 32), (2, 9, 64, 32)], 1),
+        ([(8, 5, 32, 64), (3, 5, 32, 64)], 0),
+        # 3-concat
+        ([(2, 3, 64, 32), (2, 3, 64, 64), (2, 3, 64, 96)], 3),
+        ([(3, 2, 96, 64), (3, 2, 32, 64), (3, 2, 64, 64)], 2),
+        ([(4, 2, 64, 64), (4, 1, 64, 64), (4, 3, 64, 64)], 1),
+        ([(3, 3, 64, 64), (2, 3, 64, 64), (1, 3, 64, 64)], 0),
     ],
-    ids=shapes_list_str,
 )
-@pytest.mark.parametrize("dim", [0])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
+        # Generate dtypes list dynamically based on number of shapes
+        dtypes = [torch.float32] * len(shapes)
+
+        @builder.func(shapes, dtypes)
         def concat_wrapper(
-            in0: Operand,
-            in1: Operand,
-            in2: Operand,
-            builder: TTIRBuilder,
+            *args,
             unit_attrs: Optional[List[str]] = None,
         ):
-            return builder.concat([in0, in1, in2], dim, unit_attrs)
+            # args is (in0, in1, ..., inN, builder)
+            inputs = args[:-1]  # All input tensors
+            builder = args[-1]  # Last argument is the builder
+            return builder.concat(list(inputs), dim, unit_attrs)
 
     compile_and_execute_ttir(
         module,
@@ -63,7 +106,6 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
 )
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.xfail(reason="Compile failure on CPU target")
 def test_cpu_hoistable_concat_op(
     shapes: List[Shape],
     dim: int,
@@ -372,6 +414,11 @@ def test_cpu_hoistable_reshape_op(
         ((4, 5, 32, 64), [1, 2, 0, 0], [3, 4, 32, 64], [1, 1, 1, 1]),
         ((8, 6, 64, 32), [2, 1, 0, 0], [6, 5, 64, 32], [1, 1, 1, 1]),
         ((2, 4, 3, 32, 64), [0, 1, 1, 0, 0], [2, 3, 2, 32, 64], [1, 1, 1, 1, 1]),
+        # Simple 1D
+        ((64,), [0], [32], None),
+        # Strided 1D
+        ((70,), [3], [62], [7]),
+        ((2048,), [0], [2048], [3]),
         # Simple 2D
         ((64, 64), [0, 0], [32, 32], None),
         # Crop 2D
@@ -380,11 +427,23 @@ def test_cpu_hoistable_reshape_op(
         ((192, 64), [2, 0], [192, 64], [3, 1]),
         ((64, 192), [0, 2], [64, 192], [1, 3]),
         # Sample large 2D tensors
-        ((32, 131072), [0, 3], [32, 128 * 991], [2, 991]),
+        pytest.param(
+            (32, 131072),
+            [0, 3],
+            [32, 128 * 991],
+            [2, 991],
+            marks=pytest.mark.skip_config(
+                ["ttmetal", "p150"],
+                ["ttmetal", "p300"],
+                reason="L1 memory usage exceeds capacity #7559",
+            ),
+        ),
         ((131072, 32), [5, 1], [128 * 997, 32], [997, 2]),
         ((1024, 1024), [3, 2], [64 * 11, 64 * 13], [11, 13]),
         # Simple 3D
         ((2, 64, 32), [0, 0, 0], [1, 64, 32], None),
+        # Crop 3D
+        ((19, 160, 64), [0, 0, 0], [19, 96, 32], None),
         # Interleaved 3D
         ((2, 64, 32), [0, 1, 0], [1, 64, 32], [1, 2, 1]),
         ((2, 64, 32), [0, 1, 0], [1, 64, 32], [1, 2, 2]),
@@ -409,31 +468,24 @@ def test_cpu_hoistable_reshape_op(
         ((3, 20, 14, 64, 64), [1, 5, 6, 31, 32], [2, 6, 7, 32, 33], None),
     ],
 )
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_slice(
     shape: Shape,
     begins: List[int],
     ends: List[int],
     step: List[int],
+    dtype: torch.dtype,
     target: str,
     request,
     device,
 ):
     def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
+        @builder.func([shape], [dtype])
         def slice_wrapper(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
             return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
-
-    # NoC alignment is at least 16B => must align to 4 floats.
-    special_dma = (begins[-1] % 4 != 0) or (step is not None and step[-1] != 1)
-    if target == "ttmetal" and special_dma:
-        request.node.add_marker(
-            pytest.mark.xfail(
-                reason="Unaligned and/or strided DMA in the last dim #6475", run=True
-            )
-        )
 
     compile_and_execute_ttir(
         module,

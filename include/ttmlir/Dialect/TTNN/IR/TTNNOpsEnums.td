@@ -25,6 +25,7 @@ def TTNN_TensorMemoryLayout_Interleaved : I32EnumAttrCase<"Interleaved", 0, "int
 def TTNN_TensorMemoryLayout_HeightSharded : I32EnumAttrCase<"HeightSharded", 2, "height_sharded">;
 def TTNN_TensorMemoryLayout_WidthSharded : I32EnumAttrCase<"WidthSharded", 3, "width_sharded">;
 def TTNN_TensorMemoryLayout_BlockSharded : I32EnumAttrCase<"BlockSharded", 4, "block_sharded">;
+def TTNN_TensorMemoryLayout_NDSharded : I32EnumAttrCase<"NDSharded", 5, "nd_sharded">;
 
 def TTNN_TensorMemoryLayout : I32EnumAttr<"TensorMemoryLayout", "TTNN Tensor Memory Layout",
                            [
@@ -32,6 +33,7 @@ def TTNN_TensorMemoryLayout : I32EnumAttr<"TensorMemoryLayout", "TTNN Tensor Mem
                             TTNN_TensorMemoryLayout_HeightSharded,
                             TTNN_TensorMemoryLayout_WidthSharded,
                             TTNN_TensorMemoryLayout_BlockSharded,
+                            TTNN_TensorMemoryLayout_NDSharded,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";
@@ -374,6 +376,20 @@ def TTNN_PlacementType : I32EnumAttr<"PlacementType", "TTNN Placement Type",
                            TTNN_PlacementType_Replicate,
                            TTNN_PlacementType_Shard,
                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_WeightDtypeNone : I32EnumAttrCase<"None", 0, "none">;
+def TTNN_WeightDtypeBfpBf8 : I32EnumAttrCase<"BFP_BFloat8", 1, "bfp_bf8">;
+def TTNN_WeightDtypeBfpBf4 : I32EnumAttrCase<"BFP_BFloat4", 2, "bfp_bf4">;
+
+def TTNN_WeightDtype : I32EnumAttr<"WeightDtype", "Weight data type for conversion",
+                           [
+                            TTNN_WeightDtypeNone,
+                            TTNN_WeightDtypeBfpBf8,
+                            TTNN_WeightDtypeBfpBf4,
+                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";
 }
