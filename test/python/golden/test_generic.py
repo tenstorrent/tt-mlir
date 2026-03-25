@@ -329,9 +329,8 @@ def test_generic_allocator_reblock_policy(
         custom_pipeline=(
             "ttir-to-ttmetal-pipeline{"
             f"test-buffer-size-policy={buffer_policy} "
-            "use-tile-matmul=false enable-l1-acc=true}"
+            "use-tile-matmul=false enable-l1-acc=false}"
         ),
-        print_ir=True,
         check_pcc=True,
     )
 
