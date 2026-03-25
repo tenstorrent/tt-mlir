@@ -306,12 +306,12 @@ inline AffineMap canonicalizeBroadcasts(AffineMap map) {
 }
 
 /// Build a ShardLayoutAttr-backed MemRefType from explicit grid and shard
-/// shapes.
-inline MemRefType getStreamBufferType(ArrayRef<int64_t> gridShape,
-                                      ArrayRef<int64_t> shardShape,
-                                      Type elementType,
-                                      ttcore::MemorySpaceAttr memSpaceAttr,
-                                      uint32_t buffers) {
+/// shapes, suitable for a circular buffer allocation.
+inline MemRefType getCBBufferType(ArrayRef<int64_t> gridShape,
+                                  ArrayRef<int64_t> shardShape,
+                                  Type elementType,
+                                  ttcore::MemorySpaceAttr memSpaceAttr,
+                                  uint32_t buffers) {
   TT_debug(gridShape.size() == shardShape.size());
 
   const SmallVector<int64_t> fullShape =
@@ -322,12 +322,12 @@ inline MemRefType getStreamBufferType(ArrayRef<int64_t> gridShape,
   return MemRefType::get(fullShape, elementType, bufferLayout, memSpaceAttr);
 }
 
-/// @return the size in bytes of a stream buffer (must be in L1).
-inline int64_t getStreamBufferSizeBytes(MemRefType bufferType,
-                                        ttcore::DeviceAttr device) {
+/// @return the size in bytes of a circular buffer (must be in L1).
+inline int64_t getCBBufferSizeBytes(MemRefType bufferType,
+                                    ttcore::DeviceAttr device) {
   TT_assertv(ttcore::getMemorySpace(bufferType) ==
                  ttcore::MemorySpace::DeviceL1,
-             "stream buffers must be allocated in L1");
+             "circular buffers must be allocated in L1");
   return device.getMemrefSizeBytes(bufferType, 0, true);
 }
 

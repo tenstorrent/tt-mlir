@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -18,32 +18,34 @@ namespace {
 // Block factor analysis logic
 //===----------------------------------------------------------------------===//
 
-/// Returns the index of the single reduction dimension, if any.
+/// Returns the index of the single dimension eligible for block factor scaling,
+/// if exactly one such dimension exists.
+// This check is a stopgap until we expand eligible dimensions for reblocking.
 static std::optional<std::size_t>
-getSingleTuningDim(ArrayRef<ttcore::IteratorType> iteratorTypes) {
-  std::optional<std::size_t> tuningDim;
+getSingleScalableDim(ArrayRef<ttcore::IteratorType> iteratorTypes) {
+  std::optional<std::size_t> scalableDim;
   for (auto [dim, iteratorType] : llvm::enumerate(iteratorTypes)) {
     if (iteratorType != ttcore::IteratorType::Reduction) {
       continue;
     }
-    if (tuningDim.has_value()) {
+    if (scalableDim.has_value()) {
       return std::nullopt;
     }
-    tuningDim = dim;
+    scalableDim = dim;
   }
-  return tuningDim;
+  return scalableDim;
 }
 
-/// Estimates the total stream buffer bytes for a candidate grid and shard
+/// Computes the total circular buffer bytes for a candidate grid and shard
 /// extents.
-static std::optional<uint64_t> estimateCBBytesForCandidate(
+static std::optional<uint64_t> computeCBBytesForCandidate(
     GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
     ArrayRef<int64_t> candidateGridExtents,
-    ArrayRef<int64_t> candidateShardExtents, std::size_t tuningDim,
+    ArrayRef<int64_t> candidateShardExtents, std::size_t scalableDim,
     ttcore::DeviceAttr device, ttcore::MemorySpaceAttr l1Attr,
     uint32_t numBuffers) {
   uint64_t totalBytes = 0;
-  bool sawTunedInput = false;
+  bool sawScaledInput = false;
 
   for (auto [operandIndex, operand] :
        llvm::enumerate(genericOp.getInputsAndOutputs())) {
@@ -53,7 +55,7 @@ static std::optional<uint64_t> estimateCBBytesForCandidate(
     }
 
     const AffineMap indexingMap = indexingMaps[operandIndex];
-    if (!indexingMap.isFunctionOfDim(tuningDim)) {
+    if (!indexingMap.isFunctionOfDim(scalableDim)) {
       continue;
     }
 
@@ -63,7 +65,7 @@ static std::optional<uint64_t> estimateCBBytesForCandidate(
       return std::nullopt;
     }
 
-    sawTunedInput = true;
+    sawScaledInput = true;
     const AffineMap canonicalMap = canonicalizeBroadcasts(indexingMap);
     const SmallVector<int64_t> gridShapeRescaled =
         canonicalMap.compose(candidateGridExtents);
@@ -75,12 +77,12 @@ static std::optional<uint64_t> estimateCBBytesForCandidate(
     }
 
     const MemRefType bufferType =
-        getStreamBufferType(gridShapeRescaled, shardShapeRescaled,
-                            operandType.getElementType(), l1Attr, numBuffers);
-    totalBytes += getStreamBufferSizeBytes(bufferType, device);
+        getCBBufferType(gridShapeRescaled, shardShapeRescaled,
+                        operandType.getElementType(), l1Attr, numBuffers);
+    totalBytes += getCBBufferSizeBytes(bufferType, device);
   }
 
-  if (!sawTunedInput) {
+  if (!sawScaledInput) {
     return std::nullopt;
   }
 
@@ -115,18 +117,18 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
                 ArrayRef<int64_t> shardFactors, ttcore::DeviceAttr device,
                 ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers) {
   SmallVector<int64_t> blockFactors = genericOp.getBlockFactorsValue();
-  const std::optional<std::size_t> tuningDim =
-      getSingleTuningDim(iteratorTypes);
-  if (!tuningDim.has_value()) {
+  const std::optional<std::size_t> scalableDim =
+      getSingleScalableDim(iteratorTypes);
+  if (!scalableDim.has_value()) {
     return blockFactors;
   }
 
-  if (shardFactors[*tuningDim] <= 1) {
+  if (shardFactors[*scalableDim] <= 1) {
     return blockFactors;
   }
 
-  const auto baseBytes = estimateCBBytesForCandidate(
-      genericOp, indexingMaps, gridExtents, shardExtents, *tuningDim, device,
+  const auto baseBytes = computeCBBytesForCandidate(
+      genericOp, indexingMaps, gridExtents, shardExtents, *scalableDim, device,
       l1Attr, numBuffers);
   if (!baseBytes.has_value()) {
     return blockFactors;
@@ -134,8 +136,8 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
 
   int64_t bestScale = 1;
   uint64_t bestBytes = *baseBytes;
-  for (int64_t scale = shardFactors[*tuningDim]; scale >= 2; --scale) {
-    if (shardFactors[*tuningDim] % scale != 0) {
+  for (int64_t scale = shardFactors[*scalableDim]; scale >= 2; --scale) {
+    if (shardFactors[*scalableDim] % scale != 0) {
       continue;
     }
 
@@ -143,18 +145,18 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
                                               gridExtents.end());
     SmallVector<int64_t> candidateShardExtents(shardExtents.begin(),
                                                shardExtents.end());
-    candidateGridExtents[*tuningDim] *= scale;
-    candidateShardExtents[*tuningDim] /= scale;
+    candidateGridExtents[*scalableDim] *= scale;
+    candidateShardExtents[*scalableDim] /= scale;
 
-    const auto candidateBytes = estimateCBBytesForCandidate(
+    const auto candidateBytes = computeCBBytesForCandidate(
         genericOp, indexingMaps, candidateGridExtents, candidateShardExtents,
-        *tuningDim, device, l1Attr, numBuffers);
+        *scalableDim, device, l1Attr, numBuffers);
     if (!candidateBytes.has_value()) {
       continue;
     }
 
     // Break ties toward the larger scale so we maximize blocking at the
-    // same estimated CB buffer cost.
+    // same CB buffer cost.
     if (*candidateBytes < bestBytes ||
         (*candidateBytes == bestBytes && scale > bestScale)) {
       bestBytes = *candidateBytes;
@@ -162,10 +164,10 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
     }
   }
 
-  blockFactors[*tuningDim] *= bestScale;
+  blockFactors[*scalableDim] *= bestScale;
   TT_ALLOC_DEBUG("applying auto policy scale {} on dim {}, new block "
-                 "factors {}, estimated CB bytes {}",
-                 bestScale, *tuningDim, asSeq(blockFactors), bestBytes);
+                 "factors {}, CB bytes {}",
+                 bestScale, *scalableDim, asSeq(blockFactors), bestBytes);
   return blockFactors;
 }
 

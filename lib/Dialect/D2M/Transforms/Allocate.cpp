@@ -268,7 +268,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   using Base = impl::D2MAllocateBase<D2MAllocate>;
   using Base::Base;
 
-  enum class BufferSizePolicy { Auto, Min, Max };
+  using BufferSizePolicy = BlockFactorAnalysis::BufferSizePolicy;
 
   MemorySpaces memSpaces;
   ttcore::MemorySpaceAttr L1Attr = nullptr;
@@ -664,7 +664,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             ctx.isMemspaceBound = true;
             ctx.allocSize[ordinal(asPlannerSpace(MemorySpace::DeviceL1))] =
                 ttmlir::utils::alignUp(
-                    getStreamBufferSizeBytes(operandCtx.bufferType, device),
+                    getCBBufferSizeBytes(operandCtx.bufferType, device),
                     L1memInfo.alignment);
           }
         }
@@ -884,15 +884,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         const auto operandType =
             mlir::cast<MemRefType>(operand.get().getType());
 
-        operandCtx.bufferType = getStreamBufferType(
+        operandCtx.bufferType = getCBBufferType(
             gridShapeRescaled, shardShapeRescaled, operandType.getElementType(),
             L1Attr, numStreamBuffers);
         TT_ALLOC_TRACE("\t[operand #{}], would-be buffer "
                        "type ({} byte(s)): {}",
                        operandIndex,
-                       getStreamBufferSizeBytes(operandCtx.bufferType, device),
+                       getCBBufferSizeBytes(operandCtx.bufferType, device),
                        operandCtx.bufferType);
-        TT_debug(getStreamBufferSizeBytes(operandCtx.bufferType, device) > 0);
+        TT_debug(getCBBufferSizeBytes(operandCtx.bufferType, device) > 0);
       }
 
       // Finally, insert `operandCtx` into `genericCtx`.
@@ -945,17 +945,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // `auto` considers legal divisors of the reduction shard factor and
     // rejects candidates that shrink tuned-input shards below 4 tiles.
     BlockFactorAnalysis::Options bfOpts;
-    switch (bufferSizePolicy) {
-    case BufferSizePolicy::Auto:
-      bfOpts.policy = BlockFactorAnalysis::BufferSizePolicy::Auto;
-      break;
-    case BufferSizePolicy::Min:
-      bfOpts.policy = BlockFactorAnalysis::BufferSizePolicy::Min;
-      break;
-    case BufferSizePolicy::Max:
-      bfOpts.policy = BlockFactorAnalysis::BufferSizePolicy::Max;
-      break;
-    }
+    bfOpts.policy = bufferSizePolicy;
     bfOpts.numBuffers = numStreamBuffers;
     BlockFactorAnalysis blockFactorAnalysis(funcOp, bfOpts);
 
