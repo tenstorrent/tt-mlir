@@ -34,10 +34,6 @@ appendFabricConfigArgs(
   uint32_t cores_per_link =
       routing_mode == tt::target::RoutingMode::UnidirRingTorus ? 2 : 1;
 
-  // add error checking to not try to use link reserved for ethernet dispatch
-  // check slack about what dispatch modes work and how fabric can be used in
-  // each case
-
   std::unordered_map<tt::tt_metal::CoreCoord, std::vector<uint32_t>>
       fabricConfigArgs;
 
@@ -197,7 +193,6 @@ appendFabricConfigArgs(
 
   // Add mesh coordinate to device id mapping (in flattened mesh coordinate
   // order)
-  LOG_ERROR("mesh device shape: ", meshDevice->shape());
   auto coord_range =
       tt_metal::distributed::MeshCoordinateRange(meshDevice->shape());
   for (auto coord = coord_range.begin(); coord != coord_range.end(); coord++) {
@@ -257,21 +252,15 @@ appendFabricConfigArgs(
     }
     uint32_t num_connections =
         tt::tt_fabric::append_routing_plane_connection_manager_rt_args(
-            src_fabric_node_id, connection_directions,
-            {i / cores_per_link} /*whyyyyyyy*/, program, handle, {cores[i]},
-            rtArgsVecPerCore, tt::tt_fabric::FabricApiType::Linear);
+            src_fabric_node_id, connection_directions, {i / cores_per_link},
+            program, handle, {cores[i]}, rtArgsVecPerCore,
+            tt::tt_fabric::FabricApiType::Linear);
     // update number of connections
     rtArgsVecPerCore[num_fabric_connection_arg_idx + 1] = num_connections;
     // update number of fabric connection args
     rtArgsVecPerCore[num_fabric_connection_arg_idx] =
         (rtArgsVecPerCore.size() - num_fabric_connection_arg_idx);
     fabricConfigArgs[cores[i]] = rtArgsVecPerCore;
-    LOG_ERROR("core ", cores[i].str(), " has ",
-              fabricConfigArgs[cores[i]].size(), " args\n");
-    // print the args
-    for (uint32_t j = 0; j < fabricConfigArgs[cores[i]].size(); j++) {
-      LOG_ERROR("arg ", j, ": ", fabricConfigArgs[cores[i]][j]);
-    }
   }
   return fabricConfigArgs;
 }
