@@ -388,7 +388,7 @@ static void rewriteRemoteStoreOpsToExplicitCBForm(ModuleOp moduleOp,
       // d2m.remote_store %memref[indices] from %cb
       rewriter.create<RemoteStoreOp>(
           loc, memref, remoteStore.getIndices(), assocCb,
-          remoteStore.getStartDevice(), remoteStore.getEndDevice(),
+          remoteStore.getStartDevice(), remoteStore.getDeviceMcastShape(),
           remoteStore.getSemaphore(), remoteStore.getSemaphoreIndices());
 
       // Erase the original remote_store operation
