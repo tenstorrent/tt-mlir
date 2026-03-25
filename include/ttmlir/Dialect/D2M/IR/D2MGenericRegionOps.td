@@ -2563,12 +2563,33 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
   let hasVerifier = 1;
 }
 
-// TODO: Add description (how sync works...)
 def D2M_DeviceSynchronizeOp: D2M_GenericRegionOp<"device_synchronize",
   [AttrSizedOperandSegments, MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "Device synchronize op.";
   let description = [{
-    Synchronize the device.
+    The different devices in a mesh are not running ops in a synchronized manner
+    (devices can be running different ops in the program) so in ops where we are transferring data between devices,
+    we need to ensure that receiving devices have started the op before senders send data to them.
+
+    This op allows us to do this in two steps:
+    1) receiver devices inform senders that they have started the op by incrementing the sync_semaphore on the sender device
+    2) senders wait for all receivers that they have to send to using a semaphore wait
+
+    To ensure correct behaviour, we have to correctly set senderStartDevice, senderDeviceMcastShape, and
+    numReceivers based on which devices are sending to which receivers. Note that the senders and receivers
+    to be specified are in terms of the own device's perspective.
+
+    Example 1: All gather on a 1x8 mesh along cluster axis 1:
+      We have to set senderStartDevice to [0, 0], senderDeviceMcastShape to [1, 8], and numReceivers to 7 for ALL devices.
+
+    Example 2: broadcast CCL from device x to all other devices in 1x8 mesh:
+      - on device x, senderStartDevice/senderDeviceMcastShape will be empty since it is not receiving any data from other devices, but
+      numReceivers will be 7 since it is sending to all other devices
+      - on other devices, senderStartDevice will be device x, senderDeviceMcastShape will be empty, and numReceivers will be 0 (not sending to anyone)
+
+    Pre-condition: sync_semaphore is initialized to 0.
+    Post-condition: Receiver devices are guaranteed to have started their op
+      and so we can send data to them.
   }];
 
   let arguments = (ins
