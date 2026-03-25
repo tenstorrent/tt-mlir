@@ -23,3 +23,14 @@ module attributes {} {
   }
 }
 // CHECK: error: 'ttnn.moe_expert_token_remap' op expert_metadata must be a 4D tensor
+
+// -----
+
+// topk_tensor must be rank 2, 3, or 4
+module attributes {} {
+  func.func @remap_topk_rank(%topk: tensor<256xbf16>, %mapping: tensor<1x1x32x8xi64>, %meta: tensor<1x2x128x4xi64>) -> (tensor<1x2x128x4xbf16>, tensor<1x1x8x4xbf16>) {
+    %0, %1 = "ttnn.moe_expert_token_remap"(%topk, %mapping, %meta) <{reduction_size = 32 : i64}> : (tensor<256xbf16>, tensor<1x1x32x8xi64>, tensor<1x2x128x4xi64>) -> (tensor<1x2x128x4xbf16>, tensor<1x1x8x4xbf16>)
+    return %0, %1 : tensor<1x2x128x4xbf16>, tensor<1x1x8x4xbf16>
+  }
+}
+// CHECK: error: 'ttnn.moe_expert_token_remap' op topk_tensor must be rank 2, 3, or 4
