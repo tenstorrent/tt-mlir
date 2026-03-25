@@ -1007,7 +1007,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
             shardGrid.getVirtToPhysicalMap().isEmpty()
                 ? ttnn::optimizer_utils::
                       createSingleDeviceVirtualToPhysicalAffineMap(
-                          ctx, memLayoutAttr.getValue(), deviceGrid.getShape()).first
+                          ctx, memLayoutAttr.getValue(), deviceGrid.getShape())
+                          .first
                 : shardGrid.getVirtToPhysicalMap();
         coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
             ctx,
