@@ -28,14 +28,20 @@ if (USE_TTNN_JIT_WHEEL)
       $<TARGET_FILE:_ttnn_jit>
       $<TARGET_FILE:TTMLIRRuntime>
       $<TARGET_FILE:_ttmlir_runtime>
-    DESTINATION ttnn_jit/runtime
+    DESTINATION ttnn_jit
     COMPONENT TTNNJITWheel
     EXCLUDE_FROM_ALL
   )
   install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ttmlir/
-    DESTINATION ttnn_jit/runtime/ttmlir
+    DESTINATION ttnn_jit/ttmlir
     COMPONENT TTNNJITWheel
     EXCLUDE_FROM_ALL
+  )
+  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/_jit_site_initialize_0.py
+    DESTINATION ttnn_jit/ttmlir/_mlir_libs
+    COMPONENT TTNNJITWheel
+    EXCLUDE_FROM_ALL
+    RENAME _site_initialize_0.py
   )
 
   add_custom_command(
@@ -101,4 +107,10 @@ else ()
   add_custom_target(ttnn-jit ALL
     COMMENT "ttnn-jit package"
     DEPENDS TTNNJITModules _ttnn_jit _ttmlir_runtime TTMLIRPythonModules)
+  add_custom_command(
+    TARGET ttnn-jit POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E create_symlink
+        ${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir
+        ${TTMLIR_PYTHON_PACKAGES_DIR}/ttnn_jit/ttmlir
+  )
 endif()

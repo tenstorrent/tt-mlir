@@ -206,22 +206,21 @@ site-packages/
     ├── __init__.py
     ├── api.py
     ├── setup.py
-    ├── runtime/
-    │   ├── libTTMLIRRuntime.so
-    │   ├── _ttmlir_runtime.cpython-312-x86_64-linux-gnu.so
-    │   ├── _ttnn_jit.cpython-312-x86_64-linux-gnu.so
-    │   ├── libJITCPP.so
-    │   └── ttmlir/  (bundled ttmlir package)
-    │       ├── _mlir_libs/
-    │       │   ├── __init__.py
-    │       │   ├── _mlir.cpython-312-x86_64-linux-gnu.so
-    │       │   ├── _ttmlir.cpython-312-x86_64-linux-gnu.so
-    │       │   ├── libTTMLIRPythonCAPI.so
-    │       │   └── (other dialect .so files)
-    │       ├── dialects/
-    │       ├── ir.py
-    │       ├── passes.py
-    │       └── (and others)
+    ├── libTTMLIRRuntime.so
+    ├── _ttmlir_runtime.cpython-312-x86_64-linux-gnu.so
+    ├── _ttnn_jit.cpython-312-x86_64-linux-gnu.so
+    ├── libJITCPP.so
+    ├── ttmlir/  (bundled ttmlir package)
+    │   ├── _mlir_libs/
+    │   │   ├── __init__.py
+    │   │   ├── _mlir.cpython-312-x86_64-linux-gnu.so
+    │   │   ├── _ttmlir.cpython-312-x86_64-linux-gnu.so
+    │   │   ├── libTTMLIRPythonCAPI.so
+    │   │   └── (other dialect .so files)
+    │   ├── dialects/
+    │   ├── ir.py
+    │   ├── passes.py
+    │   └── (and others)
     └── _src/
         ├── __init__.py
         ├── conversions.py

@@ -6,7 +6,7 @@ import textwrap
 import inspect
 import importlib
 from typing import Callable
-from ttmlir.ir import *
+from ttnn_jit.ttmlir.ir import *
 from ttnn_jit._src.tensor_translator import (
     _calculate_tile_shape,
     _get_logical_tensor_shape,
@@ -19,7 +19,7 @@ def discover_dialect_ops(dialect, denylist=None):
     """
     # Convert string dialect names to their corresponding objects
     if isinstance(dialect, str):
-        dialect = importlib.import_module(f"ttmlir.dialects.{dialect}")
+        dialect = importlib.import_module(f"ttnn_jit.ttmlir.dialects.{dialect}")
 
     denylist = set() if denylist is None else denylist
     op_map = {}
