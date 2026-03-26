@@ -409,6 +409,11 @@ public:
       template_args.push_back(
           floatTypeToDataformatOpaqueAttr(builder, op.getValue().getType()));
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::FillTileIntOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), "DataFormat::Int32"));
+      return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
   }
@@ -1212,6 +1217,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileIntOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::HardsigmoidTileInitOp>,

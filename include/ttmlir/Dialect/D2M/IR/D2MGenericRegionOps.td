@@ -813,7 +813,7 @@ def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
         for element-wise operations.
     }];
 
-    let arguments = (ins AnyFloat:$value);
+    let arguments = (ins AnyTypeOf<[AnyFloat, AnyInteger]>:$value);
     let results = (outs TTCore_Tile:$result);
 
     let assemblyFormat = [{

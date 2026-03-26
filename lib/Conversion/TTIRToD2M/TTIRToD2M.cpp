@@ -2009,21 +2009,32 @@ public:
             auto shardTy = mlir::cast<RankedTensorType>(outputShard.getType());
             auto tType = mlir::cast<ttcore::TileType>(shardTy.getElementType());
             Type eType = tType.getElementType();
-            Type fillOpndTy = mlir::isa<mlir::FloatType>(eType)
-                                  ? eType
-                                  : bbBuilder.getF32Type();
-            double fillDouble;
-            if (auto fa = mlir::dyn_cast<mlir::FloatAttr>(fillAttr)) {
-              fillDouble = fa.getValueAsDouble();
+            TypedAttr scalarAttr;
+            if (auto floatTy = mlir::dyn_cast<mlir::FloatType>(eType)) {
+              double fillDouble;
+              if (auto fa = mlir::dyn_cast<mlir::FloatAttr>(fillAttr)) {
+                fillDouble = fa.getValueAsDouble();
+              } else {
+                fillDouble = mlir::cast<mlir::IntegerAttr>(fillAttr)
+                                 .getValue()
+                                 .signedRoundToDouble();
+              }
+              scalarAttr = mlir::FloatAttr::get(floatTy, fillDouble);
             } else {
-              fillDouble = mlir::cast<mlir::IntegerAttr>(fillAttr)
-                               .getValue()
-                               .signedRoundToDouble();
+              auto intTy = mlir::cast<mlir::IntegerType>(eType);
+              auto signlessIntTy = mlir::IntegerType::get(
+                  bbBuilder.getContext(), intTy.getWidth());
+              int64_t fillInt;
+              if (auto ia = mlir::dyn_cast<mlir::IntegerAttr>(fillAttr)) {
+                fillInt = ia.getValue().getSExtValue();
+              } else {
+                fillInt = static_cast<int64_t>(
+                    mlir::cast<mlir::FloatAttr>(fillAttr).getValueAsDouble());
+              }
+              scalarAttr = mlir::IntegerAttr::get(signlessIntTy, fillInt);
             }
             Value fillScalar = bbBuilder.create<mlir::arith::ConstantOp>(
-                bbLoc, fillOpndTy,
-                mlir::FloatAttr::get(mlir::cast<mlir::FloatType>(fillOpndTy),
-                                     fillDouble));
+                bbLoc, scalarAttr.getType(), scalarAttr);
             mlir::Value yieldTile =
                 bbBuilder.create<d2m::TileFillOp>(bbLoc, tType, fillScalar)
                     .getResult();

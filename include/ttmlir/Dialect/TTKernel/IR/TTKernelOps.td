@@ -2149,6 +2149,20 @@ def TTKernel_FillTileOp : TTKernel_SFPUOp<"fill_tile", [TTKernel_UnaryOpTrait]> 
     }];
 }
 
+def TTKernel_FillTileIntOp : TTKernel_SFPUOp<"fill_tile_int", [TTKernel_UnaryOpTrait]> {
+    let summary = "Fill tile with specified int32 value.";
+    let description = [{
+      Fills supplied DST register tile with a supplied i32 value. The DST
+      register must be in acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike: $dst_index, I32:$value);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $value `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_SigmoidTileInitOp : TTKernel_InitOp<"sigmoid_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of sigmoid_tile.";
     let description = [{
