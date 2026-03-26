@@ -2543,7 +2543,8 @@ constantFoldSliceStatic(mlir::tt::ttir::SliceStaticOp op,
 
     if (denseAttr.getElementType().isFloat()) {
       return constantFoldNonSplatSliceStatic<mlir::APFloat>(op, denseAttr);
-    } else if (denseAttr.getElementType().isInteger()) {
+    }
+    if (denseAttr.getElementType().isInteger()) {
       return constantFoldNonSplatSliceStatic<mlir::APInt>(op, denseAttr);
     }
   }
