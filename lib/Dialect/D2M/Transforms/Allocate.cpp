@@ -1939,8 +1939,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           }
         }
         return allRoots;
-      } else if (auto op =
-                     llvm::dyn_cast_or_null<d2m::ViewOpInterface>(definingOp)) {
+      }
+
+      if (auto op = llvm::dyn_cast_or_null<d2m::ViewOpInterface>(definingOp)) {
         value = op.getInput();
       } else if (auto op =
                      llvm::dyn_cast<d2m::CreateGlobalSemaphoreOp>(definingOp)) {

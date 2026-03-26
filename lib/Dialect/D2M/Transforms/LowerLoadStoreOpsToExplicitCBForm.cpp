@@ -224,7 +224,6 @@ static void ensurePopForWait(IRRewriter &rewriter, WaitOp waitOp) {
   rewriter.create<PopOp>(waitOp.getLoc(), waitOp.getCb());
 }
 
-
 static LogicalResult verifyNoPreExistingExplicitRemoteOps(ModuleOp moduleOp) {
   LogicalResult result = success();
 
