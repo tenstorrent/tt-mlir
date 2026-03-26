@@ -11,7 +11,6 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenericTileComputeLoops.cpp
         GridSelection.cpp
         InsertDstRegisterAccess.cpp
-        InsertStreams.cpp
         LinalgToAffine.cpp
         LowerScratchAllocate.cpp
         LowerToLayout.cpp
@@ -29,6 +28,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         LowerDMAToFullyIndexedForm.cpp
         LowerLoadStoreOpsToDMA.cpp
         LowerLoadStoreOpsToExplicitCBForm.cpp
+        ExpandDMAReadCompositeView.cpp
         ConvertLocalLoadStoreOpsToAliasedCBs.cpp
 
         ADDITIONAL_HEADER_DIRS

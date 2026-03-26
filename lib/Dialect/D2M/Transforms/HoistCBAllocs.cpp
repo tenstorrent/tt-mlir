@@ -52,9 +52,7 @@ private:
     for (auto [allocOp, operandIdx] : allocsToHoist) {
       auto allocType = allocOp.getType();
 
-      // The CBLayoutAttr already carries the per-operand grid shape
-      // (from bufferType in insertStream).  No grid derivation needed
-      // here — just move the alloc outside.
+      // Move the CB alloc outside the generic as an additionalArg.
 
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPoint(genericOp);
@@ -74,10 +72,9 @@ private:
       if (operandIdx >= 0) {
         externalAlloc->setAttr("d2m.cb_for_operand",
                                rewriter.getI64IntegerAttr(operandIdx));
-        // Copy VGM attrs from the stream's storage buffer (if the operand
-        // has a pre-existing stream).  The storage buffer carries the
-        // target grid mapping needed by the serializer.
-        copyVGMFromStreamStorage(genericOp, operandIdx, externalAlloc);
+        // Copy VGM attrs from the operand's defining alloc so the
+        // serializer can compute physical grid shapes.
+        copyVGMFromOperand(genericOp, operandIdx, externalAlloc);
       }
 
       // Add the external alloc as an additionalArg to the generic op.
@@ -86,6 +83,15 @@ private:
       // Replace all uses of the in-generic alloc with the additionalArg
       // and erase the alloc.  Types match so this is safe.
       rewriter.replaceOp(allocOp, externalAlloc.getResult());
+
+      // Insert a dealloc right after the generic op to bound the
+      // hoisted alloc's live range.
+      {
+        OpBuilder::InsertionGuard deallocGuard(rewriter);
+        rewriter.setInsertionPointAfter(genericOp);
+        rewriter.create<memref::DeallocOp>(genericOp.getLoc(),
+                                           externalAlloc.getResult());
+      }
     }
   }
 
@@ -115,12 +121,9 @@ private:
     return -1;
   }
 
-  /// Copy VGM attrs from the stream's *storage* buffer onto |externalAlloc|.
-  /// The storage buffer (second operand of stream_layout) carries the target
-  /// grid mapping the serializer needs.
-  static void copyVGMFromStreamStorage(d2m::GenericOp genericOp,
-                                       int64_t operandIdx,
-                                       memref::AllocOp externalAlloc) {
+  /// Copy VGM attrs from the operand's defining alloc onto |externalAlloc|.
+  static void copyVGMFromOperand(d2m::GenericOp genericOp, int64_t operandIdx,
+                                 memref::AllocOp externalAlloc) {
     Value externalOperand = genericOp.getInputsAndOutputs()[operandIdx];
     auto copyAttrs = [&](Operation *src) {
       if (auto vgm = src->getAttrOfType<AffineMapAttr>(
@@ -132,15 +135,7 @@ private:
         externalAlloc->setAttr(d2m::utils::kVirtualGridForwardMappingAttr, fwd);
       }
     };
-    if (auto streamOp = externalOperand.getDefiningOp<d2m::StreamLayoutOp>()) {
-      // Copy from the storage buffer (second operand), not the input.
-      if (auto storageAlloc =
-              streamOp.getStorage().getDefiningOp<memref::AllocOp>()) {
-        copyAttrs(storageAlloc);
-      }
-    } else if (auto viewOp =
-                   externalOperand.getDefiningOp<d2m::ViewLayoutOp>()) {
-      // View operand — try the view's input.
+    if (auto viewOp = externalOperand.getDefiningOp<d2m::ViewLayoutOp>()) {
       if (auto alloc = viewOp.getInput().getDefiningOp<memref::AllocOp>()) {
         copyAttrs(alloc);
       }

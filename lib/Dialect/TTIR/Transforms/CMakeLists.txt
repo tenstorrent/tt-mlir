@@ -12,6 +12,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         ElementTypeNormalization.cpp
         PredicateTypeAlignment.cpp
         InferKVCacheArgumentTypes.cpp
+        PropagateWeightDtype.cpp
         MoveReshapeToConstant.cpp
         Quantization.cpp
         QuantDequantConversion.cpp

@@ -1506,7 +1506,7 @@ private:
 
 // ----------------------------------------------------------------------------
 //
-// Lower PermuteOp into a D2M StreamLayoutOp (to reblock into new tile-level
+// Lower PermuteOp into a D2M ViewLayoutOp (to reblock into new tile-level
 // shape) + GenericOp (to transpose individual tiles).
 namespace {
 class D2MPermuteRewriter final
@@ -1593,8 +1593,8 @@ public:
         permuted.physicalShape, inputTensorType.getElementType(), resultLayout);
 
     // For inner permute, we need a view to express the reblocking.
-    // The allocator will later decide whether to insert a stream_layout
-    // with a proper CB allocation for the consuming GenericOp.
+    // The allocator will later decide whether to insert a CB allocation
+    // for the consuming GenericOp.
     auto view = rewriter.create<d2m::ViewLayoutOp>(loc, viewType, inputs[0],
                                                    permuted.transposeMap,
                                                    /*reinterpretLayout=*/false);
@@ -1713,6 +1713,51 @@ private:
         AffineMap::get(deviceRank, 0, results, rewriter.getContext());
     return {transposeMap, resultPhysicalShape, resultLogicalShape,
             resultDimAlignments};
+  }
+};
+} // namespace
+
+namespace {
+class D2MConcatRewriter final
+    : public mlir::OpConversionPattern<ttir::ConcatOp>,
+      D2MNamedRewriterCommon {
+  using ConcreteOp = ttir::ConcatOp;
+
+public:
+  D2MConcatRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+                    ttcore::MemorySpace defaultInputMemSpace,
+                    ttcore::MemorySpace defaultOutputMemSpace,
+                    bool /*ttnnMode*/, bool /*collapseTensors*/,
+                    bool enableMulticastInference)
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               /*ttnnMode=*/false, /*collapseTensors=*/false,
+                               enableMulticastInference) {}
+
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    auto origInputs = adaptor.getOperands();
+    assert(origInputs.size() > 1);
+
+    auto origOutputs =
+        createDpsOutputs(op.getLoc(), rewriter, {op.getResult().getType()});
+
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled=*/true, /*noCollapse=*/true);
+
+    int32_t dim = op.getDim();
+    if (dim < 0) {
+      dim += mlir::cast<RankedTensorType>(origInputs[0].getType()).getRank();
+    }
+
+    auto compositeView = rewriter.create<d2m::CompositeViewOp>(
+        op.getLoc(), outputs[0].getType(), inputs, dim);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, compositeView->getResult(0),
+                                          op.getResult().getType()));
+    return success();
   }
 };
 } // namespace
@@ -2163,8 +2208,8 @@ public:
                                           outTy.getElementType(), newLayout);
 
     // Express the data rearrangement as a view. The allocator will later
-    // decide whether to insert a stream_layout with a proper CB allocation
-    // for any GenericOp that consumes this view.
+    // decide whether to insert a CB allocation for any GenericOp that
+    // consumes this view.
     auto view = rewriter.create<d2m::ViewLayoutOp>(op.getLoc(), newOutTy,
                                                    inputs[0], deviceMap,
                                                    /*reinterpretLayout=*/false);
@@ -2578,7 +2623,10 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<
     // Elementwise.
     D2MNamedElementwiseRewriter<ttir::AbsOp,             d2m::TileAbsOp>,
+    D2MNamedElementwiseRewriter<ttir::AcosOp,            d2m::TileAcosOp>,
     D2MNamedElementwiseRewriter<ttir::AddOp,             d2m::TileAddOp>,
+    D2MNamedElementwiseRewriter<ttir::AsinOp,            d2m::TileAsinOp>,
+    D2MNamedElementwiseRewriter<ttir::AtanOp,            d2m::TileAtanOp>,
     D2MNamedElementwiseRewriter<ttir::BitwiseAndOp,      d2m::TileBitwiseAndOp>,
     D2MNamedElementwiseRewriter<ttir::BitwiseNotOp,      d2m::TileBitwiseNotOp>,
     D2MNamedElementwiseRewriter<ttir::BitwiseOrOp,       d2m::TileBitwiseOrOp>,
@@ -2630,9 +2678,10 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
     // Tensor manipulation/View ops.
-    D2MTensorManipulationOpRewriter<ttir::RearrangeOp, rearrangeLogicalInfo>,
-    D2MTensorManipulationOpRewriter<ttir::ReshapeOp, reshapeLogicalInfo>,
-    D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalInfo>,
+    D2MConcatRewriter,
+    D2MTensorManipulationOpRewriter<ttir::RearrangeOp,        rearrangeLogicalInfo>,
+    D2MTensorManipulationOpRewriter<ttir::ReshapeOp,          reshapeLogicalInfo>,
+    D2MTensorManipulationOpRewriter<ttir::SliceStaticOp,      sliceLogicalInfo>,
     D2MTensorManipulationOpRewriter<ttir::ConcatenateHeadsOp, concatenateHeadsLogicalInfo>,
     // Permute (handles transpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter,

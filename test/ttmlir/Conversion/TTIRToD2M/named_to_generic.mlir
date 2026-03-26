@@ -392,6 +392,15 @@ module {
     return %0 : tensor<32x32xf32>
   }
 
+  // CHECK-LABEL: func @named_concat
+  func.func @named_concat(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x64xf32> {
+    // CHECK-NOT: concat
+    // CHECK: "d2m.composite_view"{{.+}} -> tensor<1x1x1x2x!ttcore.tile<32x32, f32>
+    // CHECK: d2m.generic
+    %0 = "ttir.concat"(%arg0, %arg1) <{dim = -1 : si32}> : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x64xf32>
+    return %0 : tensor<32x64xf32>
+  }
+
   // CHECK-LABEL: func @named_clamp_scalar
   func.func @named_clamp_scalar(%arg: !ttype) -> (!ttype) {
     // named clamp_scalar op, unary with scalar attributes:

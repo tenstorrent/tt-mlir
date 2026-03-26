@@ -4,12 +4,9 @@
 // This test uses a tight L1 capacity limit but succeeds by using min-sized stream buffers.
 
 // CHECK-LABEL: func.func @main()
-// CHECK: %{{.+}} = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64}{{.+}} #dram>
-// CHECK: %[[LHS_STREAM:.*]] = "d2m.stream_layout"
-// CHECK: %[[RHS_STREAM:.*]] = "d2m.stream_layout"
+// CHECK: memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64}
 // CHECK: d2m.generic {block_factors = [1, 1, 16], grid = #ttcore.grid<1x1>
-// CHECK: ins(%[[LHS_STREAM]], %[[RHS_STREAM]]
-// CHECK: outs(%{{.+}} : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>)
+// CHECK: cb_layout
 
 #l1 = #ttcore.memory_space<l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>

@@ -1134,11 +1134,14 @@ public:
   LogicalResult
   matchAndRewrite(ttir::LinearOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
+    auto newOp = rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getBias(), adaptor.getTransposeA(),
         adaptor.getTransposeB(), /*matmul_program_config=*/nullptr,
         /*activation=*/nullptr, /*compute_config=*/nullptr);
+    if (auto attr = op->getAttr("ttcore.weight_dtype")) {
+      newOp->setAttr("ttcore.weight_dtype", attr);
+    }
     return success();
   }
 };
@@ -1569,10 +1572,13 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MatmulOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
+    auto newOp = rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getTransposeA(), adaptor.getTransposeB(),
         /*matmul_program_config=*/nullptr, /*activation=*/nullptr);
+    if (auto attr = op->getAttr("ttcore.weight_dtype")) {
+      newOp->setAttr("ttcore.weight_dtype", attr);
+    }
     return success();
   }
 };
@@ -3552,7 +3558,9 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::LogOp, ttnn::LogOp>,
            ElementwiseOpConversionPattern<ttir::CeilOp, ttnn::CeilOp>,
            ElementwiseOpConversionPattern<ttir::SinOp, ttnn::SinOp>,
+           ElementwiseOpConversionPattern<ttir::AsinOp, ttnn::AsinOp>,
            ElementwiseOpConversionPattern<ttir::CosOp, ttnn::CosOp>,
+           ElementwiseOpConversionPattern<ttir::AcosOp, ttnn::AcosOp>,
            ElementwiseOpConversionPattern<ttir::Expm1Op, ttnn::Expm1Op>,
            ElementwiseOpConversionPattern<ttir::WhereOp, ttnn::WhereOp>,
            ElementwiseOpConversionPattern<ttir::TanOp, ttnn::TanOp>,

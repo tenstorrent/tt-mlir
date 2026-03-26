@@ -72,18 +72,29 @@ SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
 // grid shape used if the tensor/memref was the output of a GenericOp.
 SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref);
 
+// N-dimensional axis-aligned bounding box (start and end inclusive).
+// start.size() must equal end.size() (dimension).
+struct BoundingBox {
+  llvm::SmallVector<int64_t> start;
+  llvm::SmallVector<int64_t> end;
+};
+
+// Maps `source` into the affine map's output space using its start/end corners.
+BoundingBox getProjectedBoundingBox(const BoundingBox &source,
+                                    mlir::AffineMap map);
+
 // Returns the remapping associated with a value, if any.
-// Traces back through the defining op to find a ViewLayoutOp or StreamLayoutOp
-// and returns its remapping attribute. Returns std::nullopt if the value has
-// no associated remapping.  After the virtual-grid refactor, these remappings
-// are always reblockings — virtual grid info lives on EmptyOp attrs instead.
+// Traces back through the defining op to find a ViewLayoutOp and returns its
+// remapping attribute. Returns std::nullopt if the value has no associated
+// remapping.  After the virtual-grid refactor, these remappings are always
+// reblockings — virtual grid info lives on EmptyOp attrs instead.
 // Note: this is not recursive, it only checks immediate defining op.
 std::optional<AffineMap> getAssociatedRemapping(Value val);
 
 // Returns the virtualGridMapping (inverse map, physical→virtual) associated
 // with a value, if any.  Traces through the def-use chain (ToLayoutOp →
-// EmptyOp, StreamLayoutOp → storage EmptyOp, etc.) to find the underlying
-// EmptyOp/AllocOp/CreateBufferOp and returns its virtualGridMapping attribute.
+// EmptyOp, etc.) to find the underlying EmptyOp/AllocOp/CreateBufferOp and
+// returns its virtualGridMapping attribute.
 std::optional<AffineMap> getVirtualGridInverseMapping(Value val);
 
 // Returns the virtualGridForwardMapping (forward map, virtual→physical)
@@ -115,6 +126,16 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device, Value memrefValue,
 AffineMap getMemoryMap(ttcore::DeviceAttr device,
                        std::pair<MemRefType, AffineMap> memrefAndView,
                        size_t pageSize, size_t baseOffset = 0);
+
+// User-facing get memory map util function.
+AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input, bool isRemote);
+
+template <typename Builder>
+SmallVector<Value> applyMap(Builder &builder, Location loc, AffineMap map,
+                            ValueRange index, bool isRemote);
+
+std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
+getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape);
 
 // Finds a 2D grid (y, x) such that y * x = gridVolume. The returned grid aims
 // to be as square as possible while respecting the provided target grid shape

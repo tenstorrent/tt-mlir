@@ -11,8 +11,7 @@ module {
   func.func @bcast_col(%in0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                        %in1: memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                        %out0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
-    %alloc = memref.alloc() {address = 102208 : i64, alignment = 16 : i64} : memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>
-    %stream = "d2m.stream_layout"(%in1, %alloc) <{remapping = #map4}> : (memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>, memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>) -> memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
+    %stream = d2m.view_layout %in1 remapping = #map4 : memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_> -> memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<3x3>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, 0)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
         ins(%in0, %stream : memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>, memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>)
         outs(%out0 : memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)  {
@@ -53,7 +52,6 @@ module {
         }
       }
     }
-    memref.dealloc %alloc : memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>
     return
   }
 
@@ -63,8 +61,7 @@ module {
   func.func @bcast_row(%in0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                        %in1: memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                        %out0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
-    %alloc = memref.alloc() {address = 102208 : i64, alignment = 16 : i64} : memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>
-    %stream = "d2m.stream_layout"(%in1, %alloc) <{remapping = #map4}> : (memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>) -> memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
+    %stream = d2m.view_layout %in1 remapping = #map4 : memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_> -> memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<3x3>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
         ins(%in0, %stream : memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>)
         outs(%out0 : memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)  {
@@ -105,7 +102,6 @@ module {
         }
       }
     }
-    memref.dealloc %alloc : memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>
     return
   }
 
@@ -115,8 +111,7 @@ module {
   func.func @bcast_scalar(%in0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                           %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                           %out0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
-    %alloc = memref.alloc() {address = 102208 : i64, alignment = 16 : i64} : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>
-    %stream = "d2m.stream_layout"(%in1, %alloc) <{remapping = #map4}> : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>) -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
+    %stream = d2m.view_layout %in1 remapping = #map4 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
     d2m.generic {block_factors = [], grid = #ttcore.grid<3x3>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%in0, %stream : memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>)
         outs(%out0 : memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)  {
@@ -156,7 +151,6 @@ module {
         }
       }
     }
-    memref.dealloc %alloc : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>
     return
   }
 
@@ -166,10 +160,8 @@ module {
   func.func @bcast_dual(%in0: memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                         %in1: memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                         %out0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
-    %alloc = memref.alloc() {address = 102208 : i64, alignment = 16 : i64} : memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>
-    %stream = "d2m.stream_layout"(%in0, %alloc) <{remapping = #map4}> : (memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>, memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>) -> memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
-    %alloc_1 = memref.alloc() {address = 110400 : i64, alignment = 16 : i64} : memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>
-    %stream_1 = "d2m.stream_layout"(%in1, %alloc_1) <{remapping = #map4}> : (memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>) -> memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
+    %stream = d2m.view_layout %in0 remapping = #map4 : memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_> -> memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
+    %stream_1 = d2m.view_layout %in1 remapping = #map4 : memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_> -> memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
     d2m.generic {block_factors = [], grid = #ttcore.grid<3x3>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%stream, %stream_1 : memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>, memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>)
         outs(%out0 : memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)  {
@@ -215,8 +207,6 @@ module {
         }
       }
     }
-    memref.dealloc %alloc : memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>
-    memref.dealloc %alloc_1 : memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1_>
     return
   }
 }

@@ -58,20 +58,20 @@ struct CQBuilder {
   std::vector<flatbuffers::Offset<target::metal::BufferRef>> inputs;
   std::vector<flatbuffers::Offset<target::metal::BufferRef>> outputs;
   std::vector<flatbuffers::Offset<target::metal::Command>> commands;
-  OpPrintingFlags printFlags;
+  mlir::AsmState printState;
 
-  CQBuilder(flatbuffers::FlatBufferBuilder *fbb) : fbb(fbb) {
-    printFlags = printFlags.elideLargeElementsAttrs()
-                     .elideLargeResourceString()
-                     .skipRegions()
-                     .enableDebugInfo()
-                     .assumeVerified();
-  }
+  CQBuilder(flatbuffers::FlatBufferBuilder *fbb, func::FuncOp entry)
+      : fbb(fbb), printState(entry, OpPrintingFlags()
+                                        .elideLargeElementsAttrs()
+                                        .elideLargeResourceString()
+                                        .skipRegions()
+                                        .enableDebugInfo()
+                                        .assumeVerified()) {}
 
   std::string getDebugString(mlir::Operation *op) {
     std::string str;
     llvm::raw_string_ostream os(str);
-    op->print(os, printFlags);
+    op->print(os, printState);
     return str;
   };
 
@@ -560,15 +560,14 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
       virtualGridInverseMapping = mapAttr.getValue();
     }
 
-    // Hoisted CB buffers carry CBLayoutAttr (shard-only shape).
-    // Reconstruct a full [grid..shard..] + ShardLayoutAttr memref type so
-    // we fall through to the existing memrefTypeToFlatbuffer path, which
-    // already handles N-D grids, CB configs, and worker grid overrides.
+    // Hoisted CB buffers carry CBLayoutAttr (per-core local shape).
+    // Reconstruct a full [1x1 grid + shard] + ShardLayoutAttr memref type
+    // so we fall through to the existing memrefTypeToFlatbuffer path.
+    // CBs are always core-local (1x1 grid).
     if (auto cbLayout =
             mlir::dyn_cast<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
-      auto gridShape = cbLayout.getGridShape();
       auto shardShape = memrefType.getShape();
-      SmallVector<int64_t> fullShape(gridShape.begin(), gridShape.end());
+      SmallVector<int64_t> fullShape(shardShape.size(), 1);
       fullShape.append(shardShape.begin(), shardShape.end());
       auto shardLayoutAttr = ttcore::ShardLayoutAttr::get(
           shardShape, memrefType.getElementType(), cbLayout.getBuffers());
@@ -861,7 +860,7 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
     std::vector<flatbuffers::Offset<target::metal::TensorRef>> tensorInputs;
     std::vector<flatbuffers::Offset<target::metal::TensorRef>> tensorOutputs;
 
-    CQBuilder cqBuilder(&fbb);
+    CQBuilder cqBuilder(&fbb, entry);
     cqBuilder.name = entry.getSymName().data();
 
     cqBuilder.inputs.reserve(entry.getBody().getArguments().size());

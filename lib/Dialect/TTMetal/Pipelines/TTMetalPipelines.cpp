@@ -84,8 +84,7 @@ void createTTIRToTTMetalFrontendPipeline(
   }
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(ttir::createPredicateTypeAlignment());
-  pm.addPass(ttir::createElementTypeNormalization(
-      ttir::ElementTypeNormalizationOptions()));
+  pm.addPass(ttir::createElementTypeNormalization());
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(ttir::createTTIRDecomposeMinReduction());
   pm.addPass(ttir::createTTIRExplicateTMs());
@@ -236,6 +235,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MPreallocateMcastSemaphores());
   pm.addPass(d2m::createD2MScheduleDMA());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
+  pm.addPass(d2m::createD2MExpandDMAReadCompositeView());
   pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
 
   createOptimizationPasses(pm, options);
