@@ -41,6 +41,17 @@ static unsigned getCBPort(Operation *dmaOp) {
   if (auto store = mlir::dyn_cast<RemoteStoreOp>(dmaOp)) {
     return store.getCBPort();
   }
+  if (auto l1Copy = mlir::dyn_cast<DMACopyOp>(dmaOp)) {
+    if (l1Copy.isExplicitCBForm()) {
+      return l1Copy.getCBPort();
+    }
+    Value dst = l1Copy.getDst();
+    if (auto reserveOp = dst.getDefiningOp<ReserveOp>()) {
+      if (auto getCBOp = reserveOp.getCb().getDefiningOp<GetCBOp>()) {
+        return getCBOp.getPort();
+      }
+    }
+  }
   llvm_unreachable("getCBPort called on non-DMA op");
 }
 
@@ -55,7 +66,7 @@ collectDMAOps(Block *block,
       continue;
     }
 
-    if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(&op)) {
+    if (mlir::isa<RemoteLoadOp, RemoteStoreOp, DMACopyOp>(&op)) {
       dmaOps.push_back({&op, getCBPort(&op)});
     }
   }
@@ -160,7 +171,7 @@ assignCBsToThreads(const DenseMap<unsigned, size_t> &cbWorkloads,
 // Returns true if the operation uses a CB assigned to this thread.
 static bool shouldKeepOpForThread(Operation *op,
                                   const DenseSet<unsigned> &assignedCBs) {
-  if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(op)) {
+  if (mlir::isa<RemoteLoadOp, RemoteStoreOp, DMACopyOp>(op)) {
     return assignedCBs.contains(getCBPort(op));
   }
   return false;
@@ -187,7 +198,7 @@ static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
       }
 
       // Check if this is a DMA op.
-      if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(&op)) {
+      if (mlir::isa<RemoteLoadOp, RemoteStoreOp, DMACopyOp>(&op)) {
         if (!shouldKeepOpForThread(&op, assignedCBs)) {
           if (op.use_empty()) {
             toErase.push_back(&op);
