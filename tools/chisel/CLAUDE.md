@@ -31,7 +31,6 @@ tools/chisel/chisel/
 ├── tensors.py         # TensorPool and TensorValue
 ├── ops.py             # IRModule wrapper, hash_location, op input/output extraction
 ├── report.py          # CSV report writer
-├── metrics.py         # PCC, absolute error, relative error
 └── utils.py           # Location parsing, dtype maps, runtime tensor conversion
 ```
 
@@ -45,7 +44,8 @@ For each TTNN op during TTRT execution:
 
 ## Key Dependencies
 
-- `tools/golden/mapping.py` — `GOLDEN_MAPPINGS` dict and `get_golden_function()`
+- `tools/golden/mapping.py` — `GOLDEN_MAPPINGS` dict, `get_golden_function()`, `GoldenMapTensor`
+- `tools/golden/metrics.py` — Unified PCC/atol/rtol comparison (shared with builder and ttrt)
 - `ttrt.runtime.DebugHooks` — callback registration point
 
 ## Design Docs
