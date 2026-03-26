@@ -23,19 +23,32 @@ hardware operation introduces numerical divergence.
   input/output tensor info, and all accuracy metrics.
 - **Tensor caching**: Optional disk-based caching of golden and device tensors
   for post-mortem analysis.
-- **Callback-driven**: Integrates non-invasively into any TTRT execution flow
-  via `DebugHooks` preop/postop callbacks — no separate CLI or execution
-  pipeline required.
+- **Callback-driven**: Integrates non-invasively into any execution flow
+  (builder or direct `DebugHooks`) via preop/postop callbacks — no separate CLI
+  or execution pipeline required.
+- **Builder integration**: First-class support via `enable_chisel` parameter
+  in the builder's `compile_and_execute_ttnn()` — mutually exclusive with
+  builder's own `verify_intermediates` PCC checking.
 
 ## How It Works
 
-Chisel operates as a **passive observer** during TTRT binary execution:
+Chisel operates as a **passive observer** during binary execution. It can be
+used through two paths: **builder integration** (recommended) or **direct
+callback registration**.
+
+```mermaid
+flowchart LR;
+    A["Initialize<br/>ChiselContext singleton"] --> B["Register<br/>preop/postop callbacks<br/>via DebugHooks.get()"]
+    B --> C["Execute<br/>TTNN binary"]
+    C --> D["Per-op callbacks:<br/>capture tensors,<br/>replay on CPU,<br/>compute metrics"]
+    D --> E["Inspect<br/>CSV report"]
+```
 
 1. **Initialize** a `ChiselContext` singleton with the TTNN MLIR module and
    output configuration.
 2. **Register** Chisel's preop/postop callback functions with
-   `ttrt.runtime.DebugHooks.get()`.
-3. **Execute** the TTNN flatbuffer binary through TTRT as usual.
+   `DebugHooks.get()`.
+3. **Execute** the TTNN flatbuffer binary (via builder or any other runner).
 4. For each TTNN op, Chisel's callbacks automatically:
    - Capture device input/output tensors
    - Replay the op on CPU using golden reference implementations from
@@ -43,7 +56,35 @@ Chisel operates as a **passive observer** during TTRT binary execution:
    - Compute and record accuracy metrics
 5. **Inspect** the generated CSV report.
 
-### Usage Example
+### Usage: Builder Integration (Recommended)
+
+The simplest way to use Chisel is through the builder's `enable_chisel`
+parameter. This is **mutually exclusive** with builder's own
+`verify_intermediates` — when `enable_chisel=True`, builder delegates all
+golden verification to Chisel instead of using its own PCC checking.
+
+```python
+from builder.base.builder_apis import compile_and_execute_ttnn
+
+def module(builder: TTNNBuilder):
+    @builder.func([(32, 32)], [torch.float32])
+    def func(in0: Operand, builder: TTNNBuilder):
+        return builder.sigmoid(in0)
+
+# Builder handles ChiselContext init, callback registration, and cleanup
+compile_and_execute_ttnn(
+    module,
+    device=device,
+    enable_chisel=True,           # Activates Chisel (exclusive with verify_intermediates)
+    chisel_output_dir="./output",
+    chisel_report_path="./report.csv",
+)
+```
+
+### Usage: Direct Callback Registration
+
+For integration outside the builder (e.g., custom runners), register callbacks
+manually:
 
 ```python
 from chisel.context import ChiselContext
@@ -57,14 +98,14 @@ ctx = ChiselContext(
     report_path=Path("./chisel_report.csv"),
 )
 
-# Register callbacks
+# Register callbacks — same signature works with any DebugHooks caller
 debug_hooks = ttrt.runtime.DebugHooks.get(
     chisel_pre_op_callback,
     chisel_post_op_callback,
 )
 
 # Execute the binary — Chisel observes via callbacks
-# ... run through ttrt as normal ...
+# ... run through any execution engine ...
 
 # Cleanup
 ChiselContext.reset_instance()
