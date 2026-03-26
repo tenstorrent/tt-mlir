@@ -56,12 +56,14 @@ set_target_properties(${PYTHON_RUNNER_LIBRARY_NAME} PROPERTIES
   BUILD_WITH_INSTALL_RPATH FALSE
 )
 
+include(GNUInstallDirs)
+
 install(FILES $<TARGET_FILE:${PYTHON_RUNNER_LIBRARY_NAME}>
-  DESTINATION lib
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}
   COMPONENT SharedLib
 )
 
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/python_runner.hpp
-  DESTINATION include/tools/tt-alchemist/python_runner
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tools/tt-alchemist/python_runner
   COMPONENT SharedLib
 )
