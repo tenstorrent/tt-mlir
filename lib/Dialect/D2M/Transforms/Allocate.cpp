@@ -1659,8 +1659,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               auto cbLayout = ttcore::CBLayoutAttr::get(
                   bufferType.getContext(), shardShape,
                   ttcore::getElementSizeBytes(elementType), numStreamBuffers);
-              auto newAllocOp = rewriter.create<memref::AllocOp>(
-                  oldTensor.getLoc(),
+              auto newAllocOp = memref::AllocOp::create(
+                  rewriter, oldTensor.getLoc(),
                   MemRefType::get(shardShape, elementType, cbLayout,
                                   oldMemRefType.getMemorySpace()));
               // Transfer address and alignment from the old alloc (assigned
@@ -1673,8 +1673,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               }
               newValue = newAllocOp.getResult();
             } else {
-              auto newEmptyOp = rewriter.create<mlir::tensor::EmptyOp>(
-                  oldTensor.getLoc(), shardShape, elementType);
+              auto newEmptyOp = mlir::tensor::EmptyOp::create(
+                  rewriter, oldTensor.getLoc(), shardShape, elementType);
               newValue = newEmptyOp.getResult();
             }
             rewriter.replaceAllUsesWith(oldTensor, newValue);
