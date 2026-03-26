@@ -18,6 +18,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         ElementwiseFusion.cpp
         OpScheduler.cpp
         SFPUTileLoopFission.cpp
+        InsertSpillAndScratch.cpp
         ScalarizeConstTensors.cpp
         GenerateOuterLoops.cpp
         LowerToExplicitForm.cpp

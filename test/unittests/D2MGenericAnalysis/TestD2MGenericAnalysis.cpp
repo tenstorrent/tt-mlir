@@ -461,10 +461,11 @@ func.func @test(
   auto it = regionInfo->perResult.find(outputValues.front().second);
   ASSERT_NE(it, regionInfo->perResult.end());
   ASSERT_EQ(regionInfo->perResult.size(), 1u);
-  EXPECT_EQ(it->second.numTilesPerFlip, 4);
+  // f32 tile_add is classified as SFPU, so maxDstTiles = dstLogical / 2 = 2.
+  EXPECT_EQ(it->second.numTilesPerFlip, 2);
   EXPECT_EQ(it->second.numDstFlips, 2);
-  EXPECT_EQ(regionInfo->numTilesPerResult, 8);
-  EXPECT_EQ(regionInfo->numOuterLoopIters, 1);
+  EXPECT_EQ(regionInfo->numTilesPerResult, 4);
+  EXPECT_EQ(regionInfo->numOuterLoopIters, 2);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeDSTPackingForDistinctParentRegions) {
@@ -606,28 +607,29 @@ func.func @test(
   auto *regionInfo = packing->lookup(outputValues.front().first);
   ASSERT_NE(regionInfo, nullptr);
   ASSERT_EQ(regionInfo->perResult.size(), 4u);
+  // All ops are now SFPU for fp32 (including tile_add and tile_sub).
   EXPECT_EQ(
       regionInfo->perResult.lookup(outputValues[0].second).numTilesPerFlip,
       2); // tile_abs => SFPU fp32
   EXPECT_EQ(
       regionInfo->perResult.lookup(outputValues[1].second).numTilesPerFlip,
-      4); // tile_add(tile,tile) => FPU fp32
+      2); // tile_add(tile,tile) => SFPU fp32
   EXPECT_EQ(
       regionInfo->perResult.lookup(outputValues[2].second).numTilesPerFlip,
       2); // tile_mul(tile,scalar) => SFPU fp32
   EXPECT_EQ(
       regionInfo->perResult.lookup(outputValues[3].second).numTilesPerFlip,
-      4); // tile_sub(tile,tile) => FPU fp32
+      2); // tile_sub(tile,tile) => SFPU fp32
   EXPECT_EQ(regionInfo->perResult.lookup(outputValues[0].second).numDstFlips,
-            4);
+            2);
   EXPECT_EQ(regionInfo->perResult.lookup(outputValues[1].second).numDstFlips,
             2);
   EXPECT_EQ(regionInfo->perResult.lookup(outputValues[2].second).numDstFlips,
-            4);
+            2);
   EXPECT_EQ(regionInfo->perResult.lookup(outputValues[3].second).numDstFlips,
             2);
-  EXPECT_EQ(regionInfo->numTilesPerResult, 8);
-  EXPECT_EQ(regionInfo->numOuterLoopIters, 1);
+  EXPECT_EQ(regionInfo->numTilesPerResult, 4);
+  EXPECT_EQ(regionInfo->numOuterLoopIters, 2);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingPrimeShardShapes) {
@@ -803,29 +805,31 @@ func.func @test(
   auto *regionInfo = packing->lookup(outputValues.front().first);
   ASSERT_NE(regionInfo, nullptr);
   ASSERT_EQ(regionInfo->perResult.size(), 4u);
+  // All ops are now SFPU for fp32, maxDst=2, only factor of 15 <= 2 is 1.
   EXPECT_EQ(
       regionInfo->perResult.lookup(outputValues[0].second).numTilesPerFlip,
-      1); // tile_abs => SFPU fp32, maxDst=2, only factor of 15 <= 2 is 1
+      1); // tile_abs => SFPU fp32
   EXPECT_EQ(
       regionInfo->perResult.lookup(outputValues[1].second).numTilesPerFlip,
-      3); // tile_add(tile,tile) => FPU fp32, maxDst=4, largest factor of
-          // 15 <= 4 is 3
+      1); // tile_add(tile,tile) => SFPU fp32
   EXPECT_EQ(
       regionInfo->perResult.lookup(outputValues[2].second).numTilesPerFlip,
       1); // tile_mul(tile,scalar) => SFPU fp32
   EXPECT_EQ(
       regionInfo->perResult.lookup(outputValues[3].second).numTilesPerFlip,
-      3); // tile_sub(tile,tile) => FPU fp32
+      1); // tile_sub(tile,tile) => SFPU fp32
+  // All numDstFlips = 15, commonNumOuterLoopIters = 5 (largest factor of
+  // gcd(15) = 15 that is <= 15/2 = 7).
   EXPECT_EQ(regionInfo->perResult.lookup(outputValues[0].second).numDstFlips,
-            15);
+            3);
   EXPECT_EQ(regionInfo->perResult.lookup(outputValues[1].second).numDstFlips,
-            5);
+            3);
   EXPECT_EQ(regionInfo->perResult.lookup(outputValues[2].second).numDstFlips,
-            15);
+            3);
   EXPECT_EQ(regionInfo->perResult.lookup(outputValues[3].second).numDstFlips,
-            5);
-  EXPECT_EQ(regionInfo->numTilesPerResult, 15);
-  EXPECT_EQ(regionInfo->numOuterLoopIters, 1);
+            3);
+  EXPECT_EQ(regionInfo->numTilesPerResult, 3);
+  EXPECT_EQ(regionInfo->numOuterLoopIters, 5);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPUBf16Square8By8) {

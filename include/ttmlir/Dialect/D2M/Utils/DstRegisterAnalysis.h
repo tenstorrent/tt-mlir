@@ -40,7 +40,11 @@ private:
 
 class DstRegisterAnalysis {
 public:
-  DstRegisterAnalysis(Operation *op);
+  /// \param op                      Root operation to analyze.
+  /// \param maxDstPhysicalSizeTiles If non-zero, upper-bounds numTilesPerFlip
+  ///                                for every op, overriding the device
+  ///                                descriptor value.
+  DstRegisterAnalysis(Operation *op, unsigned maxDstPhysicalSizeTiles = 0);
 
   const DSTPackingInfo *lookup(d2m::GenericOp generic) const;
 

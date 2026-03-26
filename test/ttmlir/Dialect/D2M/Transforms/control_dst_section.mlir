@@ -66,6 +66,42 @@ func.func @nested_dst_section_in_loop() attributes {ttkernel.thread = #ttkernel.
   return
 }
 
+// CHECK-LABEL: func.func @pack_between_compute_ops
+// Tests the "one tile fused" case with packing between each compute op:
+// a single tile_regs_acquire covers two compute+pack sequences (exp → pack,
+// then recip → pack). Verifies that tile_regs_commit/wait are inserted before
+// each pack_tile and tile_regs_release is inserted after each.
+func.func @pack_between_compute_ops() attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+  %cb_in   = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<4, !ttcore.tile<32x32, f32>>
+  %cb_out0 = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<4, !ttcore.tile<32x32, f32>>
+  %cb_out1 = ttkernel.get_compile_time_arg_val(2) : () -> !ttkernel.cb<4, !ttcore.tile<32x32, f32>>
+  %c0 = arith.constant 0 : index
+  // CHECK: ttkernel.tile_regs_acquire
+  // CHECK: ttkernel.copy_tile
+  // CHECK: ttkernel.exp_tile
+  ttkernel.tile_regs_acquire() : () -> ()
+  ttkernel.copy_tile(%cb_in, %c0, %c0) : (!ttkernel.cb<4, !ttcore.tile<32x32, f32>>, index, index) -> ()
+  ttkernel.exp_tile(%c0) : (index) -> ()
+  // First pack: commit/wait inserted before, release after.
+  // CHECK: ttkernel.tile_regs_commit
+  // CHECK: ttkernel.tile_regs_wait
+  // CHECK: ttkernel.pack_tile
+  // CHECK: ttkernel.tile_regs_release
+  ttkernel.pack_tile(%c0, %cb_out0, %c0, false) : (index, !ttkernel.cb<4, !ttcore.tile<32x32, f32>>, index) -> ()
+  // Second compute op on the same DST slot.
+  ttkernel.tile_regs_acquire() : () -> ()
+  // CHECK: ttkernel.tile_regs_acquire
+  // CHECK: ttkernel.recip_tile
+  ttkernel.recip_tile(%c0) : (index) -> ()
+  // Second pack: commit/wait inserted before, release after.
+  // CHECK: ttkernel.tile_regs_commit
+  // CHECK: ttkernel.tile_regs_wait
+  // CHECK: ttkernel.pack_tile
+  // CHECK: ttkernel.tile_regs_release
+  ttkernel.pack_tile(%c0, %cb_out1, %c0, false) : (index, !ttkernel.cb<4, !ttcore.tile<32x32, f32>>, index) -> ()
+  return
+}
+
 // CHECK-LABEL: func.func @mixed_flat_and_nested
 func.func @mixed_flat_and_nested() attributes {ttkernel.thread = #ttkernel.thread<compute>} {
   %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<4, !ttcore.tile<32x32, f32>>
