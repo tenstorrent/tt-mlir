@@ -2516,36 +2516,36 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 //===----------------------------------------------------------------------===//
 
 def D2M_AliasOp : D2M_GenericRegionOp<"alias_buffer", [Pure]> {
-    let summary = "Alias a shard of an input buffer without allocation.";
-    let description = [{
-      The `alias_buffer` operation declares that a local buffer within a generic
-      region directly aliases (shares storage with) a shard of an input operand
-      rather than requiring a separate allocation. It takes a full sharded memref
-      (with grid dimensions) and returns a memref containing only the shard
-      portion (grid dimensions stripped).
+  let summary = "Alias a shard of an input buffer without allocation.";
+  let description = [{
+    The `alias_buffer` operation declares that a local buffer within a generic
+    region directly aliases (shares storage with) a shard of an input operand
+    rather than requiring a separate allocation. It takes a full sharded memref
+    (with grid dimensions) and returns a memref containing only the shard
+    portion (grid dimensions stripped).
 
-      This op is introduced by the allocator pass for operands that do not
-      require streaming. It makes explicit in the IR that no real buffer
-      allocation is needed -- the compute kernel can operate directly on the
-      input data in place.
+    This op is introduced by the allocator pass for operands that do not
+    require streaming. It makes explicit in the IR that no real buffer
+    allocation is needed -- the compute kernel can operate directly on the
+    input data in place.
 
-      ```mlir
-      d2m.generic ins(%input : memref<1x1x32x32xf32, ...>) ... {
-        %shard = d2m.alias_buffer %input :
-            memref<1x1x32x32xf32, ...> -> memref<32x32xf32, ...>
-        // use %shard directly -- no remote_load needed
-      }
-      ```
-    }];
+    ```mlir
+    d2m.generic ins(%input : memref<1x1x32x32xf32, ...>) ... {
+      %shard = d2m.alias_buffer %input :
+          memref<1x1x32x32xf32, ...> -> memref<32x32xf32, ...>
+      // use %shard directly -- no remote_load needed
+    }
+    ```
+  }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$input);
-    let results = (outs AnyNon0RankedMemRef:$result);
+  let arguments = (ins AnyNon0RankedMemRef:$input);
+  let results = (outs AnyNon0RankedMemRef:$result);
 
-    let assemblyFormat = [{
-      $input attr-dict `:` type($input) `->` type($result)
-    }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($result)
+  }];
 
-    let hasVerifier = 1;
+  let hasVerifier = 1;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD
