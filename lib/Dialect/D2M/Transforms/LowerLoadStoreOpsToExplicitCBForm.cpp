@@ -185,7 +185,7 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
     rewriter.eraseOp(storeOp);
     rewriter.eraseOp(loadOp);
 
-    // Erase the shared buffer op if it's now unused
+    // Erase the shared buffer op if it's now unused.
     if (bufferToErase && bufferToErase->use_empty()) {
       rewriter.eraseOp(bufferToErase);
     }

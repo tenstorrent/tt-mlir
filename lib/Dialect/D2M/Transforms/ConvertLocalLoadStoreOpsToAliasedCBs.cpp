@@ -338,7 +338,7 @@ public:
         continue;
       }
 
-      // Replace buffer op with reserve
+      // Replace the buffer op with a reserve op.
       rewriter.setInsertionPoint(bufferOp);
       auto reserveOp = rewriter.create<ReserveOp>(loc, assocCb);
       rewriter.replaceAllUsesWith(bufferOp->getResult(0),

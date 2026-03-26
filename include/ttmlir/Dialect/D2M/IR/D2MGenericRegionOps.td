@@ -2520,15 +2520,15 @@ def D2M_AliasOp : D2M_GenericRegionOp<"alias_buffer", [Pure]> {
     portion (grid dimensions stripped).
 
     This op is introduced by the allocator pass for operands that do not
-    require streaming. It makes explicit in the IR that no real buffer
-    allocation is needed -- the compute kernel can operate directly on the
-    input data in place.
+    require streaming. It encodes in the IR that no separate buffer
+    allocation is needed; the compute kernel operates directly on the
+    input data in place. Downstream passes convert this op into circular
+    buffer operations (reserve/push/wait/pop).
 
     ```mlir
     d2m.generic ins(%input : memref<1x1x32x32xf32, ...>) ... {
       %shard = d2m.alias_buffer %input :
           memref<1x1x32x32xf32, ...> -> memref<32x32xf32, ...>
-      // use %shard directly -- no remote_load needed
     }
     ```
   }];
