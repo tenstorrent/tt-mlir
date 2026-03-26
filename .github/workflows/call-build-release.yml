@@ -87,7 +87,7 @@ jobs:
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-        echo "tt-metal-output-dir=$(pwd)/third_party" >> "$GITHUB_OUTPUT"
+        echo "tt-metal-output-dir=$(pwd)/third_party/tt-metal" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -236,7 +236,7 @@ jobs:
       shell: bash
       working-directory: ${{ steps.strings.outputs.tt-metal-output-dir }}
       run: |
-        tar -I 'zstd --adapt=min=9 -T0' -cf artifact.tar.zst tt-metal
+        tar -I 'zstd --adapt=min=9 -T0' -cf artifact.tar.zst src
 
     - name: Upload tt-metal Folder
       uses: actions/upload-artifact@v4
