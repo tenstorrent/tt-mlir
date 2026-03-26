@@ -301,7 +301,24 @@ FailureOr<std::string> ExpressionBuilder::buildConstantExpr(ConstantOp op) {
   }
   if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
     SmallString<128> strValue;
-    iAttr.getValue().toString(strValue, 10, true);
+    bool isSigned = true;
+    if (auto intType = dyn_cast<IntegerType>(iAttr.getType())) {
+      // Treat signless integers as signed.
+      isSigned = !intType.isUnsigned();
+    }
+    iAttr.getValue().toString(strValue, 10, isSigned);
+    return std::string{strValue.begin(), strValue.end()};
+  }
+  if (auto fAttr = dyn_cast<FloatAttr>(attr)) {
+    APFloat value = fAttr.getValue();
+    if (value.isInfinity()) {
+      return std::string(value.isNegative() ? "float('-inf')" : "float('inf')");
+    }
+    if (value.isNaN()) {
+      return std::string("float('nan')");
+    }
+    SmallString<128> strValue;
+    value.toString(strValue);
     return std::string{strValue.begin(), strValue.end()};
   }
   if (auto sAttr = dyn_cast<StringAttr>(attr)) {
@@ -1060,6 +1077,20 @@ LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {
   // Print integer attributes.
   if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
     os << printInt(iAttr.getValue());
+    return success();
+  }
+  // Print float attributes.
+  if (auto fAttr = dyn_cast<FloatAttr>(attr)) {
+    APFloat value = fAttr.getValue();
+    if (value.isInfinity()) {
+      os << (value.isNegative() ? "float('-inf')" : "float('inf')");
+    } else if (value.isNaN()) {
+      os << "float('nan')";
+    } else {
+      SmallString<128> strValue;
+      value.toString(strValue);
+      os << strValue;
+    }
     return success();
   }
   // Print string attributes.

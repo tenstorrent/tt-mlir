@@ -879,15 +879,6 @@ LogicalResult AssignOp::verify() {
                          << ") does not match value type (" << valueType << ")";
   }
 
-  if (auto opaqueTargetType = dyn_cast<emitpy::OpaqueType>(targetType)) {
-    auto opaqueValueType = dyn_cast<emitpy::OpaqueType>(valueType);
-    if (opaqueTargetType.getValue() != opaqueValueType.getValue()) {
-      return emitOpError() << "target type (" << opaqueTargetType
-                           << ") does not match value type (" << opaqueValueType
-                           << ")";
-    }
-  }
-
   return success();
 }
 

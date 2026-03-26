@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -19,7 +19,7 @@ namespace mlir::tt {
 // This pass wraps single-use PyExpressionInterface ops into ExpressionOps
 // for inline emission. Exceptions are callOpaqueOps that are not creating
 // a list. Those are not inlined, to prevent from inlining of consteval
-// functions calls and provide cleaner emission of ttnn ops calls.
+// function calls and provide cleaner emission of ttnn op calls.
 //
 
 namespace {
@@ -27,6 +27,7 @@ namespace {
 static bool hasSingleUse(Operation *op) {
   return op->getNumResults() == 1 && op->getResult(0).hasOneUse();
 }
+
 static bool isCreateListCall(Operation *op) {
   auto callOp = dyn_cast<emitpy::CallOpaqueOp>(op);
   return callOp &&
@@ -41,7 +42,7 @@ static bool isPyExprInterfaceSingleUseOp(Operation *op) {
     return false;
   }
   // As for the CallOpaqueOp, only inline when it is a util_create_list call.
-  if (dyn_cast<emitpy::CallOpaqueOp>(op) && !isCreateListCall(op)) {
+  if (isa<emitpy::CallOpaqueOp>(op) && !isCreateListCall(op)) {
     return false;
   }
   return true;
