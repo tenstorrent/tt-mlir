@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/AffineExpr.h"
@@ -391,6 +392,31 @@ inline SmallVector<int64_t> getShardBlockFactors(d2m::GenericOp genericOp) {
   }
 
   return r;
+}
+
+/// Walk a value's defining chain and detect whether it includes a non-identity
+/// view remapping.
+inline bool hasNonTrivialView(Value value) {
+  Operation *definingOp = value.getDefiningOp();
+  if (!definingOp) {
+    return false;
+  }
+
+  if (auto viewOp = mlir::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
+    return !viewOp.getRemapping().isIdentity() ||
+           hasNonTrivialView(viewOp.getInput());
+  }
+  if (auto compositeViewOp = mlir::dyn_cast<d2m::CompositeViewOp>(definingOp)) {
+    return llvm::any_of(compositeViewOp.getCompositeInputs(),
+                        hasNonTrivialView);
+  }
+  if (auto semOp = mlir::dyn_cast<d2m::CreateGlobalSemaphoreOp>(definingOp)) {
+    return hasNonTrivialView(semOp.getInput());
+  }
+  if (auto castOp = mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(definingOp)) {
+    return hasNonTrivialView(castOp.getInput());
+  }
+  return false;
 }
 
 /// @return tile shape of `elementType` or `{1, 1}` if it isn't a TileType.

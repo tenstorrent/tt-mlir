@@ -243,7 +243,27 @@ def test_binary_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
+        print_ir=True,
         pipeline_options=pipeline_options,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_binary_ops_auto_reblock_large_tensor(request, device, target: str):
+    shape = (1024, 1024)
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [torch.float32, torch.float32])
+        def binary_op_fn(in0: Operand, in1: Operand, builder: TTIRBuilder) -> Operand:
+            # Keep the op simple so the IR highlights allocate/reblock behavior.
+            return add(in0, in1, builder)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        print_ir=True,
     )
 
 
@@ -1190,6 +1210,7 @@ def test_binary_ops_broadcast_shard_dims(
         module,
         **get_request_kwargs(request),
         target=target,
+        print_ir=True,
         device=device,
     )
 

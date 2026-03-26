@@ -574,7 +574,7 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
           "Set policy for sizing stream buffers ('auto', 'min', 'max').">,
     Option<"testAllowAliasedEltwiseBlocking",
           "test-allow-aliased-eltwise-blocking",
-          "bool", /*default=*/"false",
+          "bool", /*default=*/"true",
           "Allow auto reblocking for eltwise generics even when blocked outputs must leave alias mode.">,
   ];
 }

@@ -6,7 +6,6 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
 #include <functional>
@@ -42,29 +41,6 @@ static llvm::BitVector getDimMask(std::size_t rank,
     mask[dim] = true;
   }
   return mask;
-}
-
-static bool hasNonTrivialView(Value value) {
-  Operation *definingOp = value.getDefiningOp();
-  if (!definingOp) {
-    return false;
-  }
-
-  if (auto viewOp = mlir::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
-    return !viewOp.getRemapping().isIdentity() ||
-           hasNonTrivialView(viewOp.getInput());
-  }
-  if (auto compositeViewOp = mlir::dyn_cast<d2m::CompositeViewOp>(definingOp)) {
-    return llvm::any_of(compositeViewOp.getCompositeInputs(),
-                        hasNonTrivialView);
-  }
-  if (auto semOp = mlir::dyn_cast<d2m::CreateGlobalSemaphoreOp>(definingOp)) {
-    return hasNonTrivialView(semOp.getInput());
-  }
-  if (auto castOp = mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(definingOp)) {
-    return hasNonTrivialView(castOp.getInput());
-  }
-  return false;
 }
 
 // @return true if the operand needs a dedicated CB by existing rules.
@@ -110,6 +86,24 @@ classifyAutoSearch(GenericOp genericOp,
   if (genericOp.isDMAOnlyForm() || genericOp.isExplicitDatamovementForm() ||
       genericOp.getScratchInputsAttr() || genericOp.getOutputs().size() != 1) {
     return std::nullopt;
+  }
+
+  // Reject generics with mixed element type kinds (e.g. tilize/untilize which
+  // have one scalar operand and one tile operand).  These are layout-conversion
+  // ops, not true eltwise compute.
+  {
+    bool hasTile = false, hasNonTile = false;
+    for (Value operand : genericOp.getInputsAndOutputs()) {
+      auto shapedTy = mlir::cast<ShapedType>(operand.getType());
+      if (mlir::isa<ttcore::TileType>(shapedTy.getElementType())) {
+        hasTile = true;
+      } else {
+        hasNonTile = true;
+      }
+    }
+    if (hasTile && hasNonTile) {
+      return std::nullopt;
+    }
   }
 
   SmallVector<std::size_t> reductionDims;

@@ -1694,20 +1694,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
   }
 
-  /// Walk the operand's def chain and check if any ViewLayoutOp has a
-  /// non-identity affine map.
-  /// @return `true` if any ViewLayoutOp in the chain has a non-identity map.
+  /// @return `true` iff the operand's defining chain includes a non-identity
+  /// view remapping.
   static bool isNonTrivialView(const OperandContext &operandCtx) {
-    for (ChainRoot chainRoot : operandCtx.chainRoots) {
-      for (Operation *op : chainRoot.defChain) {
-        if (auto view = llvm::dyn_cast<d2m::ViewLayoutOp>(op)) {
-          if (!view.getRemapping().isIdentity()) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
+    return allocation::hasNonTrivialView(operandCtx.operand->get());
   }
 
   struct SharedLoadStoreInfo {
