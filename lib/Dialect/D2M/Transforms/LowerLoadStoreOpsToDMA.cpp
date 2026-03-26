@@ -306,6 +306,42 @@ public:
   }
 };
 
+class D2MLowerDMACopyRewritePattern : public OpRewritePattern<DMACopyOp> {
+public:
+  using OpRewritePattern<DMACopyOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(DMACopyOp dmaCopy,
+                                PatternRewriter &rewriter) const final {
+    if (!dmaCopy.isExplicitCBForm()) {
+      return rewriter.notifyMatchFailure(dmaCopy,
+                                         "dma_copy is not in explicit CB form");
+    }
+
+    Location loc = dmaCopy.getLoc();
+    Value cb = dmaCopy.getCb();
+
+    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
+
+    Value src = dmaCopy.getSrc();
+    auto memTxType = rewriter.getType<MemTxType>();
+    auto newCopy = rewriter.create<DMACopyOp>(loc, memTxType, src, localMemref,
+                                              dmaCopy.getIndexingMaps());
+
+    rewriter.eraseOp(dmaCopy);
+
+    rewriter.create<DMAWaitOp>(loc, newCopy.getResult());
+    rewriter.create<PushOp>(loc, cb);
+
+    // Pop the source CB to signal consumption. The consumer-side pop insertion
+    // was deferred from ExplicitCBForm because dma_copy is a DM op and the pop
+    // must live on the DM thread, which is only available after splitting.
+    if (auto srcWait = src.getDefiningOp<WaitOp>()) {
+      rewriter.create<PopOp>(loc, srcWait.getCb());
+    }
+    return success();
+  }
+};
+
 class D2MLowerLoadStoreOpsToDMA
     : public impl::D2MLowerLoadStoreOpsToDMABase<D2MLowerLoadStoreOpsToDMA> {
 public:
@@ -316,6 +352,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MLowerRemoteLoadRewritePattern>(&getContext());
     patterns.add<D2MLowerRemoteStoreRewritePattern>(&getContext());
+    patterns.add<D2MLowerDMACopyRewritePattern>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

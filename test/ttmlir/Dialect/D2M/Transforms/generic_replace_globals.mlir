@@ -44,10 +44,6 @@ module {
       %global0 = ttcore.get_global @global_0 : tensor<2x2xf32>
       %global1 = ttcore.get_global @global_1 : tensor<2x2xf32>
       // CHECK-NOT: ttcore.get_global
-      // CHECK: d2m.wait %{{.*}}
-      %arg0_val = d2m.wait %cb0 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
-      // CHECK: d2m.wait %{{.*}}
-      %arg1_val = d2m.wait %cb1 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       // CHECK: d2m.reserve %{{.*}}
       %arg2_val = d2m.reserve %cb2 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       // CHECK: linalg.generic
@@ -100,12 +96,6 @@ module {
       %weight_global = ttcore.get_global @weight_global : tensor<2x2xf32>
       %bias_global = ttcore.get_global @bias_global : tensor<2x2xf32>
       // CHECK-NOT: ttcore.get_global
-      // CHECK: d2m.wait %{{.*}}
-      %input_val = d2m.wait %cb0 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
-      // CHECK: d2m.wait %{{.*}}
-      %weight_val = d2m.wait %cb1 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
-      // CHECK: d2m.wait %{{.*}}
-      %bias_val = d2m.wait %cb2 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       // CHECK: %{{.*}} = d2m.reserve %{{.*}}
       %output_val = d2m.reserve %cb3 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       // Simulate some computation using the globals
@@ -150,8 +140,6 @@ module {
       // This get_global is inside a d2m.generic, so it should be replaced
       %input_global = ttcore.get_global @input_global : tensor<2x2xf32>
       // CHECK-NOT: ttcore.get_global
-      // CHECK: d2m.wait %{{.*}}
-      %arg0_val = d2m.wait %cb0 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       // CHECK: d2m.reserve %{{.*}}
       %arg1_val = d2m.reserve %cb1 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       %c0 = arith.constant 0 : index
