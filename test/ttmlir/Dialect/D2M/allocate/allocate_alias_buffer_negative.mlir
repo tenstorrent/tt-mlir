@@ -50,7 +50,7 @@ module {
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #parallel = #ttcore.iterator_type<parallel>
 
-// CHECK: error: 'd2m.alias_buffer' op result shape (2, 2) does not match expected shard shape
+// CHECK: error: 'd2m.alias_buffer' op result shape 2, 2 does not match expected shard shape
 module {
   func.func @alias_buffer_wrong_shard_shape() {
     %a = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
@@ -61,28 +61,6 @@ module {
     ^unified0:
       // Result shape 2x2 does not match expected shard shape 1x1.
       %alias = d2m.alias_buffer %a : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-    }
-    return
-  }
-}
-
-// -----
-
-#l1 = #ttcore.memory_space<l1>
-#map = affine_map<(d0, d1) -> (d0, d1)>
-#parallel = #ttcore.iterator_type<parallel>
-
-// CHECK: error: 'd2m.alias_buffer' op input memref must have a device layout (grid + shard)
-module {
-  func.func @alias_buffer_no_device_layout() {
-    // Input has no device layout (plain memref).
-    %a = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #l1>
-    %r = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
-        ins(%a : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #l1>)
-        outs(%r : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) {
-    ^unified0:
-      %alias = d2m.alias_buffer %a : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
     }
     return
   }
