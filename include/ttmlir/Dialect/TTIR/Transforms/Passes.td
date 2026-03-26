@@ -109,9 +109,6 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
     to a target that only supports a subset of the element types.
   }];
 
-  list<Option> options = [
-    Option<"enableBfp8Conversion", "enable-bfp8-conversion", "bool", "false", "When enabled this pass will convert all bfloat16 types into bfp8_b types.">,
-  ];
 }
 
 def PredicateTypeAlignment : Pass<"ttir-predicate-type-alignment", "::mlir::ModuleOp"> {
@@ -374,6 +371,19 @@ def TTIRFoldConstantReshapeBroadcast: Pass<"ttir-fold-constant-reshape-broadcast
   }];
 
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRPropagateWeightDtype: Pass<"ttir-propagate-weight-dtype", "::mlir::ModuleOp"> {
+  let summary = "Resolve weight_dtype annotations for matmul/linear ops.";
+  let description = [{
+    For each matmul/linear op, traces the weight (B) operand backward through
+    ops with the TensorManipulation trait to find the originating
+    func arg. If it carries a "ttcore.weight_dtype" annotation, sets it as a
+    discardable attribute on the consumer op.
+
+    This pass should run before const-eval hoisting, while the graph is still
+    flat and has no load_cached ops.
+  }];
 }
 
 def TTIRInferKVCacheArgumentTypes: Pass<"ttir-infer-kv-cache-argument-types", "::mlir::ModuleOp">
