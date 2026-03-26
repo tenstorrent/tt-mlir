@@ -9,7 +9,7 @@
 
 #head_256 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x8x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
-#height_sharded_encoding = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <8x1, (d0, d1) -> (0, d0 floordiv 8, d0 mod 8)>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>>
+#height_sharded_encoding = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <8x1, virt_to_physical_map = (d0, d1) -> (0, d0 floordiv 8, d0 mod 8), physical_to_virt_map = (d0, d1, d2) -> (d1 * 8 + d2, 0)>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>>
 
 #height_sharded_mem_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0, 0), (7, 0)>]>, <32x32>, <row_major>>>
 
