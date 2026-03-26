@@ -861,8 +861,8 @@ public:
     return {copyInfos, dstIntermediates};
   }
 
-  // Look through subview/wait/reserve to find the associated CB or
-  // tensor.empty/memref.alloc value for a given memref.
+  // Look through subview/wait/reserve to find the associated CB,
+  // tensor.empty/memref.alloc, or d2m.alias_buffer value for a given memref.
   static Value lookThroughSubView(Value memref) {
     if (!memref) {
       return nullptr;

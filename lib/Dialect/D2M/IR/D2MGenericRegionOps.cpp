@@ -1917,5 +1917,12 @@ mlir::LogicalResult AliasOp::verify() {
                          << expectedShardShape << "]";
   }
 
+  // The result memory space must match the input's memory space since the
+  // alias shares storage.
+  if (resultType.getMemorySpace() != inputType.getMemorySpace()) {
+    return emitOpError() << "result memory space does not match input memory "
+                            "space; alias_buffer shares storage";
+  }
+
   return mlir::success();
 }
