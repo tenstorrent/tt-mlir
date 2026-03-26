@@ -15,7 +15,7 @@ Key design decisions:
 - **Singleton `ChiselContext`** because `DebugHooks` callbacks are plain
   functions that need shared state
 - **Reuses `tools/golden/GOLDEN_MAPPINGS`** for TTNN op golden implementations
-- **No compilation step** — receives a pre-compiled TTNN module
+- **MLIR from flatbuffer** — reads TTNN MLIR string from `TTNNBinary.mlir.source` and parses it internally
 - **Library only** — no CLI entry point; caller registers callbacks and drives
   TTRT execution
 
@@ -37,7 +37,8 @@ tools/chisel/chisel/
 ## Data Flow
 
 For each TTNN op during TTRT execution:
-1. **preop**: Capture device input tensors, copy to golden tensor pool
+1. **preop**: On first op, extract TTNN MLIR from `binary.mlir.source` and parse
+   module. Then capture device input tensors, copy to golden tensor pool
 2. **HW executes op**
 3. **postop**: Capture device output, look up op in `GOLDEN_MAPPINGS`, execute
    golden function on CPU, compare (PCC, abs error, rel error), write CSV row
@@ -47,6 +48,7 @@ For each TTNN op during TTRT execution:
 - `tools/golden/mapping.py` — `GOLDEN_MAPPINGS` dict, `get_golden_function()`, `GoldenMapTensor`
 - `tools/golden/metrics.py` — Unified PCC/atol/rtol comparison (shared with builder and ttrt)
 - `ttrt.runtime.DebugHooks` — callback registration point
+- `TTNNBinary.mlir` — TTNN MLIR text stored in flatbuffer (`include/ttmlir/Target/TTNN/binary.fbs`), accessed via `ttrt.binary`
 
 ## Design Docs
 

@@ -12,16 +12,20 @@ works without them for the common single-output op case.
 
 1. **Single TTNN module** — Both golden (CPU) and device execution operate on
    the same TTNN IR. No TTIR/TTNN cross-dialect correlation needed.
-2. **Fail hard on unmapped ops** — If a TTNN op has no golden implementation in
+2. **TTNN MLIR from flatbuffer** — Chisel reads the TTNN MLIR text string
+   directly from the flatbuffer binary's `TTNNBinary.mlir.source` field
+   (always populated, plain MLIR text with debug info/locations) and parses
+   it internally. No separate module passing needed.
+3. **Fail hard on unmapped ops** — If a TTNN op has no golden implementation in
    `GOLDEN_MAPPINGS`, raise an error immediately rather than skipping.
    <!-- COMM: I would love that when first flatbuffer is accessed we get some way to go through it and check if we know to execute the whole flatbuffer to not have a case where it fails after 90% of runtime execution -->
-3. **Singleton `ChiselContext`** — Required because `DebugHooks` callbacks are
+4. **Singleton `ChiselContext`** — Required because `DebugHooks` callbacks are
    plain functions that need access to shared state.
-4. **Passive observer** — Chisel does not drive execution. The caller (builder
+5. **Passive observer** — Chisel does not drive execution. The caller (builder
    or direct user) registers callbacks and runs the binary.
-5. **Reuse `tools/golden/GOLDEN_MAPPINGS`** — ~66 TTNN ops already have golden
+6. **Reuse `tools/golden/GOLDEN_MAPPINGS`** — ~66 TTNN ops already have golden
    implementations. No new mapping layer needed.
-6. **Unified metrics in `tools/golden/metrics.py`** — PCC, atol, rtol, and
+7. **Unified metrics in `tools/golden/metrics.py`** — PCC, atol, rtol, and
    full comparison metrics live in `tools/golden/metrics.py` as a single
    canonical module. Builder, chisel, and ttrt all import from there instead
    of maintaining separate copies. Pure torch implementation (no numpy).
@@ -116,28 +120,6 @@ Builder's `check_outputs()` keeps its signature but delegates internally.
 | `runtime/tools/chisel/chisel/core/` | Old chisel code to port from |
 | `runtime/tools/chisel/chisel/utils/` | Old utilities to port from |
 
-## Verification Strategy
-
-**Per-PR tests:**
-```bash
-source env/activate
-pytest tools/chisel/test/test_<module>.py -v
-```
-
-**End-to-end (after PR 4):**
-```python
-from builder.base.builder_apis import compile_and_execute_ttnn
-
-compile_and_execute_ttnn(
-    module,
-    device=device,
-    enable_chisel=True,
-    chisel_output_dir="./output",
-    chisel_report_path="./report.csv",
-)
-# Inspect report.csv for per-op PCC/error metrics
-```
-
 ## Comparison with Old Architecture
 
 | Aspect | Old (`runtime/tools/chisel/`) | New (`tools/chisel/`) |
@@ -146,7 +128,7 @@ compile_and_execute_ttnn(
 | Registry | Correlates ops across TTIR/TTNN by location | Tracks ops in single TTNN module |
 | Fusion handling | `_merge_empty_golden_groups()` | Not needed |
 | Golden executor | Custom TTIR op mappings | Reuses `GOLDEN_MAPPINGS` TTNN entries |
-| Compilation | `compile_pipeline.py` runs passes | None — pre-compiled TTNN module |
+| Compilation | `compile_pipeline.py` runs passes | None — reads TTNN MLIR from flatbuffer |
 | Execution driver | Chisel creates and calls `rt_api()` | Passive — caller drives TTRT |
 | CLI | `main.py` with argparse | None — library only |
 | Packaging | `setup.py` + `pip install -e` | CMake `declare_mlir_python_sources()` |
