@@ -159,22 +159,26 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
       continue;
     }
     if (isRemoteLoad) {
+      // To avoid double-copies, forward data from remote load directly into the _output_ CB.
+      // If the output tensor is aliased with the output CB, job done.
+      // If the output tensor is remote, the store must use the output CB as its local buffer.
       rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(),
                                     outputCB, loadOp.getMcastStartIndex(),
                                     loadOp.getMcastShape());
     } else {
-      // aliased load - insert reserve and push here
+      // Aliased load - insert reserve and push here.
       rewriter.create<ReserveOp>(loc, inputCB);
       rewriter.create<PushOp>(loc, inputCB);
     }
 
     if (isRemoteStore) {
-      // if load is aliased local, store should use aliased input CB as local
-      // buffer otherwise, store should use output CB (same as remote load)
+      // If paired remote load has aliased CB, store should read from _input_ CB 
+      // Otherwise, the paired remote load will load data directly into the output CB, so 
+      // use it instead.
       auto cb = (isRemoteLoad) ? outputCB : inputCB;
-      rewriter.create<RemoteStoreOp>(loc, storeMemref, loadOp.getIndices(), cb);
+      rewriter.create<RemoteStoreOp>(loc, storeMemref, storeOp.getIndices(), cb);
     } else {
-      // aliased store - insert wait and pop here
+      // Aliased store - insert wait and pop here.
       rewriter.create<WaitOp>(loc, outputCB);
       rewriter.create<PopOp>(loc, outputCB);
     }
