@@ -17,6 +17,7 @@ nanobind_build_library(nanobind-static)
 
 add_library(${PYTHON_RUNNER_LIBRARY_NAME}
   SHARED
+  EXCLUDE_FROM_ALL
   python_runner.cpp
 )
 
