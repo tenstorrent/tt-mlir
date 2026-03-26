@@ -372,9 +372,8 @@ std::pair<Value, Type> SDPAFusing::analyzeQ(Value v) const {
   return {v, getTargetElementType(v)};
 }
 
-std::tuple<Value, Type, bool> SDPAFusing::analyzeK(Value v) const {
+std::tuple<Value, Type> SDPAFusing::analyzeK(Value v) const {
   Type targetDtype = getTargetElementType(v);
-  bool skippedTranspose = false;
 
   while (Operation *defOp = v.getDefiningOp()) {
     if (isa<TypecastOp>(defOp)) {
@@ -393,7 +392,6 @@ std::tuple<Value, Type, bool> SDPAFusing::analyzeK(Value v) const {
     if (auto permuteOp = dyn_cast<PermuteOp>(defOp)) {
       if (isTransposeOnLastTwoDims(permuteOp.getPermutation())) {
         v = permuteOp.getInput();
-        skippedTranspose = true;
         continue;
       }
     }
@@ -401,7 +399,7 @@ std::tuple<Value, Type, bool> SDPAFusing::analyzeK(Value v) const {
     break;
   }
 
-  return {v, targetDtype, skippedTranspose};
+  return {v, targetDtype};
 }
 
 std::pair<Value, Type> SDPAFusing::analyzeV(Value v) const {
@@ -430,7 +428,7 @@ std::pair<Value, Type> SDPAFusing::analyzeV(Value v) const {
 void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
                                       PatternRewriter &rewriter) const {
   auto [preparedQ, preparedQElementType] = analyzeQ(c.query);
-  auto [preparedK, preparedKElementType, skippedKTranspose] = analyzeK(c.key);
+  auto [preparedK, preparedKElementType] = analyzeK(c.key);
   auto [preparedV, preparedVElementType] = analyzeV(c.value);
 
   if (validateShapes(preparedQ, c.key, c.value)) {
@@ -446,10 +444,8 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
     c.value = preparedV;
   }
 
-  if (!skippedKTranspose) {
-    c.key = unTransposeKeyIfNeeded(c.query, c.key, c.value, rewriter,
-                                   c.attentionMatmul.getLoc());
-  }
+  c.key = unTransposeKeyIfNeeded(c.query, c.key, c.value, rewriter,
+                                 c.attentionMatmul.getLoc());
 
   c.key = restoreElementTypeIfNeeded(c.key, preparedKElementType, rewriter);
   c.value = restoreElementTypeIfNeeded(c.value, preparedVElementType, rewriter);
