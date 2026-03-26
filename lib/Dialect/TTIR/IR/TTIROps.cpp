@@ -267,8 +267,7 @@ getShapeAsI32(mlir::RankedTensorType tensorType) {
 static DenseElementsAttr reshapeIfSplatAndPresent(RankedTensorType type,
                                                   Attribute attr) {
   if (auto splat = llvm::dyn_cast_if_present<SplatElementsAttr>(attr)) {
-    auto value = splat.getSplatValue<Attribute>();
-    return SplatElementsAttr::get(type, value);
+    return splat.resizeSplat(type);
   }
   return nullptr;
 }
@@ -1997,8 +1996,11 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 static mlir::OpFoldResult constFoldRehsape(mlir::tt::ttir::ReshapeOp op,
                                            Attribute constInput) {
   if (auto denseAttr = dyn_cast_if_present<DenseElementsAttr>(constInput)) {
-    auto shapedType = cast<ShapedType>(op.getResult().getType());
-    return denseAttr.reshape(shapedType);
+    RankedTensorType type = op.getResult().getType();
+    if (denseAttr.isSplat()) {
+      return denseAttr.resizeSplat(type);
+    }
+    return denseAttr.reshape(type);
   }
   return nullptr;
 }
@@ -5073,9 +5075,13 @@ verifyReplicaGroups(mlir::DenseIntElementsAttr replicaGroups) {
   return std::nullopt;
 }
 
-// Helper to convert type of scalar attribute.
-static mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
-                                              mlir::Type targetType) {
+// Helper to convert type of fill_value attribute from i32/f32 to any
+// integer/float type.
+static mlir::Attribute convertFillValue(mlir::TypedAttr typedAttr,
+                                        mlir::Type targetType) {
+  assert((typedAttr.getType().isF32() || typedAttr.getType().isInteger(32)) &&
+         "Expected fill_value attribute to be either f32 or i32");
+
   if (typedAttr.getType() == targetType) {
     return typedAttr;
   }
@@ -5105,18 +5111,14 @@ static mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
 
     // Case C: Integer -> Integer (e.g., i32 -> i64)
     if (auto targetIntType = mlir::dyn_cast<mlir::IntegerType>(targetType)) {
-      if (intAttr.getType().isUnsignedInteger()) {
-        intVal = intVal.zextOrTrunc(targetIntType.getWidth());
-      } else {
-        intVal = intVal.sextOrTrunc(targetIntType.getWidth());
-      }
+      intVal = intVal.sextOrTrunc(targetIntType.getWidth());
       return mlir::IntegerAttr::get(targetType, intVal);
     }
 
     // Case D: Integer -> Float (e.g., i32 -> f32)
     if (auto targetFloatType = mlir::dyn_cast<mlir::FloatType>(targetType)) {
       llvm::APFloat floatVal(targetFloatType.getFloatSemantics());
-      auto sourceIntType = mlir::cast<mlir::IntegerType>(intAttr.getType());
+      auto sourceIntType = IntegerType::get(typedAttr.getContext(), 32);
       // Treat signless intergers as signed.
       bool isSigned = !sourceIntType.isUnsigned();
       floatVal.convertFromAPInt(intVal, isSigned,
@@ -5136,7 +5138,7 @@ static mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
   // Fill value is 32-bit float or 32-bit signless integer, but result type
   // might differ.
   auto convertedFillValue =
-      convertScalarAttribute(fillValue, resultType.getElementType());
+      convertFillValue(fillValue, resultType.getElementType());
 
   return SplatElementsAttr::get(resultType, convertedFillValue);
 }

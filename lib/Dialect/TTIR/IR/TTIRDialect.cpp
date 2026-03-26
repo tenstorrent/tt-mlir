@@ -144,9 +144,9 @@ static bool isOneAttr(mlir::Attribute attr) {
                                                     Attribute value, Type type,
                                                     Location loc) {
   if (auto elementsAttr = mlir::dyn_cast<mlir::ElementsAttr>(value)) {
-    if (elementsAttr.isSplat()) {
-      auto shape =
-          llvm::to_vector_of<int32_t>(elementsAttr.getShapedType().getShape());
+    auto shapedType = mlir::dyn_cast<ShapedType>(type);
+    if (elementsAttr.isSplat() && shapedType) {
+      auto shape = llvm::to_vector_of<int32_t>(shapedType.getShape());
       auto splatValue = elementsAttr.getSplatValue<mlir::Attribute>();
       if (isZeroAttr(splatValue)) {
         return builder.create<ttir::ZerosOp>(loc, type, shape);
@@ -154,9 +154,22 @@ static bool isOneAttr(mlir::Attribute attr) {
       if (isOneAttr(splatValue)) {
         return builder.create<ttir::OnesOp>(loc, type, shape);
       }
-      if (elementsAttr.getElementType().isF32() ||
-          elementsAttr.getElementType().isSignlessInteger(32)) {
-        return builder.create<ttir::FullOp>(loc, type, shape, splatValue);
+
+      mlir::Attribute fillValueAttr;
+      if (auto integerType = mlir::dyn_cast<mlir::IntegerType>(
+              elementsAttr.getElementType())) {
+        auto fillValue = elementsAttr.getSplatValue<llvm::APInt>();
+        if (integerType.isSigned()) {
+          fillValueAttr = builder.getI32IntegerAttr(fillValue.getSExtValue());
+        } else {
+          fillValueAttr = builder.getI32IntegerAttr(fillValue.getZExtValue());
+        }
+        return builder.create<ttir::FullOp>(loc, type, shape, fillValueAttr);
+      }
+      if (elementsAttr.getElementType().isIntOrFloat()) {
+        auto fillValue = elementsAttr.getSplatValue<mlir::APFloat>();
+        fillValueAttr = builder.getF32FloatAttr(fillValue.convertToDouble());
+        return builder.create<ttir::FullOp>(loc, type, shape, fillValueAttr);
       }
     }
     return builder.create<ttir::ConstantOp>(loc, type, elementsAttr);
