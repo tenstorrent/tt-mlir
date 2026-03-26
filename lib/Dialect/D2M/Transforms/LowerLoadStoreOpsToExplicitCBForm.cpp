@@ -339,6 +339,7 @@ static void rewriteRemoteStoreOpsToExplicitCBForm(ModuleOp moduleOp,
     Value memref = remoteStore.getMemref();
     Value localBuffer = remoteStore.getLocalBuffer();
     Value assocCb;
+    GenericOp generic = remoteStore->getParentOfType<GenericOp>();
 
     if (remoteStore.isImplicitForm()) {
       // Implicit form: find the CB by tracing back from the local buffer.
@@ -365,13 +366,37 @@ static void rewriteRemoteStoreOpsToExplicitCBForm(ModuleOp moduleOp,
         // anchored to CB lifecycle and reserve naturally precedes first use.
         if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
                 localBuffer.getDefiningOp())) {
-          rewriter.setInsertionPoint(allocOp);
-          auto newReserve =
-              rewriter.create<ReserveOp>(allocOp.getLoc(), assocCb);
-          rewriter.replaceAllUsesWith(allocOp.getResult(),
-                                      newReserve.getResult());
-          rewriter.eraseOp(allocOp);
-          reserveOp = newReserve;
+          const bool allocDefinedInGeneric =
+              generic && generic->isAncestor(allocOp.getOperation());
+
+          if (!allocDefinedInGeneric) {
+            // External allocs are carried as additionalArgs on the generic op.
+            // Materialize reserve inside the same generic region and rewrite
+            // only in-region uses so the outer alloc remains intact.
+            Operation *assocCbDefOp = assocCb.getDefiningOp();
+            TT_assertv(
+                (generic && assocCbDefOp && generic->isAncestor(assocCbDefOp)),
+                "expected associated CB to be defined in the same "
+                "d2m.generic as the remote_store");
+            if (assocCbDefOp->getBlock() == remoteStore->getBlock()) {
+              rewriter.setInsertionPointAfter(assocCbDefOp);
+            } else {
+              rewriter.setInsertionPointToStart(remoteStore->getBlock());
+            }
+            auto newReserve =
+                rewriter.create<ReserveOp>(allocOp.getLoc(), assocCb);
+            rewriter.replaceUsesWithIf(
+                localBuffer, newReserve.getResult(), [&](OpOperand &use) {
+                  return generic->isProperAncestor(use.getOwner());
+                });
+          } else {
+            rewriter.setInsertionPoint(allocOp);
+            auto newReserve =
+                rewriter.create<ReserveOp>(allocOp.getLoc(), assocCb);
+            rewriter.replaceAllUsesWith(allocOp.getResult(),
+                                        newReserve.getResult());
+            rewriter.eraseOp(allocOp);
+          }
         }
       }
 

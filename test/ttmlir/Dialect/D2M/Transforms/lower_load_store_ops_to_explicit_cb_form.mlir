@@ -133,6 +133,44 @@ module attributes {ttcore.system_desc = #system_desc} {
     return
   }
 
+  // External allocs carried via additionalArgs must remain outside the
+  // generic; only in-body uses are rewritten to reserve.
+  // CHECK-LABEL: func.func @test_remote_store_keeps_external_alloc
+  // CHECK: %[[EXT:.*]] = memref.alloc()
+  // CHECK: d2m.generic
+  // CHECK: additionalArgs(%[[EXT]] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>)
+  // CHECK: %[[CB1:.*]] = d2m.get_cb(1)
+  // CHECK-NEXT: %[[RES:.*]] = d2m.reserve %[[CB1]]
+  // CHECK: affine.load %[[RES]]
+  // CHECK: affine.store %{{.*}}, %[[RES]]
+  // CHECK: d2m.push %[[CB1]]
+  // CHECK-NEXT: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %[[CB1]]
+  // CHECK: memref.dealloc %[[EXT]]
+  func.func @test_remote_store_keeps_external_alloc(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>,
+                                                    %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %stream_out = d2m.view_layout %arg1 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>
+    %external = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
+        outs(%stream_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>)
+        additionalArgs(%external : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
+    ^unified0:
+      %core0 = d2m.core_index(0) : index
+      %core1 = d2m.core_index(1) : index
+      affine.for %i = 0 to 2 {
+        affine.for %j = 0 to 4 {
+          %tile = affine.load %external[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          %exp = "d2m.tile_exp"(%tile) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+          affine.store %exp, %external[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        }
+      }
+      d2m.remote_store %stream_out[%core0, %core1] %external : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>
+    }
+    memref.dealloc %external : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+    return
+  }
+
   // Test DMA-only form where remote_load should load into the output CB (cb1), not input CB (cb0)
   // This verifies that in DMA-only GenericOps, remote loads target the destination operand's CB
   // Note: Currently loads into cb0 (input CB) - this may need to be fixed in the pass
