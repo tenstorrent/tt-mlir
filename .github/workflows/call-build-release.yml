@@ -87,6 +87,7 @@ jobs:
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+        echo "tt-metal-output-dir=$(pwd)/third_party" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -159,7 +160,6 @@ jobs:
         export BUILD_NAME="${{ matrix.build.name }}"
         export UPLOAD_LIST="$WORK_DIR/_components_upload.json"
         echo "[" >$UPLOAD_LIST
-        echo "{\"name\":\"ttrt-whl-$BUILD_NAME\",\"path\":\"$WORK_DIR/build/tools/ttrt/build/ttrt*.whl\"}," >> $UPLOAD_LIST
 
         # run all component build scripts
         if [ -f ".github/settings/build.json" ]; then
@@ -231,3 +231,20 @@ jobs:
     - name: Remove tar archive
       shell: bash
       run: rm -f ${{ steps.strings.outputs.build-output-dir }}/artifact.tar.zst
+
+    - name: Archive tt-metal Directory
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.tt-metal-output-dir }}
+      run: |
+        tar -I 'zstd --adapt=min=9 -T0' -cf artifact.tar.zst tt-metal
+
+    - name: Upload tt-metal Folder
+      uses: actions/upload-artifact@v4
+      with:
+        name: tt-metal-artifacts-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.tt-metal-output-dir }}/artifact.tar.zst
+        compression-level: 0
+
+    - name: Remove tar archive
+      shell: bash
+      run: rm -f ${{ steps.strings.outputs.tt-metal-output-dir }}/artifact.tar.zst

@@ -77,17 +77,6 @@ jobs:
           path: install
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download ttrt run wheels
-        uses: actions/download-artifact@v4
-        with:
-          name: ttrt-whl-${{ inputs.build_image_name }}
-
-      - name: Install ttrt run wheels
-        run: |
-          source env/activate
-          pip show ttrt > /dev/null 2>&1 && pip uninstall -y ttrt || true
-          pip install ttrt*.whl --upgrade
-
       - name: Download build artifacts
         uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
         with:
