@@ -173,10 +173,7 @@ simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter, CBCache &cache,
       // if load is aliased local, store should use aliased input CB as local
       // buffer otherwise, store should use output CB (same as remote load)
       auto cb = (isRemoteLoad) ? outputCB : inputCB;
-      rewriter.create<RemoteStoreOp>(
-          loc, storeMemref, loadOp.getIndices(), cb, storeOp.getStartDevice(),
-          storeOp.getDeviceMcastShape(), storeOp.getSemaphore(),
-          storeOp.getSemaphoreIndices());
+      rewriter.create<RemoteStoreOp>(loc, storeMemref, loadOp.getIndices(), cb);
     } else {
       // aliased store - insert wait and pop here
       rewriter.create<WaitOp>(loc, outputCB);
