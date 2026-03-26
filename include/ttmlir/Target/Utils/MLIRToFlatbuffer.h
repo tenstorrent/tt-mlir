@@ -477,8 +477,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, llvm::ArrayRef<int64_t> tensorGrid,
 inline std::vector<::tt::target::Dim2dRange>
 toFlatbuffer(FlatbufferObjectCache &cache, ttcore::GridAttr tensorGrid,
              ttcore::GridAttr deviceGrid) {
-  auto mapping = tensorGrid.getMapping().isEmpty() ? deviceGrid.getMapping()
-                                                   : tensorGrid.getMapping();
+  auto mapping = tensorGrid.getVirtToPhysicalMap().isEmpty()
+                     ? deviceGrid.getVirtToPhysicalMap()
+                     : tensorGrid.getVirtToPhysicalMap();
   return toFlatbuffer(cache, tensorGrid.getShape(), mapping);
 }
 
@@ -1003,11 +1004,12 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
         // and we must use that mapping for virtual-to-physical core range.
         // Otherwise use the default mapping from mem layout and device grid.
         mlir::AffineMap mapping =
-            shardGrid.getMapping().isEmpty()
+            shardGrid.getVirtToPhysicalMap().isEmpty()
                 ? ttnn::optimizer_utils::
-                      createSingleDeviceVirtualToPhysicalAffineMap(
+                      createSingleDeviceVirtualToPhysicalAffineMaps(
                           ctx, memLayoutAttr.getValue(), deviceGrid.getShape())
-                : shardGrid.getMapping();
+                          .first
+                : shardGrid.getVirtToPhysicalMap();
         coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
             ctx,
             llvm::map_to_vector(
@@ -1205,25 +1207,25 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
 }
 
 inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
-                                           ttmetal::NocIndex nocIndex) {
+                                           ttcore::NocIndex nocIndex) {
   switch (nocIndex) {
-  case ttmetal::NocIndex::Noc0:
+  case ttcore::NocIndex::Noc0:
     return ::tt::target::NocIndex::Noc0;
-  case ttmetal::NocIndex::Noc1:
+  case ttcore::NocIndex::Noc1:
     return ::tt::target::NocIndex::Noc1;
   }
   assert(false && "Unsupported NocIndex");
 }
 
-inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
-                                           ttnn::NocIndex nocIndex) {
-  switch (nocIndex) {
-  case ttnn::NocIndex::Noc0:
-    return ::tt::target::NocIndex::Noc0;
-  case ttnn::NocIndex::Noc1:
-    return ::tt::target::NocIndex::Noc1;
+inline ::tt::target::RoutingMode toFlatbuffer(FlatbufferObjectCache &cache,
+                                              ttcore::RoutingMode routingMode) {
+  switch (routingMode) {
+  case ttcore::RoutingMode::BidirLineMesh:
+    return ::tt::target::RoutingMode::BidirLineMesh;
+  case ttcore::RoutingMode::UnidirRingTorus:
+    return ::tt::target::RoutingMode::UnidirRingTorus;
   }
-  assert(false && "Unsupported NocIndex");
+  assert(false && "Unsupported RoutingMode");
 }
 
 } // namespace mlir::tt

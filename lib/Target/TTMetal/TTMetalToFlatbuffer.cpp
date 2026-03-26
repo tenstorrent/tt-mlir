@@ -299,7 +299,7 @@ createShardedBufferConfigForL1Memref(
 
   auto memrefShardShape = shardLayout.getShardShape(memref);
   auto extendedMapping = extendMappingForHigherDimGrid(
-      device.getWorkerGrid().getMapping(), memrefGridShape.size());
+      device.getWorkerGrid().getPhysicalToVirtMap(), memrefGridShape.size());
 
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, memrefGridShape, extendedMapping);
@@ -427,7 +427,7 @@ memrefTypeToCircularBufferConfigFlatbuffer(
       shardLayout, device, memref, virtualGridInverseMapping);
 
   auto extendedMapping = extendMappingForHigherDimGrid(
-      device.getWorkerGrid().getMapping(), memrefGridShape.size());
+      device.getWorkerGrid().getPhysicalToVirtMap(), memrefGridShape.size());
 
   // We default to the worker grid shape since memrefGridShape may be larger
   // than the available grid due to block factors. Directly using the

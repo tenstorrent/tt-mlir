@@ -1353,7 +1353,7 @@ int64_t MetalLayoutAttr::getHostVolume() const {
 //
 static mlir::AffineMap createL1Map(mlir::MLIRContext *context,
                                    GridAttr workerGrid) {
-  mlir::AffineMap workerMap = workerGrid.getMapping();
+  mlir::AffineMap workerMap = workerGrid.getVirtToPhysicalMap();
   // Take the workerMap and just add an additional dimension for the L1 shard
   // offset for each core.
   mlir::SmallVector<mlir::AffineExpr> workerMapExprs(workerMap.getResults());
@@ -1422,7 +1422,7 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
       workerDeviceIdx, workerCoreY, workerCoreX};
   auto workerGridMap =
       mlir::AffineMap::get(virtualGrid.size(), 0, workerGridExprs, context);
-  return GridAttr::get(context, virtualGrid, workerGridMap);
+  return GridAttr::get(context, virtualGrid, workerGridMap, {});
 }
 
 //
@@ -1461,7 +1461,7 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
                                      GridAttr workerGrid, size_t numDramCores) {
-  mlir::AffineMap workerMap = workerGrid.getMapping();
+  mlir::AffineMap workerMap = workerGrid.getVirtToPhysicalMap();
   assert(workerMap.getNumResults() == PhysGridResultIdx::NumIndices);
 
   size_t elemSizeIndex = workerMap.getNumDims() * 2 + 2;
@@ -1660,7 +1660,7 @@ size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
     }
   }
 
-  auto physicalGridMapping = workerGrid.getMapping();
+  auto physicalGridMapping = workerGrid.getVirtToPhysicalMap();
   if (physicalGridMapping.getNumResults() != PhysGridResultIdx::NumIndices) {
     emitError() << "expected physical grid mapping to have "
                    "PhysGridResultIdx::NumIndices results";
