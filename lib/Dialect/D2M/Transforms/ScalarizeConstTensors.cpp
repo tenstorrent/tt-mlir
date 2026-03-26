@@ -575,6 +575,7 @@ public:
     patterns.add<ScalarizeFullOpPattern, ScalarizeGenericFillPattern>(ctx);
 
     GreedyRewriteConfig config;
+    config.setMaxIterations(25);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
                                      config))) {
       signalPassFailure();
