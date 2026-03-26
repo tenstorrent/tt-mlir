@@ -15,6 +15,17 @@ find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Developme
 find_package(nanobind CONFIG REQUIRED)
 nanobind_build_library(nanobind-static-python-runner)
 
+# Suppress warnings from nanobind source that are promoted to errors by -Werror.
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  target_compile_options(nanobind-static-python-runner PRIVATE
+      -Wno-cast-qual
+      -Wno-zero-length-array
+      -Wno-nested-anon-types
+      -Wno-c++98-compat-extra-semi
+      -Wno-covered-switch-default
+  )
+endif()
+
 add_library(${PYTHON_RUNNER_LIBRARY_NAME}
   SHARED
   python_runner.cpp
