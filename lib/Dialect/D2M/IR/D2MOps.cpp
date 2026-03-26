@@ -1406,7 +1406,7 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       //    output's EmptyOp.  Use the stored map directly — it encodes the
       //    correct physical grid from the TTNN layout.
       if (auto invMap = utils::getVirtualGridInverseMapping(output)) {
-        // get virtual to physical map from output as well
+        // Get virtual to physical map from output as well.
         auto fwdMap = *utils::getVirtualGridForwardMapping(output);
         fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, 2);
         fwdMap = ttmlir::utils::dropDim(fwdMap, 3);
@@ -2739,11 +2739,11 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getPhysicalGridShape() {
     return llvm::to_vector(getGrid().getShape());
   }
 
-  // NOTE: this assumes the virtual grid maps to a rectangular physical grid
+  // NOTE: This assumes the virtual grid maps to a rectangular physical grid
   // (which does not necessarily have to be the case. For example, a 1x37
-  // virtual grid would map to cores [(0, 0), (3, 7] and [(4, 0), (4, 4])
+  // virtual grid would map to cores [(0, 0), (3, 7] and [(4, 0), (4, 4]).
   auto map = getGrid().getVirtToPhysicalMap();
-  // Drop d0 from (d0, d1, d2) -> (...) by replacing d0 with 0
+  // Drop d0 from (d0, d1, d2) -> (...) by replacing d0 with 0.
   auto newMap = ttmlir::utils::dropDim(map, 0);
   auto shape =
       llvm::to_vector(ttmlir::utils::evalShape(newMap, getGrid().getShape()));

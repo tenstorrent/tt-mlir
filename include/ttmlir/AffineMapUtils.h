@@ -106,6 +106,12 @@ inline mlir::AffineMap affineMapTakeFrontResults(mlir::AffineMap map,
       llvm::seq<int64_t>(numResultsToTake, map.getNumResults())));
 }
 
+/// Returns a new affine map by dropping the specified dimension.
+// E.g.
+// input: (d0, d1, d2) -> (0, d1, d2), dimToRemove=0,
+//  then the output is: (d0, d1) -> (0, d0, d1)
+// input: (d0, d1, d2) -> (0, d1, d2), dimToRemove=1,
+//  then the output is: (d0, d1) -> (0, 0, d1)
 inline mlir::AffineMap dropDim(mlir::AffineMap map, unsigned dimToRemove) {
   mlir::MLIRContext *ctx = map.getContext();
   unsigned numDims = map.getNumDims();
@@ -114,13 +120,13 @@ inline mlir::AffineMap dropDim(mlir::AffineMap map, unsigned dimToRemove) {
   llvm::SmallVector<mlir::AffineExpr> replacements;
   for (unsigned i = 0; i < numDims; ++i) {
     if (i < dimToRemove) {
-      // Dims before removed one stay the same
+      // Dims before removed one stay the same.
       replacements.push_back(getAffineDimExpr(i, ctx));
     } else if (i == dimToRemove) {
-      // Replace removed dim with constant 0 (or could be any value)
+      // Replace removed dim with constant 0 (or could be any value).
       replacements.push_back(getAffineConstantExpr(0, ctx));
     } else {
-      // Dims after shift down by 1
+      // Dims after shift down by 1.
       replacements.push_back(getAffineDimExpr(i - 1, ctx));
     }
   }

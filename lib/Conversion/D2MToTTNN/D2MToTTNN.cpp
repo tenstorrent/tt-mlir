@@ -700,7 +700,6 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
   // Compute core range set.
   // Note: TTNN grids are (Width, Height), while D2M grids are (Height, Width).
   auto physicalGridShape = op.getPhysicalGridShape();
-  // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
   llvm::SmallVector<int64_t> endCoreRange = {physicalGridShape[1] - 1,
                                              physicalGridShape[0] - 1};
 

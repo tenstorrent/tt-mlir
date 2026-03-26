@@ -963,7 +963,7 @@ static ttcore::GridAttr deriveGridAttrForOutput(Value output,
   }
 
   if (auto invMap = utils::getVirtualGridInverseMapping(output)) {
-    // get virtual to physical map from output as well
+    // Get virtual to physical map from output as well.
     auto fwdMap = *utils::getVirtualGridForwardMapping(output);
     fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, 2);
     fwdMap = ttmlir::utils::dropDim(fwdMap, 3);
