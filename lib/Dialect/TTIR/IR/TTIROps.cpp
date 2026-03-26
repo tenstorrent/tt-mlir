@@ -40,6 +40,8 @@
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -2591,10 +2593,106 @@ foldConsecutiveSliceStatic(mlir::tt::ttir::SliceStaticOp consumerOp) {
   return nullptr;
 }
 
+template <typename ElemType>
+static mlir::OpFoldResult
+constantFoldNonSplatSliceStatic(mlir::tt::ttir::SliceStaticOp op,
+                                DenseElementsAttr denseAttr) {
+  llvm::ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
+  // Calculate step size for iterating over any dimension.
+  llvm::SmallVector<int64_t> iterStepSize(inputShape.size());
+  std::partial_sum(inputShape.rbegin(), std::prev(inputShape.rend()),
+                   std::next(iterStepSize.rbegin()),
+                   std::multiplies<int64_t>());
+  iterStepSize.back() = 1;
+
+  llvm::SmallVector<int64_t> begins(inputShape.size());
+  llvm::SmallVector<int64_t> ends(inputShape.size());
+  llvm::SmallVector<int64_t> step(inputShape.size());
+  llvm::SmallVector<int64_t> currIndex(inputShape.size());
+  int64_t startPos = 0;
+  for (size_t i = 0; i < currIndex.size(); ++i) {
+    begins[i] = mlir::cast<mlir::IntegerAttr>(op.getBegins()[i]).getInt();
+    ends[i] = mlir::cast<mlir::IntegerAttr>(op.getEnds()[i]).getInt();
+    step[i] = mlir::cast<mlir::IntegerAttr>(op.getStep()[i]).getInt();
+    currIndex[i] = begins[i];
+    startPos += currIndex[i] * iterStepSize[i];
+    assert(iterStepSize[i] != 0 && step[i] != 0 && "Step size cannot be zero");
+  }
+
+  auto inputValues = denseAttr.getValues<ElemType>();
+  llvm::SmallVector<ElemType> outputValues;
+
+  auto it = inputValues.begin();
+  it += startPos;
+  while (true) {
+    outputValues.push_back(*it);
+    int64_t dim = currIndex.size() - 1;
+    while (dim >= 0 &&
+           ((step[dim] > 0 && currIndex[dim] + step[dim] >= ends[dim]) ||
+            (step[dim] < 0 && currIndex[dim] + step[dim] <= ends[dim]))) {
+      it -= std::abs(currIndex[dim] - begins[dim]) * iterStepSize[dim];
+      currIndex[dim] = begins[dim];
+      --dim;
+    }
+    if (dim < 0) {
+      break;
+    }
+    it += iterStepSize[dim] * step[dim];
+    currIndex[dim] += step[dim];
+  }
+
+  return mlir::DenseElementsAttr::get(op.getType(), outputValues);
+}
+
+static mlir::OpFoldResult
+constantFoldSliceStatic(mlir::tt::ttir::SliceStaticOp op,
+                        Attribute constInput) {
+  if (auto foldSplat =
+          reshapeIfSplatAndPresent(op.getResult().getType(), constInput)) {
+    return foldSplat;
+  }
+
+  if (op.getResult().hasOneUse() &&
+      isa<mlir::tt::ttir::SliceStaticOp>(
+          op.getResult().use_begin()->getOwner())) {
+    // Don't fold if the result is consumed by another SliceStaticOp, as that
+    // would prevent folding of consecutive SliceStaticOps.
+    return nullptr;
+  }
+
+  if (auto denseAttr =
+          mlir::dyn_cast_if_present<DenseElementsAttr>(constInput)) {
+    if (denseAttr.empty()) {
+      return mlir::DenseElementsAttr::get(op.getType(),
+                                          llvm::ArrayRef<mlir::Attribute>{});
+    }
+    llvm::ArrayRef<int64_t> outputShape = op.getType().getShape();
+    constexpr int64_t maxElements = 1'000'000;
+    if (std::reduce(outputShape.begin(), outputShape.end(), 1,
+                    std::multiplies<int64_t>()) > maxElements) {
+      // Avoid folding if the number of elements is too large, to prevent
+      // excessive compile time and memory usage.
+      return nullptr;
+    }
+
+    if (denseAttr.getElementType().isFloat()) {
+      return constantFoldNonSplatSliceStatic<mlir::APFloat>(op, denseAttr);
+    } else if (denseAttr.getElementType().isInteger()) {
+      return constantFoldNonSplatSliceStatic<mlir::APInt>(op, denseAttr);
+    }
+  }
+
+  return nullptr;
+}
+
 // SliceStaticOp Folder
 mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
 
   if (auto foldResult = foldConsecutiveSliceStatic(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = constantFoldSliceStatic(*this, adaptor.getInput())) {
     return foldResult;
   }
 
