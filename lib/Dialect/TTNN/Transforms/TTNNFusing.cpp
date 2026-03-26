@@ -330,10 +330,11 @@ public:
       patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<MatmulOp>>(
-          &getContext());
+          &getContext(), validationConfig);
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<LinearOp>>(
-          &getContext());
-      patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext());
+          &getContext(), validationConfig);
+      patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
+                                                          validationConfig);
     }
 #endif // TTMLIR_ENABLE_OPMODEL
 
