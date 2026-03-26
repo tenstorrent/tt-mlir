@@ -111,7 +111,7 @@ private:
     auto outputType = RankedTensorType::get(
         outputShape, inputType.getElementType(), inputType.getEncoding());
 
-    return rewriter.create<PermuteOp>(loc, outputType, input, permutation);
+    return PermuteOp::create(rewriter, loc, outputType, input, permutation);
   }
 
   ArrayAttr permuteDims(std::optional<ArrayAttr> dimArg,
