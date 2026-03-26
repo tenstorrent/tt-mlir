@@ -1518,7 +1518,7 @@ private:
 //   %q = slice(%fused, [0:32, 1024:3072])
 //
 template <typename OpType>
-class QKVProjectionFusionPattern : public mlir::OpRewritePattern<OpType> {
+class SharedLHSMatmulFusion : public mlir::OpRewritePattern<OpType> {
 public:
   using mlir::OpRewritePattern<OpType>::OpRewritePattern;
 
@@ -1725,8 +1725,9 @@ private:
 
       // Batch dimensions (all dims except the last two) must match to allow
       // concatenation along the output dimension.
-      if (rhsType.getShape().slice(0, rootRhsRank - 2) !=
-          rootRhsType.getShape().slice(0, rootRhsRank - 2)) {
+      if (rootRhsRank > 2 &&
+          rhsType.getShape().slice(0, rootRhsRank - 2) !=
+              rootRhsType.getShape().slice(0, rootRhsRank - 2)) {
         continue;
       }
 
@@ -3003,8 +3004,8 @@ public:
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
       patterns.add<ScaledSumToMeanPattern>(&getContext());
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
-      patterns.add<QKVProjectionFusionPattern<MatmulOp>>(&getContext());
-      patterns.add<QKVProjectionFusionPattern<LinearOp>>(&getContext());
+      patterns.add<SharedLHSMatmulFusion<MatmulOp>>(&getContext());
+      patterns.add<SharedLHSMatmulFusion<LinearOp>>(&getContext());
       patterns.add<RMSNormFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
