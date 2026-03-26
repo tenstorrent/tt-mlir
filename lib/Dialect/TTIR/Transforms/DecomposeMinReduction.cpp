@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -14,11 +14,10 @@ namespace {
 // Decompose min(x) into neg(max(neg(x))) so that backends without native
 // reduce_min (e.g. TTMetal/D2M) can reuse the existing reduce_max tile op.
 //
-// This is a standalone pass rather than part of TTIRToTTIRDecomposition because
-// it is only needed by the TTMetal backend — the TTNN backend has native
-// ttnn.min support.  Keeping it separate avoids adding a backend-specific
-// config mode to the shared decomposition pass and lets each pipeline opt in
-// by simply including this pass.
+// This is a standalone pass following the pattern of other isolated
+// decompositions (TTIRDecomposeComplexPermute, TTIRDecomposeComplexReshape).
+// It is only needed by the TTMetal pipeline — the TTNN backend has native
+// ttnn.min support.
 class TTIRDecomposeMinReduction
     : public impl::TTIRDecomposeMinReductionBase<TTIRDecomposeMinReduction> {
 public:

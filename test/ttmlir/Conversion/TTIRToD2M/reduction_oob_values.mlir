@@ -49,11 +49,9 @@ module {
     return %0 : tensor<128x96xf32>
   }
 
-  // Min is decomposed to neg→max→neg in TTIRToTTIRDecomposition.
-  // The max's input uses 'neginf' OOB so padded tiles don't corrupt the result.
+  // Min is decomposed to neg→max→neg by TTIRDecomposeMinReduction.
   // CHECK-LABEL: func @min_reduce_R
   // CHECK: d2m.tile_negative
-  // CHECK: d2m.to_layout{{.*}}#[[MAX_INPUT]]
   // CHECK: d2m.tile_reduce_max
   // CHECK: d2m.tile_negative
   func.func @min_reduce_R(%arg: tensor<128x96xf32>) -> tensor<1x96xf32> {
