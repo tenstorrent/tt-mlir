@@ -66,6 +66,17 @@ getGridAndShardFromValue(Value v) {
   return getGridAndShardFromShapedType(mlir::cast<ShapedType>(v.getType()));
 }
 
+static bool shouldAdjustParallelizationGridFromOutput(ShapedType shapedType) {
+  if (auto memRefType = mlir::dyn_cast<MemRefType>(shapedType)) {
+    return mlir::isa<ttcore::ShardLayoutAttr>(memRefType.getLayout()) &&
+           ttcore::getMemorySpace(memRefType) == ttcore::MemorySpace::DeviceL1;
+  }
+  if (auto tensorType = mlir::dyn_cast<RankedTensorType>(shapedType)) {
+    return mlir::isa<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  }
+  return false;
+}
+
 // Derive this operand's target grid shape from the new generic execution
 // grid and block factors using the generic's indexing maps.
 static FailureOr<SmallVector<int64_t>>
@@ -2507,24 +2518,30 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
 
   // If the derived grid shape is different from the requested newGrid,
   // compute the reblocked types again with the adjusted grid.
+  //
+  // Skip this adjustment when only block factors are changing (no explicit
+  // new grid): the output grid already incorporates the new blocking and
+  // feeding it back would double-apply the block factors.
   const std::size_t numInputs = getInputs().size();
   const std::size_t numOutputs = getOutputs().size();
-  if (numOutputs > 0) {
-    // derive grid from first output index
-    auto [derivedGridShape, _] = getGridAndShardFromShapedType(
-        mlir::cast<ShapedType>((*reblockedTypes)[numInputs]));
-    if (derivedGridShape.size() == normalizedGrid.getShape().size() &&
-        !llvm::equal(derivedGridShape, normalizedGrid.getShape())) {
-      normalizedGrid =
-          ttcore::GridAttr::get(builder.getContext(), derivedGridShape,
-                                normalizedGrid.getVirtToPhysicalMap(),
-                                normalizedGrid.getPhysicalToVirtMap());
-      reblockedTypes = computeReblockedTypes(normalizedGrid.getShape());
-      if (failed(reblockedTypes)) {
-        this->emitOpError()
-            << "withParallelization failed to derive reblocked types after "
-            << "adjusting grid to " << normalizedGrid;
-        return failure();
+  if (numOutputs > 0 && newGrid.has_value()) {
+    ShapedType firstOutputType =
+        mlir::cast<ShapedType>((*reblockedTypes)[numInputs]);
+    if (shouldAdjustParallelizationGridFromOutput(firstOutputType)) {
+      auto [derivedGridShape, _] =
+          getGridAndShardFromShapedType(firstOutputType);
+      if (derivedGridShape.size() == normalizedGrid.getShape().size() &&
+          !llvm::equal(derivedGridShape, normalizedGrid.getShape())) {
+        normalizedGrid =
+            ttcore::GridAttr::get(builder.getContext(), derivedGridShape,
+                                  normalizedGrid.getMapping());
+        reblockedTypes = computeReblockedTypes(normalizedGrid.getShape());
+        if (failed(reblockedTypes)) {
+          this->emitOpError()
+              << "withParallelization failed to derive reblocked types after "
+              << "adjusting grid to " << normalizedGrid;
+          return failure();
+        }
       }
     }
   }
