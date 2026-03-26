@@ -2743,10 +2743,11 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getPhysicalGridShape() {
   // (which does not necessarily have to be the case. For example, a 1x37
   // virtual grid would map to cores [(0, 0), (3, 7)] and [(4, 0), (4, 4)]).
   auto map = getGrid().getVirtToPhysicalMap();
-  // Drop d0 from (d0, d1, d2) -> (...) by replacing d0 with 0.
-  auto newMap = ttmlir::utils::dropDim(map, 0);
+  // Drop first result from virtual to physical map (which is just the device
+  // idx)
+  map = map.dropResults(llvm::to_vector(llvm::seq<int64_t>(0, 1)));
   auto shape =
-      llvm::to_vector(ttmlir::utils::evalShape(newMap, getGrid().getShape()));
+      llvm::to_vector(ttmlir::utils::evalShape(map, getGrid().getShape()));
   return shape;
 }
 
