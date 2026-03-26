@@ -1065,22 +1065,34 @@ template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::ConvTranspose2dOp op);
 
-// TT-Metal's Conv3d requires BFloat16 inputs.
+// TT-Metal's Conv3d has operand format constraints:
+// - input must be row-major bf16
+// - weight must be tile bf16
+// - bias must be tile bf16 when present
+// - output is forced to bf16
 // Tracked in: https://github.com/tenstorrent/tt-metal/issues/35436
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConv3dOpOperandsWorkarounds(
     ttnn::Conv3dOp op) {
-  TTNNOperandWorkarounds bf16Workaround;
-  bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds tiledBf16Workaround;
+  tiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
+  tiledBf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds outputWorkaround;
+  outputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
 
   auto workaround =
       wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-          .addInputOperandWorkaround(bf16Workaround)
-          .addInputOperandWorkaround(bf16Workaround)
-          .addOutputOperandWorkaround(bf16Workaround);
+          .addInputOperandWorkaround(inputWorkaround)
+          .addInputOperandWorkaround(tiledBf16Workaround)
+          .addOutputOperandWorkaround(outputWorkaround);
 
   if (op.getBias()) {
-    workaround = workaround.addInputOperandWorkaround(bf16Workaround);
+    workaround = workaround.addInputOperandWorkaround(tiledBf16Workaround);
   }
 
   return workaround;

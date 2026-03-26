@@ -42,38 +42,37 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  // Conv3dConfig is set at compile-time by Conv3dBlockingRewritePattern.
-  // Just read from flatbuffer and construct the config.
-  ::ttnn::experimental::prim::Conv3dConfig conv3dConfig;
+  std::optional<::ttnn::experimental::prim::Conv3dConfig> conv3dConfig;
   if (op->conv3d_config()) {
     const auto *fbConfig = op->conv3d_config();
+    ::ttnn::experimental::prim::Conv3dConfig config;
     if (fbConfig->weights_dtype()) {
-      conv3dConfig.weights_dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
+      config.weights_dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
           *fbConfig->weights_dtype());
     }
     if (fbConfig->t_out_block()) {
-      conv3dConfig.T_out_block = *fbConfig->t_out_block();
+      config.T_out_block = *fbConfig->t_out_block();
     }
     if (fbConfig->w_out_block()) {
-      conv3dConfig.W_out_block = *fbConfig->w_out_block();
+      config.W_out_block = *fbConfig->w_out_block();
     }
     if (fbConfig->h_out_block()) {
-      conv3dConfig.H_out_block = *fbConfig->h_out_block();
+      config.H_out_block = *fbConfig->h_out_block();
     }
     if (fbConfig->c_out_block()) {
-      conv3dConfig.C_out_block = *fbConfig->c_out_block();
+      config.C_out_block = *fbConfig->c_out_block();
     }
     if (fbConfig->c_in_block()) {
-      conv3dConfig.C_in_block = *fbConfig->c_in_block();
+      config.C_in_block = *fbConfig->c_in_block();
     }
     if (const auto *gridCoord = fbConfig->compute_with_storage_grid_size()) {
-      conv3dConfig.compute_with_storage_grid_size =
+      config.compute_with_storage_grid_size =
           tt::tt_metal::CoreCoord{gridCoord->x(), gridCoord->y()};
     } else {
-      // Fallback: Use device grid size if not set at compile-time
-      conv3dConfig.compute_with_storage_grid_size =
+      config.compute_with_storage_grid_size =
           targetDevice.compute_with_storage_grid_size();
     }
+    conv3dConfig = config;
   }
 
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
