@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ScalarDataTypeAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -73,7 +74,7 @@ public:
     op_model::ScopedSingletonDeviceGuard deviceGuard(moduleOp);
 
     // Set default L1Full slice config on Conv2d ops before validation.
-    applyConv2dSliceConfigWorkaround(moduleOp);
+    applyConvSliceConfig(moduleOp);
 
     // Get the max grid size from the system description.
     ttcore::GridAttr deviceGrid =
@@ -164,13 +165,6 @@ public:
       propagation.run();
     });
 #endif
-  }
-
-  void applyConv2dSliceConfigWorkaround(ModuleOp moduleOp) {
-    moduleOp->walk([](ttnn::Conv2dOp conv2dOp) {
-      conv2dOp.setConv2dSliceConfigAttr(Conv2dSliceConfigAttr::get(
-          conv2dOp.getContext(), Conv2dSliceType::L1Full, 0));
-    });
   }
 
 protected:

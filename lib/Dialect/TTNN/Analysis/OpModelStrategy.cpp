@@ -3,148 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
-
-#include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir::tt::ttnn {
 
-/// Filter legalConfigs to only include non-sharded (DRAM or L1-interleaved)
-/// configs.
-[[maybe_unused]] static std::vector<OpConfig>
-filterNonSharded(const std::vector<OpConfig> &legalConfigs) {
-  std::vector<OpConfig> result;
-  for (const auto &config : legalConfigs) {
-    if (!config.outputLayout) {
-      result.push_back(config);
-      continue;
-    }
-    auto memLayout = config.outputLayout.getMemLayout();
-    if (!memLayout || !isShardedMemoryLayout(memLayout.getValue())) {
-      result.push_back(config);
-    }
-  }
-  return result;
-}
-
-/// Check if a config is L1-interleaved.
-[[maybe_unused]] static bool isL1Interleaved(const OpConfig &config) {
-  if (!config.outputLayout) {
-    return false;
-  }
-  auto memLayout = config.outputLayout.getMemLayout();
-  return config.outputLayout.getBufferType() == BufferType::L1 && memLayout &&
-         memLayout.getValue() == TensorMemoryLayout::Interleaved;
-}
-
 OutputHints getOutputHints(Operation *op,
                            const std::vector<OpConfig> &legalConfigs) {
-  return llvm::TypeSwitch<Operation *, OutputHints>(op)
-      .Case<MatmulOp, LinearOp>([&](auto) {
-        // Use partial configs: deduplicate by (bufferType, memLayout),
-        // set ignorePhysicalLayout=true. Backend decides physical layout.
-        auto partialConfigs =
-            optimizer_utils::getUniqueTestConfigsForMatmulLinear(legalConfigs);
-
-        // Remove L1-interleaved hints for matmul/linear output.
-        //
-        // L1-interleaved output is "worst of both worlds" for matmul:
-        //  - generateMatmulProgramConfig() returns nullopt for non-sharded
-        //    output, so no program config is emitted by the compiler.
-        //  - tt-metal runtime falls back to MatmulMultiCoreProgramConfig{}
-        //    with hardcoded HiFi4 math fidelity (the slowest kernel path).
-        //  - Same NOC write overhead as DRAM interleaved (not eliminated
-        //    like sharded), loses bias fusion, optimized mcast program
-        //    configs, and narrow-shape 1D optimization.
-        //  - Subject to L1 capacity constraints unlike DRAM interleaved.
-        //
-        // DRAM-interleaved is the safe default: full bias fusion, optimized
-        // 1D/2D mcast configs, and no L1 pressure from the output tensor.
-        // L1-sharded is best when applicable (eliminates NOC writes entirely).
-        std::vector<OpConfig> filtered;
-        for (const auto &cfg : partialConfigs) {
-          if (isL1Interleaved(cfg)) {
-            continue;
-          }
-          filtered.push_back(cfg);
-        }
-
-        return OutputHints{filtered, {}, /*attemptL1Sharding=*/true};
-      })
-      .Case<Conv2dOp, ConvTranspose2dOp>([&](auto) {
-        // Conv2d configs carry Conv2dConfig tied to output hint.
-        return OutputHints{legalConfigs, {}, /*attemptL1Sharding=*/true};
-      })
-      // PadOp: ttnn::pad only supports sharded output for
-      // HEIGHT_SHARDED + ROW_MAJOR inputs. Its tile-layout path
-      // (invoke_tile) crashes when given a sharded output memory config
-      // with interleaved input because it unconditionally dereferences
-      // input_tensor.shard_spec()->grid, which is nullopt for
-      // interleaved tensors. The op model validation doesn't catch this
-      // since it only checks sharding constraints when the input is
-      // already sharded. Until tt-metal fixes this, forbid sharded
-      // output hints for PadOp.
-      // Disabling Slice ops due to
-      // https://github.com/tenstorrent/tt-metal/issues/38016
-      // TODO(rpavlovicTT): re-enable slice ops.
-      // Concat: sharded output causes device close hang in tt-metal.
-      // https://github.com/tenstorrent/tt-metal/issues/39419
-      // TODO(rpavlovicTT): re-enable sharded concat once tt-metal fixes it.
-      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp, PadOp, SliceStaticOp,
-            SliceDynamicOp, ConcatOp, EmbeddingOp>([&](auto) {
-        auto nonShardedConfigs = filterNonSharded(legalConfigs);
-        return OutputHints{nonShardedConfigs, {}, /*attemptL1Sharding=*/false};
-      })
-      // SDPA decode: tt-metal requires K/V in DRAM, Q either
-      // height-sharded or DRAM, output either height-sharded or DRAM
-      // (GQA further restricts output to DRAM-only).  In practice the
-      // only valid output is DRAM-interleaved via the NULL hint —
-      // every sharded output hint is rejected. Use NULL hint only,
-      // no fallbacks.
-      // NLPConcatHeadsDecode: tt-metal requires height-sharded L1 input
-      // (set by workaround pass) and always outputs DRAM-interleaved.
-      // Probing sharded output configs crashes compute_output_specs.
-      .Case<NLPConcatHeadsDecodeOp, ScaledDotProductAttentionDecodeOp,
-            PagedScaledDotProductAttentionDecodeOp,
-            ScaledDotProductAttentionOp>(
-          [&](auto) { return OutputHints{{OpConfig(TTNNLayoutAttr())}, {}}; })
-      .Case<WhereOp>(
-          [&](auto) { return OutputHints{{OpConfig(TTNNLayoutAttr())}, {}}; })
-      .Case<TypecastOp>(
-          [&](auto) { return OutputHints{{OpConfig(TTNNLayoutAttr())}, {}}; })
-      .Default([&](Operation *) {
-        // Primary: NULL hint only -- let the backend decide output from inputs.
-        // Fallback: sharded configs -- tried only when NULL yields non-sharded
-        // output (e.g., when inputs are interleaved and the backend mirrors
-        // the interleaved layout on the output).
-        OutputHints result;
-        result.attemptL1Sharding = true;
-
-        // NULL hint: backend decides output sharding from inputs.
-        result.hints.push_back(OpConfig(TTNNLayoutAttr()));
-
-        // Sharded configs as fallback.
-        for (const auto &cfg : legalConfigs) {
-          if (!cfg.outputLayout) {
-            continue;
-          }
-          auto memLayout = cfg.outputLayout.getMemLayout();
-          if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
-            result.fallbackHints.push_back(cfg);
-          }
-        }
-        return result;
-      });
+  return getRuleBook(op).getOutputHints(op, legalConfigs);
 }
 
 bool shouldExploreReshards(Operation *op) {
-  return llvm::TypeSwitch<Operation *, bool>(op)
-      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp, ConcatOp,
-            ScaledDotProductAttentionOp, ScaledDotProductAttentionDecodeOp,
-            PagedScaledDotProductAttentionDecodeOp>([](auto) { return false; })
-      .Default([](Operation *) { return true; });
+  return getRuleBook(op).shouldExploreReshards();
 }
 
 //--- Scoring ---
@@ -216,38 +86,9 @@ scoreCandidate(Operation *op, const OpConfig &config,
   return score;
 }
 
-/// Extract act_block_h_override from a BeamCandidate's Conv2dAttrs.
-/// Returns UINT32_MAX if not a Conv2d config (sorts last).
-[[maybe_unused]] static uint32_t getActBlockHOverride(const BeamCandidate &c) {
-  if (auto *conv2d = std::get_if<Conv2dAttrs>(&c.configHint.opSpecificAttrs)) {
-    if (conv2d->conv2dConfig.has_value() && conv2d->conv2dConfig.value()) {
-      auto abh = conv2d->conv2dConfig.value().getActBlockHOverride();
-      return abh.has_value() ? abh.value() : 0;
-    }
-  }
-  return UINT32_MAX;
-}
-
 bool preferCandidate(Operation *op, const BeamCandidate &a,
                      const BeamCandidate &b) {
-  return llvm::TypeSwitch<Operation *, bool>(op)
-      .Case<Conv2dOp, ConvTranspose2dOp>([&](auto) {
-        // Prefer act_block_h_override=0 (auto, best), then higher over lower.
-        // Ordering: 0 > 64 > 32 > ...
-        uint32_t abhA = getActBlockHOverride(a);
-        uint32_t abhB = getActBlockHOverride(b);
-        if (abhA != abhB) {
-          if (abhA == 0) {
-            return true;
-          }
-          if (abhB == 0) {
-            return false;
-          }
-          return abhA > abhB;
-        }
-        return false;
-      })
-      .Default([](Operation *) { return false; });
+  return getRuleBook(op).preferCandidate(op, a, b);
 }
 
 } // namespace mlir::tt::ttnn
