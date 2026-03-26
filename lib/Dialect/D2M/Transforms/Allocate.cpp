@@ -209,9 +209,6 @@ struct GenericOpContext {
   OperandContextList operands;
   // Pre-computed block factors for the modified op.
   SmallVector<int64_t> reblockedFactors;
-  // Generic ops in "DMA-only" form currently operate in alias mode
-  // and do not use operand streams.
-  bool isDMAOnly = false;
   // Generic ops in "explicit datamovement" form have no static
   // iteration space (indexing maps, etc) information.
   bool isExplicitDatamovement = false;
@@ -267,7 +264,6 @@ namespace {
 class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   using Base = impl::D2MAllocateBase<D2MAllocate>;
   using Base::Base;
-
   using BufferSizePolicy = BlockFactorAnalysis::BufferSizePolicy;
 
   MemorySpaces memSpaces;
@@ -421,13 +417,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   }
 
   /// Validate that all generic ops are in affine blocked form. Generic ops
-  /// in DMA-only or explicit datamovement form are exempt from this check.
+  /// in explicit datamovement form are exempt from this check.
   ///
   LogicalResult validateGenericOpForms(func::FuncOp funcOp) {
     LogicalResult result = success();
 
     funcOp.walk([&](d2m::GenericOp genericOp) {
-      if (genericOp.isDMAOnlyForm() || genericOp.isExplicitDatamovementForm() ||
+      if (genericOp.isExplicitDatamovementForm() ||
           genericOp.isExternalSymbolForm() || !genericOp.isUnifiedForm()) {
         return;
       }
@@ -631,7 +627,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // a planner-assigned L1 address and will be stamped with
       // CBLayoutAttr.
       if (genericIt != analysis.generics.end() &&
-          !genericIt->second.isDMAOnly &&
           !genericIt->second.isExplicitDatamovement) {
         for (Region &region : genericOp->getRegions()) {
           for (const OperandContext &operandCtx : genericIt->second.operands) {
@@ -640,15 +635,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             }
             auto operandMemSpace =
                 ttcore::getMemorySpace(operandCtx.operand->get().getType());
-            if (isOperandExemptFromStreaming(operandCtx, operandMemSpace)) {
-              continue;
-            }
-            if (!inferStreamRequirement(genericOp, operandCtx,
-                                        operandMemSpace)) {
+            if (!requiresCBAllocation(genericOp, operandCtx, operandMemSpace)) {
               continue;
             }
             Value operandAlloc = d2m::GenericOp::getOperandAlloc(
                 region, operandCtx.operandIndex());
+            if (!operandAlloc) {
+              operandAlloc = findSharedOutputBuffer(genericOp, operandCtx);
+            }
             if (!operandAlloc) {
               continue;
             }
@@ -664,7 +658,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             ctx.isMemspaceBound = true;
             ctx.allocSize[ordinal(asPlannerSpace(MemorySpace::DeviceL1))] =
                 ttmlir::utils::alignUp(
-                    getCBBufferSizeBytes(operandCtx.bufferType, device),
+                    getStreamBufferSizeBytes(operandCtx.bufferType, device),
                     L1memInfo.alignment);
           }
         }
@@ -710,11 +704,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                          d2m::GenericOp genericOp) {
     GenericOpContext &genericCtx = analysis.generics[genericOp];
 
-    // Detect generic ops in "DMA-only" form: they must not
-    // insert operand streams and therefore have no associated memory
-    // allocation needs.
-    genericCtx.isDMAOnly = genericOp.isDMAOnlyForm();
-
     // Detect generic ops in "explicit datamovement" form: they do not have
     // iteration space (indexing maps, etc) information and can't be analyzed
     // by this pass. However, a `GenericOpContext` entry must still be created
@@ -722,6 +711,45 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     genericCtx.isExplicitDatamovement = genericOp.isExplicitDatamovementForm();
 
     return genericCtx;
+  }
+
+  static std::optional<std::size_t>
+  getSingleReductionDim(ArrayRef<ttcore::IteratorType> iteratorTypes) {
+    std::optional<std::size_t> reductionDim;
+    for (auto [dim, iteratorType] : llvm::enumerate(iteratorTypes)) {
+      if (iteratorType != ttcore::IteratorType::Reduction) {
+        continue;
+      }
+      if (reductionDim.has_value()) {
+        return std::nullopt;
+      }
+      reductionDim = dim;
+    }
+    return reductionDim;
+  }
+
+  static bool
+  shouldApplyAutoReblocking(d2m::GenericOp genericOp,
+                            ArrayRef<AffineMap> indexingMaps,
+                            ArrayRef<ttcore::IteratorType> iteratorTypes) {
+    const std::optional<std::size_t> reductionDim =
+        getSingleReductionDim(iteratorTypes);
+    if (!reductionDim.has_value()) {
+      return false;
+    }
+
+    int64_t scalableInputCount = 0;
+    for (auto [operandIndex, indexingMap] : llvm::enumerate(indexingMaps)) {
+      if (genericOp.isOutputOperandIdx(operandIndex) ||
+          genericOp.isScratchInput(operandIndex)) {
+        continue;
+      }
+      if (indexingMap.isFunctionOfDim(*reductionDim)) {
+        ++scalableInputCount;
+      }
+    }
+
+    return scalableInputCount >= 2;
   }
 
   // Internal helper used by `analyzeGenericOps()` to create analysis entries
@@ -786,6 +814,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // analysis.
       if (const auto *bfResult = blockFactorAnalysis.lookup(genericOp)) {
         blockFactors = bfResult->reblockedFactors;
+        if (bufferSizePolicy == BufferSizePolicy::Auto &&
+            !shouldApplyAutoReblocking(genericOp, indexingMaps,
+                                       iteratorTypes)) {
+          blockFactors = originalBlockFactors;
+        }
       }
 
       for (std::size_t d = 0; d < rank; ++d) {
@@ -886,15 +919,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         const auto operandType =
             mlir::cast<MemRefType>(operand.get().getType());
 
-        operandCtx.bufferType = getCBBufferType(
+        operandCtx.bufferType = getStreamBufferType(
             gridShapeRescaled, shardShapeRescaled, operandType.getElementType(),
             L1Attr, numStreamBuffers);
         TT_ALLOC_TRACE("\t[operand #{}], would-be buffer "
                        "type ({} byte(s)): {}",
                        operandIndex,
-                       getCBBufferSizeBytes(operandCtx.bufferType, device),
+                       getStreamBufferSizeBytes(operandCtx.bufferType, device),
                        operandCtx.bufferType);
-        TT_debug(getCBBufferSizeBytes(operandCtx.bufferType, device) > 0);
+        TT_debug(getStreamBufferSizeBytes(operandCtx.bufferType, device) > 0);
       }
 
       // Finally, insert `operandCtx` into `genericCtx`.
@@ -951,13 +984,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     bfOpts.numBuffers = numStreamBuffers;
     BlockFactorAnalysis blockFactorAnalysis(funcOp, bfOpts);
 
-    [[maybe_unused]] int32_t genericsInDMAOnlyForm = 0;
     [[maybe_unused]] int32_t genericsInExplicitDatamovementForm = 0;
 
     funcBody.walk([&](d2m::GenericOp genericOp) {
       GenericOpContext &genericCtx = createGenericContext(analysis, genericOp);
 
-      genericsInDMAOnlyForm += genericCtx.isDMAOnly;
       genericsInExplicitDatamovementForm += genericCtx.isExplicitDatamovement;
 
       createOperandContexts(analysis, genericOp, genericCtx,
@@ -977,9 +1008,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       };
     }
 
-    TT_ALLOC_DEBUG("collected {} generic op context(s) ({} DMA-only, {} "
-                   "explicit datamovement)",
-                   analysis.generics.size(), genericsInDMAOnlyForm,
+    TT_ALLOC_DEBUG("collected {} generic op context(s) ({} explicit "
+                   "datamovement)",
+                   analysis.generics.size(),
                    genericsInExplicitDatamovementForm);
 
     return success();
@@ -1189,7 +1220,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     for (auto &[genericOp, genericCtx] : analysis.generics) {
       d2m::GenericOp oldGenericOp = genericOp;
       // Skip generics whose execution shape is already final.
-      if (genericCtx.isDMAOnly || genericCtx.isExplicitDatamovement ||
+      if (genericCtx.isExplicitDatamovement ||
           oldGenericOp.getBlockFactorsValue() == genericCtx.reblockedFactors) {
         updatedGenerics.insert({oldGenericOp, std::move(genericCtx)});
         continue;
@@ -1285,11 +1316,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     const auto &L1memInfo = memSpaces[ordinal(MemorySpace::DeviceL1)];
 
     llvm::DenseSet<Operation *> visited;
-    for (auto &[genericOp, genericCtx] : analysis.generics) {
-      if (genericCtx.isDMAOnly) {
-        // Generics in "DMA only" form do not use streams.
-        continue;
-      }
+    for (const auto &[genericOp, genericCtx] : analysis.generics) {
       if (genericCtx.isExplicitDatamovement) {
         // Generics in "explicit datamovement" form manage their own
         // streams which should already be present in the incoming IR.
@@ -1336,17 +1363,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         }
         TT_assert(remappedMemSpace.has_value());
         const MemorySpace finalRemappedMemSpace = *remappedMemSpace;
-
-        if (isOperandExemptFromStreaming(operandCtx, *remappedMemSpace)) {
-          continue;
-        }
-
-        // After filtering for special forms of generics ("DMA only", etc)
-        // we're left with the default goal of always having operand streams.
-        // DRAM operands always need streams regardless of indexing map
-        // patterns, because data must physically move between DRAM and L1.
-
-        if (inferStreamRequirement(genericOp, operandCtx, *remappedMemSpace)) {
+        if (requiresCBAllocation(genericOp, operandCtx, *remappedMemSpace)) {
 
           // Record all aliases along the operand def-chain.
           // This is needed because a generic operand may have several aliases
@@ -1412,34 +1429,25 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_debug(memrefIt2 != analysis.memrefs.end());
         const MemorySpace operandMemSpace = *memrefIt2->second.remappedMemSpace;
 
-        // Get the CB argument type for this operand.
-        // In TTNN mode (positional alloc counting, no d2m.get_cb), scratch
-        // inputs have no inner alloc so the positional index must be adjusted.
-        TT_assert(!genericOp->getRegions().empty());
-        Region &region = genericOp->getRegions().front();
-        TT_assert(region.hasOneBlock());
-        unsigned allocIndex = operandIndex;
-        if (auto scratchInputs = mutableGenericOp.getScratchInputsAttr()) {
-          for (int64_t scratchIdx : scratchInputs.asArrayRef()) {
-            if (static_cast<unsigned>(scratchIdx) < operandIndex) {
-              --allocIndex;
+        if (requiresCBAllocation(genericOp, operandCtx, operandMemSpace)) {
+          Type cbUnderlyingType;
+          TT_assert(!genericOp->getRegions().empty());
+          Region &region = genericOp->getRegions().front();
+          TT_assert(region.hasOneBlock());
+          Value operandAlloc =
+              d2m::GenericOp::getOperandAlloc(region, operandIndex);
+          if (!operandAlloc) {
+            operandAlloc = findSharedOutputBuffer(genericOp, operandCtx);
+          }
+          if (operandAlloc) {
+            cbUnderlyingType = operandAlloc.getType();
+            if (auto cbType = mlir::dyn_cast<d2m::CBType>(cbUnderlyingType)) {
+              cbUnderlyingType = cbType.getUnderlying();
             }
           }
-        }
-        Value operandAlloc =
-            d2m::GenericOp::getOperandAlloc(region, allocIndex);
-        TT_assertv(operandAlloc,
-                   "non-DMA-only generic must have per-operand alloc");
-        Type cbUnderlyingType = operandAlloc.getType();
-        // Unwrap CBType to get the underlying memref/tensor type.
-        if (auto cbType = mlir::dyn_cast<d2m::CBType>(cbUnderlyingType)) {
-          cbUnderlyingType = cbType.getUnderlying();
-        }
-
-        if (inferStreamRequirement(genericOp, operandCtx, operandMemSpace)) {
-          if (!isOperandExemptFromStreaming(operandCtx, operandMemSpace)) {
-            operandValueByIndex[operandCtx.operandIndex()] =
-                operandCtx.operand->get();
+          operandValueByIndex[operandCtx.operandIndex()] =
+              operandCtx.operand->get();
+          if (cbUnderlyingType) {
             operandCBTypeByIndex[operandCtx.operandIndex()] = cbUnderlyingType;
           }
         }
@@ -1499,6 +1507,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                     Type newShardType = typeIt->second;
                     op.getResult().setType(newShardType);
                     updateLocalBufferType(op, newShardType);
+                    return;
+                  }
+                }
+
+                if (Value localBuffer = op.getLocalBuffer()) {
+                  Type localBufferType = localBuffer.getType();
+                  if (localBufferType != op.getResult().getType()) {
+                    op.getResult().setType(localBufferType);
+                    updateLocalBufferType(op, localBufferType);
                     return;
                   }
                 }
@@ -1612,6 +1629,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
         const auto operandIndex = operandCtx.operand->getOperandNumber();
         Value oldTensor = d2m::GenericOp::getOperandAlloc(region, operandIndex);
+        if (!oldTensor) {
+          oldTensor = findSharedOutputBuffer(op, operandCtx);
+        }
         if (oldTensor && oldTensor.getDefiningOp()) {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPoint(oldTensor.getDefiningOp());
@@ -1696,11 +1716,94 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return false;
   }
 
+  static bool isSharedLoadStoreBuffer(Value localBuffer) {
+    if (!localBuffer) {
+      return false;
+    }
+
+    Value loadMemref;
+    Value storeMemref;
+    for (Operation *userOp : localBuffer.getUsers()) {
+      if (auto loadOp = mlir::dyn_cast<d2m::RemoteLoadOp>(userOp)) {
+        if (loadOp.getLocalBuffer() == localBuffer) {
+          loadMemref = loadOp.getMemref();
+          if (storeMemref && storeMemref != loadMemref) {
+            return true;
+          }
+        }
+        continue;
+      }
+      if (auto storeOp = mlir::dyn_cast<d2m::RemoteStoreOp>(userOp)) {
+        if (storeOp.getLocalBuffer() == localBuffer) {
+          storeMemref = storeOp.getMemref();
+          if (loadMemref && loadMemref != storeMemref) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  static Value findSharedOutputBuffer(d2m::GenericOp genericOp,
+                                      const OperandContext &operandCtx) {
+    if (!operandCtx.isOutput) {
+      return Value();
+    }
+
+    Value operandValue = operandCtx.operand->get();
+    for (Region &region : genericOp->getRegions()) {
+      TT_assert(region.hasOneBlock());
+      Value sharedBuffer;
+      WalkResult result = region.front().walk([&](d2m::RemoteStoreOp storeOp) {
+        if (storeOp.getMemref() != operandValue) {
+          return WalkResult::advance();
+        }
+        Value localBuffer = storeOp.getLocalBuffer();
+        if (isSharedLoadStoreBuffer(localBuffer)) {
+          sharedBuffer = localBuffer;
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+      (void)result;
+      if (sharedBuffer) {
+        return sharedBuffer;
+      }
+    }
+
+    return Value();
+  }
+
+  bool requiresCBAllocation(d2m::GenericOp genericOp,
+                            const OperandContext &operandCtx,
+                            MemorySpace memspace) const {
+    if (findSharedOutputBuffer(genericOp, operandCtx)) {
+      return true;
+    }
+
+    for (Region &region : genericOp->getRegions()) {
+      if (Value operandAlloc = d2m::GenericOp::getOperandAlloc(
+              region, operandCtx.operandIndex())) {
+        if (isSharedLoadStoreBuffer(operandAlloc)) {
+          return true;
+        }
+      }
+    }
+
+    if (isOperandExemptFromStreaming(operandCtx, memspace)) {
+      return false;
+    }
+
+    return inferStreamRequirement(genericOp, operandCtx, memspace);
+  }
+
   /// @return `true` if `operandCtx` is an output that is exempt from stream
   /// insertion. Currently, this is true for outputs when L1 output spilling is
   /// disabled and the output is not a non-trivial view.
   bool isOperandExemptFromStreaming(const OperandContext &operandCtx,
-                                    MemorySpace memspace) {
+                                    MemorySpace memspace) const {
     if (isNonTrivialView(operandCtx)) {
       return false;
     }
@@ -1716,10 +1819,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                               MemorySpace memspace) const {
     if (useAlwaysStreamPolicy()) {
       return true;
-    }
-
-    if (genericOp.isDMAOnlyForm()) {
-      return false;
     }
 
     // Non-trivial views need a stream to represent the implied data movement.
@@ -1760,6 +1859,47 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return false;
   }
 
+  /// @return `map` with all broadcast result expressions replaced with
+  /// const-1 expression
+  static AffineMap canonicalizeBroadcasts(AffineMap map) {
+    auto *ctx = map.getContext();
+
+    // This could almost be a simple AffineMap::replace() but need to make
+    // sure only complete `0`-result expressions are replaced, not other
+    // possible zero const terms within result expression trees, however
+    // unlikely that seems.
+
+    const auto replacement = mlir::getAffineConstantExpr(1, ctx);
+    SmallVector<AffineExpr> exprs;
+
+    for (auto expr : map.getResults()) {
+      if (auto constExpr = llvm::dyn_cast<AffineConstantExpr>(expr)) {
+        if (constExpr.getValue() == 0) {
+          exprs.push_back(replacement);
+          continue;
+        }
+      }
+      exprs.push_back(expr);
+    }
+
+    return AffineMap::get(map.getNumDims(), map.getNumSymbols(), exprs, ctx);
+  }
+
+  static MemRefType getStreamBufferType(ArrayRef<int64_t> gridShape,
+                                        ArrayRef<int64_t> shardShape,
+                                        Type elementType,
+                                        ttcore::MemorySpaceAttr memSpaceAttr,
+                                        uint32_t buffers) {
+    TT_debug(gridShape.size() == shardShape.size());
+
+    const SmallVector<int64_t> fullShape =
+        concatToVector<int64_t>(gridShape, shardShape);
+    const auto bufferLayout =
+        ttcore::ShardLayoutAttr::get(shardShape, elementType, buffers);
+
+    return MemRefType::get(fullShape, elementType, bufferLayout, memSpaceAttr);
+  }
+
   static std::tuple</* input */ SmallVector<int64_t>,
                     /* output */ SmallVector<int64_t>>
   getOperandTileShapes(d2m::GenericOp genericOp) {
@@ -1792,6 +1932,49 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return SmallVector<int64_t>(tileType.getShape());
     }
     return {1, 1};
+  }
+
+  static std::tuple</* grid */ SmallVector<int64_t>,
+                    /* shard */ SmallVector<int64_t>>
+  getGridAndShardExtents(d2m::GenericOp genericOp) {
+    auto flatInverseMap = ttmlir::utils::concatInversePermutationMap(
+        genericOp.getIndexingMapsValue(), /*reverse=*/false);
+
+    return {flatInverseMap.compose(
+                concatToVector(genericOp.getInputOutputOperandGridShapes())),
+            flatInverseMap.compose(
+                concatToVector(genericOp.getInputOutputOperandShardShapes()))};
+  }
+
+  /// Return a bitmask that indicates which of the dims are "participating"
+  /// (defined as dims that are used by any of the `genericOp`'s output
+  /// expressions.
+  static llvm::BitVector getParticipatingDimMask(d2m::GenericOp genericOp) {
+    TT_debug(genericOp.getOutputs().size() == 1u);
+    AffineMap outputMap = genericOp.getIndexingMapsValue().back();
+
+    const std::size_t rank = outputMap.getNumDims();
+
+    llvm::BitVector mask(rank, false);
+    for (std::size_t d = 0; d < rank; ++d) {
+      mask[d] = outputMap.isFunctionOfDim(d);
+    }
+    return mask;
+  }
+
+  /// Calculate full "shard-only" blocking factors (defined as full blocking
+  /// factors divided by blocking factors)
+  static SmallVector<int64_t> getShardBlockFactors(d2m::GenericOp genericOp) {
+    SmallVector<int64_t> r = genericOp.getFullBlockFactors();
+    SmallVector<int64_t> blockFactors = genericOp.getBlockFactorsValue();
+    TT_debug(r.size() == blockFactors.size());
+    for (std::size_t d = 0; d < r.size(); ++d) {
+      TT_debugv(blockFactors[d] > 0, "unexpected block factor {} for dim {}",
+                blockFactors[d], d);
+      r[d] /= blockFactors[d];
+    }
+
+    return r;
   }
 
   static void assignAddressAndAlignment(RewriterBase &rewriter,
@@ -1845,9 +2028,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         return {{value, type, chain}};
       }
 
-      if (auto op = llvm::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
-        value = op.getInput();
-      } else if (auto op = llvm::dyn_cast<d2m::CompositeViewOp>(definingOp)) {
+      if (auto op = llvm::dyn_cast<d2m::CompositeViewOp>(definingOp)) {
         // Recurse into each input of the composite view to collect all the
         // chains & roots. Prefix each child chain with the current chain to
         // preserve per-root context.
@@ -1867,6 +2048,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           }
         }
         return allRoots;
+      }
+
+      if (auto op = llvm::dyn_cast_or_null<d2m::ViewOpInterface>(definingOp)) {
+        value = op.getInput();
       } else if (auto op =
                      llvm::dyn_cast<d2m::CreateGlobalSemaphoreOp>(definingOp)) {
         value = op.getInput();
@@ -1897,6 +2082,18 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // A tighter size calculation is possible for memrefs that don't map to
     // CBs which we don't attempt here except to ignore `buffers` multiplier.
     return device.getMemrefSizeBytes(bufferType, 0, false);
+  }
+
+  // Factor out defaults passed into DeviceAttr::getMemrefSizeBytes()
+  // for stream buffer memrefs.
+  static int64_t getStreamBufferSizeBytes(MemRefType bufferType,
+                                          ttcore::DeviceAttr device) {
+    TT_assertv(ttcore::getMemorySpace(bufferType) ==
+                   ttcore::MemorySpace::DeviceL1,
+               "stream buffers must be allocated in L1");
+    // Stream buffers map to CBs and therefore are subject to CB size
+    // alignment requirements (invoke with `pageSize` default of 0).
+    return device.getMemrefSizeBytes(bufferType, 0, true);
   }
 
   /// @return aligned allocation sizes for a `type` buffer for different

@@ -95,14 +95,42 @@ private:
     }
   }
 
+  // Helper function to check if an operand is remote (i.e., implies data
+  // movement). This includes view ops (view_layout) and buffers with
+  // CBLayoutAttr (streaming circular buffers hoisted from the generic).
+  static bool isRemoteOperand(Value operand) {
+    Operation *defOp = operand.getDefiningOp();
+    if (!defOp) {
+      return false;
+    }
+    if (mlir::isa<ViewOpInterface>(defOp)) {
+      return true;
+    }
+    // A buffer with CBLayoutAttr is a streaming CB that requires real
+    // data movement from an external shard.
+    if (auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType())) {
+      auto memspace = ttcore::getMemorySpace(memrefType);
+      if (memspace == ttcore::MemorySpace::DeviceDRAM ||
+          mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /// Find the regular operand index for a CB alloc by tracing through
   /// its remote_load/remote_store memref operand back to the generic's
   /// operands.
+  /// In the case that a load and store both use the same alloc, consider
+  /// the allocation as belonging _to the input operand_.
   static int64_t findRegularOperandIndex(d2m::GenericOp genericOp,
                                          memref::AllocOp allocOp) {
     for (Operation *user : allocOp.getResult().getUsers()) {
       if (auto remoteLoad = mlir::dyn_cast<d2m::RemoteLoadOp>(user)) {
         Value memref = remoteLoad.getMemref();
+        if (!isRemoteOperand(memref)) {
+          continue;
+        }
         for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
           if (genericOp->getOperand(i) == memref) {
             return static_cast<int64_t>(i);
@@ -111,6 +139,9 @@ private:
       }
       if (auto remoteStore = mlir::dyn_cast<d2m::RemoteStoreOp>(user)) {
         Value memref = remoteStore.getMemref();
+        if (!isRemoteOperand(memref)) {
+          continue;
+        }
         for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
           if (genericOp->getOperand(i) == memref) {
             return static_cast<int64_t>(i);
