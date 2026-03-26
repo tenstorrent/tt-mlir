@@ -17,7 +17,6 @@ library — callers can register callbacks and observe TTNN binary execution.
 | `tools/chisel/chisel/context.py` | `ChiselContext` singleton — central orchestrator |
 | `tools/chisel/chisel/callbacks.py` | `chisel_pre_op_callback`, `chisel_post_op_callback` |
 | `tools/chisel/chisel/utils.py` | Location parsing, dtype maps, runtime tensor conversion |
-| `tools/chisel/chisel/metrics.py` | PCC, absolute error, relative error computation |
 
 ### Modified Files
 
@@ -43,15 +42,23 @@ Consolidated utility module with three concerns:
 - `get_torch_tensor(tensor: RtTensor) -> torch.Tensor` — convert runtime tensor to PyTorch
 - `debug_wrap(*, debug: bool = False)` — decorator factory for pdb integration
 
-### `metrics.py`
+### Metrics — imported from `tools/golden/metrics.py`
 
-Pure PyTorch comparison metrics (no MLIR imports):
+Chisel does **not** have a local `metrics.py`. All comparison functions are
+imported from the unified `golden.metrics` module (created in PR 0c):
 
-- `_to_common_shape(x: Tensor, y: Tensor) -> Tuple[Tensor, Tensor]` — align
-  shapes via squeeze/broadcast/permute/flatten for minor layout differences
-- `compute_pcc(golden: Tensor, device: Tensor) -> float` — Pearson Correlation Coefficient
-- `compute_abs_err(golden: Tensor, device: Tensor) -> float` — maximum absolute difference
-- `compute_rel_err(golden: Tensor, device: Tensor) -> float` — maximum relative error
+```python
+from golden.metrics import compute_pcc, compute_atol, compute_rtol, align_shapes
+```
+
+This module provides:
+- `align_shapes(golden, calculated)` — shape alignment via squeeze/broadcast/permute/flatten
+- `compute_pcc(golden, calculated)` — Pearson Correlation Coefficient (pure torch)
+- `compute_atol(golden, calculated)` — maximum absolute difference
+- `compute_rtol(golden, calculated)` — maximum relative error
+- `compute_metrics(golden, calculated)` — full comparison dict (pcc, atol, rtol, allclose, mae, rmse, cosine_similarity)
+
+See [PR 0c](pr0c_unified_metrics.md) for the full API and implementation details.
 
 ### Porting Notes for `utils.py`
 
@@ -67,16 +74,6 @@ Pure PyTorch comparison metrics (no MLIR imports):
 
 **From `runtime/tools/chisel/chisel/utils/debug.py`:**
 - **Port as-is:** `debug_wrap()` decorator
-
-### Porting Notes for `metrics.py`
-
-**From `runtime/tools/chisel/chisel/utils/metrics.py`:**
-- **Port with renames:** The old functions use `ttir_result`/`ttnn_result` parameter
-  names. Rename to `golden`/`device` since both are now TTNN-level tensors.
-- `_to_common_shape()` — port as-is, handles shape alignment for comparison
-- `compute_pcc()` — port as-is, rename params
-- `compute_abs_err()` — port as-is, rename params
-- `compute_rel_err()` — port as-is, rename params
 
 ### `context.py`
 
@@ -230,19 +227,10 @@ The new design separates callbacks into their own module because:
 **Test dependencies:** `torch`, `ttrt.runtime` (or mocks). Tested here alongside
 runtime because these utilities need runtime types to exercise meaningfully.
 
-### `test_metrics.py`
-- `test_pcc_identical_tensors()` — PCC of identical tensors is 1.0
-- `test_pcc_negated_tensors()` — PCC of negated tensors is -1.0
-- `test_pcc_orthogonal_tensors()` — PCC of orthogonal tensors is ~0.0
-- `test_abs_err_identical()` — absolute error of identical tensors is 0.0
-- `test_abs_err_known_diff()` — `torch.tensor([1.0])` vs `torch.tensor([2.0])` yields 1.0
-- `test_rel_err_identical()` — relative error of identical tensors is 0.0
-- `test_to_common_shape_broadcast()` — `(1, 4)` vs `(4,)` shapes are aligned correctly
-- `test_edge_cases()` — NaN, Inf, empty tensors, scalar tensors
-
-**Test dependencies:** Only `torch` — no MLIR or hardware needed.
-
 ### `test_context.py`
+
+> **Note:** Metrics tests live in `test/python/golden/test_metrics.py` and are
+> covered by PR 0c. No metrics tests in this PR.
 
 **Singleton lifecycle tests (no hardware needed):**
 - `test_singleton_not_initialized()` — `get_instance()` raises `RuntimeError`
@@ -278,3 +266,6 @@ No hardware or MLIR needed for callback delegation tests.
 - **PR 0a** — DebugHooks refactor must land before this PR. This is where
   Python callbacks get registered and invoked via `DebugHooks.get()`. Without
   the fix, callback copies cause segfaults when called from tt-xla without GIL.
+- **PR 0c** — Unified metrics in `tools/golden/metrics.py`. This PR's
+  `context.py` imports `compute_pcc`, `compute_atol`, `compute_rtol` from
+  `golden.metrics` instead of a local `metrics.py`.
