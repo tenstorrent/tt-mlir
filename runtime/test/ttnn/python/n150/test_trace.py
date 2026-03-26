@@ -10,7 +10,6 @@ import ttrt
 import ttrt.runtime
 from ..utils import (
     DeviceContext,
-    ProgramTestConfig,
     ProgramTestRunner,
     assert_pcc,
     get_torch_output_container,
@@ -29,14 +28,11 @@ def test_trace_matmul_multiply_no_consteval(num_loops, trace_region_size):
     )
     binary = load_binary(binary_path)
 
-    test_config = ProgramTestConfig(
-        name="matmul_multiply",
-        expected_num_inputs=3,
+    test_runner = ProgramTestRunner(
+        binary,
+        0,
         compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) * inputs[2]),
-        description="Matmul multiply trace test",
     )
-
-    test_runner = ProgramTestRunner(test_config, binary, 0)
 
     debug_stats = ttrt.runtime.DebugStats.get()
 
@@ -78,22 +74,17 @@ def test_trace_memory_overwrite_multi_graph(trace_region_size):
     )
     first_binary = load_binary(binary_path)
 
-    first_bin_config = ProgramTestConfig(
-        name="first_graph",
-        expected_num_inputs=3,
-        compute_golden=None,
-        description="Graph whose trace replay can corrupt victim memory",
+    first_bin_runner = ProgramTestRunner(
+        first_binary,
+        0,
     )
-    first_bin_runner = ProgramTestRunner(first_bin_config, first_binary, 0)
 
     victim_binary = load_binary(binary_path)
-    victim_config = ProgramTestConfig(
-        name="victim",
-        expected_num_inputs=3,
+    victim_runner = ProgramTestRunner(
+        victim_binary,
+        0,
         compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) * inputs[2]),
-        description="Graph whose parameters can get corrupted by trace replay",
     )
-    victim_runner = ProgramTestRunner(victim_config, victim_binary, 0)
 
     debug_stats = ttrt.runtime.DebugStats.get()
 
@@ -160,14 +151,12 @@ def test_trace_matmul_multiply_with_consteval(num_loops, trace_region_size):
         FLATBUFFER_BASE_PATH, "matmul_multiply_consteval.mlir.tmp.ttnn"
     )
     binary = load_binary(binary_path)
-    test_config = ProgramTestConfig(
-        name="matmul_multiply",
-        expected_num_inputs=3,
-        compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) * inputs[2]),
-        description="Matmul multiply trace test",
-    )
 
-    test_runner = ProgramTestRunner(test_config, binary, 0)
+    test_runner = ProgramTestRunner(
+        binary,
+        0,
+        compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) * inputs[2]),
+    )
     debug_stats = ttrt.runtime.DebugStats.get()
 
     with DeviceContext(
@@ -241,14 +230,12 @@ def test_mnist_linear_logits(request, num_loops, trace_region_size):
         FLATBUFFER_BASE_PATH, "mnist_linear_logits.mlir.tmp.ttnn"
     )
     binary = load_binary(binary_path)
-    test_config = ProgramTestConfig(
-        name="mnist_linear_logits",
-        expected_num_inputs=5,
-        compute_golden=mnist_linear_logits_golden,
-        description="mnist linear logits trace test",
-    )
 
-    test_runner = ProgramTestRunner(test_config, binary, 0)
+    test_runner = ProgramTestRunner(
+        binary,
+        0,
+        compute_golden=mnist_linear_logits_golden,
+    )
 
     debug_stats = ttrt.runtime.DebugStats.get()
 

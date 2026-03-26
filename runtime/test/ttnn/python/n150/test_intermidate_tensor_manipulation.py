@@ -11,7 +11,6 @@ from ttrt.common.util import *
 from ..utils import (
     load_binary,
     DeviceContext,
-    ProgramTestConfig,
     ProgramTestRunner,
     assert_pcc,
     get_torch_output_container,
@@ -91,11 +90,10 @@ def test_intermidate_tensor_manipulation():
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "linear.mlir.tmp.ttnn")
     binary = load_binary(binary_path)
 
-    test_config = ProgramTestConfig(
-        name="linear", expected_num_inputs=4, compute_golden=None
+    test_runner = ProgramTestRunner(
+        binary,
+        0,
     )
-
-    test_runner = ProgramTestRunner(test_config, binary, 0)
     rand_inputs_torch = get_torch_inputs(test_runner.program)
     inputs_torch = [torch.ones_like(input) for input in rand_inputs_torch]
 

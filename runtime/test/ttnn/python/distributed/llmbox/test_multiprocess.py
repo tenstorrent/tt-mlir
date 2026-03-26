@@ -15,7 +15,6 @@ from ...utils import (
     TT_METAL_RUNTIME_ROOT_EXTERNAL,
     Storage,
     DeviceContext,
-    ProgramTestConfig,
     ProgramTestRunner,
     subprocess_get_system_descriptor,
     get_runtime_tensor_from_torch,
@@ -246,13 +245,6 @@ def test_flatbuffer_execution(request, num_loops, mesh_shape):
     )
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
 
-    test_config = ProgramTestConfig(
-        name="simple_add_distributed",
-        expected_num_inputs=2,
-        compute_golden=lambda inputs: (inputs[0] + inputs[1]),
-        description="Simple add distributed test",
-    )
-
     logger = Logger()
     file_manager = FileManager(logger)
     binary = Binary(logger, file_manager, binary_path)
@@ -264,7 +256,11 @@ def test_flatbuffer_execution(request, num_loops, mesh_shape):
         curr_system_desc["system_desc"] == binary_system_desc
     ), "System descriptor mismatch"
 
-    test_runner = ProgramTestRunner(test_config, binary, 0)
+    test_runner = ProgramTestRunner(
+        binary,
+        0,
+        compute_golden=lambda inputs: (inputs[0] + inputs[1]),
+    )
 
     launch_distributed_runtime()
 
@@ -301,13 +297,6 @@ def test_flatbuffer_execution_dp(request, num_loops):
 
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
 
-    test_config = ProgramTestConfig(
-        name="simple_add_dp",
-        expected_num_inputs=2,
-        compute_golden=lambda inputs: (inputs[0] + inputs[1]),
-        description="Simple add distributed data parallel test",
-    )
-
     logger = Logger()
     file_manager = FileManager(logger)
     binary = Binary(logger, file_manager, binary_path)
@@ -319,7 +308,11 @@ def test_flatbuffer_execution_dp(request, num_loops):
         curr_system_desc["system_desc"] == binary_system_desc
     ), "System descriptor mismatch"
 
-    test_runner = ProgramTestRunner(test_config, binary, 0)
+    test_runner = ProgramTestRunner(
+        binary,
+        0,
+        compute_golden=lambda inputs: (inputs[0] + inputs[1]),
+    )
 
     launch_distributed_runtime()
 

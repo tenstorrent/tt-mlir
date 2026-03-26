@@ -9,7 +9,6 @@ import torch
 from ttrt.common.query import Query
 from ttrt.common.util import *
 from enum import Enum
-from dataclasses import dataclass
 from typing import Callable, List, Any
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
@@ -46,26 +45,21 @@ def load_binary(binary_path):
     return binary
 
 
-@dataclass
-class ProgramTestConfig:
-    name: str
-    expected_num_inputs: int
-    compute_golden: Callable[[List[Any]], Any]
-    description: str = ""
-
-
 class ProgramTestRunner:
-    def __init__(self, config: ProgramTestConfig, binary: Binary, program_index: int):
-
+    def __init__(
+        self,
+        binary: Binary,
+        program_index: int,
+        compute_golden: Callable[[List[Any]], Any] = None,
+    ):
         program = binary.get_program(program_index)
         assert not program.is_private()
-        assert program.num_inputs() == config.expected_num_inputs
         assert program.num_outputs() == 1, "Currently only single output is supported"
 
-        self.config = config
         self.binary = binary
         self.program = program
         self.program_index = program_index
+        self.compute_golden = compute_golden
 
     def get_inputs_and_golden(self, device, borrow=True):
         inputs_torch = get_torch_inputs(self.program)
@@ -88,8 +82,8 @@ class ProgramTestRunner:
         ]
 
         golden = None
-        if self.config.compute_golden:
-            golden = self.config.compute_golden(inputs_torch)
+        if self.compute_golden:
+            golden = self.compute_golden(inputs_torch)
 
         # Returning inputs_torch to prevent Python GC from freeing memory of the Torch tensors,
         # which can lead to invalid memory access if the inputs are expected in the host memory.

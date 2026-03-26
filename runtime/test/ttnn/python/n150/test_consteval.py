@@ -11,7 +11,6 @@ from ttrt.common.util import *
 from ..utils import (
     load_binary,
     DeviceContext,
-    ProgramTestConfig,
     ProgramTestRunner,
     get_flatbuffer_base_path,
 )
@@ -24,15 +23,12 @@ def test_consteval_add_mul_subtract(num_loops):
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "binary_ops.mlir.tmp.ttnn")
     binary = load_binary(binary_path)
 
-    test_config = ProgramTestConfig(
-        name="binary_ops_consteval",
-        expected_num_inputs=4,
+    test_runner = ProgramTestRunner(
+        binary,
+        0,
         compute_golden=lambda inputs: (inputs[0] + inputs[1])
         * ((inputs[1] + inputs[2]) - (inputs[2] + inputs[3])),
-        description="Binary ops consteval test",
     )
-
-    test_runner = ProgramTestRunner(test_config, binary, 0)
 
     debug_stats = ttrt.runtime.DebugStats.get()
 
@@ -72,12 +68,8 @@ def test_consteval_global_cache_across_binaries(num_loops):
     """Test that GlobalTensorCache is shared across different Binary instances."""
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "binary_ops.mlir.tmp.ttnn")
 
-    test_config = ProgramTestConfig(
-        name="binary_ops_consteval",
-        expected_num_inputs=4,
-        compute_golden=lambda inputs: (inputs[0] + inputs[1])
-        * ((inputs[1] + inputs[2]) - (inputs[2] + inputs[3])),
-        description="Binary ops consteval test - global cache across binaries",
+    golden_fn = lambda inputs: (inputs[0] + inputs[1]) * (
+        (inputs[1] + inputs[2]) - (inputs[2] + inputs[3])
     )
 
     debug_stats = ttrt.runtime.DebugStats.get()
@@ -86,7 +78,11 @@ def test_consteval_global_cache_across_binaries(num_loops):
     with DeviceContext(mesh_shape=[1, 1]) as device:
         # Create first binary and run it
         binary1 = load_binary(binary_path)
-        test_runner1 = ProgramTestRunner(test_config, binary1, 0)
+        test_runner1 = ProgramTestRunner(
+            binary1,
+            0,
+            compute_golden=golden_fn,
+        )
 
         inputs1, golden1, _ = test_runner1.get_inputs_and_golden(device)
 
@@ -102,7 +98,11 @@ def test_consteval_global_cache_across_binaries(num_loops):
 
         # Create SECOND binary instance from same flatbuffer
         binary2 = load_binary(binary_path)
-        test_runner2 = ProgramTestRunner(test_config, binary2, 0)
+        test_runner2 = ProgramTestRunner(
+            binary2,
+            0,
+            compute_golden=golden_fn,
+        )
 
         # Execute with second binary - should be cache HIT (global cache shared)
         test_runner2.run_program_and_compare_golden(device, inputs1, golden1)

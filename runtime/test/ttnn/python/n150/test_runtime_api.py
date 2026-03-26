@@ -11,7 +11,6 @@ from ttrt.common.util import *
 from ..utils import (
     load_binary,
     DeviceContext,
-    ProgramTestConfig,
     ProgramTestRunner,
     assert_pcc,
     get_runtime_tensor_from_torch,
@@ -288,15 +287,12 @@ def test_memory_logging(capfd, log_level):
     ttrt.runtime.set_current_device_runtime(ttrt.runtime.DeviceRuntime.TTNN)
     ttrt.runtime.set_memory_log_level(log_level)
 
-    test_config = ProgramTestConfig(
-        name="binary_ops_consteval",
-        expected_num_inputs=4,
+    test_runner = ProgramTestRunner(
+        binary,
+        0,
         compute_golden=lambda inputs: (inputs[0] + inputs[1])
         * ((inputs[1] + inputs[2]) - (inputs[2] + inputs[3])),
-        description="Binary ops memory logging test",
     )
-
-    test_runner = ProgramTestRunner(test_config, binary, 0)
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
         inputs_runtime_with_layout, _, _ = test_runner.get_inputs_and_golden(device)

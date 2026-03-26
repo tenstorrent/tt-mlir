@@ -11,7 +11,6 @@ from ttrt.common.util import *
 from ...utils import (
     TT_MLIR_HOME,
     DeviceContext,
-    ProgramTestConfig,
     ProgramTestRunner,
     subprocess_get_system_descriptor,
     get_torch_output_container,
@@ -53,14 +52,6 @@ def test_flatbuffer_execution(request, num_loops):
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "binary_ops.mlir.tmp.ttnn")
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
 
-    test_config = ProgramTestConfig(
-        name="binary_ops_distributed",
-        expected_num_inputs=4,
-        compute_golden=lambda inputs: (inputs[0] + inputs[1])
-        * ((inputs[1] + inputs[2]) - (inputs[2] + inputs[3])),
-        description="Binary ops distributed test",
-    )
-
     logger = Logger()
     file_manager = FileManager(logger)
     binary = Binary(logger, file_manager, binary_path)
@@ -72,7 +63,12 @@ def test_flatbuffer_execution(request, num_loops):
         curr_system_desc["system_desc"] == binary_system_desc
     ), "System descriptor mismatch"
 
-    test_runner = ProgramTestRunner(test_config, binary, 0)
+    test_runner = ProgramTestRunner(
+        binary,
+        0,
+        compute_golden=lambda inputs: (inputs[0] + inputs[1])
+        * ((inputs[1] + inputs[2]) - (inputs[2] + inputs[3])),
+    )
 
     launch_distributed_runtime()
 

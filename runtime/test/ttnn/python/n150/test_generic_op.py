@@ -7,7 +7,6 @@ from ttrt.common.util import *
 from ..utils import (
     load_binary,
     DeviceContext,
-    ProgramTestConfig,
     ProgramTestRunner,
     get_flatbuffer_base_path,
 )
@@ -19,14 +18,11 @@ def test_generic_op_abs():
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "generic_op.mlir.tmp.ttnn")
     binary = load_binary(binary_path)
 
-    test_config = ProgramTestConfig(
-        name="generic_op_abs",
-        expected_num_inputs=1,
+    test_runner = ProgramTestRunner(
+        binary,
+        0,
         compute_golden=lambda inputs: (abs(inputs[0])),
-        description="Generic op abs test",
     )
-
-    test_runner = ProgramTestRunner(test_config, binary, 0)
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
         inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
