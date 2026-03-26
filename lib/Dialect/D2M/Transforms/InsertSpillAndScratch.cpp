@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -14,7 +14,7 @@
 #include "mlir/IR/PatternMatch.h"
 
 namespace mlir::tt::d2m {
-#define GEN_PASS_DEF_D2MSPILLANDSCRATCH
+#define GEN_PASS_DEF_D2MINSERTSPILLANDSCRATCH
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
@@ -483,11 +483,11 @@ static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
 }
 
 /// Main pass implementation
-class D2MSpillAndScratch
-    : public impl::D2MSpillAndScratchBase<D2MSpillAndScratch> {
+class D2MInsertSpillAndScratch
+    : public impl::D2MInsertSpillAndScratchBase<D2MInsertSpillAndScratch> {
 public:
-  using impl::D2MSpillAndScratchBase<
-      D2MSpillAndScratch>::D2MSpillAndScratchBase;
+  using impl::D2MInsertSpillAndScratchBase<
+      D2MInsertSpillAndScratch>::D2MInsertSpillAndScratchBase;
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();

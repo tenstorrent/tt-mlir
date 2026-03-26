@@ -134,7 +134,14 @@ static void ensureDominatesInsertionPoint(OpBuilder &rewriter, Value value) {
 
   Block *insertBlock = rewriter.getInsertionBlock();
   if (defOp->getBlock() != insertBlock) {
-    return; // Different block - assume dominance is correct.
+    // Two cases here:
+    // 1. defOp is in a parent block -> so it dominates the current block
+    // 2. defOp is in an actual non-dominating block, but this can't happen
+    // since the op we are pulling the value from already uses the value (in the
+    // same block), so the IR is already invalid if this is the case. In either
+    // case, we can return since we already know the value dominates the
+    // insertion point.
+    return;
   }
 
   Block::iterator ip = rewriter.getInsertionPoint();

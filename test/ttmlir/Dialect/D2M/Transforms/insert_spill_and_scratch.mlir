@@ -1,10 +1,10 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --d2m-spill-and-scratch %s | FileCheck %s
+// RUN: ttmlir-opt --d2m-insert-spill-and-scratch %s | FileCheck %s
 
-// Tests for D2MSpillAndScratch pass.
+// Tests for D2MInsertSpillAndScratch pass.
 // The pass replaces intermediate memref.alloc buffers that flow from one
 // scratch_space_loop nest to another with d2m.scratch_allocate ops, and
 // rewrites the corresponding affine.store/affine.load ops to use the scratch

@@ -132,7 +132,7 @@ def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir:
   ];
 }
 
-def D2MSpillAndScratch : Pass<"d2m-spill-and-scratch", "::mlir::ModuleOp"> {
+def D2MInsertSpillAndScratch : Pass<"d2m-insert-spill-and-scratch", "::mlir::ModuleOp"> {
   let summary = "Replace intermediate allocations with scratch buffers for fusion.";
   let description = [{
     This pass transforms compute regions with multiple `d2m.scratch_space_loop` loop

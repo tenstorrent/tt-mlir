@@ -73,13 +73,6 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
     return failure();
   }
 
-  // Skip if already in explicit datamovement form: indexing_maps is empty,
-  // so the indexing-map manipulation below would be incorrect. Scratch inputs
-  // are only added to generics that are still in implicit blocked form.
-  if (genericOp.isExplicitDatamovementForm()) {
-    return failure();
-  }
-
   // Only add scratch to fused generics with multiple linalg.generic ops,
   // which indicates elementwise fusion produced a multi-op kernel whose
   // intermediate results must be spilled to L1.

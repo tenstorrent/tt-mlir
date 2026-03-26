@@ -943,7 +943,8 @@ public:
               gOp, potentialStore, copyInfos, dstSlice,
               outermostInnerComputeLoop);
         } else if (auto scratchStore = mlir::dyn_cast<memref::StoreOp>(user)) {
-          // Collect DST->scratch stores (scratch spills from SpillAndScratch).
+          // Collect DST->scratch stores (scratch spills from
+          // InsertSpillAndScratch).
           assert(!dstSliceAllocationState.didStoreToDst() &&
                  "Multiple stores from last op to dst not supported");
 
@@ -1257,8 +1258,8 @@ public:
           storeAccessRewriter);
 
       // Note: scratch stores are now affine::AffineStoreOp (after
-      // SpillAndScratch converts scf.for to affine.for), so they go through
-      // the regular stores path above with isScratchAccess detection.
+      // InsertSpillAndScratch converts scf.for to affine.for), so they go
+      // through the regular stores path above with isScratchAccess detection.
     }
   }
 

@@ -191,7 +191,7 @@ void createTTIRToTTMetalMiddleendPipeline(
     ;
   }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
-  pm.addPass(d2m::createD2MSpillAndScratch());
+  pm.addPass(d2m::createD2MInsertSpillAndScratch());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(d2m::createD2MLowerScratchAllocate());
   pm.addPass(mlir::createCanonicalizerPass());
