@@ -350,8 +350,8 @@ module attributes {ttcore.system_desc = #system_desc} {
           d2m.remote_load %buffer1 %stream1[%0, %1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
           %bufferOut = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
 
-          linalg.generic {indexing_maps = [#map, #map, #map], iterator_types = ["parallel", "parallel"]} 
-            ins(%buffer0, %buffer1 : memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) 
+          linalg.generic {indexing_maps = [#map, #map, #map], iterator_types = ["parallel", "parallel"]}
+            ins(%buffer0, %buffer1 : memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>)
             outs(%bufferOut : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
           ^bb0(%in1_val: !ttcore.tile<32x32, f32>, %in2_val: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %add = "d2m.tile_add"(%in1_val, %in2_val) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
@@ -381,7 +381,7 @@ module attributes {ttcore.system_desc = #system_desc} {
       %core1 = d2m.core_index(1) : index
       %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
       d2m.remote_load %buffer %stream_in[%core0, %core1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-      d2m.remote_store %stream_out[%core0, %core1] %buffer 
+      d2m.remote_store %stream_out[%core0, %core1] %buffer
       : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
     }
     return

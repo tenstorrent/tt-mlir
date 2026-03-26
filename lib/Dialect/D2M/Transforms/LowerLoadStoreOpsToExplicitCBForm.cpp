@@ -77,9 +77,8 @@ static ReserveOp findReserveOp(Value value) {
 // One of the operands is always a local CB, so this load-store pair can
 // always be simplified to either a load or a store to a local CB, eliminating
 // the other op and avoiding a redundant copy.
-static void
-simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter, CBCache &cache,
-                       PortCounter &portCounters) {
+static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
+                                   CBCache &cache, PortCounter &portCounters) {
   SmallVector<std::pair<RemoteLoadOp, RemoteStoreOp>> loadStorePairsToSimplify;
   moduleOp->walk([&](GenericOp generic) {
     // Collect all candidate load-store pairs in the generic region
@@ -225,56 +224,6 @@ static void ensurePopForWait(IRRewriter &rewriter, WaitOp waitOp) {
   rewriter.create<PopOp>(waitOp.getLoc(), waitOp.getCb());
 }
 
-[[maybe_unused]] static LogicalResult verifyRemoteLoadLocalBufferDominance(ModuleOp moduleOp) {
-  DominanceInfo dominanceInfo(moduleOp);
-  LogicalResult result = success();
-
-  moduleOp->walk([&](RemoteLoadOp remoteLoadOp) {
-    if (failed(result) || !remoteLoadOp.isImplicitForm()) {
-      return;
-    }
-
-    Value localBuffer = remoteLoadOp.getLocalBuffer();
-    if (!localBuffer) {
-      remoteLoadOp.emitOpError(
-          "expected implicit remote_load to have a local buffer operand");
-      result = failure();
-      return;
-    }
-
-    Operation *remoteLoadOperation = remoteLoadOp.getOperation();
-    for (Operation *user : localBuffer.getUsers()) {
-      if (user == remoteLoadOperation) {
-        continue;
-      }
-      // Ignore dealloc users, which are cleanup-only and do not consume the
-      // loaded value semantics enforced by this dominance check.
-      if (mlir::isa<memref::DeallocOp>(user)) {
-        continue;
-      }
-
-      bool isDominated = false;
-      if (user->getBlock() == remoteLoadOperation->getBlock()) {
-        isDominated = remoteLoadOperation->isBeforeInBlock(user);
-      } else {
-        isDominated =
-            dominanceInfo.properlyDominates(remoteLoadOperation, user);
-      }
-
-      if (isDominated) {
-        continue;
-      }
-
-      remoteLoadOp.emitOpError(
-          "requires local buffer users to be dominated by remote_load");
-      user->emitError("user is not dominated by associated remote_load");
-      result = failure();
-      return;
-    }
-  });
-
-  return result;
-}
 
 static LogicalResult verifyNoPreExistingExplicitRemoteOps(ModuleOp moduleOp) {
   LogicalResult result = success();
@@ -472,12 +421,6 @@ public:
       signalPassFailure();
       return;
     }
-
-    // TODO: disable for now; lots of false positives
-    //if (failed(verifyRemoteLoadLocalBufferDominance(moduleOp))) {
-    //  signalPassFailure();
-    //  return;
-    //}
 
     rewriteRemoteOpsToExplicitCB(moduleOp, rewriter, cbCache, portCounters);
   }
