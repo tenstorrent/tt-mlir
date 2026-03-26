@@ -25,7 +25,6 @@ def test_consteval_add_mul_subtract(num_loops):
 
     test_runner = ProgramTestRunner(
         binary,
-        0,
         compute_golden=lambda inputs: (inputs[0] + inputs[1])
         * ((inputs[1] + inputs[2]) - (inputs[2] + inputs[3])),
     )
@@ -80,7 +79,6 @@ def test_consteval_global_cache_across_binaries(num_loops):
         binary1 = load_binary(binary_path)
         test_runner1 = ProgramTestRunner(
             binary1,
-            0,
             compute_golden=golden_fn,
         )
 
@@ -100,7 +98,6 @@ def test_consteval_global_cache_across_binaries(num_loops):
         binary2 = load_binary(binary_path)
         test_runner2 = ProgramTestRunner(
             binary2,
-            0,
             compute_golden=golden_fn,
         )
 

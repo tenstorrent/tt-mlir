@@ -30,7 +30,6 @@ def test_trace_matmul_multiply_no_consteval(num_loops, trace_region_size):
 
     test_runner = ProgramTestRunner(
         binary,
-        0,
         compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) * inputs[2]),
     )
 
@@ -76,13 +75,11 @@ def test_trace_memory_overwrite_multi_graph(trace_region_size):
 
     first_bin_runner = ProgramTestRunner(
         first_binary,
-        0,
     )
 
     victim_binary = load_binary(binary_path)
     victim_runner = ProgramTestRunner(
         victim_binary,
-        0,
         compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) * inputs[2]),
     )
 
@@ -154,7 +151,6 @@ def test_trace_matmul_multiply_with_consteval(num_loops, trace_region_size):
 
     test_runner = ProgramTestRunner(
         binary,
-        0,
         compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) * inputs[2]),
     )
     debug_stats = ttrt.runtime.DebugStats.get()
@@ -233,7 +229,6 @@ def test_mnist_linear_logits(request, num_loops, trace_region_size):
 
     test_runner = ProgramTestRunner(
         binary,
-        0,
         compute_golden=mnist_linear_logits_golden,
     )
 

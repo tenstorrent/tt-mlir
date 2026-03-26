@@ -258,7 +258,6 @@ def test_flatbuffer_execution(request, num_loops, mesh_shape):
 
     test_runner = ProgramTestRunner(
         binary,
-        0,
         compute_golden=lambda inputs: (inputs[0] + inputs[1]),
     )
 
@@ -310,7 +309,6 @@ def test_flatbuffer_execution_dp(request, num_loops):
 
     test_runner = ProgramTestRunner(
         binary,
-        0,
         compute_golden=lambda inputs: (inputs[0] + inputs[1]),
     )
 

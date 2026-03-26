@@ -11,6 +11,7 @@ from ttrt.common.util import *
 from enum import Enum
 from typing import Callable, List, Any
 
+
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 TT_METAL_RUNTIME_ROOT_EXTERNAL = os.environ.get("TT_METAL_RUNTIME_ROOT_EXTERNAL", "")
 
@@ -49,7 +50,7 @@ class ProgramTestRunner:
     def __init__(
         self,
         binary: Binary,
-        program_index: int,
+        program_index: int = 0,
         compute_golden: Callable[[List[Any]], Any] = None,
     ):
         program = binary.get_program(program_index)
@@ -202,10 +203,6 @@ def get_torch_output_container(program):
         ),
     )
     return torch_result_container
-
-
-def assert_tensors_match(tensor1, tensor2):
-    assert torch.allclose(tensor1, tensor2)
 
 
 def assert_pcc(x, y, threshold=0.99):

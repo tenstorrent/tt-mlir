@@ -289,7 +289,6 @@ def test_memory_logging(capfd, log_level):
 
     test_runner = ProgramTestRunner(
         binary,
-        0,
         compute_golden=lambda inputs: (inputs[0] + inputs[1])
         * ((inputs[1] + inputs[2]) - (inputs[2] + inputs[3])),
     )

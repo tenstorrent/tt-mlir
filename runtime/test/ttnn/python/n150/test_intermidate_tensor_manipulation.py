@@ -92,7 +92,6 @@ def test_intermidate_tensor_manipulation():
 
     test_runner = ProgramTestRunner(
         binary,
-        0,
     )
     rand_inputs_torch = get_torch_inputs(test_runner.program)
     inputs_torch = [torch.ones_like(input) for input in rand_inputs_torch]

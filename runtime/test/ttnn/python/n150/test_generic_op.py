@@ -20,7 +20,6 @@ def test_generic_op_abs():
 
     test_runner = ProgramTestRunner(
         binary,
-        0,
         compute_golden=lambda inputs: (abs(inputs[0])),
     )
 
