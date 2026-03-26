@@ -13,11 +13,10 @@ set(PYTHON_RUNNER_LIBRARY_NAME tt-alchemist-python-runner)
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.Embed)
 
 find_package(nanobind CONFIG REQUIRED)
-nanobind_build_library(nanobind-static)
+nanobind_build_library(nanobind-static-python-runner)
 
 add_library(${PYTHON_RUNNER_LIBRARY_NAME}
   SHARED
-  EXCLUDE_FROM_ALL
   python_runner.cpp
 )
 
@@ -41,7 +40,7 @@ add_dependencies(${PYTHON_RUNNER_LIBRARY_NAME} tt-metal)
 target_link_libraries(${PYTHON_RUNNER_LIBRARY_NAME}
   PUBLIC
     TTMLIRRuntime
-    nanobind-static
+    nanobind-static-python-runner
   PRIVATE
     Python::Python
     ${TTMETAL_LIBRARY_PATH}
