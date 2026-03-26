@@ -17,15 +17,15 @@
 
 module {
   // CHECK-MAX-LABEL: func.func @matmul_auto_vs_max()
-  // CHECK-MAX: memref.alloc() : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 2>, #l1>
-  // CHECK-MAX: memref.alloc() : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 2>, #l1>
+  // CHECK-MAX: memref.alloc() {{.*}} : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>
+  // CHECK-MAX: memref.alloc() {{.*}} : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>
   // CHECK-MAX: d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>
   // CHECK-AUTO-LABEL: func.func @matmul_auto_vs_max()
-  // CHECK-AUTO: d2m.view_layout
-  // CHECK-AUTO: d2m.view_layout
-  // CHECK-AUTO: memref.alloc() : memref<1x1x16x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>
-  // CHECK-AUTO: memref.alloc() : memref<1x1x1x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 2>, #l1>
+  // CHECK-AUTO: d2m.view_layout {{.*}} -> memref<1x16x16x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+  // CHECK-AUTO: d2m.view_layout {{.*}} -> memref<16x1x1x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>
   // CHECK-AUTO: d2m.generic {block_factors = [1, 1, 16], grid = #ttcore.grid<1x1>
+  // CHECK-AUTO: memref.alloc() {{.*}} : memref<16x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
+  // CHECK-AUTO: memref.alloc() {{.*}} : memref<1x16x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<65536x4096, 2>, #l1>
   func.func @matmul_auto_vs_max() -> memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1> {
     %lhs = memref.alloc() : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>
     %rhs = memref.alloc() : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>
@@ -59,9 +59,11 @@ module {
   }
 
   // CHECK-AUTO-LABEL: func.func @auto_clamps_reduction_factor_at_four_tiles()
-  // CHECK-AUTO: memref.alloc() : memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 2>, #l1>
-  // CHECK-AUTO: memref.alloc() : memref<1x1x4x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>
+  // CHECK-AUTO: d2m.view_layout {{.*}} -> memref<1x2x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+  // CHECK-AUTO: d2m.view_layout {{.*}} -> memref<2x1x4x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
   // CHECK-AUTO: d2m.generic {block_factors = [1, 1, 2], grid = #ttcore.grid<1x1>
+  // CHECK-AUTO: memref.alloc() {{.*}} : memref<1x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+  // CHECK-AUTO: memref.alloc() {{.*}} : memref<4x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
   func.func @auto_clamps_reduction_factor_at_four_tiles() -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> {
     %lhs = memref.alloc() : memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>
     %rhs = memref.alloc() : memref<1x1x8x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x32768, 1>, #l1>

@@ -305,7 +305,7 @@ inline AffineMap canonicalizeBroadcasts(AffineMap map) {
   return AffineMap::get(map.getNumDims(), map.getNumSymbols(), exprs, ctx);
 }
 
-/// Build a ShardLayoutAttr-backed MemRefType from explicit grid and shard
+/// @return a ShardLayoutAttr-backed MemRefType from explicit grid and shard
 /// shapes, suitable for a circular buffer allocation.
 inline MemRefType getCBBufferType(ArrayRef<int64_t> gridShape,
                                   ArrayRef<int64_t> shardShape,
@@ -345,7 +345,7 @@ getGridAndShardExtents(d2m::GenericOp genericOp) {
               concatToVector(genericOp.getInputOutputOperandShardShapes()))};
 }
 
-/// Return a bitmask that indicates which of the dims are "participating"
+/// @return a bitmask that indicates which of the dims are "participating"
 /// (defined as dims that are used by any of the `genericOp`'s output indexing
 /// map expressions).
 inline llvm::BitVector getParticipatingDimMask(d2m::GenericOp genericOp) {
@@ -361,7 +361,7 @@ inline llvm::BitVector getParticipatingDimMask(d2m::GenericOp genericOp) {
   return mask;
 }
 
-/// Calculate full "shard-only" blocking factors (defined as full blocking
+/// @return full "shard-only" blocking factors (defined as full blocking
 /// factors divided by blocking factors).
 inline SmallVector<int64_t> getShardBlockFactors(d2m::GenericOp genericOp) {
   SmallVector<int64_t> r = genericOp.getFullBlockFactors();
