@@ -110,16 +110,10 @@ class D2M_GenericRegionComputeFPUOrSFPUBinary<string mnemonic, list<Trait> trait
     bool supportsTileOrScalarRhs() { return true; }
     bool isFPUBinaryOp() { return true; }
 
-    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-      assert(this->getNumOperands() == 2 && "Binary operation must have 2 operands");
-      auto rhsType = this->getOperand(1).getType();
-      // If RHS is a scalar (not a tile), only load LHS from DST (SFPU path)
-      if (!mlir::isa<::mlir::tt::ttcore::TileType>(rhsType)) {
-        return {0};
-      }
-      // Both operands are tiles - FPU reads directly from CBs, no DST load needed
-      return {};
-    }
+    // Returns the operand indices that need to be loaded from the dst register.
+    // For FPU, we don't load from DST.
+    // For SFPU (either via f32 operands or scalar operands) we load from DST.
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister();
   }];
 }
 
@@ -153,10 +147,10 @@ defvar D2M_TileComputeOpTraitBundle = [
 // Type constraint that accepts either a Tile or a scalar value (float/int)
 def TileOrScalar : AnyTypeOf<[TTCore_Tile, AnyFloat, AnyInteger]>;
 
-def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure]> {
     let summary = "D2M Tile Add Op";
     let description = [{
-        The `tile_add` operation adds two tiles element-wise on the FPU,
+        The `tile_add` operation adds two tiles element-wise on the FPU (or SFPU if one of the operands is a float32),
         or adds a scalar value to each element in the input tile if rhs is a scalar (SFPU path).
     }];
 
@@ -166,10 +160,10 @@ def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure, D
     let hasFolder = 1;
 }
 
-def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure]> {
     let summary = "D2M Tile Sub Op";
     let description = [{
-        The `tile_sub` operation subtracts two tiles element-wise on the FPU,
+        The `tile_sub` operation subtracts two tiles element-wise on the FPU (or SFPU if one of the operands is a float32),
         or subtracts a scalar value from each element in the input tile if rhs is a scalar (SFPU path).
     }];
 
@@ -179,10 +173,10 @@ def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure, D
     let hasFolder = 1;
 }
 
-def D2M_TileMulOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_mul", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileMulOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_mul", [Pure]> {
     let summary = "D2M Tile Mul Op";
     let description = [{
-        The `tile_mul` operation multiplies two tiles element-wise on the FPU,
+        The `tile_mul` operation multiplies two tiles element-wise on the FPU (or SFPU if one of the operands is a float32),
         or multiplies each element in the input tile by a scalar value if rhs is a scalar (SFPU path).
     }];
 
@@ -688,7 +682,7 @@ def D2M_TileReduceMeanOp : D2M_GenericRegionComputeOp<"tile_reduce_mean", D2M_Ti
 }
 
 // TODO(#5968): fusion w/ implicit bcast causes multiple failure scenarios.
-def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast", [D2M_SkipOpEltwiseFusionTrait]> {
   let summary = "D2M Tile Broadcast Op";
   let description = [{
     The `tile_bcast` operation broadcasts a row/col/scalar tile into a full tile.
@@ -954,6 +948,17 @@ def D2M_SetL1AccumulateOp : D2M_GenericRegionOp<"set_l1_accumulate"> {
     let arguments = (ins I32:$enable);
 
     let assemblyFormat = [{ `(` $enable `)` attr-dict }];
+}
+
+def D2M_UnpackStallOnPackOp : D2M_GenericRegionOp<"unpack_stall_on_pack"> {
+  let summary = "Stall UNPACK thread until previous PACK write is committed to L1.";
+  let description = [{
+    Inserted between consecutive linalg.generics in a fused region when
+    the intermediate result is written to L1 by one generic and immediately
+    read by the next, and the usual tile_regs_acquire semwait is not present
+    (single-tile shard path).
+  }];
+  let assemblyFormat = [{ attr-dict }];
 }
 
 def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose", D2M_TileComputeOpTraitBundle> {
