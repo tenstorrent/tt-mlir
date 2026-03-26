@@ -65,9 +65,15 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
         dtype = runtime_dtype_to_torch_dtype(op_output_tensor.get_dtype())
         output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
 
-    op_attrs = tt_runtime.runtime.get_op_attrs(op_context)
+    op_attrs = tt_runtime.runtime.get_op_attrs(op_context, program_context)
+    print(f"Operation attributes: {op_attrs}")
+    new_op_attrs = {}
+    for key, value in op_attrs.items():
+        new_op_attrs[key + "_attr"] = value
+    print(f"New operation attributes: {new_op_attrs}")
+    mlir_type = runtime_dtype_to_mlir_type(op_output_tensor_map[0].get_dtype())
     golden_tensor_torch = golden_fn(
-        *runtime_inputs, *op_attrs, op_output_tensor_map[0].get_dtype()
+        *runtime_inputs, **new_op_attrs, **{"output_type_mlir": mlir_type}
     )
 
     a, b, cal_pcc = get_atol_rtol_pcc(

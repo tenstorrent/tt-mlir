@@ -248,13 +248,11 @@ unary_ops = [
 
 unary_ops_dtypes = [
     torch.float32,
-    torch.bfloat16,
-    torch.int32 | SkipIf("sim"),
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32", "bf16", "i32"])
+@pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(

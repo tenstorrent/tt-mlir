@@ -396,11 +396,15 @@ def unpack_mlir_attr(attr):
 def mlir_type_to_torch_dtype(mlir_type: Type) -> torch.dtype:
     type_str = str(mlir_type)
 
+    print("THIS ONE")
+    print(type_str, mlir_type, F32Type, type(mlir_type), type(F32Type))
+    # mlir_type = type_str
+
     if isinstance(mlir_type, BF16Type) or type_str == "bf16":
         return torch.bfloat16
     elif isinstance(mlir_type, F16Type) or type_str == "f16":
         return torch.float16
-    elif isinstance(mlir_type, F32Type) or type_str == "f32":
+    elif isinstance(mlir_type, F32Type) or type_str == "f32" or mlir_type == F32Type:
         return torch.float32
     elif isinstance(mlir_type, F64Type) or type_str == "f64":
         return torch.float64
@@ -6478,6 +6482,15 @@ def ttnn_repeat_golden(
     return input_tensor.repeat(repeats=repeat_dims).to(output_dtype)
 
 
+def ttnn_reshape_golden(
+    input_tensor: GoldenMapTensor, shape_attr: ArrayAttr, output_type_mlir: Type
+) -> GoldenMapTensor:
+    print(shape_attr, type(shape_attr), type(shape_attr[0]))
+    new_shape = unpack_mlir_attr(shape_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.reshape(input_tensor, new_shape).clone().to(output_dtype)
+
+
 def ttnn_where_golden(
     condition: GoldenMapTensor,
     x: GoldenMapTensor,
@@ -6977,6 +6990,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Tensor manipulation
     ttnn.ConcatOp: ttnn_concat_golden,
     ttnn.RepeatOp: ttnn_repeat_golden,
+    ttnn.ReshapeOp: ttnn_reshape_golden,
     ttnn.RepeatInterleaveOp: ttnn_repeat_interleave_golden,
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,

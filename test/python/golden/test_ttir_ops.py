@@ -2979,3 +2979,25 @@ def test_presharded_arg(target, mesh_shape, request, device):
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         **get_request_kwargs(request),
     )
+
+
+@pytest.mark.parametrize(
+    "input_shape,output_shape,dtype",
+    [
+        # (input_shape, output_shape, dtype)
+        ((2, 3, 4), (24,), torch.float32),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_reshape(input_shape, output_shape, dtype, request, target: str, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [dtype])
+        def reshape(in0: Operand, builder: TTIRBuilder):
+            return builder.reshape(in0, output_shape)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )

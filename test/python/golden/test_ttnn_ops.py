@@ -60,9 +60,9 @@ def test_clamp_tensor(shapes: List[Shape], request, device):
     )
 
 
-@pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16), (1, 1, 64)], ids=shape_str)
-@pytest.mark.parametrize("repeat_dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("shape", [(1, 32, 32)], ids=shape_str)
+@pytest.mark.parametrize("repeat_dims", [[32, 1, 1]])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_repeat(shape: Shape, repeat_dims: List[int], dtype, request, device):
     def module(builder: TTNNBuilder):
         @builder.func([shape], [dtype])

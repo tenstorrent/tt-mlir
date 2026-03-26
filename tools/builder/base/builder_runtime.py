@@ -47,6 +47,12 @@ def runtime_dtype_to_torch_dtype(dtype) -> torch.dtype:
         return torch.int32
 
 
+def runtime_dtype_to_mlir_type(dtype):
+    if dtype == tt_runtime.runtime.DataType.Float32:
+        return F32Type
+    # elif dtype == tt_runtime.runtime.DataType.UInt32:
+
+
 def torch_dtype_to_runtime_dtype(dtype):
     if dtype == torch.float32:
         return tt_runtime.runtime.DataType.Float32
