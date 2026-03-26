@@ -26,14 +26,10 @@ shared state without being bound methods.
 
 ### Lifecycle
 
-```
-ChiselContext(ttnn_module, output_dir, ...)   # 1. Construct & register singleton
-        │
-        ▼
-ChiselContext.get_instance()                  # 2. Callbacks access shared state
-        │
-        ▼
-ChiselContext.reset_instance()                # 3. Cleanup after execution
+```mermaid
+flowchart TD;
+    A["ChiselContext(ttnn_module, output_dir, ...)<br/>Construct & register singleton"] --> B["ChiselContext.get_instance()<br/>Callbacks access shared state"]
+    B --> C["ChiselContext.reset_instance()<br/>Cleanup after execution"]
 ```
 
 ### Design
@@ -79,42 +75,44 @@ Key properties:
 
 ## Data Flow
 
+```mermaid
+flowchart TD;
+    BUILDER["Builder<br/>compile_and_execute_ttnn(<br/>enable_chisel=True)"]
+    DIRECT["Direct Caller<br/>DebugHooks.get(<br/>chisel_pre_op, chisel_post_op)"]
+
+    BUILDER --> INIT["ChiselContext singleton<br/>initialized"]
+    DIRECT --> INIT
+
+    INIT --> EXEC["Binary Execution<br/>(caller drives this)"]
+    EXEC --> PRE["preop(op_i)"]
+    EXEC --> HW["HW executes op_i"]
+    HW --> POST["postop(op_i)"]
+
+    PRE --> S1["1. Capture device inputs<br/>Store in device_tensor_pool<br/>Copy to golden_tensor_pool"]
+    POST --> S2["2. Capture device output<br/>Store in device_tensor_pool"]
+    S1 --> S2
+    S2 --> S3["3. Look up TTNN op in<br/>GOLDEN_MAPPINGS<br/>(from tools/golden/)"]
+    S3 --> S4["4. Execute golden_fn(*inputs)<br/>on CPU via PyTorch<br/>Store in golden_tensor_pool"]
+    S4 --> S5["5. Compare:<br/>PCC(golden, device)<br/>abs_err(golden, device)<br/>rel_err(golden, device)"]
+    S5 --> S6["6. Write row to CSV report"]
 ```
-    TTRT Binary Execution
-    (caller drives this)
-            │
-    ┌───────┴───────┐
-    │               │
- preop(op_i)    [HW executes op_i]
-    │               │
-    │          postop(op_i)
-    │               │
-    └───────┬───────┘
-            │
-            ▼
-  ┌─────────────────────────────────┐
-  │  1. Capture device inputs       │  ◄── preop
-  │     Store in device_tensor_pool │
-  │     Copy to golden_tensor_pool  │
-  ├─────────────────────────────────┤
-  │  2. Capture device output       │  ◄── postop
-  │     Store in device_tensor_pool │
-  ├─────────────────────────────────┤
-  │  3. Look up TTNN op in          │
-  │     GOLDEN_MAPPINGS             │
-  │     (from tools/golden/)        │
-  ├─────────────────────────────────┤
-  │  4. Execute golden_fn(*inputs)  │
-  │     on CPU via PyTorch          │
-  │     Store in golden_tensor_pool │
-  ├─────────────────────────────────┤
-  │  5. Compare:                    │
-  │     PCC(golden, device)         │
-  │     abs_err(golden, device)     │
-  │     rel_err(golden, device)     │
-  ├─────────────────────────────────┤
-  │  6. Write row to CSV report     │
-  └─────────────────────────────────┘
+
+## Module Dependencies
+
+```mermaid
+flowchart TD;
+    BLD["tools/builder<br/>(enable_chisel=True)"] -.->|optional caller| CB
+    CB["callbacks.py"] --> CTX["context.py"]
+    CTX --> IR["ops.py<br/>IRModule"]
+    CTX --> TP["tensors.py<br/>TensorPool / TensorValue"]
+    CTX --> REG["registry.py"]
+    CTX --> EX["executor.py<br/>GoldenExecutor"]
+    CTX --> RPT["report.py<br/>ReportWriter"]
+    CTX --> MET["metrics.py"]
+    EX --> GM["tools/golden/mapping.py<br/>GOLDEN_MAPPINGS"]
+    EX --> TP
+    REG --> IR
+    CTX --> UT["utils.py"]
 ```
 
 ## Component Descriptions
@@ -193,6 +191,54 @@ Consolidated utility module:
 - **Location parsing**: MLIR location to `(line, col)` tuple conversion
 - **Dtype maps**: TTNN-to-PyTorch and TTRT-to-PyTorch dtype mappings
 - **Debug utilities**: `@debug_wrap()` decorator for pdb integration
+
+## Builder Integration
+
+Chisel integrates with the builder (`tools/builder/`) as a first-class
+execution path. The builder adds an `enable_chisel` parameter to
+`execute_fb()` and `compile_and_execute_ttnn()`.
+
+### Mutual Exclusivity
+
+`enable_chisel` and `verify_intermediates` are **mutually exclusive**. When
+`enable_chisel=True`:
+- Builder's own `golden()` callback in `builder_runtime.py` is **not** registered
+- Chisel's `chisel_pre_op_callback` / `chisel_post_op_callback` are registered
+  with `DebugHooks.get()` instead
+- Builder still handles compilation, flatbuffer generation, and execution —
+  Chisel only handles the golden comparison
+
+### Integration Flow
+
+```mermaid
+sequenceDiagram;
+    participant User
+    participant Builder as builder_apis.py
+    participant Runtime as builder_runtime.py
+    participant Chisel as chisel/context.py
+    participant Hooks as DebugHooks
+
+    User->>Builder: compile_and_execute_ttnn(enable_chisel=True)
+    Builder->>Runtime: execute_fb(enable_chisel=True)
+    Runtime->>Chisel: ChiselContext(ttnn_module, ...)
+    Runtime->>Hooks: DebugHooks.get(chisel_pre_op, chisel_post_op)
+    Note over Runtime: Builder's own golden() callback NOT registered
+    Runtime->>Runtime: Execute binary on device
+    loop For each TTNN op
+        Hooks->>Chisel: preop(binary, program_ctx, op_ctx)
+        Note over Runtime: Device executes op
+        Hooks->>Chisel: postop(binary, program_ctx, op_ctx)
+        Chisel->>Chisel: Golden execution + comparison
+    end
+    Runtime->>Chisel: ChiselContext.reset_instance()
+```
+
+### Callback Signature
+
+Chisel callbacks use the same `(binary, program_context, op_context)` signature
+as builder's own callbacks. This makes them a drop-in replacement — no adapter
+needed. The same callbacks work whether the caller is builder, ttrt, or any
+other `DebugHooks`-based runner.
 
 ## Comparison with Old Architecture
 
