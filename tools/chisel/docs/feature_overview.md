@@ -97,10 +97,10 @@ import ttrt.runtime
 
 # Initialize the singleton context
 ctx = ChiselContext(
-    ttnn_module=module,
     output_dir=Path("./chisel_output"),
     report_path=Path("./chisel_report.csv"),
 )
+# TTNN MLIR is extracted from the binary on the first preop callback
 
 # Register callbacks — same signature works with any DebugHooks caller
 debug_hooks = ttrt.runtime.DebugHooks.get(
@@ -194,7 +194,7 @@ keeping multi-program results organized in a single file.
 | Location | `runtime/tools/chisel/` | `tools/chisel/` |
 | Comparison level | TTIR (golden) vs TTNN (device) | TTNN (golden) vs TTNN (device) |
 | Entry point | CLI via `main.py` with argparse | Library only — callback functions |
-| Compilation | Chisel ran its own TTIR-to-TTNN pass pipeline | None — receives pre-compiled TTNN module |
+| Compilation | Chisel ran its own TTIR-to-TTNN pass pipeline | None — reads TTNN MLIR from flatbuffer |
 | Execution | Chisel drove TTRT execution via `RtApi` | Passive — observes via callbacks |
 | Context pattern | Single-use object created in `main()` | Singleton accessed by callbacks |
 | Golden executor | Custom PyTorch mappings for TTIR ops | Reuses `tools/golden/GOLDEN_MAPPINGS` for TTNN ops |

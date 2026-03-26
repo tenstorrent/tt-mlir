@@ -57,8 +57,9 @@ if enable_chisel:
     from chisel.context import ChiselContext
     from chisel.callbacks import chisel_pre_op_callback, chisel_post_op_callback
 
+    # No binary needed here — ChiselContext extracts the TTNN MLIR from
+    # the binary on the first preop callback invocation.
     chisel_ctx = ChiselContext(
-        ttnn_module=<ttnn_module>,  # Need to extract from compiled_bin or pass through
         output_dir=Path(chisel_output_dir),
         report_path=Path(chisel_report_path),
     )
@@ -113,21 +114,13 @@ execute_fb(
 **`compile_and_execute_ttnn()` — same new parameters** forwarded to
 `_compile_and_execute()`.
 
-### Open Question: TTNN Module Access
+### TTNN Module Access
 
-ChiselContext needs the TTNN MLIR module. The builder has access to it during
-compilation but `execute_fb()` currently receives `compiled_bin` (the flatbuffer
-binary), not the MLIR module.
-
-**Options:**
-1. Pass the TTNN module as an additional parameter to `execute_fb()`
-2. Extract it from the compilation result before calling `execute_fb()`
-3. Store it on the builder and access it in `_compile_and_execute()` before
-   calling `execute_fb()`
-
-Option 3 is likely cleanest — the TTNN module is available in
-`_compile_and_execute()` after `compile_fn()` returns, and can be passed to
-`execute_fb()` as an additional parameter when `enable_chisel=True`.
+ChiselContext reads the TTNN MLIR text string directly from the flatbuffer
+binary's `TTNNBinary.mlir.source` field (always populated, plain MLIR text with
+debug info/locations). The `binary` is available in every preop/postop callback,
+so ChiselContext lazily extracts and parses the MLIR on the first callback
+invocation. No additional parameter threading through builder APIs is needed.
 
 ## Porting Notes
 

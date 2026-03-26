@@ -94,18 +94,21 @@ def get_op_inputs(op: Operation) -> list:
     """Extract tensor-like inputs (operands with shape and element_type)."""
 ```
 
-**`IRModule`** — wraps an MLIR Module with caching and traversal:
+**`IRModule`** — wraps an MLIR Module with caching and traversal. Accepts an
+MLIR source string and parses it internally:
 
 ```python
 class IRModule:
     def __init__(
         self,
-        mlir_module: Module,
-        context: Context,
+        mlir_source: str,
         functions: List[str],
         current_function_name: str | None = None,
         ignored_ops: List[str] = [],
     ):
+        # Parse the MLIR source string into a Module
+        self.context = Context()
+        self.module = Module.parse(mlir_source, self.context)
         ...
 
     def get_function(self) -> Operation: ...

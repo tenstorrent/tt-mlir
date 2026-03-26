@@ -220,8 +220,8 @@ def _handle_binary_change(self, binary) -> None:
             f"{self._current_binary_id}). Either re-create ChiselContext "
             f"or provide a module_provider callback."
         )
-    new_module = self._module_provider(binary)
-    self.device_ir_module = IRModule(mlir_module=new_module, ...)
+    mlir_source = self._extract_mlir_from_binary(binary)
+    self.device_ir_module = IRModule(mlir_source=mlir_source, ...)
     self.registry = Registry(module=self.device_ir_module)
     self.registry.load_all_ops()
     self.executor = GoldenExecutor(self.registry, self.golden_tensor_pool)

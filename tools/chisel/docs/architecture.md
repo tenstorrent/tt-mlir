@@ -28,7 +28,7 @@ shared state without being bound methods.
 
 ```mermaid
 flowchart TD;
-    A["ChiselContext(ttnn_module, output_dir, ...)<br/>Construct & register singleton"] --> B["ChiselContext.get_instance()<br/>Callbacks access shared state"]
+    A["ChiselContext(output_dir, ...)<br/>Register singleton"] --> B["ChiselContext.get_instance()<br/>Callbacks access shared state<br/>MLIR extracted from binary on first preop"]
     B --> C["ChiselContext.reset_instance()<br/>Cleanup after execution"]
 ```
 
@@ -38,11 +38,11 @@ flowchart TD;
 class ChiselContext:
     _instance: Optional["ChiselContext"] = None
 
-    def __init__(self, ttnn_module, output_dir, report_path, ...):
+    def __init__(self, output_dir, report_path, ...):
         ChiselContext._instance = self
 
-        # Single TTNN module — used for both golden reference and op lookup
-        self.device_ir_module = IRModule(mlir_module=ttnn_module, ...)
+        # MLIR module initialized lazily on first preop callback
+        self.device_ir_module: IRModule | None = None
 
         # Dual tensor pools
         self.golden_tensor_pool = TensorPool(...)
@@ -71,7 +71,7 @@ class ChiselContext:
 Key properties:
 - **No `run()` method** — Chisel does not drive execution
 - **No `bind_callbacks()`** — the caller registers callbacks directly
-- **No compilation step** — receives a pre-compiled TTNN module
+- **MLIR from flatbuffer** — reads TTNN MLIR string from `TTNNBinary.mlir.source` and parses it internally
 
 ## Data Flow
 
@@ -80,7 +80,7 @@ flowchart TD;
     BUILDER["Builder<br/>compile_and_execute_ttnn(<br/>enable_chisel=True)"]
     DIRECT["Direct Caller<br/>DebugHooks.get(<br/>chisel_pre_op, chisel_post_op)"]
 
-    BUILDER --> INIT["ChiselContext singleton<br/>initialized"]
+    BUILDER --> INIT["ChiselContext(output_dir, ...)<br/>Register singleton"]
     DIRECT --> INIT
 
     INIT --> EXEC["Binary Execution<br/>(caller drives this)"]
@@ -88,6 +88,10 @@ flowchart TD;
     EXEC --> HW["HW executes op_i"]
     HW --> POST["postop(op_i)"]
 
+    PRE --> S0{"First op?"}
+    S0 -->|Yes| EXTRACT["Extract TTNN MLIR from<br/>binary.mlir.source<br/>Parse module, init registry"]
+    EXTRACT --> S1
+    S0 -->|No| S1
     PRE --> S1["1. Capture device inputs<br/>Store in device_tensor_pool<br/>Copy to golden_tensor_pool"]
     POST --> S2["2. Capture device output<br/>Store in device_tensor_pool"]
     S1 --> S2
@@ -220,12 +224,13 @@ sequenceDiagram;
 
     User->>Builder: compile_and_execute_ttnn(enable_chisel=True)
     Builder->>Runtime: execute_fb(enable_chisel=True)
-    Runtime->>Chisel: ChiselContext(ttnn_module, ...)
+    Runtime->>Chisel: ChiselContext(output_dir, report_path, ...)
     Runtime->>Hooks: DebugHooks.get(chisel_pre_op, chisel_post_op)
     Note over Runtime: Builder's own golden() callback NOT registered
     Runtime->>Runtime: Execute binary on device
     loop For each TTNN op
         Hooks->>Chisel: preop(binary, program_ctx, op_ctx)
+        Note over Chisel: First op: extract TTNN MLIR from binary, parse module
         Note over Runtime: Device executes op
         Hooks->>Chisel: postop(binary, program_ctx, op_ctx)
         Chisel->>Chisel: Golden execution + comparison
@@ -248,7 +253,7 @@ other `DebugHooks`-based runner.
 | Registry | Correlates ops across TTIR and TTNN by source location | Tracks ops in single TTNN module |
 | Fusion handling | `_merge_empty_golden_groups()` for TTIR/TTNN mismatches | Not needed — same ops in both paths |
 | Golden executor | Custom TTIR op mappings with special-case handling | Reuses `tools/golden/GOLDEN_MAPPINGS` for TTNN ops |
-| Compilation | `compile_pipeline.py` runs TTIR-to-TTNN passes | None — pre-compiled TTNN module provided |
+| Compilation | `compile_pipeline.py` runs TTIR-to-TTNN passes | None — reads TTNN MLIR from flatbuffer's `TTNNBinary.mlir.source` |
 | Input initialization | `generate_random_inputs()` / `load_inputs_from_disk()` | Inputs captured from runtime in preop callback |
 | Execution driver | Chisel creates `RtApi.Run` and calls `rt_api()` | Passive observer — caller drives TTRT |
 | `IRModule.execution_type` | `GOLDEN` or `DEVICE` enum per module | Removed — single module |

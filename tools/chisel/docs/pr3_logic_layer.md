@@ -83,7 +83,6 @@ class ChiselContext:
 
     def __init__(
         self,
-        ttnn_module: Module,
         output_dir: Path,
         report_path: Path,
         main_fn: str = "main",
@@ -91,8 +90,9 @@ class ChiselContext:
     ):
         ChiselContext._instance = self
 
-        # Single TTNN module for both golden reference and op lookup
-        self.device_ir_module = IRModule(mlir_module=ttnn_module, ...)
+        # MLIR module initialized lazily on first preop callback —
+        # the binary (containing TTNNBinary.mlir.source) is available there.
+        self.device_ir_module: IRModule | None = None
 
         # Dual tensor pools — golden (CPU) and device (hardware)
         self.golden_tensor_pool = TensorPool(caching=caching, output_dir=output_dir / "golden")
