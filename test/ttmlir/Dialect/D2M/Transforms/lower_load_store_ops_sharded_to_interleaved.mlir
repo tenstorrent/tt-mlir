@@ -11,7 +11,7 @@ module attributes {ttcore.system_desc = #system_desc} {
 
   // CHECK-LABEL: func.func @sharded_to_interleaved_writeback
   // CHECK: d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<1x64, (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>
+  // CHECK-SAME: grid = #ttcore.grid<1x64, virt_to_physical_map = (d0, d1) -> (0, d1 floordiv 8, d1 mod 8), physical_to_virt_map = (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>
   // CHECK-SAME: threads = [#d2m.thread<unified>]
   // CHECK: %[[CB:.*]] = d2m.get_cb(0) operand_index = 0
   // CHECK: d2m.reserve %[[CB]]
@@ -22,7 +22,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     %dram_alloc = memref.alloc() {address = 1024 : i64, alignment = 32 : i64} : memref<1x1x1x64x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<131072x2048>, #dram>
     %view = d2m.view_layout %dram_alloc remapping = #map : memref<1x1x1x64x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<131072x2048>, #dram> -> memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #dram>
 
-    d2m.generic {block_factors = [], grid = #ttcore.grid<1x64, (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x64, virt_to_physical_map = (d0, d1) -> (0, d1 floordiv 8, d1 mod 8), physical_to_virt_map = (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%arg0 : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>)
         outs(%view : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #dram>)
      {

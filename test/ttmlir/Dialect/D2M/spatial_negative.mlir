@@ -291,7 +291,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<1x1, (d0, d1) -> (0, d0 - 1, d1 - 1)>,
+          grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
@@ -393,7 +393,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<1x1, (d0, d1) -> (0, 2 - d0, d1)>,
+          grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, 2 - d0, d1), physical_to_virt_map = (d0, d1) -> (0, 2 - d0, d1)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
@@ -427,7 +427,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<1x1, (d0, d1) -> (0, d1, d0)>,
+          grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d1, d0), physical_to_virt_map = (d0, d1) -> (0, d1, d0)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
@@ -461,7 +461,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<1x1, (d0, d1) -> (0, d0, d1 - 1)>,
+          grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0, d1 - 1)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
@@ -495,7 +495,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<2x2, (d0, d1) -> (0, 2 * d0, d1)>,
+          grid = #ttcore.grid<2x2, virt_to_physical_map = (d0, d1) -> (0, d0 floordiv 2, d1), physical_to_virt_map = (d0, d1) -> (0, 2 * d0, d1)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
