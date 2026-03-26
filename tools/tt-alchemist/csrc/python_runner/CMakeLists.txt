@@ -40,8 +40,8 @@ add_dependencies(${PYTHON_RUNNER_LIBRARY_NAME} tt-metal)
 target_link_libraries(${PYTHON_RUNNER_LIBRARY_NAME}
   PUBLIC
     TTMLIRRuntime
-  PRIVATE
     nanobind-static
+  PRIVATE
     Python::Python
     ${TTMETAL_LIBRARY_PATH}
     "LINKER:${TTNN_LIBRARY_PATH}"
