@@ -228,28 +228,6 @@ static void ensurePopForWait(IRRewriter &rewriter, WaitOp waitOp) {
   rewriter.create<PopOp>(waitOp.getLoc(), waitOp.getCb());
 }
 
-static LogicalResult verifyNoPreExistingExplicitRemoteOps(ModuleOp moduleOp) {
-  LogicalResult result = success();
-
-  moduleOp->walk([&](RemoteLoadOp remoteLoadOp) {
-    if (!remoteLoadOp.isImplicitForm()) {
-      remoteLoadOp.emitOpError("pre-existing explicit-form remote_load is "
-                               "illegal for this pass input");
-      result = failure();
-    }
-  });
-
-  moduleOp->walk([&](RemoteStoreOp remoteStoreOp) {
-    if (!remoteStoreOp.isImplicitForm()) {
-      remoteStoreOp.emitOpError("pre-existing explicit-form remote_store is "
-                                "illegal for this pass input");
-      result = failure();
-    }
-  });
-
-  return result;
-}
-
 static void rewriteImplicitRemoteLoadOpsToExplicitCBForm(
     ModuleOp moduleOp, IRRewriter &rewriter, CBCache &cache,
     PortCounter &portCounters) {
@@ -444,11 +422,6 @@ public:
     IRRewriter rewriter(&getContext());
     CBCache cbCache;
     PortCounter portCounters;
-
-    if (failed(verifyNoPreExistingExplicitRemoteOps(moduleOp))) {
-      signalPassFailure();
-      return;
-    }
 
     rewriteRemoteOpsToExplicitCB(moduleOp, rewriter, cbCache, portCounters);
   }
