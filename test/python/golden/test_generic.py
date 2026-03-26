@@ -341,3 +341,133 @@ def test_generic_allocator_reblock_policy(
     for expected_cb_shape in expected_cb_shapes:
         assert expected_cb_shape in compiled_mlir
     assert unexpected_cb_shape not in compiled_mlir
+
+
+@pytest.mark.parametrize("grid", [(1, 1)])
+@pytest.mark.parametrize("block_factors", [(8, 2)])
+@pytest.mark.parametrize("target", ["ttmetal" | OnlyIf("n150", "n300")])
+def test_generic_eltwise_reblock(
+    grid,
+    block_factors,
+    target: str,
+    request,
+    device,
+    system_desc,
+):
+    torch_dtype = torch.float32
+    block_m = 32  # per-block shard height in scalars (1 tile row)
+    block_n = 128  # per-block shard width in scalars (4 tile cols)
+
+    m = block_m * grid[0] * block_factors[0]  # 256
+    n = block_n * grid[1] * block_factors[1]  # 256
+    shape = [m, n]
+
+    out_grid = list(grid)
+    blocked_grid = [grid[0] * block_factors[0], grid[1] * block_factors[1]]
+    block_shape_tiles = [block_m // 32, block_n // 32]  # [1, 4]
+
+    def generic_module(builder: D2MBuilder):
+        lhs_golden = torch.randn(shape, dtype=torch_dtype)
+        rhs_golden = torch.randn(shape, dtype=torch_dtype)
+        out_golden = lhs_golden + rhs_golden
+
+        @builder.func([shape, shape], [torch_dtype, torch_dtype])
+        def main(
+            lhs: Operand,
+            rhs: Operand,
+            builder: D2MBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            @builder.generic(
+                grid=grid,
+                block_factors=block_factors,
+                indexing_maps=[
+                    lambda d0, d1: (d0, d1),
+                    lambda d0, d1: (d0, d1),
+                    lambda d0, d1: (d0, d1),
+                ],
+                iterator_types=["parallel", "parallel"],
+                skip_grid_selection=True,
+            )
+            def eltwise_add(lhs_dev, rhs_dev, out_dev):
+                mbi = d2m.block_index(0)
+                nbi = d2m.block_index(1)
+                lhs_shard = builder.remote_load(lhs_dev, [mbi, nbi])
+                rhs_shard = builder.remote_load(rhs_dev, [mbi, nbi])
+                out_shard = tensor.empty(block_shape_tiles, out_dev.type.element_type)
+
+                ctx = out_dev.owner.context
+                tile_type = out_shard.type.element_type
+                ndims = len(block_shape_tiles)
+                identity = AffineMap.get_identity(ndims, ctx)
+                linalg_op = linalg.GenericOp(
+                    [out_shard.type],
+                    [lhs_shard, rhs_shard],
+                    [out_shard],
+                    indexing_maps=ArrayAttr.get([AffineMapAttr.get(identity)] * 3),
+                    iterator_types=ArrayAttr.get(
+                        [Attribute.parse("#linalg.iterator_type<parallel>")] * ndims
+                    ),
+                )
+                body = linalg_op.regions[0].blocks.append(
+                    tile_type, tile_type, tile_type
+                )
+                with InsertionPoint(body):
+                    added = d2m.tile_add(
+                        tile_type, body.arguments[0], body.arguments[1]
+                    )
+                    linalg.YieldOp([added])
+
+                res = d2m.remote_store(
+                    out_dev.type,
+                    out_dev,
+                    [mbi, nbi],
+                    local_buffer=linalg_op.result,
+                )
+                d2m.yield_([res])
+
+            input_layout = builder.get_metal_tensor_layout(
+                shape, grid=out_grid, tiled=True, element_dtype=torch_dtype
+            )
+            device_lhs = builder.to_layout(
+                lhs, output_type=input_layout, unit_attrs=unit_attrs
+            )
+            device_rhs = builder.to_layout(
+                rhs, output_type=input_layout, unit_attrs=unit_attrs
+            )
+            device_lhs = builder.reblock(
+                device_lhs, blocked_grid, unit_attrs=unit_attrs
+            )
+            device_rhs = builder.reblock(
+                device_rhs, blocked_grid, unit_attrs=unit_attrs
+            )
+
+            device_out = d2m.empty(
+                builder.get_metal_tensor_layout(
+                    shape, grid=out_grid, tiled=True, element_dtype=torch_dtype
+                )
+            )
+            device_out = builder.reblock(device_out, blocked_grid)
+
+            result = eltwise_add(device_lhs, device_rhs, device_out)
+
+            result = builder.reblock(result, out_grid)
+            result = builder.to_layout(
+                result,
+                output_type=RankedTensorType.get(shape, lhs.type.element_type),
+                unit_attrs=unit_attrs,
+            )
+            builder.set_goldens(
+                {lhs: lhs_golden, rhs: rhs_golden}, {result: out_golden}
+            )
+            return result
+
+    compile_and_execute_d2m(
+        generic_module,
+        target=target,
+        device=device,
+        custom_pipeline="ttir-to-ttmetal-pipeline{}",
+        print_ir=True,
+        check_pcc=True,
+        **get_request_kwargs(request),
+    )
