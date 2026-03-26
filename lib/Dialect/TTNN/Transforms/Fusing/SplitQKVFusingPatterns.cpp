@@ -409,7 +409,7 @@ Value reorderTensorViaSliceConcat(mlir::PatternRewriter &rewriter,
 // chain branches or dead-ends.
 Operation *lookThroughTypecasts(Value v) {
   Operation *op = getSingleNonDeallocUser(v);
-  while (op && isa<TypecastOp>(op)) {
+  while (isa_and_nonnull<TypecastOp>(op)) {
     op = getSingleNonDeallocUser(op->getResult(0));
   }
   return op;
