@@ -327,13 +327,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     L1Attr = MemorySpaceAttr::get(ctx, MemorySpace::DeviceL1);
     DRAMAttr = MemorySpaceAttr::get(ctx, MemorySpace::DeviceDRAM);
 
-    // Precondition: no pre-existing streams.  The allocator is the sole
-    // owner of stream insertion.
-    assert(
-        !moduleOp
-             ->walk([](d2m::StreamLayoutOp) { return WalkResult::interrupt(); })
-             .wasInterrupted() &&
-        "unexpected pre-existing stream_layout op");
 
     // Run a sequence of FuncOp-scoped steps:
 
@@ -2075,7 +2068,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         return {{value, type, chain}};
       }
 
-      if (auto op = llvm::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
+      if (auto op = llvm::dyn_cast_or_null<d2m::ViewOpInterface>(definingOp)) {
         value = op.getInput();
       } else if (auto op = llvm::dyn_cast<d2m::CompositeViewOp>(definingOp)) {
         // Recurse into each input of the composite view to collect all the
