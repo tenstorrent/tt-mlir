@@ -176,7 +176,7 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
     Operation *bufferToErase = nullptr;
     if (localBuffer) {
       Operation *defOp = localBuffer.getDefiningOp();
-      if (defOp && mlir::isa<memref::AllocOp, d2m::AliasOp>(defOp)) {
+      if (mlir::isa_and_nonnull<memref::AllocOp, d2m::AliasOp>(defOp)) {
         bufferToErase = defOp;
       }
     }
@@ -242,7 +242,7 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
     Operation *bufferToErase = nullptr;
     if (localBuffer) {
       Operation *defOp = localBuffer.getDefiningOp();
-      if (defOp && mlir::isa<memref::AllocOp, d2m::AliasOp>(defOp)) {
+      if (mlir::isa_and_nonnull<memref::AllocOp, d2m::AliasOp>(defOp)) {
         if (generic && generic->isAncestor(defOp)) {
           bufferToErase = defOp;
         }
