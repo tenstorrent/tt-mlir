@@ -129,20 +129,17 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 ::mlir::LogicalResult DMAReadOp::verify() {
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
   ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
-  auto isRemote = [&](auto operand) {
-    return ttcore::hasDeviceLayout(operand);
+  auto isLocal = [](Value operand) {
+    return !ttcore::hasDeviceLayout(operand);
   };
-  auto isLocal = [&](auto operand) { return !isRemote(operand); };
-  if (!(isRemote(getSrc()) && isLocal(getDst()))) {
-    return emitOpError("For DMARead, src must be remote and dst must be local");
+  if (!isLocal(getDst())) {
+    return emitOpError("For DMARead, dst must be local");
   }
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError("Operands to DMARead must have the same element type");
   }
-
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();
-
   if (isShardLevel()) {
     if (numDstIndices != 0) {
       return emitOpError("Shard-level DMARead must have 0 dst indices");
@@ -150,8 +147,14 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
   } else {
     constexpr int64_t kExpectedIndicesRemote = 3;
     constexpr int64_t kExpectedIndicesLocal = 1;
-    if (numSrcIndices != kExpectedIndicesRemote) {
-      return emitOpError("Must have 3 src indices for remote src operand");
+    if (isSrcLocal()) {
+      if (numSrcIndices != kExpectedIndicesLocal) {
+        return emitOpError("Must have 1 src index for local src operand");
+      }
+    } else {
+      if (numSrcIndices != kExpectedIndicesRemote) {
+        return emitOpError("Must have 3 src indices for remote src operand");
+      }
     }
     if (numDstIndices != kExpectedIndicesLocal) {
       return emitOpError("Must have 1 dst index for local dst operand");
@@ -188,6 +191,142 @@ void DMAWriteOp::getEffects(
                        true, mlir::SideEffects::DefaultResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getDstMutable(), 0,
                        true, mlir::SideEffects::DefaultResource::get());
+}
+
+unsigned DMACopyOp::getCBPort() {
+  assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
+  auto getCBOp = getCb().getDefiningOp<GetCBOp>();
+  assert(getCBOp && "CB operand must be defined by a GetCBOp");
+  return getCBOp.getPort();
+}
+
+::mlir::LogicalResult DMACopyOp::verify() {
+  bool hasDst = static_cast<bool>(getDst());
+  bool hasCb = static_cast<bool>(getCb());
+  if (hasDst == hasCb) {
+    return emitOpError(
+        "must have exactly one of dst or cb (not both, not neither)");
+  }
+
+  // Locality checks only apply to memref operands (tensors don't carry
+  // device layout attributes).
+  auto isLocalMemref = [](Value operand) {
+    if (!mlir::isa<MemRefType>(operand.getType())) {
+      return true;
+    }
+    return !ttcore::hasDeviceLayout(operand);
+  };
+  if (!isLocalMemref(getSrc())) {
+    return emitOpError("src must be a local memref");
+  }
+  if (hasDst && !isLocalMemref(getDst())) {
+    return emitOpError("dst must be a local memref");
+  }
+
+  ArrayRef<Attribute> maps = getIndexingMaps().getValue();
+  if (maps.size() != 2) {
+    return emitOpError("requires exactly 2 indexing maps");
+  }
+  ShapedType dstType = getDstShapedType();
+  int64_t dstRank = dstType.getRank();
+  for (auto [idx, mapAttr] : llvm::enumerate(maps)) {
+    auto affineMap = mlir::cast<AffineMapAttr>(mapAttr).getValue();
+    if (static_cast<int64_t>(affineMap.getNumDims()) != dstRank) {
+      return emitOpError("indexing map #")
+             << idx << " has " << affineMap.getNumDims()
+             << " dims but dst rank is " << dstRank;
+    }
+  }
+
+  bool hasTensors = mlir::isa<RankedTensorType>(getSrc().getType()) ||
+                    (hasDst && mlir::isa<RankedTensorType>(getDst().getType()));
+  if (hasTensors) {
+    if (!getResult()) {
+      return emitOpError("tensor form requires a result");
+    }
+  } else if (getResult()) {
+    if (hasCb) {
+      return emitOpError("explicit CB form must not have a result");
+    }
+    if (!mlir::isa<MemTxType>(getResult().getType())) {
+      return emitOpError("memref form result must be !d2m.mem_tx");
+    }
+  }
+
+  return success();
+}
+
+bool DMACopyOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getSrc();
+}
+
+bool DMACopyOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  Value dst = getDst();
+  return dst && operand.get() == dst;
+}
+
+mlir::bufferization::AliasingValueList
+DMACopyOp::getAliasingValues(mlir::OpOperand &operand,
+                             const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  Value dst = getDst();
+  Value resultValue = getResult();
+  if (dst && resultValue && operand.get() == dst) {
+    aliasList.addAlias(
+        {resultValue, mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+DMACopyOp::getBufferType(mlir::Value value,
+                         const mlir::bufferization::BufferizationOptions &,
+                         const mlir::bufferization::BufferizationState &,
+                         ::llvm::SmallVector<mlir::Value> &) {
+  return ttcore::getBufferType(value.getType(), /*isView=*/false);
+}
+
+mlir::LogicalResult
+DMACopyOp::bufferize(mlir::RewriterBase &rewriter,
+                     const mlir::bufferization::BufferizationOptions &options,
+                     mlir::bufferization::BufferizationState &state) {
+  if (getCb()) {
+    return emitOpError(
+        "DMACopyOp with CB should not exist during bufferization");
+  }
+
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  mlir::FailureOr<Value> srcBuffer =
+      mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+  if (failed(srcBuffer)) {
+    return failure();
+  }
+
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  mlir::FailureOr<Value> dstBuffer =
+      mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
+  if (failed(dstBuffer)) {
+    return failure();
+  }
+
+  // The memref-form DMACopyOp has no result (unlike the tensor-form which
+  // returns the destination tensor). Create the new op and replace the old
+  // tensor result with the destination buffer directly.
+  rewriter.create<DMACopyOp>(getLoc(), *srcBuffer, *dstBuffer,
+                             getIndexingMaps());
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     ValueRange{*dstBuffer});
+  return success();
+}
+
+bool DMACopyOp::hasTensorSemantics() {
+  if (getCb()) {
+    return false;
+  }
+  return mlir::isa<RankedTensorType>(getSrc().getType()) ||
+         (getDst() && mlir::isa<RankedTensorType>(getDst().getType()));
 }
 
 //===----------------------------------------------------------------------===//
@@ -1789,6 +1928,21 @@ void BlockMaskOp::getEffects(
 //===----------------------------------------------------------------------===//
 // YieldOp / WaitOp / ReserveOp / PushOp / PopOp
 //===----------------------------------------------------------------------===//
+
+void WaitOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
+                                         mlir::MLIRContext *context) {
+  // A WaitOp whose result and cb has no uses is dead
+  patterns.add(+[](WaitOp op, mlir::PatternRewriter &rewriter) {
+    if (!op.getResult().use_empty()) {
+      return failure();
+    }
+    if (!op.getCb().hasOneUse()) {
+      return failure();
+    }
+    rewriter.eraseOp(op);
+    return success();
+  });
+}
 
 mlir::LogicalResult YieldOp::verify() {
   auto generic = getOperation()->getParentOfType<GenericOp>();

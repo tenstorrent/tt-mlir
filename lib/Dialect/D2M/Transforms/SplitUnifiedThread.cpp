@@ -121,19 +121,19 @@ public:
               continue;
             }
 
-            bool isRemoteOp = isa<RemoteLoadOp, RemoteStoreOp>(opPtr);
+            bool isDMAOp = isa<RemoteLoadOp, RemoteStoreOp, DMACopyOp>(opPtr);
             // Semaphore waits are replicated: preserved in both threads.
             bool isReplicatedOp = isa<SemaphoreWaitOp>(opPtr);
             if (keepRemoteOps) {
               // In datamovement region: keep RemoteLoadOp, RemoteStoreOp, and
               // replicated ops; erase everything else.
-              if (!isRemoteOp && !isReplicatedOp) {
+              if (!isDMAOp && !isReplicatedOp) {
                 eraseSet.insert(opPtr);
               }
             } else {
-              // In compute region: remove RemoteLoadOp and RemoteStoreOp, keep
-              // everything else (including replicated ops).
-              if (isRemoteOp) {
+              // In compute region: remove RemoteLoadOp, RemoteStoreOp, and
+              // DMACopyOp; keep everything else (including replicated ops).
+              if (isDMAOp) {
                 eraseSet.insert(opPtr);
               }
             }

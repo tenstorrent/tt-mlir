@@ -43,6 +43,15 @@ static bool isRemoteOperand(Value operand, Operation *op) {
   return false;
 }
 
+// If all consumers of the WaitOp are DM ops, the consumer-side pop belongs on
+// the DM thread.
+static bool hasOnlyDMConsumers(WaitOp waitOp) {
+  return !waitOp.getResult().use_empty() &&
+         llvm::all_of(waitOp.getResult().getUsers(), [](Operation *user) {
+           return isa<DMACopyOp, RemoteStoreOp>(user);
+         });
+}
+
 // Helper function to find the ReserveOp that produces a given value,
 // potentially through a chain of operations.
 static ReserveOp findReserveOp(Value value) {
@@ -301,14 +310,82 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
       rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
     }
 
-    // Track CB that needs pop insertion (deferred to Pass B)
-    info.cbsNeedingPop.push_back({assocCb, loc});
-
     // Erase the original remote_load operation
     rewriter.eraseOp(remoteLoad);
 
     if (allocToErase) {
       rewriter.eraseOp(allocToErase);
+    }
+
+    if (!hasOnlyDMConsumers(waitOp)) {
+      info.cbsNeedingPop.push_back({assocCb, loc});
+    }
+  }
+
+  // Transform DMACopyOp (implicit form -> explicit CB form).
+  SmallVector<DMACopyOp> dmaCopiesToConvert;
+  moduleOp->walk([&](DMACopyOp dmaCopy) {
+    if (!dmaCopy.isImplicitForm()) {
+      return;
+    }
+    dmaCopiesToConvert.push_back(dmaCopy);
+  });
+
+  for (DMACopyOp dmaCopy : dmaCopiesToConvert) {
+    Location loc = dmaCopy.getLoc();
+
+    GenericOp generic = dmaCopy->getParentOfType<GenericOp>();
+    if (!generic) {
+      dmaCopy.emitWarning(
+          "dma_copy not inside a d2m.generic, skipping conversion");
+      continue;
+    }
+
+    Value dst = dmaCopy.getDst();
+    auto allocOp =
+        mlir::dyn_cast_if_present<memref::AllocOp>(dst.getDefiningOp());
+    if (!allocOp) {
+      dmaCopy.emitWarning(
+          "could not find memref.alloc for dma_copy dst, skipping conversion");
+      continue;
+    }
+
+    Region &region = generic.getRegion(0);
+    auto L1Attr = mlir::tt::ttcore::MemorySpaceAttr::get(
+        generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1);
+    MemRefType allocType = allocOp.getType();
+    MemRefType cbUnderlyingType = MemRefType::get(
+        allocType.getShape(), allocType.getElementType(), nullptr, L1Attr);
+    auto cbType = CBType::get(cbUnderlyingType);
+
+    unsigned port =
+        getNextAvailablePort(region, portCounters, generic.getOperation());
+    unsigned ioSize = generic.getInputsAndOutputs().size();
+    if (port < ioSize) {
+      port = ioSize;
+    }
+    portCounters[generic.getOperation()] = port + 1;
+
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(&region.front());
+    auto getCBOp =
+        rewriter.create<GetCBOp>(generic.getLoc(), cbType, port, nullptr);
+    Value cb = getCBOp.getResult();
+
+    rewriter.setInsertionPoint(dmaCopy);
+    rewriter.create<DMACopyOp>(loc, TypeRange{}, dmaCopy.getSrc(),
+                               /*dst=*/Value{}, cb, dmaCopy.getIndexingMaps());
+    auto waitOp = rewriter.create<WaitOp>(loc, cb);
+
+    rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
+
+    rewriter.eraseOp(dmaCopy);
+    if (allocOp->use_empty()) {
+      rewriter.eraseOp(allocOp);
+    }
+
+    if (!hasOnlyDMConsumers(waitOp)) {
+      info.cbsNeedingPop.push_back({cb, loc});
     }
   }
 
@@ -394,10 +471,17 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
       if (reserveOp) {
         assocCb = reserveOp.getCb();
       } else if (auto waitOp = localBuffer.getDefiningOp<WaitOp>()) {
-        // When a load-store pair was not simplified (e.g., L1-to-L1 layout
-        // conversion), the load conversion replaced the shared alloc with a
-        // WaitOp result. Extract the CB from the WaitOp.
         assocCb = waitOp.getCb();
+        // If remote_store is only consumer, the WaitOp is dead and should be
+        // erased. LowerLoadStoreOpsToDMA will insert the necessary wait/pop
+        // later on. if (waitOp.getResult().hasOneUse()) {
+        //   rewriter.setInsertionPoint(remoteStore);
+        //   rewriter.create<RemoteStoreOp>(loc, memref,
+        //                                  remoteStore.getIndices(), assocCb);
+        //   rewriter.eraseOp(remoteStore);
+        //   rewriter.eraseOp(waitOp);
+        //   continue;
+        // }
       } else {
         // The localBuffer may be a hoisted additionalArg (external alloc).
         // Find the CB via the store's memref operand instead.

@@ -406,7 +406,105 @@ module {
     return
   }
 
-  // Test 9: semaphore_wait in datamovement region is replicated across split DM threads
+  // Test 9: remote_load (cb0) + dma_copy (cb2) on different CBs - should split
+  // CHECK-LABEL: func.func @test_dma_copy_scheduled
+  func.func @test_dma_copy_scheduled(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+
+    // CHECK: d2m.generic
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, noc = 0>, #d2m.thread<datamovement, noc = 1>, #d2m.thread<compute>]
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
+    ^datamovement0:
+      // CHECK: d2m.remote_load
+      // CHECK-NOT: d2m.dma_copy
+      // CHECK: }, {
+      // CHECK: d2m.dma_copy
+      // CHECK-NOT: d2m.remote_load
+      // CHECK: }, {
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      scf.for %arg1 = %c0 to %c1 step %c1 {
+        %core0 = d2m.core_index(0) : index
+        %core1 = d2m.core_index(1) : index
+        scf.for %arg2 = %c0 to %c1 step %c1 {
+          %0 = arith.addi %core0, %arg1 : index
+          %1 = arith.addi %core1, %arg2 : index
+          d2m.remote_load %arg0[%0, %1] into %cb0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          %src = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          d2m.dma_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
+    }, {
+    ^compute0:
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %0 = d2m.wait %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      d2m.pop %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    }
+    return
+  }
+
+  // Test 10: dma_copy only - should not spolit
+  // CHECK-LABEL: func.func @test_dma_copy_no_split
+  func.func @test_dma_copy_no_split() {
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+
+    // CHECK: d2m.generic
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, noc = 0>, #d2m.thread<compute>]
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
+        outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
+    ^datamovement0:
+      // CHECK: d2m.dma_copy
+      // CHECK: }, {
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %src = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      d2m.dma_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    }, {
+    ^compute0:
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %0 = d2m.wait %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      d2m.pop %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    }
+    return
+  }
+
+  // Test 11: Two dma_copy ops on different destination CBs - should split
+  // CHECK-LABEL: func.func @test_two_dma_copies_scheduling
+  func.func @test_two_dma_copies_scheduling() {
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+
+    // CHECK: d2m.generic
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, noc = 0>, #d2m.thread<datamovement, noc = 1>, #d2m.thread<compute>]
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
+        outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
+    ^datamovement0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb4 = d2m.get_cb(4) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      // CHECK: d2m.dma_copy
+      // CHECK: }, {
+      // CHECK: d2m.dma_copy
+      // CHECK: }, {
+      %a = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      d2m.dma_copy %a into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %b = d2m.wait %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      d2m.dma_copy %b into %cb4 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    }, {
+    ^compute0:
+      %cb4 = d2m.get_cb(4) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %0 = d2m.wait %cb4 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      d2m.pop %cb4 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    }
+    return
+  }
+
+  // Test 12: semaphore_wait in datamovement region is replicated across split DM threads
   // CHECK-LABEL: func.func @test_semaphore_wait_replicated
   func.func @test_semaphore_wait_replicated(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>,
                                             %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {

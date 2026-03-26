@@ -284,4 +284,141 @@ module attributes {ttcore.system_desc = #system_desc} {
     }
     return
   }
+
+  // Test 6: WaitOp result consumed by both a dma_copy op and a compute op
+  // Verifies:
+  // - d2m.wait stays in BOTH threads when its result feeds dma_copy and linalg
+  // - dma_copy goes to datamovement only
+  // CHECK-LABEL: func.func @test_wait_shared_dm_compute
+  // CHECK: d2m.generic
+  // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+  func.func @test_wait_shared_dm_compute(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %stream = d2m.view_layout %arg0 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+
+    // CHECK: scf.for
+    // CHECK: scf.for
+    // CHECK: d2m.remote_load
+    // CHECK: d2m.wait
+    // CHECK: d2m.dma_copy
+    // CHECK-NOT: linalg.generic
+    // CHECK-NOT: d2m.pop
+
+    // CHECK: }, {
+    // CHECK: scf.for
+    // CHECK: scf.for
+    // CHECK: d2m.wait
+    // CHECK: d2m.wait
+    // CHECK: linalg.generic
+    // CHECK: d2m.pop
+    // CHECK-NOT: d2m.remote_load
+    // CHECK-NOT: d2m.dma_copy
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+        ins(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      scf.for %arg1 = %c0 to %c1 step %c1 {
+        %core0 = d2m.core_index(0) : index
+        %core1 = d2m.core_index(1) : index
+        scf.for %arg2 = %c0 to %c1 step %c1 {
+          %0 = arith.addi %core0, %arg1 : index
+          %1 = arith.addi %core1, %arg2 : index
+          d2m.remote_load %stream[%0, %1] into %cb0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          // %src consumed by BOTH dma_copy (DM) and linalg.generic (compute)
+          %src = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          d2m.dma_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          %dst = d2m.wait %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%src : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) outs(%dst : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
+          ^bb0(%in: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
+            %2 = "d2m.tile_exp"(%in) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+            linalg.yield %2 : !ttcore.tile<32x32, f32>
+          }
+          d2m.pop %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
+    }
+    return
+  }
+
+  // Test 7: Multiple dma_copy on different CBs + remote_store in unified thread
+  // Verifies:
+  // - Two dma_copy ops (cb0->cb2, cb2->cb4) both go to datamovement
+  // - remote_store also goes to datamovement
+  // - Compute keeps wait, reserve, linalg.generic, push, pop
+  // - Dead waits on cb0 and cb2 remain on compute (canonicalization handles them)
+  // CHECK-LABEL: func.func @test_dma_copy_chain_with_remote_store
+  // CHECK: d2m.generic
+  // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+  func.func @test_dma_copy_chain_with_remote_store(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
+                                                    %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+    %stream_in = d2m.view_layout %arg0 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %stream_out = d2m.view_layout %arg1 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    // CHECK: scf.for
+    // CHECK: scf.for
+    // CHECK: d2m.remote_load
+    // CHECK: d2m.wait
+    // CHECK: d2m.dma_copy
+    // CHECK: d2m.wait
+    // CHECK: d2m.dma_copy
+    // CHECK: d2m.remote_store
+    // CHECK-NOT: linalg.generic
+    // CHECK-NOT: d2m.reserve
+    // CHECK-NOT: d2m.push
+    // CHECK-NOT: d2m.pop
+
+    // CHECK: }, {
+    // CHECK: scf.for
+    // CHECK: scf.for
+    // CHECK: d2m.wait
+    // CHECK: d2m.wait
+    // CHECK: d2m.wait
+    // CHECK: d2m.reserve
+    // CHECK: linalg.generic
+    // CHECK: d2m.push
+    // CHECK: d2m.pop
+    // CHECK-NOT: d2m.remote_load
+    // CHECK-NOT: d2m.dma_copy
+    // CHECK-NOT: d2m.remote_store
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        outs(%stream_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
+
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb4 = d2m.get_cb(4) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb5 = d2m.get_cb(5) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      scf.for %arg2 = %c0 to %c1 step %c1 {
+        %core0 = d2m.core_index(0) : index
+        %core1 = d2m.core_index(1) : index
+        scf.for %arg3 = %c0 to %c1 step %c1 {
+          %0 = arith.addi %core0, %arg2 : index
+          %1 = arith.addi %core1, %arg3 : index
+          d2m.remote_load %stream_in[%0, %1] into %cb0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          %a = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          d2m.dma_copy %a into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          %b = d2m.wait %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          d2m.dma_copy %b into %cb4 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          %c = d2m.wait %cb4 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          %d = d2m.reserve %cb5 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%c : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) outs(%d : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
+          ^bb0(%in: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
+            %2 = "d2m.tile_exp"(%in) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+            linalg.yield %2 : !ttcore.tile<32x32, f32>
+          }
+          d2m.push %cb5 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          d2m.pop %cb4 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          d2m.remote_store %stream_out[%0, %1] from %cb5 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> from !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
+    }
+    return
+  }
 }
