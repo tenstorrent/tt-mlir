@@ -54,7 +54,8 @@ def get_allocator_policy_override(
     if (
         ttnn_dtype == ttnn.DataType.BFLOAT8_B
         and op in (matmul, matmul_composite)
-        and shapes in ((128, 256, 256), (256, 256, 256))
+        and shapes
+        in ((128, 128, 256), (128, 128, 128), (128, 256, 256), (256, 256, 256))
     ):
         return "test-buffer-size-policy=max"
     return ""
