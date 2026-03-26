@@ -16,11 +16,10 @@ from ...utils import (
     subprocess_get_system_descriptor,
     get_torch_output_container,
     assert_pcc,
+    get_flatbuffer_base_path,
 )
 
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/consteval/Output"
-)
+FLATBUFFER_BASE_PATH = get_flatbuffer_base_path("Runtime", "TTNN", "n150", "consteval")
 
 
 def launch_distributed_runtime():

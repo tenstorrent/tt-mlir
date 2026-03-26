@@ -9,7 +9,6 @@ import ttrt
 import ttrt.runtime
 from ttrt.common.util import *
 from ..utils import (
-    TT_MLIR_HOME,
     Helper,
     DeviceContext,
     ProgramTestConfig,
@@ -19,10 +18,11 @@ from ..utils import (
     get_to_layout_inputs,
     get_runtime_tensor_from_torch,
     get_torch_inputs,
+    get_flatbuffer_base_path,
 )
 
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/tensor_manipulation/Output"
+FLATBUFFER_BASE_PATH = get_flatbuffer_base_path(
+    "Runtime", "TTNN", "n150", "tensor_manipulation"
 )
 
 
@@ -89,9 +89,7 @@ def is_callback_enabled():
 
 def test_intermidate_tensor_manipulation(helper: Helper, request):
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "linear.mlir.tmp.ttnn")
-    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
 
     test_config = ProgramTestConfig(
         name="linear", expected_num_inputs=4, compute_golden=None
@@ -120,4 +118,3 @@ def test_intermidate_tensor_manipulation(helper: Helper, request):
         assert torch.allclose(output_torch, torch.ones_like(output_torch) * 2)
 
     ttrt.runtime.unregister_hooks()
-    helper.teardown()

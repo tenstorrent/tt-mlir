@@ -10,18 +10,16 @@ import ttrt
 import ttrt.runtime
 from ttrt.common.util import Binary, FileManager, Logger
 from ..utils import (
-    TT_MLIR_HOME,
     Helper,
     DeviceContext,
     ProgramTestConfig,
     ProgramTestRunner,
     assert_pcc,
     get_torch_output_container,
+    get_flatbuffer_base_path,
 )
 
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/trace/Output"
-)
+FLATBUFFER_BASE_PATH = get_flatbuffer_base_path("Runtime", "TTNN", "n150", "trace")
 
 
 @pytest.mark.parametrize("num_loops", [5])
@@ -32,9 +30,7 @@ def test_trace_matmul_multiply_no_consteval(
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "matmul_multiply_no_consteval.mlir.tmp.ttnn"
     )
-    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
 
     test_config = ProgramTestConfig(
         name="matmul_multiply",
@@ -66,9 +62,6 @@ def test_trace_matmul_multiply_no_consteval(
             assert debug_stats.get_stat("CapturedTrace") == 1
             assert debug_stats.get_stat("ExecutedTrace") == i
 
-    ttrt.runtime.DebugStats.get().clear()
-    helper.teardown()
-
 
 @pytest.mark.parametrize("trace_region_size", [0, 80000])
 def test_trace_memory_overwrite_multi_graph(helper: Helper, request, trace_region_size):
@@ -86,9 +79,7 @@ def test_trace_memory_overwrite_multi_graph(helper: Helper, request, trace_regio
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "matmul_multiply_consteval.mlir.tmp.ttnn"
     )
-    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
 
     first_bin_config = ProgramTestConfig(
         name="first_graph",
@@ -164,9 +155,6 @@ def test_trace_memory_overwrite_multi_graph(helper: Helper, request, trace_regio
         # We should hit the cache for both graphs each time we run the loop, except for the first recapture.
         assert debug_stats.get_stat("ExecutedTrace") == 2 * loop_count - 1
 
-    ttrt.runtime.DebugStats.get().clear()
-    helper.teardown()
-
 
 @pytest.mark.parametrize("num_loops", [5])
 @pytest.mark.parametrize("trace_region_size", [0, 80000])
@@ -176,9 +164,7 @@ def test_trace_matmul_multiply_with_consteval(
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "matmul_multiply_consteval.mlir.tmp.ttnn"
     )
-    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
     test_config = ProgramTestConfig(
         name="matmul_multiply",
         expected_num_inputs=3,
@@ -234,9 +220,6 @@ def test_trace_matmul_multiply_with_consteval(
             assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
             assert debug_stats.get_stat("ConstEvalCacheHit") == i
 
-    ttrt.runtime.DebugStats.get().clear()
-    helper.teardown()
-
 
 def mnist_linear_logits_golden(inputs):
     [input_tensor, weight1, bias1, weight2, bias2] = inputs
@@ -262,9 +245,7 @@ def test_mnist_linear_logits(helper: Helper, request, num_loops, trace_region_si
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "mnist_linear_logits.mlir.tmp.ttnn"
     )
-    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
     test_config = ProgramTestConfig(
         name="mnist_linear_logits",
         expected_num_inputs=5,
@@ -308,6 +289,3 @@ def test_mnist_linear_logits(helper: Helper, request, num_loops, trace_region_si
     print(
         f"{request.node.name} Executing {num_loops} loops time elapsed: {end_time - start_time} ms"
     )
-
-    ttrt.runtime.DebugStats.get().clear()
-    helper.teardown()

@@ -9,17 +9,17 @@ import ttrt.runtime
 import torch
 from ttrt.common.util import *
 from ..utils import (
-    TT_MLIR_HOME,
     Helper,
     DeviceContext,
     assert_pcc,
     get_torch_inputs,
     get_runtime_tensor_from_torch,
     get_torch_output_container,
+    get_flatbuffer_base_path,
 )
 
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/runtime_stitching/Output"
+FLATBUFFER_BASE_PATH = get_flatbuffer_base_path(
+    "Runtime", "TTNN", "n150", "runtime_stitching"
 )
 
 
@@ -27,9 +27,7 @@ def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "eltwise_binary_op_chain.mlir.tmp.ttnn"
     )
-    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
 
     first_program: Binary.Program = helper.binary.get_program(0)
     assert first_program.num_inputs() == 2
@@ -72,4 +70,3 @@ def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
         (inputs_torch[0] + inputs_torch[1]).mul(inputs_torch[1]).sub(inputs_torch[1])
     )
     assert_pcc(golden, torch_result_tensor, threshold=0.99)
-    helper.teardown()

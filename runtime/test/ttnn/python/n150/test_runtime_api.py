@@ -9,13 +9,13 @@ import ttrt.runtime
 import torch
 from ttrt.common.util import *
 from ..utils import (
-    TT_MLIR_HOME,
     Helper,
     DeviceContext,
     ProgramTestConfig,
     ProgramTestRunner,
     assert_pcc,
     get_runtime_tensor_from_torch,
+    get_flatbuffer_base_path,
 )
 
 
@@ -59,7 +59,6 @@ def test_tensor_buffer_api(shape, dtype):
 @pytest.mark.parametrize("should_retain", [True, False])
 def test_tensor_retain_api(helper: Helper, should_retain, request):
     helper.initialize(request.node.name)
-    helper.check_constraints()
     torch_tensor = torch.randn((64, 128))
     runtime_tensor = get_runtime_tensor_from_torch(torch_tensor)
     runtime_tensor.set_retain(should_retain)
@@ -70,7 +69,6 @@ def test_tensor_retain_api(helper: Helper, should_retain, request):
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_to_layout(helper: Helper, shape, dtype, request):
     helper.initialize(request.node.name)
-    helper.check_constraints()
     torch_input_tensor = torch.randn(shape, dtype=dtype)
     torch_result_tensor = torch.zeros(shape, dtype=dtype)
     runtime_dtype = Binary.Program.to_data_type(dtype)
@@ -104,14 +102,12 @@ def test_to_layout(helper: Helper, shape, dtype, request):
         ttrt.runtime.deallocate_tensor(host_tensor, force=True)
 
     assert_pcc(torch_input_tensor, torch_result_tensor, threshold=0.99)
-    helper.teardown()
 
 
 @pytest.mark.parametrize("shape", [(64, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_memcpy_to_pointer(helper: Helper, shape, dtype, request):
     helper.initialize(request.node.name)
-    helper.check_constraints()
     runtime_dtype = Binary.Program.to_data_type(dtype)
     torch_result_tensor = torch.zeros(shape, dtype=dtype)
 
@@ -147,14 +143,12 @@ def test_memcpy_to_pointer(helper: Helper, shape, dtype, request):
     )
     ttrt.runtime.memcpy(torch_result_tensor.data_ptr(), host_tensor)
     assert_pcc(torch_input_tensor2, torch_result_tensor, threshold=0.99)
-    helper.teardown()
 
 
 @pytest.mark.parametrize("shape", [(64, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_create_tensor_memcpy(helper: Helper, shape, dtype, request):
     helper.initialize(request.node.name)
-    helper.check_constraints()
     torch_input_tensor = torch.randn(shape, dtype=dtype)
     torch_result_tensor = torch.zeros(shape, dtype=dtype)
     runtime_dtype = Binary.Program.to_data_type(dtype)
@@ -189,7 +183,6 @@ def test_create_tensor_memcpy(helper: Helper, shape, dtype, request):
         ttrt.runtime.memcpy(runtime_output_tensor, device_tensor)
         ttrt.runtime.deallocate_tensor(device_tensor, force=True)
     assert_pcc(torch_input_tensor, torch_result_tensor, threshold=0.99)
-    helper.teardown()
 
 
 @pytest.mark.parametrize(
@@ -292,12 +285,10 @@ def test_unblocking_to_host(num_loops):
 )
 def test_memory_logging(helper, request, capfd, log_level):
     binary_path = os.path.join(
-        f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/consteval/Output",
+        get_flatbuffer_base_path("Runtime", "TTNN", "n150", "consteval"),
         "binary_ops.mlir.tmp.ttnn",
     )
-    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
     ttrt.runtime.set_current_device_runtime(ttrt.runtime.DeviceRuntime.TTNN)
     ttrt.runtime.set_memory_log_level(log_level)
 
@@ -347,5 +338,3 @@ def test_memory_logging(helper, request, capfd, log_level):
 
     else:
         raise ValueError(f"Invalid log level: {log_level}")
-
-    helper.teardown()

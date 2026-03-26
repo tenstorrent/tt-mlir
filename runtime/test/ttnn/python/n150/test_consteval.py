@@ -9,24 +9,20 @@ import ttrt.runtime
 import torch
 from ttrt.common.util import *
 from ..utils import (
-    TT_MLIR_HOME,
     Helper,
     DeviceContext,
     ProgramTestConfig,
     ProgramTestRunner,
+    get_flatbuffer_base_path,
 )
 
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/consteval/Output"
-)
+FLATBUFFER_BASE_PATH = get_flatbuffer_base_path("Runtime", "TTNN", "n150", "consteval")
 
 
 @pytest.mark.parametrize("num_loops", [5])
 def test_consteval_add_mul_subtract(helper: Helper, request, num_loops):
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "binary_ops.mlir.tmp.ttnn")
-    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
 
     test_config = ProgramTestConfig(
         name="binary_ops_consteval",
@@ -70,15 +66,11 @@ def test_consteval_add_mul_subtract(helper: Helper, request, num_loops):
             assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
             assert debug_stats.get_stat("ConstEvalCacheHit") == i
 
-    ttrt.runtime.DebugStats.get().clear()
-    helper.teardown()
-
 
 @pytest.mark.parametrize("num_loops", [3])
 def test_consteval_global_cache_across_binaries(helper: Helper, request, num_loops):
     """Test that GlobalTensorCache is shared across different Binary instances."""
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "binary_ops.mlir.tmp.ttnn")
-    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
 
     test_config = ProgramTestConfig(
         name="binary_ops_consteval",
@@ -94,7 +86,6 @@ def test_consteval_global_cache_across_binaries(helper: Helper, request, num_loo
     with DeviceContext(mesh_shape=[1, 1]) as device:
         # Create first binary and run it
         helper.initialize(request.node.name + "_binary1", binary_path)
-        helper.check_constraints()
         test_runner1 = ProgramTestRunner(test_config, helper.binary, 0)
 
         inputs1, golden1, _ = test_runner1.get_inputs_and_golden(device)
@@ -117,6 +108,3 @@ def test_consteval_global_cache_across_binaries(helper: Helper, request, num_loo
         test_runner2.run_program_and_compare_golden(device, inputs1, golden1)
         assert debug_stats.get_stat("ConstEvalCacheMiss") == 1  # still 1
         assert debug_stats.get_stat("ConstEvalCacheHit") == 2  # now 2
-
-    debug_stats.clear()
-    helper.teardown()

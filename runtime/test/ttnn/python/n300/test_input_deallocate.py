@@ -129,13 +129,9 @@ def verify_submit_deallocation(helper: Helper, retain_flags, storage):
 def test_to_layout_deallocation(helper: Helper, request, storage, retain_flags):
     """Test that to_layout correctly deallocates input tensors based on retain flags"""
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "add.mlir.tmp.ttnn")
-    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
 
     verify_to_layout_deallocation(helper, retain_flags=retain_flags, storage=storage)
-
-    helper.teardown()
 
 
 @pytest.mark.parametrize("storage", [Storage.Borrowed, Storage.Owned, Storage.Device])
@@ -147,10 +143,6 @@ def test_to_layout_deallocation(helper: Helper, request, storage, retain_flags):
 def test_submit_deallocation(helper: Helper, request, storage, retain_flags):
     """Test that submit correctly deallocates input tensors based on retain flags"""
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "add.mlir.tmp.ttnn")
-    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
 
     verify_submit_deallocation(helper, retain_flags=retain_flags, storage=storage)
-
-    helper.teardown()

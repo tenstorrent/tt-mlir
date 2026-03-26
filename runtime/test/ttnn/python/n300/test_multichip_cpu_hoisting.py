@@ -93,7 +93,6 @@ def test_cpu_hoisted_add(helper: Helper, request):
 
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "cpu_hoisted_add.mlir.tmp.ttnn")
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
 
     program = helper.binary.get_program(0)
     shape, dtype = get_input_spec(program, 0)
@@ -106,8 +105,6 @@ def test_cpu_hoisted_add(helper: Helper, request):
     with DeviceContext(mesh_shape=MESH_SHAPE) as mesh_device:
         run_and_verify(helper, mesh_device, [input0, input1], expected)
 
-    helper.teardown()
-
 
 def test_cpu_hoisted_add_mixed_inputs(helper: Helper, request):
     """Test CPU-hoisted add with one sharded and one non-sharded input."""
@@ -115,7 +112,6 @@ def test_cpu_hoisted_add_mixed_inputs(helper: Helper, request):
 
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "cpu_hoisted_add.mlir.tmp.ttnn")
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
 
     program = helper.binary.get_program(0)
     shape, dtype = get_input_spec(program, 0)
@@ -128,5 +124,3 @@ def test_cpu_hoisted_add_mixed_inputs(helper: Helper, request):
 
     with DeviceContext(mesh_shape=MESH_SHAPE) as mesh_device:
         run_and_verify(helper, mesh_device, [input0, input1], expected)
-
-    helper.teardown()

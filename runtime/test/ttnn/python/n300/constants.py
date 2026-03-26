@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-from ..utils import TT_MLIR_HOME
+from ..utils import get_flatbuffer_base_path
 
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN/n300/runtime/Output"
-)
+FLATBUFFER_BASE_PATH = get_flatbuffer_base_path("Silicon", "TTNN", "n300", "runtime")

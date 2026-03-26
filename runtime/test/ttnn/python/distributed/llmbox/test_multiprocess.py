@@ -21,11 +21,10 @@ from ...utils import (
     get_runtime_tensor_from_torch,
     get_torch_output_container,
     assert_pcc,
+    get_flatbuffer_base_path,
 )
 
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/llmbox/binary/Output"
-)
+FLATBUFFER_BASE_PATH = get_flatbuffer_base_path("Runtime", "TTNN", "llmbox", "binary")
 
 RANK_BINDING_PATH = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/tt_metal/distributed/config/2x4_multiprocess_rank_bindings.yaml"
 

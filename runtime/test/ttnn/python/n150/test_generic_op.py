@@ -5,23 +5,19 @@
 import os
 from ttrt.common.util import *
 from ..utils import (
-    TT_MLIR_HOME,
     Helper,
     DeviceContext,
     ProgramTestConfig,
     ProgramTestRunner,
+    get_flatbuffer_base_path,
 )
 
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN/n150/generic_op/Output"
-)
+FLATBUFFER_BASE_PATH = get_flatbuffer_base_path("Silicon", "TTNN", "n150", "generic_op")
 
 
 def test_generic_op_abs(helper: Helper, request):
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "generic_op.mlir.tmp.ttnn")
-    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
 
     test_config = ProgramTestConfig(
         name="generic_op_abs",
@@ -42,5 +38,3 @@ def test_generic_op_abs(helper: Helper, request):
             inputs_runtime_with_layout,
             golden,
         )
-
-    helper.teardown()

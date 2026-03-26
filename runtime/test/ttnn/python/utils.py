@@ -16,6 +16,15 @@ TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 TT_METAL_RUNTIME_ROOT_EXTERNAL = os.environ.get("TT_METAL_RUNTIME_ROOT_EXTERNAL", "")
 
 
+def get_flatbuffer_base_path(*path_parts):
+    """Build a flatbuffer output directory path.
+
+    Example: get_flatbuffer_base_path("Runtime", "TTNN", "n150", "trace")
+    Returns: "{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/trace/Output"
+    """
+    return os.path.join(TT_MLIR_HOME, "build", "test", "ttmlir", *path_parts, "Output")
+
+
 class Storage(Enum):
     Borrowed = "Borrowed"
     Owned = "Owned"
@@ -23,16 +32,9 @@ class Storage(Enum):
 
 
 class Helper:
-    def __init__(self, logger=None):
-        self.artifacts_dir = f"{os.getcwd()}/ttrt-artifacts"
-        self.logger = logger if logger is not None else Logger()
-        self.logging = self.logger.get_logger()
+    def __init__(self):
+        self.logger = Logger()
         self.file_manager = FileManager(self.logger)
-        self.artifacts = Artifacts(
-            self.logger, self.file_manager, artifacts_folder_path=self.artifacts_dir
-        )
-        self.query = Query({"--quiet": True}, self.logger, self.artifacts)
-        self.query()
         self.test_name = None
         self.binary_path = None
         self.binary = None
@@ -40,19 +42,20 @@ class Helper:
     def initialize(self, test_name, binary_path=None):
         self.test_name = test_name
         if binary_path:
+            assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
             self.binary_path = binary_path
             self.binary = Binary(self.logger, self.file_manager, binary_path)
+            self._check_constraints()
 
-    def teardown(self):
-        self.test_name = None
-        self.binary_path = None
-        self.binary = None
-
-    def check_constraints(self):
-        if not self.binary:
-            return
+    def _check_constraints(self):
+        artifacts_dir = f"{os.getcwd()}/ttrt-artifacts"
+        artifacts = Artifacts(
+            self.logger, self.file_manager, artifacts_folder_path=artifacts_dir
+        )
+        query = Query({"--quiet": True}, self.logger, artifacts)
+        query()
         self.binary.check_version()
-        self.binary.check_system_desc(self.query)
+        self.binary.check_system_desc(query)
 
 
 @dataclass
