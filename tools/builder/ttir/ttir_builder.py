@@ -3312,7 +3312,6 @@ class TTIRBuilder(Builder):
 
         return op_result
 
-
     @parse(ttir.BitwiseNotOp)
     def bitwise_not_parser(
         self,
@@ -3417,7 +3416,6 @@ class TTIRBuilder(Builder):
         self._set_golden_tensor(op_result, golden_output)
 
         return op_result
-
 
     @parse(ttir.BitwiseOrOp)
     def bitwise_or_parser(
@@ -3526,7 +3524,6 @@ class TTIRBuilder(Builder):
 
         return op_result
 
-
     @parse(ttir.BitwiseXorOp)
     def bitwise_xor_parser(
         self,
@@ -3599,7 +3596,6 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-
     @parse(ttir.LogicalLeftShiftOp)
     def logical_left_shift_parser(
         self,
@@ -3628,7 +3624,6 @@ class TTIRBuilder(Builder):
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
-
 
     @split(ttir.LogicalLeftShiftOp)
     def logical_left_shift_split(
