@@ -156,7 +156,7 @@ static Operation *findBufferOp(Value value) {
     return nullptr;
   }
 
-  // Direct case: value is produced by memref.alloc or d2m.alias_buffer
+  // Direct case: value is produced by memref.alloc or d2m.alias_buffer.
   if (mlir::isa<memref::AllocOp, d2m::AliasOp>(definingOp)) {
     return definingOp;
   }
@@ -236,7 +236,7 @@ public:
         continue;
       }
 
-      // Find the buffer-producing op (memref.alloc or d2m.alias_buffer)
+      // Find the buffer-producing op (memref.alloc or d2m.alias_buffer).
       Operation *bufferOp = findBufferOp(localBuffer);
       if (!bufferOp) {
         remoteLoad.emitWarning(
@@ -246,8 +246,8 @@ public:
       }
       Value bufferResult = bufferOp->getResult(0);
 
-      // Find the last use of the buffer result or remote_load result BEFORE we
-      // modify the IR
+      // Find the last use of the buffer result or remote_load result before
+      // modifying the IR.
       Block *block = bufferOp->getBlock();
       Operation *lastUseOfAlloc = findLastUse(bufferResult, block);
       Operation *lastUseOfRemoteLoad =
@@ -328,7 +328,7 @@ public:
         continue;
       }
 
-      // Find the buffer-producing op (memref.alloc or d2m.alias_buffer)
+      // Find the buffer-producing op (memref.alloc or d2m.alias_buffer).
       Operation *bufferOp = findBufferOp(localBuffer);
 
       if (!bufferOp) {
