@@ -7,6 +7,8 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -19,7 +21,6 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/TypeSwitch.h"
 
 #include <algorithm>
 
@@ -73,28 +74,9 @@ static TTNNLayoutAttr getOutputLayoutForResult(const BeamCandidate &c,
 /// Returns an optional filter predicate that rejects invalid input layouts
 /// for a given op.  When the filter returns false, the candidate is removed.
 /// Returns nullptr when no filtering is needed (all layouts accepted).
-using LayoutFilterFn = std::function<bool(TTNNLayoutAttr)>;
+/// Delegates to per-op rule files via OpRuleBook.
 static LayoutFilterFn getInputLayoutFilter(Operation *op) {
-  static auto rejectAllSharded = [](TTNNLayoutAttr layout) {
-    auto ml = layout.getMemLayout();
-    return !(ml && isShardedMemoryLayout(ml.getValue()));
-  };
-  // Reshape/Permute: width-sharded inputs round-trip through interleaved
-  // internally in tt-metal; height/block sharding is handled natively.
-  static auto rejectWidthSharded = [](TTNNLayoutAttr layout) {
-    auto ml = layout.getMemLayout();
-    return !(ml && ml.getValue() == TensorMemoryLayout::WidthSharded);
-  };
-  return llvm::TypeSwitch<Operation *, LayoutFilterFn>(op)
-      // ConcatenateHeads: cannot consume any sharded inputs.
-      // https://github.com/tenstorrent/tt-mlir/issues/7145
-      .Case<ConcatenateHeadsOp, ConcatOp>([](auto) { return rejectAllSharded; })
-      // Slice: sharded inputs produce incorrect results in tt-metal.
-      // https://github.com/tenstorrent/tt-metal/issues/39074
-      .Case<SliceStaticOp, SliceDynamicOp>(
-          [](auto) { return rejectAllSharded; })
-      .Case<ReshapeOp, PermuteOp>([](auto) { return rejectWidthSharded; })
-      .Default([](Operation *) { return nullptr; });
+  return getRuleBook(op).getInputLayoutFilter();
 }
 
 /// Check if a layout is sharded.
@@ -138,51 +120,11 @@ formatInputLayouts(const std::vector<TTNNLayoutAttr> &layouts) {
   return desc;
 }
 
-/// Apply op-specific configurations (Conv2d, ConvTranspose2d, Matmul, Linear)
-/// from the chosen candidate to the op's attributes.
+/// Apply op-specific configurations from the chosen candidate.
+/// Delegates to per-op rule files via OpRuleBook.
 static void applyOpSpecificAttrs(Operation *op,
                                  const BeamCandidate &candidate) {
-  llvm::TypeSwitch<Operation *, void>(op)
-      .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
-        if (std::holds_alternative<ttnn::Conv2dAttrs>(
-                candidate.configHint.opSpecificAttrs)) {
-          ttnn::Conv2dAttrs conv2dAttrs =
-              std::get<ttnn::Conv2dAttrs>(candidate.configHint.opSpecificAttrs);
-          if (conv2dAttrs.conv2dConfig.has_value()) {
-            convOp.setConv2dConfigAttr(conv2dAttrs.conv2dConfig.value());
-          }
-          if (conv2dAttrs.deviceComputeKernelConfig.has_value()) {
-            convOp.setComputeConfigAttr(
-                conv2dAttrs.deviceComputeKernelConfig.value());
-          }
-        }
-      })
-      .Case<ttnn::MatmulOp, ttnn::LinearOp>([&](auto matmulOp) {
-        if (std::holds_alternative<ttnn::MatmulAttrs>(
-                candidate.configHint.opSpecificAttrs)) {
-          ttnn::MatmulAttrs matmulAttrs =
-              std::get<ttnn::MatmulAttrs>(candidate.configHint.opSpecificAttrs);
-          if (matmulAttrs.matmulProgramConfig.has_value()) {
-            auto programConfig = matmulAttrs.matmulProgramConfig.value();
-            matmulOp.setMatmulProgramConfigAttr(programConfig);
-            // Workaround for tt-metal issue #35060.
-            bool hasFusedActivation =
-                llvm::TypeSwitch<mlir::Attribute, bool>(programConfig)
-                    .template Case<
-                        MatmulMultiCoreReuseMultiCastProgramConfigAttr,
-                        MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
-                        MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-                        [](auto config) {
-                          return config.getFusedActivation() != nullptr;
-                        })
-                    .Default([](mlir::Attribute) { return false; });
-            if (hasFusedActivation) {
-              matmulOp.removeActivationAttr();
-            }
-          }
-        }
-      })
-      .Default([](Operation *) {});
+  getRuleBook(op).applyOpSpecificAttrs(op, candidate);
 }
 
 std::optional<BeamCandidate> LayoutPropagation::evaluateHint(
@@ -379,6 +321,13 @@ void LayoutPropagation::run() {
     if (!legalConfigs.count(op)) {
       return;
     }
+    // Skip ops with no tensor operands (e.g., ttnn.full, ttnn.constant).
+    // These are constant-like ops that should be const-evaled, not optimized.
+    if (llvm::none_of(op->getOperands(), [](Value v) {
+          return mlir::isa<RankedTensorType>(v.getType());
+        })) {
+      return;
+    }
     // Skip ops whose operands all derive from constant/parameter arguments.
     // These ops (e.g., BFP8 typecast on weights) will be re-hoisted into
     // const_eval functions. Promoting their output to L1 would cause the
@@ -506,84 +455,64 @@ LayoutPropagation::processOp(Operation *op) {
   };
 
   size_t numOperandSets = inputCandidateSets.size();
+  assert(numOperandSets > 0 &&
+         "Ops with no tensor operands should be skipped before processOp");
 
-  // If no tensor operands (e.g., constant-like ops), just try output hints.
-  if (numOperandSets == 0) {
-    std::vector<TTNNLayoutAttr> emptyInputs;
-    llvm::SmallVector<size_t> emptyProducerIndices;
-    llvm::DenseMap<size_t, TTNNLayoutAttr> emptyReshards;
+  // Iterate cross-product of input candidates using index vector.
+  llvm::SmallVector<size_t> indices(numOperandSets, 0);
+  bool done = false;
+
+  while (!done) {
+    // Build the current input combination.
+    std::vector<TTNNLayoutAttr> inputLayouts;
+    llvm::SmallVector<size_t> producerCandidateIndices;
+    llvm::DenseMap<size_t, TTNNLayoutAttr> reshardLayouts;
+    bool anyReshard = false;
+
+    inputLayouts.reserve(numOperandSets);
+    producerCandidateIndices.reserve(numOperandSets);
+
+    for (size_t i = 0; i < numOperandSets; ++i) {
+      const InputCandidate &ic = inputCandidateSets[i][indices[i]];
+      inputLayouts.push_back(ic.layout);
+      producerCandidateIndices.push_back(ic.producerCandidateIndex);
+      if (ic.isReshard) {
+        anyReshard = true;
+        reshardLayouts[i] = ic.layout;
+      }
+    }
+
+    // Try primary output hints with this input combination.
     bool gotSharded = false;
     for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
-      if (tryHint(outputHints.hints[hi], hi, emptyInputs, false,
-                  emptyProducerIndices, emptyReshards)) {
+      if (tryHint(outputHints.hints[hi], hi, inputLayouts, anyReshard,
+                  producerCandidateIndices, reshardLayouts)) {
         gotSharded = true;
       }
     }
-    // Try fallback hints if primary didn't produce a sharded result.
-    if (!gotSharded) {
+
+    // Try fallback hints only if primary didn't produce a sharded result.
+    if (!gotSharded && !outputHints.fallbackHints.empty()) {
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "    Primary hints non-sharded for {0}, trying {1} fallback "
+                   "hints",
+                   op->getName(), outputHints.fallbackHints.size());
       for (size_t fi = 0; fi < outputHints.fallbackHints.size(); ++fi) {
         tryHint(outputHints.fallbackHints[fi], outputHints.hints.size() + fi,
-                emptyInputs, false, emptyProducerIndices, emptyReshards);
+                inputLayouts, anyReshard, producerCandidateIndices,
+                reshardLayouts);
       }
     }
-  } else {
-    // Iterate cross-product of input candidates using index vector.
-    llvm::SmallVector<size_t> indices(numOperandSets, 0);
-    bool done = false;
 
-    while (!done) {
-      // Build the current input combination.
-      std::vector<TTNNLayoutAttr> inputLayouts;
-      llvm::SmallVector<size_t> producerCandidateIndices;
-      llvm::DenseMap<size_t, TTNNLayoutAttr> reshardLayouts;
-      bool anyReshard = false;
-
-      inputLayouts.reserve(numOperandSets);
-      producerCandidateIndices.reserve(numOperandSets);
-
-      for (size_t i = 0; i < numOperandSets; ++i) {
-        const InputCandidate &ic = inputCandidateSets[i][indices[i]];
-        inputLayouts.push_back(ic.layout);
-        producerCandidateIndices.push_back(ic.producerCandidateIndex);
-        if (ic.isReshard) {
-          anyReshard = true;
-          reshardLayouts[i] = ic.layout;
-        }
+    // Advance the index vector (odometer-style).
+    for (int i = static_cast<int>(numOperandSets) - 1; i >= 0; --i) {
+      ++indices[i];
+      if (indices[i] < inputCandidateSets[i].size()) {
+        break;
       }
-
-      // Try primary output hints with this input combination.
-      bool gotSharded = false;
-      for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
-        if (tryHint(outputHints.hints[hi], hi, inputLayouts, anyReshard,
-                    producerCandidateIndices, reshardLayouts)) {
-          gotSharded = true;
-        }
-      }
-
-      // Try fallback hints only if primary didn't produce a sharded result.
-      if (!gotSharded && !outputHints.fallbackHints.empty()) {
-        TTMLIR_TRACE(
-            ttmlir::LogComponent::GreedyOptimizer,
-            "    Primary hints non-sharded for {0}, trying {1} fallback "
-            "hints",
-            op->getName(), outputHints.fallbackHints.size());
-        for (size_t fi = 0; fi < outputHints.fallbackHints.size(); ++fi) {
-          tryHint(outputHints.fallbackHints[fi], outputHints.hints.size() + fi,
-                  inputLayouts, anyReshard, producerCandidateIndices,
-                  reshardLayouts);
-        }
-      }
-
-      // Advance the index vector (odometer-style).
-      for (int i = static_cast<int>(numOperandSets) - 1; i >= 0; --i) {
-        ++indices[i];
-        if (indices[i] < inputCandidateSets[i].size()) {
-          break;
-        }
-        indices[i] = 0;
-        if (i == 0) {
-          done = true;
-        }
+      indices[i] = 0;
+      if (i == 0) {
+        done = true;
       }
     }
   }
@@ -1203,32 +1132,6 @@ TTNNLayoutAttr LayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
 // IR Transformation
 //===----------------------------------------------------------------------===//
 
-void LayoutPropagation::fixupConvDeallocate() {
-  func->walk([&](Operation *op) {
-    auto disableDeallocIfMultiUser = [](auto convOp) {
-      auto config = convOp.getConv2dConfigAttr();
-      if (!config || !config.getDeallocateActivation() ||
-          !config.getDeallocateActivation().getValue()) {
-        return;
-      }
-      Value input = convOp.getInput();
-      if (!input.hasOneUse()) {
-        convOp.setConv2dConfigAttr(config.withDeallocateActivation(false));
-        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                     "Disabled deallocate_activation for conv2d with "
-                     "multi-use input: {}",
-                     ttmlir::opToString(convOp));
-      }
-    };
-
-    if (auto conv2d = dyn_cast<ttnn::Conv2dOp>(op)) {
-      disableDeallocIfMultiUser(conv2d);
-    } else if (auto convT = dyn_cast<ttnn::ConvTranspose2dOp>(op)) {
-      disableDeallocIfMultiUser(convT);
-    }
-  });
-}
-
 void LayoutPropagation::insertReturnDramSpills() {
   func->walk([&](func::ReturnOp returnOp) {
     for (unsigned i = 0; i < returnOp.getNumOperands(); ++i) {
@@ -1280,7 +1183,7 @@ void LayoutPropagation::applyToIR() {
     }
   });
 
-  fixupConvDeallocate();
+  fixupConvDeallocate(func);
   insertReturnDramSpills();
 
   // Third pass: update function return types.
