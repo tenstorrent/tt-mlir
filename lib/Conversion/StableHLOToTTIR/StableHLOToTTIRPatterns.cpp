@@ -8176,6 +8176,18 @@ public:
       }
     }
 
+    // Parse output_shard_dim attribute (default=2 for [E, 1, tokens, H] layout)
+    auto outputShardDimStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("output_shard_dim");
+    int64_t outputShardDim = 2;
+    if (outputShardDimStringAttr) {
+      if (outputShardDimStringAttr.getValue().getAsInteger(10,
+                                                           outputShardDim)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "output_shard_dim must be a valid integer.");
+      }
+    }
+
     // Get operands: input_tensor, expert_metadata, expert_mapping
     if (adaptor.getOperands().size() != 3) {
       return rewriter.notifyMatchFailure(
@@ -8193,7 +8205,8 @@ public:
         srcOp.getLoc(), outputType, inputTensor, expertMetadata, expertMapping,
         rewriter.getI64IntegerAttr(numDevices),
         rewriter.getI64IntegerAttr(clusterAxis),
-        rewriter.getI64IntegerAttr(numExpertsPerTok));
+        rewriter.getI64IntegerAttr(numExpertsPerTok),
+        rewriter.getI64IntegerAttr(outputShardDim));
 
     Value result = combineOp.getResult();
 

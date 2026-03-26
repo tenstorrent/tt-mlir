@@ -134,6 +134,7 @@ def test_moe_dispatch_combine(
                 num_devices=D,
                 cluster_axis=1,
                 num_experts_per_tok=K,
+                output_shard_dim=1,
                 output_shape=(K, B, S, H_out),
                 output_type=torch.bfloat16,
                 unit_attrs=unit_attrs,

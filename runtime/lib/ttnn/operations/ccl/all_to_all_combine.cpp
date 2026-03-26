@@ -27,6 +27,9 @@ void run(const ::tt::target::ttnn::AllToAllCombineOp *op,
   std::optional<uint32_t> axis =
       std::make_optional<uint32_t>(op->cluster_axis());
 
+  std::optional<uint32_t> outputShardDim =
+      std::make_optional<uint32_t>(op->output_shard_dim());
+
   ::ttnn::Tensor output =
       ::ttnn::all_to_all_combine(input, expertMapping, expertMetadata,
                                  /*locally_reduced=*/false,
@@ -34,7 +37,7 @@ void run(const ::tt::target::ttnn::AllToAllCombineOp *op,
                                  /*topology=*/std::nullopt,
                                  /*memory_config=*/memoryConfig,
                                  /*axis=*/axis,
-                                 /*output_shard_dim=*/std::nullopt,
+                                 /*output_shard_dim=*/outputShardDim,
                                  /*subdevice_id=*/std::nullopt,
                                  /*optional_output_tensor=*/std::nullopt);
 
