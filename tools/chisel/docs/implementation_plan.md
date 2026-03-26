@@ -21,6 +21,10 @@ works without them for the common single-output op case.
    or direct user) registers callbacks and runs the binary.
 5. **Reuse `tools/golden/GOLDEN_MAPPINGS`** — ~66 TTNN ops already have golden
    implementations. No new mapping layer needed.
+6. **Unified metrics in `tools/golden/metrics.py`** — PCC, atol, rtol, and
+   full comparison metrics live in `tools/golden/metrics.py` as a single
+   canonical module. Builder, chisel, and ttrt all import from there instead
+   of maintaining separate copies. Pure torch implementation (no numpy).
 
 ## PR Dependency Graph
 
@@ -29,11 +33,13 @@ graph TD
     PR1["PR 1: Scaffold + Data Structures"] --> PR2["PR 2: Logic Layer"]
     PR2 --> PR3["PR 3: Orchestration"]
     PR0a["PR 0a: DebugHooks Refactor"] --> PR3
+    PR0c["PR 0c: Unified Metrics"] --> PR3
     PR3 --> PR4["PR 4: Builder Integration"]
     PR0b["PR 0b: Multi-Output Refs"] -.-> Future["Future: Full Multi-Output Op Support"]
 
     style PR0a fill:#f9d77e,stroke:#d4a017
     style PR0b fill:#f9d77e,stroke:#d4a017
+    style PR0c fill:#f9d77e,stroke:#d4a017
     style Future fill:#e0e0e0,stroke:#999,stroke-dasharray: 5 5
 ```
 
@@ -41,6 +47,9 @@ graph TD
   registration, so the DebugHooks copy bug doesn't affect them.
 - **PR 0a** must land before **PR 3** — that's where callbacks get registered
   and invoked, hitting the copy/GIL bug in tt-xla.
+- **PR 0c** must land before **PR 3** — PR 3's `context.py` imports comparison
+  functions from `golden.metrics`. PR 0c also migrates builder/ttrt duplicates.
+  Can be developed in parallel with PRs 1-2.
 - **PR 0b** is independent and not required for the initial integration.
   Multi-output ops (SortOp, MaxPool2dWithIndicesOp, etc.) will simply be
   unsupported until PR 0b lands. Chisel can skip them gracefully.
@@ -51,10 +60,11 @@ graph TD
 |----|-------|-------|-------|------------|
 | 1 | Scaffold + Data Structures | CMakeLists.txt, `__init__.py`, tensors.py, ops.py | test_tensors.py, test_ops.py | None |
 | 2 | Logic Layer | registry.py, executor.py, report.py | test_registry.py, test_executor.py, test_report.py | PR 1 |
-| 3 | Orchestration | context.py, callbacks.py, utils.py, metrics.py | test_context.py, test_callbacks.py, test_utils.py, test_metrics.py | PR 2, PR 0a |
+| 3 | Orchestration | context.py, callbacks.py, utils.py | test_context.py, test_callbacks.py, test_utils.py | PR 2, PR 0a, PR 0c |
 | 4 | Builder Integration | (modifies builder_runtime.py, builder_apis.py) | test_builder_integration.py | PR 3 |
 | 0a | DebugHooks Refactor | runtime C++ — fix callback copy semantics | Existing runtime tests + GIL-safety | None (land before PR 3) |
 | 0b | Multi-Output Refs | runtime C++ — `getOpOutputRef` returns vector | Multi-output op extraction tests | None (independent, future) |
+| 0c | Unified Metrics | `tools/golden/metrics.py`, migrate builder + ttrt | test/python/golden/test_metrics.py | None (land before PR 3) |
 
 ## Runtime PRs
 
@@ -80,11 +90,26 @@ outputs but currently return `std::nullopt`.
 **Not required for initial integration.** Without this, Chisel simply skips
 multi-output ops. Can land at any time to extend coverage.
 
+### PR 0c: Unified Metrics ([detail](pr0c_unified_metrics.md))
+
+Consolidate 3 duplicate PCC/comparison implementations into a single
+`tools/golden/metrics.py` module:
+- `tools/builder/base/builder_runtime.py` — `get_atol_rtol_pcc()`, `check_outputs()` (numpy-based)
+- `tools/ttrt/common/util.py` — near-identical copy with logging + message string
+- `runtime/tools/chisel/chisel/utils/metrics.py` — pure torch, has shape alignment
+
+The unified module uses pure torch (no numpy), exposes `compute_pcc()`,
+`compute_atol()`, `compute_rtol()`, `compute_metrics()`, and `align_shapes()`.
+Builder's `check_outputs()` keeps its signature but delegates internally.
+
+**Must land before PR 3.** Can be developed in parallel with PRs 1-2.
+
 ## Key Reference Files
 
 | File | What It Provides |
 |------|--------------------|
-| `tools/golden/mapping.py` | `GOLDEN_MAPPINGS` dict (~66 TTNN ops), `get_golden_function()` |
+| `tools/golden/mapping.py` | `GOLDEN_MAPPINGS` dict (~66 TTNN ops), `get_golden_function()`, `GoldenMapTensor` |
+| `tools/golden/metrics.py` | Unified PCC/atol/rtol/metrics — single source for builder, chisel, ttrt |
 | `tools/builder/base/builder_runtime.py` | `execute_fb()`, `DebugHooks.get()`, `CallbackRuntimeConfig`, callback signatures |
 | `tools/builder/base/builder_apis.py` | `compile_and_execute_ttnn()` / `_compile_and_execute()` |
 | `tools/golden/CMakeLists.txt` | CMake packaging pattern to follow |
