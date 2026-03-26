@@ -44,42 +44,36 @@ ScaledDotProductAttentionDecodeAttentionSinkRewritePattern::matchAndRewrite(
   if (batch != 1) {
     auto slicedType =
         utils::RankedTensorTypeFactory::create(sinkType, {1, numHeads, 1, 1});
-    sink =
-        rewriter
-            .create<SliceStaticOp>(
-                loc, slicedType, sink, rewriter.getI32ArrayAttr({0, 0, 0, 0}),
-                rewriter.getI32ArrayAttr(
-                    {1, static_cast<int32_t>(numHeads), 1, 1}),
-                rewriter.getI32ArrayAttr({1, 1, 1, 1}))
-            .getResult();
+    sink = SliceStaticOp::create(rewriter, loc, slicedType, sink,
+                                 rewriter.getI32ArrayAttr({0, 0, 0, 0}),
+                                 rewriter.getI32ArrayAttr(
+                                     {1, static_cast<int32_t>(numHeads), 1, 1}),
+                                 rewriter.getI32ArrayAttr({1, 1, 1, 1}))
+               .getResult();
     sinkType = mlir::cast<RankedTensorType>(sink.getType());
   }
 
   // Reshape from 4D [1, num_heads, 1, 1] to 2D [num_heads, 1].
   auto reshapedType =
       utils::RankedTensorTypeFactory::create(sinkType, {numHeads, 1});
-  Value reshapedSink =
-      rewriter
-          .create<ReshapeOp>(
-              loc, reshapedType, sink,
-              rewriter.getI32ArrayAttr(
-                  {static_cast<int32_t>(numHeads), static_cast<int32_t>(1)}),
-              /*memory_config=*/MemoryConfigAttr())
-          .getResult();
+  Value reshapedSink = ReshapeOp::create(rewriter, loc, reshapedType, sink,
+                                         rewriter.getI32ArrayAttr(
+                                             {static_cast<int32_t>(numHeads),
+                                              static_cast<int32_t>(1)}),
+                                         /*memory_config=*/MemoryConfigAttr())
+                           .getResult();
 
   // Pad last dim from 1 to TILE_WIDTH: [num_heads, 1] -> [num_heads, 32].
   auto paddedType = utils::RankedTensorTypeFactory::create(
       reshapedType, {numHeads, static_cast<int64_t>(TILE_WIDTH)});
   SmallVector<int32_t> padding = {0, 0, 0,
                                   static_cast<int32_t>(TILE_WIDTH - 1)};
-  Value paddedSink =
-      rewriter
-          .create<PadOp>(loc, paddedType, reshapedSink,
-                         rewriter.getDenseI32ArrayAttr(padding),
-                         rewriter.getF32FloatAttr(0.0f),
-                         /*use_multicore=*/rewriter.getBoolAttr(true),
-                         /*memory_config=*/nullptr)
-          .getResult();
+  Value paddedSink = PadOp::create(rewriter, loc, paddedType, reshapedSink,
+                                   rewriter.getDenseI32ArrayAttr(padding),
+                                   rewriter.getF32FloatAttr(0.0f),
+                                   /*use_multicore=*/rewriter.getBoolAttr(true),
+                                   /*memory_config=*/nullptr)
+                         .getResult();
 
   rewriter.replaceOpWithNewOp<ScaledDotProductAttentionDecodeOp>(
       srcOp, srcOp.getResult().getType(), srcOp.getQuery(), srcOp.getKey(),

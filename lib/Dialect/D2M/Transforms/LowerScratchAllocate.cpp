@@ -111,7 +111,7 @@ private:
     if (mlir::isa<d2m::CBType>(scratchValue.getType())) {
       // CB form: unwrap via get_scratch_from_cb.
       auto scratchFromCBOp =
-          builder.create<GetScratchFromCBOp>(genericOp.getLoc(), scratchValue);
+          GetScratchFromCBOp::create(builder, genericOp.getLoc(), scratchValue);
       scratchMemRef = scratchFromCBOp.getResult();
     } else {
       // New form: memref.alloc is already the scratch buffer.
@@ -166,9 +166,9 @@ private:
     SmallVector<OpFoldResult> strides = {builder.getIndexAttr(1),
                                          builder.getIndexAttr(1)};
 
-    auto subviewOp = builder.create<memref::SubViewOp>(
-        loc, mlir::cast<MemRefType>(inferredType), scratchMemRef, offsets,
-        sizes, strides);
+    auto subviewOp = memref::SubViewOp::create(
+        builder, loc, mlir::cast<MemRefType>(inferredType), scratchMemRef,
+        offsets, sizes, strides);
 
     allocOp.getResult().replaceAllUsesWith(subviewOp.getResult());
     allocOp.erase();

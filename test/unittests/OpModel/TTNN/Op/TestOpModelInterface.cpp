@@ -109,9 +109,9 @@ public:
     }
     RankedTensorType rankedTensorType =
         createRankedTensorType(tensorShape, elementType, layout);
-    return builder.create<OnesOp>(
-        builder.getUnknownLoc(), rankedTensorType, nullptr,
-        ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+    return OnesOp::create(builder, builder.getUnknownLoc(), rankedTensorType,
+                          nullptr, ShapeAttr::get(&context, tensorShape),
+                          nullptr, nullptr, nullptr);
   }
 };
 struct ExpectedResult {
@@ -201,115 +201,115 @@ const ExpectedResult expected{true};
 //===---------------------------------------------------------===
 const auto createRelu = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<ReluOp>(loc, type, ops).getOperation();
+  return ReluOp::create(b, loc, type, ops).getOperation();
 };
 const auto createRelu6 = [](OpBuilder &b, Location loc, Type type,
                             ValueRange ops) {
-  return b.create<Relu6Op>(loc, type, ops).getOperation();
+  return Relu6Op::create(b, loc, type, ops).getOperation();
 };
 const auto createHardsigmoid = [](OpBuilder &b, Location loc, Type type,
                                   ValueRange ops) {
-  return b.create<HardsigmoidOp>(loc, type, ops).getOperation();
+  return HardsigmoidOp::create(b, loc, type, ops).getOperation();
 };
 const auto createSilu = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<SiluOp>(loc, type, ops).getOperation();
+  return SiluOp::create(b, loc, type, ops).getOperation();
 };
 const auto createSin = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
-  return b.create<SinOp>(loc, type, ops).getOperation();
+  return SinOp::create(b, loc, type, ops).getOperation();
 };
 const auto createAsin = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<AsinOp>(loc, type, ops).getOperation();
+  return AsinOp::create(b, loc, type, ops).getOperation();
 };
 const auto createCos = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
-  return b.create<CosOp>(loc, type, ops).getOperation();
+  return CosOp::create(b, loc, type, ops).getOperation();
 };
 const auto createAcos = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<AcosOp>(loc, type, ops).getOperation();
+  return AcosOp::create(b, loc, type, ops).getOperation();
 };
 const auto createExp = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
-  return b.create<ExpOp>(loc, type, ops).getOperation();
+  return ExpOp::create(b, loc, type, ops).getOperation();
 };
 const auto createTanh = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<TanhOp>(loc, type, ops).getOperation();
+  return TanhOp::create(b, loc, type, ops).getOperation();
 };
 const auto createLog = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
-  return b.create<LogOp>(loc, type, ops).getOperation();
+  return LogOp::create(b, loc, type, ops).getOperation();
 };
 const auto createAbs = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
-  return b.create<AbsOp>(loc, type, ops).getOperation();
+  return AbsOp::create(b, loc, type, ops).getOperation();
 };
 const auto createCeil = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<CeilOp>(loc, type, ops).getOperation();
+  return CeilOp::create(b, loc, type, ops).getOperation();
 };
 const auto createSign = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<SignOp>(loc, type, ops).getOperation();
+  return SignOp::create(b, loc, type, ops).getOperation();
 };
 const auto createErf = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
-  return b.create<ErfOp>(loc, type, ops).getOperation();
+  return ErfOp::create(b, loc, type, ops).getOperation();
 };
 const auto createErfc = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<ErfcOp>(loc, type, ops).getOperation();
+  return ErfcOp::create(b, loc, type, ops).getOperation();
 };
 const auto createFloor = [](OpBuilder &b, Location loc, Type type,
                             ValueRange ops) {
-  return b.create<FloorOp>(loc, type, ops).getOperation();
+  return FloorOp::create(b, loc, type, ops).getOperation();
 };
 const auto createGelu = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<GeluOp>(loc, type, ops).getOperation();
+  return GeluOp::create(b, loc, type, ops).getOperation();
 };
 const auto createIsFinite = [](OpBuilder &b, Location loc, Type type,
                                ValueRange ops) {
-  return b.create<IsFiniteOp>(loc, type, ops).getOperation();
+  return IsFiniteOp::create(b, loc, type, ops).getOperation();
 };
 const auto createLogicalNot = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
-  return b.create<LogicalNotOp>(loc, type, ops).getOperation();
+  return LogicalNotOp::create(b, loc, type, ops).getOperation();
 };
 const auto createNeg = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
-  return b.create<NegOp>(loc, type, ops).getOperation();
+  return NegOp::create(b, loc, type, ops).getOperation();
 };
 const auto createTan = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
-  return b.create<TanOp>(loc, type, ops).getOperation();
+  return TanOp::create(b, loc, type, ops).getOperation();
 };
 const auto createAtan = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<AtanOp>(loc, type, ops).getOperation();
+  return AtanOp::create(b, loc, type, ops).getOperation();
 };
 const auto createRsqrt = [](OpBuilder &b, Location loc, Type type,
                             ValueRange ops) {
-  return b.create<RsqrtOp>(loc, type, ops).getOperation();
+  return RsqrtOp::create(b, loc, type, ops).getOperation();
 };
 const auto createLog1p = [](OpBuilder &b, Location loc, Type type,
                             ValueRange ops) {
-  return b.create<Log1pOp>(loc, type, ops).getOperation();
+  return Log1pOp::create(b, loc, type, ops).getOperation();
 };
 const auto createExpm1 = [](OpBuilder &b, Location loc, Type type,
                             ValueRange ops) {
-  return b.create<Expm1Op>(loc, type, ops).getOperation();
+  return Expm1Op::create(b, loc, type, ops).getOperation();
 };
 const auto createReciprocal = [](OpBuilder &b, Location loc, Type type,
                                  ValueRange ops) {
-  return b.create<ReciprocalOp>(loc, type, ops).getOperation();
+  return ReciprocalOp::create(b, loc, type, ops).getOperation();
 };
 const auto createCbrt = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
-  return b.create<CbrtOp>(loc, type, ops).getOperation();
+  return CbrtOp::create(b, loc, type, ops).getOperation();
 };
 
 //===---------------------------------------------------------===
@@ -493,71 +493,71 @@ const ExpectedResult binaryExpected{true};
 //===---------------------------------------------------------===
 // Lambda functions for creating binary operations
 const auto createAdd = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<AddOp>(l, t, r).getOperation();
+  return AddOp::create(b, l, t, r).getOperation();
 };
 const auto createSubtract = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<SubtractOp>(l, t, r).getOperation();
+  return SubtractOp::create(b, l, t, r).getOperation();
 };
 const auto createMultiply = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<MultiplyOp>(l, t, r).getOperation();
+  return MultiplyOp::create(b, l, t, r).getOperation();
 };
 const auto createDivide = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<DivideOp>(l, t, r).getOperation();
+  return DivideOp::create(b, l, t, r).getOperation();
 };
 const auto createEqual = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<EqualOp>(l, t, r).getOperation();
+  return EqualOp::create(b, l, t, r).getOperation();
 };
 const auto createNotEqual = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<NotEqualOp>(l, t, r).getOperation();
+  return NotEqualOp::create(b, l, t, r).getOperation();
 };
 const auto createGE = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<GreaterEqualOp>(l, t, r).getOperation();
+  return GreaterEqualOp::create(b, l, t, r).getOperation();
 };
 const auto createGT = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<GreaterThanOp>(l, t, r).getOperation();
+  return GreaterThanOp::create(b, l, t, r).getOperation();
 };
 const auto createLE = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LessEqualOp>(l, t, r).getOperation();
+  return LessEqualOp::create(b, l, t, r).getOperation();
 };
 const auto createLT = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LessThanOp>(l, t, r).getOperation();
+  return LessThanOp::create(b, l, t, r).getOperation();
 };
 const auto createAnd = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LogicalAndOp>(l, t, r).getOperation();
+  return LogicalAndOp::create(b, l, t, r).getOperation();
 };
 const auto createOr = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LogicalOrOp>(l, t, r).getOperation();
+  return LogicalOrOp::create(b, l, t, r).getOperation();
 };
 const auto createXor = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LogicalXorOp>(l, t, r).getOperation();
+  return LogicalXorOp::create(b, l, t, r).getOperation();
 };
 const auto createMax = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<MaximumOp>(l, t, r).getOperation();
+  return MaximumOp::create(b, l, t, r).getOperation();
 };
 const auto createMin = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<MinimumOp>(l, t, r).getOperation();
+  return MinimumOp::create(b, l, t, r).getOperation();
 };
 const auto createPow = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<PowTensorOp>(l, t, r).getOperation();
+  return PowTensorOp::create(b, l, t, r).getOperation();
 };
 const auto createBitwiseAnd = [](OpBuilder &b, Location l, Type t,
                                  ValueRange r) {
-  return b.create<BitwiseAndOp>(l, t, r).getOperation();
+  return BitwiseAndOp::create(b, l, t, r).getOperation();
 };
 const auto createBitwiseOr = [](OpBuilder &b, Location l, Type t,
                                 ValueRange r) {
-  return b.create<BitwiseOrOp>(l, t, r).getOperation();
+  return BitwiseOrOp::create(b, l, t, r).getOperation();
 };
 const auto createBitwiseXor = [](OpBuilder &b, Location l, Type t,
                                  ValueRange r) {
-  return b.create<BitwiseXorOp>(l, t, r).getOperation();
+  return BitwiseXorOp::create(b, l, t, r).getOperation();
 };
 const auto createRemainder = [](OpBuilder &b, Location l, Type t,
                                 ValueRange r) {
-  return b.create<RemainderOp>(l, t, r).getOperation();
+  return RemainderOp::create(b, l, t, r).getOperation();
 };
 const auto createAtan2 = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<Atan2Op>(l, t, r).getOperation();
+  return Atan2Op::create(b, l, t, r).getOperation();
 };
 
 //===---------------------------------------------------------===
@@ -617,8 +617,8 @@ TEST_F(OpModelBase, PowScalarOp) {
   // Input params
   const auto exponent = builder.getF32FloatAttr(2.0f);
 
-  PowScalarOp powScalarOp = builder.create<PowScalarOp>(
-      builder.getUnknownLoc(), outputType, input, exponent);
+  PowScalarOp powScalarOp = PowScalarOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, exponent);
   powScalarOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(powScalarOp.getOperation());
@@ -664,12 +664,12 @@ TEST_F(OpModelBase, BitwiseNotOpInterface) {
   auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
 
   // Create input tensor using OnesOp with Int32 layout
-  auto input = builder.create<OnesOp>(
-      builder.getUnknownLoc(), inputType, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+  auto input = OnesOp::create(builder, builder.getUnknownLoc(), inputType,
+                              nullptr, ShapeAttr::get(&context, tensorShape),
+                              nullptr, nullptr, nullptr);
 
-  auto bitwiseNot = builder.create<BitwiseNotOp>(
-      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input});
+  auto bitwiseNot = BitwiseNotOp::create(builder, builder.getUnknownLoc(),
+                                         outputType, ::mlir::ValueRange{input});
 
   // Test BitwiseNot interface
   auto constraintsExp = getOpConstraints(bitwiseNot.getOperation());
@@ -717,15 +717,16 @@ TEST_F(OpModelBase, LogicalRightShiftOpInterface) {
   auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
 
   // Create input tensors using OnesOp with Int32 layout
-  auto input1 = builder.create<OnesOp>(
-      builder.getUnknownLoc(), input1Type, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
-  auto input2 = builder.create<OnesOp>(
-      builder.getUnknownLoc(), input2Type, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+  auto input1 = OnesOp::create(builder, builder.getUnknownLoc(), input1Type,
+                               nullptr, ShapeAttr::get(&context, tensorShape),
+                               nullptr, nullptr, nullptr);
+  auto input2 = OnesOp::create(builder, builder.getUnknownLoc(), input2Type,
+                               nullptr, ShapeAttr::get(&context, tensorShape),
+                               nullptr, nullptr, nullptr);
 
-  auto logicalRightShift = builder.create<LogicalRightShiftOp>(
-      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input1, input2});
+  auto logicalRightShift =
+      LogicalRightShiftOp::create(builder, builder.getUnknownLoc(), outputType,
+                                  ::mlir::ValueRange{input1, input2});
 
   // Test LogicalRightShift interface
   auto constraintsExp = getOpConstraints(logicalRightShift.getOperation());
@@ -772,15 +773,16 @@ TEST_F(OpModelBase, LogicalLeftShiftOpInterface) {
   auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
 
   // Create input tensors using OnesOp with Int32 layout
-  auto input1 = builder.create<OnesOp>(
-      builder.getUnknownLoc(), input1Type, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
-  auto input2 = builder.create<OnesOp>(
-      builder.getUnknownLoc(), input2Type, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+  auto input1 = OnesOp::create(builder, builder.getUnknownLoc(), input1Type,
+                               nullptr, ShapeAttr::get(&context, tensorShape),
+                               nullptr, nullptr, nullptr);
+  auto input2 = OnesOp::create(builder, builder.getUnknownLoc(), input2Type,
+                               nullptr, ShapeAttr::get(&context, tensorShape),
+                               nullptr, nullptr, nullptr);
 
-  auto logicalLeftShift = builder.create<LogicalLeftShiftOp>(
-      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input1, input2});
+  auto logicalLeftShift =
+      LogicalLeftShiftOp::create(builder, builder.getUnknownLoc(), outputType,
+                                 ::mlir::ValueRange{input1, input2});
 
   // Test LogicalLeftShift interface
   auto constraintsExp = getOpConstraints(logicalLeftShift.getOperation());
@@ -812,8 +814,8 @@ TEST_F(OpModelBase, SqrtOpInterface) {
   auto input = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
 
-  auto sqrt = builder.create<SqrtOp>(builder.getUnknownLoc(), outputType,
-                                     mlir::ValueRange{input});
+  auto sqrt = SqrtOp::create(builder, builder.getUnknownLoc(), outputType,
+                             mlir::ValueRange{input});
 
   // test SqrtOp interface
   auto constraintsExp = getOpConstraints(sqrt.getOperation());
@@ -844,8 +846,8 @@ TEST_F(OpModelBase, SigmoidOpInterface) {
   auto input = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
 
-  auto sigmoid = builder.create<SigmoidOp>(builder.getUnknownLoc(), outputType,
-                                           mlir::ValueRange{input});
+  auto sigmoid = SigmoidOp::create(builder, builder.getUnknownLoc(), outputType,
+                                   mlir::ValueRange{input});
 
   // test SigmoidOp interface
   auto constraintsExp = getOpConstraints(sigmoid.getOperation());
@@ -877,7 +879,7 @@ TEST_F(OpModelBase, SoftmaxOpInterface) {
   auto output = createRankedTensorType(tensorShape);
 
   auto softmax =
-      builder.create<SoftmaxOp>(builder.getUnknownLoc(), output, input, -1);
+      SoftmaxOp::create(builder, builder.getUnknownLoc(), output, input, -1);
 
   // test SoftmaxOp interface
   auto constraintsExp = getOpConstraints(softmax.getOperation());
@@ -913,9 +915,8 @@ TEST_F(OpModelBase, LinearOpInterface) {
   auto bias = createEmptyTensor(biasShape);
   auto outputType = createRankedTensorType(tensorShapeO);
 
-  auto linear =
-      builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
-                               mlir::ValueRange{inputA, inputB, bias});
+  auto linear = LinearOp::create(builder, builder.getUnknownLoc(), outputType,
+                                 mlir::ValueRange{inputA, inputB, bias});
 
   // test LinearOp interface
   auto constraintsExp = getOpConstraints(linear.getOperation());
@@ -951,9 +952,8 @@ TEST_F(OpModelBase, LinearOpInterfaceNullOutput) {
   auto bias = createEmptyTensor(biasShape);
   auto outputType = createRankedTensorType(tensorShapeO);
 
-  auto linear =
-      builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
-                               mlir::ValueRange{inputA, inputB, bias});
+  auto linear = LinearOp::create(builder, builder.getUnknownLoc(), outputType,
+                                 mlir::ValueRange{inputA, inputB, bias});
 
   // test LinearOp interface
   OpModel backend = dyn_cast<OpModel>(linear.getOperation());
@@ -987,9 +987,8 @@ TEST_F(OpModelBase, LinearOpInterfacePartialOutput) {
   auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::L1,
                                         TensorMemoryLayout::BlockSharded)
                           .withIgnorePhysicalLayout(true);
-  auto linear =
-      builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
-                               mlir::ValueRange{inputA, inputB, bias});
+  auto linear = LinearOp::create(builder, builder.getUnknownLoc(), outputType,
+                                 mlir::ValueRange{inputA, inputB, bias});
 
   // test LinearOp interface
   OpModel backend = dyn_cast<OpModel>(linear.getOperation());
@@ -1018,8 +1017,8 @@ TEST_F(OpModelBase, MatmulOpInterface) {
   auto inputB = createEmptyTensor(tensorShapeB);
   auto outputType = createRankedTensorType(tensorShapeO);
 
-  auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
-                                         mlir::ValueRange{inputA, inputB});
+  auto matmul = MatmulOp::create(builder, builder.getUnknownLoc(), outputType,
+                                 mlir::ValueRange{inputA, inputB});
 
   // test MatmulOp interface
   auto constraintsExp = getOpConstraints(matmul.getOperation());
@@ -1053,8 +1052,8 @@ TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
   auto inputB = createEmptyTensor(tensorShapeB);
   auto outputType = createRankedTensorType(tensorShapeO);
 
-  auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
-                                         mlir::ValueRange{inputA, inputB});
+  auto matmul = MatmulOp::create(builder, builder.getUnknownLoc(), outputType,
+                                 mlir::ValueRange{inputA, inputB});
 
   // test MatmulOp interface
   OpModel backend = dyn_cast<OpModel>(matmul.getOperation());
@@ -1086,8 +1085,8 @@ TEST_F(OpModelBase, MatmulOpInterfacePartialOutput) {
   auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::L1,
                                         TensorMemoryLayout::BlockSharded)
                           .withIgnorePhysicalLayout(true);
-  auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
-                                         mlir::ValueRange{inputA, inputB});
+  auto matmul = MatmulOp::create(builder, builder.getUnknownLoc(), outputType,
+                                 mlir::ValueRange{inputA, inputB});
 
   // test MatmulOp interface
   OpModel backend = dyn_cast<OpModel>(matmul.getOperation());
@@ -1118,8 +1117,8 @@ void testReductionOp(OpModelBase *testFixture, mlir::OpBuilder &builder,
                      OpConstraintsFn getOpConstraintsFn,
                      OpRuntimeFn getOpRuntimeFn) {
   // Create the reduction operation
-  auto op = builder.create<OpType>(builder.getUnknownLoc(), outputType,
-                                   mlir::ValueRange{input});
+  auto op = OpType::create(builder, builder.getUnknownLoc(), outputType,
+                           mlir::ValueRange{input});
   op.setKeepDim(true);
   op.setDimArgAttr(builder.getArrayAttr(
       llvm::SmallVector<mlir::Attribute>{builder.getI64IntegerAttr(1)}));
@@ -1207,9 +1206,9 @@ TEST_F(OpModelBase, ArgMaxOpInterface) {
   auto outputType =
       createRankedTensorType(tensorShapeA, builder.getBF16Type(), outputLayout);
 
-  auto argMax = builder.create<ArgMaxOp>(builder.getUnknownLoc(), outputType,
-                                         input, builder.getI32IntegerAttr(1),
-                                         false, false, nullptr);
+  auto argMax =
+      ArgMaxOp::create(builder, builder.getUnknownLoc(), outputType, input,
+                       builder.getI32IntegerAttr(1), false, false, nullptr);
 
   // getOutputLayout() hardcodes tiled L1 layout, so we cannot use it
   OpModel backend = dyn_cast<OpModel>(argMax.getOperation());
@@ -1243,9 +1242,9 @@ TEST_F(OpModelBase, ProdOpInterface) {
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeA);
 
-  auto prod = builder.create<ProdOp>(builder.getUnknownLoc(), output.getType(),
-                                     input, builder.getI64IntegerAttr(0),
-                                     builder.getBoolAttr(false), nullptr);
+  auto prod = ProdOp::create(builder, builder.getUnknownLoc(), output.getType(),
+                             input, builder.getI64IntegerAttr(0),
+                             builder.getBoolAttr(false), nullptr);
 
   // test prod Op interface
   auto constraintsExp = getOpConstraints(prod.getOperation());
@@ -1279,8 +1278,8 @@ TEST_F(OpModelBase, ScatterOpInterface) {
                                                 ttcore::ReduceType::Sum);
   const int32_t dim = 0;
 
-  auto scatter = builder.create<ScatterOp>(
-      builder.getUnknownLoc(), output.getType(), input, index, source,
+  auto scatter = ScatterOp::create(
+      builder, builder.getUnknownLoc(), output.getType(), input, index, source,
       builder.getI32IntegerAttr(dim), reduceType, nullptr);
 
   // test ScatterOp interface
@@ -1314,8 +1313,8 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
-  auto reshape = builder.create<ReshapeOp>(
-      builder.getUnknownLoc(), output.getType(), mlir::ValueRange{input});
+  auto reshape = ReshapeOp::create(builder, builder.getUnknownLoc(),
+                                   output.getType(), mlir::ValueRange{input});
   reshape.setShapeAttr(builder.getArrayAttr(llvm::SmallVector<mlir::Attribute>{
       builder.getI64IntegerAttr(64 * 4), builder.getI64IntegerAttr(1024 / 4)}));
 
@@ -1384,8 +1383,9 @@ TEST_F(OpModelBase, SliceStaticOpInterface) {
   llvm::SmallVector<int64_t> endsArray = {1, 56, 56, 95};
   llvm::SmallVector<int64_t> stepArray = {1, 2, 1, 1};
 
-  auto sliceStaticOp = builder.create<SliceStaticOp>(
-      builder.getUnknownLoc(), output.getType(), mlir::ValueRange{input});
+  auto sliceStaticOp =
+      SliceStaticOp::create(builder, builder.getUnknownLoc(), output.getType(),
+                            mlir::ValueRange{input});
 
   sliceStaticOp.setBeginsAttr(builder.getI64ArrayAttr(beginsArray));
   sliceStaticOp.setEndsAttr(builder.getI64ArrayAttr(endsArray));
@@ -1433,8 +1433,8 @@ TEST_F(OpModelBase, SliceDynamicOpInterface) {
                                                   builder.getI32IntegerAttr(1)};
 
   auto sliceDynamicOp =
-      builder.create<SliceDynamicOp>(builder.getUnknownLoc(), output.getType(),
-                                     mlir::ValueRange{input, begins, ends});
+      SliceDynamicOp::create(builder, builder.getUnknownLoc(), output.getType(),
+                             mlir::ValueRange{input, begins, ends});
   sliceDynamicOp.setStepAttr(builder.getArrayAttr(stepAttrs));
 
   // test SliceDynamicOp interface
@@ -1463,14 +1463,14 @@ TEST_F(OpModelBase, SliceDynamicOpInterface) {
 TEST_F(OpModelBase, toLayoutOp) {
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};
   RankedTensorType rankedTensorType = createRankedTensorType(tensorShape);
-  auto tensor = builder.create<OnesOp>(
-      builder.getUnknownLoc(), rankedTensorType, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr,
-      LayoutAttr::get(&context, Layout::RowMajor), nullptr);
+  auto tensor =
+      OnesOp::create(builder, builder.getUnknownLoc(), rankedTensorType,
+                     nullptr, ShapeAttr::get(&context, tensorShape), nullptr,
+                     LayoutAttr::get(&context, Layout::RowMajor), nullptr);
 
   ToLayoutOp toLayout =
-      builder.create<ToLayoutOp>(builder.getUnknownLoc(), tensor.getType(),
-                                 tensor, Layout::Tile, nullptr, nullptr);
+      ToLayoutOp::create(builder, builder.getUnknownLoc(), tensor.getType(),
+                         tensor, Layout::Tile, nullptr, nullptr);
 
   // Manually create the operand layouts for calling the backend to make sure
   // the layouts are propagated all the way
@@ -1520,8 +1520,8 @@ TEST_F(OpModelBase, toMemoryConfigOp) {
   auto inputTensor =
       createEmptyTensor(tensorShape, nullptr, inputLayout_L1Tiled);
 
-  ToMemoryConfigOp toMemoryConfig = builder.create<ToMemoryConfigOp>(
-      builder.getUnknownLoc(), inputTensor.getType(), inputTensor,
+  ToMemoryConfigOp toMemoryConfig = ToMemoryConfigOp::create(
+      builder, builder.getUnknownLoc(), inputTensor.getType(), inputTensor,
       memoryConfig);
 
   OpModel backend = dyn_cast<OpModel>(toMemoryConfig.getOperation());
@@ -1564,8 +1564,8 @@ TEST_F(OpModelBase, concatOp) {
   mlir::Value inputTensor3 = createEmptyTensor(tensorShape3);
   mlir::Value output = createEmptyTensor(tensorShapeO);
 
-  auto concatOp = builder.create<ConcatOp>(
-      builder.getUnknownLoc(), output.getType(),
+  auto concatOp = ConcatOp::create(
+      builder, builder.getUnknownLoc(), output.getType(),
       mlir::ValueRange{inputTensor1, inputTensor2, inputTensor3}, 2, nullptr);
 
   // test concat Op interface
@@ -1598,8 +1598,8 @@ TEST_F(OpModelBase, transposeOp) {
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
-  auto transpose = builder.create<TransposeOp>(builder.getUnknownLoc(),
-                                               output.getType(), input, 0, 1);
+  auto transpose = TransposeOp::create(builder, builder.getUnknownLoc(),
+                                       output.getType(), input, 0, 1);
 
   // test transpose Op interface
   auto constraintsExp = getOpConstraints(transpose.getOperation());
@@ -1632,8 +1632,8 @@ TEST_F(OpModelBase, cumSumOp) {
   auto output = createEmptyTensor(tensorShapeO);
 
   auto cumSum =
-      builder.create<CumSumOp>(builder.getUnknownLoc(), output.getType(), input,
-                               builder.getI32IntegerAttr(0), nullptr, nullptr);
+      CumSumOp::create(builder, builder.getUnknownLoc(), output.getType(),
+                       input, builder.getI32IntegerAttr(0), nullptr, nullptr);
 
   // test cumSum Op interface
   auto constraintsExp = getOpConstraints(cumSum.getOperation());
@@ -1667,8 +1667,8 @@ TEST_F(OpModelBase, TopKOp) {
   auto topKValues = createEmptyTensor(tensorShapeO);
   auto indices = createEmptyTensor(tensorShapeO);
   // TopKOp returns 2 tensors: top k values and their indices
-  auto topK = builder.create<TopKOp>(
-      builder.getUnknownLoc(),
+  auto topK = TopKOp::create(
+      builder, builder.getUnknownLoc(),
       mlir::TypeRange{topKValues.getType(),
                       indices.getType()}, // 2 result types
       input, k, /*dim=*/-1, /*largest=*/false, /*sorted=*/true, nullptr);
@@ -1714,8 +1714,8 @@ TEST_F(OpModelBase, ConcatenateHeadsOpInterface) {
   auto input = createEmptyTensor(inputShape);
   auto outputType = createRankedTensorType(outputShape);
 
-  auto concatenateHeads = builder.create<ConcatenateHeadsOp>(
-      builder.getUnknownLoc(), outputType, input);
+  auto concatenateHeads = ConcatenateHeadsOp::create(
+      builder, builder.getUnknownLoc(), outputType, input);
 
   // test ConcatenateHeadsOp interface
   auto constraintsExp = getOpConstraints(concatenateHeads.getOperation());
@@ -1759,8 +1759,8 @@ TEST_F(OpModelBase, RotaryEmbeddingLlamaOpInterface) {
   auto outputType = createRankedTensorType(shape);
   bool isDecodeMode = false;
 
-  auto rotaryEmbeddingLlama = builder.create<RotaryEmbeddingLlamaOp>(
-      builder.getUnknownLoc(), outputType, input, cos, sin, transMat,
+  auto rotaryEmbeddingLlama = RotaryEmbeddingLlamaOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, cos, sin, transMat,
       isDecodeMode, /*memory_config=*/nullptr, /*compute_config=*/nullptr);
 
   auto constraintsExp = getOpConstraints(rotaryEmbeddingLlama.getOperation());
@@ -1801,8 +1801,8 @@ TEST_F(OpModelBase, RotaryEmbeddingOpInterface) {
   auto sin = createEmptyTensor(rotationShape);
   auto outputType = createRankedTensorType(inputShape);
 
-  auto rotaryEmbedding = builder.create<RotaryEmbeddingOp>(
-      builder.getUnknownLoc(), outputType, input, cos, sin,
+  auto rotaryEmbedding = RotaryEmbeddingOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, cos, sin,
       /*tokenIndex=*/nullptr,
       /*memory_config=*/nullptr, /*compute_config=*/nullptr);
 
@@ -1857,8 +1857,8 @@ TEST_F(OpModelBase, NLPCreateQKVHeadsDecodeOpInterface) {
   IntegerAttr numKVHeadsAttr = builder.getUI32IntegerAttr(numHeads);
   BoolAttr overlapQKCoregridAttr = builder.getBoolAttr(overlapQKCoregrid);
 
-  auto nlpCreateQKVHeadsDecode = builder.create<NLPCreateQKVHeadsDecodeOp>(
-      builder.getUnknownLoc(), TypeRange(returnTypes), input,
+  auto nlpCreateQKVHeadsDecode = NLPCreateQKVHeadsDecodeOp::create(
+      builder, builder.getUnknownLoc(), TypeRange(returnTypes), input,
       /*batchOffset=*/nullptr, numHeads, numKVHeadsAttr, overlapQKCoregridAttr,
       /*sliceSize=*/nullptr, /*memory_config=*/nullptr);
 
@@ -1906,8 +1906,8 @@ TEST_F(OpModelBase, SplitQueryKeyValueAndSplitHeadsOpInterface) {
   BoolAttr transposeKeyAttr = builder.getBoolAttr(false);
 
   auto splitQueryKeyValueAndSplitHeads =
-      builder.create<SplitQueryKeyValueAndSplitHeadsOp>(
-          builder.getUnknownLoc(),
+      SplitQueryKeyValueAndSplitHeadsOp::create(
+          builder, builder.getUnknownLoc(),
           TypeRange({outputQuery, outputKey, outputValue}), input,
           /*kv_input_tensor=*/nullptr, numHeadsAttr, /*num_kv_heads*/ nullptr,
           transposeKeyAttr, /*memory_config=*/nullptr);
@@ -1984,8 +1984,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
   auto outputType =
       createRankedTensorType(queryShape, tiledElemType, queryLayout);
 
-  auto sdpAttentionDecode = builder.create<ScaledDotProductAttentionDecodeOp>(
-      builder.getUnknownLoc(), outputType, query, key, value,
+  auto sdpAttentionDecode = ScaledDotProductAttentionDecodeOp::create(
+      builder, builder.getUnknownLoc(), outputType, query, key, value,
       /*is_causal=*/false,
       /*attention_mask=*/attentionMask,
       /*cur_pos_tensor=*/curPos,
@@ -2075,15 +2075,15 @@ TEST_F(OpModelBase, DISABLED_PagedScaledDotProductAttentionDecodeOpInterface) {
   auto outputType =
       createRankedTensorType(queryShape, tiledElemType, queryLayout);
 
-  auto sdpAttentionDecode =
-      builder.create<PagedScaledDotProductAttentionDecodeOp>(
-          builder.getUnknownLoc(), outputType, query, key, value, pageTable,
-          /*is_causal=*/true,
-          /*attention_mask*/ nullptr,
-          /*cur_pos_tensor=*/curPos,
-          /*attention_sink=*/nullptr,
-          /*scale=*/builder.getF32FloatAttr(0.125f),
-          /*memory_config=*/nullptr);
+  auto sdpAttentionDecode = PagedScaledDotProductAttentionDecodeOp::create(
+      builder, builder.getUnknownLoc(), outputType, query, key, value,
+      pageTable,
+      /*is_causal=*/true,
+      /*attention_mask*/ nullptr,
+      /*cur_pos_tensor=*/curPos,
+      /*attention_sink=*/nullptr,
+      /*scale=*/builder.getF32FloatAttr(0.125f),
+      /*memory_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -2166,8 +2166,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
   auto outputType =
       createRankedTensorType(queryShape, tiledElemType, queryLayout);
 
-  auto sdpAttention = builder.create<ScaledDotProductAttentionOp>(
-      builder.getUnknownLoc(), outputType, query, key, value,
+  auto sdpAttention = ScaledDotProductAttentionOp::create(
+      builder, builder.getUnknownLoc(), outputType, query, key, value,
       /*attention_mask=*/attentionMask,
       /*is_causal=*/false,
       /*scale=*/nullptr,
@@ -2247,8 +2247,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterfaceWithAttentionSink) {
   auto outputType =
       createRankedTensorType(queryShape, tiledElemType, queryLayout);
 
-  auto sdpAttention = builder.create<ScaledDotProductAttentionOp>(
-      builder.getUnknownLoc(), outputType, query, key, value,
+  auto sdpAttention = ScaledDotProductAttentionOp::create(
+      builder, builder.getUnknownLoc(), outputType, query, key, value,
       /*attention_mask=*/attentionMask,
       /*is_causal=*/false,
       /*scale=*/nullptr,
@@ -2301,8 +2301,8 @@ TEST_F(OpModelBase, NLPConcatHeadsOpInterface) {
   auto input = createEmptyTensor(inputShape);
   auto outputType = createRankedTensorType(outputShape);
 
-  auto nlpConcatHeads = builder.create<NLPConcatHeadsOp>(
-      builder.getUnknownLoc(), outputType, input);
+  auto nlpConcatHeads = NLPConcatHeadsOp::create(
+      builder, builder.getUnknownLoc(), outputType, input);
 
   auto constraintsExp = getOpConstraints(nlpConcatHeads.getOperation());
   if (constraintsExp) {
@@ -2335,8 +2335,8 @@ TEST_F(OpModelBase, repeatInterleaveOp) {
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
-  auto repeatInterleave = builder.create<RepeatInterleaveOp>(
-      builder.getUnknownLoc(), output.getType(), input, 2, 0, nullptr);
+  auto repeatInterleave = RepeatInterleaveOp::create(
+      builder, builder.getUnknownLoc(), output.getType(), input, 2, 0, nullptr);
 
   // test repeatInterleave Op interface
   auto constraintsExp = getOpConstraints(repeatInterleave.getOperation());
@@ -2372,8 +2372,8 @@ TEST_F(OpModelBase, repeatOp) {
   llvm::ArrayRef<int64_t> repeatDims(repeatDimsVec);
   auto repeatDimsAttr = ShapeAttr::get(&context, repeatDims);
 
-  auto repeat = builder.create<RepeatOp>(
-      builder.getUnknownLoc(), output.getType(), input, repeatDimsAttr);
+  auto repeat = RepeatOp::create(builder, builder.getUnknownLoc(),
+                                 output.getType(), input, repeatDimsAttr);
 
   // test repeat Op interface
   auto constraintsExp = getOpConstraints(repeat.getOperation());
@@ -2408,9 +2408,8 @@ TEST_F(OpModelBase, padOp) {
   std::vector<int32_t> paddingVec = {0, 2, 0, 2};
   llvm::ArrayRef<int32_t> padding(paddingVec);
 
-  auto pad =
-      builder.create<PadOp>(builder.getUnknownLoc(), output.getType(), input,
-                            padding, llvm::APFloat(0.0f), false, nullptr);
+  auto pad = PadOp::create(builder, builder.getUnknownLoc(), output.getType(),
+                           input, padding, llvm::APFloat(0.0f), false, nullptr);
 
   // test pad Op interface
   auto constraintsExp = getOpConstraints(pad.getOperation());
@@ -2443,11 +2442,11 @@ TEST_F(OpModelBase, sortOp) {
   auto indices = createEmptyTensor(tensorShapeA);
 
   // SortOp returns 2 tensors: sorted values and indices
-  auto sort = builder.create<SortOp>(
-      builder.getUnknownLoc(),
-      mlir::TypeRange{sortedValues.getType(),
-                      indices.getType()}, // 2 result types
-      input, 0, false, false, nullptr);
+  auto sort =
+      SortOp::create(builder, builder.getUnknownLoc(),
+                     mlir::TypeRange{sortedValues.getType(),
+                                     indices.getType()}, // 2 result types
+                     input, 0, false, false, nullptr);
 
   // test sort Op interface
   auto constraintsExp = getOpConstraints(sort.getOperation());
@@ -2515,8 +2514,8 @@ TEST_F(OpModelBase, maxPool2dWithIndicesOp) {
   llvm::SmallVector<int32_t, 2> dilation = {dilationHeight, dilationWidth};
 
   // MaxPool2dWithIndicesOp returns 2 tensors: pooled values and indices
-  auto maxPool2dWithIndices = builder.create<MaxPool2dWithIndicesOp>(
-      builder.getUnknownLoc(),
+  auto maxPool2dWithIndices = MaxPool2dWithIndicesOp::create(
+      builder, builder.getUnknownLoc(),
       mlir::TypeRange{pooledValues.getType(), indices.getType()}, input,
       batchSize, inputHeight, inputWidth, numChannels, kernelSize, stride,
       padding, dilation, memoryConfigAttr, appliedShardScheme, ceilMode,
@@ -2545,16 +2544,16 @@ TEST_F(OpModelBase, typecastOp) {
   RankedTensorType rankedTensorTypeBF16 =
       RankedTensorType::get(tensorShape, builder.getBF16Type());
 
-  auto input = builder.create<OnesOp>(
-      builder.getUnknownLoc(), rankedTensorTypeBF16, nullptr,
+  auto input = OnesOp::create(
+      builder, builder.getUnknownLoc(), rankedTensorTypeBF16, nullptr,
       ShapeAttr::get(&context, tensorShape),
       ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16), nullptr,
       nullptr);
   RankedTensorType rankedTensorTypeF32 =
       RankedTensorType::get(tensorShape, builder.getF32Type());
 
-  auto typecast = builder.create<TypecastOp>(
-      builder.getUnknownLoc(), rankedTensorTypeF32, input,
+  auto typecast = TypecastOp::create(
+      builder, builder.getUnknownLoc(), rankedTensorTypeF32, input,
       ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32));
 
   auto constraintsExp = getOpConstraints(typecast.getOperation());
@@ -2594,33 +2593,34 @@ TEST_F(OpModelBase, Conv2dInterface) {
   auto outputDtype = ttcore::DataTypeAttr::get(
       &context, ttcore::elementTypeToDataType(outputType.getElementType()));
 
-  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+  GetDeviceOp deviceOp = GetDeviceOp::create(
+      builder, builder.getUnknownLoc(), builder.getType<DeviceType>(),
       MeshShapeAttr::get(builder.getContext(), 1, 1),
       MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
-  Conv2dOp conv2d = builder.create<Conv2dOp>(
-      builder.getUnknownLoc(),         // Location
-      outputType,                      // Output type
-      input,                           // Input tensor
-      weight,                          // Weight tensor
-      nullptr,                         // Bias tensor (optional)
-      deviceOp,                        // Device operation
-      3,                               // Input channels
-      64,                              // Output channels
-      1,                               // Batch size
-      224,                             // Input height
-      224,                             // Input width
-      llvm::ArrayRef<int32_t>({7, 7}), // Kernel size [H, W]
-      llvm::ArrayRef<int32_t>({2, 2}), // Stride [H, W]
-      llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
-      llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
-      1,                               // Groups
-      outputDtype,                     // OutputDtype
-      nullptr,                         // Conv2dConfig (optional)
-      nullptr,                         // ComputeKernelConfig (optional)
-      nullptr                          // Conv2dSliceConfig (optional)
-  );
+  Conv2dOp conv2d =
+      Conv2dOp::create(builder,
+                       builder.getUnknownLoc(), // Location
+                       outputType,              // Output type
+                       input,                   // Input tensor
+                       weight,                  // Weight tensor
+                       nullptr,                 // Bias tensor (optional)
+                       deviceOp,                // Device operation
+                       3,                       // Input channels
+                       64,                      // Output channels
+                       1,                       // Batch size
+                       224,                     // Input height
+                       224,                     // Input width
+                       llvm::ArrayRef<int32_t>({7, 7}), // Kernel size [H, W]
+                       llvm::ArrayRef<int32_t>({2, 2}), // Stride [H, W]
+                       llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
+                       llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
+                       1,                               // Groups
+                       outputDtype,                     // OutputDtype
+                       nullptr, // Conv2dConfig (optional)
+                       nullptr, // ComputeKernelConfig (optional)
+                       nullptr  // Conv2dSliceConfig (optional)
+      );
 
   // test Conv2dOp interface
   auto constraintsExp = getOpConstraints(conv2d.getOperation());
@@ -2656,33 +2656,34 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   auto outputDtype = ttcore::DataTypeAttr::get(
       &context, ttcore::elementTypeToDataType(outputType.getElementType()));
 
-  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+  GetDeviceOp deviceOp = GetDeviceOp::create(
+      builder, builder.getUnknownLoc(), builder.getType<DeviceType>(),
       MeshShapeAttr::get(builder.getContext(), 1, 1),
       MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
-  Conv2dOp conv2d = builder.create<Conv2dOp>(
-      builder.getUnknownLoc(),         // Location
-      outputType,                      // Output type
-      input,                           // Input tensor
-      weight,                          // Weight tensor
-      nullptr,                         // Bias tensor (optional)
-      deviceOp,                        // Device operation
-      3,                               // Input channels
-      64,                              // Output channels
-      1,                               // Batch size
-      224,                             // Input height
-      224,                             // Input width
-      llvm::ArrayRef<int32_t>({7, 7}), // Kernel size [H, W]
-      llvm::ArrayRef<int32_t>({2, 2}), // Stride [H, W]
-      llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
-      llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
-      1,                               // Groups
-      outputDtype,                     // OutputDtype
-      nullptr,                         // Conv2dConfig (optional)
-      nullptr,                         // ComputeKernelConfig (optional)
-      nullptr                          // Conv2dSliceConfig (optional)
-  );
+  Conv2dOp conv2d =
+      Conv2dOp::create(builder,
+                       builder.getUnknownLoc(), // Location
+                       outputType,              // Output type
+                       input,                   // Input tensor
+                       weight,                  // Weight tensor
+                       nullptr,                 // Bias tensor (optional)
+                       deviceOp,                // Device operation
+                       3,                       // Input channels
+                       64,                      // Output channels
+                       1,                       // Batch size
+                       224,                     // Input height
+                       224,                     // Input width
+                       llvm::ArrayRef<int32_t>({7, 7}), // Kernel size [H, W]
+                       llvm::ArrayRef<int32_t>({2, 2}), // Stride [H, W]
+                       llvm::ArrayRef<int32_t>({3, 3}), // Padding [H, W]
+                       llvm::ArrayRef<int32_t>({1, 1}), // Dilation [H, W]
+                       1,                               // Groups
+                       outputDtype,                     // OutputDtype
+                       nullptr, // Conv2dConfig (optional)
+                       nullptr, // ComputeKernelConfig (optional)
+                       nullptr  // Conv2dSliceConfig (optional)
+      );
 
   // test Conv2dOp interface
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
@@ -2725,14 +2726,14 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
   auto outputDtype = ttcore::DataTypeAttr::get(
       &context, ttcore::elementTypeToDataType(outputType.getElementType()));
 
-  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+  GetDeviceOp deviceOp = GetDeviceOp::create(
+      builder, builder.getUnknownLoc(), builder.getType<DeviceType>(),
       MeshShapeAttr::get(builder.getContext(), 1, 1),
       MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
-  Conv2dOp conv2d = builder.create<Conv2dOp>(
-      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
-      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+  Conv2dOp conv2d = Conv2dOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, weight, nullptr,
+      deviceOp, 3, 64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr,
       nullptr);
@@ -2779,14 +2780,14 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   auto outputDtype = ttcore::DataTypeAttr::get(
       &context, ttcore::elementTypeToDataType(outputType.getElementType()));
 
-  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+  GetDeviceOp deviceOp = GetDeviceOp::create(
+      builder, builder.getUnknownLoc(), builder.getType<DeviceType>(),
       MeshShapeAttr::get(builder.getContext(), 1, 1),
       MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
-  Conv2dOp conv2d = builder.create<Conv2dOp>(
-      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
-      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+  Conv2dOp conv2d = Conv2dOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, weight, nullptr,
+      deviceOp, 3, 64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr,
       nullptr);
@@ -2889,14 +2890,14 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
   auto outputDtype = ttcore::DataTypeAttr::get(
       &context, ttcore::elementTypeToDataType(outputType.getElementType()));
 
-  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+  GetDeviceOp deviceOp = GetDeviceOp::create(
+      builder, builder.getUnknownLoc(), builder.getType<DeviceType>(),
       MeshShapeAttr::get(builder.getContext(), 1, 1),
       MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
-  Conv2dOp conv2d = builder.create<Conv2dOp>(
-      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
-      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+  Conv2dOp conv2d = Conv2dOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, weight, nullptr,
+      deviceOp, 3, 64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr,
       nullptr);
@@ -2952,12 +2953,13 @@ TEST_F(OpModelBase, Conv3dInterface) {
       createEmptyTensor(weightShape, builder.getBF16Type(), weightLayout);
   auto outputType = createRankedTensorType(outputShape);
 
-  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+  GetDeviceOp deviceOp = GetDeviceOp::create(
+      builder, builder.getUnknownLoc(), builder.getType<DeviceType>(),
       MeshShapeAttr::get(builder.getContext(), 1, 1),
       MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
-  Conv3dOp conv3d = builder.create<Conv3dOp>(
+  Conv3dOp conv3d = Conv3dOp::create(
+      builder,
       builder.getUnknownLoc(), // Location
       outputType,              // Output type
       input,                   // Input tensor
@@ -3030,14 +3032,14 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   auto outputDtype = ttcore::DataTypeAttr::get(
       &context, ttcore::elementTypeToDataType(outputType.getElementType()));
 
-  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+  GetDeviceOp deviceOp = GetDeviceOp::create(
+      builder, builder.getUnknownLoc(), builder.getType<DeviceType>(),
       MeshShapeAttr::get(builder.getContext(), 1, 1),
       MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
-  ConvTranspose2dOp convTranspose2d = builder.create<ConvTranspose2dOp>(
-      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
-      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+  ConvTranspose2dOp convTranspose2d = ConvTranspose2dOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, weight, nullptr,
+      deviceOp, 3, 64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({0, 0}), llvm::ArrayRef<int32_t>({1, 1}), 1,
       outputDtype, nullptr, nullptr, nullptr, nullptr);
@@ -3109,14 +3111,14 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
   auto outputDtype = ttcore::DataTypeAttr::get(
       &context, ttcore::elementTypeToDataType(outputType.getElementType()));
 
-  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+  GetDeviceOp deviceOp = GetDeviceOp::create(
+      builder, builder.getUnknownLoc(), builder.getType<DeviceType>(),
       MeshShapeAttr::get(builder.getContext(), 1, 1),
       MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
-  Conv2dOp conv2d = builder.create<Conv2dOp>(
-      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
-      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+  Conv2dOp conv2d = Conv2dOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, weight, nullptr,
+      deviceOp, 3, 64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr,
       nullptr);
@@ -3141,32 +3143,32 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
   auto preparedWeightOutputType =
       op_model::getPreparedConv2dWeightsOutputTensor(&conv2d, conv2dConfig);
 
-  PrepareConv2dWeightsOp prepareConv2dWeights =
-      builder.create<PrepareConv2dWeightsOp>(
-          builder.getUnknownLoc(),       // Location
-          preparedWeightOutputType,      // Output type (derived from conv2d)
-          conv2d.getWeight(),            // Weight tensor from conv2d
-          inputMemConfigAttr,            // Input memory config
-          inputLayoutAttr,               // Input tensor layout
-          builder.getStringAttr("OIHW"), // Weights format
-          conv2d.getInChannelsAttr(),    // Input channels from conv2d
-          conv2d.getOutChannelsAttr(),   // Output channels from conv2d
-          conv2d.getBatchSizeAttr(),     // Batch size from conv2d
-          conv2d.getInputHeightAttr(),   // Input height from conv2d
-          conv2d.getInputWidthAttr(),    // Input width from conv2d
-          conv2d.getKernelSizeAttr(),    // Kernel size from conv2d
-          conv2d.getStrideAttr(),        // Stride from conv2d
-          conv2d.getPaddingAttr(),       // Padding from conv2d
-          conv2d.getDilationAttr(),      // Dilation from conv2d
-          builder.getBoolAttr(conv2d.getBias() != nullptr), // has_bias
-          conv2d.getGroupsAttr(),           // Groups from conv2d
-          conv2d.getDevice(),               // Device from conv2d
-          inputDtypeAttr,                   // Input dtype
-          outputDtype,                      // Output dtype
-          conv2d.getConv2dConfigAttr(),     // Conv2dConfig from conv2d
-          conv2d.getComputeConfigAttr(),    // ComputeKernelConfig from conv2d
-          conv2d.getConv2dSliceConfigAttr() // Conv2dSliceConfig from conv2d
-      );
+  PrepareConv2dWeightsOp prepareConv2dWeights = PrepareConv2dWeightsOp::create(
+      builder,
+      builder.getUnknownLoc(),       // Location
+      preparedWeightOutputType,      // Output type (derived from conv2d)
+      conv2d.getWeight(),            // Weight tensor from conv2d
+      inputMemConfigAttr,            // Input memory config
+      inputLayoutAttr,               // Input tensor layout
+      builder.getStringAttr("OIHW"), // Weights format
+      conv2d.getInChannelsAttr(),    // Input channels from conv2d
+      conv2d.getOutChannelsAttr(),   // Output channels from conv2d
+      conv2d.getBatchSizeAttr(),     // Batch size from conv2d
+      conv2d.getInputHeightAttr(),   // Input height from conv2d
+      conv2d.getInputWidthAttr(),    // Input width from conv2d
+      conv2d.getKernelSizeAttr(),    // Kernel size from conv2d
+      conv2d.getStrideAttr(),        // Stride from conv2d
+      conv2d.getPaddingAttr(),       // Padding from conv2d
+      conv2d.getDilationAttr(),      // Dilation from conv2d
+      builder.getBoolAttr(conv2d.getBias() != nullptr), // has_bias
+      conv2d.getGroupsAttr(),                           // Groups from conv2d
+      conv2d.getDevice(),                               // Device from conv2d
+      inputDtypeAttr,                                   // Input dtype
+      outputDtype,                                      // Output dtype
+      conv2d.getConv2dConfigAttr(),     // Conv2dConfig from conv2d
+      conv2d.getComputeConfigAttr(),    // ComputeKernelConfig from conv2d
+      conv2d.getConv2dSliceConfigAttr() // Conv2dSliceConfig from conv2d
+  );
 
   auto constraintsExp = getOpConstraints(prepareConv2dWeights.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
@@ -3219,8 +3221,8 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
   auto outputDtype = ttcore::DataTypeAttr::get(
       &context, ttcore::elementTypeToDataType(outputType.getElementType()));
 
-  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+  GetDeviceOp deviceOp = GetDeviceOp::create(
+      builder, builder.getUnknownLoc(), builder.getType<DeviceType>(),
       MeshShapeAttr::get(builder.getContext(), 1, 1),
       MeshOffsetAttr::get(builder.getContext(), 0, 0));
   Conv2dConfigAttr configAttr = Conv2dConfigAttr::get(&context);
@@ -3228,9 +3230,9 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
 
   //  get_cb_info expects conv_config.weights_dtype to be set otherwise it
   //  issues an error.  See conv2d_op_program_factory_common.cpp in tt-metal.
-  Conv2dOp conv2d = builder.create<Conv2dOp>(
-      builder.getUnknownLoc(), outputType, input, weight, bias, deviceOp, 3, 64,
-      1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+  Conv2dOp conv2d = Conv2dOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, weight, bias,
+      deviceOp, 3, 64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, configAttr, nullptr,
       nullptr);
@@ -3259,7 +3261,8 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
   auto preparedBiasOutputType = mlir::RankedTensorType::get(
       oldBiasType.getShape(), oldBiasType.getElementType(), newBiasLayout);
 
-  PrepareConv2dBiasOp prepareConv2dBias = builder.create<PrepareConv2dBiasOp>(
+  PrepareConv2dBiasOp prepareConv2dBias = PrepareConv2dBiasOp::create(
+      builder,
       builder.getUnknownLoc(),          // Location
       preparedBiasOutputType,           // Output type (derived from bias)
       conv2d.getBias(),                 // Bias tensor from conv2d
@@ -3343,10 +3346,11 @@ TEST_F(OpModelBase, maxPool2DOp) {
   llvm::SmallVector<int32_t, 2> padding = {paddingHeight, paddingWidth};
   llvm::SmallVector<int32_t, 2> dilation = {dilationHeight, dilationWidth};
 
-  auto maxPool2DOp = builder.create<MaxPool2dOp>(
-      builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
-      inputWidth, numChannels, kernelSize, stride, padding, dilation,
-      memoryConfigAttr, appliedShardScheme, ceilMode, reallocateHaloOutput,
+  auto maxPool2DOp = MaxPool2dOp::create(
+      builder, builder.getUnknownLoc(), output.getType(), input, batchSize,
+      inputHeight, inputWidth, numChannels, kernelSize, stride, padding,
+      dilation, memoryConfigAttr, appliedShardScheme, ceilMode,
+      reallocateHaloOutput,
       /*config_tensors_in_dram=*/nullptr);
   maxPool2DOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
@@ -3414,10 +3418,11 @@ TEST_F(OpModelBase, avgPool2DOp) {
   llvm::SmallVector<int32_t, 2> padding = {paddingHeight, paddingWidth};
   llvm::SmallVector<int32_t, 2> dilation = {dilationHeight, dilationWidth};
 
-  auto avgPool2DOp = builder.create<AvgPool2dOp>(
-      builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
-      inputWidth, numChannels, kernelSize, stride, padding, dilation,
-      memoryConfigAttr, appliedShardScheme, ceilMode, reallocateHaloOutput,
+  auto avgPool2DOp = AvgPool2dOp::create(
+      builder, builder.getUnknownLoc(), output.getType(), input, batchSize,
+      inputHeight, inputWidth, numChannels, kernelSize, stride, padding,
+      dilation, memoryConfigAttr, appliedShardScheme, ceilMode,
+      reallocateHaloOutput,
       /*count_include_pad=*/true, /*config_tensors_in_dram=*/nullptr);
   avgPool2DOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
@@ -3459,7 +3464,7 @@ TEST_F(OpModelBase, globalAvgPool2dOp) {
                         CreateRowMajorLayout(tensorShapeO, BufferType::DRAM,
                                              TensorMemoryLayout::Interleaved));
 
-  auto globalAvgPool2dOp = builder.create<GlobalAvgPool2dOp>(
+  auto globalAvgPool2dOp = GlobalAvgPool2dOp::create(builder,
       builder.getUnknownLoc(), output.getType(), input);
   globalAvgPool2dOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
@@ -3500,8 +3505,8 @@ TEST_F(OpModelBase, LeakyReluOp) {
   // Convert float value to APFloat object
   llvm::APFloat slopeAPF(slope);
 
-  LeakyReluOp leakyReluOp = builder.create<LeakyReluOp>(
-      builder.getUnknownLoc(), outputType, input, slopeAPF);
+  LeakyReluOp leakyReluOp = LeakyReluOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, slopeAPF);
   leakyReluOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(leakyReluOp.getOperation());
@@ -3531,9 +3536,9 @@ TEST_F(OpModelBase, GeluBackwardOp) {
   auto gradNone = createEmptyTensor(tensorShape);
   auto outputTypeNone = createRankedTensorType(tensorShape);
 
-  GeluBackwardOp geluBackwardOpNone = builder.create<GeluBackwardOp>(
-      builder.getUnknownLoc(), outputTypeNone, gradNone, inputNone, nullptr,
-      nullptr, builder.getStringAttr("none"));
+  GeluBackwardOp geluBackwardOpNone = GeluBackwardOp::create(
+      builder, builder.getUnknownLoc(), outputTypeNone, gradNone, inputNone,
+      nullptr, nullptr, builder.getStringAttr("none"));
   geluBackwardOpNone->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExpNone = getOpConstraints(geluBackwardOpNone.getOperation());
@@ -3558,9 +3563,9 @@ TEST_F(OpModelBase, GeluBackwardOp) {
   auto gradTanh = createEmptyTensor(tensorShape);
   auto outputTypeTanh = createRankedTensorType(tensorShape);
 
-  GeluBackwardOp geluBackwardOpTanh = builder.create<GeluBackwardOp>(
-      builder.getUnknownLoc(), outputTypeTanh, gradTanh, inputTanh, nullptr,
-      nullptr, builder.getStringAttr("tanh"));
+  GeluBackwardOp geluBackwardOpTanh = GeluBackwardOp::create(
+      builder, builder.getUnknownLoc(), outputTypeTanh, gradTanh, inputTanh,
+      nullptr, nullptr, builder.getStringAttr("tanh"));
   geluBackwardOpTanh->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExpTanh = getOpConstraints(geluBackwardOpTanh.getOperation());
@@ -3597,8 +3602,9 @@ TEST_F(OpModelBase, clampScalarOp) {
   llvm::APFloat minValAPF(minVal);
   llvm::APFloat maxValAPF(maxVal);
 
-  ClampScalarOp clampScalarOp = builder.create<ClampScalarOp>(
-      builder.getUnknownLoc(), outputType, input, minValAPF, maxValAPF);
+  ClampScalarOp clampScalarOp =
+      ClampScalarOp::create(builder, builder.getUnknownLoc(), outputType, input,
+                            minValAPF, maxValAPF);
   clampScalarOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(clampScalarOp.getOperation());
@@ -3629,8 +3635,8 @@ TEST_F(OpModelBase, clampTensorOp) {
   auto max = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
 
-  ClampTensorOp clampTensorOp = builder.create<ClampTensorOp>(
-      builder.getUnknownLoc(), outputType, input, min, max);
+  ClampTensorOp clampTensorOp = ClampTensorOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, min, max);
   clampTensorOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(clampTensorOp.getOperation());
@@ -3659,8 +3665,8 @@ TEST_F(OpModelBase, permuteOp) {
   auto input = createEmptyTensor(inputShape);
   auto outputType = createRankedTensorType(outputShape);
 
-  PermuteOp permuteOp = builder.create<PermuteOp>(
-      builder.getUnknownLoc(), outputType, input,
+  PermuteOp permuteOp = PermuteOp::create(
+      builder, builder.getUnknownLoc(), outputType, input,
       llvm::ArrayRef<int64_t>({0, 3, 1, 2}), nullptr, llvm::APFloat(0.0f));
   permuteOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
@@ -3707,8 +3713,8 @@ TEST_F(OpModelBase, upsampleOp) {
   mlir::StringAttr modeAttr = builder.getStringAttr(mode);
 
   UpsampleOp upsampleOp =
-      builder.create<UpsampleOp>(builder.getUnknownLoc(), outputType, input,
-                                 scaleFactorAttr, modeAttr, nullptr);
+      UpsampleOp::create(builder, builder.getUnknownLoc(), outputType, input,
+                         scaleFactorAttr, modeAttr, nullptr);
   upsampleOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   // getOutputLayout() hardcodes L1, so we cannot use it
@@ -3747,8 +3753,9 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
   auto outputType = createRankedTensorType(outputShape);
 
   // Create EmbeddingOp
-  auto embedding = builder.create<EmbeddingOp>(
-      builder.getUnknownLoc(), outputType, mlir::ValueRange{input, weight});
+  auto embedding =
+      EmbeddingOp::create(builder, builder.getUnknownLoc(), outputType,
+                          mlir::ValueRange{input, weight});
 
   // Test EmbeddingOp interface constraints
   auto constraintsExp = getOpConstraints(embedding.getOperation());
@@ -3787,8 +3794,9 @@ TEST_F(OpModelBase, EmbeddingOpNullOutputLayout) {
   auto outputType = createRankedTensorType(outputShape);
 
   // Create EmbeddingOp
-  auto embedding = builder.create<EmbeddingOp>(
-      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input, weight});
+  auto embedding =
+      EmbeddingOp::create(builder, builder.getUnknownLoc(), outputType,
+                          ::mlir::ValueRange{input, weight});
 
   // Test EmbeddingOp interface constraints
   auto constraintsExp = embedding.getOpConstraints(
@@ -3834,8 +3842,8 @@ TEST_F(OpModelBase, EmbeddingBackwardOp) {
       CreateTiledLayout(inGradientShape, BufferType::L1,
                         TensorMemoryLayout::Interleaved));
 
-  auto embeddingBackward = builder.create<EmbeddingBackwardOp>(
-      builder.getUnknownLoc(), outputType,
+  auto embeddingBackward = EmbeddingBackwardOp::create(
+      builder, builder.getUnknownLoc(), outputType,
       ::mlir::ValueRange{input, weight, inGradient});
 
   auto constraintsExp = getOpConstraints(embeddingBackward.getOperation());
@@ -3870,8 +3878,8 @@ TEST_F(OpModelBase, CacheOpConstraintsTest) {
   auto input2 = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
 
-  auto sub = builder.create<SubtractOp>(builder.getUnknownLoc(), outputType,
-                                        mlir::ValueRange{input1, input2});
+  auto sub = SubtractOp::create(builder, builder.getUnknownLoc(), outputType,
+                                mlir::ValueRange{input1, input2});
 
   // test SubtractOp interface
   auto constraintsExp = getOpConstraints(sub.getOperation());
@@ -3929,15 +3937,15 @@ TEST_F(OpModelBase, CacheOpConstraintsMissesTest) {
   auto input1 = createEmptyTensor(tensorShape1);
   auto input2 = createEmptyTensor(tensorShape1);
   auto outputType1 = createRankedTensorType(tensorShape1);
-  auto add1 = builder.create<AddOp>(builder.getUnknownLoc(), outputType1,
-                                    mlir::ValueRange{input1, input2});
+  auto add1 = AddOp::create(builder, builder.getUnknownLoc(), outputType1,
+                            mlir::ValueRange{input1, input2});
 
   llvm::SmallVector<int64_t> tensorShape2 = {workerCoresN300, 512};
   auto input3 = createEmptyTensor(tensorShape2);
   auto input4 = createEmptyTensor(tensorShape2);
   auto outputType2 = createRankedTensorType(tensorShape2);
-  auto add2 = builder.create<AddOp>(builder.getUnknownLoc(), outputType2,
-                                    mlir::ValueRange{input3, input4});
+  auto add2 = AddOp::create(builder, builder.getUnknownLoc(), outputType2,
+                            mlir::ValueRange{input3, input4});
 
   // test AddOp interface
   auto constraintsExp1 = getOpConstraints(add1.getOperation());
@@ -3960,9 +3968,8 @@ TEST_F(OpModelBase, WhereOpInterface) {
   auto input2 = createEmptyTensor(tensorShape);
   auto input3 = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
-  auto where =
-      builder.create<WhereOp>(builder.getUnknownLoc(), outputType,
-                              mlir::ValueRange{input1, input2, input3});
+  auto where = WhereOp::create(builder, builder.getUnknownLoc(), outputType,
+                               mlir::ValueRange{input1, input2, input3});
 
   // test WhereOp interface
   auto constraintsExp = getOpConstraints(where.getOperation());
@@ -4004,9 +4011,9 @@ TEST_F(OpModelBase, batchNormOp) {
   // BatchNormInference parameters
   llvm::APFloat epsilon(1e-05f);
 
-  BatchNormInferenceOp batchNormOp = builder.create<BatchNormInferenceOp>(
-      builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
-      epsilon, weight, bias, nullptr);
+  BatchNormInferenceOp batchNormOp = BatchNormInferenceOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, runningMean,
+      runningVar, epsilon, weight, bias, nullptr);
   batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
@@ -4058,9 +4065,9 @@ TEST_F(OpModelBase, batchNormOpL1Memory) {
   // BatchNorm parameters
   llvm::APFloat epsilon(1e-05f);
 
-  BatchNormInferenceOp batchNormOp = builder.create<BatchNormInferenceOp>(
-      builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
-      epsilon, weight, bias, nullptr);
+  BatchNormInferenceOp batchNormOp = BatchNormInferenceOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, runningMean,
+      runningVar, epsilon, weight, bias, nullptr);
   batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
@@ -4102,9 +4109,9 @@ TEST_F(OpModelBase, batchNormOpTraining) {
   llvm::APFloat epsilon(1e-05f);
   llvm::APFloat momentum(0.1f);
 
-  BatchNormTrainingOp batchNormTrainingOp = builder.create<BatchNormTrainingOp>(
-      builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
-      epsilon, momentum, weight, bias, nullptr);
+  BatchNormTrainingOp batchNormTrainingOp = BatchNormTrainingOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, runningMean,
+      runningVar, epsilon, momentum, weight, bias, nullptr);
   batchNormTrainingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(batchNormTrainingOp.getOperation());
@@ -4137,9 +4144,9 @@ TEST_F(OpModelBase, batchNormOpTrainingMinimal) {
   llvm::APFloat epsilon(1e-05f);
   llvm::APFloat momentum(0.1f);
 
-  BatchNormTrainingOp batchNormTrainingOp = builder.create<BatchNormTrainingOp>(
-      builder.getUnknownLoc(), outputType, input, nullptr, nullptr, epsilon,
-      momentum, nullptr, nullptr, nullptr);
+  BatchNormTrainingOp batchNormTrainingOp = BatchNormTrainingOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, nullptr, nullptr,
+      epsilon, momentum, nullptr, nullptr, nullptr);
   batchNormTrainingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(batchNormTrainingOp.getOperation());
@@ -4192,9 +4199,9 @@ TEST_F(OpModelBase, batchNormOpTrainingL1Memory) {
   llvm::APFloat epsilon(1e-05f);
   llvm::APFloat momentum(0.1f);
 
-  BatchNormTrainingOp batchNormTrainingOp = builder.create<BatchNormTrainingOp>(
-      builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
-      epsilon, momentum, weight, bias, nullptr);
+  BatchNormTrainingOp batchNormTrainingOp = BatchNormTrainingOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, runningMean,
+      runningVar, epsilon, momentum, weight, bias, nullptr);
   batchNormTrainingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(batchNormTrainingOp.getOperation());
@@ -4234,8 +4241,8 @@ TEST_F(OpModelBase, rmsNormOp) {
   llvm::APFloat epsilon(1e-12f);
 
   RMSNormOp rmsNormOp =
-      builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
-                                weight, bias, epsilon, nullptr, nullptr);
+      RMSNormOp::create(builder, builder.getUnknownLoc(), outputType, input,
+                        weight, bias, epsilon, nullptr, nullptr);
   rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
@@ -4269,8 +4276,8 @@ TEST_F(OpModelBase, rmsNormOpMinimal) {
   llvm::APFloat epsilon(1e-12f);
 
   RMSNormOp rmsNormOp =
-      builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
-                                nullptr, nullptr, epsilon, nullptr, nullptr);
+      RMSNormOp::create(builder, builder.getUnknownLoc(), outputType, input,
+                        nullptr, nullptr, epsilon, nullptr, nullptr);
   rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
@@ -4319,8 +4326,8 @@ TEST_F(OpModelBase, rmsNormOpL1Memory) {
   llvm::APFloat epsilon(1e-12f);
 
   RMSNormOp rmsNormOp =
-      builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
-                                weight, bias, epsilon, nullptr, nullptr);
+      RMSNormOp::create(builder, builder.getUnknownLoc(), outputType, input,
+                        weight, bias, epsilon, nullptr, nullptr);
   rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
@@ -4360,8 +4367,8 @@ TEST_F(OpModelBase, layerNormOp) {
   llvm::APFloat epsilon(1e-12f);
 
   LayerNormOp layerNormOp =
-      builder.create<LayerNormOp>(builder.getUnknownLoc(), outputType, input,
-                                  weight, bias, epsilon, nullptr);
+      LayerNormOp::create(builder, builder.getUnknownLoc(), outputType, input,
+                          weight, bias, epsilon, nullptr);
   layerNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(layerNormOp.getOperation());
@@ -4395,8 +4402,8 @@ TEST_F(OpModelBase, layerNormOpMinimal) {
   llvm::APFloat epsilon(1e-12f);
 
   LayerNormOp layerNormOp =
-      builder.create<LayerNormOp>(builder.getUnknownLoc(), outputType, input,
-                                  nullptr, nullptr, epsilon, nullptr);
+      LayerNormOp::create(builder, builder.getUnknownLoc(), outputType, input,
+                          nullptr, nullptr, epsilon, nullptr);
   layerNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(layerNormOp.getOperation());
@@ -4445,8 +4452,8 @@ TEST_F(OpModelBase, layerNormOpL1Memory) {
   llvm::APFloat epsilon(1e-12f);
 
   LayerNormOp layerNormOp =
-      builder.create<LayerNormOp>(builder.getUnknownLoc(), outputType, input,
-                                  weight, bias, epsilon, nullptr);
+      LayerNormOp::create(builder, builder.getUnknownLoc(), outputType, input,
+                          weight, bias, epsilon, nullptr);
   layerNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(layerNormOp.getOperation());
@@ -4492,8 +4499,8 @@ TEST_F(OpModelBase, groupNormOp) {
   // group_norm requires explicit core_grid; use a fixed test value.
   auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
 
-  GroupNormOp groupNormOp = builder.create<GroupNormOp>(
-      builder.getUnknownLoc(), outputType, input,
+  GroupNormOp groupNormOp = GroupNormOp::create(
+      builder, builder.getUnknownLoc(), outputType, input,
       /*input_mask=*/inputMask, weight, bias, numGroups, epsilon,
       /*memoryConfig=*/nullptr, coreGrid);
   groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
@@ -4548,8 +4555,8 @@ TEST_F(OpModelBase, groupNormOpL1Memory) {
   // group_norm requires explicit core_grid; use a fixed test value.
   auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
 
-  GroupNormOp groupNormOp = builder.create<GroupNormOp>(
-      builder.getUnknownLoc(), outputType, input,
+  GroupNormOp groupNormOp = GroupNormOp::create(
+      builder, builder.getUnknownLoc(), outputType, input,
       /*input_mask=*/inputMask, weight, bias, numGroups, epsilon,
       /*memoryConfig=*/nullptr, coreGrid);
   groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
@@ -4596,14 +4603,14 @@ TEST_F(OpModelBase, EmptyOpInterface) {
       std::nullopt); // No sharding for this test
 
   // Create a device value (required for EmptyOp)
-  auto device = builder.create<ttnn::GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<ttnn::DeviceType>(),
+  auto device = ttnn::GetDeviceOp::create(
+      builder, builder.getUnknownLoc(), builder.getType<ttnn::DeviceType>(),
       ttnn::MeshShapeAttr::get(&context, 1, 1),
       ttnn::MeshOffsetAttr::get(&context, 0, 0));
 
   // Create the EmptyOp with all required parameters
-  auto empty = builder.create<ttnn::EmptyOp>(
-      builder.getUnknownLoc(), inputType, device,
+  auto empty = ttnn::EmptyOp::create(
+      builder, builder.getUnknownLoc(), inputType, device,
       ttnn::ShapeAttr::get(&context, inputTensorType.getShape()),
       ttcore::DataTypeAttr::get(&context, ttnnLayoutAttr.getDataType()),
       ttnn::LayoutAttr::get(&context, ttnnLayoutAttr.getLayout()),
@@ -4636,9 +4643,9 @@ TEST_F(OpModelBase, ArangeOpInterface) {
   auto endAttr = builder.getI64IntegerAttr(10);
   auto stepAttr = builder.getI64IntegerAttr(2);
 
-  auto arange = builder.create<ArangeOp>(
-      builder.getUnknownLoc(), resultType, /*device=*/nullptr, startAttr,
-      endAttr, stepAttr, /*dtype=*/nullptr, /*layout=*/nullptr,
+  auto arange = ArangeOp::create(
+      builder, builder.getUnknownLoc(), resultType, /*device=*/nullptr,
+      startAttr, endAttr, stepAttr, /*dtype=*/nullptr, /*layout=*/nullptr,
       /*memoryConfig=*/nullptr);
 
   // test ArangeOp interface
@@ -4705,16 +4712,16 @@ TEST_P(NamedFullOpModelTest, TestOpInterface) {
 
 const auto createZeros = [](OpBuilder &b, Location loc, Type type,
                             ttnn::ShapeAttr shape) {
-  return b
-      .create<ZerosOp>(loc, type, /*device=*/nullptr, shape, /*dtype=*/nullptr,
-                       /*layout=*/nullptr, /*memoryConfig=*/nullptr)
+  return ZerosOp::create(b, loc, type, /*device=*/nullptr, shape,
+                         /*dtype=*/nullptr,
+                         /*layout=*/nullptr, /*memoryConfig=*/nullptr)
       .getOperation();
 };
 const auto createOnes = [](OpBuilder &b, Location loc, Type type,
                            ttnn::ShapeAttr shape) {
-  return b
-      .create<OnesOp>(loc, type, /*device=*/nullptr, shape, /*dtype=*/nullptr,
-                      /*layout=*/nullptr, /*memoryConfig=*/nullptr)
+  return OnesOp::create(b, loc, type, /*device=*/nullptr, shape,
+                        /*dtype=*/nullptr,
+                        /*layout=*/nullptr, /*memoryConfig=*/nullptr)
       .getOperation();
 };
 
@@ -4737,8 +4744,8 @@ TEST_F(OpModelBase, FullOpInterface) {
                                   TensorMemoryLayout::Interleaved);
   auto outputType =
       createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
-  auto fullInt = builder.create<FullOp>(
-      builder.getUnknownLoc(), outputType, /*device=*/nullptr,
+  auto fullInt = FullOp::create(
+      builder, builder.getUnknownLoc(), outputType, /*device=*/nullptr,
       ttnn::ShapeAttr::get(&context, tensorShape),
       builder.getI32IntegerAttr(42),
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
@@ -4760,8 +4767,8 @@ TEST_F(OpModelBase, FullOpInterface) {
   }
 
   // test FullOp interface with float fill value:
-  auto fullF = builder.create<FullOp>(
-      builder.getUnknownLoc(), outputType, /*device=*/nullptr,
+  auto fullF = FullOp::create(
+      builder, builder.getUnknownLoc(), outputType, /*device=*/nullptr,
       ttnn::ShapeAttr::get(&context, tensorShape), builder.getF32FloatAttr(0.5),
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
   auto backendF = dyn_cast<OpModel>(fullF.getOperation());
@@ -4795,8 +4802,8 @@ TEST_F(OpModelBase, ConstantOpInterface) {
   mlir::DenseElementsAttr attr =
       mlir::DenseElementsAttr::get(tensorType, dataRef);
 
-  auto constant = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
+  auto constant = ConstantOp::create(
+      builder, builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
 
   auto backend = dyn_cast<OpModel>(constant.getOperation());
@@ -4834,8 +4841,8 @@ TEST_F(OpModelBase, ConstantOpInterfaceBF16) {
   mlir::DenseElementsAttr attr = mlir::DenseElementsAttr::get(
       tensorType, llvm::ArrayRef<llvm::APFloat>(bfloats));
 
-  auto constant = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
+  auto constant = ConstantOp::create(
+      builder, builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
 
   auto backend = dyn_cast<OpModel>(constant.getOperation());
@@ -4870,8 +4877,8 @@ TEST_F(OpModelBase, ConstantOpInterfaceNullOutputLayout) {
   mlir::DenseElementsAttr attr =
       mlir::DenseElementsAttr::get(tensorType, dataRef);
 
-  auto constant = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
+  auto constant = ConstantOp::create(
+      builder, builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
 
   auto backend = dyn_cast<OpModel>(constant.getOperation());
@@ -4899,14 +4906,14 @@ TEST_F(OpModelBase, RandOpInterface) {
       createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
 
   // Create device value using GetDeviceOp
-  auto device = builder.create<ttnn::GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<ttnn::DeviceType>(),
+  auto device = ttnn::GetDeviceOp::create(
+      builder, builder.getUnknownLoc(), builder.getType<ttnn::DeviceType>(),
       ttnn::MeshShapeAttr::get(&context, 1, 1),
       ttnn::MeshOffsetAttr::get(&context, 0, 0));
 
   // Create RandOp with default parameters (low=0.0, high=1.0, seed=0)
-  auto randOp = builder.create<RandOp>(
-      builder.getUnknownLoc(), outputType, device,
+  auto randOp = RandOp::create(
+      builder, builder.getUnknownLoc(), outputType, device,
       ttnn::ShapeAttr::get(&context, tensorShape),
       /*low=*/nullptr, /*high=*/nullptr, /*seed=*/nullptr,
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
@@ -4928,8 +4935,8 @@ TEST_F(OpModelBase, RandOpInterface) {
   }
 
   // Test RandOp with custom parameters
-  auto randOpCustom = builder.create<RandOp>(
-      builder.getUnknownLoc(), outputType, device,
+  auto randOpCustom = RandOp::create(
+      builder, builder.getUnknownLoc(), outputType, device,
       ttnn::ShapeAttr::get(&context, tensorShape),
       builder.getF32FloatAttr(-1.0),  // low
       builder.getF32FloatAttr(2.0),   // high
@@ -4960,8 +4967,8 @@ TEST_F(OpModelBase, DISABLED_DeallocateOpInterface) {
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   auto inputTensor = createEmptyTensor(tensorShape);
   auto deallocate =
-      builder.create<DeallocateOp>(builder.getUnknownLoc(), inputTensor,
-                                   /*force=*/false);
+      DeallocateOp::create(builder, builder.getUnknownLoc(), inputTensor,
+                           /*force=*/false);
 
   auto backend = dyn_cast<OpModel>(deallocate.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -4989,8 +4996,8 @@ TEST_F(OpModelBase, FillCacheOpInterface) {
 
   // Create FillCacheOp with batch_offset = 0 (no result type - it's in-place)
   auto fillCache =
-      builder.create<FillCacheOp>(builder.getUnknownLoc(), cacheTensor,
-                                  inputTensor, builder.getI32IntegerAttr(0));
+      FillCacheOp::create(builder, builder.getUnknownLoc(), cacheTensor,
+                          inputTensor, builder.getI32IntegerAttr(0));
 
   // Test OpModel interface
   auto backend = dyn_cast<OpModel>(fillCache.getOperation());
@@ -5038,9 +5045,9 @@ TEST_F(OpModelBase, UpdateCacheOpInterface) {
                               TensorMemoryLayout::Interleaved));
 
   // Create UpdateCacheOp with batch_offset = 0 (no result type - it's in-place)
-  auto updateCache = builder.create<UpdateCacheOp>(
-      builder.getUnknownLoc(), cacheTensor, inputTensor, updateIndexTensor,
-      builder.getI32IntegerAttr(0));
+  auto updateCache = UpdateCacheOp::create(
+      builder, builder.getUnknownLoc(), cacheTensor, inputTensor,
+      updateIndexTensor, builder.getI32IntegerAttr(0));
 
   // Test OpModel interface
   auto backend = dyn_cast<OpModel>(updateCache.getOperation());
@@ -5100,9 +5107,9 @@ TEST_F(OpModelBase, PagedUpdateCacheOpInterface) {
       pageTableShape, mlir::IntegerType::get(&context, 32, IntegerType::Signed),
       pageTableLayout);
 
-  auto pagedUpdateCacheOp = builder.create<PagedUpdateCacheOp>(
-      builder.getUnknownLoc(), cacheTensor, inputTensor, updateIndexTensor,
-      false, pageTableTensor);
+  auto pagedUpdateCacheOp = PagedUpdateCacheOp::create(
+      builder, builder.getUnknownLoc(), cacheTensor, inputTensor,
+      updateIndexTensor, false, pageTableTensor);
 
   auto backend = dyn_cast<OpModel>(pagedUpdateCacheOp.getOperation());
   ASSERT_TRUE(backend);
@@ -5159,9 +5166,9 @@ TEST_F(OpModelBase, PagedFillCacheOpInterface) {
       pageTableShape, mlir::IntegerType::get(&context, 32, IntegerType::Signed),
       pageTableLayout);
 
-  auto pagedFillCacheOp = builder.create<PagedFillCacheOp>(
-      builder.getUnknownLoc(), cacheTensor, inputTensor, pageTableTensor,
-      batchOffsetTensor);
+  auto pagedFillCacheOp =
+      PagedFillCacheOp::create(builder, builder.getUnknownLoc(), cacheTensor,
+                               inputTensor, pageTableTensor, batchOffsetTensor);
 
   auto backend = dyn_cast<OpModel>(pagedFillCacheOp.getOperation());
   ASSERT_TRUE(backend);
@@ -5213,8 +5220,8 @@ TEST_F(OpModelBase, QuantizeOpInterface) {
   auto outputType =
       mlir::RankedTensorType::get(outputShape, intType, int32Layout);
 
-  auto quantizeOp = builder.create<QuantizeOp>(
-      builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
+  auto quantizeOp = QuantizeOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
       builder.getI32IntegerAttr(1), // axis = 1
       ttcore::DataTypeAttr::get(
           &context,
@@ -5270,8 +5277,8 @@ TEST_F(OpModelBase, QuantizeOpInterfaceNullOutput) {
   auto outputType =
       mlir::RankedTensorType::get(outputShape, intType, int32Layout);
 
-  auto quantizeOp = builder.create<QuantizeOp>(
-      builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
+  auto quantizeOp = QuantizeOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
       builder.getI32IntegerAttr(1), // axis = 1
       ttcore::DataTypeAttr::get(
           &context,
@@ -5339,8 +5346,8 @@ TEST_F(OpModelBase, RequantizeOpInterface) {
   auto outputType =
       mlir::RankedTensorType::get(outputShape, intType, int32Layout);
 
-  auto requantizeOp = builder.create<RequantizeOp>(
-      builder.getUnknownLoc(), outputType, input, inScale, inZeroPoint,
+  auto requantizeOp = RequantizeOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, inScale, inZeroPoint,
       outScale, outZeroPoint,
       builder.getI32IntegerAttr(1), // axis = 1
       ttcore::DataTypeAttr::get(
@@ -5410,8 +5417,8 @@ TEST_F(OpModelBase, RequantizeOpInterfaceNullOutput) {
   auto outputType =
       mlir::RankedTensorType::get(outputShape, intType, int32Layout);
 
-  auto requantizeOp = builder.create<RequantizeOp>(
-      builder.getUnknownLoc(), outputType, input, inScale, inZeroPoint,
+  auto requantizeOp = RequantizeOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, inScale, inZeroPoint,
       outScale, outZeroPoint,
       builder.getI32IntegerAttr(1), // axis = 1
       ttcore::DataTypeAttr::get(
@@ -5468,8 +5475,8 @@ TEST_F(OpModelBase, DequantizeOpInterface) {
   // Create output type with BF16 data type
   auto outputType = createRankedTensorType(outputShape, builder.getBF16Type());
 
-  auto dequantizeOp = builder.create<DequantizeOp>(
-      builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
+  auto dequantizeOp = DequantizeOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
       builder.getI32IntegerAttr(1), // axis = 1
       ttcore::DataTypeAttr::get(
           &context,
@@ -5526,8 +5533,8 @@ TEST_F(OpModelBase, DequantizeOpInterfaceNullOutput) {
 
   auto outputType = createRankedTensorType(outputShape, builder.getBF16Type());
 
-  auto dequantizeOp = builder.create<DequantizeOp>(
-      builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
+  auto dequantizeOp = DequantizeOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
       builder.getI32IntegerAttr(1), // axis = 1
       ttcore::DataTypeAttr::get(
           &context,
@@ -5583,8 +5590,8 @@ TEST_F(OpModelBase, AssignOpInterface) {
       BufferTypeAttr::get(&context, outputLayout.getBufferType()),
       std::nullopt /*shardSpec*/);
 
-  auto assign = builder.create<AssignOp>(builder.getUnknownLoc(), outputType,
-                                         input, memoryConfig, nullptr);
+  auto assign = AssignOp::create(builder, builder.getUnknownLoc(), outputType,
+                                 input, memoryConfig, nullptr);
 
   OpModel backend = dyn_cast<OpModel>(assign.getOperation());
   auto constraintsExp =
@@ -5629,8 +5636,8 @@ TEST_F(OpModelBase, AssignOpInterfaceL1Output) {
       BufferTypeAttr::get(&context, outputLayout.getBufferType()),
       std::nullopt /*shardSpec*/);
 
-  auto assign = builder.create<AssignOp>(builder.getUnknownLoc(), outputType,
-                                         input, memoryConfig, nullptr);
+  auto assign = AssignOp::create(builder, builder.getUnknownLoc(), outputType,
+                                 input, memoryConfig, nullptr);
 
   OpModel backend = dyn_cast<OpModel>(assign.getOperation());
   auto constraintsExp =
@@ -5678,8 +5685,8 @@ TEST_F(OpModelBase, AssignOpInterfaceWithOutputDtype) {
   auto outputDtype =
       ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16);
 
-  auto assign = builder.create<AssignOp>(builder.getUnknownLoc(), outputType,
-                                         input, memoryConfig, outputDtype);
+  auto assign = AssignOp::create(builder, builder.getUnknownLoc(), outputType,
+                                 input, memoryConfig, outputDtype);
 
   OpModel backend = dyn_cast<OpModel>(assign.getOperation());
   auto constraintsExp =
@@ -5710,8 +5717,8 @@ TEST_F(OpModelBase, DropoutOpInterface) {
   auto input = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
 
-  auto dropoutOp = builder.create<DropoutOp>(
-      builder.getUnknownLoc(), outputType, input,
+  auto dropoutOp = DropoutOp::create(
+      builder, builder.getUnknownLoc(), outputType, input,
       /*prob=*/nullptr, /*scale=*/nullptr, /*seed=*/nullptr,
       /*use_per_device_seed=*/nullptr, /*memory_config=*/nullptr);
   dropoutOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
@@ -5732,10 +5739,10 @@ TEST_F(OpModelBase, DropoutOpInterface) {
   }
 
   // Test DropoutOp with custom parameters
-  auto dropoutOpCustom = builder.create<DropoutOp>(
-      builder.getUnknownLoc(), outputType, input, builder.getF32FloatAttr(0.2),
-      builder.getF32FloatAttr(1.25), builder.getUI32IntegerAttr(21),
-      builder.getBoolAttr(true),
+  auto dropoutOpCustom = DropoutOp::create(
+      builder, builder.getUnknownLoc(), outputType, input,
+      builder.getF32FloatAttr(0.2), builder.getF32FloatAttr(1.25),
+      builder.getUI32IntegerAttr(21), builder.getBoolAttr(true),
       /*memory_config=*/nullptr);
   dropoutOpCustom->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
@@ -5809,8 +5816,8 @@ TEST_P(OpModelMeshPartitionInterfaceRuntimeTest,
       createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
   auto outputType = createRankedTensorType(outputShape);
 
-  auto meshPartitionOp = builder.create<MeshPartitionOp>(
-      builder.getUnknownLoc(), outputType, input,
+  auto meshPartitionOp = MeshPartitionOp::create(
+      builder, builder.getUnknownLoc(), outputType, input,
       /*dim=*/builder.getSI32IntegerAttr(p.dim),
       /*cluster_axis=*/builder.getUI32IntegerAttr(p.clusterAxis),
       /*memory_config=*/nullptr);

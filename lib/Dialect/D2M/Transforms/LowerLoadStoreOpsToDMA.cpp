@@ -90,10 +90,10 @@ public:
       mcastVolume *= dimSize;
     }
 
-    Value zero = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
-    Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
-                                                   rewriter.getIndexAttr(1));
+    Value zero = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    Value one = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getIndexType(), rewriter.getIndexAttr(1));
 
     // Get pre-allocated semaphores for synchronization.
     // These must have been set by D2MPreallocateMcastSemaphores pass.
@@ -103,8 +103,9 @@ public:
 
     // Number of receivers is mcastVolume - 1 (excluding sender itself).
     // The sender waits for this many semaphore increments before multicasting.
-    Value numReceiversVal = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIndexType(), rewriter.getIndexAttr(mcastVolume - 1));
+    Value numReceiversVal =
+        arith::ConstantOp::create(rewriter, loc, rewriter.getIndexType(),
+                                  rewriter.getIndexAttr(mcastVolume - 1));
 
     // Determine if this core is the sender.
     // The sender is at position mcastStartIndex[i] for each multicast
@@ -115,13 +116,13 @@ public:
     ValueRange mcastStartIndex = remoteLoad.getMcastStartIndex();
     for (size_t i = 0; i < isMcastDim.size(); ++i) {
       if (isMcastDim[i]) {
-        Value coreIdx = rewriter.create<CoreIndexOp>(
-            loc, static_cast<int64_t>(i), gridMapping);
-        Value condition = rewriter.create<arith::CmpIOp>(
-            loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreIdx,
-            mcastStartIndex[i]);
+        Value coreIdx = CoreIndexOp::create(
+            rewriter, loc, static_cast<int64_t>(i), gridMapping);
+        Value condition = arith::CmpIOp::create(
+            rewriter, loc, rewriter.getI1Type(), arith::CmpIPredicate::eq,
+            coreIdx, mcastStartIndex[i]);
         if (isSender) {
-          isSender = rewriter.create<arith::AndIOp>(loc, isSender, condition)
+          isSender = arith::AndIOp::create(rewriter, loc, isSender, condition)
                          .getResult();
         } else {
           isSender = condition;
@@ -132,45 +133,45 @@ public:
 
     // Reserve CB unconditionally before branching - both sender and receiver
     // need to reserve to maintain proper circular buffer semantics.
-    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
+    Value localMemref = ReserveOp::create(rewriter, loc, cb).getResult();
 
     SmallVector<Value> gridIndices = remoteLoad.getIndices();
 
-    rewriter.create<scf::IfOp>(
-        loc, isSender,
+    scf::IfOp::create(
+        rewriter, loc, isSender,
         [&](OpBuilder &builder, Location loc) {
           // Sender: shard-level DMA read from remote.
-          Value dmaTx = builder.create<DMAReadOp>(loc, remoteMemref,
-                                                  gridIndices, localMemref);
-          builder.create<DMAWaitOp>(loc, dmaTx);
+          Value dmaTx = DMAReadOp::create(builder, loc, remoteMemref,
+                                          gridIndices, localMemref);
+          DMAWaitOp::create(builder, loc, dmaTx);
 
           // Wait for all receivers to be ready (mcastVolume - 1, excluding
           // sender).
-          builder.create<SemaphoreWaitOp>(loc, receiversReadySemaphore,
-                                          numReceiversVal, zero);
+          SemaphoreWaitOp::create(builder, loc, receiversReadySemaphore,
+                                  numReceiversVal, zero);
 
           // Perform shard-level multicast DMA write: from local CB to local CB
           // with multicast parameters. The multicast parameters specify that
           // the data should be sent to other cores. We use localMemref (from
           // ReserveOp) as both source and destination - this is the Producer
           // buffer that was just filled by the DMA read above.
-          Value mcastTx = builder.create<DMAWriteOp>(
-              loc, localMemref, localMemref, remoteLoad.getMcastStartIndex(),
-              remoteLoad.getMcastShape());
-          builder.create<DMAWaitOp>(loc, mcastTx);
+          Value mcastTx = DMAWriteOp::create(
+              builder, loc, localMemref, localMemref,
+              remoteLoad.getMcastStartIndex(), remoteLoad.getMcastShape());
+          DMAWaitOp::create(builder, loc, mcastTx);
 
           // Signal receivers that sender is finished.
-          builder.create<SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
-                                         remoteLoad.getMcastStartIndex(),
-                                         remoteLoad.getMcastShape());
+          SemaphoreSetOp::create(builder, loc, senderFinishedSemaphore, one,
+                                 remoteLoad.getMcastStartIndex(),
+                                 remoteLoad.getMcastShape());
 
-          builder.create<scf::YieldOp>(loc);
+          scf::YieldOp::create(builder, loc);
         },
         [&](OpBuilder &builder, Location loc) {
           // Receiver: signal ready and wait for sender to finish.
           SmallVector<Value> senderCoreIndex;
-          Value zeroIdx = builder.create<arith::ConstantOp>(
-              loc, builder.getIndexType(), builder.getIndexAttr(0));
+          Value zeroIdx = arith::ConstantOp::create(
+              builder, loc, builder.getIndexType(), builder.getIndexAttr(0));
 
           // Build sender core index by reading actual core positions.
           // For dimensions that are multicast, sender is at mcastStartIndex.
@@ -182,23 +183,23 @@ public:
               senderCoreIndex.push_back(mcastStartIndex[i]);
             } else {
               // Non-multicast dimension - use current core's position.
-              Value currentCoreIdx = builder.create<CoreIndexOp>(
-                  loc, static_cast<int64_t>(i), gridMapping);
+              Value currentCoreIdx = CoreIndexOp::create(
+                  builder, loc, static_cast<int64_t>(i), gridMapping);
               senderCoreIndex.push_back(currentCoreIdx);
             }
           }
 
-          builder.create<SemaphoreIncOp>(loc, receiversReadySemaphore, one,
-                                         senderCoreIndex);
-          builder.create<SemaphoreWaitOp>(loc, senderFinishedSemaphore, one,
-                                          zeroIdx);
+          SemaphoreIncOp::create(builder, loc, receiversReadySemaphore, one,
+                                 senderCoreIndex);
+          SemaphoreWaitOp::create(builder, loc, senderFinishedSemaphore, one,
+                                  zeroIdx);
 
           // Note: CB already reserved before the if/else, so receiver has
           // proper access to the multicast data.
 
-          builder.create<scf::YieldOp>(loc);
+          scf::YieldOp::create(builder, loc);
         });
-    rewriter.create<PushOp>(loc, cb);
+    PushOp::create(rewriter, loc, cb);
 
     rewriter.eraseOp(remoteLoad);
     return success();
@@ -235,15 +236,15 @@ public:
     Value remoteMemref = remoteLoad.getMemref();
     SmallVector<Value> gridIndices = remoteLoad.getIndices();
 
-    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
-    Value dmaTx =
-        rewriter.create<DMAReadOp>(loc, remoteMemref, gridIndices, localMemref);
+    Value localMemref = ReserveOp::create(rewriter, loc, cb).getResult();
+    Value dmaTx = DMAReadOp::create(rewriter, loc, remoteMemref, gridIndices,
+                                    localMemref);
 
     rewriter.eraseOp(remoteLoad);
 
     // Wait for DMA to complete.
-    rewriter.create<DMAWaitOp>(loc, dmaTx);
-    rewriter.create<PushOp>(loc, cb);
+    DMAWaitOp::create(rewriter, loc, dmaTx);
+    PushOp::create(rewriter, loc, cb);
     return success();
   }
 };
@@ -280,16 +281,16 @@ public:
     SmallVector<Value> gridIndices = remoteStore.getIndices();
 
     // Wait on CB, emit shard-level dma_write, wait, pop
-    Value localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
-    Value dmaTx = rewriter.create<DMAWriteOp>(loc, localMemref, remoteMemref,
-                                              gridIndices);
+    Value localMemref = WaitOp::create(rewriter, loc, cb).getResult();
+    Value dmaTx = DMAWriteOp::create(rewriter, loc, localMemref, remoteMemref,
+                                     gridIndices);
 
     rewriter.eraseOp(remoteStore);
 
     // Wait for DMA to complete.
-    rewriter.create<DMAWaitOp>(loc, dmaTx);
+    DMAWaitOp::create(rewriter, loc, dmaTx);
     // Pop the circular buffer to signal consumption.
-    rewriter.create<PopOp>(loc, cb);
+    PopOp::create(rewriter, loc, cb);
     return success();
   }
 };

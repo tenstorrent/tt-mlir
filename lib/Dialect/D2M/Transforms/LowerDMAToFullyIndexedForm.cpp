@@ -132,8 +132,8 @@ static Value generateFullyIndexedDMAOps(
     SmallVector<Value> remoteIndices = gridIndices;
     SmallVector<Value> localIndices;
 
-    Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                   builder.getIndexAttr(0));
+    Value zero = arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                           builder.getIndexAttr(0));
     for (size_t i = 0; i < shardShape.size(); ++i) {
       remoteIndices.push_back(zero);
       localIndices.push_back(zero);
@@ -150,7 +150,7 @@ static Value generateFullyIndexedDMAOps(
 
   // Strided/non-contiguous: generate loops with guarded DMAs.
   auto [lbs, ubs, steps] = utils::getLoopBounds(builder, loc, shardShape);
-  auto nullDmaTx = builder.create<NullTxOp>(loc);
+  auto nullDmaTx = NullTxOp::create(builder, loc);
 
   scf::LoopNest loopNest = scf::buildLoopNest(
       builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
@@ -168,50 +168,49 @@ static Value generateFullyIndexedDMAOps(
                                        localIndices, false);
 
         // Create guarded DMA operation based on coalescing factor.
-        Value cfExpr = loopBuilder.create<arith::ConstantOp>(
-            innerLoc, loopBuilder.getIndexType(),
+        Value cfExpr = arith::ConstantOp::create(
+            loopBuilder, innerLoc, loopBuilder.getIndexType(),
             loopBuilder.getIndexAttr(coalescingFactor));
-        Value zero = loopBuilder.create<arith::ConstantOp>(
-            innerLoc, loopBuilder.getIndexType(),
+        Value zero = arith::ConstantOp::create(
+            loopBuilder, innerLoc, loopBuilder.getIndexType(),
             loopBuilder.getIntegerAttr(loopBuilder.getIndexType(), 0));
 
         // Construct guard function: flat_index(iters) % coalescingFactor == 0
         auto totalIterCount = zero;
         size_t currStride = 1;
         for (int i = iters.size() - 1; i >= 0; i--) {
-          Value currStrideExpr = loopBuilder.create<arith::ConstantOp>(
-              innerLoc, loopBuilder.getIndexType(),
+          Value currStrideExpr = arith::ConstantOp::create(
+              loopBuilder, innerLoc, loopBuilder.getIndexType(),
               loopBuilder.getIndexAttr(currStride));
-          auto scaledCount =
-              loopBuilder
-                  .create<arith::MulIOp>(innerLoc, currStrideExpr, iters[i])
-                  .getResult();
-          totalIterCount =
-              loopBuilder
-                  .create<arith::AddIOp>(innerLoc, scaledCount, totalIterCount)
-                  .getResult();
+          auto scaledCount = arith::MulIOp::create(loopBuilder, innerLoc,
+                                                   currStrideExpr, iters[i])
+                                 .getResult();
+          totalIterCount = arith::AddIOp::create(loopBuilder, innerLoc,
+                                                 scaledCount, totalIterCount)
+                               .getResult();
           currStride *= shardShape[i];
         }
-        auto moduloIterCount =
-            loopBuilder.create<arith::RemSIOp>(innerLoc, totalIterCount, cfExpr)
-                .getResult();
-        auto predicate = loopBuilder.create<arith::CmpIOp>(
-            innerLoc, arith::CmpIPredicate::eq, moduloIterCount, zero);
+        auto moduloIterCount = arith::RemSIOp::create(loopBuilder, innerLoc,
+                                                      totalIterCount, cfExpr)
+                                   .getResult();
+        auto predicate = arith::CmpIOp::create(loopBuilder, innerLoc,
+                                               arith::CmpIPredicate::eq,
+                                               moduloIterCount, zero);
 
-        auto nulltx = loopBuilder.create<NullTxOp>(innerLoc);
+        auto nulltx = NullTxOp::create(loopBuilder, innerLoc);
 
         // Build guarded DMA.
-        auto ifExpr = loopBuilder.create<scf::IfOp>(
-            innerLoc, TypeRange(SmallVector<Value>{nulltx}), predicate,
-            true /*addThenBlock*/, true /*addElseBlock*/);
+        auto ifExpr = scf::IfOp::create(
+            loopBuilder, innerLoc, TypeRange(SmallVector<Value>{nulltx}),
+            predicate, true /*addThenBlock*/, true /*addElseBlock*/);
 
         auto thenBuilder = ifExpr.getThenBodyBuilder();
         Value dmaTx = createDMAOp(thenBuilder, innerLoc, remoteIndices,
                                   localIndices, coalescingFactor);
-        thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
+        scf::YieldOp::create(thenBuilder, innerLoc, dmaTx);
 
         auto elseBuilder = ifExpr.getElseBodyBuilder();
-        elseBuilder.create<scf::YieldOp>(innerLoc, args[0]);
+        scf::YieldOp::create(elseBuilder, innerLoc, args[0]);
 
         return SmallVector<Value>{ifExpr.getResult(0)};
       });
@@ -272,8 +271,8 @@ public:
         coalescingFactor, shardVolume,
         [&](OpBuilder &b, Location l, SmallVector<Value> &remoteIdx,
             SmallVector<Value> &localIdx, size_t cf) {
-          return b.create<DMAReadOp>(l, remoteMemref, remoteIdx, localMemref,
-                                     localIdx, b.getI64IntegerAttr(cf));
+          return DMAReadOp::create(b, l, remoteMemref, remoteIdx, localMemref,
+                                   localIdx, b.getI64IntegerAttr(cf));
         });
 
     rewriter.replaceOp(op, newTx);
@@ -315,16 +314,16 @@ public:
       size_t shardVolume = ttmlir::utils::volume(shardShape);
 
       SmallVector<Value> localIndices;
-      Value zero = rewriter.create<arith::ConstantOp>(
-          loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+      Value zero = arith::ConstantOp::create(
+          rewriter, loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
       for (size_t i = 0; i < shardShape.size(); ++i) {
         localIndices.push_back(zero);
       }
       localIndices =
           utils::applyMap(rewriter, loc, localMemoryMap, localIndices, false);
 
-      Value newTx = rewriter.create<DMAWriteOp>(
-          loc, localMemref, localIndices, dstMemref, localIndices,
+      Value newTx = DMAWriteOp::create(
+          rewriter, loc, localMemref, localIndices, dstMemref, localIndices,
           op.getMcastStartIndex(), op.getMcastShape(), shardVolume);
       rewriter.replaceOp(op, newTx);
       return success();
@@ -360,8 +359,8 @@ public:
         coalescingFactor, shardVolume,
         [&](OpBuilder &b, Location l, SmallVector<Value> &remoteIdx,
             SmallVector<Value> &localIdx, size_t cf) {
-          return b.create<DMAWriteOp>(l, localMemref, localIdx, dstMemref,
-                                      remoteIdx, cf);
+          return DMAWriteOp::create(b, l, localMemref, localIdx, dstMemref,
+                                    remoteIdx, cf);
         });
 
     rewriter.replaceOp(op, newTx);

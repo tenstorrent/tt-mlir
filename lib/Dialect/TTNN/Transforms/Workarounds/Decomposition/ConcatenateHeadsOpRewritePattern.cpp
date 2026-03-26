@@ -44,7 +44,8 @@ LogicalResult ConcatenateHeadsOpRewritePattern::matchAndRewrite(
       utils::RankedTensorTypeFactory::create(outputType, permutedShape);
   auto input = srcOp.getInput();
 
-  PermuteOp permuteOp = rewriter.create<ttnn::PermuteOp>(
+  PermuteOp permuteOp = ttnn::PermuteOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_concat_heads"),
       permutedType, input, permutationAttr, ttnn::MemoryConfigAttr(),
       mlir::FloatAttr());
