@@ -578,9 +578,10 @@ bool validateReshapeLayouts(SmallVector<SliceReshapeMatch> &matches) {
 // ============================================================================
 
 template <typename MatMulOpType>
-mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
-                                  MatMulOpType matmulOp, QKVHead &q, QKVHead &k,
-                                  QKVHead &v) {
+mlir::LogicalResult
+createFusedOp(mlir::PatternRewriter &rewriter, MatMulOpType matmulOp,
+              QKVHead &q, QKVHead &k, QKVHead &v,
+              const FusionValidationConfig &validationConfig) {
   auto qFinalShape = q.match.getFinalType().getShape();
   int64_t batchSize = qFinalShape[O_BATCH];
   int64_t seqLen = q.seqLen();
@@ -639,13 +640,29 @@ mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
   RankedTensorType kSplitTy = makeSplitOutputType(k.match.getFinalType());
   RankedTensorType vSplitTy = makeSplitOutputType(v.match.getFinalType());
 
+  // Validate the fused op before creating it.
+  FusionValidator validator(rewriter.getContext(), validationConfig);
+  auto numHeadsAttr = rewriter.getUI32IntegerAttr(q.numHeads());
+  auto numKVHeadsAttr =
+      isGQA ? rewriter.getUI32IntegerAttr(k.numHeads()) : IntegerAttr();
+  auto transposeKeyAttr = rewriter.getBoolAttr(false);
+
+  auto validationResult =
+      validator.validateFusion<SplitQueryKeyValueAndSplitHeadsOp>(
+          matmulOp.getOperation(), matmulOp.getLoc(),
+          {qSplitTy, kSplitTy, vSplitTy}, inputReshape.getResult(),
+          /*kv_input_tensor=*/Value(), numHeadsAttr, numKVHeadsAttr,
+          transposeKeyAttr, MemoryConfigAttr());
+
+  if (!validationResult.isSuccess()) {
+    return mlir::failure();
+  }
+
   auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
       matmulOp.getLoc(), TypeRange{qSplitTy, kSplitTy, vSplitTy},
       inputReshape.getResult(),
       Value(), // no separate KV input
-      rewriter.getUI32IntegerAttr(q.numHeads()),
-      isGQA ? rewriter.getUI32IntegerAttr(k.numHeads()) : IntegerAttr(),
-      rewriter.getBoolAttr(false) /*transpose_key*/, MemoryConfigAttr());
+      numHeadsAttr, numKVHeadsAttr, transposeKeyAttr, MemoryConfigAttr());
 
   // Helper to insert a typecast if the split output dtype differs from what
   // the downstream ops expect.
@@ -797,7 +814,7 @@ SplitQueryKeyValueAndSplitHeadsFusing<MatMulOpType>::matchAndRewrite(
     }
   }
 
-  return createFusedOp(rewriter, matmulOp, *q, *k, *v);
+  return createFusedOp(rewriter, matmulOp, *q, *k, *v, validationConfig);
 }
 
 // Explicit template instantiations.
@@ -856,13 +873,29 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
       rewriter.getI32ArrayAttr(reshapeShapeI32), MemoryConfigAttr());
 
   bool isGQA = (numHeads != numKVHeads);
-  auto decodeOp = rewriter.create<NLPCreateQKVHeadsDecodeOp>(
-      splitOp.getLoc(),
-      TypeRange{qPermuteOp.getType(), kPermuteOp.getType(),
-                vPermuteOp.getType()},
+  auto numHeadsAttr = rewriter.getUI32IntegerAttr(numHeads);
+  auto numKVHeadsAttr =
+      isGQA ? rewriter.getUI32IntegerAttr(numKVHeads) : IntegerAttr();
+  SmallVector<Type> resultTypes = {qPermuteOp.getType(), kPermuteOp.getType(),
+                                   vPermuteOp.getType()};
+
+  // Validate the fused op before creating it.
+  FusionValidator validator(rewriter.getContext(), validationConfig);
+  auto validationResult = validator.validateFusion<NLPCreateQKVHeadsDecodeOp>(
+      splitOp.getOperation(), splitOp.getLoc(),
+      {qPermuteOp.getType(), kPermuteOp.getType(), vPermuteOp.getType()},
       reshapeOp.getResult(),
-      /*batch_offset=*/Value(), rewriter.getUI32IntegerAttr(numHeads),
-      isGQA ? rewriter.getUI32IntegerAttr(numKVHeads) : IntegerAttr(),
+      /*batch_offset=*/Value(), numHeadsAttr, numKVHeadsAttr,
+      /*overlap_qk_coregrid=*/BoolAttr(),
+      /*slice_size=*/IntegerAttr(), MemoryConfigAttr());
+
+  if (!validationResult.isSuccess()) {
+    return mlir::failure();
+  }
+
+  auto decodeOp = rewriter.create<NLPCreateQKVHeadsDecodeOp>(
+      splitOp.getLoc(), resultTypes, reshapeOp.getResult(),
+      /*batch_offset=*/Value(), numHeadsAttr, numKVHeadsAttr,
       /*overlap_qk_coregrid=*/BoolAttr(),
       /*slice_size=*/IntegerAttr(), MemoryConfigAttr());
 
