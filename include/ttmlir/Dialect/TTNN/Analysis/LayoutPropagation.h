@@ -169,9 +169,6 @@ private:
       const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
       Operation *producerOp, size_t resultIdx, size_t maxCandidates);
 
-  /// Disable deallocate_activation for conv ops with multi-use inputs.
-  void fixupConvDeallocate();
-
   /// Insert to_memory_config to DRAM for func.return operands that are in L1.
   void insertReturnDramSpills();
 };
