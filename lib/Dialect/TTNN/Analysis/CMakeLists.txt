@@ -31,3 +31,5 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         TTMLIRTTNNUtils
         TTNNOpModelLib
         )
+
+add_subdirectory(OpRules)
