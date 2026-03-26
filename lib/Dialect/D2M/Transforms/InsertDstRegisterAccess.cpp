@@ -827,7 +827,7 @@ public:
             if (dstSliceAllocationState.hasIssuedLoadSlices()) {
               dstSlice = dstSliceAllocationState.getCurrSliceIndex();
             } else {
-              // e.g. tile_fill: isScalarOperand(1) is true but no CB->DST load
+              // e.g. fill_tile: isScalarOperand(1) is true but no CB->DST load
               // ran, so there is no in-place slot to reuse.
               dstSlice = dstSliceAllocationState.allocate();
             }
@@ -850,7 +850,7 @@ public:
 
           // If op stores to dst in place or has scalar rhs, reuse the current
           // dst index when a load slice exists; otherwise allocate (e.g. output
-          // of tile_fill feeding another compute op).
+          // of fill_tile feeding another compute op).
           int dstSlice =
               (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1))
                   ? (dstSliceAllocationState.hasIssuedLoadSlices()
@@ -1651,7 +1651,7 @@ public:
             if (numLoads > 0) {
               dstSliceIndex = dstStackAllocator.getCurrSliceIndex();
             } else {
-              // tile_fill and similar: no CB->DST load; must pop a slice from
+              // fill_tile and similar: no CB->DST load; must pop a slice from
               // the stack instead of reusing currSliceIndex (uninitialized
               // path).
               dstSliceIndex = dstStackAllocator.allocate(true);
@@ -1681,8 +1681,8 @@ public:
           assert(!dstIntermediates.contains(computeOp));
 
           // Only consider overwriting input if the op actually has tile inputs.
-          // Ops like ExperimentalTileFillOp generate new tiles from scalars and
-          // have no tile inputs to overwrite, so they must allocate a new slot.
+          // Ops like d2m.fill_tile generate new tiles from scalars and have no
+          // tile inputs to overwrite, so they must allocate a new slot.
           bool hasTileInputs = numLoads > 0;
           bool overwriteInput =
               hasTileInputs &&

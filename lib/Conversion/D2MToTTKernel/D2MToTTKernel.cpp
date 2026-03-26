@@ -127,7 +127,7 @@ static Value getDstIdxFromResult(Value d2mOpResult) {
 
 // If \p v is a tile loaded from L1, return the remapped `!ttkernel.cb` handle
 // for that buffer. Returns null when the tile comes from DST only (e.g. after
-// d2m.tile_fill) or from another defining op.
+// d2m.fill_tile) or from another defining op.
 static Value tryGetL1CbFromTensorShardLoad(ConversionPatternRewriter &rewriter,
                                            Value v) {
   Operation *def = v.getDefiningOp();
@@ -885,7 +885,7 @@ public:
     if constexpr (arity == 1) {
       inCB = tryGetL1CbFromTensorShardLoad(rewriter, op.getInput());
       if (!inCB) {
-        // Unary SFPU on a tile that only lives in DST (e.g. tile_fill -> cos)
+        // Unary SFPU on a tile that only lives in DST (e.g. fill_tile -> cos)
         // has no L1 unpack; init_sfpu still needs an icb — use the output CB.
         inCB = outCB;
       }
@@ -1426,7 +1426,7 @@ public:
       if (!fillValue.getType().isF32()) {
         if (!mlir::isa<FloatType>(fillValue.getType())) {
           return rewriter.notifyMatchFailure(
-              op, "tile_fill value must be a float or integer type");
+              op, "fill_tile value must be a float or integer type");
         }
         fillValue = rewriter.create<arith::ExtFOp>(loc, rewriter.getF32Type(),
                                                    fillValue);

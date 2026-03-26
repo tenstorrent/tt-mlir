@@ -48,7 +48,7 @@ static Value getLayoutOrCastResult(Operation *op) {
 
 /// If a `d2m.generic` is the TTIRToD2M lowering of `ttir.full` (outer
 /// `d2m.generic` with a zero-input `linalg.generic` body that only runs
-/// `tile_fill`), return the splat attribute from the fill scalar's
+/// `fill_tile`), return the splat attribute from the fill scalar's
 /// `arith.constant`.
 static std::optional<Attribute>
 tryGetSplatAttrFromFillGeneric(GenericOp genericOp) {

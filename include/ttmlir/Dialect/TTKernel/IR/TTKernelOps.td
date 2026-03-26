@@ -2621,22 +2621,6 @@ def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_u
     }];
 }
 
-def TTKernel_ExperimentalTileFillOp : TTKernel_SFPUOp<"experimental::tile_fill", [TTKernel_UnaryOpTrait]> {
-    let summary = "Experimental Tile Fill Op";
-    let description = [{
-      Creates a tile in DST filled with a constant scalar value. All elements in the
-      resulting tile will have the same value as the input scalar. The DST register
-      buffer must be in acquired state via *tile_regs_acquire* call. This call is
-      blocking and is only available on the compute engine.
-    }];
-
-    let arguments = (ins IndexLike:$dst_index, AnyFloat:$value);
-
-    let assemblyFormat = [{
-      `(` $dst_index `,` $value `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
 def TTKernel_ExperimentalWriteRowMaskTileOp : TTKernel_Op<"experimental::write_row_mask_tile"> {
     let summary = "Experimental Write Row Mask Tile Op";
     let description = [{

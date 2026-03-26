@@ -323,8 +323,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
       builder->create<emitc::VerbatimOp>(loc, experimentalMatmulLLKs);
     }
 
-    if (hasCall("experimental::tile_fill") ||
-        hasCall("experimental::write_row_mask_tile") ||
+    if (hasCall("experimental::write_row_mask_tile") ||
         hasCall("experimental::write_col_mask_tile") ||
         hasCall("experimental::fill_arange_tile")) {
       auto experimentalPaddingLLKs =
