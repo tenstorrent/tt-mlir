@@ -8,6 +8,8 @@
 
 set(PYTHON_RUNNER_LIBRARY_NAME tt-alchemist-python-runner)
 
+include(GNUInstallDirs)
+
 # We embed CPython (Py_Initialize, etc.), so request the "embed" development
 # target. nanobind additionally expects FindPython-provided variables/targets.
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.Embed)
@@ -68,11 +70,11 @@ set_target_properties(${PYTHON_RUNNER_LIBRARY_NAME} PROPERTIES
 )
 
 install(FILES $<TARGET_FILE:${PYTHON_RUNNER_LIBRARY_NAME}>
-  DESTINATION lib
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}
   COMPONENT SharedLib
 )
 
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/python_runner.hpp
-  DESTINATION include/tools/tt-alchemist/python_runner
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tools/tt-alchemist/python_runner
   COMPONENT SharedLib
 )
