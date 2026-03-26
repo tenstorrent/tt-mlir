@@ -1919,7 +1919,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         return {{value, type, chain}};
       }
 
-      if (auto op = llvm::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
+      if (auto op = llvm::dyn_cast_or_null<d2m::ViewOpInterface>(definingOp)) {
         value = op.getInput();
       } else if (auto op = llvm::dyn_cast<d2m::CompositeViewOp>(definingOp)) {
         // Recurse into each input of the composite view to collect all the
