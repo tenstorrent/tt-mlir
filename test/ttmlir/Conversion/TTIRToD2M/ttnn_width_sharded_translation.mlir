@@ -189,7 +189,7 @@ func.func @test_lower_width_sharded_l1_5(
     // CHECK: %[[EMPTY0:.*]] = d2m.empty() {virtualGridForwardMapping = {{.*}}, virtualGridInverseMapping = {{.*}}} : tensor<1x64x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
     // CHECK: %[[VIEW0:.*]] = d2m.view_layout %[[CAST0]]{{.*}}: tensor<1x8x1x16x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<1x64x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
     // CHECK: %[[RESULT:.*]] = d2m.generic
-    // CHECK-SAME: grid = #ttcore.grid<1x64, (d0, d1) ->
+    // CHECK-SAME: grid = #ttcore.grid<1x64, virt_to_physical_map = (d0, d1) ->
     // CHECK: ins(%[[VIEW0]] : tensor<1x64x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
     // CHECK: outs(%[[EMPTY0]] : tensor<1x64x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
     // CHECK-DAG: d2m.tile_abs
