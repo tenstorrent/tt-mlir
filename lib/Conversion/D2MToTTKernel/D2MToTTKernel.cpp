@@ -1007,27 +1007,49 @@ public:
         // Handle scalar operand - need to use unary scalar ops
         const auto dstIdx = adaptor.getLhs();
         auto loc = op->getLoc();
+        auto scalarToI32Param = [&](Value scalar) -> Value {
+          auto scalarType = mlir::cast<Type>(scalar.getType());
+          if (auto floatType = llvm::dyn_cast<FloatType>(scalarType)) {
+            Value f32Scalar = scalar;
+            if (!floatType.isF32()) {
+              f32Scalar = rewriter.create<arith::ExtFOp>(
+                  loc, rewriter.getF32Type(), scalar);
+            }
+            return rewriter.create<arith::BitcastOp>(loc, rewriter.getI32Type(),
+                                                     f32Scalar);
+          }
+
+          // Integer scalars are passed as i32 numeric values.
+          if (scalarType.isInteger(32)) {
+            return scalar;
+          }
+          if (auto intType = llvm::dyn_cast<IntegerType>(scalarType)) {
+            if (intType.getWidth() < 32) {
+              return rewriter.create<arith::ExtSIOp>(loc, rewriter.getI32Type(),
+                                                     scalar);
+            }
+            return rewriter.create<arith::TruncIOp>(loc, rewriter.getI32Type(),
+                                                    scalar);
+          }
+
+          llvm_unreachable("Expected scalar rhs to be integer or float");
+        };
 
         // Create the appropriate unary scalar op based on the D2M op type
         if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
-          // Bitcast the scalar value to i32 to pass as parameter
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Param(adaptor.getRhs());
           rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Param(adaptor.getRhs());
           rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Param(adaptor.getRhs());
           rewriter.create<ttkernel::MulUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileDivOp>) {
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Param(adaptor.getRhs());
           rewriter.create<ttkernel::DivUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
           // For power, convert float value to integer (not bitcast)
