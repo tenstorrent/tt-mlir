@@ -5987,7 +5987,8 @@ def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine"> {
                          AnyRankedTensor:$expert_mapping,
                          I64Attr:$num_devices,
                          I64Attr:$cluster_axis,
-                         I64Attr:$num_experts_per_tok);
+                         I64Attr:$num_experts_per_tok,
+                         DefaultValuedAttr<I64Attr, "2">:$output_shard_dim);
 
     let results = (outs AnyRankedTensor:$result);
 
