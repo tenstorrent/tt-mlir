@@ -113,23 +113,7 @@ class D2M_GenericRegionComputeFPUOrSFPUBinary<string mnemonic, list<Trait> trait
     // Returns the operand indices that need to be loaded from the dst register.
     // For FPU, we don't load from DST.
     // For SFPU (either via f32 operands or scalar operands) we load from DST.
-    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-      assert(this->getNumOperands() == 2 && "Binary operation must have 2 operands");
-      auto lhsType = this->getOperand(0).getType();
-      auto rhsType = this->getOperand(1).getType();
-
-      // If either operand is a float32, use SFPU to maintain accuracy. Load both operands from DST.
-      if (ttcore::getDataType(lhsType) == ttcore::DataType::Float32 || ttcore::getDataType(rhsType) == ttcore::DataType::Float32) {
-        return {0, 1};
-      }
-
-      // If RHS is a scalar (not a tile), only load LHS from DST (SFPU path)
-      if (!mlir::isa<::mlir::tt::ttcore::TileType>(rhsType)) {
-        return {0};
-      }
-      // Both operands are tiles (not float32) - FPU reads directly from CBs, no DST load needed
-      return {};
-    }
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister();
   }];
 }
 
