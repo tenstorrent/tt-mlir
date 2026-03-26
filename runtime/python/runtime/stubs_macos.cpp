@@ -220,6 +220,10 @@ std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
                                       CallbackContext programContextHandle) {
   __builtin_trap();
 }
+std::unordered_map<std::string, OpAttrValue>
+getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
+  __builtin_trap();
+}
 std::string getOpLocInfo(OpContext opContextHandle) { __builtin_trap(); }
 std::optional<TensorRef> getOpOutputRef(OpContext opContextHandle,
                                         CallbackContext programContextHandle) {

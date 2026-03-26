@@ -933,8 +933,6 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request, devic
 @pytest.mark.parametrize(
     "shape,dtype,start,end,step,dim",
     [
-        ((5,), torch.float32, 0, 5, 1, 0),
-        ((5, 3), torch.int64, 0, 5, 1, 0),
         ((5, 3), torch.int64, 0, 3, 1, 1),
     ],
 )

@@ -533,6 +533,32 @@ void registerRuntimeBindings(nb::module_ &m) {
     )");
 
   m.def(
+      "get_op_attrs",
+      [](tt::runtime::OpContext &op_context_handle,
+         tt::runtime::CallbackContext &program_context_handle) {
+        return tt::runtime::getOpAttrs(op_context_handle,
+                                       program_context_handle);
+      },
+      nb::arg("op_context_handle"), nb::arg("program_context_handle"),
+      R"(
+    Return a dictionary of attribute names to their values for an operator.
+
+    Attributes are all operation parameters that are not outputs or TensorRef types.
+    This includes scalar values, arrays, strings, and other configuration parameters.
+
+    Parameters
+    ----------
+    op_context_handle : ttrt.runtime.OpContext
+    program_context_handle : ttrt.runtime.CallbackContext
+
+    Returns
+    -------
+    Dict[str, Union[bool, int, float, str, List]]
+        A dictionary mapping attribute names to their values. The dictionary is
+        empty when the operator has no attributes.
+    )");
+
+  m.def(
       "retrieve_tensor_from_pool",
       [](tt::runtime::CallbackContext program_context_handle,
          tt::runtime::TensorRef tensor_ref, bool untilize = true) {

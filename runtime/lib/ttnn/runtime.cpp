@@ -252,7 +252,8 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                    return createOwnedHostTensor(dataShard, shape, stride,
                                                 itemsize, dataType);
                  });
-  return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
+  return ::tt::runtime::ttnn::createMultiDeviceHostTensor(tensorShards,
+                                                          strategy, meshShape);
 }
 
 Tensor createMultiDeviceBorrowedHostTensor(
@@ -268,7 +269,8 @@ Tensor createMultiDeviceBorrowedHostTensor(
                    return createBorrowedHostTensor(dataShard, shape, stride,
                                                    itemsize, dataType);
                  });
-  return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
+  return ::tt::runtime::ttnn::createMultiDeviceHostTensor(tensorShards,
+                                                          strategy, meshShape);
 }
 
 ::tt::runtime::Tensor createEmptyTensor(
@@ -314,7 +316,7 @@ std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       utils::getTTNNTensorFromRuntimeTensor(tensor);
   void *dataPtr = nullptr;
-  std::uint32_t tensorVolume = getTensorVolume(tensor);
+  std::uint32_t tensorVolume = ::tt::runtime::ttnn::getTensorVolume(tensor);
 
   if (tensorVolume == 0) {
     LOG_WARNING("getTensorDataBuffer: Tensor has zero volume; returning an "
@@ -322,13 +324,15 @@ std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
     return {};
   }
 
-  std::vector<std::byte> dataVec(getTensorElementSize(tensor) * tensorVolume);
+  std::vector<std::byte> dataVec(
+      ::tt::runtime::ttnn::getTensorElementSize(tensor) * tensorVolume);
 
   // Need to `memcpy` in each case because the vector will go out of scope if we
   // wait until after the switch case
-  switch (getTensorDataType(tensor)) {
+  switch (::tt::runtime::ttnn::getTensorDataType(tensor)) {
   case target::DataType::BFP_BFloat4: {
-    dataVec.resize(sizeof(float) * getTensorVolume(tensor));
+    dataVec.resize(sizeof(float) *
+                   ::tt::runtime::ttnn::getTensorVolume(tensor));
     auto vec = ttnnTensor.to_vector<float>();
     dataPtr = vec.data();
     LOG_ASSERT(dataPtr != nullptr);
@@ -336,7 +340,8 @@ std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
     return dataVec;
   }
   case target::DataType::BFP_BFloat8: {
-    dataVec.resize(sizeof(float) * getTensorVolume(tensor));
+    dataVec.resize(sizeof(float) *
+                   ::tt::runtime::ttnn::getTensorVolume(tensor));
     auto vec = ttnnTensor.to_vector<float>();
     dataPtr = vec.data();
     LOG_ASSERT(dataPtr != nullptr);
@@ -432,10 +437,10 @@ std::uint32_t getTensorLogicalVolume(::tt::runtime::Tensor tensor) {
 
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
   TensorDesc desc;
-  desc.dataType = getTensorDataType(tensor);
-  desc.itemsize = getTensorElementSize(tensor);
-  desc.stride = getTensorStride(tensor);
-  desc.shape = getTensorShape(tensor);
+  desc.dataType = ::tt::runtime::ttnn::getTensorDataType(tensor);
+  desc.itemsize = ::tt::runtime::ttnn::getTensorElementSize(tensor);
+  desc.stride = ::tt::runtime::ttnn::getTensorStride(tensor);
+  desc.shape = ::tt::runtime::ttnn::getTensorShape(tensor);
   return desc;
 }
 
@@ -858,7 +863,7 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
 
   if (dstDataType.has_value()) {
     LOG_ASSERT(
-        dstDataType.value() == getTensorDataType(src) ||
+        dstDataType.value() == ::tt::runtime::ttnn::getTensorDataType(src) ||
             !::tt::runtime::utils::isSupportedDataType(dstDataType.value()),
         "If destination data type is specified, it must match the "
         "source data type or be an unsupported data type.");
@@ -873,7 +878,8 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
                "Tensor must be on host");
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
 
-    ::tt::target::DataType srcDataType = getTensorDataType(src);
+    ::tt::target::DataType srcDataType =
+        ::tt::runtime::ttnn::getTensorDataType(src);
     ::tt::target::DataType unsupportedDataTypeAlias =
         tt::runtime::utils::getUnsupportedDataTypeAlias(dstDataType.value());
 
@@ -935,7 +941,7 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
 
 void deallocateTensor(::tt::runtime::Tensor &tensor, bool force) {
   // If the tensor is retained, do not deallocate
-  if (getTensorRetain(tensor)) {
+  if (::tt::runtime::ttnn::getTensorRetain(tensor)) {
     LOG_DEBUG("Tensor is retained thus not deallocating. To deallocate, set "
               "retain to false first");
     return;
@@ -961,7 +967,8 @@ getOpOutputTensor(OpContext opContextHandle,
                   CallbackContext programContextHandle) {
   std::unordered_map<std::uint32_t, Tensor> perDeviceOutputTensors;
   std::optional<tt::runtime::TensorRef> tensorRef =
-      getOpOutputRef(opContextHandle, programContextHandle);
+      ::tt::runtime::ttnn::getOpOutputRef(opContextHandle,
+                                          programContextHandle);
   if (!tensorRef) {
     return perDeviceOutputTensors;
   }
@@ -1926,6 +1933,821 @@ getOpInputRefs(OpContext opContextHandle,
   }
 
   return rtTensorRefs;
+}
+
+std::unordered_map<std::string, tt::runtime::OpAttrValue>
+getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
+
+  const auto &opContext =
+      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+
+  std::unordered_map<std::string, tt::runtime::OpAttrValue> attrs;
+
+  switch (opContext.type_type()) {
+  case ::tt::target::ttnn::OpType::ArangeOp: {
+    const auto *op = opContext.type_as_ArangeOp();
+    attrs["start"] = op->start();
+    attrs["end"] = op->end();
+    attrs["step"] = op->step();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmptyOp: {
+    const auto *op = opContext.type_as_EmptyOp();
+    if (op->shape()) {
+      attrs["shape"] =
+          std::vector<int64_t>(op->shape()->begin(), op->shape()->end());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GetDeviceOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FullOp: {
+    const auto *op = opContext.type_as_FullOp();
+    if (op->shape()) {
+      attrs["shape"] =
+          std::vector<int64_t>(op->shape()->begin(), op->shape()->end());
+    }
+    if (op->fill_value()) {
+      if (op->fill_value_type() == ::tt::target::ttnn::NumberType::FP) {
+        attrs["fill_value"] = op->fill_value_as_FP()->value();
+      } else if (op->fill_value_type() == ::tt::target::ttnn::NumberType::I32) {
+        attrs["fill_value"] = op->fill_value_as_I32()->value();
+      }
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConstantOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RandOp: {
+    const auto *op = opContext.type_as_RandOp();
+    if (op->size()) {
+      attrs["shape"] =
+          std::vector<int64_t>(op->size()->begin(), op->size()->end());
+    }
+    attrs["low"] = op->low();
+    attrs["high"] = op->high();
+    attrs["seed"] = static_cast<int32_t>(op->seed());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DropoutOp: {
+    const auto *op = opContext.type_as_DropoutOp();
+    attrs["probability"] = op->prob();
+    attrs["seed"] = static_cast<int32_t>(op->seed());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToLayoutOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TypecastOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToDeviceOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FromDeviceOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryOp: {
+    const auto *op = opContext.type_as_EltwiseBinaryOp();
+    attrs["type"] = static_cast<uint32_t>(op->type());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
+    const auto *op = opContext.type_as_EltwiseBinaryCompositeOp();
+    attrs["type"] = static_cast<uint32_t>(op->type());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
+    const auto *op = opContext.type_as_EltwiseBinaryCompositeScalarOp();
+    attrs["type"] = static_cast<uint32_t>(op->type());
+    if (op->rhs()) {
+      if (op->rhs_type() == ::tt::target::ttnn::NumberType::FP) {
+        attrs["rhs"] = op->rhs_as_FP()->value();
+      } else if (op->rhs_type() == ::tt::target::ttnn::NumberType::I32) {
+        attrs["rhs"] = op->rhs_as_I32()->value();
+      }
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
+    const auto *op = opContext.type_as_ExperimentalEltwiseBinaryBackwardOp();
+    attrs["type"] = static_cast<uint32_t>(op->type());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseQuantizationOp: {
+    const auto *op = opContext.type_as_EltwiseQuantizationOp();
+    attrs["type"] = static_cast<uint32_t>(op->type());
+    if (op->axis().has_value()) {
+      attrs["axis"] = op->axis().value();
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
+    const auto *op = opContext.type_as_EltwiseUnaryOp();
+    attrs["type"] = static_cast<uint32_t>(op->type());
+    if (op->params() && op->params_type() ==
+                            ::tt::target::ttnn::EltwiseUnaryOpParams::
+                                EltwiseOpWithFloatParams) {
+      attrs["parameter"] =
+          op->params_as_EltwiseOpWithFloatParams()->parameter();
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
+    const auto *op = opContext.type_as_EltwiseUnaryCompositeOp();
+    attrs["type"] = static_cast<uint32_t>(op->type());
+    if (op->params()) {
+      if (op->params_type() ==
+          ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::
+              ClampScalarOpParams) {
+        const auto *params = op->params_as_ClampScalarOpParams();
+        if (params->min()) {
+          if (params->min_type() == ::tt::target::ttnn::NumberType::FP) {
+            attrs["min"] = params->min_as_FP()->value();
+          } else if (params->min_type() ==
+                     ::tt::target::ttnn::NumberType::I32) {
+            attrs["min"] = params->min_as_I32()->value();
+          }
+        }
+        if (params->max()) {
+          if (params->max_type() == ::tt::target::ttnn::NumberType::FP) {
+            attrs["max"] = params->max_as_FP()->value();
+          } else if (params->max_type() ==
+                     ::tt::target::ttnn::NumberType::I32) {
+            attrs["max"] = params->max_as_I32()->value();
+          }
+        }
+      }
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LinearOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MatmulOp: {
+    const auto *op = opContext.type_as_MatmulOp();
+    attrs["transpose_a"] = op->transpose_a();
+    attrs["transpose_b"] = op->transpose_b();
+    if (op->activation() && op->activation()->size() > 0) {
+      attrs["activation"] = std::string(op->activation()->c_str());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SparseMatmulOp: {
+    const auto *op = opContext.type_as_SparseMatmulOp();
+    attrs["is_input_a_sparse"] = op->is_input_a_sparse();
+    attrs["is_input_b_sparse"] = op->is_input_b_sparse();
+    attrs["nnz"] = static_cast<int64_t>(op->nnz());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CumSumOp: {
+    const auto *op = opContext.type_as_CumSumOp();
+    attrs["dim"] = op->dim();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
+    const auto *op = opContext.type_as_ReductionArgMaxOp();
+    if (op->dim().has_value()) {
+      attrs["dim"] = op->dim().value();
+    }
+    attrs["keep_dim"] = op->keep_dim();
+    attrs["use_multicore"] = op->use_multicore();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionProdOp: {
+    const auto *op = opContext.type_as_ReductionProdOp();
+    if (op->dim_arg().has_value()) {
+      attrs["dim_arg"] = op->dim_arg().value();
+    }
+    attrs["keep_dim"] = op->keep_dim();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionOp: {
+    const auto *op = opContext.type_as_ReductionOp();
+    attrs["type"] = static_cast<uint32_t>(op->type());
+    if (op->dim_arg()) {
+      attrs["dim_arg"] =
+          std::vector<int32_t>(op->dim_arg()->begin(), op->dim_arg()->end());
+    }
+    attrs["keep_dim"] = op->keep_dim();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TopKOp: {
+    const auto *op = opContext.type_as_TopKOp();
+    attrs["k"] = op->k();
+    attrs["dim"] = op->dim();
+    attrs["largest"] = op->largest();
+    attrs["sorted"] = op->sorted();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
+    // EmbeddingBackwardOp doesn't have num_weights field in current schema
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SoftmaxOp: {
+    const auto *op = opContext.type_as_SoftmaxOp();
+    attrs["dimension"] = op->dimension();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TransposeOp: {
+    const auto *op = opContext.type_as_TransposeOp();
+    attrs["dim0"] = op->dim0();
+    attrs["dim1"] = op->dim1();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PadOp: {
+    const auto *op = opContext.type_as_PadOp();
+    if (op->padding()) {
+      attrs["padding"] =
+          std::vector<uint32_t>(op->padding()->begin(), op->padding()->end());
+    }
+    attrs["value"] = op->value();
+    attrs["use_multicore"] = op->use_multicore();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AssignOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConcatOp: {
+    const auto *op = opContext.type_as_ConcatOp();
+    attrs["dim"] = op->dim();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScatterOp: {
+    const auto *op = opContext.type_as_ScatterOp();
+    attrs["dim"] = op->dim();
+    attrs["scatter_reduce_type"] =
+        static_cast<uint32_t>(op->scatter_reduce_type());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PermuteOp: {
+    const auto *op = opContext.type_as_PermuteOp();
+    if (op->permutation()) {
+      attrs["permutation"] = std::vector<int64_t>(op->permutation()->begin(),
+                                                  op->permutation()->end());
+    }
+    attrs["pad_value"] = op->pad_value();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReshapeOp: {
+    const auto *op = opContext.type_as_ReshapeOp();
+    if (op->shape()) {
+      attrs["shape"] =
+          std::vector<int32_t>(op->shape()->begin(), op->shape()->end());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SliceOp: {
+    const auto *op = opContext.type_as_SliceOp();
+    attrs["type"] = static_cast<uint32_t>(op->type());
+    if (op->params() &&
+        op->params_type() ==
+            ::tt::target::ttnn::SliceOpParams::SliceStaticOpParams) {
+      const auto *params = op->params_as_SliceStaticOpParams();
+      if (params->begins()) {
+        attrs["begins"] = std::vector<int64_t>(params->begins()->begin(),
+                                               params->begins()->end());
+      }
+      if (params->ends()) {
+        attrs["ends"] = std::vector<int64_t>(params->ends()->begin(),
+                                             params->ends()->end());
+      }
+    }
+    if (op->step()) {
+      attrs["step"] =
+          std::vector<int64_t>(op->step()->begin(), op->step()->end());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RepeatOp: {
+    const auto *op = opContext.type_as_RepeatOp();
+    if (op->repeat_dims()) {
+      attrs["repeat_dims"] = std::vector<int64_t>(op->repeat_dims()->begin(),
+                                                  op->repeat_dims()->end());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
+    const auto *op = opContext.type_as_RepeatInterleaveOp();
+    attrs["repeats"] = op->repeats();
+    attrs["dim"] = op->dim();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Conv2dOp: {
+    const auto *op = opContext.type_as_Conv2dOp();
+    attrs["in_channels"] = static_cast<uint32_t>(op->in_channels());
+    attrs["out_channels"] = static_cast<uint32_t>(op->out_channels());
+    attrs["batch_size"] = static_cast<uint32_t>(op->batch_size());
+    attrs["input_height"] = static_cast<uint32_t>(op->input_height());
+    attrs["input_width"] = static_cast<uint32_t>(op->input_width());
+    if (op->kernel_size()) {
+      attrs["kernel_size"] = std::vector<int32_t>(op->kernel_size()->begin(),
+                                                  op->kernel_size()->end());
+    }
+    if (op->stride()) {
+      attrs["stride"] =
+          std::vector<int32_t>(op->stride()->begin(), op->stride()->end());
+    }
+    if (op->padding()) {
+      attrs["padding"] =
+          std::vector<int32_t>(op->padding()->begin(), op->padding()->end());
+    }
+    if (op->dilation()) {
+      attrs["dilation"] =
+          std::vector<int32_t>(op->dilation()->begin(), op->dilation()->end());
+    }
+    attrs["groups"] = static_cast<uint32_t>(op->groups());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Conv3dOp: {
+    const auto *op = opContext.type_as_Conv3dOp();
+    attrs["in_channels"] = static_cast<uint32_t>(op->in_channels());
+    attrs["out_channels"] = static_cast<uint32_t>(op->out_channels());
+    attrs["batch_size"] = static_cast<uint32_t>(op->batch_size());
+    attrs["input_depth"] = static_cast<uint32_t>(op->input_depth());
+    attrs["input_height"] = static_cast<uint32_t>(op->input_height());
+    attrs["input_width"] = static_cast<uint32_t>(op->input_width());
+    if (op->kernel_size()) {
+      attrs["kernel_size"] = std::vector<int32_t>(op->kernel_size()->begin(),
+                                                  op->kernel_size()->end());
+    }
+    if (op->stride()) {
+      attrs["stride"] =
+          std::vector<int32_t>(op->stride()->begin(), op->stride()->end());
+    }
+    if (op->padding()) {
+      attrs["padding"] =
+          std::vector<int32_t>(op->padding()->begin(), op->padding()->end());
+    }
+    if (op->padding_mode()) {
+      attrs["padding_mode"] = std::string(op->padding_mode()->c_str());
+    }
+    attrs["groups"] = static_cast<uint32_t>(op->groups());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
+    const auto *op = opContext.type_as_ConvTranspose2dOp();
+    attrs["in_channels"] = static_cast<uint32_t>(op->in_channels());
+    attrs["out_channels"] = static_cast<uint32_t>(op->out_channels());
+    attrs["batch_size"] = static_cast<uint32_t>(op->batch_size());
+    attrs["input_height"] = static_cast<uint32_t>(op->input_height());
+    attrs["input_width"] = static_cast<uint32_t>(op->input_width());
+    if (op->kernel_size()) {
+      attrs["kernel_size"] = std::vector<int32_t>(op->kernel_size()->begin(),
+                                                  op->kernel_size()->end());
+    }
+    if (op->stride()) {
+      attrs["stride"] =
+          std::vector<int32_t>(op->stride()->begin(), op->stride()->end());
+    }
+    if (op->padding()) {
+      attrs["padding"] =
+          std::vector<int32_t>(op->padding()->begin(), op->padding()->end());
+    }
+    if (op->output_padding()) {
+      attrs["output_padding"] = std::vector<int32_t>(
+          op->output_padding()->begin(), op->output_padding()->end());
+    }
+    if (op->dilation()) {
+      attrs["dilation"] =
+          std::vector<int32_t>(op->dilation()->begin(), op->dilation()->end());
+    }
+    attrs["groups"] = static_cast<uint32_t>(op->groups());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Pool2dOp: {
+    const auto *op = opContext.type_as_Pool2dOp();
+    attrs["type"] = static_cast<uint32_t>(op->type());
+    attrs["batch_size"] = static_cast<uint32_t>(op->batch_size());
+    attrs["input_height"] = static_cast<uint32_t>(op->input_height());
+    attrs["input_width"] = static_cast<uint32_t>(op->input_width());
+    attrs["channels"] = static_cast<uint32_t>(op->channels());
+    if (op->kernel_size()) {
+      attrs["kernel_size"] = std::vector<int32_t>(op->kernel_size()->begin(),
+                                                  op->kernel_size()->end());
+    }
+    if (op->stride()) {
+      attrs["stride"] =
+          std::vector<int32_t>(op->stride()->begin(), op->stride()->end());
+    }
+    if (op->padding()) {
+      attrs["padding"] =
+          std::vector<int32_t>(op->padding()->begin(), op->padding()->end());
+    }
+    if (op->dilation()) {
+      attrs["dilation"] =
+          std::vector<int32_t>(op->dilation()->begin(), op->dilation()->end());
+    }
+    attrs["ceil_mode"] = op->ceil_mode();
+    attrs["reallocate_halo_output"] = op->reallocate_halo_output();
+    attrs["config_tensors_in_dram"] = op->config_tensors_in_dram();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
+    const auto *op = opContext.type_as_MaxPool2dWithIndicesOp();
+    attrs["batch_size"] = static_cast<uint32_t>(op->batch_size());
+    attrs["input_height"] = static_cast<uint32_t>(op->input_height());
+    attrs["input_width"] = static_cast<uint32_t>(op->input_width());
+    attrs["channels"] = static_cast<uint32_t>(op->channels());
+    if (op->kernel_size()) {
+      attrs["kernel_size"] = std::vector<int32_t>(op->kernel_size()->begin(),
+                                                  op->kernel_size()->end());
+    }
+    if (op->stride()) {
+      attrs["stride"] =
+          std::vector<int32_t>(op->stride()->begin(), op->stride()->end());
+    }
+    if (op->padding()) {
+      attrs["padding"] =
+          std::vector<int32_t>(op->padding()->begin(), op->padding()->end());
+    }
+    if (op->dilation()) {
+      attrs["dilation"] =
+          std::vector<int32_t>(op->dilation()->begin(), op->dilation()->end());
+    }
+    attrs["ceil_mode"] = op->ceil_mode();
+    attrs["reallocate_halo_output"] = op->reallocate_halo_output();
+    attrs["config_tensors_in_dram"] = op->config_tensors_in_dram();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dBiasOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
+    const auto *op = opContext.type_as_BatchNormInferenceOp();
+    attrs["epsilon"] = op->epsilon();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BatchNormTrainingOp: {
+    const auto *op = opContext.type_as_BatchNormTrainingOp();
+    attrs["epsilon"] = op->epsilon();
+    attrs["momentum"] = op->momentum();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RMSNormOp: {
+    const auto *op = opContext.type_as_RMSNormOp();
+    attrs["epsilon"] = op->epsilon();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    const auto *op = opContext.type_as_DistributedRMSNormOp();
+    attrs["epsilon"] = op->epsilon();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LayerNormOp: {
+    const auto *op = opContext.type_as_LayerNormOp();
+    attrs["epsilon"] = op->epsilon();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GroupNormOp: {
+    const auto *op = opContext.type_as_GroupNormOp();
+    attrs["num_groups"] = op->num_groups();
+    attrs["epsilon"] = op->epsilon();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllGatherOp: {
+    const auto *op = opContext.type_as_AllGatherOp();
+    attrs["all_gather_dim"] = op->all_gather_dim();
+    attrs["cluster_axis"] = static_cast<uint32_t>(op->cluster_axis());
+    if (op->num_links().has_value()) {
+      attrs["num_links"] = op->num_links().value();
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllReduceOp: {
+    const auto *op = opContext.type_as_AllReduceOp();
+    attrs["reduce_type"] = static_cast<uint32_t>(op->reduce_type());
+    attrs["cluster_axis"] = static_cast<uint32_t>(op->cluster_axis());
+    if (op->num_links().has_value()) {
+      attrs["num_links"] = op->num_links().value();
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReduceScatterOp: {
+    const auto *op = opContext.type_as_ReduceScatterOp();
+    attrs["scatter_dim"] = op->scatter_dim();
+    attrs["reduce_type"] = static_cast<uint32_t>(op->reduce_type());
+    attrs["cluster_axis"] = static_cast<uint32_t>(op->cluster_axis());
+    if (op->num_links().has_value()) {
+      attrs["num_links"] = op->num_links().value();
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshShardOp: {
+    const auto *op = opContext.type_as_MeshShardOp();
+    attrs["shard_direction"] = static_cast<uint32_t>(op->shard_direction());
+    attrs["shard_type"] = static_cast<uint32_t>(op->shard_type());
+    if (op->shard_shape()) {
+      attrs["shard_shape"] = std::vector<int64_t>(op->shard_shape()->begin(),
+                                                  op->shard_shape()->end());
+    }
+    if (op->shard_dims()) {
+      attrs["shard_dims"] = std::vector<int64_t>(op->shard_dims()->begin(),
+                                                 op->shard_dims()->end());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
+    const auto *op = opContext.type_as_MeshPartitionOp();
+    attrs["dim"] = op->dim();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchOp: {
+    const auto *op = opContext.type_as_AllToAllDispatchOp();
+    attrs["num_devices"] = static_cast<uint32_t>(op->num_devices());
+    attrs["cluster_axis"] = static_cast<uint32_t>(op->cluster_axis());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
+    const auto *op = opContext.type_as_AllToAllCombineOp();
+    attrs["num_devices"] = static_cast<uint32_t>(op->num_devices());
+    attrs["cluster_axis"] = static_cast<uint32_t>(op->cluster_axis());
+    attrs["num_experts_per_tok"] =
+        static_cast<uint32_t>(op->num_experts_per_tok());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp: {
+    const auto *op = opContext.type_as_MoeExpertTokenRemapOp();
+    attrs["reduction_size"] = static_cast<uint32_t>(op->reduction_size());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::UpsampleOp: {
+    const auto *op = opContext.type_as_UpsampleOp();
+    if (op->scale_factor()) {
+      attrs["scale_factor"] = std::vector<float>(op->scale_factor()->begin(),
+                                                 op->scale_factor()->end());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CpuOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DeallocateOp: {
+    const auto *op = opContext.type_as_DeallocateOp();
+    attrs["force"] = op->force();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::UpdateCacheOp: {
+    const auto *op = opContext.type_as_UpdateCacheOp();
+    attrs["batch_offset"] = static_cast<uint32_t>(op->batch_offset());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedUpdateCacheOp: {
+    const auto *op = opContext.type_as_PagedUpdateCacheOp();
+    attrs["share_cache"] = op->share_cache();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FillCacheOp: {
+    const auto *op = opContext.type_as_FillCacheOp();
+    attrs["batch_offset"] = static_cast<uint32_t>(op->batch_offset());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    // PagedFillCacheOp doesn't have any simple attributes to extract
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LoadCachedOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SortOp: {
+    const auto *op = opContext.type_as_SortOp();
+    attrs["dim"] = op->dim();
+    attrs["descending"] = op->descending();
+    attrs["stable"] = op->stable();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PointToPointOp: {
+    const auto *op = opContext.type_as_PointToPointOp();
+    if (op->sender_coord()) {
+      attrs["sender_coord"] = std::vector<uint32_t>(op->sender_coord()->begin(),
+                                                    op->sender_coord()->end());
+    }
+    if (op->receiver_coord()) {
+      attrs["receiver_coord"] = std::vector<uint32_t>(
+          op->receiver_coord()->begin(), op->receiver_coord()->end());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NamedFullOp: {
+    const auto *op = opContext.type_as_NamedFullOp();
+    attrs["type"] = static_cast<uint32_t>(op->type());
+    if (op->shape()) {
+      attrs["shape"] =
+          std::vector<int64_t>(op->shape()->begin(), op->shape()->end());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FuncCallOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::WriteTensorOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BeginTraceCaptureOp: {
+    const auto *op = opContext.type_as_BeginTraceCaptureOp();
+    attrs["cq_id"] = static_cast<uint32_t>(op->cq_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EndTraceCaptureOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ExecuteTraceOp: {
+    attrs["cq_id"] =
+        static_cast<uint32_t>(opContext.type_as_ExecuteTraceOp()->cq_id());
+    attrs["blocking"] = opContext.type_as_ExecuteTraceOp()->blocking();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp: {
+    const auto *op = opContext.type_as_CaptureOrExecuteTraceOp();
+    attrs["capture_program_id"] =
+        static_cast<uint32_t>(op->capture_program_id());
+    attrs["execute_program_id"] =
+        static_cast<uint32_t>(op->execute_program_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
+    // NLPConcatHeadsOp doesn't have any simple attrs like num_heads
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
+    const auto *op = opContext.type_as_NLPConcatHeadsDecodeOp();
+    attrs["num_heads"] = static_cast<uint32_t>(op->num_heads());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp: {
+    const auto *op = opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp();
+    attrs["num_heads"] = static_cast<uint32_t>(op->num_heads());
+    if (op->num_kv_heads().has_value()) {
+      attrs["num_kv_heads"] = op->num_kv_heads().value();
+    }
+    attrs["transpose_key"] = op->transpose_key();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GenericOp: {
+    // GenericOp schema has changed - no simple attributes to extract
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
+    const auto *op = opContext.type_as_ScaledDotProductAttentionDecodeOp();
+    if (op->scale().has_value()) {
+      attrs["scale"] = op->scale().value();
+    }
+    attrs["is_causal"] = op->is_causal();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
+    const auto *op = opContext.type_as_ScaledDotProductAttentionOp();
+    attrs["scale"] = op->scale();
+    attrs["is_causal"] = op->is_causal();
+    if (op->num_heads()) {
+      attrs["num_heads"] = static_cast<uint32_t>(op->num_heads());
+    }
+    if (op->num_kv_heads()) {
+      attrs["num_kv_heads"] = static_cast<uint32_t>(op->num_kv_heads());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    const auto *op = opContext.type_as_PagedScaledDotProductAttentionDecodeOp();
+    attrs["scale"] = op->scale();
+    if (op->num_heads()) {
+      attrs["num_heads"] = static_cast<uint32_t>(op->num_heads());
+    }
+    if (op->num_kv_heads()) {
+      attrs["num_kv_heads"] = static_cast<uint32_t>(op->num_kv_heads());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
+    const auto *op = opContext.type_as_RotaryEmbeddingLlamaOp();
+    attrs["seq_len"] = static_cast<uint32_t>(op->seq_len());
+    if (op->token_idx()) {
+      attrs["token_idx"] = static_cast<uint32_t>(op->token_idx());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingOp: {
+    const auto *op = opContext.type_as_RotaryEmbeddingOp();
+    attrs["seq_len"] = static_cast<uint32_t>(op->seq_len());
+    if (op->token_idx()) {
+      attrs["token_idx"] = static_cast<uint32_t>(op->token_idx());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {
+    const auto *op = opContext.type_as_NLPCreateQKVHeadsDecodeOp();
+    attrs["num_heads"] = static_cast<uint32_t>(op->num_heads());
+    if (op->num_kv_heads()) {
+      attrs["num_kv_heads"] = static_cast<uint32_t>(op->num_kv_heads());
+    }
+    attrs["transpose_k"] = op->transpose_k();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DumpTensorOp: {
+    const auto *op = opContext.type_as_DumpTensorOp();
+    if (op->path() && op->path()->size() > 0) {
+      attrs["path"] = std::string(op->path()->c_str());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LoadTensorOp: {
+    const auto *op = opContext.type_as_LoadTensorOp();
+    if (op->path() && op->path()->size() > 0) {
+      attrs["path"] = std::string(op->path()->c_str());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AggregateTensorOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DistributeTensorOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AnnotateOp: {
+    const auto *op = opContext.type_as_AnnotateOp();
+    if (op->name() && op->name()->size() > 0) {
+      attrs["name"] = std::string(op->name()->c_str());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RegionStartOp: {
+    const auto *op = opContext.type_as_RegionStartOp();
+    if (op->name() && op->name()->size() > 0) {
+      attrs["name"] = std::string(op->name()->c_str());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RegionEndOp: {
+    const auto *op = opContext.type_as_RegionEndOp();
+    if (op->name() && op->name()->size() > 0) {
+      attrs["name"] = std::string(op->name()->c_str());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BreakpointOp: {
+    const auto *op = opContext.type_as_BreakpointOp();
+    if (op->name() && op->name()->size() > 0) {
+      attrs["name"] = std::string(op->name()->c_str());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrintOp: {
+    const auto *op = opContext.type_as_PrintOp();
+    if (op->name() && op->name()->size() > 0) {
+      attrs["name"] = std::string(op->name()->c_str());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
+    const auto *op = opContext.type_as_MemorySnapshotOp();
+    if (op->name() && op->name()->size() > 0) {
+      attrs["name"] = std::string(op->name()->c_str());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CreateGlobalSemaphoreOp: {
+    const auto *op = opContext.type_as_CreateGlobalSemaphoreOp();
+    attrs["initial_value"] = op->initial_value();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
+    const auto *op = opContext.type_as_ResetGlobalSemaphoreOp();
+    attrs["reset_value"] = op->reset_value();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NONE: {
+    LOG_FATAL("Invalid op type");
+    break;
+  }
+  }
+
+  return attrs;
 }
 
 void registerCallback() {

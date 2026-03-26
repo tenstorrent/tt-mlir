@@ -8,6 +8,9 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <string>
+#include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include "tt/runtime/types.h"
@@ -251,6 +254,30 @@ std::optional<TensorRef> getOpOutputRef(OpContext opContextHandle,
 // operation
 std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
                                       CallbackContext programContextHandle);
+
+// Type to represent operation attribute values
+using OpAttrValue =
+    std::variant<bool,                  // Boolean attributes
+                 int32_t,               // Integer attributes
+                 int64_t,               // Long integer attributes
+                 uint32_t,              // Unsigned integer attributes
+                 uint64_t,              // Unsigned long integer attributes
+                 float,                 // Float attributes
+                 double,                // Double attributes
+                 std::string,           // String attributes
+                 std::vector<int32_t>,  // Integer array attributes
+                 std::vector<int64_t>,  // Long integer array attributes
+                 std::vector<uint32_t>, // Unsigned integer array attributes
+                 std::vector<uint64_t>, // Unsigned long integer array
+                                        // attributes
+                 std::vector<float>     // Float array attributes
+                 >;
+
+// Returns a map of attribute names to their values for the current operation.
+// Attributes are all operation parameters that are not outputs or TensorRef
+// types. Returns an empty map if the operation has no attributes.
+std::unordered_map<std::string, OpAttrValue>
+getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle);
 
 // For the given tensor reference, retrieves the tensor from the program's
 // tensor pool. Returns the tensor if found, or nullopt if not found or on

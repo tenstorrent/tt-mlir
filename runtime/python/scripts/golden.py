@@ -49,19 +49,26 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
     op_output_tensor_map = tt_runtime.runtime.get_op_output_tensor(
         op_context, program_context
     )
+    print(op_output_tensor_map)
     if len(op_output_tensor_map) == 0:
         callback_runtime_config.counter += 1
         print("Output tensor is empty - skipping golden comparison")
         return
 
     runtime_inputs = callback_runtime_config.tensors[callback_runtime_config.counter]
+    # How about Attrs and output_mlir_type
+    output_type = op_output_tensor_map[0].get_dtype()
+    print(f"Output type: {output_type}")
 
     for device_id, op_output_tensor in op_output_tensor_map.items():
         rt_buffer = op_output_tensor.get_data_buffer()
         dtype = runtime_dtype_to_torch_dtype(op_output_tensor.get_dtype())
         output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
 
-    golden_tensor_torch = golden_fn(*runtime_inputs)
+    op_attrs = tt_runtime.runtime.get_op_attrs(op_context)
+    golden_tensor_torch = golden_fn(
+        *runtime_inputs, *op_attrs, op_output_tensor_map[0].get_dtype()
+    )
 
     a, b, cal_pcc = get_atol_rtol_pcc(
         golden_tensor_torch,

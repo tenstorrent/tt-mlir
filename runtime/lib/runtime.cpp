@@ -1111,6 +1111,24 @@ getOpInputRefs(OpContext opContextHandle,
       });
 }
 
+std::unordered_map<std::string, tt::runtime::OpAttrValue>
+getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
+  using RetType = std::unordered_map<std::string, tt::runtime::OpAttrValue>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getOpAttrs(opContextHandle,
+                                               programContextHandle);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getOpAttrs", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getOpAttrs", HostRuntime::Distributed);
+        return RetType{};
+      });
+}
+
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize) {

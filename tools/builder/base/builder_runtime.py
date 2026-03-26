@@ -702,7 +702,10 @@ def execute_fb(
     golden_report = {}
     if bypass_ops is None:
         bypass_ops = []
-    verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
+    verify_intermediates = (
+        enable_intermediate_verification or len(bypass_ops) > 0
+    ) and not enable_runtime_goldens
+    dump_memory = dump_memory and not enable_runtime_goldens
     if input_output_goldens is None:
         disable_golden = True
 

@@ -69,6 +69,7 @@
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 
+#include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
@@ -259,6 +260,12 @@ getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);
 // if the operation does not have any input tensors, returns empty vector
 std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
+
+// Returns a map of attribute names to their values for the current operation.
+// Attributes are all operation parameters that are not outputs or TensorRef
+// types. Returns an empty map if the operation has no attributes.
+std::unordered_map<std::string, tt::runtime::OpAttrValue>
+getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle);
 
 // Returns tensor to which tensorRef refers
 // In case that that tensor is not in the tensor pool, returns std::nullopt
