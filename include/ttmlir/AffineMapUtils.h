@@ -249,7 +249,7 @@ createGridForwardAndInverseMapFor2DPermutation(mlir::AffineMap indexMap,
     invResults.push_back(result);
   }
   auto invMap = mlir::AffineMap::get(gridRank, 0, invResults, context);
-  auto fwdMap = gridMap.shiftDims(/*shift=*/1, /*offset=*/0);
+  auto fwdMap = gridMap.insertResult(zero, 0);
 
   return {fwdMap, invMap};
 }

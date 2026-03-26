@@ -1411,7 +1411,8 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
         fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, 2);
         fwdMap = ttmlir::utils::dropDim(fwdMap, 3);
         fwdMap = ttmlir::utils::dropDim(fwdMap, 2);
-        fwdMap = fwdMap.shiftDims(/*shift=*/1, /*offset=*/0);
+        fwdMap = fwdMap.insertResult(
+            getAffineConstantExpr(0, builder.getContext()), 0);
 
         grid = builder.getAttr<ttcore::GridAttr>(gridShape, fwdMap, *invMap);
       }
