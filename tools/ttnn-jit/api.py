@@ -30,6 +30,8 @@ def jit(
         fallback: If True, falls back to running the original function directly
                  through ttnn when JIT compilation or execution fails.
                  Cannot be used together with compile_only=True.
+        extra_pipeline_options: Additional pipeline options passed verbatim to
+                 the D2M compilation pipeline. For advanced use only.
 
     Returns:
         A wrapped version of the function that when invoked, will JIT compile through D2M and execute the resulting flatbuffer.
