@@ -298,9 +298,6 @@ def test_unary_ops(
     ]:
         pytest.skip("int32 unary op is not supported yet for this operation")
 
-    if target == "emitc" and test_fn in [mish]:
-        pytest.skip("https://github.com/tenstorrent/tt-mlir/issues/7654")
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def unary_op(
