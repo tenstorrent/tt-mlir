@@ -33,6 +33,42 @@ def _measurement(name: str, value: float, step_name: str) -> dict[str, Any]:
     }
 
 
+def _is_matmul_config(r: dict[str, Any]) -> bool:
+    return r.get("m", 0) > 0
+
+
+def _group_key(r: dict[str, Any]) -> tuple:
+    """Build a uniform-length grouping key so all entries are sortable."""
+    if _is_matmul_config(r):
+        return (
+            r["op"],
+            r["m"],
+            r["k"],
+            r["n"],
+            r["dtype"],
+            r.get("memory_config_id") or "",
+            r.get("math_fidelity") or "",
+        )
+    return (
+        r["op"],
+        r.get("h", 0),
+        r.get("w", 0),
+        0,
+        r["dtype"],
+        r.get("memory_config_id") or "",
+        r.get("math_fidelity") or "",
+    )
+
+
+def _classify(op: str, is_matmul: bool) -> tuple[str, str]:
+    """Return (model_type, run_type) for Superset categorization."""
+    if is_matmul:
+        return "jit_matmul_benchmark", "matmul_benchmark"
+    if op not in UNARY_OPS and op not in {"add", "mul", "matmul", "fusion_test"}:
+        return "jit_subgraph_benchmark", "subgraph_benchmark"
+    return "jit_vs_ttnn", "op_benchmark"
+
+
 def generate_reports(
     raw: list[dict[str, Any]],
     out_dir: Path,
@@ -42,13 +78,29 @@ def generate_reports(
     """Group raw results by case, write JSON reports. Returns file count."""
     groups: dict[tuple, dict[str, Any]] = {}
     for r in raw:
-        key = (r["op"], r["h"], r["w"], r["dtype"], r.get("memory_config_id") or "")
+        key = _group_key(r)
+        is_matmul = _is_matmul_config(r)
         if key not in groups:
+            if is_matmul:
+                shape_a = f"{r['m']}x{r['k']}"
+                shape_b = f"{r['k']}x{r['n']}"
+                shape_label = f"{r['m']}x{r['k']}x{r['n']}"
+            else:
+                shape_a = f"{r['h']}x{r['w']}" if r.get("h") else ""
+                shape_b = None if r["op"] in UNARY_OPS else shape_a
+                shape_label = shape_a
+
+            mem_cfg_id = r.get("memory_config_id") or ""
             groups[key] = {
                 "op": r["op"],
-                "shape": f"{r['h']}x{r['w']}",
+                "is_matmul": is_matmul,
+                "shape_label": shape_label,
+                "shape_a": shape_a,
+                "shape_b": shape_b,
                 "dtype": r["dtype"],
-                "memory_config_id": r.get("memory_config_id") or "",
+                "memory_config_id": mem_cfg_id,
+                "input_a_mem": r.get("input_a_mem") or mem_cfg_id,
+                "input_b_mem": r.get("input_b_mem") or mem_cfg_id,
                 "math_fidelity_jit": "",
                 "math_fidelity_ttnn": "",
                 "jit_duration_ns": None,
@@ -81,24 +133,33 @@ def generate_reports(
             ratio = round(ttnn_ns / jit_ns, 4)
             measurements.append(_measurement("perf_ratio", ratio, op))
 
+        model_type, run_type = _classify(op, g["is_matmul"])
+
+        input_a_mem = g.get("input_a_mem") or mem_cfg
+        input_b_mem = g.get("input_b_mem") or mem_cfg
+
         report = {
             "project": "tt-mlir",
             "model": op,
-            "model_type": "jit_vs_ttnn",
-            "run_type": "op_benchmark",
+            "model_type": model_type,
+            "run_type": run_type,
             "precision": dtype,
             "config": {
-                "input_a_shape": g["shape"],
-                "input_b_shape": None if is_unary else g["shape"],
-                "input_a_memory_config": mem_cfg,
-                "input_b_memory_config": None if is_unary else mem_cfg,
+                "input_a_shape": g["shape_a"],
+                "input_b_shape": None if is_unary else g["shape_b"],
+                "input_a_memory_config": input_a_mem,
+                "input_b_memory_config": None if is_unary else input_b_mem,
                 "math_fidelity_jit": g["math_fidelity_jit"],
                 "math_fidelity_ttnn": g["math_fidelity_ttnn"],
             },
             "measurements": measurements,
         }
 
-        filename = f"perf_{op}_{g['shape']}_{dtype}_{mem_cfg}{job_suffix}.json"
+        fidelity_tag = f"_{g['math_fidelity_jit']}" if g["math_fidelity_jit"] else ""
+        filename = (
+            f"perf_{op}_{g['shape_label']}_{dtype}_{mem_cfg}"
+            f"{fidelity_tag}{job_suffix}.json"
+        )
         filepath = out_dir / filename
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2)
