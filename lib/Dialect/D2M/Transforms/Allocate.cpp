@@ -1707,10 +1707,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           continue;
         }
 
-        // Only replace plain memref.allocs; skip get_cb ops and others.
-        if (!mlir::isa<memref::AllocOp>(oldAlloc.getDefiningOp())) {
-          continue;
-        }
+        TT_assert(mlir::isa<memref::AllocOp>(oldAlloc.getDefiningOp()));
 
         OpBuilder::InsertionGuard guard(rewriter);
         rewriter.setInsertionPoint(oldAlloc.getDefiningOp());
