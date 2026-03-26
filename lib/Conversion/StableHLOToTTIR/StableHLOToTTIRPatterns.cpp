@@ -2860,6 +2860,8 @@ private:
     auto paddingD = rewriter.getDenseI32ArrayAttr(
         {static_cast<int32_t>(pDLo), 0, static_cast<int32_t>(pDHi), 0});
 
+    // TODO: Fuse preceding stablehlo.PadOp into pooling padding, similar to
+    // the 4D path (getFusablePadOp / combinePaddingFromPadOp).
     SmallVector<Value> resultVals;
     for (size_t i = 0; i < srcOp.getInputs().size(); ++i) {
       Value input = adaptor.getInputs()[i];
@@ -3050,7 +3052,6 @@ private:
   // Validate structure of the ReduceWindowOp.
   // - Body must have exactly one block.
   // - Block must contain at least one reduction op.
-  // - The number of inputs must equal the number of outputs.
   bool hasValidOpStructure(mlir::stablehlo::ReduceWindowOp &srcOp) const {
     auto &blocks = srcOp.getBody().getBlocks();
     if (blocks.size() != 1) {
