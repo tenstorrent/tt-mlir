@@ -389,6 +389,76 @@ class D2MBuilder(Builder):
 
         return _decorator
 
+    def spatial(
+        self,
+        inputs: Sequence[Value],
+        outputs: Sequence[Value],
+        grid_ranges: Sequence[Tuple[Tuple[int, int], Tuple[int, int]]],
+        region_builders: Sequence[Callable[[], None]],
+        result_types: Optional[Sequence[Type]] = None,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> Union[Value, OpResultList]:
+        """
+        Create a d2m.spatial op with one region per grid_ranges entry.
+
+        Each callable in region_builders runs with InsertionPoint at that
+        region's entry block. Each region must contain exactly one d2m.generic
+        (see SpatialOp::verify). d2m.spatial has NoTerminator. If a region needs
+        an explicit terminator, use d2m.spatial_yield / d2m.SpatialYieldOp like
+        d2m.yield_ inside d2m.generic.
+
+        Args:
+            inputs: Variadic ins operands.
+            outputs: Variadic outs (DPS inits).
+            grid_ranges: One ((y, x), (y, x)) pair per region: inclusive start
+                and inclusive end, same as ttcore.core_range<start, end> today.
+            region_builders: One no-argument callable per core range / region.
+            result_types: Result tensor types.
+            unit_attrs: Optional unit attributes on the spatial op.
+            loc: Optional location string.
+
+        Returns:
+            The sole OpResult if there is one result, otherwise op.results.
+        """
+        num_regions = len(region_builders)
+        assert num_regions == len(
+            grid_ranges
+        ), "len(region_builders) must match len(grid_ranges)"
+
+        with self._ctx, self._loc:
+            range_attrs: List[Attribute] = []
+            for (sy, sx), (ey, ex) in grid_ranges:
+                text = f"#ttcore.core_range<({sy}, {sx}), ({ey}, {ex})>"
+                range_attrs.append(Attribute.parse(text, self._ctx))
+            grid_attr = ArrayAttr.get(range_attrs)
+            if loc is not None:
+                loc = Location.name(loc, context=self._ctx)
+            spatial_op = d2m.SpatialOp(
+                list(result_types),
+                list(inputs),
+                list(outputs),
+                grid_attr,
+                num_regions,
+                loc=loc,
+            )
+            if unit_attrs is not None:
+                for attr_name in unit_attrs:
+                    spatial_op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+            for region_idx, build_region in enumerate(region_builders):
+                region = spatial_op.regions[region_idx]
+                assert len(region.blocks) == 0
+                region.blocks.append()
+                block = region.blocks[0]
+                with InsertionPoint(block):
+                    build_region()
+
+            nres = len(spatial_op.results)
+            if nres == 1:
+                return spatial_op.result
+            return spatial_op.results
+
     def remote_load(
         self, src, indices, mcast_start_index=None, mcast_shape=None, mcast_dims=None
     ):
