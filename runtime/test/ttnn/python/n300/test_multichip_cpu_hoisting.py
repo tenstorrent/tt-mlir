@@ -10,7 +10,7 @@ from ttrt.common.util import *
 from .constants import FLATBUFFER_BASE_PATH
 
 from ..utils import (
-    Helper,
+    load_binary,
     DeviceContext,
     assert_pcc,
     get_to_layout_inputs,
@@ -67,14 +67,14 @@ def device_tensor_to_torch(runtime_tensor):
     return torch_tensor
 
 
-def run_and_verify(helper, mesh_device, runtime_inputs, expected_output_shards):
+def run_and_verify(binary, mesh_device, runtime_inputs, expected_output_shards):
     """Submit program and verify output shards match expected values."""
     runtime_inputs_with_layout = get_to_layout_inputs(
-        mesh_device, runtime_inputs, helper.binary, 0
+        mesh_device, runtime_inputs, binary, 0
     )
 
     output = ttrt.runtime.submit(
-        mesh_device, helper.binary.fbb, 0, runtime_inputs_with_layout
+        mesh_device, binary.fbb, 0, runtime_inputs_with_layout
     )[0]
 
     output_device_tensors = ttrt.runtime.get_device_tensors(output)
@@ -87,14 +87,14 @@ def run_and_verify(helper, mesh_device, runtime_inputs, expected_output_shards):
     ttrt.runtime.deallocate_tensor(output, force=True)
 
 
-def test_cpu_hoisted_add(helper: Helper, request):
+def test_cpu_hoisted_add():
     """Test CPU-hoisted add with both inputs sharded."""
     assert ttrt.runtime.get_num_available_devices() == 2
 
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "cpu_hoisted_add.mlir.tmp.ttnn")
-    helper.initialize(request.node.name, binary_path)
+    binary = load_binary(binary_path)
 
-    program = helper.binary.get_program(0)
+    program = binary.get_program(0)
     shape, dtype = get_input_spec(program, 0)
 
     input0, input0_shards = create_multi_device_input(shape, dtype)
@@ -103,17 +103,17 @@ def test_cpu_hoisted_add(helper: Helper, request):
     expected = [torch.add(input0_shards[i], input1_shards[i]) for i in range(2)]
 
     with DeviceContext(mesh_shape=MESH_SHAPE) as mesh_device:
-        run_and_verify(helper, mesh_device, [input0, input1], expected)
+        run_and_verify(binary, mesh_device, [input0, input1], expected)
 
 
-def test_cpu_hoisted_add_mixed_inputs(helper: Helper, request):
+def test_cpu_hoisted_add_mixed_inputs():
     """Test CPU-hoisted add with one sharded and one non-sharded input."""
     assert ttrt.runtime.get_num_available_devices() == 2
 
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "cpu_hoisted_add.mlir.tmp.ttnn")
-    helper.initialize(request.node.name, binary_path)
+    binary = load_binary(binary_path)
 
-    program = helper.binary.get_program(0)
+    program = binary.get_program(0)
     shape, dtype = get_input_spec(program, 0)
 
     input0, input0_shards = create_multi_device_input(shape, dtype)
@@ -123,4 +123,4 @@ def test_cpu_hoisted_add_mixed_inputs(helper: Helper, request):
     expected = [torch.add(input0_shards[i], input1_torch) for i in range(2)]
 
     with DeviceContext(mesh_shape=MESH_SHAPE) as mesh_device:
-        run_and_verify(helper, mesh_device, [input0, input1], expected)
+        run_and_verify(binary, mesh_device, [input0, input1], expected)

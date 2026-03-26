@@ -10,13 +10,7 @@ except (ImportError, ModuleNotFoundError):
 import torch
 import ttrt.runtime
 from ttrt.common.api import API
-from .utils import Helper
 import pytest
-
-
-@pytest.fixture
-def helper():
-    return Helper()
 
 
 @pytest.fixture(autouse=True)

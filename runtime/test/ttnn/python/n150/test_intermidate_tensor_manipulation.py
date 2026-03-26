@@ -9,7 +9,7 @@ import ttrt
 import ttrt.runtime
 from ttrt.common.util import *
 from ..utils import (
-    Helper,
+    load_binary,
     DeviceContext,
     ProgramTestConfig,
     ProgramTestRunner,
@@ -87,15 +87,15 @@ def is_callback_enabled():
     return debug_stats != "DebugStats Disabled"
 
 
-def test_intermidate_tensor_manipulation(helper: Helper, request):
+def test_intermidate_tensor_manipulation():
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "linear.mlir.tmp.ttnn")
-    helper.initialize(request.node.name, binary_path)
+    binary = load_binary(binary_path)
 
     test_config = ProgramTestConfig(
         name="linear", expected_num_inputs=4, compute_golden=None
     )
 
-    test_runner = ProgramTestRunner(test_config, helper.binary, 0)
+    test_runner = ProgramTestRunner(test_config, binary, 0)
     rand_inputs_torch = get_torch_inputs(test_runner.program)
     inputs_torch = [torch.ones_like(input) for input in rand_inputs_torch]
 
@@ -110,7 +110,7 @@ def test_intermidate_tensor_manipulation(helper: Helper, request):
             get_runtime_tensor_from_torch(input) for input in inputs_torch
         ]
         inputs_runtime_with_layout = get_to_layout_inputs(
-            device, runtime_inputs, helper.binary, 0
+            device, runtime_inputs, binary, 0
         )
         output_torch = get_torch_output_container(test_runner.program)
         output = test_runner.run_program(device, inputs_runtime_with_layout)

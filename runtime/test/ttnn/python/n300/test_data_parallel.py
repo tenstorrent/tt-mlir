@@ -12,7 +12,7 @@ from ttrt.common.util import *
 from .constants import FLATBUFFER_BASE_PATH
 
 from ..utils import (
-    Helper,
+    load_binary,
     DeviceContext,
     assert_pcc,
     get_torch_inputs,
@@ -37,13 +37,13 @@ def worker_fn(binary, torch_inputs, mesh_device, results):
     results.append(torch_output)
 
 
-def test_eltwise_binary_add_data_parallel(helper: Helper, request):
+def test_eltwise_binary_add_data_parallel():
     num_devices = ttrt.runtime.get_num_available_devices()
     assert num_devices == 2, "Test requires 2 devices"
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "add.mlir.tmp.ttnn")
-    helper.initialize(request.node.name, binary_path)
+    binary = load_binary(binary_path)
 
-    program: Binary.Program = helper.binary.get_program(0)
+    program: Binary.Program = binary.get_program(0)
     assert program.num_inputs() == 2
     inputs_torch = [get_torch_inputs(program) for _ in range(2)]
     batched_tensors = [
@@ -64,7 +64,7 @@ def test_eltwise_binary_add_data_parallel(helper: Helper, request):
                 )
             )
             thread = threading.Thread(
-                target=worker_fn, args=(helper.binary, inputs, submeshes[i], results[i])
+                target=worker_fn, args=(binary, inputs, submeshes[i], results[i])
             )
             threads.append(thread)
 

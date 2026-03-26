@@ -9,7 +9,7 @@ import ttrt.runtime
 import torch
 from ttrt.common.util import *
 from ..utils import (
-    Helper,
+    load_binary,
     DeviceContext,
     ProgramTestConfig,
     ProgramTestRunner,
@@ -57,8 +57,7 @@ def test_tensor_buffer_api(shape, dtype):
 
 
 @pytest.mark.parametrize("should_retain", [True, False])
-def test_tensor_retain_api(helper: Helper, should_retain, request):
-    helper.initialize(request.node.name)
+def test_tensor_retain_api(should_retain):
     torch_tensor = torch.randn((64, 128))
     runtime_tensor = get_runtime_tensor_from_torch(torch_tensor)
     runtime_tensor.set_retain(should_retain)
@@ -67,8 +66,7 @@ def test_tensor_retain_api(helper: Helper, should_retain, request):
 
 @pytest.mark.parametrize("shape", [(64, 128), (4, 4)])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_to_layout(helper: Helper, shape, dtype, request):
-    helper.initialize(request.node.name)
+def test_to_layout(shape, dtype):
     torch_input_tensor = torch.randn(shape, dtype=dtype)
     torch_result_tensor = torch.zeros(shape, dtype=dtype)
     runtime_dtype = Binary.Program.to_data_type(dtype)
@@ -106,8 +104,7 @@ def test_to_layout(helper: Helper, shape, dtype, request):
 
 @pytest.mark.parametrize("shape", [(64, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_memcpy_to_pointer(helper: Helper, shape, dtype, request):
-    helper.initialize(request.node.name)
+def test_memcpy_to_pointer(shape, dtype):
     runtime_dtype = Binary.Program.to_data_type(dtype)
     torch_result_tensor = torch.zeros(shape, dtype=dtype)
 
@@ -147,8 +144,7 @@ def test_memcpy_to_pointer(helper: Helper, shape, dtype, request):
 
 @pytest.mark.parametrize("shape", [(64, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_create_tensor_memcpy(helper: Helper, shape, dtype, request):
-    helper.initialize(request.node.name)
+def test_create_tensor_memcpy(shape, dtype):
     torch_input_tensor = torch.randn(shape, dtype=dtype)
     torch_result_tensor = torch.zeros(shape, dtype=dtype)
     runtime_dtype = Binary.Program.to_data_type(dtype)
@@ -283,12 +279,12 @@ def test_unblocking_to_host(num_loops):
         ttrt.runtime.MemoryLogLevel.PROGRAM | ttrt.runtime.MemoryLogLevel.OPERATION,
     ],
 )
-def test_memory_logging(helper, request, capfd, log_level):
+def test_memory_logging(capfd, log_level):
     binary_path = os.path.join(
         get_flatbuffer_base_path("Runtime", "TTNN", "n150", "consteval"),
         "binary_ops.mlir.tmp.ttnn",
     )
-    helper.initialize(request.node.name, binary_path)
+    binary = load_binary(binary_path)
     ttrt.runtime.set_current_device_runtime(ttrt.runtime.DeviceRuntime.TTNN)
     ttrt.runtime.set_memory_log_level(log_level)
 
@@ -300,7 +296,7 @@ def test_memory_logging(helper, request, capfd, log_level):
         description="Binary ops memory logging test",
     )
 
-    test_runner = ProgramTestRunner(test_config, helper.binary, 0)
+    test_runner = ProgramTestRunner(test_config, binary, 0)
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
         inputs_runtime_with_layout, _, _ = test_runner.get_inputs_and_golden(device)

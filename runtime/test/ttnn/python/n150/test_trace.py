@@ -8,15 +8,14 @@ import os
 import torch
 import ttrt
 import ttrt.runtime
-from ttrt.common.util import Binary, FileManager, Logger
 from ..utils import (
-    Helper,
     DeviceContext,
     ProgramTestConfig,
     ProgramTestRunner,
     assert_pcc,
     get_torch_output_container,
     get_flatbuffer_base_path,
+    load_binary,
 )
 
 FLATBUFFER_BASE_PATH = get_flatbuffer_base_path("Runtime", "TTNN", "n150", "trace")
@@ -24,13 +23,11 @@ FLATBUFFER_BASE_PATH = get_flatbuffer_base_path("Runtime", "TTNN", "n150", "trac
 
 @pytest.mark.parametrize("num_loops", [5])
 @pytest.mark.parametrize("trace_region_size", [0, 80000])
-def test_trace_matmul_multiply_no_consteval(
-    helper: Helper, request, num_loops, trace_region_size
-):
+def test_trace_matmul_multiply_no_consteval(num_loops, trace_region_size):
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "matmul_multiply_no_consteval.mlir.tmp.ttnn"
     )
-    helper.initialize(request.node.name, binary_path)
+    binary = load_binary(binary_path)
 
     test_config = ProgramTestConfig(
         name="matmul_multiply",
@@ -39,7 +36,7 @@ def test_trace_matmul_multiply_no_consteval(
         description="Matmul multiply trace test",
     )
 
-    test_runner = ProgramTestRunner(test_config, helper.binary, 0)
+    test_runner = ProgramTestRunner(test_config, binary, 0)
 
     debug_stats = ttrt.runtime.DebugStats.get()
 
@@ -64,7 +61,7 @@ def test_trace_matmul_multiply_no_consteval(
 
 
 @pytest.mark.parametrize("trace_region_size", [0, 80000])
-def test_trace_memory_overwrite_multi_graph(helper: Helper, request, trace_region_size):
+def test_trace_memory_overwrite_multi_graph(trace_region_size):
     """
     This test verifies that the two traced graphs do not overwrite each other's memory.
     Device allocations, after a trace is captured, are (in general) not safe - there are no guarantees that the
@@ -79,7 +76,7 @@ def test_trace_memory_overwrite_multi_graph(helper: Helper, request, trace_regio
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "matmul_multiply_consteval.mlir.tmp.ttnn"
     )
-    helper.initialize(request.node.name, binary_path)
+    first_binary = load_binary(binary_path)
 
     first_bin_config = ProgramTestConfig(
         name="first_graph",
@@ -87,9 +84,9 @@ def test_trace_memory_overwrite_multi_graph(helper: Helper, request, trace_regio
         compute_golden=None,
         description="Graph whose trace replay can corrupt victim memory",
     )
-    first_bin_runner = ProgramTestRunner(first_bin_config, helper.binary, 0)
+    first_bin_runner = ProgramTestRunner(first_bin_config, first_binary, 0)
 
-    victim_binary = Binary(Logger(), FileManager(Logger()), binary_path)
+    victim_binary = load_binary(binary_path)
     victim_config = ProgramTestConfig(
         name="victim",
         expected_num_inputs=3,
@@ -158,13 +155,11 @@ def test_trace_memory_overwrite_multi_graph(helper: Helper, request, trace_regio
 
 @pytest.mark.parametrize("num_loops", [5])
 @pytest.mark.parametrize("trace_region_size", [0, 80000])
-def test_trace_matmul_multiply_with_consteval(
-    helper: Helper, request, num_loops, trace_region_size
-):
+def test_trace_matmul_multiply_with_consteval(num_loops, trace_region_size):
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "matmul_multiply_consteval.mlir.tmp.ttnn"
     )
-    helper.initialize(request.node.name, binary_path)
+    binary = load_binary(binary_path)
     test_config = ProgramTestConfig(
         name="matmul_multiply",
         expected_num_inputs=3,
@@ -172,7 +167,7 @@ def test_trace_matmul_multiply_with_consteval(
         description="Matmul multiply trace test",
     )
 
-    test_runner = ProgramTestRunner(test_config, helper.binary, 0)
+    test_runner = ProgramTestRunner(test_config, binary, 0)
     debug_stats = ttrt.runtime.DebugStats.get()
 
     with DeviceContext(
@@ -241,11 +236,11 @@ def mnist_linear_logits_golden(inputs):
 
 @pytest.mark.parametrize("num_loops", [16])
 @pytest.mark.parametrize("trace_region_size", [0, 80000])
-def test_mnist_linear_logits(helper: Helper, request, num_loops, trace_region_size):
+def test_mnist_linear_logits(request, num_loops, trace_region_size):
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "mnist_linear_logits.mlir.tmp.ttnn"
     )
-    helper.initialize(request.node.name, binary_path)
+    binary = load_binary(binary_path)
     test_config = ProgramTestConfig(
         name="mnist_linear_logits",
         expected_num_inputs=5,
@@ -253,7 +248,7 @@ def test_mnist_linear_logits(helper: Helper, request, num_loops, trace_region_si
         description="mnist linear logits trace test",
     )
 
-    test_runner = ProgramTestRunner(test_config, helper.binary, 0)
+    test_runner = ProgramTestRunner(test_config, binary, 0)
 
     debug_stats = ttrt.runtime.DebugStats.get()
 

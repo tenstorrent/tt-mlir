@@ -9,7 +9,7 @@ import ttrt.runtime
 import torch
 from ttrt.common.util import *
 from ..utils import (
-    Helper,
+    load_binary,
     DeviceContext,
     assert_pcc,
     get_torch_inputs,
@@ -23,26 +23,24 @@ FLATBUFFER_BASE_PATH = get_flatbuffer_base_path(
 )
 
 
-def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
+def test_runtime_stitching_eltwise_binary_op_chain():
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "eltwise_binary_op_chain.mlir.tmp.ttnn"
     )
-    helper.initialize(request.node.name, binary_path)
+    binary = load_binary(binary_path)
 
-    first_program: Binary.Program = helper.binary.get_program(0)
+    first_program: Binary.Program = binary.get_program(0)
     assert first_program.num_inputs() == 2
     inputs_torch = get_torch_inputs(first_program)
     inputs_runtime = [get_runtime_tensor_from_torch(input) for input in inputs_torch]
 
     input_layouts = [
-        ttrt.runtime.get_layout(
-            executable=helper.binary.fbb, program_index=0, input_index=i
-        )
+        ttrt.runtime.get_layout(executable=binary.fbb, program_index=0, input_index=i)
         for i in range(len(inputs_runtime))
     ]
 
-    program_indices = list(range(helper.binary.get_num_programs()))
-    last_program: Binary.Program = helper.binary.get_program(program_indices[-1])
+    program_indices = list(range(binary.get_num_programs()))
+    last_program: Binary.Program = binary.get_program(program_indices[-1])
     torch_result_tensor = get_torch_output_container(last_program)
 
     activations, weights = inputs_runtime
@@ -52,12 +50,10 @@ def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
         weights = ttrt.runtime.to_layout(weights, device, weights_layout)
         weights.set_retain(True)
         for program_index in program_indices:
-            program = helper.binary.get_program(program_index)
+            program = binary.get_program(program_index)
             assert program.num_inputs() == 2 and program.num_outputs() == 1
             inputs = [activations, weights]
-            outputs = ttrt.runtime.submit(
-                device, helper.binary.fbb, program_index, inputs
-            )
+            outputs = ttrt.runtime.submit(device, binary.fbb, program_index, inputs)
             activations = ttrt.runtime.to_layout(outputs[0], device, activations_layout)
             ttrt.runtime.deallocate_tensor(outputs[0])
         final_result = ttrt.runtime.to_host(activations, untilize=True)[0]

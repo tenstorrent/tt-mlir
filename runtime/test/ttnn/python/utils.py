@@ -31,31 +31,19 @@ class Storage(Enum):
     Device = "Device"
 
 
-class Helper:
-    def __init__(self):
-        self.logger = Logger()
-        self.file_manager = FileManager(self.logger)
-        self.test_name = None
-        self.binary_path = None
-        self.binary = None
-
-    def initialize(self, test_name, binary_path=None):
-        self.test_name = test_name
-        if binary_path:
-            assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
-            self.binary_path = binary_path
-            self.binary = Binary(self.logger, self.file_manager, binary_path)
-            self._check_constraints()
-
-    def _check_constraints(self):
-        artifacts_dir = f"{os.getcwd()}/ttrt-artifacts"
-        artifacts = Artifacts(
-            self.logger, self.file_manager, artifacts_folder_path=artifacts_dir
-        )
-        query = Query({"--quiet": True}, self.logger, artifacts)
-        query()
-        self.binary.check_version()
-        self.binary.check_system_desc(query)
+def load_binary(binary_path):
+    """Load a flatbuffer binary, validate its version and system descriptor."""
+    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
+    logger = Logger()
+    file_manager = FileManager(logger)
+    binary = Binary(logger, file_manager, binary_path)
+    binary.check_version()
+    artifacts_dir = f"{os.getcwd()}/ttrt-artifacts"
+    artifacts = Artifacts(logger, file_manager, artifacts_folder_path=artifacts_dir)
+    query = Query({"--quiet": True}, logger, artifacts)
+    query()
+    binary.check_system_desc(query)
+    return binary
 
 
 @dataclass

@@ -12,7 +12,7 @@ from ttrt.common.util import *
 from .constants import FLATBUFFER_BASE_PATH
 
 from ..utils import (
-    Helper,
+    load_binary,
     DeviceContext,
     Storage,
     get_torch_inputs,
@@ -23,11 +23,11 @@ from ..utils import (
 )
 
 
-def verify_to_layout_deallocation(helper: Helper, retain_flags, storage):
+def verify_to_layout_deallocation(binary, retain_flags, storage):
     """Test memory deallocation behavior after to_layout operation"""
     num_devices = ttrt.runtime.get_num_available_devices()
     assert num_devices > 1, "Test requires at least 2 devices to enable async mode"
-    program: Binary.Program = helper.binary.get_program(0)
+    program: Binary.Program = binary.get_program(0)
 
     torch_inputs = get_torch_inputs(program)
     if storage == Storage.Borrowed:
@@ -56,7 +56,7 @@ def verify_to_layout_deallocation(helper: Helper, retain_flags, storage):
             runtime_inputs[i].set_retain(retain_flag)
 
         # Perform to_layout operation
-        _ = get_to_layout_inputs(parent_mesh, runtime_inputs, helper.binary, 0)
+        _ = get_to_layout_inputs(parent_mesh, runtime_inputs, binary, 0)
 
         # Verify allocation status after to_layout
         for i, runtime_input in enumerate(runtime_inputs):
@@ -67,11 +67,11 @@ def verify_to_layout_deallocation(helper: Helper, retain_flags, storage):
             ), f"After to_layout: Retain flag and tensor allocation mismatch ({True} != {runtime_input.is_allocated()} at idx: {i})"
 
 
-def verify_submit_deallocation(helper: Helper, retain_flags, storage):
+def verify_submit_deallocation(binary, retain_flags, storage):
     """Test memory deallocation behavior after submit operation"""
     num_devices = ttrt.runtime.get_num_available_devices()
     assert num_devices > 1, "Test requires at least 2 devices to enable async mode"
-    program: Binary.Program = helper.binary.get_program(0)
+    program: Binary.Program = binary.get_program(0)
 
     torch_inputs = get_torch_inputs(program)
     if storage == Storage.Borrowed:
@@ -94,7 +94,7 @@ def verify_submit_deallocation(helper: Helper, retain_flags, storage):
     with DeviceContext(mesh_shape=[1, 2]) as parent_mesh:
         # First, get the laid-out inputs - we don't care about retain flags for original inputs here
         runtime_inputs_with_layouts = get_to_layout_inputs(
-            parent_mesh, runtime_inputs, helper.binary, 0
+            parent_mesh, runtime_inputs, binary, 0
         )
 
         # Apply retain flags to the laid-out inputs
@@ -103,7 +103,7 @@ def verify_submit_deallocation(helper: Helper, retain_flags, storage):
 
         # Perform submit operation
         output = ttrt.runtime.submit(
-            parent_mesh, helper.binary.fbb, 0, runtime_inputs_with_layouts
+            parent_mesh, binary.fbb, 0, runtime_inputs_with_layouts
         )[0]
         output_host = ttrt.runtime.to_host(output, untilize=True)[0]
 
@@ -126,12 +126,12 @@ def verify_submit_deallocation(helper: Helper, retain_flags, storage):
     [[True, False], [False, True], [True, True], [False, False]],
     ids=lambda x: str(x),
 )
-def test_to_layout_deallocation(helper: Helper, request, storage, retain_flags):
+def test_to_layout_deallocation(storage, retain_flags):
     """Test that to_layout correctly deallocates input tensors based on retain flags"""
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "add.mlir.tmp.ttnn")
-    helper.initialize(request.node.name, binary_path)
+    binary = load_binary(binary_path)
 
-    verify_to_layout_deallocation(helper, retain_flags=retain_flags, storage=storage)
+    verify_to_layout_deallocation(binary, retain_flags=retain_flags, storage=storage)
 
 
 @pytest.mark.parametrize("storage", [Storage.Borrowed, Storage.Owned, Storage.Device])
@@ -140,9 +140,9 @@ def test_to_layout_deallocation(helper: Helper, request, storage, retain_flags):
     [[True, False], [False, True], [True, True], [False, False]],
     ids=lambda x: str(x),
 )
-def test_submit_deallocation(helper: Helper, request, storage, retain_flags):
+def test_submit_deallocation(storage, retain_flags):
     """Test that submit correctly deallocates input tensors based on retain flags"""
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "add.mlir.tmp.ttnn")
-    helper.initialize(request.node.name, binary_path)
+    binary = load_binary(binary_path)
 
-    verify_submit_deallocation(helper, retain_flags=retain_flags, storage=storage)
+    verify_submit_deallocation(binary, retain_flags=retain_flags, storage=storage)
