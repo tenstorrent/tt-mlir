@@ -2022,9 +2022,6 @@ public:
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
-    // Mark index tile (index 0) as scratch - it doesn't need streaming.
-    generic.setScratchInputsAttr(rewriter.getDenseI64ArrayAttr({0}));
-
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic);
     {
