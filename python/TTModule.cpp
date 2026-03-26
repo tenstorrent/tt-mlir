@@ -142,6 +142,14 @@ void populateTTModule(nb::module_ &m) {
                   [](MlirContext ctx, std::vector<int64_t> shape) {
                     return wrap(tt::ttcore::GridAttr::get(unwrap(ctx), shape));
                   })
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::vector<int64_t> shape,
+             MlirAffineMap virtToPhysicalMap, MlirAffineMap physicalToVirtMap) {
+            return wrap(tt::ttcore::GridAttr::get(unwrap(ctx), shape,
+                                                  unwrap(virtToPhysicalMap),
+                                                  unwrap(physicalToVirtMap)));
+          })
       .def_prop_ro("shape", [](const tt::ttcore::GridAttr &ga) {
         return ga.getShape().vec();
       });
