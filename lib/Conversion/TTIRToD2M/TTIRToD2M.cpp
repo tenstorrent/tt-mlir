@@ -1591,9 +1591,9 @@ public:
     // For inner permute, we need a view to express the reblocking.
     // The allocator will later decide whether to insert a CB allocation
     // for the consuming GenericOp.
-    auto view = rewriter.create<d2m::ViewLayoutOp>(loc, viewType, inputs[0],
-                                                   permuted.transposeMap,
-                                                   /*reinterpretLayout=*/false);
+    auto view = d2m::ViewLayoutOp::create(rewriter, loc, viewType, inputs[0],
+                                          permuted.transposeMap,
+                                          /*reinterpretLayout=*/false);
     inputs[0] = view.getResult();
     unsigned logicalRank = deviceRank / 2;
     // For inner permute, we alse need a GenericOp to transpose each individual
@@ -2325,9 +2325,9 @@ public:
     // Express the data rearrangement as a view. The allocator will later
     // decide whether to insert a CB allocation for any GenericOp that
     // consumes this view.
-    auto view = rewriter.create<d2m::ViewLayoutOp>(op.getLoc(), newOutTy,
-                                                   inputs[0], deviceMap,
-                                                   /*reinterpretLayout=*/false);
+    auto view = d2m::ViewLayoutOp::create(rewriter, op.getLoc(), newOutTy,
+                                          inputs[0], deviceMap,
+                                          /*reinterpretLayout=*/false);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
                                           op->getResult(0).getType()));

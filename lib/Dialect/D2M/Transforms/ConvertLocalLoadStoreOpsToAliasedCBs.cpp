@@ -275,9 +275,9 @@ public:
         // collapse_shape that may occur before the remote_load).
         rewriter.setInsertionPoint(allocOp);
 
-        rewriter.create<ReserveOp>(loc, assocCb);
-        rewriter.create<PushOp>(loc, assocCb);
-        auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
+        ReserveOp::create(rewriter, loc, assocCb);
+        PushOp::create(rewriter, loc, assocCb);
+        auto waitOp = WaitOp::create(rewriter, loc, assocCb);
 
         rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
         rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
@@ -289,7 +289,7 @@ public:
         } else {
           rewriter.setInsertionPointAfter(waitOp);
         }
-        rewriter.create<PopOp>(loc, assocCb);
+        PopOp::create(rewriter, loc, assocCb);
 
         // Erase the original remote_load operation
         rewriter.eraseOp(remoteLoad);
