@@ -556,7 +556,8 @@ static void collectOpsToErase(Block *block, DenseSet<Operation *> &eraseSet,
       continue;
     }
 
-    bool isDMAOp = isa<RemoteLoadOp, RemoteStoreOp, DeviceSynchronizeOp>(&op);
+    bool isDMAOp =
+        isa<ShardDMAOpInterface, DeviceSynchronizeOp>(&op);
     bool isReplicated = isa<SemaphoreWaitOp>(&op);
 
     if (isDatamovementThread && !isDMAOp && !isReplicated) {
