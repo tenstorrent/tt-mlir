@@ -8,8 +8,7 @@
 // Test remote input case: remote input, local output - should use remote_load
 // CHECK-LABEL: func.func @test_remote_input
 func.func @test_remote_input(%arg0: tensor<2x4x32x32xf32, #layout_src>, %arg1: tensor<4x2x32x32xf32, #layout_dst>) -> tensor<4x2x32x32xf32, #layout_dst> {
-  %storage = d2m.empty() : tensor<2x4x32x32xf32, #layout_src>
-  %stream = "d2m.stream_layout"(%arg0, %storage) <{remapping = #map4}> : (tensor<2x4x32x32xf32, #layout_src>, tensor<2x4x32x32xf32, #layout_src>) -> tensor<2x4x32x32xf32, #layout_src>
+  %view_src = d2m.view_layout %arg0 remapping = #map4 : tensor<2x4x32x32xf32, #layout_src> -> tensor<2x4x32x32xf32, #layout_src>
 
   // CHECK: %[[VIEW:.*]] = d2m.view_layout
   // CHECK: d2m.generic
@@ -21,7 +20,7 @@ func.func @test_remote_input(%arg0: tensor<2x4x32x32xf32, #layout_src>, %arg1: t
   // CHECK-NOT: d2m.dma
   // CHECK: d2m.yield
 
-  %1 = d2m.to_layout %stream, %arg1 : tensor<2x4x32x32xf32, #layout_src> into tensor<4x2x32x32xf32, #layout_dst>
+  %1 = d2m.to_layout %view_src, %arg1 : tensor<2x4x32x32xf32, #layout_src> into tensor<4x2x32x32xf32, #layout_dst>
     -> tensor<4x2x32x32xf32, #layout_dst>
 
   return %1 : tensor<4x2x32x32xf32, #layout_dst>

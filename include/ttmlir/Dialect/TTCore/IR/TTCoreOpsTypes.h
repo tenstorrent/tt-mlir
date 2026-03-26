@@ -396,6 +396,25 @@ inline MemorySpace getMemorySpace(Value memrefTypedValue) {
   return getMemorySpace(memrefTypedValue.getType());
 }
 
+inline void printCoordBracketStyle(::mlir::AsmPrinter &printer,
+                                   CoreCoordAttr coreCoordAttr) {
+  printer << "(" << coreCoordAttr.getY() << "," << coreCoordAttr.getX() << ")";
+}
+
+inline ::mlir::ParseResult
+parseCoordBracketStyle(::mlir::AsmParser &parser,
+                       CoreCoordAttr &coreCoordAttr) {
+  int64_t y, x;
+
+  if (parser.parseLParen() || parser.parseInteger(y) || parser.parseComma() ||
+      parser.parseInteger(x) || parser.parseRParen()) {
+    return ::mlir::failure();
+  }
+
+  coreCoordAttr = CoreCoordAttr::get(parser.getContext(), y, x);
+  return ::mlir::success();
+}
+
 } // namespace mlir::tt::ttcore
 
 #endif

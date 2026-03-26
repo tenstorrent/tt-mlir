@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -74,10 +74,16 @@ template <>
 struct OpModel<SinOp> : UnaryEltwiseOpModel<SinOp> {};
 
 template <>
+struct OpModel<AsinOp> : UnaryEltwiseOpModel<AsinOp> {};
+
+template <>
 struct OpModel<AbsOp> : UnaryEltwiseOpModel<AbsOp> {};
 
 template <>
 struct OpModel<CosOp> : UnaryEltwiseOpModel<CosOp> {};
+
+template <>
+struct OpModel<AcosOp> : UnaryEltwiseOpModel<AcosOp> {};
 
 template <>
 struct OpModel<TanhOp> : UnaryEltwiseOpModel<TanhOp> {};

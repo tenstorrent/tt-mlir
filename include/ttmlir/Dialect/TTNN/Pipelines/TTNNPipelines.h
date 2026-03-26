@@ -356,19 +356,6 @@ struct TTIRToTTNNDevicePipelineOptions
           "Leave empty to disable the pass."),
       llvm::cl::init(32)};
 
-  Option<bool> enableBfp8Conversion{
-      *this, "enable-bfp8-conversion",
-      llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
-      llvm::cl::init(false)};
-
-  // Deprecated: use experimental-weight-dtype instead.
-  // Kept for backward compatibility with tt-xla auto-uplift.
-  Option<bool> experimentalBfp8Weights{
-      *this, "experimental-bfp8-weights",
-      llvm::cl::desc("Deprecated: use experimental-weight-dtype=bfp_bf8 "
-                     "instead. Converts weights to bfp8_b format."),
-      llvm::cl::init(false)};
-
   Option<WeightDtype> experimentalWeightDtype{
       *this, "experimental-weight-dtype",
       llvm::cl::desc("Experimental: Target dtype for weight conversion in "
@@ -535,6 +522,14 @@ struct TTNNToEmitPyDevicePipelineOptions
   Option<bool> splitFiles{*this, "split-files",
                           llvm::cl::desc("Enables TTNNFileSplit pass"),
                           llvm::cl::init(true)};
+
+  Option<bool> createMainForTest{
+      *this, "create-main-for-test",
+      llvm::cl::desc(
+          "Create main_for_test wrapper for frontend-driven execution "
+          "(e.g. PythonModelRunner). Injects device as an explicit "
+          "argument into the forward function."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to TTNN backend pipeline options.

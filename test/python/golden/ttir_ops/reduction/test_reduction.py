@@ -58,11 +58,6 @@ def test_reduction_ops(
     request,
     device,
 ):
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [dtype])
         def reduction_op_wrapper(

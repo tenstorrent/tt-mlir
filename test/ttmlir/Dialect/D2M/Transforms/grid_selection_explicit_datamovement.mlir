@@ -13,12 +13,11 @@ func.func @skip_grid_selection_explicit_datamovement(
   %arg1: tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
 ) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout> {
   %0 = "d2m.empty"() : () -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
-  %stream = "d2m.stream_layout"(%arg0, %0) <{remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> : (tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
 
   // CHECK: d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<1x1>
   // Grid should remain unchanged (1x1, not optimized to device grid)
-  %result = "d2m.generic"(%stream, %arg1) <{
+  %result = "d2m.generic"(%arg0, %arg1) <{
     block_factors = [],
     grid = #ttcore.grid<1x1>,
     indexing_maps = [],

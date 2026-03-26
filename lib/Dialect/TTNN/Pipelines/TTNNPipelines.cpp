@@ -70,6 +70,9 @@ void createTTNNPipelineTTIRPasses(
   // Infer kv_cache argument types from cache operations.
   pm.addPass(mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes());
 
+  // Propagate per-arg weight_dtype annotations through TM ops to consumers.
+  pm.addPass(mlir::tt::ttir::createTTIRPropagateWeightDtype());
+
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 
@@ -256,11 +259,7 @@ void createTTIRToTTNNDevicePipeline(
     // (e.g., no i64/f64) and may produce incorrect results otherwise.
     // Element type normalization should be applied only to the ops in the
     // Device Module, since we aren't restricted with element types on CPU.
-    ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
-    elementTypeNormalizationOptions.enableBfp8Conversion =
-        options.enableBfp8Conversion;
-    devicePm.addPass(
-        ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
+    devicePm.addPass(ttir::createElementTypeNormalization());
 
     createTTNNPipelineTTIRPasses(devicePm, options);
 
@@ -296,24 +295,13 @@ void createTTIRToTTNNDevicePipeline(
     createTTNNPipelineWorkaroundPass(devicePm, options);
     // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
+    // Always added: per-arg "ttcore.weight_dtype" annotations may exist even
+    // without a global dtype. The pass is a no-op when no annotations exist
+    // and no global dtype is set.
     {
-      WeightDtype resolvedWeightDtype = options.experimentalWeightDtype;
-
-      // Handle deprecated experimental-bfp8-weights flag.
-      if (options.experimentalBfp8Weights) {
-        if (resolvedWeightDtype != WeightDtype::None) {
-          llvm::report_fatal_error(
-              "Cannot set both experimental-bfp8-weights and "
-              "experimental-weight-dtype. Use experimental-weight-dtype only.");
-        }
-        resolvedWeightDtype = WeightDtype::BFP_BFloat8;
-      }
-
-      if (resolvedWeightDtype != WeightDtype::None) {
-        TTNNWeightDtypeConversionOptions convOpts;
-        convOpts.targetDtype = resolvedWeightDtype;
-        devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
-      }
+      TTNNWeightDtypeConversionOptions convOpts;
+      convOpts.targetDtype = options.experimentalWeightDtype;
+      devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.
@@ -493,6 +481,14 @@ void createTTNNToEmitPyDevicePipeline(
     } else {
       devicePm.addPass(createTTNNCreateInputGenerators());
     }
+
+    // Optionally create main_for_test wrapper for frontend-driven execution
+    // (e.g. PythonModelRunner). This must run after the input generator/loader
+    // pass so that _main already exists.
+    //
+    if (options.createMainForTest) {
+      devicePm.addPass(createTTNNCreateMainForTest());
+    }
   }
 
   devicePm.addPass(createTTNNPrepareConstEvalCaching());
@@ -503,8 +499,17 @@ void createTTNNToEmitPyDevicePipeline(
     devicePm.addPass(createTTNNFileSplit(fileSplitOptions));
   }
 
+  // Both paths (targetModule and TTNNCreateMainForTest) inject device as an
+  // explicit argument into the forward function. Const-eval functions also
+  // need device injected, but this can't be done as a separate MLIR pass
+  // because load_cached ops verify callee argument count between passes
+  // (issue #6746). Setting targetModule=true on the EmitPy pass tells it to
+  // handle const-eval device injection inside its runOnOperation, before
+  // applyFullConversion.
+  //
   ConvertTTNNToEmitPyOptions emitpyOptions;
-  emitpyOptions.targetModule = options.targetModule;
+  emitpyOptions.targetModule =
+      options.targetModule || options.createMainForTest;
   devicePm.addPass(createConvertTTNNToEmitPyPass(emitpyOptions));
 
   devicePm.addPass(createEmitPyConstEvalCachingPass());

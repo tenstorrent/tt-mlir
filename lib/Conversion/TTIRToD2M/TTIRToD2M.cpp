@@ -1506,7 +1506,7 @@ private:
 
 // ----------------------------------------------------------------------------
 //
-// Lower PermuteOp into a D2M StreamLayoutOp (to reblock into new tile-level
+// Lower PermuteOp into a D2M ViewLayoutOp (to reblock into new tile-level
 // shape) + GenericOp (to transpose individual tiles).
 namespace {
 class D2MPermuteRewriter final
@@ -1593,8 +1593,8 @@ public:
         permuted.physicalShape, inputTensorType.getElementType(), resultLayout);
 
     // For inner permute, we need a view to express the reblocking.
-    // The allocator will later decide whether to insert a stream_layout
-    // with a proper CB allocation for the consuming GenericOp.
+    // The allocator will later decide whether to insert a CB allocation
+    // for the consuming GenericOp.
     auto view = rewriter.create<d2m::ViewLayoutOp>(loc, viewType, inputs[0],
                                                    permuted.transposeMap,
                                                    /*reinterpretLayout=*/false);
@@ -2208,8 +2208,8 @@ public:
                                           outTy.getElementType(), newLayout);
 
     // Express the data rearrangement as a view. The allocator will later
-    // decide whether to insert a stream_layout with a proper CB allocation
-    // for any GenericOp that consumes this view.
+    // decide whether to insert a CB allocation for any GenericOp that
+    // consumes this view.
     auto view = rewriter.create<d2m::ViewLayoutOp>(op.getLoc(), newOutTy,
                                                    inputs[0], deviceMap,
                                                    /*reinterpretLayout=*/false);
@@ -2623,7 +2623,10 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<
     // Elementwise.
     D2MNamedElementwiseRewriter<ttir::AbsOp,             d2m::TileAbsOp>,
+    D2MNamedElementwiseRewriter<ttir::AcosOp,            d2m::TileAcosOp>,
     D2MNamedElementwiseRewriter<ttir::AddOp,             d2m::TileAddOp>,
+    D2MNamedElementwiseRewriter<ttir::AsinOp,            d2m::TileAsinOp>,
+    D2MNamedElementwiseRewriter<ttir::AtanOp,            d2m::TileAtanOp>,
     D2MNamedElementwiseRewriter<ttir::BitwiseAndOp,      d2m::TileBitwiseAndOp>,
     D2MNamedElementwiseRewriter<ttir::BitwiseNotOp,      d2m::TileBitwiseNotOp>,
     D2MNamedElementwiseRewriter<ttir::BitwiseOrOp,       d2m::TileBitwiseOrOp>,

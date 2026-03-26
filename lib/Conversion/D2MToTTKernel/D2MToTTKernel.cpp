@@ -500,6 +500,9 @@ using ComputeOpMap = OpMap<
 
   // Elementwise SFPU Unary.
   std::pair<d2m::TileAbsOp,         std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
+  std::pair<d2m::TileAcosOp,        std::pair<ttkernel::AcosTileInitOp,            ttkernel::AcosTileOp>>,
+  std::pair<d2m::TileAsinOp,        std::pair<ttkernel::AsinTileInitOp,            ttkernel::AsinTileOp>>,
+  std::pair<d2m::TileAtanOp,        std::pair<ttkernel::AtanTileInitOp,            ttkernel::AtanTileOp>>,
   std::pair<d2m::TileBitwiseNotOp,  std::pair<ttkernel::BitwiseNotTileInitOp,      ttkernel::BitwiseNotTileOp>>,
   std::pair<d2m::TileCeilOp,        std::pair<ttkernel::RoundingTileInitOp,        ttkernel::CeilTileOp>>,
   std::pair<d2m::TileClampScalarOp, std::pair<ttkernel::ClampScalarTileInitOp,     ttkernel::ClampScalarTileOp>>,

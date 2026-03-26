@@ -332,6 +332,27 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
   return gridShape;
 }
 
+// Map the box corners into the affine map output space.
+BoundingBox getProjectedBoundingBox(const BoundingBox &source, AffineMap map) {
+  TT_assert(map.getNumSymbols() == 0u);
+  TT_assert(source.start.size() == static_cast<size_t>(map.getNumDims()));
+  TT_assert(source.end.size() == static_cast<size_t>(map.getNumDims()));
+  auto mappedStart = map.compose(source.start);
+  auto mappedEnd = map.compose(source.end);
+  TT_assert(mappedStart.size() == map.getNumResults());
+  TT_assert(mappedEnd.size() == map.getNumResults());
+  BoundingBox result;
+  result.start.resize(mappedStart.size());
+  result.end.resize(mappedStart.size());
+  // If the map swaps corner order on an axis, min/max restore inclusive
+  // start/end.
+  for (unsigned i = 0, n = mappedStart.size(); i < n; ++i) {
+    result.start[i] = std::min(mappedStart[i], mappedEnd[i]);
+    result.end[i] = std::max(mappedStart[i], mappedEnd[i]);
+  }
+  return result;
+}
+
 std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
   // Direct check on the defining op.
   if (auto *defOp = val.getDefiningOp()) {
@@ -439,10 +460,6 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
 std::optional<AffineMap> getAssociatedRemapping(Value val) {
   if (auto viewOp = val.getDefiningOp<ViewLayoutOp>()) {
     AffineMap map = viewOp.getRemapping();
-    return map;
-  }
-  if (auto streamOp = val.getDefiningOp<StreamLayoutOp>()) {
-    AffineMap map = streamOp.getRemapping();
     return map;
   }
   return std::nullopt;
