@@ -6,7 +6,10 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
+
+#include <functional>
 
 namespace mlir::tt::d2m {
 
@@ -18,57 +21,264 @@ namespace {
 // Block factor analysis logic
 //===----------------------------------------------------------------------===//
 
-/// Computes the total circular buffer bytes for a candidate grid and shard
-/// extents.
-static std::optional<uint64_t> computeCBBytesForCandidate(
-    GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
-    ArrayRef<int64_t> candidateGridExtents,
-    ArrayRef<int64_t> candidateShardExtents, std::size_t scalableDim,
-    ttcore::DeviceAttr device, ttcore::MemorySpaceAttr l1Attr,
-    uint32_t numBuffers) {
-  uint64_t totalBytes = 0;
-  bool sawScaledInput = false;
+enum class AutoShapeClass { SingleReduction, AllParallelEltwise };
 
-  for (auto [operandIndex, operand] :
-       llvm::enumerate(genericOp.getInputsAndOutputs())) {
-    if (genericOp.isOutputOperandIdx(operandIndex) ||
-        genericOp.isScratchInput(operandIndex)) {
-      continue;
-    }
+struct AutoSearchConfig {
+  AutoShapeClass shapeClass;
+  SmallVector<std::size_t> candidateDims;
+};
 
-    const AffineMap indexingMap = indexingMaps[operandIndex];
-    if (!indexingMap.isFunctionOfDim(scalableDim)) {
-      continue;
-    }
+struct CandidateScore {
+  SmallVector<int64_t> dimScales;
+  SmallVector<int64_t> blockFactors;
+  uint64_t blockingVolume = 1;
+  uint64_t cbBytes = 0;
+};
 
-    auto operandType = mlir::dyn_cast<MemRefType>(operand.getType());
-    if (!operandType ||
-        !mlir::isa<ttcore::TileType>(operandType.getElementType())) {
-      return std::nullopt;
-    }
+static llvm::BitVector getDimMask(std::size_t rank,
+                                  ArrayRef<std::size_t> dims) {
+  llvm::BitVector mask(rank, false);
+  for (std::size_t dim : dims) {
+    mask[dim] = true;
+  }
+  return mask;
+}
 
-    sawScaledInput = true;
-    const AffineMap canonicalMap = canonicalizeBroadcasts(indexingMap);
-    const SmallVector<int64_t> gridShapeRescaled =
-        canonicalMap.compose(candidateGridExtents);
-    const SmallVector<int64_t> shardShapeRescaled =
-        canonicalMap.compose(candidateShardExtents);
-
-    if (ttmlir::utils::volume<int64_t>(shardShapeRescaled) < 4) {
-      return std::nullopt;
-    }
-
-    const MemRefType bufferType =
-        getCBBufferType(gridShapeRescaled, shardShapeRescaled,
-                        operandType.getElementType(), l1Attr, numBuffers);
-    totalBytes += getCBBufferSizeBytes(bufferType, device);
+static bool hasNonTrivialView(Value value) {
+  Operation *definingOp = value.getDefiningOp();
+  if (!definingOp) {
+    return false;
   }
 
-  if (!sawScaledInput) {
+  if (auto viewOp = mlir::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
+    return !viewOp.getRemapping().isIdentity() ||
+           hasNonTrivialView(viewOp.getInput());
+  }
+  if (auto compositeViewOp = mlir::dyn_cast<d2m::CompositeViewOp>(definingOp)) {
+    return llvm::any_of(compositeViewOp.getCompositeInputs(),
+                        hasNonTrivialView);
+  }
+  if (auto semOp = mlir::dyn_cast<d2m::CreateGlobalSemaphoreOp>(definingOp)) {
+    return hasNonTrivialView(semOp.getInput());
+  }
+  if (auto castOp = mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(definingOp)) {
+    return hasNonTrivialView(castOp.getInput());
+  }
+  return false;
+}
+
+// @return true if the operand needs a dedicated CB by existing rules.
+static bool operandNeedsDedicatedCBByExistingRules(GenericOp genericOp,
+                                                   uint32_t operandIndex) {
+  Value operand = genericOp.getInputsAndOutputs()[operandIndex];
+
+  if (genericOp.isScratchInput(operandIndex)) {
+    return false;
+  }
+  if (hasNonTrivialView(operand)) {
+    return true;
+  }
+
+  auto operandType = mlir::dyn_cast<MemRefType>(operand.getType());
+  if (!operandType) {
+    return false;
+  }
+  if (ttcore::getMemorySpace(operandType) == ttcore::MemorySpace::DeviceDRAM) {
+    return true;
+  }
+
+  const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
+  const auto broadcastDims = indexingMap.getBroadcastDims();
+  const auto iteratorTypes = genericOp.getIteratorTypesValue();
+  for (std::size_t resultIndex = 0; resultIndex < indexingMap.getNumResults();
+       ++resultIndex) {
+    if (llvm::is_contained(broadcastDims, resultIndex)) {
+      return true;
+    }
+    if (iteratorTypes[indexingMap.getDimPosition(resultIndex)] ==
+        ttcore::IteratorType::Reduction) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/// Classify a generic op's iteration shape for auto-policy search.
+/// @return the search config or nullopt if auto-blocking is not applicable.
+static std::optional<AutoSearchConfig>
+classifyAutoSearch(GenericOp genericOp,
+                   ArrayRef<ttcore::IteratorType> iteratorTypes,
+                   ArrayRef<int64_t> shardFactors) {
+  if (genericOp.isDMAOnlyForm() || genericOp.isExplicitDatamovementForm() ||
+      genericOp.getScratchInputsAttr() || genericOp.getOutputs().size() != 1) {
     return std::nullopt;
   }
 
-  return totalBytes;
+  SmallVector<std::size_t> reductionDims;
+  for (auto [dim, iteratorType] : llvm::enumerate(iteratorTypes)) {
+    if (iteratorType == ttcore::IteratorType::Reduction) {
+      reductionDims.push_back(dim);
+    }
+  }
+
+  // Candidate dim filter: single reduction dimension.
+  if (reductionDims.size() == 1) {
+    return AutoSearchConfig{AutoShapeClass::SingleReduction,
+                            std::move(reductionDims)};
+  }
+  if (!reductionDims.empty()) {
+    return std::nullopt;
+  }
+  // At this point, the generic op is an all-parallel operation.
+
+  // Candidate dim filter: all participating dims with a shard factor > 1.
+  SmallVector<std::size_t> candidateDims;
+  const llvm::BitVector participationMask = getParticipatingDimMask(genericOp);
+  for (std::size_t dim = 0; dim < shardFactors.size(); ++dim) {
+    if (participationMask[dim] && shardFactors[dim] > 1) {
+      candidateDims.push_back(dim);
+    }
+  }
+  if (candidateDims.empty()) {
+    return std::nullopt;
+  }
+
+  return AutoSearchConfig{AutoShapeClass::AllParallelEltwise,
+                          std::move(candidateDims)};
+}
+
+static bool isLexicographicallyLarger(ArrayRef<int64_t> lhs,
+                                      ArrayRef<int64_t> rhs) {
+  for (auto [lhsValue, rhsValue] : llvm::zip(lhs, rhs)) {
+    if (lhsValue != rhsValue) {
+      return lhsValue > rhsValue;
+    }
+  }
+  return false;
+}
+
+// Comparing two candidates for a given shape class.
+static bool isBetterCandidate(AutoShapeClass shapeClass,
+                              const CandidateScore &lhs,
+                              const CandidateScore &rhs) {
+  switch (shapeClass) {
+  // Single reduction: CB cost is dominant concern, so prefer lower CB bytes.
+
+  // All parallel eltwise: blocking volume is dominant concern because it
+  // controls parallelism gain, so prefer higher blocking volume. CB cost is
+  // secondary tiebreaker since eltwise operands tend to have uniform and
+  // predictable buffer sizes.
+
+  // Final tiebreaker: prefer lexicographically larger dim scales.
+  case AutoShapeClass::SingleReduction:
+    if (lhs.cbBytes != rhs.cbBytes) {
+      return lhs.cbBytes < rhs.cbBytes;
+    }
+    if (lhs.blockingVolume != rhs.blockingVolume) {
+      return lhs.blockingVolume > rhs.blockingVolume;
+    }
+    return isLexicographicallyLarger(lhs.dimScales, rhs.dimScales);
+  case AutoShapeClass::AllParallelEltwise:
+    if (lhs.blockingVolume != rhs.blockingVolume) {
+      return lhs.blockingVolume > rhs.blockingVolume;
+    }
+    if (lhs.cbBytes != rhs.cbBytes) {
+      return lhs.cbBytes < rhs.cbBytes;
+    }
+    return isLexicographicallyLarger(lhs.dimScales, rhs.dimScales);
+  }
+
+  llvm_unreachable("unknown auto shape class");
+}
+
+/// Check legality and estimate cost for a single candidate dim-scale vector.
+/// @return the candidate score, or nullopt if the candidate is illegal.
+static std::optional<CandidateScore> evaluateCandidate(
+    GenericOp genericOp, ArrayRef<std::size_t> candidateDims,
+    ArrayRef<AffineMap> indexingMaps, ArrayRef<int64_t> gridExtents,
+    ArrayRef<int64_t> shardExtents, ArrayRef<int64_t> shardFactors,
+    ArrayRef<int64_t> originalBlockFactors, ArrayRef<int64_t> dimScales,
+    ttcore::DeviceAttr device, ttcore::MemorySpaceAttr l1Attr,
+    uint32_t numBuffers, bool allowAliasedEltwiseBlocking,
+    bool allowIdentityCandidate = false) {
+  SmallVector<int64_t> candidateGridExtents(gridExtents.begin(),
+                                            gridExtents.end());
+  SmallVector<int64_t> candidateShardExtents(shardExtents.begin(),
+                                             shardExtents.end());
+  SmallVector<int64_t> candidateBlockFactors(originalBlockFactors.begin(),
+                                             originalBlockFactors.end());
+  uint64_t blockingVolume = 1;
+  bool hasNonTrivialScale = false;
+
+  // Apply the dim scales to the grid, shard, and block factors.
+  for (std::size_t dim = 0; dim < dimScales.size(); ++dim) {
+    TT_assert(shardFactors[dim] % dimScales[dim] == 0);
+    candidateGridExtents[dim] *= dimScales[dim];
+    candidateShardExtents[dim] /= dimScales[dim];
+    candidateBlockFactors[dim] *= dimScales[dim];
+    blockingVolume *= dimScales[dim];
+    hasNonTrivialScale |= dimScales[dim] > 1;
+  }
+  if (!hasNonTrivialScale && !allowIdentityCandidate) {
+    return std::nullopt;
+  }
+
+  const llvm::BitVector scaledDims =
+      hasNonTrivialScale ? getBlockedDimMask(dimScales)
+                         : getDimMask(dimScales.size(), candidateDims);
+  bool sawAffectedOperand = false;
+  uint64_t totalCBBytes = 0;
+
+  // Iterate over all operands and check if they are affected by the reblocked
+  // dims.
+  for (auto [operandIndex, operand] :
+       llvm::enumerate(genericOp.getInputsAndOutputs())) {
+    if (genericOp.isScratchInput(operandIndex)) {
+      continue;
+    }
+
+    if (!isIndexingMapBlocked(indexingMaps[operandIndex], scaledDims)) {
+      continue;
+    }
+    sawAffectedOperand = true;
+
+    auto [operandGridShape, operandShardShape] = getOperandGridAndShardExtents(
+        genericOp, operandIndex, candidateGridExtents, candidateShardExtents);
+
+    // Reject candidates that would result in a too small operand shard shape.
+    // May eliminate this.
+    if (ttmlir::utils::volume<int64_t>(operandShardShape) < 4) {
+      return std::nullopt;
+    }
+
+    // Reject candidates that would result in a dedicated CB being needed for
+    // output operands if aliased eltwise blocking is not allowed.
+    if (genericOp.isOutputOperandIdx(operandIndex) &&
+        !operandNeedsDedicatedCBByExistingRules(genericOp, operandIndex) &&
+        !allowAliasedEltwiseBlocking) {
+      return std::nullopt;
+    }
+
+    auto operandType = mlir::dyn_cast<MemRefType>(operand.getType());
+    if (!operandType) {
+      return std::nullopt;
+    }
+
+    // Get the size of the CB buffer for the candidate.
+    const MemRefType bufferType =
+        getCBBufferType(operandGridShape, operandShardShape,
+                        operandType.getElementType(), l1Attr, numBuffers);
+    totalCBBytes += getCBBufferSizeBytes(bufferType, device);
+  }
+
+  if (!sawAffectedOperand) {
+    return std::nullopt;
+  }
+
+  return CandidateScore{
+      SmallVector<int64_t>(dimScales.begin(), dimScales.end()),
+      std::move(candidateBlockFactors), blockingVolume, totalCBBytes};
 }
 
 /// Applies the `min` policy to the block factors which shrinks all
@@ -92,65 +302,92 @@ static SmallVector<int64_t> applyMinPolicy(GenericOp genericOp,
   return blockFactors;
 }
 
+// The auto policy currently has three cases:
+// 1. Single reduction: aggressively reduce the block factor of the reduction
+// dim.
+// 2. All parallel eltwise: aggressively reduce the block factor of all
+// participating dims.
+// 3. Unsupported: in all other cases, return the original block factors.
 static SmallVector<int64_t>
 applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
                 ArrayRef<ttcore::IteratorType> iteratorTypes,
                 ArrayRef<int64_t> gridExtents, ArrayRef<int64_t> shardExtents,
                 ArrayRef<int64_t> shardFactors, ttcore::DeviceAttr device,
-                ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers) {
-  SmallVector<int64_t> blockFactors = genericOp.getBlockFactorsValue();
-  const std::optional<std::size_t> scalableDim =
-      getSingleReductionDim(iteratorTypes);
-  if (!scalableDim.has_value()) {
-    return blockFactors;
+                ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
+                bool allowAliasedEltwiseBlocking) {
+  const SmallVector<int64_t> originalBlockFactors =
+      genericOp.getBlockFactorsValue();
+
+  //===------------------------------------------------------------------===//
+  // Classify the generic op's iteration shape.
+  //===------------------------------------------------------------------===//
+  auto config = classifyAutoSearch(genericOp, iteratorTypes, shardFactors);
+  if (!config) {
+    return originalBlockFactors;
   }
 
-  if (shardFactors[*scalableDim] <= 1) {
-    return blockFactors;
+  //===------------------------------------------------------------------===//
+  // Enumerate legal per-dim scale divisors for each dimension.
+  //===------------------------------------------------------------------===//
+  SmallVector<SmallVector<int64_t>> legalScales;
+  legalScales.reserve(config->candidateDims.size());
+  for (std::size_t dim : config->candidateDims) {
+    legalScales.push_back(ttmlir::utils::getFactors(shardFactors[dim]));
   }
 
-  const auto baseBytes = computeCBBytesForCandidate(
-      genericOp, indexingMaps, gridExtents, shardExtents, *scalableDim, device,
-      l1Attr, numBuffers);
-  if (!baseBytes.has_value()) {
-    return blockFactors;
+  //===------------------------------------------------------------------===//
+  // Evaluate candidates.
+  //===------------------------------------------------------------------===//
+  SmallVector<int64_t> currentDimScales(genericOp.getNumDims(), 1);
+  std::optional<CandidateScore> bestCandidate;
+  if (config->shapeClass == AutoShapeClass::SingleReduction) {
+    bestCandidate = evaluateCandidate(
+        genericOp, config->candidateDims, indexingMaps, gridExtents,
+        shardExtents, shardFactors, originalBlockFactors, currentDimScales,
+        device, l1Attr, numBuffers, allowAliasedEltwiseBlocking,
+        /*allowIdentityCandidate=*/true);
   }
 
-  int64_t bestScale = 1;
-  uint64_t bestBytes = *baseBytes;
-  for (int64_t scale = shardFactors[*scalableDim]; scale >= 2; --scale) {
-    if (shardFactors[*scalableDim] % scale != 0) {
-      continue;
-    }
+  std::function<void(std::size_t)> enumerateCandidates =
+      [&](std::size_t dimIndex) {
+        if (dimIndex == config->candidateDims.size()) {
+          // All dimensions have been reblocked, so evaluate the candidate.
+          auto candidate = evaluateCandidate(
+              genericOp, config->candidateDims, indexingMaps, gridExtents,
+              shardExtents, shardFactors, originalBlockFactors,
+              currentDimScales, device, l1Attr, numBuffers,
+              allowAliasedEltwiseBlocking);
+          if (candidate && (!bestCandidate ||
+                            isBetterCandidate(config->shapeClass, *candidate,
+                                              *bestCandidate))) {
+            bestCandidate = std::move(candidate);
+          }
+          return;
+        }
 
-    SmallVector<int64_t> candidateGridExtents(gridExtents.begin(),
-                                              gridExtents.end());
-    SmallVector<int64_t> candidateShardExtents(shardExtents.begin(),
-                                               shardExtents.end());
-    candidateGridExtents[*scalableDim] *= scale;
-    candidateShardExtents[*scalableDim] /= scale;
+        const std::size_t dim = config->candidateDims[dimIndex];
+        // Try all legal scales for the current dimension.
+        for (int64_t scale : legalScales[dimIndex]) {
+          currentDimScales[dim] = scale;
+          // Recurse to the next dimension.
+          enumerateCandidates(dimIndex + 1);
+        }
+        // Backtrack by resetting the current dimension to 1.
+        currentDimScales[dim] = 1;
+      };
 
-    const auto candidateBytes = computeCBBytesForCandidate(
-        genericOp, indexingMaps, candidateGridExtents, candidateShardExtents,
-        *scalableDim, device, l1Attr, numBuffers);
-    if (!candidateBytes.has_value()) {
-      continue;
-    }
+  // Kick off the recursive candidate enumeration.
+  enumerateCandidates(0);
 
-    // Break ties toward the larger scale so we maximize blocking at the
-    // same CB buffer cost.
-    if (*candidateBytes < bestBytes ||
-        (*candidateBytes == bestBytes && scale > bestScale)) {
-      bestBytes = *candidateBytes;
-      bestScale = scale;
-    }
+  if (!bestCandidate) {
+    return originalBlockFactors;
   }
 
-  blockFactors[*scalableDim] *= bestScale;
-  TT_ALLOC_DEBUG("applying auto policy scale {} on dim {}, new block "
-                 "factors {}, CB bytes {}",
-                 bestScale, *scalableDim, asSeq(blockFactors), bestBytes);
-  return blockFactors;
+  TT_ALLOC_DEBUG("applying auto policy scales {}, new block factors {}, CB "
+                 "bytes {}",
+                 asSeq(bestCandidate->dimScales),
+                 asSeq(bestCandidate->blockFactors), bestCandidate->cbBytes);
+  return bestCandidate->blockFactors;
 }
 
 static SmallVector<int64_t> chooseReblockedFactors(
@@ -158,7 +395,8 @@ static SmallVector<int64_t> chooseReblockedFactors(
     ArrayRef<ttcore::IteratorType> iteratorTypes, ArrayRef<int64_t> gridExtents,
     ArrayRef<int64_t> shardExtents, ttcore::DeviceAttr device,
     BlockFactorAnalysis::BufferSizePolicy policy,
-    ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers) {
+    ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
+    bool allowAliasedEltwiseBlocking) {
   const SmallVector<int64_t> shardFactors = getShardBlockFactors(genericOp);
   switch (policy) {
   case BlockFactorAnalysis::BufferSizePolicy::Max:
@@ -168,7 +406,7 @@ static SmallVector<int64_t> chooseReblockedFactors(
   case BlockFactorAnalysis::BufferSizePolicy::Auto:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
-                           numBuffers);
+                           numBuffers, allowAliasedEltwiseBlocking);
   }
 
   llvm_unreachable("unknown buffer size policy");
@@ -200,7 +438,8 @@ BlockFactorAnalysis::BlockFactorAnalysis(Operation *op, const Options &opts) {
 
     SmallVector<int64_t> reblockedFactors = chooseReblockedFactors(
         genericOp, indexingMaps, iteratorTypes, gridExtents, shardExtents,
-        device, opts.policy, l1Attr, opts.numBuffers);
+        device, opts.policy, l1Attr, opts.numBuffers,
+        opts.allowAliasedEltwiseBlocking);
 
     results[genericOp.getOperation()] = Result{std::move(reblockedFactors)};
   });
