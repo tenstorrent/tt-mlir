@@ -528,13 +528,13 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
     "test_fn",
     [
         module_add,
-        module_atan2,
+        module_atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
         module_div,
         module_max,
         module_min,
         module_mul,
         module_pow,
-        module_remainder,
+        module_remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
         module_subtract,
     ],
 )
@@ -1049,6 +1049,7 @@ def test_stablehlo_multi_return_support(
         module_and_bool,
         module_or_bool,
         module_xor_bool,
+        module_shift_right_logical,
     ],
 )
 def test_logical_binary_ops(

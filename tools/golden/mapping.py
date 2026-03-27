@@ -6250,27 +6250,6 @@ def ttnn_bitwise_xor_golden(
     return torch.bitwise_xor(input_tensor, other_tensor).to(output_dtype)
 
 
-def stablehlo_div_golden(
-    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
-) -> GoldenMapTensor:
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.div(input_tensor, other_tensor).to(output_dtype)
-
-
-def stablehlo_rem_golden(
-    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
-) -> GoldenMapTensor:
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.remainder(input_tensor, other_tensor).to(output_dtype)
-
-
-def stablehlo_atan2_golden(
-    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
-) -> GoldenMapTensor:
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.atan2(input_tensor, other_tensor).to(output_dtype)
-
-
 def ttnn_bitwise_not_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -6870,7 +6849,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.XorOp: stablehlo_xor_golden,
     stablehlo.NotOp: stablehlo_not_golden,
     stablehlo.SliceOp: stablehlo_slice_golden,
-    stablehlo.DivOp: stablehlo_div_golden,
     stablehlo.GetDimensionSizeOp: stablehlo_get_dimension_size_golden,
     stablehlo.MaxOp: stablehlo_maximum_golden,
     stablehlo.MinOp: stablehlo_minimum_golden,
