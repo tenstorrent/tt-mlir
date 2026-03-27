@@ -182,26 +182,6 @@ class D2MBuilder(Builder):
 
         return result
 
-    def stream_layout(
-        self,
-        input: Operand,
-        storage: Operand,
-        remapping: Optional[Union[AffineMap, AffineMapAttr]] = None,
-    ) -> OpView:
-        """Create a D2M stream_layout operation."""
-        with self._ctx, self._loc:
-            # Determine result type based on input type
-            result_type = input.type
-            if remapping is None:
-                remapping = AffineMap.get_identity(len(result_type.shape), self._ctx)
-            remapping_attr = (
-                remapping
-                if isinstance(remapping, AffineMapAttr)
-                else AffineMapAttr.get(remapping)
-            )
-            op = d2m.StreamLayoutOp(result_type, input, remapping_attr, storage)
-            return op.result
-
     # ----- D2M Layout Convenience Methods -----
 
     def tilize(

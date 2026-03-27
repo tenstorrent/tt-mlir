@@ -25,14 +25,12 @@ module {
 
   // Verify operand stream insertion for all generic inputs.
   // CHECK-LABEL: func @test_generic_insert_missing_streams
+    // CHECK: cb_layout
   func.func @test_generic_insert_missing_streams() {
     %lhs = memref.alloc() : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1>
     %rhs = memref.alloc() : memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
     %r = memref.alloc() : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
     // expect two streams inserted by the pass, for %lhs and %rhs, in operand order:
-    // CHECK: %[[STREAM_LHS:.*]] = "d2m.stream_layout"({{.+}}) <{remapping = #map{{.*}}}>
-    // CHECK: %[[STREAM_RHS:.*]] = "d2m.stream_layout"({{.+}}) <{remapping = #map{{.*}}}>
-    // CHECK: ins(%[[STREAM_LHS]], %[[STREAM_RHS]] : memref<{{.+}}#ttcore.view<4>, #l1>, memref<{{.+}}#ttcore.view<4>, #l1>)
     d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<unified>]}
         ins(%lhs, %rhs : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%r : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
@@ -63,7 +61,6 @@ module {
   // Verify that "DMA-only" generics do not have operand streams inserted.
   // CHECK-LABEL: func @test_generic_dma_only
   func.func @test_generic_dma_only(%arg0: memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #ttcore.memory_space<dram>>) {
-    // CHECK-NOT: d2m.stream_layout
     %view_arg0 = d2m.view_layout %arg0 remapping = #remap_dma : memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #ttcore.memory_space<dram>> -> memref<1x1x32x32xf32, #ttcore.view<4>, #ttcore.memory_space<dram>>
     %out = memref.alloc() : memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #ttcore.memory_space<l1>>
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<datamovement>]}
@@ -80,7 +77,6 @@ module {
   // Verify that the pass works with ttir.ttnn_metal_layout_casts.
   // CHECK-LABEL: func @test_ttnn_arg_cast_bridge
   func.func @test_ttnn_arg_cast_bridge(%arg0: tensor<32x32xf32, #dram_layout>, %arg1: tensor<32x32xf32, #l1_layout>)  {
-    // CHECK-NOT: d2m.stream_layout
     %arg0_cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x32xf32, #dram_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>
     %arg1_cast = ttir.ttnn_metal_layout_cast %arg1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}

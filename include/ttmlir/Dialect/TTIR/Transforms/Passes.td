@@ -109,9 +109,6 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
     to a target that only supports a subset of the element types.
   }];
 
-  list<Option> options = [
-    Option<"enableBfp8Conversion", "enable-bfp8-conversion", "bool", "false", "When enabled this pass will convert all bfloat16 types into bfp8_b types.">,
-  ];
 }
 
 def PredicateTypeAlignment : Pass<"ttir-predicate-type-alignment", "::mlir::ModuleOp"> {
@@ -376,6 +373,19 @@ def TTIRFoldConstantReshapeBroadcast: Pass<"ttir-fold-constant-reshape-broadcast
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRPropagateWeightDtype: Pass<"ttir-propagate-weight-dtype", "::mlir::ModuleOp"> {
+  let summary = "Resolve weight_dtype annotations for matmul/linear ops.";
+  let description = [{
+    For each matmul/linear op, traces the weight (B) operand backward through
+    ops with the TensorManipulation trait to find the originating
+    func arg. If it carries a "ttcore.weight_dtype" annotation, sets it as a
+    discardable attribute on the consumer op.
+
+    This pass should run before const-eval hoisting, while the graph is still
+    flat and has no load_cached ops.
+  }];
+}
+
 def TTIRInferKVCacheArgumentTypes: Pass<"ttir-infer-kv-cache-argument-types", "::mlir::ModuleOp">
 {
   let summary = "Infer KV cache arguments from cache operations.";
@@ -479,6 +489,20 @@ def TTIRFoldFullToScalar: Pass<"ttir-fold-full-to-scalar", "::mlir::ModuleOp"> {
         %1 = "ttir.add"(%arg0, %0) : (tensor<64x32xf32>, tensor<1xf32>) -> tensor<64x32xf32>
   }];
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRCPUBooleanNarrowing : Pass<"ttir-cpu-boolean-narrowing", "::mlir::ModuleOp"> {
+  let summary = "Narrow boolean-producing ops to i1 in the CPU module.";
+  let description = [{
+    ElementTypeNormalization converts i1 to bf16 because TT hardware
+    doesn't support boolean tensor storage. On the CPU path this is unnecessary
+    and inflates memory (e.g. a 32768x32768 causal mask becomes 4 GiB in f32
+    instead of 1 GiB in i1).
+
+    This pass runs on the CPU module before linalg lowering and narrows
+    comparison/logical ops back to i1. Typecasts are inserted at boundaries
+    where i1 values flow into non-boolean consumers.
+  }];
 }
 
 #endif

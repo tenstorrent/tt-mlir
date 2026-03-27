@@ -103,6 +103,7 @@ namespace ttnn_to_emitpy {
 
 constexpr const char *kNameAttr = "emitpy.name";
 constexpr const char *kConstEvaledAttr = "emitpy.const_evaled";
+constexpr const char *kWrapperAttr = "consteval_wrapper";
 
 template <typename T, typename Enable = void>
 struct TypeName;
@@ -1581,6 +1582,10 @@ struct EmitPyTypeConverter<::ttnn::experimental::prim::Conv3dConfig> {
   }
 
   static std::string convert(ttnn::Conv3dConfigAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
     std::string buf;
     llvm::raw_string_ostream rso(buf);
 

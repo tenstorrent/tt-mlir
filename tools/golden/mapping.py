@@ -2642,6 +2642,8 @@ def update_cache_golden(
     cache_tensor: GoldenMapTensor,
     update_tensor: GoldenMapTensor,
     indices_tensor,
+    batch_offset=None,
+    output_type_mlir=None,
     **kwargs,
 ) -> GoldenMapTensor:
     """
@@ -2655,8 +2657,12 @@ def update_cache_golden(
         Tensor containing update data
     indices_tensor : GoldenMapTensor
         Tensor containing update indices
+    batch_offset : IntegerAttr, optional
+        Batch offset attribute (ignored in golden computation)
+    output_type_mlir : Type, optional
+        MLIR output type (ignored in golden computation)
     **kwargs : dict
-        Additional keyword arguments (batch_offset is ignored)
+        Additional keyword arguments
 
     Returns
     -------
@@ -2665,8 +2671,15 @@ def update_cache_golden(
     """
     result = cache_tensor.clone()
 
+    # indices_tensor contains the position(s) in the sequence dimension
+    # where update_tensor values should be written
+    indices = indices_tensor.shard_at(0).to(torch.long)
+    seq_len = update_tensor.shape[2]
     for device_id, shard in result.shard_map.items():
-        shard[:, :, : update_tensor.shape[2], :] = update_tensor.shard_at(device_id)
+        update_data = update_tensor.shard_at(device_id)
+        for i in range(seq_len):
+            idx = indices[i].item()
+            shard[:, :, idx, :] = update_data[:, :, i, :]
     return result
 
 
@@ -6363,6 +6376,43 @@ def ttnn_layer_norm_golden(
     ).to(output_dtype)
 
 
+def ttnn_layer_norm_pre_all_gather_golden(
+    input: GoldenMapTensor,
+    residual_input: Optional[GoldenMapTensor],
+    recip: Optional[GoldenMapTensor],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    # `recip` is a precomputed reciprocal LUT [1/1, 1/2, ..., 1/width] used by
+    # the Welford kernel path to replace expensive divisions with multiplies.
+    # It affects *how* the device computes E(x) and E(x^2) (numerical stability
+    # and performance), but not *what* the mathematical result is. The golden
+    # reference computes the same statistics via torch.mean(), so `recip` is
+    # intentionally unused here.
+    del recip
+
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    TILE_WIDTH = 32
+
+    input_float = input.float()
+    if residual_input is not None:
+        input_float = input_float + residual_input.float()
+
+    # Compute per-row partial statistics: E(x^2) and E(x).
+    # Build output per-shard to preserve GoldenMapTensor structure.
+    def compute_stats(shard):
+        shard_float = shard.float()
+        ex2 = shard_float.square().mean(dim=-1, keepdim=True)
+        ex = shard_float.mean(dim=-1, keepdim=True)
+        output_shape = list(shard_float.shape)
+        output_shape[-1] = 2 * TILE_WIDTH
+        output = torch.zeros(output_shape, dtype=torch.float32)
+        output[..., :1] = ex2
+        output[..., TILE_WIDTH : TILE_WIDTH + 1] = ex
+        return output.to(output_dtype)
+
+    return GoldenMapTensor.apply_shardwise(input_float, compute_stats)
+
+
 def ttnn_group_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -6900,6 +6950,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.MatmulOp: ttnn_matmul_golden,
     ttnn.LinearOp: ttnn_linear_golden,
     ttnn.LayerNormOp: ttnn_layer_norm_golden,
+    ttnn.LayerNormPreAllGatherOp: ttnn_layer_norm_pre_all_gather_golden,
     ttnn.GroupNormOp: ttnn_group_norm_golden,
     ttnn.RMSNormOp: rms_norm_golden,
     # Tensor manipulation

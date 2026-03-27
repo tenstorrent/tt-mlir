@@ -91,7 +91,15 @@ def test_stablehlo_parsing_splitting_ops(mlir_snippet, request, device):
     split_modules = split_mlir_file(mlir_module, builder, target="stablehlo")
 
 
+skip_split_ttnn_tests = [
+    "ttnn_all_gather.mlir",
+]
+
+
 @pytest.mark.parametrize("mlir_snippet", ttnn_mlir_snippets.keys())
 def test_ttnn_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = ttnn_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttnn")
+
+    if mlir_snippet not in skip_split_ttnn_tests:
+        split_modules = split_mlir_file(mlir_module, builder, target="ttnn")
