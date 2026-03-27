@@ -6669,7 +6669,9 @@ def ttir_paged_flash_multi_latent_attention_decode_golden(
     scale_val = unpack_mlir_attr(scale) if scale is not None else 1.0
     is_causal_val = unpack_mlir_attr(is_causal) if is_causal is not None else True
 
-    def _golden_per_shard(q, k, pt, v=None, cur_pos=None):
+    def _golden_per_shard(
+        q, k, pt, v=None, cur_pos=None, attn_mask_in=None, attn_sink=None
+    ):
         # Q is (S, B, H, D) from device layout, permute to (B, H, S, D).
         q = q.permute(1, 2, 0, 3).float()
         b, nh, _, d = q.shape
@@ -6691,7 +6693,15 @@ def ttir_paged_flash_multi_latent_attention_decode_golden(
 
         # V is derived from K's first head_dim_v dimensions if not provided.
         if v is not None:
-            v_unpaged = v  # TODO: unpage V similarly if provided
+            # Unpage V using the same page table as K.
+            # V is (num_blocks, nkv, block_size, head_dim_v).
+            dv = v.shape[-1]
+            v_unpaged = v[pt.view(-1)]  # (B * blocks_per_user, nkv, block_size, dv)
+            v_unpaged = v_unpaged.reshape(b, blocks_per_user, nkv, block_size, dv)
+            v_unpaged = v_unpaged.transpose(
+                1, 2
+            )  # (B, nkv, blocks_per_user, block_size, dv)
+            v_unpaged = v_unpaged.reshape(b, nkv, seq_len, dv).float()
         else:
             v_unpaged = k_unpaged[..., :head_dim_v_val]  # (B, nkv, seq_len, head_dim_v)
 
@@ -6702,13 +6712,20 @@ def ttir_paged_flash_multi_latent_attention_decode_golden(
             head_rep, dim=1
         )  # (B, nh, seq_len, head_dim_v)
 
-        # Build causal mask if needed.
+        # Build attention mask.
         attn_mask = None
-        if is_causal_val and cur_pos is not None:
+        if attn_mask_in is not None:
+            attn_mask = attn_mask_in.float()
+        elif is_causal_val and cur_pos is not None:
             attn_mask = torch.zeros((b, nh, 1, seq_len), dtype=torch.float32)
             for i in range(b):
                 start_idx = int(cur_pos[i].item())
                 attn_mask[i, :, :, start_idx + 1 :] = torch.finfo(torch.float32).min
+
+        # Apply attention sink: keep the first N positions always visible.
+        if attn_sink is not None and attn_mask is not None:
+            sink_len = attn_sink.shape[-1] if attn_sink.dim() > 0 else 1
+            attn_mask[..., :sink_len] = 0
 
         out = torch.nn.functional.scaled_dot_product_attention(
             q, k_exp, v_exp, attn_mask=attn_mask, scale=scale_val, is_causal=False
@@ -6728,6 +6745,16 @@ def ttir_paged_flash_multi_latent_attention_decode_golden(
         if cur_pos_tensor is not None
         else {i: None for i in q_shards}
     )
+    am_shards = (
+        attention_mask._shard_map
+        if attention_mask is not None
+        else {i: None for i in q_shards}
+    )
+    as_shards = (
+        attention_sink._shard_map
+        if attention_sink is not None
+        else {i: None for i in q_shards}
+    )
 
     output_shards = {}
     for shard_id in q_shards:
@@ -6737,6 +6764,8 @@ def ttir_paged_flash_multi_latent_attention_decode_golden(
             pt_shards[shard_id],
             v=v_shards[shard_id],
             cur_pos=cp_shards[shard_id],
+            attn_mask_in=am_shards[shard_id],
+            attn_sink=as_shards[shard_id],
         )
 
     return GoldenMapTensor(output_shards, query.mesh_shape)

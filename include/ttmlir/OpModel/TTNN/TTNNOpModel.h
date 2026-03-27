@@ -1888,11 +1888,12 @@ struct OpModel<AllReduceAsyncOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(ttcore::GridAttr deviceGrid,
                    llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, uint32_t clusterAxis,
-                   TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr inputLayout, uint32_t reduceType,
+                   uint32_t clusterAxis, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
+                                             uint32_t reduceType,
                                              uint32_t clusterAxis,
                                              TTNNLayoutAttr outputLayout);
 };
