@@ -40,7 +40,11 @@
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <numeric>
 #include <string>
 
@@ -261,6 +265,15 @@ getShapeAsI32(mlir::RankedTensorType tensorType) {
   return llvm::to_vector_of<int32_t>(tensorType.getShape());
 }
 
+// Reshape attribute if it is splat and present, otherwise return nullptr.
+static DenseElementsAttr reshapeIfSplatAndPresent(RankedTensorType type,
+                                                  Attribute attr) {
+  if (auto splat = llvm::dyn_cast_if_present<SplatElementsAttr>(attr)) {
+    return splat.resizeSplat(type);
+  }
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // LogicalAndOp
 //===----------------------------------------------------------------------===//
@@ -366,6 +379,14 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
                    [](const int32_t dim) { return dim == 1; })) {
     return getInput();
   }
+
+  // If the input is constant and splat, perform constant folding.
+  Attribute constInput = adaptor.getInput();
+  RankedTensorType resultType = getResult().getType();
+  if (auto foldResult = reshapeIfSplatAndPresent(resultType, constInput)) {
+    return foldResult;
+  }
+
   return {};
 }
 
@@ -1973,6 +1994,19 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return nullptr;
 }
 
+// Fold reshape if input is constant
+static mlir::OpFoldResult constFoldRehsape(mlir::tt::ttir::ReshapeOp op,
+                                           Attribute constInput) {
+  if (auto denseAttr = dyn_cast_if_present<DenseElementsAttr>(constInput)) {
+    RankedTensorType type = op.getResult().getType();
+    if (denseAttr.isSplat()) {
+      return denseAttr.resizeSplat(type);
+    }
+    return denseAttr.reshape(type);
+  }
+  return nullptr;
+}
+
 // ReshapeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
   if (auto foldResult = foldIdentityReshape(*this)) {
@@ -1980,6 +2014,10 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   }
 
   if (auto foldResult = foldConsecutiveReshape(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = constFoldRehsape(*this, adaptor.getInput())) {
     return foldResult;
   }
 
@@ -2511,10 +2549,107 @@ foldConsecutiveSliceStatic(mlir::tt::ttir::SliceStaticOp consumerOp) {
   return nullptr;
 }
 
+template <typename ElemType>
+static mlir::OpFoldResult
+constantFoldNonSplatSliceStatic(mlir::tt::ttir::SliceStaticOp op,
+                                DenseElementsAttr denseAttr) {
+  llvm::ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
+  // Calculate step size for iterating over any dimension.
+  llvm::SmallVector<int64_t> iterStepSize(inputShape.size());
+  std::partial_sum(inputShape.rbegin(), std::prev(inputShape.rend()),
+                   std::next(iterStepSize.rbegin()),
+                   std::multiplies<int64_t>());
+  iterStepSize.back() = 1;
+
+  llvm::SmallVector<int64_t> begins(inputShape.size());
+  llvm::SmallVector<int64_t> ends(inputShape.size());
+  llvm::SmallVector<int64_t> step(inputShape.size());
+  llvm::SmallVector<int64_t> currIndex(inputShape.size());
+  int64_t startPos = 0;
+  for (size_t i = 0; i < currIndex.size(); ++i) {
+    begins[i] = mlir::cast<mlir::IntegerAttr>(op.getBegins()[i]).getInt();
+    ends[i] = mlir::cast<mlir::IntegerAttr>(op.getEnds()[i]).getInt();
+    step[i] = mlir::cast<mlir::IntegerAttr>(op.getStep()[i]).getInt();
+    currIndex[i] = begins[i];
+    startPos += currIndex[i] * iterStepSize[i];
+    assert(iterStepSize[i] != 0 && step[i] != 0 && "Step size cannot be zero");
+  }
+
+  auto inputValues = denseAttr.getValues<ElemType>();
+  llvm::SmallVector<ElemType> outputValues;
+
+  auto it = inputValues.begin();
+  it += startPos;
+  while (true) {
+    outputValues.push_back(*it);
+    int64_t dim = currIndex.size() - 1;
+    while (dim >= 0 &&
+           ((step[dim] > 0 && currIndex[dim] + step[dim] >= ends[dim]) ||
+            (step[dim] < 0 && currIndex[dim] + step[dim] <= ends[dim]))) {
+      it -= std::abs(currIndex[dim] - begins[dim]) * iterStepSize[dim];
+      currIndex[dim] = begins[dim];
+      --dim;
+    }
+    if (dim < 0) {
+      break;
+    }
+    it += iterStepSize[dim] * step[dim];
+    currIndex[dim] += step[dim];
+  }
+
+  return mlir::DenseElementsAttr::get(op.getType(), outputValues);
+}
+
+static mlir::OpFoldResult
+constantFoldSliceStatic(mlir::tt::ttir::SliceStaticOp op,
+                        Attribute constInput) {
+  if (auto foldSplat =
+          reshapeIfSplatAndPresent(op.getResult().getType(), constInput)) {
+    return foldSplat;
+  }
+
+  if (op.getResult().hasOneUse() &&
+      isa<mlir::tt::ttir::SliceStaticOp>(
+          op.getResult().use_begin()->getOwner())) {
+    // Don't fold if the result is consumed by another SliceStaticOp, as that
+    // would prevent folding of consecutive SliceStaticOps.
+    return nullptr;
+  }
+
+  if (auto denseAttr =
+          mlir::dyn_cast_if_present<DenseElementsAttr>(constInput)) {
+    if (denseAttr.empty()) {
+      return mlir::DenseElementsAttr::get(op.getType(),
+                                          llvm::ArrayRef<mlir::Attribute>{});
+    }
+    llvm::ArrayRef<int64_t> outputShape = op.getType().getShape();
+    constexpr int64_t maxElements = 1'000'000;
+    if (std::reduce(outputShape.begin(), outputShape.end(), 1,
+                    std::multiplies<int64_t>()) > maxElements) {
+      // Avoid folding if the number of elements is too large, to prevent
+      // excessive compile time and memory usage.
+      return nullptr;
+    }
+
+    if (denseAttr.getElementType().isFloat()) {
+      return constantFoldNonSplatSliceStatic<mlir::APFloat>(op, denseAttr);
+    }
+    if (denseAttr.getElementType().isInteger()) {
+      return constantFoldNonSplatSliceStatic<mlir::APInt>(op, denseAttr);
+    }
+  }
+
+  return nullptr;
+}
+
 // SliceStaticOp Folder
 mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
 
   if (auto foldResult = foldConsecutiveSliceStatic(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = constantFoldSliceStatic(*this, adaptor.getInput())) {
     return foldResult;
   }
 
@@ -4190,6 +4325,10 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
   if (auto foldResult = foldConsecutiveRepeat(*this)) {
     return foldResult;
   }
+  if (auto foldResult =
+          reshapeIfSplatAndPresent(getResult().getType(), fold.getInput())) {
+    return foldResult;
+  }
 
   return nullptr;
 }
@@ -4241,6 +4380,28 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
 
   return success();
 }
+
+static mlir::OpFoldResult
+foldIdentityRepeatInterleave(mlir::tt::ttir::RepeatInterleaveOp op) {
+  if (op.getRepeats() == 1) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+// RepeatInterleaveOp Folder
+mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
+  if (auto foldResult = foldIdentityRepeatInterleave(*this)) {
+    return foldResult;
+  }
+  if (auto foldResult =
+          reshapeIfSplatAndPresent(getResult().getType(), fold.getInput())) {
+    return foldResult;
+  }
+
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
@@ -4967,6 +5128,83 @@ static mlir::OpFoldResult foldConsecutivePermute(mlir::tt::ttir::PermuteOp op) {
   return nullptr;
 }
 
+template <typename ElemType>
+static mlir::DenseElementsAttr
+constantFoldNonSplatPermute(mlir::tt::ttir::PermuteOp op,
+                            mlir::DenseElementsAttr inputElements) {
+  RankedTensorType resultType = op.getResult().getType();
+  llvm::ArrayRef<int64_t> outputShape = resultType.getShape();
+
+  // Calculate step size for iterating over any dimension.
+  llvm::SmallVector<int64_t> stepSize(outputShape.size());
+  std::partial_sum(outputShape.rbegin(), std::prev(outputShape.rend()),
+                   std::next(stepSize.rbegin()), std::multiplies<int64_t>());
+  stepSize.back() = 1;
+
+  // Invert the permutation so that the elements represent dimensions in
+  // output tensor.
+  llvm::SmallVector<int64_t> invertedPermutation =
+      ttmlir::utils::inversePermutation(op.getPermutation());
+
+  auto valueRange = inputElements.getValues<ElemType>();
+  llvm::SmallVector<ElemType> result;
+  if (!valueRange.empty()) {
+    result.resize(valueRange.size(), *valueRange.begin());
+  }
+  llvm::SmallVector<int64_t> index(outputShape.size());
+  int64_t rawPos = 0;
+  for (auto value : valueRange) {
+    result[rawPos] = value;
+
+    // Calculate next position.
+    auto dim = invertedPermutation.rbegin();
+    while (dim != invertedPermutation.rend() &&
+           index[*dim] == outputShape[*dim] - 1) {
+      rawPos -= index[*dim] * stepSize[*dim];
+      index[*dim] = 0;
+      ++dim;
+    }
+    if (dim != invertedPermutation.rend()) {
+      rawPos += stepSize[*dim];
+      ++index[*dim];
+    }
+  }
+
+  return DenseElementsAttr::get(resultType, result);
+}
+
+static mlir::OpFoldResult constantFoldPermute(mlir::tt::ttir::PermuteOp op,
+                                              Attribute input) {
+  auto result = op.getResult();
+  if (auto foldResult = reshapeIfSplatAndPresent(result.getType(), input)) {
+    return foldResult;
+  }
+
+  if (result.hasOneUse() &&
+      llvm::isa<ttir::PermuteOp>(result.use_begin()->getOwner()) &&
+      !op->hasAttr("decomposed")) {
+    // Don't constant fold yet if folding of consecutive permutes is possible
+    return nullptr;
+  }
+
+  if (auto denseElements = dyn_cast_if_present<DenseElementsAttr>(input)) {
+    constexpr int64_t foldLimit = 1'000'000;
+    // Limit constant folding to small tensors to avoid long compile times and
+    // large memory usage.
+    if (denseElements.getNumElements() > foldLimit) {
+      return nullptr;
+    }
+    if (denseElements.getElementType().isInteger()) {
+      return constantFoldNonSplatPermute<llvm::APInt>(op, denseElements);
+    }
+    if (denseElements.getElementType().isFloat()) {
+      return constantFoldNonSplatPermute<llvm::APFloat>(op, denseElements);
+    }
+  }
+
+  return nullptr;
+}
+
 // PermuteOp folder
 mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
 
@@ -4975,6 +5213,10 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
   }
 
   if (auto foldResult = foldConsecutivePermute(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = constantFoldPermute(*this, adaptor.getInput())) {
     return foldResult;
   }
 
@@ -5022,9 +5264,13 @@ verifyReplicaGroups(mlir::DenseIntElementsAttr replicaGroups) {
   return std::nullopt;
 }
 
-// Helper to convert type of scalar attribute.
-static mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
-                                              mlir::Type targetType) {
+// Helper to convert type of fill_value attribute from i32/f32 to any
+// integer/float type.
+static mlir::Attribute convertFillValue(mlir::TypedAttr typedAttr,
+                                        mlir::Type targetType) {
+  assert((typedAttr.getType().isF32() || typedAttr.getType().isInteger(32)) &&
+         "Expected fill_value attribute to be either f32 or i32");
+
   if (typedAttr.getType() == targetType) {
     return typedAttr;
   }
@@ -5054,18 +5300,14 @@ static mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
 
     // Case C: Integer -> Integer (e.g., i32 -> i64)
     if (auto targetIntType = mlir::dyn_cast<mlir::IntegerType>(targetType)) {
-      if (intAttr.getType().isUnsignedInteger()) {
-        intVal = intVal.zextOrTrunc(targetIntType.getWidth());
-      } else {
-        intVal = intVal.sextOrTrunc(targetIntType.getWidth());
-      }
+      intVal = intVal.sextOrTrunc(targetIntType.getWidth());
       return mlir::IntegerAttr::get(targetType, intVal);
     }
 
     // Case D: Integer -> Float (e.g., i32 -> f32)
     if (auto targetFloatType = mlir::dyn_cast<mlir::FloatType>(targetType)) {
       llvm::APFloat floatVal(targetFloatType.getFloatSemantics());
-      auto sourceIntType = mlir::cast<mlir::IntegerType>(intAttr.getType());
+      auto sourceIntType = IntegerType::get(typedAttr.getContext(), 32);
       // Treat signless intergers as signed.
       bool isSigned = !sourceIntType.isUnsigned();
       floatVal.convertFromAPInt(intVal, isSigned,
@@ -5085,7 +5327,7 @@ static mlir::Attribute convertScalarAttribute(mlir::TypedAttr typedAttr,
   // Fill value is 32-bit float or 32-bit signless integer, but result type
   // might differ.
   auto convertedFillValue =
-      convertScalarAttribute(fillValue, resultType.getElementType());
+      convertFillValue(fillValue, resultType.getElementType());
 
   return SplatElementsAttr::get(resultType, convertedFillValue);
 }

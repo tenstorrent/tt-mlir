@@ -58,7 +58,7 @@ private:
                                           PatternRewriter &rewriter);
   static Type getTargetElementType(Value v);
   std::pair<Value, Type> analyzeQ(Value v) const;
-  std::tuple<Value, Type, bool> analyzeK(Value v) const;
+  std::tuple<Value, Type> analyzeK(Value v) const;
   std::pair<Value, Type> analyzeV(Value v) const;
   Value prepareMask(Value v) const;
   void prepareInputsForSDPA(SDPAComponents &c, PatternRewriter &rewriter) const;

@@ -2830,20 +2830,12 @@ private:
     // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
     // add op
     bool isArgLhs = false;
-    ttir::FullOp one = getFullOpThroughTMChain(gaussianCDFAdd.getLhs());
+    Operation *one = getOneThroughTMChain(gaussianCDFAdd.getLhs());
     if (!one) {
-      one = getFullOpThroughTMChain(gaussianCDFAdd.getRhs());
+      one = getOneThroughTMChain(gaussianCDFAdd.getRhs());
       isArgLhs = true;
     }
     if (!one) {
-      return nullptr;
-    }
-
-    if (!isa<FloatAttr>(one.getFillValue())) {
-      return nullptr;
-    }
-    APFloat value = dyn_cast<FloatAttr>(one.getFillValue()).getValue();
-    if (!checkFloatIsNear(value.convertToFloat(), ONE)) {
       return nullptr;
     }
 
@@ -3088,6 +3080,30 @@ private:
       currentOp = currentOp->getOperand(0).getDefiningOp();
     }
     return mlir::dyn_cast_if_present<ttir::FullOp>(currentOp);
+  }
+
+  // Same as `getFullOpThroughTMChain` but get OnesOp or FullOp with fill_value
+  // close to one.
+  Operation *getOneThroughTMChain(Value value) const {
+    Operation *currentOp = value.getDefiningOp();
+
+    while (isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp, ttir::PermuteOp>(
+        currentOp)) {
+      currentOp = currentOp->getOperand(0).getDefiningOp();
+    }
+
+    if (auto full = mlir::dyn_cast_if_present<ttir::FullOp>(currentOp)) {
+      if (!isa<FloatAttr>(full.getFillValue())) {
+        return nullptr;
+      }
+      APFloat value = dyn_cast<FloatAttr>(full.getFillValue()).getValue();
+      if (!checkFloatIsNear(value.convertToFloat(), ONE)) {
+        return nullptr;
+      }
+      return full;
+    }
+
+    return mlir::dyn_cast_if_present<ttir::OnesOp>(currentOp);
   }
 };
 } // namespace

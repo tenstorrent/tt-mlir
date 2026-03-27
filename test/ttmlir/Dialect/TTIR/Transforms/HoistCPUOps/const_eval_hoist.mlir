@@ -91,7 +91,6 @@ func.func private @all_creation_ops() -> tensor<32x32xbf16> attributes {tt.funct
 // CHECK: ttir.zeros
 // CHECK: ttir.to_layout
 // CHECK: call @cpu_hoisted_const_eval_{{.*}}
-// CHECK: ttir.reshape
 // CHECK: return
 func.func private @creation_with_transparent_chain(
     %arg0: tensor<32x32xbf16>
