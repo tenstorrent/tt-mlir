@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -28,6 +28,18 @@ static int64_t getNumElements(MemRefType memrefType) {
     numElements *= dim;
   }
   return numElements;
+}
+
+// Find the scratch memref.alloc in a generic region by looking for the
+// "d2m.scratch" marker attribute.
+static memref::AllocOp findScratchAlloc(Region &region) {
+  memref::AllocOp result = nullptr;
+  region.walk([&](memref::AllocOp allocOp) {
+    if (allocOp->hasAttr("d2m.scratch")) {
+      result = allocOp;
+    }
+  });
+  return result;
 }
 
 // Information about a single scratch allocation.
@@ -60,14 +72,9 @@ public:
 
 private:
   // Process a single d2m.generic, lowering all scratch_allocate ops to
-  // rank-reducing subviews of the scratch memref obtained from
-  // get_scratch_from_cb.
+  // rank-reducing subviews of the scratch memref.alloc tagged with
+  // "d2m.scratch".
   LogicalResult processGeneric(GenericOp genericOp) {
-    auto scratchInputsAttr = genericOp.getScratchInputsAttr();
-    if (!scratchInputsAttr || scratchInputsAttr.empty()) {
-      return success();
-    }
-
     if (genericOp.getNumRegions() == 0) {
       return success();
     }
@@ -76,20 +83,11 @@ private:
       return success();
     }
 
-    // Create a CB for the scratch operand using the CB rework utilities.
-    // This gives the scratch buffer a proper CB port number so that
-    // downstream compute APIs (unpack/pack) can address it.
-    // The CB must be created even if there are no scratch_allocate ops,
-    // because the scratch memref.alloc in the region needs a CB association
-    // for D2MToTTKernel conversion.
-    int64_t scratchInputIdx = scratchInputsAttr[0];
-    Block &block = region.front();
-
-    IRRewriter rewriter(genericOp->getContext());
-    CBCache cbCache;
-    PortCounter portCounters;
-    Value scratchCB = getOrCreateCB(genericOp, region, scratchInputIdx,
-                                    rewriter, cbCache, portCounters);
+    // Find the scratch alloc by marker attribute.
+    memref::AllocOp scratchAllocOp = findScratchAlloc(region);
+    if (!scratchAllocOp) {
+      return success();
+    }
 
     // Collect all scratch_allocate ops in this region.
     SmallVector<ScratchAllocationInfo> allocations;
@@ -117,12 +115,8 @@ private:
       currentOffset += info.numElements;
     }
 
-    OpBuilder builder(&block, block.begin());
-    builder.setInsertionPointAfterValue(scratchCB);
-    auto scratchFromCBOp =
-        builder.create<GetScratchFromCBOp>(genericOp.getLoc(), scratchCB);
-    Value scratchMemRef = scratchFromCBOp.getResult();
-    auto scratchMemRefType = mlir::cast<MemRefType>(scratchMemRef.getType());
+    Value scratchMemRef = scratchAllocOp.getResult();
+    auto scratchMemRefType = scratchAllocOp.getType();
 
     // Verify allocations fit in the scratch buffer.
     int64_t scratchCapacity = getNumElements(scratchMemRefType);
@@ -141,15 +135,10 @@ private:
     return success();
   }
 
-  /// Replace a scratch_allocate with a rank-reducing subview of the scratch CB,
-  /// followed by an expand_shape if the requested type is multi-dimensional.
-  ///
-  /// The scratch buffer has shape [1, N] from AddScratchInputs.
-  /// Each scratch_allocate requests a memref with numElements total tiles.
-  /// We emit:
-  ///   1. subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>  (flat 1D)
-  ///   2. expand_shape memref<M> [[0,1,...,rank-1]] -> memref<requested shape>
-  ///      (only if the requested type has rank > 1)
+  // Replace a scratch_allocate with a rank-reducing subview of the scratch
+  // memref. The scratch buffer has shape [1, N] from InsertScratchBuffers.
+  // Each scratch_allocate requests a 1D memref<M x tile>.
+  // We emit: subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>
   void replaceScratchAllocate(ScratchAllocationInfo &info,
                               Value scratchMemRef) {
     ScratchAllocateOp allocOp = info.op;

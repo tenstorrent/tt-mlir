@@ -5,33 +5,28 @@
 
 module {
 
-// --- Test 1: Single scratch_allocate replaced by subview of scratch CB ---
+// --- Test 1: Single scratch_allocate replaced by subview of d2m.scratch alloc ---
 
 // CHECK-LABEL: func.func @single_scratch_store_load
 func.func @single_scratch_store_load() {
   %in = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
-  %scratch_buf = memref.alloc() : memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>
   %out = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
   d2m.generic {
     block_factors = [1, 1], grid = #ttcore.grid<1x1>,
-    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (0, 0)>, affine_map<(d0, d1) -> (d0, d1)>],
+    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
     iterator_types = [#parallel, #parallel],
-    scratch_inputs = array<i64: 1>,
     threads = [#d2m.thread<unified>]
   }
-  ins(%in, %scratch_buf : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>)
+  ins(%in : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
   ^bb0():
     %alloc_cb0 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb1 = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb2 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb1 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %scratch = memref.alloc() {d2m.scratch} : memref<1x8x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<32768x4096, 1>, #l1>
     %c0 = arith.constant 0 : index
-    // CHECK: d2m.get_cb(1)
-    // CHECK: %[[SCRATCH:.*]] = d2m.get_scratch_from_cb %{{.*}}
+    // CHECK: %[[SCRATCH:.*]] = memref.alloc() {d2m.scratch}
     // CHECK: %[[SV:.*]] = memref.subview %[[SCRATCH]][0, 0] [1, 1] [1, 1]
-    // CHECK-SAME: to memref<1x!ttcore.tile<32x32, f32>
     %scratch_slot = d2m.scratch_allocate {slot = 0 : i64} : memref<1x!ttcore.tile<32x32, f32>, #l1>
-    // Verify store and load are rewritten to use the subview.
     // CHECK: memref.load %[[SV]][%{{.*}}]
     // CHECK: memref.store %{{.*}}, %[[SV]][%{{.*}}]
     %tile = memref.load %scratch_slot[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1>
@@ -48,33 +43,28 @@ func.func @single_scratch_store_load() {
 // CHECK-LABEL: func.func @two_scratch_allocates
 func.func @two_scratch_allocates() {
   %in = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
-  %scratch_buf = memref.alloc() : memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>
   %out = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
   d2m.generic {
     block_factors = [1, 1], grid = #ttcore.grid<1x1>,
-    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (0, 0)>, affine_map<(d0, d1) -> (d0, d1)>],
+    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
     iterator_types = [#parallel, #parallel],
-    scratch_inputs = array<i64: 1>,
     threads = [#d2m.thread<unified>]
   }
-  ins(%in, %scratch_buf : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>)
+  ins(%in : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
   ^bb0():
     %alloc_cb3 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb4 = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb5 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb4 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %scratch = memref.alloc() {d2m.scratch} : memref<1x8x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<32768x4096, 1>, #l1>
     %c0 = arith.constant 0 : index
-    // CHECK: d2m.get_cb(1)
-    // CHECK: %[[SCRATCH:.*]] = d2m.get_scratch_from_cb %{{.*}}
+    // CHECK: %[[SCRATCH:.*]] = memref.alloc() {d2m.scratch}
 
     // Slot 0: 1 tile at offset 0.
     // CHECK: %[[SV0:.*]] = memref.subview %[[SCRATCH]][0, 0] [1, 1] [1, 1]
-    // CHECK-SAME: to memref<1x!ttcore.tile<32x32, f32>
     %s0 = d2m.scratch_allocate {slot = 0 : i64} : memref<1x!ttcore.tile<32x32, f32>, #l1>
 
     // Slot 1: 2 tiles at offset 1 (after slot 0's 1 tile).
     // CHECK: %[[SV1:.*]] = memref.subview %[[SCRATCH]][0, 1] [1, 2] [1, 1]
-    // CHECK-SAME: to memref<2x!ttcore.tile<32x32, f32>
     %s1 = d2m.scratch_allocate {slot = 1 : i64} : memref<2x!ttcore.tile<32x32, f32>, #l1>
 
     // Verify stores go to the correct subviews.
@@ -86,13 +76,12 @@ func.func @two_scratch_allocates() {
   return
 }
 
-// --- Test 3: Generic without scratch_inputs is unchanged ---
+// --- Test 3: Generic without scratch alloc is unchanged ---
 
 // CHECK-LABEL: func.func @no_scratch_noop
 func.func @no_scratch_noop() {
   %in = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
   %out = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
-  // CHECK-NOT: d2m.get_scratch_from_cb
   // CHECK-NOT: memref.subview
   d2m.generic {
     block_factors = [1, 1], grid = #ttcore.grid<1x1>,
@@ -114,26 +103,22 @@ func.func @no_scratch_noop() {
 // CHECK-LABEL: func.func @scratch_bf16
 func.func @scratch_bf16() {
   %in = memref.alloc() : memref<1x1x2x2x!ttcore.tile<32x32, bf16>, #ttcore.shard<4096x2048, 1>, #l1>
-  %scratch_buf = memref.alloc() : memref<1x1x1x4x!ttcore.tile<32x32, bf16>, #ttcore.shard<8192x2048, 1>, #l1>
   %out = memref.alloc() : memref<1x1x2x2x!ttcore.tile<32x32, bf16>, #ttcore.shard<4096x2048, 1>, #l1>
   d2m.generic {
     block_factors = [1, 1], grid = #ttcore.grid<1x1>,
-    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (0, 0)>, affine_map<(d0, d1) -> (d0, d1)>],
+    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
     iterator_types = [#parallel, #parallel],
-    scratch_inputs = array<i64: 1>,
     threads = [#d2m.thread<unified>]
   }
-  ins(%in, %scratch_buf : memref<1x1x2x2x!ttcore.tile<32x32, bf16>, #ttcore.shard<4096x2048, 1>, #l1>, memref<1x1x1x4x!ttcore.tile<32x32, bf16>, #ttcore.shard<8192x2048, 1>, #l1>)
+  ins(%in : memref<1x1x2x2x!ttcore.tile<32x32, bf16>, #ttcore.shard<4096x2048, 1>, #l1>)
   outs(%out : memref<1x1x2x2x!ttcore.tile<32x32, bf16>, #ttcore.shard<4096x2048, 1>, #l1>) {
   ^bb0():
     %alloc_cb8 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, bf16>, #l1>
-    %alloc_cb9 = memref.alloc() : memref<1x4x!ttcore.tile<32x32, bf16>, #l1>
-    %alloc_cb10 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, bf16>, #l1>
+    %alloc_cb9 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, bf16>, #l1>
+    %scratch = memref.alloc() {d2m.scratch} : memref<1x4x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<8192x2048, 1>, #l1>
     %c0 = arith.constant 0 : index
-    // CHECK: d2m.get_cb(1)
-    // CHECK: %[[SCRATCH:.*]] = d2m.get_scratch_from_cb %{{.*}}
+    // CHECK: %[[SCRATCH:.*]] = memref.alloc() {d2m.scratch}
     // CHECK: memref.subview %[[SCRATCH]][0, 0] [1, 1] [1, 1]
-    // CHECK-SAME: to memref<1x!ttcore.tile<32x32, bf16>
     %scratch_slot = d2m.scratch_allocate {slot = 0 : i64} : memref<1x!ttcore.tile<32x32, bf16>, #l1>
     %tile = memref.load %scratch_slot[%c0] : memref<1x!ttcore.tile<32x32, bf16>, #l1>
     memref.store %tile, %scratch_slot[%c0] : memref<1x!ttcore.tile<32x32, bf16>, #l1>
