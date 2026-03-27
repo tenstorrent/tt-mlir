@@ -58,6 +58,8 @@ public:
     maxLegalLayouts = opts.maxLegalLayouts;
     rowMajorEnabled = opts.rowMajorEnabled;
     beamWidth = opts.beamWidth;
+    maxInputCandidatesPerOperand = opts.maxInputCandidatesPerOperand;
+    maxReshardCandidates = opts.maxReshardCandidates;
     enableL1ShardingLayouts = opts.enableL1ShardingLayouts;
     enableDecisionTrace = opts.enableDecisionTrace;
     decisionTraceDir = std::move(opts.decisionTraceDir);
@@ -170,7 +172,10 @@ public:
 
       LayoutPropagation propagation(
           func, deviceGrid, legalConfigs, &tensorTypePossibleLayouts,
-          static_cast<size_t>(beamWidth), std::move(observer));
+          static_cast<size_t>(beamWidth),
+          static_cast<size_t>(maxInputCandidatesPerOperand),
+          static_cast<size_t>(maxReshardCandidates),
+          std::move(observer));
       propagation.run();
 
       // Write decision trace JSON if enabled.
