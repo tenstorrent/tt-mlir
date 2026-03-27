@@ -789,8 +789,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
 
       for (std::size_t d = 0; d < rank; ++d) {
+        TT_assert(blockFactors[d] % originalBlockFactors[d] == 0);
         const int64_t rescaling = blockFactors[d] / originalBlockFactors[d];
         gridExtents[d] *= rescaling;
+        TT_assert(shardExtents[d] % rescaling == 0);
         shardExtents[d] /= rescaling;
       }
       genericCtx.reblockedFactors = blockFactors;
