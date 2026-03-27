@@ -4008,6 +4008,8 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
     let hasVerifier = 1;
 
     let hasFolder = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_RearrangeOp : TTIR_NamedOp<"rearrange", [TTIR_TensorManipulation]> {
