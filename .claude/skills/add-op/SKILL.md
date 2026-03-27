@@ -2,7 +2,7 @@
 name: add-op
 description: >
   How to add a new operation (op) to the tt-mlir compiler across all layers: TTIR/TTNN dialect
-  definitions, (StableHLO->TTIR, TTIR->TTNN, TTNN->EmitPy and TTNN->EmitC) conversions,
+  definitions, StableHLO composite conversion, TTIR-to-TTNN conversion, EmitC/EmitPy conversions,
   flatbuffer schema and serialization, runtime implementation, OpModel, ttir_builder, golden
   functions, and all associated tests. Use this skill whenever the user asks to add an op, implement
   an op, create a new operation, add support for a TTNN op, or mentions adding an op to the compiler
@@ -12,44 +12,64 @@ description: >
 
 # Adding an Op to tt-mlir
 
-Adding an op touches ~15-30 file. This skill provides a dashboard to follow the progress.
+Adding a new op touches ~15-30 files across the compiler, runtime, and test infrastructure. This
+skill walks through each layer, starting from the TTNN device-level API and working upward. Use
+the existing ops in each file as your primary reference — find the most similar op and follow its
+pattern.
 
 The implementation order is:
 
 ```
 1. TTNN dialect definition (models the TTNN C++ API)
 2. TTIR dialect definition (higher-level, device-agnostic)
-3. TTIR -> TTNN conversion
-4. TTNN -> EmitPy / EmitC conversions
-5. StableHLO composite -> TTIR conversion (if needed)
+3. TTIR → TTNN conversion
+4. TTNN → EmitC / EmitPy conversions
+5. StableHLO composite → TTIR conversion (if needed)
 6. Flatbuffer schema and serialization
 7. Runtime implementation
 8. OpModel
 9. TTIRBuilder, golden functions, tests
 ```
 
-**Key principle:** Start from the TTNN C++ API and work outward. Consult `references/ttnn_type_mapping.md` for C++ -> MLIR type mappings.
+The key principle: **start from the TTNN C++ API** and work outward. The TTNN dialect op should
+model the TTNN library function as closely as possible. The TTIR op is a simplified, device-agnostic
+version derived from it.
 
-**VERY BIGLY IMPORTANT! Before starting, identify:**:
-- exact TTNN op to be implemented (ask user)
-- TTNN C++ API signature of a similar existing op, to use as template
-  - pay attention which arguments are required and which are optional
-- all the C++ signatures of the op (`third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/operations/`)
-- all the Python signatures of the op (nanobindings in same dir as C++)
+Consult `references/ttnn_type_mapping.md` for the mapping between TTNN C++ types and their MLIR
+tablegen equivalents. This covers tensor types, scalar attributes, TTNN-specific types (MemoryConfig,
+DeviceComputeKernelConfig, Topology, etc.), and which C++ types have no MLIR equivalent and are
+handled at runtime only.
 
-## Step -1: Ask user which ONE C++ and corresponding Python signature they want implemented.
+Before starting, identify:
+- **The TTNN C++ API** you're targeting — read the actual function signature in
+  `third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/operations/`. This is the source of truth for
+  what parameters the op takes, their types, and which are optional.
+- **A similar existing op** to use as a template (e.g., `RMSNormOp` for normalization ops,
+  `MatmulOp` for ops with multiple tensor inputs, `ReduceScatterOp` for CCL ops)
+- **Which arguments are optional** — this affects whether you need `AttrSizedOperandSegments`
+- **Naming conflicts** — check if an op with the same name already exists (e.g., StableHLO `GatherOp`
+  already exists, so torch.gather semantics was named `GatherDimOp` in TTIR). Search the existing
+  tablegen definitions before choosing a name.
+- **Data type requirements** — some TTNN metal ops require specific types (e.g., `ttnn::gather`
+  requires UINT32/UINT16 index tensors, not INT32). Check the metal API docs or headers.
+- **Tensor shape conventions** — some metal kernels expect specific tensor layouts (e.g., SDPA
+  decode expects Q in `(S, B, H, D)` format, not `(B, H, S, D)`). Search
+  `third_party/tt-metal/src/tt-metal/tests/` for existing unit tests of the TTNN op to find the
+  exact tensor shapes, dtypes, and any required permutations. These tests are the ground truth for
+  what shapes the metal kernel actually supports.
 
-## Step 0: Generate a simple Python snippet of the op and confirm it runs.
+## Step 1: Define the Op in TTNN
 
-## Step 1: TTNN Dialect Definition
+### 1a. Tablegen definition
 
-### 1a. Tablegen de
+**File:** `include/ttmlir/Dialect/TTNN/IR/TTNNOps.td`
 
-**`include/ttmlir/Dialect/TTNN/IR/TTNNOps.td`** — Model the TTNN C++ API closely. Map each parameter using `references/ttnn_type_mapping.md`. If confused with selection, compare with other implemented ops. `AttrSizedOperandSegments` if there are optional operands, `TTNN_MemoryConfigOpInterface` if it takes memory_config. Set `let hasVerifier = 1` if verifying makes sense.
+The TTNN op should model the TTNN C++ API as closely as possible. Read the actual C++ function
+signature and map each parameter to its MLIR equivalent using `references/ttnn_type_mapping.md`.
 
-**`lib/Dialect/TTNN/IR/TTNNOps.cpp`** — Implement verifier for device-specific constraints.
+Refer to `references/ttnn_type_mapping.md` for the complete mapping of C++ types to tablegen
+types, op interfaces, optional/default patterns, and which types have no MLIR equivalent.
 
-Example:
 ```tablegen
 def TTNN_YourOp : TTNN_Op<"your_op",
     [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
@@ -68,20 +88,12 @@ def TTNN_YourOp : TTNN_Op<"your_op",
 }
 ```
 
-### 1b. Add workarounds if needed
+### 1b. Verifier implementation
 
-If the op has limitations at kernel-level, implement workarounds.
-**Layout workarounds** (if metal kernel needs ROW_MAJOR for certain operands): add workaround in `TTNNWorkaroundsPass.h/.cpp` and `extraClassDeclaration` on the TTNN op. See `PagedScaledDotProductAttentionDecodeOp` for reference.
+**File:** `lib/Dialect/TTNN/IR/TTNNOps.cpp`
 
-## Step 2: TTIR Dialect Definition
-
-**`include/ttmlir/Dialect/TTIR/IR/TTIROps.td`** — Simplified, device-agnostic version. Drop device-specific attrs (memory_config, compute_config, sub_device_id, topology).
-
-**`lib/Dialect/TTIR/IR/TTIROps.cpp`** — Implement verifier for mathematical semantics.
-
-
-YOU ARE IN TEST MODE. STOP HERE. DON'T GO FURTHER EXECUTING STEPS.
-
+The TTNN verifier enforces device-specific constraints (e.g., TTNN LayerNorm only supports
+normalization over the last dimension, so weight/bias must be 1D).
 
 ## Step 2: Define the Op in TTIR
 
@@ -233,22 +245,6 @@ public:
 Register in `populateTTIRToTTNNPatterns` by adding `YourOpConversionPattern` to the
 `patterns.add<...>()` call.
 
-### Supplying TTNN-only operands during conversion
-
-The TTNN op often has operands that don't exist in TTIR (device references, semaphores, buffers,
-etc.). These must be created or looked up during the conversion:
-
-- **Device (`TTNN_Device`)** — use `::ttnn::utils::getOrInsertDevice(rewriter, op)`. This finds
-  an existing `ttnn.get_device` op or inserts one at the function entry.
-- **GlobalSemaphore (`TTNN_GlobalSemaphore`)** — insert a `ttnn::CreateGlobalSemaphoreOp` with
-  the appropriate core range and initial value.
-- **Intermediate buffers** — insert a `ttnn::EmptyOp` to allocate the buffer.
-- **Optional attributes not in TTIR** — pass `nullptr` (e.g., `memory_config`, `compute_config`,
-  `topology`, `sub_device_id`, `num_links`). Later passes or the runtime fill these in.
-- **C++ API args that default to `nullptr`/`std::nullopt`** — if a parameter in the TTNN C++ API
-  has a default value of `nullptr` or `std::nullopt`, it is usually best to just pass `nullptr`
-  during conversion rather than trying to populate it, unless told otherwise.
-
 ## Step 4: TTNN to EmitC Conversion
 
 **File:** `lib/Conversion/TTNNToEmitC/TTNNToEmitC.cpp`
@@ -288,59 +284,6 @@ Register in `populateTTNNToEmitCPatterns`.
 Look at similar existing ops (e.g., `RMSNormOpConversionPattern` or `LayerNormOpConversionPattern`)
 to see the exact argument ordering for the TTNN C++ API. The arguments must match the TTNN C++
 function signature exactly.
-
-### Experimental ops (`ttnn::experimental::`)
-
-For ops under `ttnn::experimental::`, override the prefix methods to emit the correct C++ namespace:
-
-```cpp
-class YourExperimentalOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::YourOp> {
-private:
-  std::string getPrefixSearchPattern() const override { return "ttnn.your_op"; }
-  std::string getPrefixSwapPattern() const override {
-    return "ttnn::experimental::your_op";
-  }
-  // ... rest of matchAndRewrite
-};
-```
-
-### Multi-output ops
-
-For ops returning multiple tensors (C++ returns `std::vector<Tensor>` or `std::array<Tensor, N>`),
-you cannot use the default `emitter.replaceOp()`. Instead, manually create the call and extract
-results:
-
-```cpp
-// Declare return type
-using ReturnTy = std::vector<::ttnn::Tensor>;
-auto callOp = rewriter.create<emitc::CallOpaqueOp>(
-    srcOp.getLoc(),
-    rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
-    this->convertOpName(srcOp), rewriter.getArrayAttr(args),
-    /*template_args=*/nullptr, adaptor.getOperands());
-
-// Extract each result via subscript
-SmallVector<Value> results;
-for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
-  auto indexOp = rewriter.create<emitc::LiteralOp>(
-      srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
-  auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
-      rewriter.getContext(), ttnn_to_emitc::TypeNameV<ReturnTy::value_type>));
-  auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
-      srcOp.getLoc(), lvalueType, callOp.getResult(0), indexOp.getResult());
-  auto loadOp = rewriter.create<emitc::LoadOp>(
-      srcOp.getLoc(),
-      emitc::OpaqueType::get(
-          rewriter.getContext(), ttnn_to_emitc::TypeNameV<ReturnTy::value_type>),
-      subscriptOp.getResult());
-  results.push_back(loadOp.getResult());
-}
-rewriter.replaceOp(srcOp, results);
-```
-
-See `AllToAllDispatchOpConversionPattern` and `MoeExpertTokenRemapOpConversionPattern` for
-complete examples.
 
 ## Step 5: TTNN to EmitPy Conversion
 
@@ -390,41 +333,6 @@ public:
 
 Register in `populateTTNNToEmitPyPatterns`. Note: EmitPy patterns take `enableGoldenMode` and
 pass `this->isGoldenModeEnabled()` to the emitter constructor.
-
-### Experimental ops (`ttnn.experimental.`)
-
-For ops under `ttnn.experimental`, override the prefix methods to emit the correct Python module:
-
-```cpp
-class YourExperimentalOpConversionPattern
-    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::YourOp> {
-private:
-  std::string getPrefixSearchPattern() const override { return "ttnn.your_op"; }
-  std::string getPrefixSwapPattern() const override {
-    return "ttnn.experimental.your_op";
-  }
-  // ... rest of matchAndRewrite
-};
-```
-
-### Multi-output ops
-
-EmitPy handles multi-output more naturally than EmitC since Python supports tuple unpacking.
-See `AllToAllDispatchOpConversionPattern` in `TTNNToEmitPy.cpp` for the pattern.
-
-### Injecting GlobalSemaphore in EmitPy
-
-Some ops need a GlobalSemaphore that isn't an explicit op argument. In EmitPy, create it inline:
-
-```cpp
-auto opaqueType = emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor");
-auto globalSemaphoreOp = rewriter.create<emitpy::CallOpaqueOp>(
-    srcOp.getLoc(), opaqueType, "utils.create_global_semaphore",
-    llvm::SmallVector<mlir::Value>{adaptor.getInput()});
-// Then pass globalSemaphoreOp.getResult(0) as an argument
-```
-
-See `DistributedRMSNormOpConversionPattern` for the complete pattern.
 
 ## Step 6: StableHLO Composite to TTIR Conversion
 
@@ -498,20 +406,6 @@ table YourOp {
   out: tt.target.ttnn.TensorRef;
 }
 ```
-
-For multi-output ops, use **named output fields** instead of a single `out`:
-```flatbuffers
-table YourFusedOp {
-  input: tt.target.ttnn.TensorRef;
-  weight: tt.target.ttnn.TensorRef;
-  rs_result: tt.target.ttnn.TensorRef;
-  mm_result: tt.target.ttnn.TensorRef;
-  // ... other fields
-}
-```
-
-See `AllToAllDispatchOp` (has `dispatched` + `metadata`) and `MoeExpertTokenRemapOp` (has
-`mapping` + `reduced`) in `ccl.fbs` for examples.
 
 ### 7b. Register in OpType union
 
@@ -617,13 +511,6 @@ void run(const ::tt::target::ttnn::YourOp *op, ProgramContext &context) {
 } // namespace tt::runtime::ttnn::operations::your_op
 ```
 
-For multi-output ops that return `std::vector<Tensor>`, insert each result separately:
-```cpp
-  std::vector<::ttnn::Tensor> outputs = ::ttnn::experimental::your_op(...);
-  tensorPool.insertTTNNTensorAndValidate(op->rs_result(), outputs[0]);
-  tensorPool.insertTTNNTensorAndValidate(op->mm_result(), outputs[1]);
-```
-
 ### 8c. CMakeLists.txt
 
 **File:** `runtime/lib/ttnn/operations/CMakeLists.txt`
@@ -700,12 +587,6 @@ Add the TTNN metal header:
 Add a template specialization of `OpModel<YourOp>` declaring `getOpConstraints` and `getOpRuntime`.
 Follow the pattern of similar ops (e.g., `OpModel<LayerNormOp>` for ops with optional parameters).
 
-For common op categories, inherit from an existing base template instead of writing from scratch:
-- `UnaryEltwiseOpModel<OpT>` — basic unary operations (Relu, Sqrt, Tanh, etc.)
-- `UnaryEltwiseWithFastApproxModeOpModel<OpT>` — unary with approximation modes
-- `BinaryEltwiseOpModel<OpT>` — basic binary operations (Add, Multiply, etc.)
-- For other ops, declare both methods explicitly in the specialization.
-
 ### 9c. OpModel implementation
 
 **File:** `lib/OpModel/TTNN/TTNNOpModel.cpp`
@@ -750,21 +631,6 @@ your stubs there.
 For full OpModel support, implement the interface that bridges the MLIR op to the OpModel. For ops
 with optional operands, create a helper struct and unpacking function (see `LayerNormOptionalArgs`
 pattern).
-
-### Multi-output ops in OpModel
-
-The `OpConstraints` struct supports multiple outputs via `SmallVector<TTNNLayoutAttr> outputLayouts`.
-For multi-output ops, the metal query returns multiple output tensor specs, and each is converted to
-a layout attribute:
-
-```cpp
-for (const auto &outputTensorSpec : response.output_tensor_specs.value()) {
-  layoutAttrs.push_back(conversion::getLayoutAttrFromTensorSpec(...));
-}
-return OpConstraints(..., layoutAttrs);
-```
-
-See `MaxPool2dWithIndicesOp` or `SplitQueryKeyValueAndSplitHeadsOp` in `TTNNOpModel.h` for examples.
 
 ## Step 10: TTIRBuilder
 
@@ -821,59 +687,9 @@ def your_op(
     return op_result
 ```
 
-### Multi-output builder pattern
-
-For ops that return multiple results (e.g., `SortOp`, `TopKOp`, `MaxPool2dWithIndicesOp`):
-
-```python
-@tag(ttir.YourOp)
-def your_op(
-    self,
-    in0: Operand,
-    dim: int = -1,
-    loc: Optional[str] = None,
-    unit_attrs: Optional[List[str]] = None,
-) -> Tuple[OpResult, OpResult]:
-    ttir_op = self.get_opview_from_method(TTIRBuilder.your_op)
-
-    # Compute golden with multi-output
-    input0 = self._get_golden_tensor(in0)
-    op_golden_function = get_golden_function(ttir_op)
-    golden_result1, golden_result2 = op_golden_function(input0, dim_attr, ...)
-
-    # Create result types from golden shapes
-    result1_type = self._create_ranked_tensor_type(golden_result1.shape, mlir_output_type)
-    result2_type = self._create_ranked_tensor_type(golden_result2.shape, ...)
-
-    # Build op with both result types
-    op = ttir_op(result1_type, result2_type, in0, dim=dim_attr, loc=loc)
-
-    # Set golden for EACH result
-    self._set_golden_tensor(op.result1, golden_result1)
-    self._set_golden_tensor(op.result2, golden_result2)
-
-    return op.result1, op.result2
-```
-
-Key differences from single-output:
-- Return type is `Tuple[OpResult, OpResult]`
-- Pass **both** result types to the op constructor
-- Call `_set_golden_tensor` for **each** result separately
-- Access results via named attributes (e.g., `op.values`, `op.indices`)
-
-See `sort()` and `max_pool2d_with_indices()` in `ttir_builder.py` for complete examples.
-
 ### 10b. Parser method (tagged with `@parse`)
 
 Reconstructs the op from an existing TTIR module by mapping old operands through `global_dict`.
-
-For multi-output ops, the parser must map **all** old results to new results:
-```python
-op_map_dictionary = {}
-op_map_dictionary[old_op.result1] = new_op.result1
-op_map_dictionary[old_op.result2] = new_op.result2
-return new_op, op_map_dictionary
-```
 
 ### 10c. Split method (tagged with `@split`)
 
@@ -919,28 +735,6 @@ def ttir_your_op_golden(
     ).to(output_dtype)
 ```
 
-### Multi-output golden functions
-
-For ops that return multiple tensors, return a tuple:
-
-```python
-def ttir_sort_golden(
-    input_tensor: GoldenMapTensor,
-    dim_attr: IntegerAttr,
-    descending_attr: BoolAttr,
-    stable_attr: BoolAttr,
-    output_type_mlir: Type,
-) -> Tuple[GoldenMapTensor, GoldenMapTensor]:
-    dim = unpack_mlir_attr(dim_attr)
-    descending = unpack_mlir_attr(descending_attr)
-    stable = unpack_mlir_attr(stable_attr)
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    values, indices = torch.sort(input_tensor, dim=dim, descending=descending, stable=stable)
-    return values.to(output_dtype), indices.to(torch.int64)
-```
-
-The builder unpacks the tuple and calls `_set_golden_tensor` for each result.
-
 Register in the golden mapping dictionaries (search for the TTIR and TTNN mapping dicts and add
 entries):
 ```python
@@ -984,44 +778,6 @@ module {
 For ops with `AttrSizedOperandSegments`, test multiple combinations of optional operands. Use
 `ttir.empty()` to create placeholder tensors for optional operands.
 
-For multi-output ops, use tuple return syntax:
-```mlir
-func.func @test_multi_output(%input: tensor<2x3x32x128xf32>)
-    -> (tensor<2x3x32x5xf32>, tensor<2x3x32x5xi32>) {
-  // CHECK: %{{.*}}, %{{.*}} = "ttnn.your_op"
-  %values, %indices = "ttir.your_op"(%input) <{k = 5 : i32}>
-      : (tensor<2x3x32x128xf32>) -> (tensor<2x3x32x5xf32>, tensor<2x3x32x5xi32>)
-  return %values, %indices : tensor<2x3x32x5xf32>, tensor<2x3x32x5xi32>
-}
-```
-
-For CCL ops, add the `mesh-shape` pipeline parameter and test op folding for single-device cases:
-```mlir
-// RUN: ttmlir-opt --split-input-file --ttir-to-ttnn-backend-pipeline="mesh-shape=1,4" -o %t %s
-// Verify op folding for single mesh device communication
-// CHECK-NOT: "ttnn.your_ccl_op"
-```
-
-### 13a-neg. Negative tests (verifier error tests)
-
-**File:** `test/ttmlir/Dialect/TTNN/<op_name>/<op_name>_negative.mlir` (new file)
-
-Test that the verifier catches invalid inputs. Use `not ttmlir-opt` and `// CHECK: error:`:
-```mlir
-// RUN: not ttmlir-opt --split-input-file %s 2>&1 | FileCheck %s
-
-// CHECK: error: 'ttnn.your_op' op input and output must have the same shape
-func.func @shape_mismatch(%arg0: tensor<2x4x8xf32>) -> tensor<2x4x16xf32> {
-  %1 = "ttnn.your_op"(%arg0) <{epsilon = 1.0e-12 : f32,
-       operandSegmentSizes = array<i32: 1, 0, 0>}>
-       : (tensor<2x4x8xf32>) -> tensor<2x4x16xf32>
-  return %1 : tensor<2x4x16xf32>
-}
-
-// -----
-// Next negative test case (separated by // -----)
-```
-
 ### 13b. StableHLO composite test
 
 **File:** `test/ttmlir/Conversion/StableHLOToTTIR/composite/test_<op_name>.mlir` (new file)
@@ -1049,16 +805,6 @@ Add a parametrized test that exercises the TTIRBuilder method. Parametrize over:
 - Different input shapes
 - Optional operand combinations (has_weight, has_bias, etc.)
 - Targets: `["ttnn", "emitpy", "emitc"]` — all three backends should be tested
-
-For multi-output ops in Python tests, the builder method returns a tuple. Select which result to
-return or return both via a wrapper:
-```python
-def your_op_wrapper(
-    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-):
-    result1, result2 = builder.your_op(in0, dim=dim, unit_attrs=unit_attrs)
-    return result1  # Return primary output for testing
-```
 
 **Index tensor types:** If your op takes index tensors (like gather/scatter), the TTNN metal op
 may require unsigned integer types (`torch.uint32` → MLIR `ui32`), not signed (`torch.int32` →
@@ -1159,8 +905,7 @@ Use this to make sure you haven't missed anything:
 - [ ] TTIRBuilder method, parser, split (`ttir_builder.py`)
 - [ ] Golden functions (`mapping.py`)
 - [ ] Precompiled headers (`ttnn-precompiled.hpp`)
-- [ ] TTIR-to-TTNN conversion test (positive)
-- [ ] Negative verifier tests
+- [ ] TTIR-to-TTNN conversion test
 - [ ] StableHLO composite test
 - [ ] EmitC test
 - [ ] Builder/golden tests (`test_ttir_ops.py`)

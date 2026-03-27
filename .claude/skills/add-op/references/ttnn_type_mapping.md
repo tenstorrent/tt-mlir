@@ -179,47 +179,7 @@ def TTNN_MyOp : TTNN_Op<"my_op", [TTNN_MemoryConfigOpInterface]> {
 }
 ```
 
-### E.2 TTNN_MultiMemoryConfigOpInterface
-
-**File:** `include/ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.td`
-
-**Purpose:** For ops with **multiple memory config attributes** mapped to different results.
-`TTNN_MemoryConfigOpInterface` assumes a single `memory_config` and a single result. For fused
-ops that produce multiple outputs with independently configurable memory layouts (e.g., a fused
-reduce-scatter + matmul with `memory_config_rs` and `memory_config_mm`), use this interface instead.
-
-**Methods:**
-- `getMemoryConfigAttrs()` → returns `SmallVector<std::pair<MemoryConfigAttr, unsigned>>` mapping
-  each memory config to its result index
-- `setMemoryConfigAttr(unsigned resultIndex, MemoryConfigAttr attr)` → sets the config for a
-  specific result
-
-**When to use:** Use instead of `TTNN_MemoryConfigOpInterface` when the op has more than one
-memory config attribute. Do NOT combine both interfaces on the same op.
-
-**Usage in tablegen:**
-```
-def TTNN_MyFusedOp : TTNN_Op<"my_fused_op", [TTNN_MultiMemoryConfigOpInterface]> {
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$weight,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config_a,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config_b);
-
-    let results = (outs AnyRankedTensor:$result_a, AnyRankedTensor:$result_b);
-
-    let extraClassDeclaration = [{
-      llvm::SmallVector<std::pair<MemoryConfigAttr, unsigned>> getMemoryConfigAttrs() {
-        return {{getMemoryConfigAAttr(), 0}, {getMemoryConfigBAttr(), 1}};
-      }
-      void setMemoryConfigAttr(unsigned resultIndex, MemoryConfigAttr attr) {
-        if (resultIndex == 0) setMemoryConfigAAttr(attr);
-        else if (resultIndex == 1) setMemoryConfigBAttr(attr);
-      }
-    }];
-}
-```
-
-### E.3 TTNN_ComputeKernelConfigOpInterface
+### E.2 TTNN_ComputeKernelConfigOpInterface
 
 **File:** `include/ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.td`
 
