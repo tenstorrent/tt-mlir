@@ -120,7 +120,7 @@ private:
     OpBuilder builder(&block, block.begin());
     builder.setInsertionPointAfterValue(scratchCB);
     auto scratchFromCBOp =
-        builder.create<GetScratchFromCBOp>(genericOp.getLoc(), scratchCB);
+        GetScratchFromCBOp::create(builder, genericOp.getLoc(), scratchCB);
     Value scratchMemRef = scratchFromCBOp.getResult();
     auto scratchMemRefType = mlir::cast<MemRefType>(scratchMemRef.getType());
 
@@ -199,8 +199,8 @@ private:
           subviewType, requestedType.getShape(), reassociation);
       assert(succeeded(expandedType) && "failed to compute expanded type");
 
-      result = builder.create<memref::ExpandShapeOp>(loc, *expandedType, result,
-                                                     reassociation);
+      result = memref::ExpandShapeOp::create(builder, loc, *expandedType,
+                                             result, reassociation);
     }
 
     allocOp.getResult().replaceAllUsesWith(result);

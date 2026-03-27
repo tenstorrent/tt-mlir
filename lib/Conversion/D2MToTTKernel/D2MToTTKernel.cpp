@@ -935,18 +935,18 @@ public:
       auto cb = getCB(rewriter, op.getInput());
       auto dstIdx = getDstIdxFromResult(op.getResult());
       ensureDominatesInsertionPoint(rewriter, dstIdx);
-      rewriter.create<ttkernel::UnaryBcastInitOp>(op->getLoc(), cb, cb,
-                                                  bcastType);
-      rewriter.create<ttkernel::UnaryBcastTileOp>(
-          op->getLoc(), cb, adaptor.getInput(), dstIdx, bcastType);
+      ttkernel::UnaryBcastInitOp::create(rewriter, op->getLoc(), cb, cb,
+                                         bcastType);
+      ttkernel::UnaryBcastTileOp::create(rewriter, op->getLoc(), cb,
+                                         adaptor.getInput(), dstIdx, bcastType);
     } else if constexpr (arity == 2) {
       auto dstIdx = getDstIdxFromResult(op.getResult());
       ensureDominatesInsertionPoint(rewriter, dstIdx);
-      rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
-                              getCB(rewriter, op.getRhs()));
-      rewriter.create<FPUOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
-                             getCB(rewriter, op.getRhs()), adaptor.getLhs(),
-                             adaptor.getRhs(), dstIdx);
+      InitOp::create(rewriter, op->getLoc(), getCB(rewriter, op.getLhs()),
+                     getCB(rewriter, op.getRhs()));
+      FPUOp::create(rewriter, op->getLoc(), getCB(rewriter, op.getLhs()),
+                    getCB(rewriter, op.getRhs()), adaptor.getLhs(),
+                    adaptor.getRhs(), dstIdx);
     } else {
       return llvm::failure();
     }

@@ -259,7 +259,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
     if (hasCall("experimental::unpack_stall_on_pack")) {
       auto experimentalRegAPILLKs = StringRef(
           experimental_reg_api_generated, experimental_reg_api_generated_len);
-      builder->create<emitc::VerbatimOp>(loc, experimentalRegAPILLKs);
+      emitc::VerbatimOp::create(*builder, loc, experimentalRegAPILLKs);
     }
 
     if (hasCall("experimental::tilize")) {
