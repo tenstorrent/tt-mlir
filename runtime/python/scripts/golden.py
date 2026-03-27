@@ -67,7 +67,7 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
 
     golden_tensor_torch = golden_fn(
         *callback_runtime_config.input_tensors, **reformatted_attrs
-    )
+    ).flatten()
 
     a, b, cal_pcc = get_atol_rtol_pcc(
         golden_tensor_torch,
@@ -94,4 +94,3 @@ def register(message: str):
         pre_op_get_callback_fn(callback_runtime_config),
         post_op_get_callback_fn(callback_runtime_config),
     )
-    print("Runtime golden callbacks registered")
