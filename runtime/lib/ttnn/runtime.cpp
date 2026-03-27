@@ -1018,6 +1018,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ToLayoutOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::BitcastConvertOp: {
+    tensorRef = opContext.type_as_BitcastConvertOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     tensorRef = opContext.type_as_TypecastOp()->out();
     break;
@@ -1444,6 +1448,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     tensorRefs = {opContext.type_as_ToLayoutOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BitcastConvertOp: {
+    tensorRefs = {opContext.type_as_BitcastConvertOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::TypecastOp: {
