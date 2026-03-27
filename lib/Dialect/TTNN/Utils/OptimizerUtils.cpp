@@ -21,7 +21,7 @@
 
 namespace mlir::tt::ttnn::optimizer_utils {
 
-AffineMap createSingleDeviceVirtualToPhysicalAffineMap(
+std::pair<AffineMap, AffineMap> createSingleDeviceVirtualToPhysicalAffineMaps(
     MLIRContext *context,
     const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
     const llvm::ArrayRef<int64_t> physicalGridShape) {
@@ -31,37 +31,57 @@ AffineMap createSingleDeviceVirtualToPhysicalAffineMap(
   switch (tensorMemoryLayout) {
   case mlir::tt::ttnn::TensorMemoryLayout::WidthSharded: {
     // Create affine map that maps width sharded virtual grid 1xN to the
-    // physical grid gridShape[0] x gridShape[1]
+    // physical grid gridShape[0] x gridShape[1] and the inverse.
     AffineExpr virtualWidth = mlir::getAffineDimExpr(1, context); // d1
     AffineExpr workerCoreW =
         mlir::getAffineConstantExpr(physicalGridShape[1], context);
-    AffineMap widthMap = mlir::AffineMap::get(
+    AffineMap virtToPhysicalMap = mlir::AffineMap::get(
         /*dimCount=*/2, /*symbolCount=*/0,
         {workerDeviceIdx, virtualWidth.floorDiv(workerCoreW),
          virtualWidth % workerCoreW},
         context);
-    return widthMap;
+    AffineExpr physicalY = mlir::getAffineDimExpr(1, context); // d1
+    AffineExpr physicalX = mlir::getAffineDimExpr(2, context); // d2
+    AffineMap physicalToVirtMap = mlir::AffineMap::get(
+        /*dimCount=*/3, /*symbolCount=*/0,
+        {mlir::getAffineConstantExpr(0, context),
+         physicalY * workerCoreW + physicalX},
+        context);
+    return {virtToPhysicalMap, physicalToVirtMap};
   }
   case mlir::tt::ttnn::TensorMemoryLayout::HeightSharded: {
     // Create affine map that maps height sharded virtual grid Mx1 to the
-    // physical grid gridShape[0] x gridShape[1]
+    // physical grid gridShape[0] x gridShape[1] and the inverse.
     AffineExpr virtualHeight = mlir::getAffineDimExpr(0, context); // d0
     AffineExpr workerCoreW =
         mlir::getAffineConstantExpr(physicalGridShape[1], context);
-    AffineMap heightMap = mlir::AffineMap::get(
+    AffineMap virtToPhysicalMap = mlir::AffineMap::get(
         /*dimCount=*/2, /*symbolCount=*/0,
         {workerDeviceIdx, virtualHeight.floorDiv(workerCoreW),
          virtualHeight % workerCoreW},
         context);
-    return heightMap;
+
+    AffineExpr physicalY = mlir::getAffineDimExpr(1, context); // d1
+    AffineExpr physicalX = mlir::getAffineDimExpr(2, context); // d2
+    AffineMap physicalToVirtMap = mlir::AffineMap::get(
+        /*dimCount=*/3, /*symbolCount=*/0,
+        {physicalY * workerCoreW + physicalX,
+         mlir::getAffineConstantExpr(0, context)},
+        context);
+    return {virtToPhysicalMap, physicalToVirtMap};
   }
   default:
   case mlir::tt::ttnn::TensorMemoryLayout::BlockSharded: {
     AffineExpr d0 = mlir::getAffineDimExpr(0, context); // d0
     AffineExpr d1 = mlir::getAffineDimExpr(1, context); // d1
-    AffineMap blockMap = mlir::AffineMap::get(
+    AffineMap virtToPhysicalMap = mlir::AffineMap::get(
         /*dimCount=*/2, /*symbolCount=*/0, {workerDeviceIdx, d0, d1}, context);
-    return blockMap;
+
+    AffineExpr physicalY = mlir::getAffineDimExpr(1, context); // d1
+    AffineExpr physicalX = mlir::getAffineDimExpr(2, context); // d2
+    AffineMap physicalToVirtMap = mlir::AffineMap::get(
+        /*dimCount=*/3, /*symbolCount=*/0, {physicalY, physicalX}, context);
+    return {virtToPhysicalMap, physicalToVirtMap};
   }
   }
 }

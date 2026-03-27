@@ -284,13 +284,13 @@ TEST_F(OpConstraintValidationTest, ValidationStatusMetalBackendError) {
                                     BufferType bufferType,
                                     TensorMemoryLayout tensorMemoryLayout) {
     // Row major uses scalar element type instead of tiled
+    auto [virtToPhysicalMap, physicalToVirtMap] = mlir::tt::ttnn::
+        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
+            &context, tensorMemoryLayout);
     return TTNNLayoutAttr::get(
         &context, tensorShape, builder.getBF16Type(), bufferType,
-        mlir::tt::ttcore::GridAttr::get(
-            &context, {64, 1},
-            mlir::tt::ttnn::optimizer_utils::
-                createSingleDeviceVirtualToPhysicalAffineMap(
-                    &context, tensorMemoryLayout)),
+        mlir::tt::ttcore::GridAttr::get(&context, {64, 1}, virtToPhysicalMap,
+                                        physicalToVirtMap),
         mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
                                                     tensorMemoryLayout));
   };

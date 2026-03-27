@@ -170,7 +170,7 @@ public:
         if (mcastDimSet.contains(dimPos)) {
           // for parallel dim specified by multicast, extent is 0
           Value coreIdx = rewriter.create<CoreIndexOp>(
-              loc, static_cast<int64_t>(dim), grid.getMapping());
+              loc, static_cast<int64_t>(dim), grid.getPhysicalToVirtMap());
           mcastStartIndex.push_back(coreIdx);
           mcastShapeInt64.push_back(1);
         } else {
@@ -193,7 +193,7 @@ public:
     AffineMap coreVirtMap;
     if (storedFwd) {
       coreVirtMap = *storedFwd;
-    } else if (!grid.getMapping().isEmpty()) {
+    } else if (!grid.getPhysicalToVirtMap().isEmpty()) {
       // Fallback: derive forward map from grid shape.
       ttcore::DeviceAttr device = ttcore::lookupDevice(genericOp);
       auto physGridShape = utils::collapseToPhysicalGrid2D(

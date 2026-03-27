@@ -30,6 +30,16 @@ REDUCTION_OPS = [
     ttnn.min,
 ]
 
+# L1 block-sharded min has PCC issues due to OOB padding values in the neg→max→neg decomposition.
+# Also the DRAM test fails with operand #0 does not dominate this use.
+# TODO(sgholami): Investigate L1 block-sharded min PCC failures. Issue: #7617
+SKIP_MIN_TESTS = [
+    (ttnn.BufferType.L1, (128, 128), (0, 0)),
+    (ttnn.BufferType.L1, (256, 256), (0, 0)),
+    (ttnn.BufferType.L1, (128, 64), (1, 0)),
+    (ttnn.BufferType.DRAM, (32, 32), (0, 0)),
+]
+
 
 @pytest.mark.parametrize("shape, max_grid, dim", REDUCTION_SHAPES)
 @pytest.mark.parametrize("op", REDUCTION_OPS)
@@ -41,8 +51,8 @@ def test_reductions(device, shape, max_grid, dim, op, dtype, buffer_type):
     def reduction_func(input_tensor):
         return op(input_tensor, dim=dim, keepdim=True)
 
-    if op == ttnn.min:
-        pytest.skip(reason="Min is not currently supported in D2M")
+    if op == ttnn.min and (buffer_type, shape, max_grid) in SKIP_MIN_TESTS:
+        pytest.skip(reason="L1 block-sharded min has PCC issues (see #7617)")
 
     shard_strategy = (
         ttnn.ShardStrategy.BLOCK if buffer_type == ttnn.BufferType.L1 else None

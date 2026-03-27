@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-materialize-view-returns -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-decompose-min-reduction --ttir-to-d2m --d2m-materialize-view-returns -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 !ttype = tensor<128x96xf32>
@@ -275,6 +275,43 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "reduction"]
     // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim RC>
     %1 = "ttir.mean"(%arg) <{dim_arg = [-2: i32, -1: i32], keep_dim = true}> : (!ttype) -> tensor<1x1xf32>
+    return %1: tensor<1x1xf32>
+  }
+
+  // Min is decomposed into neg -> max -> neg (no hardware reduce_min).
+  // CHECK-LABEL: func @named_min_reduction_R
+  func.func @named_min_reduction_R(%arg: !ttype) -> (tensor<1x96xf32>) {
+    // CHECK: d2m.tile_negative
+    // CHECK: d2m.full
+    // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "parallel"]
+    // CHECK: d2m.tile_reduce_max{{.+}}d2m<reduce_dim C>
+    // CHECK: d2m.tile_negative
+    %1 = "ttir.min"(%arg) <{dim_arg = [-2: i32], keep_dim = true}> : (!ttype) -> tensor<1x96xf32>
+    return %1: tensor<1x96xf32>
+  }
+
+  // CHECK-LABEL: func @named_min_reduction_C
+  func.func @named_min_reduction_C(%arg: !ttype) -> (tensor<128x1xf32>) {
+    // CHECK: d2m.tile_negative
+    // CHECK: d2m.full
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction"]
+    // CHECK: d2m.tile_reduce_max{{.+}}d2m<reduce_dim R>
+    // CHECK: d2m.tile_negative
+    %1 = "ttir.min"(%arg) <{dim_arg = [-1: i32], keep_dim = true}> : (!ttype) -> tensor<128x1xf32>
+    return %1 : tensor<128x1xf32>
+  }
+
+  // CHECK-LABEL: func @named_min_reduction_RC
+  func.func @named_min_reduction_RC(%arg: !ttype) -> (tensor<1x1xf32>) {
+    // CHECK: d2m.tile_negative
+    // CHECK: d2m.full
+    // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #reduction]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "reduction"]
+    // CHECK: d2m.tile_reduce_max{{.+}}d2m<reduce_dim RC>
+    // CHECK: d2m.tile_negative
+    %1 = "ttir.min"(%arg) <{dim_arg = [-2: i32, -1: i32], keep_dim = true}> : (!ttype) -> tensor<1x1xf32>
     return %1: tensor<1x1xf32>
   }
 

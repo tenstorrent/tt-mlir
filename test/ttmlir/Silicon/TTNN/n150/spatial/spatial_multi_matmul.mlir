@@ -12,14 +12,14 @@
 #map2 = affine_map<(d0, d1, d2) -> (d0, d1)>
 #map3 = affine_map<(d0, d1) -> (d0 - 1, d1 - 1)>
 #vgm_inv = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>
-#vgm_fwd = affine_map<(d0, d1) -> (d0 + 1, d1 + 1)>
+#vgm_fwd = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>
 #parallel = #ttcore.iterator_type<parallel>
 #reduction = #ttcore.iterator_type<reduction>
 
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>, exactGrid = true>
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>, exactGrid = true>
 #ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = true>
-#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), #ttcore.grid<1x1, (d0, d1) -> (0, d0 + 1, d1 + 1)>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = false>
+#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1, d2) -> (d1 - 1, d2 - 1)>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = false>
 module {
   // CHECK-LABEL: func.func @multi_matmul
   // CHECK: "ttnn.generic"

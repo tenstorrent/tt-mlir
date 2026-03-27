@@ -11,7 +11,7 @@ func.func @sharded_to_interleaved() -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>,
 
   // CHECK: %[[SRC:.*]] = d2m.empty() {virtualGridForwardMapping = #map, virtualGridInverseMapping = #map1} : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout1>
   // CHECK: %[[DST:.*]] = d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>
-  // CHECK: %[[RESULT:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1, (d0, d1) -> (0, 0, 0)>
+  // CHECK: %[[RESULT:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, 0, 0), physical_to_virt_map = (d0, d1) -> (0, 0, 0)>
   // CHECK-SAME: threads = [#d2m.thread<unified>]
   // CHECK-NEXT: ins(%[[SRC]] : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout1>)
   // CHECK-NEXT: outs(%[[DST]] : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>)
@@ -40,7 +40,7 @@ func.func @sharded_to_interleaved_reblock() -> tensor<32x2048xbf16, #ttnn_dram_i
   // CHECK: %[[SRC:.*]] = d2m.empty() {virtualGridForwardMapping = #map3, virtualGridInverseMapping = #map4} : tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #layout2>
   // CHECK: %[[DST:.*]] = d2m.empty() : tensor<1x1x1x64x!ttcore.tile<32x32, bf16>, #layout3>
   // CHECK: %[[VIEW:.*]] = d2m.view_layout %[[DST]] remapping = #map5 : tensor<1x1x1x64x!ttcore.tile<32x32, bf16>, #layout3> -> tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #layout3>
-  // CHECK: %[[RESULT:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x64, (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>
+  // CHECK: %[[RESULT:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x64, virt_to_physical_map = (d0, d1) -> (0, (d1 floordiv 8) mod 8, d1 mod 8), physical_to_virt_map = (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>
   // CHECK-SAME: threads = [#d2m.thread<unified>]
   // CHECK-NEXT: ins(%[[SRC]] : tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #layout2>)
   // CHECK-NEXT: outs(%[[VIEW]] : tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #layout3>)

@@ -1353,7 +1353,7 @@ int64_t MetalLayoutAttr::getHostVolume() const {
 //
 static mlir::AffineMap createL1Map(mlir::MLIRContext *context,
                                    GridAttr workerGrid) {
-  mlir::AffineMap workerMap = workerGrid.getMapping();
+  mlir::AffineMap workerMap = workerGrid.getVirtToPhysicalMap();
   // Take the workerMap and just add an additional dimension for the L1 shard
   // offset for each core.
   mlir::SmallVector<mlir::AffineExpr> workerMapExprs(workerMap.getResults());
@@ -1420,9 +1420,23 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 
   mlir::SmallVector<mlir::AffineExpr> workerGridExprs = {
       workerDeviceIdx, workerCoreY, workerCoreX};
-  auto workerGridMap =
+  auto virtToPhysicalMap =
       mlir::AffineMap::get(virtualGrid.size(), 0, workerGridExprs, context);
-  return GridAttr::get(context, virtualGrid, workerGridMap);
+
+  // Create the inverse map (physical to virtual).
+  // Physical coords are (device_id, y, x) and we map back to virtual coords.
+  // For the simple single-device case, this is just (d0, d1, d2) -> (d1, d2).
+  // i.e. skip the first dimension (device index) and map physical y, x back to
+  // virtual dimensions.
+  mlir::SmallVector<mlir::AffineExpr> physicalToVirtExprs;
+  for (size_t i = 0; i < virtualGrid.size(); ++i) {
+    physicalToVirtExprs.push_back(getAffineDimExpr(i + 1, context));
+  }
+  auto physicalToVirtMap = mlir::AffineMap::get(virtualGrid.size() + 1, 0,
+                                                physicalToVirtExprs, context);
+
+  return GridAttr::get(context, virtualGrid, virtToPhysicalMap,
+                       physicalToVirtMap);
 }
 
 //
@@ -1461,7 +1475,7 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
                                      GridAttr workerGrid, size_t numDramCores) {
-  mlir::AffineMap workerMap = workerGrid.getMapping();
+  mlir::AffineMap workerMap = workerGrid.getVirtToPhysicalMap();
   assert(workerMap.getNumResults() == PhysGridResultIdx::NumIndices);
 
   size_t elemSizeIndex = workerMap.getNumDims() * 2 + 2;
@@ -1660,7 +1674,7 @@ size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
     }
   }
 
-  auto physicalGridMapping = workerGrid.getMapping();
+  auto physicalGridMapping = workerGrid.getVirtToPhysicalMap();
   if (physicalGridMapping.getNumResults() != PhysGridResultIdx::NumIndices) {
     emitError() << "expected physical grid mapping to have "
                    "PhysGridResultIdx::NumIndices results";
