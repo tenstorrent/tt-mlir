@@ -5,6 +5,9 @@
 import re
 from functools import partial
 import torch
+import json
+import os
+from pathlib import Path
 
 import golden as golden_module
 import _ttmlir_runtime as tt_runtime
@@ -12,8 +15,50 @@ from builder.base.builder_runtime import *
 
 
 class CallbackRuntimeConfig:
-    def __init__(self):
+    def __init__(self, artifact_dir=None):
         self.input_tensors = []
+        self.artifact_dir = artifact_dir
+        self.golden_results = []
+        self.op_counter = 0
+
+    def add_result(
+        self, op_type, pcc_value, atol, rtol, status="success", error_msg=None
+    ):
+        """Add a golden comparison result."""
+        result = {
+            "op_index": self.op_counter,
+            "op_type": op_type,
+            "pcc": float(pcc_value) if pcc_value is not None else None,
+            "atol": float(atol) if atol is not None else None,
+            "rtol": float(rtol) if rtol is not None else None,
+            "status": status,
+        }
+        if error_msg:
+            result["error"] = error_msg
+        self.golden_results.append(result)
+        self.op_counter += 1
+
+    def save_results(self):
+        """Save golden results to JSON file."""
+        if self.artifact_dir is None:
+            return
+
+        # Create artifact directory if it doesn't exist
+        Path(self.artifact_dir).mkdir(parents=True, exist_ok=True)
+
+        # Save results to JSON file
+        output_path = os.path.join(self.artifact_dir, "golden_results.json")
+        with open(output_path, "w") as f:
+            json.dump(
+                {"total_ops": self.op_counter, "results": self.golden_results},
+                f,
+                indent=2,
+            )
+        print(f"Golden results saved to: {output_path}")
+
+    def get_results(self):
+        """Return the golden results."""
+        return {"total_ops": self.op_counter, "results": self.golden_results}
 
 
 def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
@@ -39,6 +84,14 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
     golden_fn = golden_module.get_golden_function(op_type)
     if not golden_fn:
         callback_runtime_config.input_tensors = []
+        callback_runtime_config.add_result(
+            op_type_str,
+            None,
+            None,
+            None,
+            status="skipped",
+            error_msg="No golden mapping for operation",
+        )
         print(f"No golden mapping for operation: {op_type_str}")
         return
 
@@ -47,34 +100,56 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
     )
     if len(op_output_tensor_map) == 0:
         callback_runtime_config.input_tensors = []
+        callback_runtime_config.add_result(
+            op_type_str,
+            None,
+            None,
+            None,
+            status="skipped",
+            error_msg="Output tensor is empty",
+        )
         print("Output tensor is empty - skipping golden comparison")
         return
 
-    for device_id, op_output_tensor in op_output_tensor_map.items():
-        rt_buffer = op_output_tensor.get_data_buffer()
-        dtype = runtime_dtype_to_torch_dtype(op_output_tensor.get_dtype())
-        output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
+    try:
+        for device_id, op_output_tensor in op_output_tensor_map.items():
+            rt_buffer = op_output_tensor.get_data_buffer()
+            dtype = runtime_dtype_to_torch_dtype(op_output_tensor.get_dtype())
+            output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
 
-    op_attrs = tt_runtime.runtime.get_op_attrs(op_context)
-    reformatted_attrs = {}
-    for key, value in op_attrs.items():
-        reformatted_attrs[key + "_attr"] = value
-    # May prove to be an issue for multi-output ops if they have different output types
-    reformatted_attrs["output_type_mlir"] = runtime_dtype_to_mlir_type(
-        op_output_tensor_map[0].get_dtype()
-    )
+        op_attrs = tt_runtime.runtime.get_op_attrs(op_context)
+        reformatted_attrs = {}
+        for key, value in op_attrs.items():
+            reformatted_attrs[key + "_attr"] = value
+        # May prove to be an issue for multi-output ops if they have different output types
+        reformatted_attrs["output_type_mlir"] = runtime_dtype_to_mlir_type(
+            op_output_tensor_map[0].get_dtype()
+        )
 
-    golden_tensor_torch = golden_fn(
-        *callback_runtime_config.input_tensors, **reformatted_attrs
-    ).flatten()
+        golden_tensor_torch = golden_fn(
+            *callback_runtime_config.input_tensors, **reformatted_attrs
+        ).flatten()
 
-    a, b, cal_pcc = get_atol_rtol_pcc(
-        golden_tensor_torch,
-        output_tensor_torch,
-        1e-08,
-        1e-05,
-    )
-    print("Runtime PCC:", cal_pcc)
+        atol = 1e-08
+        rtol = 1e-05
+        a, b, cal_pcc = get_atol_rtol_pcc(
+            golden_tensor_torch,
+            output_tensor_torch,
+            atol,
+            rtol,
+        )
+        print("Runtime PCC:", cal_pcc)
+
+        # Store the result
+        callback_runtime_config.add_result(
+            op_type_str, cal_pcc, atol, rtol, status="success"
+        )
+
+    except Exception as e:
+        print(f"Error in golden comparison for {op_type_str}: {str(e)}")
+        callback_runtime_config.add_result(
+            op_type_str, None, None, None, status="error", error_msg=str(e)
+        )
 
     callback_runtime_config.input_tensors = []
 
@@ -87,9 +162,21 @@ def post_op_get_callback_fn(callback_runtime_config):
     return partial(post_op_callback, callback_runtime_config)
 
 
-def register(message: str):
-    callback_runtime_config = CallbackRuntimeConfig()
+def post_execution_callback(
+    callback_runtime_config, binary, program_context, op_context
+):
+    """Called after all operations have been executed."""
+    callback_runtime_config.save_results()
+
+
+def post_execution_get_callback_fn(callback_runtime_config):
+    return partial(post_execution_callback, callback_runtime_config)
+
+
+def register(artifact_dir=None):
+    callback_runtime_config = CallbackRuntimeConfig(artifact_dir)
     callback_env = tt_runtime.runtime.DebugHooks.get(
         pre_op_get_callback_fn(callback_runtime_config),
         post_op_get_callback_fn(callback_runtime_config),
+        post_execution_get_callback_fn(callback_runtime_config),
     )

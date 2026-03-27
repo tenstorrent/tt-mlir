@@ -831,6 +831,7 @@ def execute_fb(
                 program_index,
                 converted_inputs,
                 enable_runtime_goldens,
+                program_artifact_dir if save_artifacts else None,
             )
             tt_runtime.runtime.wait(runtime_outputs)
         except Exception as e:

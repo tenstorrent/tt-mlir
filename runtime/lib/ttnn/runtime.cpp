@@ -2835,7 +2835,7 @@ std::string getOpType(OpContext opContextHandle) {
   }
 }
 
-void registerCallback() {
+void registerCallback(const std::optional<std::string> &callbackArtifactDir) {
   PyGILState_STATE gstate = PyGILState_Ensure(); // Acquire GIL
   // Add the runtime directory to Python path
   PyObject *sys_path = PySys_GetObject("path");
@@ -2880,7 +2880,13 @@ void registerCallback() {
   // Double check this is necessary: *********
   try {
     // Call the function with error handling
-    PyObject *result = PyObject_CallFunction(register_func, "s", "Placeholder");
+    PyObject *result;
+    if (callbackArtifactDir.has_value()) {
+      result = PyObject_CallFunction(register_func, "s",
+                                     callbackArtifactDir.value().c_str());
+    } else {
+      result = PyObject_CallFunction(register_func, "");
+    }
     if (result == nullptr) {
       PyErr_Print();
       // Print more detailed error info
@@ -2914,8 +2920,8 @@ void registerCallback() {
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
-       std::vector<::tt::runtime::Tensor> &inputs,
-       bool registerRuntimeGoldens) {
+       std::vector<::tt::runtime::Tensor> &inputs, bool registerRuntimeGoldens,
+       const std::optional<std::string> &callbackArtifactDir) {
 
   if (registerRuntimeGoldens) {
     if (!Py_IsInitialized()) {
@@ -2925,7 +2931,7 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
       std::cout << "Python interpreter already initialized" << std::endl;
     }
 
-    registerCallback();
+    registerCallback(callbackArtifactDir);
   }
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   ::tt::runtime::utils::logMemoryStateIfNeeded(

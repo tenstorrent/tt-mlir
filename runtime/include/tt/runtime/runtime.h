@@ -296,10 +296,10 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);
 
-std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
-                           std::uint32_t programIndex,
-                           std::vector<Tensor> &inputs,
-                           bool registerRuntimeGoldens = false);
+std::vector<Tensor>
+submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
+       std::vector<Tensor> &inputs, bool registerRuntimeGoldens = false,
+       const std::optional<std::string> &callbackArtifactDir = std::nullopt);
 
 // Dumps tensor data to a file in binary format
 void dumpTensor(Tensor tensor, const std::string &filePath);

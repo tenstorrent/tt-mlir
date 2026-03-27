@@ -504,8 +504,9 @@ void CommandExecutor::execute(uint64_t commandId,
   ::tt::runtime::Binary executable =
       getOrCreateBinary(command->binary(), command->binary_id());
 
-  std::vector<::tt::runtime::Tensor> outputTensors = ::tt::runtime::submit(
-      device, executable, command->program_id(), inputTensors);
+  std::vector<::tt::runtime::Tensor> outputTensors =
+      ::tt::runtime::submit(device, executable, command->program_id(),
+                            inputTensors, false, std::nullopt);
 
   LOG_ASSERT(outputTensors.size() == command->output_global_ids()->size(),
              "Output tensors from submit does not match the number of output "

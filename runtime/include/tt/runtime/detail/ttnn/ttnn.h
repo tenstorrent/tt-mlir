@@ -287,7 +287,8 @@ void updateTensorInPool(CallbackContext programContextHandle,
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs,
-       bool registerRuntimeGoldens = false);
+       bool registerRuntimeGoldens = false,
+       const std::optional<std::string> &callbackArtifactDir = std::nullopt);
 
 // Dumps tensor data to a file in binary format
 void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath);

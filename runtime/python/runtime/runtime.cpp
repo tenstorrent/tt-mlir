@@ -456,12 +456,16 @@ void registerRuntimeBindings(nb::module_ &m) {
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary &executable,
          std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs,
-         bool registerRuntimeGoldens) -> std::vector<::tt::runtime::Tensor> {
+         bool registerRuntimeGoldens,
+         std::optional<std::string> callbackArtifactDir)
+          -> std::vector<::tt::runtime::Tensor> {
         return ::tt::runtime::submit(device, executable, programIndex, inputs,
-                                     registerRuntimeGoldens);
+                                     registerRuntimeGoldens,
+                                     callbackArtifactDir);
       },
       nb::arg("device"), nb::arg("executable"), nb::arg("program_index"),
       nb::arg("inputs"), nb::arg("register_runtime_goldens") = false,
+      nb::arg("callback_artifact_dir") = nb::none(),
       "Submit a ttnn binary for execution, returns a vector of output tensors."
       "The input tensors will be moved and consumed.");
   m.def(
@@ -699,7 +703,8 @@ void registerRuntimeBindings(nb::module_ &m) {
   nb::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
       .def_static(
           "get",
-          [](nb::callable pre_op_func, nb::callable post_op_func) {
+          [](nb::callable pre_op_func, nb::callable post_op_func,
+             nb::callable post_execution_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
             return tt::runtime::debug::Hooks::get(
                 [pre_op_func](tt::runtime::Binary Binary,
@@ -711,6 +716,12 @@ void registerRuntimeBindings(nb::module_ &m) {
                                tt::runtime::CallbackContext programContext,
                                tt::runtime::OpContext opContext) {
                   post_op_func(Binary, programContext, opContext);
+                },
+                [post_execution_func](
+                    tt::runtime::Binary Binary,
+                    tt::runtime::CallbackContext programContext,
+                    tt::runtime::OpContext opContext) {
+                  post_execution_func(Binary, programContext, opContext);
                 });
 #else
             tt::runtime::debug::Hooks::get();
