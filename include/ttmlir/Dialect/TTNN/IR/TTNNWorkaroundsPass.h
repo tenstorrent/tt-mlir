@@ -335,6 +335,15 @@ public:
   static TTNNOperandsWorkarounds
   createSortOpOperandsWorkarounds(ttnn::SortOp op);
 
+  // Create workarounds for SDPA ops: cast f32 inputs to bf16.
+  // tt-metal SDPA only supports bf16/bfp8_b/bfp4_b.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/36717
+  static TTNNOperandsWorkarounds
+  createScaledDotProductAttentionOpOperandsWorkarounds(Operation *op);
+
+  static TTNNOperandsWorkarounds
+  createScaledDotProductAttentionDecodeOpOperandsWorkarounds(Operation *op);
+
   static TTNNOperandsWorkarounds
   createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
