@@ -1405,11 +1405,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       llvm::DenseMap<int32_t, Type> operandCBTypeByIndex;
 
       for (const OperandContext &operandCtx : genericCtx.operands) {
-        d2m::GenericOp mutableGenericOp = genericOp;
-        if (mutableGenericOp.isScratchInput(operandCtx.operandIndex())) {
-          continue;
-        }
-
         const auto operandIndex = operandCtx.operand->getOperandNumber();
 
         const auto *memrefIt2 = analysis.memrefs.find(operandCtx.primaryRoot);
@@ -1417,21 +1412,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         const MemorySpace operandMemSpace = *memrefIt2->second.remappedMemSpace;
 
         // Get the CB argument type for this operand.
-        // In TTNN mode (positional alloc counting, no d2m.get_cb), scratch
-        // inputs have no inner alloc so the positional index must be adjusted.
         TT_assert(!genericOp->getRegions().empty());
         Region &region = genericOp->getRegions().front();
         TT_assert(region.hasOneBlock());
-        unsigned allocIndex = operandIndex;
-        if (auto scratchInputs = mutableGenericOp.getScratchInputsAttr()) {
-          for (int64_t scratchIdx : scratchInputs.asArrayRef()) {
-            if (static_cast<unsigned>(scratchIdx) < operandIndex) {
-              --allocIndex;
-            }
-          }
-        }
         Value operandAlloc =
-            d2m::GenericOp::getOperandAlloc(region, allocIndex);
+            d2m::GenericOp::getOperandAlloc(region, operandIndex);
         TT_assertv(operandAlloc,
                    "non-DMA-only generic must have per-operand alloc");
         Type cbUnderlyingType = operandAlloc.getType();
