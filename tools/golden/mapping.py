@@ -6250,6 +6250,20 @@ def ttnn_bitwise_xor_golden(
     return torch.bitwise_xor(input_tensor, other_tensor).to(output_dtype)
 
 
+def stablehlo_rem_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.remainder(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_atan2_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.atan2(input_tensor, other_tensor).to(output_dtype)
+
+
 def ttnn_bitwise_not_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -6856,8 +6870,11 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # bitcast conversion operation
     stablehlo.BroadcastInDimOp: torch.broadcast_to,
     stablehlo.SubtractOp: stablehlo_subtract_golden,
+    stablehlo.RemOp: stablehlo_rem_golden,
     stablehlo.PowOp: stablehlo_pow_golden,
+    stablehlo.Atan2Op: stablehlo_atan2_golden,
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
+    stablehlo.ShiftLeftOp: stablehlo_shift_left_golden,
     stablehlo.ReverseOp: stablehlo_reverse_golden,
     stablehlo.DotGeneralOp: dot_general_golden,
     stablehlo.DynamicSliceOp: dynamic_slice_golden,
