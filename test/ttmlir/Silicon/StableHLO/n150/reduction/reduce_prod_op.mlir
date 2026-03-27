@@ -19,10 +19,14 @@ module @jit_reduce_prod attributes {} {
 
   func.func public @test_reduce_prod_3to2dim(%arg0: tensor<128x10x4xf32>, %cst_0: tensor<f32>) -> tensor<128x10xf32> {
     // CHECK-LABEL: func.func public @test_reduce_prod_3to2dim
+    // CHECK: "ttnn.pad"
+    // CHECK-SAME: padding = array<i32: 0, 0, 0, 0, 0, 28>
+    // CHECK-SAME: (tensor<128x10x4xf32,
+    // CHECK-SAME: -> tensor<128x10x32xf32,
     // CHECK: "ttnn.prod"
     // CHECK-SAME: dim_arg = 2
     // CHECK-SAME: keep_dim = false
-    // CHECK-SAME: (tensor<128x10x4xbf16,
+    // CHECK-SAME: (tensor<128x10x32xbf16,
     // CHECK-SAME: -> tensor<128x10xbf16,
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.multiply across dimensions = [2] : (tensor<128x10x4xf32>, tensor<f32>) -> tensor<128x10xf32>
     return %0 : tensor<128x10xf32>
@@ -30,10 +34,14 @@ module @jit_reduce_prod attributes {} {
 
   func.func public @test_reduce_prod_2to1dim(%arg0: tensor<128x10xf32>, %cst_0: tensor<f32>) -> tensor<128xf32> {
     // CHECK-LABEL: func.func public @test_reduce_prod_2to1dim
+    // CHECK: "ttnn.pad"
+    // CHECK-SAME: padding = array<i32: 0, 0, 0, 22>
+    // CHECK-SAME: (tensor<128x10xf32,
+    // CHECK-SAME: -> tensor<128x32xf32,
     // CHECK: "ttnn.prod"
     // CHECK-SAME: dim_arg = 1
     // CHECK-SAME: keep_dim = false
-    // CHECK-SAME: (tensor<128x10xbf16,
+    // CHECK-SAME: (tensor<128x32xbf16,
     // CHECK-SAME: -> tensor<128xbf16,
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.multiply across dimensions = [1] : (tensor<128x10xf32>, tensor<f32>) -> tensor<128xf32>
     return %0 : tensor<128xf32>
