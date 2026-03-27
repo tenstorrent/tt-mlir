@@ -42,8 +42,8 @@ pip install -e runtime/tools/chisel
 
 - `-i, --input-file PATH`:
 - `-o, --output-dir PATH`: Output directory for results (default: `runtime/tools/chisel/test/mlir/output`)
-- `-f, --main-function NAME`: Name of the main function to execute (default: `main` in tt-xla, `forward` in tt-forge-fe)
-- `--program-index INT`: Program index for execution (default: `0`, `1` and `2` can be if we have training binary in tt-forge-fe)
+- `-f, --main-function NAME`: Name of the main function to execute (default: `main` in tt-xla, `forward` in tt-forge-onnx)
+- `--program-index INT`: Program index for execution (default: `0`, `1` and `2` can be if we have training binary in tt-forge-onnx)
 - `--report-path PATH`: Path for the output report CSV file (auto-generated with timestamp if not specified)
 
 #### Input Configuration
