@@ -193,13 +193,6 @@ void DMAWriteOp::getEffects(
                        true, mlir::SideEffects::DefaultResource::get());
 }
 
-unsigned DMACopyOp::getCBPort() {
-  assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
-  auto getCBOp = getCb().getDefiningOp<GetCBOp>();
-  assert(getCBOp && "CB operand must be defined by a GetCBOp");
-  return getCBOp.getPort();
-}
-
 ::mlir::LogicalResult DMACopyOp::verify() {
   bool hasDst = static_cast<bool>(getDst());
   bool hasCb = static_cast<bool>(getCb());
