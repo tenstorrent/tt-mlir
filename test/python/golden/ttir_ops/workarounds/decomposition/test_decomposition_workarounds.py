@@ -362,84 +362,6 @@ def test_concatenate_heads_without_workaround(
 
 
 @pytest.mark.parametrize(
-    "input_shape,weight_shape,stride,padding",
-    [
-        # Conv3dDepthPaddingRewritePattern: non-zero padding triggers the workaround
-        pytest.param(
-            (1, 8, 28, 28, 16),
-            (32, 16, 3, 3, 3),
-            [1, 1, 1],
-            [1, 1, 1],
-            marks=pytest.mark.xfail(
-                reason="tt-metal conv3d does not handle padding correctly. "
-                "Metal issue: https://github.com/tenstorrent/tt-metal/issues/38143"
-            ),
-            id="depth_padding",
-        ),
-        # Conv3dPadOutputChannelsRewritePattern: output channels not multiple of 32
-        pytest.param(
-            (1, 8, 28, 28, 4),
-            (17, 4, 3, 3, 3),
-            [1, 1, 1],
-            [0, 0, 0],
-            marks=pytest.mark.xfail(
-                reason="tt-metal conv3d requires output channels to be a multiple "
-                "of tile width (32). "
-                "Metal issue: https://github.com/tenstorrent/tt-metal/issues/38126"
-            ),
-            id="pad_output_channels",
-        ),
-    ],
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_conv3d_without_workaround(
-    input_shape: Shape,
-    weight_shape: Shape,
-    stride: List[int],
-    padding: List[int],
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    """
-    Test conv3d with workarounds disabled.
-    Workaround: Conv3dDepthPaddingRewritePattern - extracts padding into explicit PadOp.
-    Trigger: non-zero padding with padding_mode="zeros".
-    Workaround: Conv3dPadOutputChannelsRewritePattern - pads output channels to
-    multiple of 32.
-    Trigger: output channels not multiple of 32.
-    """
-
-    def module(builder: TTIRBuilder):
-        @builder.func([input_shape, weight_shape], [dtype, dtype])
-        def conv3d_no_workaround_wrapper(
-            in0: Operand,
-            weight: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.conv3d(
-                in0,
-                weight,
-                None,
-                stride=stride,
-                padding=padding,
-                groups=1,
-                unit_attrs=unit_attrs,
-            )
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-        pipeline_options=["enable-decomposition-workaround-pass=false"],
-    )
-
-
-@pytest.mark.parametrize(
     "input_shape,num_heads,transpose_key",
     [
         # MHA case: head_size=30 (not divisible by 32) triggers the workaround
@@ -1028,5 +950,36 @@ def test_sdpa_decode_mask_broadcast_no_workaround(
         target=target,
         **get_request_kwargs(request),
         device=device,
+        pipeline_options=["disable-workarounds=true"],
+    )
+
+
+@pytest.mark.parametrize("shape", [(1, 1, 1)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="Non-tile-aligned reduce(prod) along the last dimension pads only the reduced width dimension and leaves the non-reduced height dimension unchanged. Metal issue: https://github.com/tenstorrent/tt-metal/issues/40168"
+)
+def test_prod_last_dim_padding_no_workaround(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    """
+    Test that non-tile-aligned reduce(prod) along the last dimension pads only
+    the reduced width dimension and leaves the non-reduced height dimension
+    unchanged.
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def prod_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.prod(in0, dim_arg=[2], keep_dim=False, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
         pipeline_options=["disable-workarounds=true"],
     )

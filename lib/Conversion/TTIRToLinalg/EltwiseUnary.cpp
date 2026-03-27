@@ -593,6 +593,8 @@ void populateTTIRToLinalgEltwiseUnaryPatterns(MLIRContext *ctx,
 
   // linalg.generic + math dialect ops
   patterns.add<
+      ElementwiseUnaryOpToMathConversionPattern<ttir::AcosOp, math::AcosOp>,
+      ElementwiseUnaryOpToMathConversionPattern<ttir::AsinOp, math::AsinOp>,
       ElementwiseUnaryOpToMathConversionPattern<ttir::AtanOp, math::AtanOp>,
       ElementwiseUnaryOpToMathConversionPattern<ttir::CbrtOp, math::CbrtOp>,
       ElementwiseUnaryOpToMathConversionPattern<ttir::ErfcOp, math::ErfcOp>,

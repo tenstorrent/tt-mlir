@@ -11,7 +11,6 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenericTileComputeLoops.cpp
         GridSelection.cpp
         InsertDstRegisterAccess.cpp
-        InsertStreams.cpp
         LinalgToAffine.cpp
         LowerScratchAllocate.cpp
         LowerToLayout.cpp
@@ -19,6 +18,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         ElementwiseFusion.cpp
         OpScheduler.cpp
         SFPUTileLoopFission.cpp
+        InsertSpillAndScratch.cpp
         ScalarizeConstTensors.cpp
         GenerateOuterLoops.cpp
         LowerToExplicitForm.cpp

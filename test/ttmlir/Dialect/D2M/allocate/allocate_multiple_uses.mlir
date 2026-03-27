@@ -19,9 +19,7 @@ module {
     // CHECK: %[[DATA:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64}{{.+}} #dram>
     %a = memref.alloc() : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #dram>
     // CHECK: %[[BUF_1:.*]] = memref.alloc(){{.+}} #l1>
-    // CHECK: %[[STREAM_1:.*]] = "d2m.stream_layout"(%[[DATA]], %[[BUF_1]])
     // CHECK: %[[BUF_2:.*]] = memref.alloc(){{.+}} #l1>
-    // CHECK: %[[STREAM_2:.*]] = "d2m.stream_layout"(%[[DATA]], %[[BUF_2]])
     d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
         ins(%a, %a : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #dram>, memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #dram>)
         outs(%r : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>)  {

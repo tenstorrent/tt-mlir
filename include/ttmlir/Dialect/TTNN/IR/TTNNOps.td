@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -311,6 +311,14 @@ def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos"> {
     }];
 }
 
+def TTNN_AcosOp: TTNN_ElementwiseUnaryOp<"acos"> {
+    let summary = "Eltwise arccosine op.";
+    let description = [{
+      Performs an elementwise arccosine (`acos`) on the input tensor; result
+      range [0, π] for inputs in [-1, 1]. Floating-point tensors.
+    }];
+}
+
 def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
     let summary = "Eltwise exponential.";
     let description = [{
@@ -446,6 +454,14 @@ def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin"> {
     let summary = "Eltwise sine.";
     let description = [{
       Eltwise sine operation.
+    }];
+}
+
+def TTNN_AsinOp: TTNN_ElementwiseUnaryOp<"asin"> {
+    let summary = "Eltwise arcsine op.";
+    let description = [{
+      Performs an elementwise arcsine (`asin`) on the input tensor; result
+      range [-π/2, π/2] for inputs in [-1, 1]. Floating-point tensors.
     }];
 }
 
@@ -2355,6 +2371,42 @@ def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_Mem
                          Optional<AnyRankedTensor>:$bias,
                          DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_LayerNormPreAllGatherOp : TTNN_Op<"layer_norm_pre_all_gather",
+    [AttrSizedOperandSegments, TTNN_DtypeOpInterface, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Layer normalization pre-all-gather op.";
+    let description = [{
+      Computes local partial statistics (Welford) for distributed layer
+      normalization on a width-sharded input tensor. Produces partial
+      statistics that should be all-gathered across devices before being
+      consumed by a post-all-gather normalization op.
+
+      Inputs:
+        - input: Input tensor (width-sharded in L1).
+        - residual_input: Optional residual tensor to add before computing
+            statistics. Must have the same shape as input.
+        - recip: Optional precomputed reciprocal tensor.
+
+      Attributes:
+        - dtype: Optional output data type. Defaults to BFloat16 in the
+            runtime if not specified.
+        - compute_config: Optional device compute kernel configuration.
+        - program_config: Optional LayerNormShardedMultiCoreProgramConfig.
+        - memory_config: Optional output memory configuration.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$residual_input,
+                         Optional<AnyRankedTensor>:$recip,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_LayerNormShardedMultiCoreProgramConfigAttr>:$program_config);
 
     let results = (outs AnyRankedTensor:$result);
 

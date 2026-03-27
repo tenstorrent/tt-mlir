@@ -42,18 +42,30 @@ static void runPagedScaledDotProductAttentionDecodeOp(
 
   std::optional<float> scale = op->scale();
   std::optional<uint32_t> slidingWindowSize = std::nullopt;
+  const auto computeGrid = query.device()->compute_with_storage_grid_size();
 
-  auto programConfig =
-      std::make_optional<::ttnn::operations::transformer::SDPAProgramConfig>();
-  programConfig->k_chunk_size = 32; // Required for non-causal
-  programConfig->compute_with_storage_grid_size =
-      query.device()->compute_with_storage_grid_size();
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      programConfig = std::nullopt;
+  if (!isCausal) {
+    programConfig.emplace();
+    programConfig->k_chunk_size = 32; // Required for non-causal
+    programConfig->compute_with_storage_grid_size = computeGrid;
+  } else if (query.device()->arch() == ::tt::ARCH::BLACKHOLE) {
+    // Preserve the existing causal decode scheduling while disabling the
+    // approximate exponential path on Blackhole.
+    programConfig.emplace();
+    programConfig->q_chunk_size = 0;
+    programConfig->k_chunk_size = 0;
+    programConfig->compute_with_storage_grid_size = computeGrid;
+    programConfig->max_cores_per_head_batch = computeGrid.x * computeGrid.y;
+    programConfig->exp_approx_mode = false;
+  }
 
   ::ttnn::Tensor out =
       ::ttnn::transformer::paged_scaled_dot_product_attention_decode(
           query, key, value, pageTable, isCausal, attentionMask, curPosTensor,
           attentionSink, scale, slidingWindowSize, outputMemoryConfig,
-          /*program_config=*/isCausal ? std::nullopt : programConfig,
+          /*program_config=*/programConfig,
           /*compute_kernel_config=*/std::nullopt);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

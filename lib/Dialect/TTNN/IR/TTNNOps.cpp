@@ -3078,6 +3078,56 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::LayerNormPreAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+
+  if (inputType.getRank() < 2) {
+    return emitOpError("input tensor must have rank >= 2");
+  }
+
+  // If residual_input is present, its shape must match input shape.
+  if (getResidualInput()) {
+    RankedTensorType residualType = getResidualInput().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError("residual_input shape must match input shape");
+    }
+  }
+
+  // Output shape must match input shape except the last dimension,
+  // which must be 2 * TILE_WIDTH (64) for the partial statistics
+  // (E(x) and E(x²)).
+  RankedTensorType outputType = getResult().getType();
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError("input and output must have the same rank");
+  }
+
+  // All dimensions except the last must match.
+  for (int64_t i = 0; i < inputType.getRank() - 1; ++i) {
+    if (inputShape[i] != outputShape[i]) {
+      return emitOpError() << "output dimension " << i << " (" << outputShape[i]
+                           << ") must match input dimension (" << inputShape[i]
+                           << ")";
+    }
+  }
+
+  // Last dimension must be 2 * TILE_WIDTH for layernorm statistics.
+  constexpr int64_t kExpectedLastDim = 2 * TILE_WIDTH;
+  if (outputShape.back() != kExpectedLastDim) {
+    return emitOpError()
+           << "output last dimension must be " << kExpectedLastDim
+           << " (2 * TILE_WIDTH) for layernorm partial statistics, got "
+           << outputShape.back();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GroupNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::GroupNormOp::verify() {
