@@ -3891,9 +3891,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, toLayoutOp), debugString,
                            locInfo);
   }
-  if (auto bitcastConvertOp = dyn_cast<BitcastConvertOp>(op); bitcastConvertOp) {
-    return createOperation(cache, createOp(cache, bitcastConvertOp), debugString,
-                           locInfo);
+  if (auto bitcastConvertOp = dyn_cast<BitcastConvertOp>(op);
+      bitcastConvertOp) {
+    return createOperation(cache, createOp(cache, bitcastConvertOp),
+                           debugString, locInfo);
   }
   if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {
     return createOperation(cache, createOp(cache, typecastOp), debugString,
