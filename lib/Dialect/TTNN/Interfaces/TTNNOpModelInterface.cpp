@@ -1732,16 +1732,15 @@ BitcastConvertOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<size_t>
 BitcastConvertOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                         const OpConfig &opConfig) {
+                               const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
   const auto inputShape = getInput().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
-      op_model::OpModel<BitcastConvertOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDtypeAttr(), opConfig.outputLayout);
+      op_model::OpModel<BitcastConvertOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getDtypeAttr(), opConfig.outputLayout);
 }
-
 
 //===----------------------------------------------------------------------===//
 // TypecastOp - TTNN Op Model Interface

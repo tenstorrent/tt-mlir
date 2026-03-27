@@ -2182,7 +2182,6 @@ llvm::Expected<size_t> OpModel<BitcastConvertOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-
 //===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//

@@ -12,4 +12,3 @@ module {
     return %0 : tensor<2x32x32xf32, #ttnn_layout_device_tile_f32>
   }
 }
-

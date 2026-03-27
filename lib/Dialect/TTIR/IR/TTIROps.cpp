@@ -3042,20 +3042,21 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
 
   if (!inElementType.isIntOrFloat()) {
     return emitOpError(
-      "Input tensor type must be an integer or floating point type"); 
+        "Input tensor type must be an integer or floating point type");
   }
 
   if (!outElementType.isIntOrFloat()) {
     return emitOpError(
-      "Output tensor type must be an integer or floating point type");
+        "Output tensor type must be an integer or floating point type");
   }
 
-  if (inElementType.getIntOrFloatBitWidth() != outElementType.getIntOrFloatBitWidth()) {
+  if (inElementType.getIntOrFloatBitWidth() !=
+      outElementType.getIntOrFloatBitWidth()) {
     return emitOpError(
-      "Input and output tensor element types must have the same bit width");
+        "Input and output tensor element types must have the same bit width");
   }
   return success();
-} 
+}
 //===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
