@@ -4469,6 +4469,116 @@ TEST_F(OpModelBase, layerNormOpL1Memory) {
   }
 }
 
+TEST_F(OpModelBase, layerNormPreAllGatherOp) {
+  // Basic LayerNormPreAllGather with input only
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  LayerNormPreAllGatherOp op = builder.create<LayerNormPreAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*residual_input=*/nullptr, /*recip=*/nullptr,
+      /*dtype=*/nullptr, /*memory_config=*/nullptr,
+      /*compute_config=*/nullptr, /*program_config=*/nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, layerNormPreAllGatherOpWithResidual) {
+  // LayerNormPreAllGather with residual_input
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto residualInput = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  LayerNormPreAllGatherOp op = builder.create<LayerNormPreAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*residual_input=*/residualInput, /*recip=*/nullptr,
+      /*dtype=*/nullptr, /*memory_config=*/nullptr,
+      /*compute_config=*/nullptr, /*program_config=*/nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, layerNormPreAllGatherOpL1Memory) {
+  // LayerNormPreAllGather with L1 memory buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 64};
+
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto outputType = createRankedTensorType(outputShape, builder.getBF16Type());
+
+  LayerNormPreAllGatherOp op = builder.create<LayerNormPreAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*residual_input=*/nullptr, /*recip=*/nullptr,
+      /*dtype=*/nullptr, /*memory_config=*/nullptr,
+      /*compute_config=*/nullptr, /*program_config=*/nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, groupNormOp) {
   // Test case 1: Basic GroupNorm with weight and bias
   llvm::SmallVector<int64_t> inputShape = {1, 1, 64, 480};
