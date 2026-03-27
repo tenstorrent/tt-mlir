@@ -2528,13 +2528,11 @@ class StableHLOBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-            input0 = self._get_golden_tensor(in0)
-            input1 = self._get_golden_tensor(in1)
-            op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(
-                input0, input1, op.result.type.element_type
-            )
-            self._set_golden_tensor(op.result, golden_output)
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, input1, op.result.type.element_type)
+        self._set_golden_tensor(op.result, golden_output)
 
         return op.result
 
