@@ -2412,6 +2412,44 @@ def TTNN_LayerNormPreAllGatherOp : TTNN_Op<"layer_norm_pre_all_gather",
     let hasVerifier = 1;
 }
 
+def TTNN_LayerNormPostAllGatherOp : TTNN_Op<"layer_norm_post_all_gather",
+    [AttrSizedOperandSegments, TTNN_DtypeOpInterface, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Layer normalization post-all-gather op.";
+    let description = [{
+      Applies normalization using gathered statistics from a distributed
+      layer normalization pipeline. Takes the original input tensor and
+      the all-gathered partial statistics, computes the final normalized
+      output, and optionally scales by weight and shifts by bias.
+
+      Inputs:
+        - input: Original input tensor.
+        - stats: All-gathered statistics tensor from pre-all-gather phase.
+        - weight: Optional scale (gamma) tensor.
+        - bias: Optional shift (beta) tensor.
+
+      Attributes:
+        - epsilon: Small constant for numerical stability (default 1e-12).
+        - dtype: Optional output data type.
+        - compute_config: Optional device compute kernel configuration.
+        - program_config: Optional LayerNormShardedMultiCoreProgramConfig.
+        - memory_config: Optional output memory configuration.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$stats,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_LayerNormShardedMultiCoreProgramConfigAttr>:$program_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_GroupNormOp : TTNN_Op<"group_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
     let summary = "Group normalization op.";
     let description = [{

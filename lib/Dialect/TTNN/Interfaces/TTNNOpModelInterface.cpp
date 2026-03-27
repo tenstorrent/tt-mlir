@@ -4140,6 +4140,77 @@ LayerNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormPostAllGatherOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct LayerNormPostAllGatherOptionalArgs {
+  std::optional<llvm::ArrayRef<int64_t>> weightShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+};
+
+static LayerNormPostAllGatherOptionalArgs
+unpackLayerNormPostAllGatherOptionalArgs(
+    const std::vector<TTNNLayoutAttr> &inputs, LayerNormPostAllGatherOp op) {
+  LayerNormPostAllGatherOptionalArgs ret;
+  // inputs[0] = input, inputs[1] = stats; optional operands follow.
+  size_t idx = 2;
+  if (op.getWeight()) {
+    ret.weightShape = op.getWeight().getType().getShape();
+    if (idx < inputs.size()) {
+      ret.weightLayout = inputs[idx++];
+    }
+  }
+  if (op.getBias()) {
+    ret.biasShape = op.getBias().getType().getShape();
+    if (idx < inputs.size()) {
+      ret.biasLayout = inputs[idx++];
+    }
+  }
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+LayerNormPostAllGatherOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto statsShape = getStats().getType().getShape();
+
+  LayerNormPostAllGatherOptionalArgs optionalArgs =
+      unpackLayerNormPostAllGatherOptionalArgs(inputs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<LayerNormPostAllGatherOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], statsShape, inputs[1],
+      optionalArgs.weightShape, optionalArgs.weightLayout,
+      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t> LayerNormPostAllGatherOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  const auto inputShape = getInput().getType().getShape();
+  const auto statsShape = getStats().getType().getShape();
+
+  LayerNormPostAllGatherOptionalArgs optionalArgs =
+      unpackLayerNormPostAllGatherOptionalArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<LayerNormPostAllGatherOp>::getOpRuntime, *this,
+      inputShape, inputs[0], statsShape, inputs[1], optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // GroupNormOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

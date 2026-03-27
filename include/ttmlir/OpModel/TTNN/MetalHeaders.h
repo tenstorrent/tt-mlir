@@ -77,6 +77,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/normalization/batch_norm/batch_norm.hpp"
 #include "ttnn/operations/normalization/groupnorm/groupnorm.hpp"
 #include "ttnn/operations/normalization/layernorm/layernorm.hpp"
+#include "ttnn/operations/normalization/layernorm_distributed/layernorm_post_all_gather.hpp"
 #include "ttnn/operations/normalization/layernorm_distributed/layernorm_pre_all_gather.hpp"
 #include "ttnn/operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
