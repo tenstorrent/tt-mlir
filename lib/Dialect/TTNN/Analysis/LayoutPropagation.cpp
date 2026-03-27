@@ -748,20 +748,21 @@ void LayoutPropagation::addReshardCandidates(
         break;
       }
       // Validate the reshard is feasible for this producer candidate.
+      TTNNLayoutAttr producerOutput;
       if (producerBeam) {
-        TTNNLayoutAttr producerOutput =
+        producerOutput =
             getOutputLayoutForResult((*producerBeam)[pIdx], resultIdx);
-        if (!producerOutput) {
-          continue;
-        }
-        if (!validateReshard(op, producerOp, producerOutput, reshardLayout,
-                             resultIdx)) {
-          continue;
-        }
+      } else {
+        // Func args / unresolved producers: use the current IR layout.
+        producerOutput = currentLayout;
       }
-      // TODO(rpavlovicTT): Reshard candidates for func args / unresolved
-      // producers are emitted without validation since there is no beam
-      // state to provide a producerOutputLayout.
+      if (!producerOutput) {
+        continue;
+      }
+      if (!validateReshard(op, producerOp, producerOutput, reshardLayout,
+                           resultIdx)) {
+        continue;
+      }
       InputCandidate ic;
       ic.layout = reshardLayout;
       ic.producerCandidateIndex = pIdx;

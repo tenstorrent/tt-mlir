@@ -55,6 +55,7 @@ SliceRuleBook::getOutputHints(Operation * /*op*/,
 LayoutFilterFn ReshapeRuleBook::getInputLayoutFilter() const {
   // Reshape/Permute: width-sharded inputs round-trip through interleaved
   // internally in tt-metal; height/block sharding is handled natively.
+  // https://github.com/tenstorrent/tt-mlir/issues/7681
   return layout_filter_utils::rejectWidthSharded;
 }
 
@@ -83,6 +84,7 @@ PadRuleBook::getOutputHints(Operation * /*op*/,
   // nullopt for interleaved tensors. The op model validation doesn't catch
   // this since it only checks sharding constraints when the input is already
   // sharded.
+  // https://github.com/tenstorrent/tt-metal/issues/40898
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
 }
 
