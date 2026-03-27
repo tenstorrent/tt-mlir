@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # TTMLIR Wheel setup.py
-# Heavily inspired by: https://github.com/tenstorrent/tt-forge-fe/blob/main/setup.py
+# Heavily inspired by: https://github.com/tenstorrent/tt-forge-onnx/blob/main/setup.py
 
 import os
 import pathlib

@@ -692,5 +692,5 @@ function switchTab(className) {
 - [tt-forge](https://github.com/tenstorrent/tt-forge)
 - [tt-xla](https://github.com/tenstorrent/tt-xla)
 - [tt-metalium](https://github.com/tenstorrent/tt-metal)
-- [tt-forge-fe](https://github.com/tenstorrent/tt-forge-fe)
+- [tt-forge-onnx](https://github.com/tenstorrent/tt-forge-onnx)
 - [tt-tvm](https://github.com/tenstorrent/tt-tvm)

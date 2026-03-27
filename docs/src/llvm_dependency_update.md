@@ -167,7 +167,7 @@ cp shardy.patch ../../../tt-mlir/env/patches/
    - Obtain the commit ID from your latest uplift branch commit:
    ![alt text](images/copy_commit.png)
    - Execute On PR actions for each frontend repository:
-     - [forge-fe](https://github.com/tenstorrent/tt-forge-fe/actions/workflows/on-pr.yml)
+     - [forge-onnx](https://github.com/tenstorrent/tt-forge-onnx/actions/workflows/on-pr.yml)
      - [tt-xla](https://github.com/tenstorrent/tt-xla/actions/workflows/on-pr.yml)
    - Run CI workflows from the main branch using the tt-mlir commit from step 1
   ![image](images/run_workflow.png)
