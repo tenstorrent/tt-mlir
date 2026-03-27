@@ -963,7 +963,17 @@ static ttcore::GridAttr deriveGridAttrForOutput(Value output,
   }
 
   if (auto invMap = utils::getVirtualGridInverseMapping(output)) {
-    return builder.getAttr<ttcore::GridAttr>(gridShape, *invMap);
+    // Get virtual to physical map from output as well.
+    auto fwdMap = *utils::getVirtualGridForwardMapping(output);
+    size_t rank = gridShape.size();
+    fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, rank);
+    for (int i = rank - 1; i >= 0; i--) {
+      fwdMap = ttmlir::utils::dropDim(fwdMap, rank + i);
+    }
+    fwdMap =
+        fwdMap.insertResult(getAffineConstantExpr(0, builder.getContext()), 0);
+
+    return builder.getAttr<ttcore::GridAttr>(gridShape, fwdMap, *invMap);
   }
 
   auto existingRemapping = utils::getAssociatedRemapping(output);
@@ -982,9 +992,10 @@ static ttcore::GridAttr deriveGridAttrForOutput(Value output,
     return builder.getAttr<ttcore::GridAttr>(gridShape);
   }
 
-  auto invMap = ttmlir::utils::createGridInverseMapFor2DPermutation(
-      indexMap, gridShape.size(), builder.getContext());
-  return builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+  auto [forwardMap, inverseMap] =
+      ttmlir::utils::createGridForwardAndInverseMapFor2DPermutation(
+          indexMap, gridShape.size(), builder.getContext());
+  return builder.getAttr<ttcore::GridAttr>(gridShape, forwardMap, inverseMap);
 }
 
 static ttcore::GridAttr

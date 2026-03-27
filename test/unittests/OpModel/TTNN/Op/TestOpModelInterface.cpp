@@ -78,12 +78,16 @@ public:
     auto shardOffset = mlir::getAffineConstantExpr(0, &context);
     auto d0 = mlir::getAffineDimExpr(0, &context); // d0
     auto d1 = mlir::getAffineDimExpr(1, &context); // d1
-    auto map3 = mlir::AffineMap::get(
+    auto d2 = mlir::getAffineDimExpr(2, &context); // d2
+    auto virtToPhysicalMap = mlir::AffineMap::get(
         /*dimCount=*/2, /*symbolCount=*/0, {deviceIdx, d0, d1}, &context);
+    auto physicalToVirtMap = mlir::AffineMap::get(
+        /*dimCount=*/3, /*symbolCount=*/0, {d1, d2}, &context);
     auto map4 = mlir::AffineMap::get(
         /*dimCount=*/2, /*symbolCount=*/0, {deviceIdx, d0, d1, shardOffset},
         &context);
-    auto workerGrid = ttcore::GridAttr::get(&context, gridShapeHwN300, map3);
+    auto workerGrid = ttcore::GridAttr::get(
+        &context, gridShapeHwN300, virtToPhysicalMap, physicalToVirtMap);
 
     return ttcore::DeviceAttr::get(&context, workerGrid, map4, map4, {1}, {0},
                                    {});

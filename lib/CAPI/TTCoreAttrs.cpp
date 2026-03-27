@@ -12,6 +12,7 @@ using namespace mlir::tt::ttcore;
 MlirAttribute ttmlirTTGridAttrGet(MlirContext ctx, int64_t *shape,
                                   int shapeSize) {
   return wrap(GridAttr::get(unwrap(ctx), {shape, shape + shapeSize},
+                            mlir::AffineMap::get(unwrap(ctx)),
                             mlir::AffineMap::get(unwrap(ctx))));
 }
 

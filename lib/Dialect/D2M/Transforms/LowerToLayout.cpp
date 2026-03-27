@@ -589,7 +589,17 @@ public:
       viewOutput = buildConcreteView(output, outputInfo.type, inputInfo.type);
       if (auto invMap = utils::getVirtualGridInverseMapping(input)) {
         auto gridShape = llvm::to_vector(inputInfo.getGridShape());
-        grid = rewriter.getAttr<ttcore::GridAttr>(gridShape, *invMap);
+
+        auto fwdMap = *utils::getVirtualGridForwardMapping(input);
+        size_t rank = gridShape.size();
+        fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, rank);
+        for (int i = rank - 1; i >= 0; i--) {
+          fwdMap = ttmlir::utils::dropDim(fwdMap, rank + i);
+        }
+        fwdMap = fwdMap.insertResult(
+            getAffineConstantExpr(0, rewriter.getContext()), 0);
+
+        grid = rewriter.getAttr<ttcore::GridAttr>(gridShape, fwdMap, *invMap);
       }
     }
 

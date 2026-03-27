@@ -9,7 +9,7 @@
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>,memref<2x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>, exactGrid = true>
 
 #vgm_inv = affine_map<(d0, d1) -> (0, d0 - 2, d1)>
-#vgm_fwd = affine_map<(d0, d1) -> (d0 + 2, d1)>
+#vgm_fwd = affine_map<(d0, d1, d2, d3) -> (d0 + 2, d1, d2, d3)>
 module  {
   // CHECK-LABEL: func.func @multi_tanh_exp
   // CHECK: "ttnn.generic"

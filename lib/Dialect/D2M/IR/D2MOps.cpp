@@ -1406,7 +1406,17 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       //    output's EmptyOp.  Use the stored map directly — it encodes the
       //    correct physical grid from the TTNN layout.
       if (auto invMap = utils::getVirtualGridInverseMapping(output)) {
-        grid = builder.getAttr<ttcore::GridAttr>(gridShape, *invMap);
+        // Get virtual to physical map from output as well.
+        auto fwdMap = *utils::getVirtualGridForwardMapping(output);
+        size_t rank = gridShape.size();
+        fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, rank);
+        for (int i = rank - 1; i >= 0; i--) {
+          fwdMap = ttmlir::utils::dropDim(fwdMap, rank + i);
+        }
+        fwdMap = fwdMap.insertResult(
+            getAffineConstantExpr(0, builder.getContext()), 0);
+
+        grid = builder.getAttr<ttcore::GridAttr>(gridShape, fwdMap, *invMap);
       }
 
       // 2. Check for a 2D→2D permutation reblocking on a ViewLayoutOp.
@@ -1424,9 +1434,10 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
               indexMap.getNumInputs() == kExpectedDimsFor2DDeviceShape;
 
           if (indexMapIs2DPermutation) {
-            auto invMap = ttmlir::utils::createGridInverseMapFor2DPermutation(
-                indexMap, gridShape.size(), builder.getContext());
-            grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+            auto [fwdMap, invMap] =
+                ttmlir::utils::createGridForwardAndInverseMapFor2DPermutation(
+                    indexMap, gridShape.size(), builder.getContext());
+            grid = builder.getAttr<ttcore::GridAttr>(gridShape, fwdMap, invMap);
           }
         }
       }
@@ -1751,9 +1762,9 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     }
   }
 
-  if (!getGrid().getMapping().isEmpty()) {
+  if (!getGrid().getPhysicalToVirtMap().isEmpty()) {
 
-    if (getGrid().getMapping().getNumInputs() != 2ul) {
+    if (getGrid().getPhysicalToVirtMap().getNumInputs() != 2ul) {
       return emitOpError(
           "GenericOp virtual grid affine map must have 2 inputs, or be empty.");
     }
@@ -1787,7 +1798,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     // GridAttr's inverse map.
     // 2. The inverse map applied to the physical grid shape must produce
     //    a virtual grid shape matching the output's grid shape.
-    AffineMap gridInvMap = getGrid().getMapping();
+    AffineMap gridInvMap = getGrid().getPhysicalToVirtMap();
     for (Value output : getOutputs()) {
       if (!isDRAM(output)) {
         auto outputInvMap = utils::getVirtualGridInverseMapping(output);
@@ -2046,7 +2057,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
              << gridShape.size() << "D";
     }
 
-    if (grid.getMapping().isEmpty()) {
+    if (grid.getPhysicalToVirtMap().isEmpty()) {
       if (gridShape[0] > regionShapeY || gridShape[1] > regionShapeX) {
         return emitOpError("generic op grid shape [")
                << gridShape[0] << ", " << gridShape[1]
@@ -2054,7 +2065,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
                << regionShapeX << "]";
       }
     } else {
-      AffineMap physicalToVirtual = grid.getMapping();
+      AffineMap physicalToVirtual = grid.getPhysicalToVirtMap();
       if (physicalToVirtual.getNumResults() == 3u) {
         physicalToVirtual = physicalToVirtual.dropResult(0);
       }
@@ -2569,8 +2580,10 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
         mlir::cast<ShapedType>((*reblockedTypes)[numInputs]));
     if (derivedGridShape.size() == normalizedGrid.getShape().size() &&
         !llvm::equal(derivedGridShape, normalizedGrid.getShape())) {
-      normalizedGrid = ttcore::GridAttr::get(
-          builder.getContext(), derivedGridShape, normalizedGrid.getMapping());
+      normalizedGrid =
+          ttcore::GridAttr::get(builder.getContext(), derivedGridShape,
+                                normalizedGrid.getVirtToPhysicalMap(),
+                                normalizedGrid.getPhysicalToVirtMap());
       reblockedTypes = computeReblockedTypes(normalizedGrid.getShape());
       if (failed(reblockedTypes)) {
         this->emitOpError()
@@ -2725,8 +2738,20 @@ d2m::GenericOp::getInputOutputOperandShardShapes(bool convertTileToScalar) {
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getPhysicalGridShape() {
-  TT_assert(getOutputs().size() == 1u);
-  return d2m::utils::getPhysicalGridShape(getOutputs().front());
+  if (getGrid().getVirtToPhysicalMap().isEmpty()) {
+    return llvm::to_vector(getGrid().getShape());
+  }
+
+  // NOTE: This assumes the virtual grid maps to a rectangular physical grid
+  // (which does not necessarily have to be the case. For example, a 1x37
+  // virtual grid would map to cores [(0, 0), (3, 7)] and [(4, 0), (4, 4)]).
+  auto map = getGrid().getVirtToPhysicalMap();
+  // Drop first result from virtual to physical map (which is just the device
+  // idx)
+  map = map.dropResults(llvm::to_vector(llvm::seq<int64_t>(0, 1)));
+  auto shape =
+      llvm::to_vector(ttmlir::utils::evalShape(map, getGrid().getShape()));
+  return shape;
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
