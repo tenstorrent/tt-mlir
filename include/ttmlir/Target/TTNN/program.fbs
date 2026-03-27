@@ -81,6 +81,7 @@ union OpType {
   GroupNormOp,
   LayerNormOp,
   LayerNormPreAllGatherOp,
+  LayerNormPostAllGatherOp,
   LinearOp,
   LoadCachedOp,
   // ANCHOR: adding_an_op_matmul_fbs_op_type
