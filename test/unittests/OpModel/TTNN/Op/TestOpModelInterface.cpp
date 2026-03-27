@@ -4488,8 +4488,8 @@ TEST_F(OpModelBase, layerNormPreAllGatherOp) {
   auto input = createEmptyTensor(inputShape);
   auto outputType = createRankedTensorType(outputShape);
 
-  LayerNormPreAllGatherOp op = builder.create<LayerNormPreAllGatherOp>(
-      builder.getUnknownLoc(), outputType, input,
+  LayerNormPreAllGatherOp op = LayerNormPreAllGatherOp::create(
+      builder, builder.getUnknownLoc(), outputType, input,
       /*residual_input=*/nullptr, /*recip=*/nullptr,
       /*dtype=*/nullptr, /*memory_config=*/nullptr,
       /*compute_config=*/nullptr, /*program_config=*/nullptr);
@@ -4524,8 +4524,8 @@ TEST_F(OpModelBase, layerNormPreAllGatherOpWithResidual) {
   auto residualInput = createEmptyTensor(inputShape);
   auto outputType = createRankedTensorType(outputShape);
 
-  LayerNormPreAllGatherOp op = builder.create<LayerNormPreAllGatherOp>(
-      builder.getUnknownLoc(), outputType, input,
+  LayerNormPreAllGatherOp op = LayerNormPreAllGatherOp::create(
+      builder, builder.getUnknownLoc(), outputType, input,
       /*residual_input=*/residualInput, /*recip=*/nullptr,
       /*dtype=*/nullptr, /*memory_config=*/nullptr,
       /*compute_config=*/nullptr, /*program_config=*/nullptr);
@@ -4563,8 +4563,8 @@ TEST_F(OpModelBase, layerNormPreAllGatherOpL1Memory) {
       createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
   auto outputType = createRankedTensorType(outputShape, builder.getBF16Type());
 
-  LayerNormPreAllGatherOp op = builder.create<LayerNormPreAllGatherOp>(
-      builder.getUnknownLoc(), outputType, input,
+  LayerNormPreAllGatherOp op = LayerNormPreAllGatherOp::create(
+      builder, builder.getUnknownLoc(), outputType, input,
       /*residual_input=*/nullptr, /*recip=*/nullptr,
       /*dtype=*/nullptr, /*memory_config=*/nullptr,
       /*compute_config=*/nullptr, /*program_config=*/nullptr);

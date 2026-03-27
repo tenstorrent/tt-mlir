@@ -2102,9 +2102,9 @@ void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
         RankedTensorType::get(newMidShape, permuteInType.getElementType(),
                               permuteInType.getEncoding());
     SmallVector<int32_t> midShapeAttr(newMidShape.begin(), newMidShape.end());
-    auto newReshape = rewriter.create<mlir::tt::ttir::ReshapeOp>(
-        leadingReshape.getLoc(), newMidType, leadingReshape.getInput(),
-        rewriter.getI32ArrayAttr(midShapeAttr));
+    auto newReshape = mlir::tt::ttir::ReshapeOp::create(
+        rewriter, leadingReshape.getLoc(), newMidType,
+        leadingReshape.getInput(), rewriter.getI32ArrayAttr(midShapeAttr));
 
     // Create new permute at reduced rank.
     SmallVector<int64_t> newOutShape;
@@ -2114,8 +2114,9 @@ void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
     auto trailingType = trailingReshape.getType();
     auto newOutType = RankedTensorType::get(
         newOutShape, trailingType.getElementType(), trailingType.getEncoding());
-    auto newPermute = rewriter.create<mlir::tt::ttir::PermuteOp>(
-        permuteOp.getLoc(), newOutType, newReshape.getResult(), newPerm);
+    auto newPermute = mlir::tt::ttir::PermuteOp::create(
+        rewriter, permuteOp.getLoc(), newOutType, newReshape.getResult(),
+        newPerm);
 
     rewriter.replaceOp(trailingReshape, newPermute.getResult());
     return success();
