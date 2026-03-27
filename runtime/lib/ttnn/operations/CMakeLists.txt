@@ -44,6 +44,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/scatter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/slice.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/slice_write.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/sort.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/write_tensor.cpp

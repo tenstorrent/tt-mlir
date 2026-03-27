@@ -57,6 +57,20 @@ def get_scalar_from_tensor(tensor: ttnn.Tensor) -> int:
     return host_tensor.item()
 
 
+def slice_write_from_tensors(
+    operand: ttnn.Tensor,
+    input_tensor: ttnn.Tensor,
+    begins_tensor: ttnn.Tensor,
+    ends_tensor: ttnn.Tensor,
+) -> None:
+    begins_host = ttnn.from_device(begins_tensor)
+    ends_host = ttnn.from_device(ends_tensor)
+    begins = begins_host.tolist()
+    ends = ends_host.tolist()
+    step = [1] * len(begins)
+    ttnn.experimental.slice_write(input_tensor, operand, begins, ends, step)
+
+
 def load_tensor(file_path: str, layout, dtype, device, memory_config) -> ttnn.Tensor:
     loaded_tensor = ttnn.load_tensor(file_path)
 

@@ -118,6 +118,7 @@ union OpType {
   ScaledDotProductAttentionDecodeOp,
   ScatterOp,
   SliceOp,
+  SliceWriteOp,
   SoftmaxOp,
   SortOp,
   SplitQueryKeyValueAndSplitHeadsOp,
