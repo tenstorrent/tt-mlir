@@ -189,9 +189,6 @@ private:
   /// null.
   Value evictFarthestUse();
 
-  /// Build L1 interleaved OpConfig from op's current config.
-  static OpConfig makeL1InterleavedConfig(Operation *op);
-
   /// Update op's IR to reflect the output layout from a validation result
   /// (result type, L1 usage attr).
   void
