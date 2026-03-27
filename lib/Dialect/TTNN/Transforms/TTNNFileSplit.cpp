@@ -130,6 +130,15 @@ private:
       op.moveBefore(&mainFile.getBodyRegion().front(),
                     mainFile.getBodyRegion().front().end());
     }
+
+    // Clone DeviceOp(s) into the consteval file so that downstream passes
+    // (e.g. TTNNToEmitPy, TTNNToEmitC) can look up device attributes via
+    // lookupNearestSymbolFrom, which cannot see past the IsolatedFromAbove
+    // boundary of FileOp.
+    builder.setInsertionPointToStart(&constevalFile.getBodyRegion().front());
+    for (auto deviceOp : mainFile.template getOps<ttcore::DeviceOp>()) {
+      builder.clone(*deviceOp.getOperation());
+    }
   }
 };
 
