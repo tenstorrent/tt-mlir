@@ -22,6 +22,8 @@ void populateD2MToTTMetalPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     ttmetal::MathFidelity mathFidelity = ttmetal::MathFidelity::HiFi4);
 
+void populateSpatialOpPatterns(MLIRContext *ctx, RewritePatternSet &patterns);
+
 std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTMetalPass();
 std::unique_ptr<OperationPass<ModuleOp>>
 createConvertD2MToTTMetalPass(const d2m::ConvertD2MToTTMetalOptions &options);

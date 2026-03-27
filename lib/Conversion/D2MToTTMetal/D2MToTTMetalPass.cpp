@@ -36,6 +36,31 @@ namespace mlir::tt::d2m {
 
 namespace {
 
+/// Shared legality for convert-d2m-to-ttmetal. Does not register d2m.spatial;
+/// callers add SpatialOp as legal (phase 1) or illegal (phase 2).
+static void addD2MToTTMetalConversionTargetBase(ConversionTarget &target) {
+  target.addLegalDialect<BuiltinDialect>();
+  target.addLegalDialect<arith::ArithDialect>();
+  target.addLegalDialect<func::FuncDialect>();
+  target.addLegalDialect<memref::MemRefDialect>();
+  target.addLegalDialect<ttmetal::TTMetalDialect>();
+  target.addLegalDialect<ttkernel::TTKernelDialect>();
+  target.addLegalDialect<ttcore::TTCoreDialect>();
+  target.addLegalDialect<scf::SCFDialect>();
+  target.addLegalDialect<emitc::EmitCDialect>();
+  target.addIllegalDialect<math::MathDialect>();
+  target.addIllegalDialect<d2m::D2MDialect>();
+
+  target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
+    return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
+        op.getMemref().getType().getMemorySpace());
+  });
+  target.addDynamicallyLegalOp<memref::DeallocOp>([&](memref::DeallocOp op) {
+    return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
+        op.getMemref().getType().getMemorySpace());
+  });
+}
+
 struct ConvertD2MToTTMetal
     : public d2m::impl::ConvertD2MToTTMetalBase<ConvertD2MToTTMetal> {
 
@@ -52,27 +77,9 @@ struct ConvertD2MToTTMetal
   }
 
   void runOnOperation() final {
-    mlir::ConversionTarget target(getContext());
-    target.addLegalDialect<BuiltinDialect>();
-    target.addLegalDialect<arith::ArithDialect>();
-    target.addLegalDialect<func::FuncDialect>();
-    target.addLegalDialect<memref::MemRefDialect>();
-    target.addLegalDialect<ttmetal::TTMetalDialect>();
-    target.addLegalDialect<ttkernel::TTKernelDialect>();
-    target.addLegalDialect<ttcore::TTCoreDialect>();
-    target.addLegalDialect<scf::SCFDialect>();
-    target.addLegalDialect<emitc::EmitCDialect>();
-    target.addIllegalDialect<math::MathDialect>();
-    target.addIllegalDialect<d2m::D2MDialect>();
-
-    target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
-      return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
-          op.getMemref().getType().getMemorySpace());
-    });
-    target.addDynamicallyLegalOp<memref::DeallocOp>([&](memref::DeallocOp op) {
-      return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
-          op.getMemref().getType().getMemorySpace());
-    });
+    ConversionTarget target(getContext());
+    addD2MToTTMetalConversionTargetBase(target);
+    target.addLegalOp<d2m::SpatialOp>();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
@@ -85,6 +92,17 @@ struct ConvertD2MToTTMetal
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
       return;
+    }
+
+    ConversionTarget targetForSpatial(getContext());
+    addD2MToTTMetalConversionTargetBase(targetForSpatial);
+    targetForSpatial.addIllegalOp<d2m::SpatialOp>();
+
+    RewritePatternSet spatialPatterns(&getContext());
+    populateSpatialOpPatterns(&getContext(), spatialPatterns);
+    if (failed(applyFullConversion(getOperation(), targetForSpatial,
+                                   std::move(spatialPatterns)))) {
+      signalPassFailure();
     }
   }
 };
