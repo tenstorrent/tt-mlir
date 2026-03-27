@@ -41,6 +41,7 @@ union OpType {
   AssignOp,
   BatchNormInferenceOp,
   BatchNormTrainingOp,
+  BitcastConvertOp,
   BeginTraceCaptureOp,
   CaptureOrExecuteTraceOp,
   ConcatOp,

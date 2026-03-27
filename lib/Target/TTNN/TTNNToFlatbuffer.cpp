@@ -306,6 +306,20 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
       memoryConfig ? toFlatbuffer(cache, *memoryConfig) : 0, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::BitcastConvertOp>
+createOp(FlatbufferObjectCache &cache, BitcastConvertOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtype());
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateBitcastConvertOp(*cache.fbb, input, dtype,
+                                                    memoryConfig, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::TypecastOp>
 createOp(FlatbufferObjectCache &cache, TypecastOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -3708,6 +3722,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto toLayoutOp = dyn_cast<ToLayoutOp>(op); toLayoutOp) {
     return createOperation(cache, createOp(cache, toLayoutOp), debugString,
+                           locInfo);
+  }
+  if (auto bitcastConvertOp = dyn_cast<BitcastConvertOp>(op); bitcastConvertOp) {
+    return createOperation(cache, createOp(cache, bitcastConvertOp), debugString,
                            locInfo);
   }
   if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {
