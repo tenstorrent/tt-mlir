@@ -30,9 +30,6 @@ namespace mlir::tt::ttnn {
 /// propagation, it applies all decisions directly to the IR.
 class LayoutPropagation {
 public:
-  /// An input candidate for one operand (public for observer access).
-  using InputCandidate = LayoutPropagationObserver::InputCandidate;
-
   /// Construct a layout propagation instance for the given function.
   /// Uses the provided legal configs and device grid to evaluate candidates.
   /// When tensorTypePossibleLayouts is provided, reshard candidates are
@@ -41,7 +38,8 @@ public:
       func::FuncOp func, ttcore::GridAttr deviceGrid,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts = nullptr,
-      size_t beamWidth = 8,
+      size_t beamWidth = 8, size_t maxInputCandidatesPerOperand = 64,
+      size_t maxReshardCandidates = 8,
       std::unique_ptr<LayoutPropagationObserver> observer = nullptr);
 
   /// Destructor defined in .cpp (observer is forward-declared).
@@ -74,6 +72,12 @@ private:
 
   /// Beam width (K=1 for greedy, K>1 for beam search).
   size_t beamWidth = 8;
+
+  /// Max input candidates per operand before truncation.
+  size_t maxInputCandidatesPerOperand = 64;
+
+  /// Max reshard candidates per tensor type.
+  size_t maxReshardCandidates = 8;
 
   /// Final candidate choice per op (set by backward pass, used by applyToIR).
   /// Maps op -> index into beamState[op]. For K=1, always 0.
