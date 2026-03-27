@@ -151,8 +151,9 @@ struct TTIRToTTMetalPipelineOptions
   // WIP pass option to control the allocator logic for sizing stream buffers.
   Option<std::string> testBufferSizePolicy{
       *this, "test-buffer-size-policy",
-      llvm::cl::desc("Set policy for sizing stream buffers ('min', 'max')."),
-      llvm::cl::init("max")};
+      llvm::cl::desc(
+          "Set policy for sizing stream buffers ('auto', 'min', 'max')."),
+      llvm::cl::init("auto")};
 
   // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
   // GenericOp.
