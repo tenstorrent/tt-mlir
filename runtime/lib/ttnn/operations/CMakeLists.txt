@@ -78,6 +78,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/group_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/layer_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/layer_norm_pre_all_gather.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/layer_norm_post_all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/rms_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pool/pool2d.cpp
