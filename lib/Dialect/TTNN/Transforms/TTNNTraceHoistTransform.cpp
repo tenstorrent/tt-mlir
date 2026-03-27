@@ -90,6 +90,37 @@ private:
            ttcore::isKVCacheArgument(op, argIndex);
   }
 
+  // Check if a value should remain on device during trace capture.
+  // Handles three cases:
+  // 1. Direct BlockArgument → checks shouldKeepArgOnDevice
+  // 2. LoadCachedOp result → always device-resident (consteval)
+  // 3. MeshShardOp result → traces through to the input and recurses
+  bool isDeviceResidentValue(mlir::Value value) {
+    if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
+      auto funcOp =
+          mlir::dyn_cast<func::FuncOp>(blockArg.getOwner()->getParentOp());
+      if (!funcOp) {
+        return false;
+      }
+      return shouldKeepArgOnDevice(funcOp, blockArg.getArgNumber());
+    }
+
+    auto *defOp = value.getDefiningOp();
+    if (!defOp) {
+      return false;
+    }
+
+    if (mlir::isa<mlir::tt::ttcore::LoadCachedOp>(defOp)) {
+      return true;
+    }
+
+    if (auto meshShardOp = mlir::dyn_cast<ttnn::MeshShardOp>(defOp)) {
+      return isDeviceResidentValue(meshShardOp.getInput());
+    }
+
+    return false;
+  }
+
   // Collect all inputs and outputs outside the operation set to hoist
   void collectFunctionBoundary(llvm::ArrayRef<Operation *> opsToHoist,
                                llvm::SmallVector<mlir::Value> &inputs,
@@ -178,6 +209,17 @@ private:
               ttcore::ArgumentTypeAttr::get(context,
                                             ttcore::ArgumentType::Constant));
           attrs = mlir::DictionaryAttr::get(context, namedAttrs);
+        }
+        // Propagate attributes through MeshShardOp to inherit kv_cache and
+        // other attributes from the originating BlockArgument.
+        else if (auto meshShardOp = mlir::dyn_cast<ttnn::MeshShardOp>(defOp)) {
+          mlir::Value meshInput = meshShardOp.getInput();
+          if (auto blockArg = mlir::dyn_cast<BlockArgument>(meshInput)) {
+            if (auto funcOp = mlir::dyn_cast<func::FuncOp>(
+                    blockArg.getOwner()->getParentOp())) {
+              attrs = funcOp.getArgAttrDict(blockArg.getArgNumber());
+            }
+          }
         }
       }
       inputAttrs.push_back(attrs);
@@ -318,8 +360,8 @@ private:
       // transfer. These are already on device and will be used directly as
       // trace input slots.
       if (shouldKeepArgOnDevice(traceFunc, i)) {
-        assert(utils::getBufferTypeFromTensor(originalRankedTensorType) ==
-                   ttnn::BufferType::DRAM &&
+        assert(utils::getBufferTypeFromTensor(originalRankedTensorType) !=
+                   ttnn::BufferType::SystemMemory &&
                "Device-resident arguments must already be in device memory.");
         inputTypes.push_back(traceFuncArg.getType());
         traceInputSlotTypes.push_back(traceFuncArg.getType());
@@ -757,29 +799,20 @@ private:
         continue;
       }
 
-      // Check if this is a constant/parameter that should remain on device
-      bool isConstant = false;
-      if (mlir::isa<mlir::BlockArgument>(input)) {
-        auto arg = mlir::cast<mlir::BlockArgument>(input);
-        if (auto funcOp =
-                mlir::dyn_cast<func::FuncOp>(arg.getOwner()->getParentOp())) {
-          isConstant = shouldKeepArgOnDevice(funcOp, arg.getArgNumber());
-        }
-      } else if (auto result = mlir::dyn_cast<mlir::OpResult>(input)) {
-        // Check if it's from a load_cached op (constant evaluation result)
-        isConstant =
-            mlir::isa<mlir::tt::ttcore::LoadCachedOp>(result.getDefiningOp());
-      }
+      // Check if this value should remain on device during trace capture.
+      // Handles direct BlockArguments, LoadCachedOp results, and values
+      // flowing through MeshShardOp (multichip workloads).
+      bool keepOnDevice = isDeviceResidentValue(input);
 
       RankedTensorType tensorType =
           mlir::cast<RankedTensorType>(input.getType());
       auto layout = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
 
-      // Constants must be on device, they can be captured directly without
-      // needing to move them to system memory.
-      if (isConstant) {
-        assert(layout.getBufferType() == ttnn::BufferType::DRAM &&
-               "Constant/parameter inputs must be on device.");
+      // Device-resident values (constants, parameters, KV cache) can be
+      // captured directly without moving to system memory.
+      if (keepOnDevice) {
+        assert(layout.getBufferType() != ttnn::BufferType::SystemMemory &&
+               "Device-resident inputs must be on device.");
         captureOrExecuteTraceOpInputs.push_back(input);
       }
       // For inputs, convert them to system memory/row major if needed

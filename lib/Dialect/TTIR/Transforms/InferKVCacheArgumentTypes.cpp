@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
@@ -28,9 +29,27 @@ public:
       llvm::DenseSet<BlockArgument> cacheArgs;
 
       funcOp.walk([&](CacheOpInterface cacheOp) {
-        if (auto blockArg = llvm::dyn_cast<BlockArgument>(cacheOp.getCache())) {
+        mlir::Value cacheValue = cacheOp.getCache();
+
+        // Direct BlockArgument → CacheOp connection.
+        if (auto blockArg = llvm::dyn_cast<BlockArgument>(cacheValue)) {
           if (blockArg.getOwner()->getParentOp() == funcOp) {
             cacheArgs.insert(blockArg);
+          }
+          return;
+        }
+
+        // In multichip workloads, KV cache args pass through mesh_shard
+        // (full_to_shard) before reaching cache ops. Look through mesh_shard
+        // to find the originating BlockArgument.
+        if (auto *defOp = cacheValue.getDefiningOp()) {
+          if (auto meshShardOp = mlir::dyn_cast<MeshShardOp>(defOp)) {
+            if (auto blockArg =
+                    llvm::dyn_cast<BlockArgument>(meshShardOp.getInput())) {
+              if (blockArg.getOwner()->getParentOp() == funcOp) {
+                cacheArgs.insert(blockArg);
+              }
+            }
           }
         }
       });
