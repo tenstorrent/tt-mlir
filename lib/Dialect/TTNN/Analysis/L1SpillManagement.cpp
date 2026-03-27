@@ -66,6 +66,8 @@ uint64_t SumL1MemoryTracker::getOccupiedL1() const { return currentOccupied; }
 
 void SumL1MemoryTracker::init(uint64_t l1BudgetPerCore) {
   l1Budget = l1BudgetPerCore;
+  currentOccupied = 0;
+  tensorSizes.clear();
   freeList.clear();
   freeList.push_back({0, l1Budget});
   tensorAddresses.clear();
