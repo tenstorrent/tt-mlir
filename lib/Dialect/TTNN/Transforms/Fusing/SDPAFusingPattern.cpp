@@ -10,7 +10,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -28,10 +27,6 @@ static constexpr int64_t kSeqLenDim = 2;
 // decode op.
 static constexpr std::array<int64_t, 4> kToDecodePermutation = {2, 0, 1, 3};
 
-// Permutation to un-transpose key from [B, H, D, S] -> [B, H, S, D].
-static constexpr std::array<int64_t, 4> kUnTransposeKeyPermutation = {0, 1, 3,
-                                                                      2};
-
 struct SDPAFusing::SDPAComponents {
   Value query, key, value, mask;
   Value attentionSink;
@@ -40,6 +35,32 @@ struct SDPAFusing::SDPAComponents {
   SoftmaxOp softmax;
   Operation *scoreOp = nullptr;
 };
+
+// Normalize a shape to 4D by prepending 1s. Used for validation only, does not
+// mutate the IR.
+static SmallVector<int64_t> normalizeTo4D(ArrayRef<int64_t> shape) {
+  SmallVector<int64_t> result(4 - shape.size(), 1);
+  result.append(shape.begin(), shape.end());
+  return result;
+}
+
+// Squeeze the SDPA output back to the original rank if the inputs were
+// unsqueezed from < 4D.
+static Value squeezeToOriginalRank(Value v, RankedTensorType originalType,
+                                   PatternRewriter &rewriter, Location loc) {
+  auto currentType = mlir::cast<RankedTensorType>(v.getType());
+  if (currentType.getRank() == originalType.getRank()) {
+    return v;
+  }
+  auto newType = utils::RankedTensorTypeFactory::create(
+      currentType, originalType.getShape());
+  SmallVector<int32_t> shapeAttr(originalType.getShape().begin(),
+                                 originalType.getShape().end());
+  return rewriter
+      .create<ReshapeOp>(loc, newType, v, rewriter.getI32ArrayAttr(shapeAttr),
+                         /*memory_config=*/MemoryConfigAttr())
+      .getResult();
+}
 
 // ============================================================================
 // Layout / Transpose Utilities
@@ -72,14 +93,22 @@ bool SDPAFusing::isKeyTransposed(Value key, Value query, Value value) const {
   auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
   auto vType = mlir::dyn_cast<RankedTensorType>(value.getType());
 
-  if (!kType || !qType || !vType || kType.getRank() != 4 ||
-      qType.getRank() != 4 || vType.getRank() != 4) {
+  if (!kType || !qType || !vType) {
     return false;
   }
 
-  auto kShape = kType.getShape();
-  auto qShape = qType.getShape();
-  auto vShape = vType.getShape();
+  auto kRank = kType.getRank();
+  auto qRank = qType.getRank();
+  auto vRank = vType.getRank();
+
+  if (kRank < 3 || kRank > 4 || qRank < 3 || qRank > 4 || vRank < 3 ||
+      vRank > 4) {
+    return false;
+  }
+
+  auto kShape = normalizeTo4D(kType.getShape());
+  auto qShape = normalizeTo4D(qType.getShape());
+  auto vShape = normalizeTo4D(vType.getShape());
 
   int64_t qHeadDim = qShape[3];
   int64_t vSeqLen = vShape[kSeqLenDim];
@@ -427,6 +456,19 @@ std::pair<Value, Type> SDPAFusing::analyzeV(Value v) const {
   return {v, targetDtype};
 }
 
+// Prepare SDPA inputs for the hardware op. This involves several steps:
+//
+//  1. Analyze Q, K, V to look through typecasts, repeat-interleave, and
+//     permute ops, recovering the original element types and detecting key
+//     transposition.
+//  2. Validate and accept the "prepared" (looked-through) versions of Q, K, V
+//     if their shapes are compatible.
+//  3. Un-transpose K if needed ([B, H, D, S] -> [B, H, S, D]).
+//  4. Restore original element types that were stripped during analysis.
+//  5. Unsqueeze the attention mask to 4D if it is lower-rank.
+//  6. Handle attention sink batch dimension from load_cached ops.
+//  7. Unsqueeze Q, K, V to 4D by prepending 1s if they are 3D. Some frontends
+//     squeeze away the head dimension when num_heads=1.
 void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
                                       PatternRewriter &rewriter) const {
   auto [preparedQ, preparedQElementType] = analyzeQ(c.query);
@@ -523,6 +565,29 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
       }
     }
   }
+
+  // Unsqueeze Q, K, V to 4D by prepending 1s if needed. The SDPA op requires
+  // 4D inputs [B, H, S, D], but some frontends squeeze away the head dimension
+  // when num_heads=1, producing 3D tensors.
+  auto unsqueezeTo4D = [&](Value v) -> Value {
+    auto type = mlir::cast<RankedTensorType>(v.getType());
+    if (type.getRank() >= 4) {
+      return v;
+    }
+    SmallVector<int64_t> newShape(4 - type.getRank(), 1);
+    newShape.append(type.getShape().begin(), type.getShape().end());
+    auto newType = utils::RankedTensorTypeFactory::create(type, newShape);
+    SmallVector<int32_t> shapeAttr(newShape.begin(), newShape.end());
+    return rewriter
+        .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType, v,
+                           rewriter.getI32ArrayAttr(shapeAttr),
+                           /*memory_config=*/MemoryConfigAttr())
+        .getResult();
+  };
+
+  c.query = unsqueezeTo4D(c.query);
+  c.key = unsqueezeTo4D(c.key);
+  c.value = unsqueezeTo4D(c.value);
 }
 
 // ============================================================================
@@ -536,9 +601,16 @@ Value SDPAFusing::unTransposeKeyIfNeeded(Value query, Value key, Value value,
     return key;
   }
 
+  // Use a rank-appropriate permutation to swap the last two dims.
+  auto keyRank = mlir::cast<RankedTensorType>(key.getType()).getRank();
+  SmallVector<int64_t> perm;
+  for (int64_t i = 0; i < keyRank; ++i) {
+    perm.push_back(i);
+  }
+  std::swap(perm[keyRank - 2], perm[keyRank - 1]);
+
   return ttir_to_ttnn::utils::generatePermute(
-      mlir::cast<TypedValue<RankedTensorType>>(key),
-      llvm::to_vector(kUnTransposeKeyPermutation), rewriter, loc);
+      mlir::cast<TypedValue<RankedTensorType>>(key), perm, rewriter, loc);
 }
 
 // ============================================================================
@@ -558,13 +630,18 @@ bool SDPAFusing::validateShapes(Value query, Value key, Value value) const {
     return false;
   }
 
-  auto qShape = qType.getShape();
-  auto kShape = kType.getShape();
-  auto vShape = vType.getShape();
+  auto qRank = qType.getRank();
+  auto kRank = kType.getRank();
+  auto vRank = vType.getRank();
 
-  if (qShape.size() != 4 || kShape.size() != 4 || vShape.size() != 4) {
+  if (qRank < 3 || qRank > 4 || kRank < 3 || kRank > 4 || vRank < 3 ||
+      vRank > 4) {
     return false;
   }
+
+  auto qShape = normalizeTo4D(qType.getShape());
+  auto kShape = normalizeTo4D(kType.getShape());
+  auto vShape = normalizeTo4D(vType.getShape());
 
   int64_t qHeadDim = qShape[3];
   int64_t vSeqLen = vShape[kSeqLenDim];
@@ -657,9 +734,6 @@ SDPAFusing::matchAndRewrite(MatmulOp srcOp,
 
 mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
                                              SDPAComponents &c) const {
-  op_model::ScopedSingletonDeviceGuard deviceGuard(
-      c.attentionMatmul.getOperation());
-
   float scale = c.scale.value_or(1.0f);
   FloatAttr scaleAttr = rewriter.getF32FloatAttr(scale);
 
@@ -739,6 +813,9 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
     finalResult =
         restoreElementTypeIfNeeded(finalResult, originalElementType, rewriter);
 
+    finalResult = squeezeToOriginalRank(finalResult, originalOutputType,
+                                        rewriter, c.attentionMatmul.getLoc());
+
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   } else {
     auto validationResult =
@@ -765,6 +842,9 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
 
     Value finalResult = restoreElementTypeIfNeeded(
         sdpaOp.getResult(), originalElementType, rewriter);
+
+    finalResult = squeezeToOriginalRank(finalResult, originalOutputType,
+                                        rewriter, c.attentionMatmul.getLoc());
 
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   }
