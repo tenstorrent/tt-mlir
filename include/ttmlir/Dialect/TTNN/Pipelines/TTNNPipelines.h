@@ -373,7 +373,7 @@ struct TTIRToTTNNDevicePipelineOptions
   // This is done as part of generality effort,
   // to boost accuracy on all operations exposing compute kernel config by
   // default.
-  Option<OptionalMathFidelity> computeCfgMathFidelity{
+  mutable Option<OptionalMathFidelity> computeCfgMathFidelity{
       *this, "compute-cfg-math-fidelity",
       llvm::cl::desc("Set math fidelity for all ttnn operations exposing "
                      "compute kernel config."),
@@ -386,7 +386,7 @@ struct TTIRToTTNNDevicePipelineOptions
                      "Undefined math fidelity")),
       llvm::cl::init(OptionalMathFidelity::HiFi4)};
 
-  Option<bool> computeCfgFp32DestAccEn{
+  mutable Option<bool> computeCfgFp32DestAccEn{
       *this, "compute-cfg-fp32-dest-acc-en",
       llvm::cl::desc("Set fp32 destination accumulation for all ttnn "
                      "operations exposing compute kernel config."),
@@ -442,6 +442,14 @@ struct TTIRToTTNNDevicePipelineOptions
     }
     if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
+    }
+    if (computeCfgMathFidelity.getNumOccurrences() == 0) {
+      computeCfgMathFidelity = (optimizationLevel > 1)
+                                   ? OptionalMathFidelity::Undefined
+                                   : OptionalMathFidelity::HiFi4;
+    }
+    if (computeCfgFp32DestAccEn.getNumOccurrences() == 0) {
+      computeCfgFp32DestAccEn = (optimizationLevel <= 1);
     }
   }
 };
