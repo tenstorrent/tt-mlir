@@ -85,6 +85,7 @@ This demo is available [here](../../test/ttnn-jit/demo/test_cosh.py).
 | `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer and kernel source files will be dumped to `generated/ttnn-jit/<func_name>`. |
 | `memory_config` | `ttnn.MemoryConfig` | `None` | Output memory configuration for the JIT function. If specified, the output tensor will use this exact layout. If unspecified, a maximally L1 block sharded layout will be used as default. |
 | `fallback` | `bool` | `False` | When enabled, falls back to running the original function eagerly through TTNN if JIT compilation or execution fails. Cannot be used together with `compile_only`. |
+| `extra_pipeline_options` | `str` | `""` | Additional pipeline options passed to the D2M compilation pipeline. For advanced use only. Example: `"test-buffer-size-policy=max"`. |
 
 ## Current Support
 
