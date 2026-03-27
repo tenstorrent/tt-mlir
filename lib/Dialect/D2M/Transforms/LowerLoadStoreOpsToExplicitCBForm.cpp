@@ -346,20 +346,12 @@ static void rewriteImplicitDMACopyOpsToExplicitCBForm(
     Location loc = dmaCopy.getLoc();
 
     GenericOp generic = dmaCopy->getParentOfType<GenericOp>();
-    if (!generic) {
-      dmaCopy.emitWarning(
-          "dma_copy not inside a d2m.generic, skipping conversion");
-      continue;
-    }
+    TT_assertv(generic, "expected dma_copy to be nested inside a d2m.generic");
 
     Value dst = dmaCopy.getDst();
     auto allocOp =
         mlir::dyn_cast_if_present<memref::AllocOp>(dst.getDefiningOp());
-    if (!allocOp) {
-      dmaCopy.emitWarning(
-          "could not find memref.alloc for dma_copy dst, skipping conversion");
-      continue;
-    }
+    TT_assertv(allocOp, "expected dma_copy dst to be defined by memref.alloc");
 
     Region &region = generic.getRegion(0);
     auto L1Attr = mlir::tt::ttcore::MemorySpaceAttr::get(

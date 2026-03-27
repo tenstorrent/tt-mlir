@@ -1173,6 +1173,7 @@ def D2M_DMACopyOp : D2M_GenericRegionDatamovementOp<"dma_copy",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
   , DestinationStyleOpInterface
+  , D2M_ShardDMAOpInterface
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
@@ -1275,9 +1276,6 @@ def D2M_DMACopyOp : D2M_GenericRegionDatamovementOp<"dma_copy",
         return mlir::cast<CBType>(cb.getType());
       }
 
-      // Returns the CB port. Requires explicit CB form.
-      // Defined out-of-line because GetCBOp is incomplete in the header.
-      unsigned getCBPort();
 
       // Returns the source memref type. Only valid post-bufferization.
       MemRefType getSrcMemRefType() {
@@ -1302,7 +1300,19 @@ def D2M_DMACopyOp : D2M_GenericRegionDatamovementOp<"dma_copy",
           return getCbType().template getUnderlyingAs<ShapedType>();
         llvm_unreachable("DMACopyOp has neither dst nor cb");
       }
+
+      /// Returns the CB port number. Op must be in explicit CB form.
+      unsigned getCBPort();
     }];
+
+  let extraClassDefinition = [{
+    unsigned $cppClass::getCBPort() {
+      assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
+      auto getCBOp = getCb().getDefiningOp<GetCBOp>();
+      assert(getCBOp && "CB operand must be defined by a GetCBOp");
+      return getCBOp.getPort();
+    }
+  }];
 }
 
 def D2M_NullTxOp : D2M_GenericRegionDatamovementOp<"null_tx", [Pure]> {
@@ -1344,6 +1354,7 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
   , DestinationStyleOpInterface
+  , D2M_ShardDMAOpInterface
   , DeclareOpInterfaceMethods<AffineReadOpInterface>
   , DeclareOpInterfaceMethods<AffineMapAccessInterface>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
@@ -1550,8 +1561,7 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         return mlir::cast<CBType>(cb.getType());
       }
 
-      /// Return the CB port number from this op's CB operand.
-      /// The op must be in explicit CB form with a GetCBOp-defined CB.
+      /// Returns the CB port number. Op must be in explicit CB form.
       unsigned getCBPort() {
         assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
         auto getCBOp = getCb().getDefiningOp<GetCBOp>();
@@ -1618,6 +1628,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
   , DestinationStyleOpInterface
+  , D2M_ShardDMAOpInterface
   , DeclareOpInterfaceMethods<AffineWriteOpInterface>
   , DeclareOpInterfaceMethods<AffineMapAccessInterface>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
@@ -1750,16 +1761,13 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       }
 
       /// Returns the CB type, or null CBType if CB is not present.
-      /// Caller should check getCb() before calling this if null check is needed.
       CBType getCbType() {
         Value cb = getCb();
         if (!cb) return CBType();
         return mlir::cast<CBType>(cb.getType());
       }
 
-      /// Return the CB port number from this op's CB operand, or UINT_MAX if
-      /// Return the CB port number from this op's CB operand.
-      /// The op must be in explicit CB form with a GetCBOp-defined CB.
+      /// Returns the CB port number. Op must be in explicit CB form.
       unsigned getCBPort() {
         assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
         auto getCBOp = getCb().getDefiningOp<GetCBOp>();
