@@ -2,6 +2,7 @@ add_subdirectory(Allocation)
 
 add_mlir_dialect_library(MLIRD2MAnalysis
   AssociatedDMAWaits.cpp
+  BlockFactorAnalysis.cpp
   GenericOpBufferAnalysis.cpp
   CBProducerConsumer.cpp
   GenericInterchangeAnalysis.cpp
@@ -16,4 +17,6 @@ add_mlir_dialect_library(MLIRD2MAnalysis
   LINK_LIBS PUBLIC
     MLIRAnalysis
     MLIRD2MAllocation
+    MLIRD2MUtils
+    MLIRTTCoreDialect
 )

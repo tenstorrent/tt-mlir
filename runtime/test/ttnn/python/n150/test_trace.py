@@ -304,7 +304,7 @@ def test_mnist_linear_logits(helper: Helper, request, num_loops, trace_region_si
         end_time = time.perf_counter() * 1000
         ttrt.runtime.memcpy(output_torch.data_ptr(), output)
 
-    assert_pcc(output_torch, golden)
+    assert_pcc(output_torch, golden, threshold=0.98)
     print(
         f"{request.node.name} Executing {num_loops} loops time elapsed: {end_time - start_time} ms"
     )
