@@ -987,6 +987,24 @@ public:
   }
 };
 
+class PackReconfigDataFormatOpConversion
+    : public OpConversionPattern<ttkernel::PackReconfigDataFormatOp> {
+public:
+  using OpConversionPattern<
+      ttkernel::PackReconfigDataFormatOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::PackReconfigDataFormatOp op,
+                  ttkernel::PackReconfigDataFormatOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.create<emitc::CallOpaqueOp>(op->getLoc(), TypeRange{},
+                                         "pack_reconfig_data_format",
+                                         ValueRange{adaptor.getOutCb()});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 // Arith MaxUIOp doesn't have an emitc lowering. We can lower it to a call to
 // std::max.
 class ArithMaxUIRewriter : public OpConversionPattern<arith::MaxUIOp> {
@@ -1095,6 +1113,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetMulticastOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocSemaphoreSetMulticastLoopbackOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UnpackStallOnPackOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>,
@@ -1128,6 +1147,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileBlockOp>,
         TTKernelToEmitCPackReconfigL1AccToEmitCRewriter,
+        PackReconfigDataFormatOpConversion,
 
         // FPU Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
@@ -1156,6 +1176,12 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AcosTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AcosTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AsinTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AsinTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AtanTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AtanTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryBitwiseTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinopWithScalarTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseAndBinaryTilesOp>,

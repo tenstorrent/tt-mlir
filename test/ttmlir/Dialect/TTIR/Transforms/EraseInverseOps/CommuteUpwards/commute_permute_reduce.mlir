@@ -9,10 +9,10 @@ module {
         %3 = "ttir.permute"(%1) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<12x1x1x1152xbf16>) -> tensor<12x1152x1x1xbf16>
         return %3 : tensor<12x1152x1x1xbf16>
     }
-    // Commute when reduce has keepdim = false is not currently supported
-    func.func @test_permute_mean_keepdim_false_not_commute_upwards(%arg0: tensor<12x7x7x1152xbf16>) -> tensor<1152x12xbf16> {
-        // CHECK: "ttir.mean"
+    // keep_dim=false: permutation is expanded to full rank and commuted upwards.
+    func.func @test_permute_mean_keepdim_false_commute_upwards(%arg0: tensor<12x7x7x1152xbf16>) -> tensor<1152x12xbf16> {
         // CHECK: "ttir.permute"
+        // CHECK: "ttir.mean"{{.*}}dim_arg = [1 : i32, 2 : i32]{{.*}}
         %1 = "ttir.mean"(%arg0) <{dim_arg = [1 : i32, 2 : i32], keep_dim = false}> : (tensor<12x7x7x1152xbf16>) -> tensor<12x1152xbf16>
         %3 = "ttir.permute"(%1) <{permutation = array<i64: 1, 0>}> : (tensor<12x1152xbf16>) -> tensor<1152x12xbf16>
         return %3 : tensor<1152x12xbf16>

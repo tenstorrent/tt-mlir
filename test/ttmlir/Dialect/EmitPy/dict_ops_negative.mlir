@@ -123,51 +123,11 @@ module {
 // AssignOp negative tests
 //===----------------------------------------------------------------------===//
 
-// Test that direct subscript assignment is not allowed
+// Test that assign target and value types must match
 module {
-  func.func @test_assign_subscript_directly(%dict: !emitpy.dict, %key: index, %value: !emitpy.opaque<"[ttnn.Tensor]">) {
-    %sub = emitpy.subscript %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
-    // CHECK: error: 'emitpy.assign' op subscript assignment (e.g., dict[key] = value) must be wrapped in emitpy.expression.
-    emitpy.assign %sub = %value : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
-    return
-  }
-}
-
-// -----
-
-//===----------------------------------------------------------------------===//
-// ExpressionOp subscript assignment negative tests
-//===----------------------------------------------------------------------===//
-
-// Test that subscript assignment expression cannot contain unsupported ops
-module {
-  func.func @test_subscript_assign_expr_unsupported_op(%dict: !emitpy.dict, %key: index, %value: !emitpy.opaque<"[ttnn.Tensor]">) {
-    // CHECK: error: 'emitpy.expression' op subscript assignment expression must only contain subscript, assign, and constant operations
-    emitpy.expression(%dict, %key, %value) : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"None"> {
-    ^bb0(%d: !emitpy.dict, %k: index, %v: !emitpy.opaque<"[ttnn.Tensor]">):
-      %sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
-      emitpy.assign %sub = %v : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
-      %extra = emitpy.call_opaque "print"(%v) : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"None">
-      emitpy.yield %extra : !emitpy.opaque<"None">
-    }
-    return
-  }
-}
-
-// -----
-
-// Test that subscript assignment expression must have exactly 3 ops
-module {
-  func.func @test_subscript_assign_expr_wrong_count(%dict: !emitpy.dict, %key: index, %value: !emitpy.opaque<"[ttnn.Tensor]">) {
-    // CHECK: error: 'emitpy.expression' op subscript assignment expression must contain exactly three operations (subscript, assign, constant) before the yield
-    emitpy.expression(%dict, %key, %value) : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"None"> {
-    ^bb0(%d: !emitpy.dict, %k: index, %v: !emitpy.opaque<"[ttnn.Tensor]">):
-      %sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
-      emitpy.assign %sub = %v : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
-      %none1 = "emitpy.constant"() <{value = #emitpy.opaque<"None">}> : () -> !emitpy.opaque<"None">
-      %none2 = "emitpy.constant"() <{value = #emitpy.opaque<"None">}> : () -> !emitpy.opaque<"None">
-      emitpy.yield %none1 : !emitpy.opaque<"None">
-    }
+  func.func @test_assign_type_mismatch(%target: !emitpy.opaque<"int">, %value: !emitpy.opaque<"float">) {
+    // CHECK: error: 'emitpy.assign' op target type ('!emitpy.opaque<"int">') does not match value type ('!emitpy.opaque<"float">')
+    emitpy.assign %target = %value : (!emitpy.opaque<"int">, !emitpy.opaque<"float">)
     return
   }
 }

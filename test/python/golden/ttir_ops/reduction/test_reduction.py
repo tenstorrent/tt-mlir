@@ -42,7 +42,7 @@ dim_arg_options = [
 ]
 
 
-@pytest.mark.parametrize("shapes", [[(32, 128, 128)]], ids=shapes_list_str)
+@pytest.mark.parametrize("shapes", [[(32, 128, 128)], [(1, 1, 1)]], ids=shapes_list_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
@@ -58,11 +58,6 @@ def test_reduction_ops(
     request,
     device,
 ):
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [dtype])
         def reduction_op_wrapper(

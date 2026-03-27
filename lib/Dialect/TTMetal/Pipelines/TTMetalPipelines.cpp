@@ -84,9 +84,9 @@ void createTTIRToTTMetalFrontendPipeline(
   }
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(ttir::createPredicateTypeAlignment());
-  pm.addPass(ttir::createElementTypeNormalization(
-      ttir::ElementTypeNormalizationOptions()));
+  pm.addPass(ttir::createElementTypeNormalization());
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(ttir::createTTIRDecomposeMinReduction());
   pm.addPass(ttir::createTTIRExplicateTMs());
   pm.addPass(ttir::createTTIREraseInverseOps());
   pm.addPass(ttir::createTTIRMoveReshapeToConstant());
@@ -127,13 +127,12 @@ void createTTIRToTTMetalFrontendPipeline(
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
-  {
+  if (options.enableElementwiseFusion) {
+    d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
     elementwiseFusionOptions.maxDstPhysicalSizeTiles =
         options.maxDstPhysicalSizeTiles;
+    pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
   }
-  pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
-  pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MAddScratchInputs());
@@ -192,9 +191,10 @@ void createTTIRToTTMetalMiddleendPipeline(
     ;
   }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
-
+  pm.addPass(d2m::createD2MInsertSpillAndScratch());
+  pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(d2m::createD2MLowerScratchAllocate());
-
+  pm.addPass(mlir::createCanonicalizerPass());
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
     insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;

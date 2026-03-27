@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -413,6 +413,8 @@ auto getOpSymbol() {
     return WRAP_OP(::ttnn::sqrt);
   } else if constexpr (std::is_same_v<OpTy, SinOp>) {
     return WRAP_OP(::ttnn::sin);
+  } else if constexpr (std::is_same_v<OpTy, AsinOp>) {
+    return WRAP_OP(::ttnn::asin);
   } else if constexpr (std::is_same_v<OpTy, AbsOp>) {
     return WRAP_OP(::ttnn::abs);
   } else if constexpr (std::is_same_v<OpTy, CeilOp>) {
@@ -447,6 +449,8 @@ auto getOpSymbol() {
     return WRAP_OP(::ttnn::expm1);
   } else if constexpr (std::is_same_v<OpTy, CosOp>) {
     return WRAP_OP(::ttnn::cos);
+  } else if constexpr (std::is_same_v<OpTy, AcosOp>) {
+    return WRAP_OP(::ttnn::acos);
   } else if constexpr (std::is_same_v<OpTy, TanhOp>) {
     return WRAP_OP(::ttnn::tanh);
   } else if constexpr (std::is_same_v<OpTy, LogOp>) {
@@ -962,6 +966,8 @@ template struct UnaryEltwiseOpModel<LogicalNotOp>;
 template struct UnaryEltwiseOpModel<NegOp>;
 template struct UnaryEltwiseOpModel<TanOp>;
 template struct UnaryEltwiseOpModel<AtanOp>;
+template struct UnaryEltwiseOpModel<AsinOp>;
+template struct UnaryEltwiseOpModel<AcosOp>;
 template struct UnaryEltwiseOpModel<ReciprocalOp>;
 template struct UnaryEltwiseOpModel<CbrtOp>;
 template struct UnaryEltwiseOpModel<BitwiseNotOp>;
@@ -6446,6 +6452,105 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(layerNormQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// LayerNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints>
+OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+    std::optional<TTNNLayoutAttr> residualInputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> recipShape,
+    std::optional<TTNNLayoutAttr> recipLayout,
+    std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> residualInputSpec =
+      detail::convertToOptionalTensorSpec(device, residualInputShape,
+                                          residualInputLayout);
+  std::optional<::ttnn::TensorSpec> recipSpec =
+      detail::convertToOptionalTensorSpec(device, recipShape, recipLayout);
+
+  ::ttnn::DataType metalDtype = ::ttnn::DataType::BFLOAT16;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::layer_norm_pre_all_gather, device, inputSpec,
+        /*dtype=*/metalDtype,
+        /*residual_input_tensor=*/residualInputSpec,
+        /*compute_kernel_config=*/std::nullopt,
+        /*program_config=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*recip_tensor=*/recipSpec);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+    std::optional<TTNNLayoutAttr> residualInputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> recipShape,
+    std::optional<TTNNLayoutAttr> recipLayout,
+    std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> residualInputSpec =
+      detail::convertToOptionalTensorSpec(device, residualInputShape,
+                                          residualInputLayout);
+  std::optional<::ttnn::TensorSpec> recipSpec =
+      detail::convertToOptionalTensorSpec(device, recipShape, recipLayout);
+
+  ::ttnn::DataType metalDtype = ::ttnn::DataType::BFLOAT16;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::layer_norm_pre_all_gather, device, inputSpec,
+        /*dtype=*/metalDtype,
+        /*residual_input_tensor=*/residualInputSpec,
+        /*compute_kernel_config=*/std::nullopt,
+        /*program_config=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*recip_tensor=*/recipSpec);
+  };
+
+  return operation::getOpRuntime(query);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
