@@ -1133,6 +1133,29 @@ createOp(FlatbufferObjectCache &cache, AllReduceOp op) {
       op.getClusterAxis(), subDeviceId, memoryConfig, numLinks, topology);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AllReduceAsyncOp>
+createOp(FlatbufferObjectCache &cache, AllReduceAsyncOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+
+  ::flatbuffers::Optional<uint8_t> subDeviceId = std::nullopt;
+  if (op.getSubDeviceId()) {
+    subDeviceId = std::make_optional<uint8_t>(
+        static_cast<uint8_t>(op.getSubDeviceId().value()));
+  }
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  auto topology = toFlatbuffer(cache, op.getTopology());
+
+  return ::tt::target::ttnn::CreateAllReduceAsyncOp(
+      *cache.fbb, input, output, static_cast<uint32_t>(op.getReduceType()),
+      op.getClusterAxis(), subDeviceId, memoryConfig, numLinks, topology);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::ReduceScatterOp>
 createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1271,6 +1294,20 @@ createOp(FlatbufferObjectCache &cache, ScatterOp op) {
   return ::tt::target::ttnn::CreateScatterOp(
       *cache.fbb, input, output, index, sourceTensor, op.getDim(), memoryConfig,
       toFlatbuffer(op.getScatterReduceType()));
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::GatherOp>
+createOp(FlatbufferObjectCache &cache, GatherOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto index = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getIndex()));
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  return ::tt::target::ttnn::CreateGatherOp(*cache.fbb, input, index, output,
+                                            op.getDim(), memoryConfig);
 }
 
 // NOTE: This legacy mesh_shard path only handles the "identity" variant.
@@ -3100,6 +3137,53 @@ createOp(FlatbufferObjectCache &cache,
       curPosTensor, attentionSink, scale, out, memoryConfig);
 }
 
+::flatbuffers::Offset<
+    ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
+createOp(FlatbufferObjectCache &cache,
+         PagedFlashMultiLatentAttentionDecodeOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> value = 0;
+  if (op.getValue()) {
+    value = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getValue()));
+  }
+
+  auto pageTable = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getPageTable()));
+
+  auto attentionMask = op.getAttentionMask()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionMask()))
+                           : 0;
+  auto curPosTensor = op.getCurPosTensor()
+                          ? cache.at<::tt::target::ttnn::TensorRef>(
+                                getOperandThroughDPSOps(op.getCurPosTensor()))
+                          : 0;
+  auto attentionSink = op.getAttentionSink()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionSink()))
+                           : 0;
+
+  auto isCausal = op.getIsCausal();
+  auto headDimV = op.getHeadDimV();
+  auto scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreatePagedFlashMultiLatentAttentionDecodeOp(
+      *cache.fbb, query, key, value, headDimV, pageTable, isCausal,
+      attentionMask, curPosTensor, attentionSink, scale, out, memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::ScaledDotProductAttentionOp>
 createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
@@ -4182,6 +4266,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, allReduceOp), debugString,
                            locInfo);
   }
+  if (auto allReduceAsyncOp = dyn_cast<AllReduceAsyncOp>(op);
+      allReduceAsyncOp) {
+    return createOperation(cache, createOp(cache, allReduceAsyncOp),
+                           debugString, locInfo);
+  }
   if (auto reduceScatterOp = dyn_cast<ReduceScatterOp>(op); reduceScatterOp) {
     return createOperation(cache, createOp(cache, reduceScatterOp), debugString,
                            locInfo);
@@ -4203,6 +4292,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
     return createOperation(cache, createOp(cache, scatterOp), debugString,
+                           locInfo);
+  }
+  if (auto gatherOp = dyn_cast<GatherOp>(op); gatherOp) {
+    return createOperation(cache, createOp(cache, gatherOp), debugString,
                            locInfo);
   }
   if (auto meshShardOp = dyn_cast<MeshShardOp>(op); meshShardOp) {
@@ -4438,6 +4531,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(
         cache, createOp(cache, pagedScaledDotProductAttentionDecodeOp),
         debugString, locInfo);
+  }
+  if (auto pagedFlashMlaDecodeOp =
+          dyn_cast<PagedFlashMultiLatentAttentionDecodeOp>(op);
+      pagedFlashMlaDecodeOp) {
+    return createOperation(cache, createOp(cache, pagedFlashMlaDecodeOp),
+                           debugString, locInfo);
   }
   if (auto scaledDotProductAttentionOp =
           dyn_cast<ScaledDotProductAttentionOp>(op);
