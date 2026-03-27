@@ -1656,18 +1656,20 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SparseMatmulOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Convert nnz to IntegerAttr
+    // Simple 1:1 TTIR -> TTNN conversion.
+    // Tiling for untiled inputs (M < 32) is handled by
+    // SparseMatmulTileDimsRewritePattern in the TTNN workarounds pass.
+    auto a = mlir::cast<TypedValue<RankedTensorType>>(adaptor.getA());
+    auto b = mlir::cast<TypedValue<RankedTensorType>>(adaptor.getB());
+
     mlir::IntegerAttr nnzAttr = nullptr;
     if (auto nnz = op.getNnz()) {
       nnzAttr = rewriter.getI64IntegerAttr(*nnz);
     }
 
-    // Generate program config from tensor shapes and device grid
-    auto aType = mlir::cast<RankedTensorType>(adaptor.getA().getType());
-    auto bType = mlir::cast<RankedTensorType>(adaptor.getB().getType());
     auto deviceAttr = ttcore::lookupDevice(op);
     auto programConfigAttr = createSparseMatmulProgramConfigAttr(
-        rewriter.getContext(), aType, bType, deviceAttr);
+        rewriter.getContext(), a.getType(), b.getType(), deviceAttr);
 
     rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
@@ -1715,11 +1717,27 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AllToAllCombineOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto outputType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    auto inputType = cast<RankedTensorType>(adaptor.getInputTensor().getType());
+    auto inputShape = inputType.getShape();
+
+    // Auto-detect output_shard_dim from input tensor shape.
+    // input_tensor: [E_local, BD, S, H] (default, shard_dim=1)
+    // For decode (S=1), use shard_dim=2 to avoid tile waste on S dimension.
+    // inputShape[2] is the S dimension in [E, BD, S, H] layout.
+    int64_t outputShardDim = (inputShape.size() >= 4 && inputShape[2] == 1)
+                                 ? 2  // decode mode
+                                 : 1; // prefill mode
+
+    // NOTE: runtime decode workaround (output_shard_dim=2 -> 1+reshape) is
+    // handled in TTNN MoE decomposition workarounds.
+
     rewriter.replaceOpWithNewOp<ttnn::AllToAllCombineOp>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInputTensor(), adaptor.getExpertMetadata(),
+        op, outputType, adaptor.getInputTensor(), adaptor.getExpertMetadata(),
         adaptor.getExpertMapping(), op.getNumDevicesAttr(),
         op.getClusterAxisAttr(), op.getNumExpertsPerTokAttr(),
+        rewriter.getI64IntegerAttr(outputShardDim),
         /*memory_config=*/nullptr);
     return success();
   }

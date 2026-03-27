@@ -19,6 +19,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeWorkaroundsRewritePatterns.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PadHighDimRewritePattern.h"
@@ -572,6 +573,10 @@ public:
   void runOnOperation() final {
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
+
+      // Keep all MoE hardware workarounds bundled and registered together.
+      workarounds::decomposition::populateMoeWorkaroundPatterns(patterns);
+
       patterns.add<
           TTNNAllReduceWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
