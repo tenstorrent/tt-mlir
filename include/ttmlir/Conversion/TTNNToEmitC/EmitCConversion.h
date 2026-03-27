@@ -80,6 +80,10 @@ struct IDevice;
 
 struct Tensor;
 
+namespace prim {
+struct LayerNormShardedMultiCoreProgramConfig;
+} // namespace prim
+
 namespace operations {
 namespace unary {
 struct UnaryWithParam;
@@ -245,6 +249,12 @@ struct TypeName<::ttnn::Tensor> {
 template <>
 struct TypeName<::ttnn::WormholeComputeKernelConfig> {
   inline static const std::string value = "::ttnn::WormholeComputeKernelConfig";
+};
+
+template <>
+struct TypeName<::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> {
+  inline static const std::string value =
+      "::ttnn::prim::LayerNormShardedMultiCoreProgramConfig";
 };
 
 // Marker type for MatmulMultiCoreReuseMultiCast1DProgramConfig (used by
@@ -1008,6 +1018,42 @@ struct EmitCTypeConverter<::ttnn::WormholeComputeKernelConfig> {
       rso << ".dst_full_sync_en = "
           << (dstFullSyncEn.getValue() ? "true" : "false");
     }
+
+    rso << "}";
+    return buf;
+  }
+};
+
+// Specialization for LayerNormShardedMultiCoreProgramConfig
+template <>
+struct EmitCTypeConverter<
+    ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    auto configAttr = mlir::dyn_cast_if_present<
+        ttnn::LayerNormShardedMultiCoreProgramConfigAttr>(attr);
+    if (!configAttr) {
+      return {};
+    }
+    return convert(configAttr);
+  }
+
+  static std::string
+  convert(ttnn::LayerNormShardedMultiCoreProgramConfigAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<
+               ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> << "{";
+
+    rso << ".compute_with_storage_grid_size = "
+        << EmitCTypeConverter<::ttnn::CoreCoord>::convert(
+               attr.getComputeWithStorageGridSize());
+    rso << ", .subblock_w = "
+        << EmitCTypeConverter<size_t>::convert(attr.getSubblockW());
+    rso << ", .block_h = "
+        << EmitCTypeConverter<size_t>::convert(attr.getBlockH());
+    rso << ", .block_w = "
+        << EmitCTypeConverter<size_t>::convert(attr.getBlockW());
+    rso << ", .inplace = " << (attr.getInplace() ? "true" : "false");
 
     rso << "}";
     return buf;
@@ -1850,6 +1896,11 @@ struct TTNNTarget<tt::ttcore::TopologyAttr> {
 template <>
 struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
   using type = ::ttnn::WormholeComputeKernelConfig;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr> {
+  using type = ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig;
 };
 
 template <typename T>
