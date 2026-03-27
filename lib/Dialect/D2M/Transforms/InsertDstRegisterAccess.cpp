@@ -348,6 +348,12 @@ public:
     bool didStoreToDst() { return storedToDst; }
     int getCurrSliceIndex() { return nextSliceIndex - 1; }
 
+    /// True once at least one operand load has allocated a DST slice (so
+    /// getCurrSliceIndex() refers to a loaded tile). Ops that only generate
+    /// tiles (e.g. tile_fill) have no loads; in-place / scalar-rhs paths must
+    /// allocate a slice instead of reusing a non-existent "current" slot.
+    bool hasIssuedLoadSlices() const { return nextSliceIndex > 0; }
+
   private:
     int64_t nextSliceIndex = 0;
     bool storedToDst = false;
@@ -740,6 +746,8 @@ public:
   // DST is treated as a flat 1D array of tiles, so we only need the element
   // type (not the CB shape) since different CBs may have different shapes
   // (e.g., 4x4 main input vs 1x1 mask tiles).
+  // maxDstSlice may remain -1 for compute-only producers (e.g. d2m.fill_tile)
+  // that do not involve any CB<->DST load/store accesses.
   static std::pair<Type, int>
   inferDstInfoFromAllAccesses(const CopyInfoMap &copyInfos) {
     Type elementType = nullptr;
@@ -770,9 +778,26 @@ public:
         updateInfo(storeOp.getMemRefType(), idx);
       }
     }
-    TT_assert(elementType != nullptr);
-    TT_assert(maxDstSlice >= 0);
     return {elementType, maxDstSlice};
+  }
+
+  // Some compute ops (e.g. d2m.fill_tile) can produce tiles without CB reads.
+  // In those cases, infer a destination element type from compute results.
+  static Type inferDstElementTypeFromComputeResults(Region &region) {
+    Type elementType = nullptr;
+    region.walk([&](Operation *op) {
+      if (elementType || !op->hasTrait<D2MGenericRegionComputeOpTrait>() ||
+          op->getNumResults() == 0) {
+        return;
+      }
+      Type resultType = op->getResult(0).getType();
+      if (auto memrefType = dyn_cast<MemRefType>(resultType)) {
+        elementType = memrefType.getElementType();
+      } else {
+        elementType = resultType;
+      }
+    });
+    return elementType;
   }
 
   static AcquireDstOp insertAcquireDst(PatternRewriter &rewriter, Location loc,
@@ -803,6 +828,13 @@ public:
     }
 
     auto [elementType, maxDstSlice] = inferDstInfoFromAllAccesses(copyInfos);
+    if (!elementType) {
+      elementType = inferDstElementTypeFromComputeResults(region);
+    }
+    TT_assert(elementType != nullptr);
+    // Ensure we can acquire dst even if no CB<->DST accesses were collected
+    // (e.g., d2m.fill_tile-only regions).
+    maxDstSlice = std::max(maxDstSlice, 0);
     // Create DST as a flat 1D array of tiles. Each slot holds one tile,
     // regardless of the CB shape it came from.
     TT_assertv(maxDstSlice < static_cast<int64_t>(dstCapacity),
@@ -850,6 +882,13 @@ public:
             return it->second.dstSlice;
           }
         }
+      }
+      // Compute-only producers (e.g. d2m.fill_tile) may not have any tile
+      // loads, so there is no valid "current" slice to reuse.
+      if (!dstSliceAllocationState.hasIssuedLoadSlices()) {
+        int allocated = dstSliceAllocationState.allocate();
+        dstSliceAllocationState.setStoreToDst();
+        return allocated;
       }
       return dstSliceAllocationState.getCurrSliceIndex();
     };
@@ -1879,7 +1918,10 @@ public:
 
           int64_t dstSliceIndex = -1;
           // If op has scalar rhs, treat it as in-place (unary-like behavior)
-          if (dstRegInPlace || rhsIsScalar) {
+          // only when a tile input exists; otherwise allocate a fresh slot
+          // (e.g. d2m.fill_tile has no tile input to overwrite).
+          bool hasTileInputs = numLoads > 0;
+          if ((dstRegInPlace || rhsIsScalar) && hasTileInputs) {
             dstSliceIndex = dstStackAllocator.getCurrSliceIndex();
           } else if (numLoads >= 2) {
             // SFPU binary/ternary ops: output overwrites first operand's slot
@@ -1912,8 +1954,8 @@ public:
           assert(!dstIntermediates.contains(computeOp));
 
           // Only consider overwriting input if the op actually has tile inputs.
-          // Ops like ExperimentalTileFillOp generate new tiles from scalars and
-          // have no tile inputs to overwrite, so they must allocate a new slot.
+          // Ops like d2m.fill_tile generate new tiles from scalars and have no
+          // tile inputs to overwrite, so they must allocate a new slot.
           bool hasTileInputs = numLoads > 0;
           bool overwriteInput =
               hasTileInputs &&
