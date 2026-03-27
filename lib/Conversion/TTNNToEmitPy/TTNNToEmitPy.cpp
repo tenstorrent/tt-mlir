@@ -2699,8 +2699,9 @@ public:
     auto loc = getTupleElementOp->getLoc();
 
     // Create literal for the index
-    Value indexAsVal = rewriter.create<emitpy::LiteralOp>(
-        loc, rewriter.getIndexType(), std::to_string(adaptor.getIndex()));
+    Value indexAsVal =
+        emitpy::LiteralOp::create(rewriter, loc, rewriter.getIndexType(),
+                                  std::to_string(adaptor.getIndex()));
 
     // Create subscript operation
     auto subscriptOp = rewriter.create<emitpy::SubscriptOp>(
@@ -2930,8 +2931,8 @@ public:
 
     // Build an expression that computes the subscript lvalue.
     SmallVector<Value> exprOperands = {adaptor.getDict(), key};
-    auto exprOp = rewriter.create<emitpy::ExpressionOp>(loc, value.getType(),
-                                                        exprOperands);
+    auto exprOp = emitpy::ExpressionOp::create(rewriter, loc, value.getType(),
+                                               exprOperands);
     Block *body = rewriter.createBlock(&exprOp.getBody());
     body->addArguments(adaptor.getDict().getType(), adaptor.getDict().getLoc());
     body->addArguments(key.getType(), key.getLoc());
@@ -2940,13 +2941,13 @@ public:
     auto dictArg = body->getArgument(0);
     auto keyArg = body->getArgument(1);
 
-    auto subOp = rewriter.create<emitpy::SubscriptOp>(loc, value.getType(),
-                                                      dictArg, keyArg);
-    rewriter.create<emitpy::YieldOp>(loc, subOp.getResult());
+    auto subOp = emitpy::SubscriptOp::create(rewriter, loc, value.getType(),
+                                             dictArg, keyArg);
+    emitpy::YieldOp::create(rewriter, loc, subOp.getResult());
 
     // Place the assign outside the expression.
     rewriter.setInsertionPointAfter(exprOp);
-    rewriter.create<emitpy::AssignOp>(loc, exprOp.getResult(), value);
+    emitpy::AssignOp::create(rewriter, loc, exprOp.getResult(), value);
 
     rewriter.eraseOp(setKVOp);
     return success();

@@ -270,8 +270,8 @@ private:
           subviewType, requestedType.getShape(), reassociation);
       assert(succeeded(expandedType) && "failed to compute expanded type");
 
-      result = builder.create<memref::ExpandShapeOp>(loc, *expandedType, result,
-                                                     reassociation);
+      result = memref::ExpandShapeOp::create(builder, loc, *expandedType,
+                                             result, reassociation);
     }
 
     allocOp.getResult().replaceAllUsesWith(result);

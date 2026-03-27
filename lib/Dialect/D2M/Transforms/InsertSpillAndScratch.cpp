@@ -1314,8 +1314,8 @@ private:
 
       // Each intermediate gets a unique slot index. Sizes are inferred from
       // the memref type.
-      auto scratchOp = rewriter.create<ScratchAllocateOp>(
-          loc, scratchMemRefType, slotIndex++);
+      auto scratchOp = ScratchAllocateOp::create(
+          rewriter, loc, scratchMemRefType, slotIndex++);
       Value scratchBuf = scratchOp.getResult();
 
       // Update stores in the producer loop.
@@ -1327,9 +1327,9 @@ private:
         rewriter.setInsertionPoint(storeOp);
         Value storedValue = storeOp.getValue();
 
-        rewriter.create<affine::AffineStoreOp>(storeOp.getLoc(), storedValue,
-                                               scratchBuf, producerMap,
-                                               producerOperands);
+        affine::AffineStoreOp::create(rewriter, storeOp.getLoc(), storedValue,
+                                      scratchBuf, producerMap,
+                                      producerOperands);
 
         rewriter.eraseOp(storeOp);
       }
