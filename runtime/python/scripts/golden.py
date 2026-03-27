@@ -13,12 +13,10 @@ from builder.base.builder_runtime import *
 
 class CallbackRuntimeConfig:
     def __init__(self):
-        self.tensors = {}
-        self.counter = 0
+        self.input_tensors = []
 
 
 def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
-    print("PRE OP CALLBACK CALLED")
     runtime_inputs = []
     input_refs = tt_runtime.runtime.get_op_input_refs(op_context, program_context)
     for input_ref in input_refs:
@@ -30,11 +28,10 @@ def pre_op_callback(callback_runtime_config, binary, program_context, op_context
         runtime_input_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
         runtime_inputs.append(runtime_input_torch)
 
-    callback_runtime_config.tensors[callback_runtime_config.counter] = runtime_inputs
+    callback_runtime_config.input_tensors.extend(runtime_inputs)
 
 
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
-    print("POST OP CALLBACK CALLED")
     # In the future, make a specific binary nanobind func for op name
     debug_str = tt_runtime.runtime.get_op_debug_str(op_context)
     parts = debug_str.split('"')
@@ -42,23 +39,17 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
 
     golden_fn = golden_module.get_golden_by_op_function_str(op_function_str)
     if not golden_fn:
+        callback_runtime_config.input_tensors = []
         print(f"No golden mapping for operation: {op_function_str}")
-        callback_runtime_config.counter += 1
         return
 
     op_output_tensor_map = tt_runtime.runtime.get_op_output_tensor(
         op_context, program_context
     )
-    print(op_output_tensor_map)
     if len(op_output_tensor_map) == 0:
-        callback_runtime_config.counter += 1
+        callback_runtime_config.input_tensors = []
         print("Output tensor is empty - skipping golden comparison")
         return
-
-    runtime_inputs = callback_runtime_config.tensors[callback_runtime_config.counter]
-    # How about Attrs and output_mlir_type
-    output_type = op_output_tensor_map[0].get_dtype()
-    print(f"Output type: {output_type}")
 
     for device_id, op_output_tensor in op_output_tensor_map.items():
         rt_buffer = op_output_tensor.get_data_buffer()
@@ -66,14 +57,16 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
         output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
 
     op_attrs = tt_runtime.runtime.get_op_attrs(op_context, program_context)
-    print(f"Operation attributes: {op_attrs}")
-    new_op_attrs = {}
+    reformatted_attrs = {}
     for key, value in op_attrs.items():
-        new_op_attrs[key + "_attr"] = value
-    print(f"New operation attributes: {new_op_attrs}")
-    mlir_type = runtime_dtype_to_mlir_type(op_output_tensor_map[0].get_dtype())
+        reformatted_attrs[key + "_attr"] = value
+    # May prove to be an issue for multi-output ops if they have different output types
+    reformatted_attrs["output_type_mlir"] = runtime_dtype_to_mlir_type(
+        op_output_tensor_map[0].get_dtype()
+    )
+
     golden_tensor_torch = golden_fn(
-        *runtime_inputs, **new_op_attrs, **{"output_type_mlir": mlir_type}
+        *callback_runtime_config.input_tensors, **reformatted_attrs
     )
 
     a, b, cal_pcc = get_atol_rtol_pcc(
@@ -82,9 +75,9 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
         1e-08,
         1e-05,
     )
-    print(a, b, cal_pcc)
+    print("Runtime PCC:", cal_pcc)
 
-    callback_runtime_config.counter += 1
+    callback_runtime_config.input_tensors = []
 
 
 def pre_op_get_callback_fn(callback_runtime_config):
@@ -96,9 +89,9 @@ def post_op_get_callback_fn(callback_runtime_config):
 
 
 def register(message: str):
-    print("REGISTER CALLED")
     callback_runtime_config = CallbackRuntimeConfig()
     callback_env = tt_runtime.runtime.DebugHooks.get(
         pre_op_get_callback_fn(callback_runtime_config),
         post_op_get_callback_fn(callback_runtime_config),
     )
+    print("Runtime golden callbacks registered")

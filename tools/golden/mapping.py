@@ -396,15 +396,11 @@ def unpack_mlir_attr(attr):
 def mlir_type_to_torch_dtype(mlir_type: Type) -> torch.dtype:
     type_str = str(mlir_type)
 
-    print("THIS ONE")
-    print(type_str, mlir_type, F32Type, type(mlir_type), type(F32Type))
-    # mlir_type = type_str
-
     if isinstance(mlir_type, BF16Type) or type_str == "bf16":
         return torch.bfloat16
     elif isinstance(mlir_type, F16Type) or type_str == "f16":
         return torch.float16
-    elif isinstance(mlir_type, F32Type) or type_str == "f32" or mlir_type == F32Type:
+    elif isinstance(mlir_type, F32Type) or type_str == "f32":
         return torch.float32
     elif isinstance(mlir_type, F64Type) or type_str == "f64":
         return torch.float64

@@ -2013,18 +2013,13 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseBinaryOp: {
-    const auto *op = opContext.type_as_EltwiseBinaryOp();
-    attrs["type"] = static_cast<uint32_t>(op->type());
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
-    const auto *op = opContext.type_as_EltwiseBinaryCompositeOp();
-    attrs["type"] = static_cast<uint32_t>(op->type());
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
     const auto *op = opContext.type_as_EltwiseBinaryCompositeScalarOp();
-    attrs["type"] = static_cast<uint32_t>(op->type());
     if (op->rhs()) {
       if (op->rhs_type() == ::tt::target::ttnn::NumberType::FP) {
         attrs["rhs"] = op->rhs_as_FP()->value();
@@ -2035,8 +2030,6 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
-    const auto *op = opContext.type_as_ExperimentalEltwiseBinaryBackwardOp();
-    attrs["type"] = static_cast<uint32_t>(op->type());
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
@@ -2044,7 +2037,6 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
   }
   case ::tt::target::ttnn::OpType::EltwiseQuantizationOp: {
     const auto *op = opContext.type_as_EltwiseQuantizationOp();
-    attrs["type"] = static_cast<uint32_t>(op->type());
     if (op->axis().has_value()) {
       attrs["axis"] = op->axis().value();
     }
@@ -2052,7 +2044,6 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
   }
   case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
     const auto *op = opContext.type_as_EltwiseUnaryOp();
-    attrs["type"] = static_cast<uint32_t>(op->type());
     if (op->params() && op->params_type() ==
                             ::tt::target::ttnn::EltwiseUnaryOpParams::
                                 EltwiseOpWithFloatParams) {
@@ -2063,7 +2054,6 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
   }
   case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
     const auto *op = opContext.type_as_EltwiseUnaryCompositeOp();
-    attrs["type"] = static_cast<uint32_t>(op->type());
     if (op->params()) {
       if (op->params_type() ==
           ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::
@@ -2132,7 +2122,6 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     const auto *op = opContext.type_as_ReductionOp();
-    attrs["type"] = static_cast<uint32_t>(op->type());
     if (op->dim_arg()) {
       attrs["dim_arg"] =
           std::vector<int32_t>(op->dim_arg()->begin(), op->dim_arg()->end());
@@ -2202,13 +2191,6 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
     const auto *op = opContext.type_as_ReshapeOp();
-    for (size_t i = 0; i < op->shape()->size(); ++i) {
-      std::cout << "Type of x1: " << typeid(op->shape()->Get(i)).name()
-                << std::endl;
-      std::cout << "Type of x2: "
-                << typeid(static_cast<int32_t>(op->shape()->Get(i))).name()
-                << std::endl;
-    }
     if (op->shape()) {
       attrs["shape"] =
           std::vector<int32_t>(op->shape()->begin(), op->shape()->end());
@@ -2217,7 +2199,6 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
   }
   case ::tt::target::ttnn::OpType::SliceOp: {
     const auto *op = opContext.type_as_SliceOp();
-    attrs["type"] = static_cast<uint32_t>(op->type());
     if (op->params() &&
         op->params_type() ==
             ::tt::target::ttnn::SliceOpParams::SliceStaticOpParams) {
@@ -2348,7 +2329,6 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
   }
   case ::tt::target::ttnn::OpType::Pool2dOp: {
     const auto *op = opContext.type_as_Pool2dOp();
-    attrs["type"] = static_cast<uint32_t>(op->type());
     attrs["batch_size"] = static_cast<uint32_t>(op->batch_size());
     attrs["input_height"] = static_cast<uint32_t>(op->input_height());
     attrs["input_width"] = static_cast<uint32_t>(op->input_width());
@@ -2515,11 +2495,13 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
-    // const auto *op = opContext.type_as_UpsampleOp();
-    // if (op->scale_factor()) {
-    //   attrs["scale_factor"] = std::vector<float>(op->scale_factor()->begin(),
-    //                                              op->scale_factor()->end());
-    // }
+    const auto *op = opContext.type_as_UpsampleOp();
+    if (op->mode() && op->mode()->size() > 0) {
+      attrs["mode"] = std::string(op->mode()->c_str());
+    }
+    // Note: scale_factor is a Scale2D union (UniformScale2D or
+    // NonUniformScale2D) This would require more complex handling based on the
+    // union type
     break;
   }
   case ::tt::target::ttnn::OpType::CpuOp: {
@@ -2573,7 +2555,6 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
   }
   case ::tt::target::ttnn::OpType::NamedFullOp: {
     const auto *op = opContext.type_as_NamedFullOp();
-    attrs["type"] = static_cast<uint32_t>(op->type());
     if (op->shape()) {
       attrs["shape"] =
           std::vector<int64_t>(op->shape()->begin(), op->shape()->end());
@@ -2642,66 +2623,62 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
-    // const auto *op = opContext.type_as_ScaledDotProductAttentionOp();
-    // attrs["scale"] = op->scale();
-    // attrs["is_causal"] = op->is_causal();
-    // if (op->num_heads()) {
-    //   attrs["num_heads"] = static_cast<uint32_t>(op->num_heads());
-    // }
-    // if (op->num_kv_heads()) {
-    //   attrs["num_kv_heads"] = static_cast<uint32_t>(op->num_kv_heads());
-    // }
+    const auto *op = opContext.type_as_ScaledDotProductAttentionOp();
+    if (op->scale().has_value()) {
+      attrs["scale"] = op->scale().value();
+    }
+    attrs["is_causal"] = op->is_causal();
+    if (op->sliding_window_size().has_value()) {
+      attrs["sliding_window_size"] = op->sliding_window_size().value();
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
-    // const auto *op =
-    // opContext.type_as_PagedScaledDotProductAttentionDecodeOp();
-    // attrs["scale"] = op->scale();
-    // if (op->num_heads()) {
-    //   attrs["num_heads"] = static_cast<uint32_t>(op->num_heads());
-    // }
-    // if (op->num_kv_heads()) {
-    //   attrs["num_kv_heads"] = static_cast<uint32_t>(op->num_kv_heads());
-    // }
+    const auto *op = opContext.type_as_PagedScaledDotProductAttentionDecodeOp();
+    if (op->scale().has_value()) {
+      attrs["scale"] = op->scale().value();
+    }
+    attrs["is_causal"] = op->is_causal();
     break;
   }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
-    // const auto *op = opContext.type_as_RotaryEmbeddingLlamaOp();
-    // attrs["seq_len"] = static_cast<uint32_t>(op->seq_len());
-    // if (op->token_idx()) {
-    //   attrs["token_idx"] = static_cast<uint32_t>(op->token_idx());
-    // }
+    const auto *op = opContext.type_as_RotaryEmbeddingLlamaOp();
+    attrs["is_decode_mode"] = op->is_decode_mode();
     break;
   }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingOp: {
-    // const auto *op = opContext.type_as_RotaryEmbeddingOp();
-    // attrs["seq_len"] = static_cast<uint32_t>(op->seq_len());
-    // if (op->token_idx()) {
-    //   attrs["token_idx"] = static_cast<uint32_t>(op->token_idx());
-    // }
+    const auto *op = opContext.type_as_RotaryEmbeddingOp();
+    if (op->token_index().has_value()) {
+      attrs["token_index"] = op->token_index().value();
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {
-    // const auto *op = opContext.type_as_NLPCreateQKVHeadsDecodeOp();
-    // attrs["num_heads"] = static_cast<uint32_t>(op->num_heads());
-    // if (op->num_kv_heads()) {
-    //   attrs["num_kv_heads"] = static_cast<uint32_t>(op->num_kv_heads());
-    // }
-    // attrs["transpose_k"] = op->transpose_k();
+    const auto *op = opContext.type_as_NLPCreateQKVHeadsDecodeOp();
+    attrs["num_heads"] = static_cast<uint32_t>(op->num_heads());
+    if (op->num_kv_heads().has_value()) {
+      attrs["num_kv_heads"] = op->num_kv_heads().value();
+    }
+    if (op->overlap_qk_coregrid().has_value()) {
+      attrs["overlap_qk_coregrid"] = op->overlap_qk_coregrid().value();
+    }
+    if (op->slice_size().has_value()) {
+      attrs["slice_size"] = op->slice_size().value();
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
-    // const auto *op = opContext.type_as_DumpTensorOp();
-    // if (op->path() && op->path()->size() > 0) {
-    //   attrs["path"] = std::string(op->path()->c_str());
-    // }
+    const auto *op = opContext.type_as_DumpTensorOp();
+    if (op->file_path() && op->file_path()->size() > 0) {
+      attrs["file_path"] = std::string(op->file_path()->c_str());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::LoadTensorOp: {
-    // const auto *op = opContext.type_as_LoadTensorOp();
-    // if (op->path() && op->path()->size() > 0) {
-    //   attrs["path"] = std::string(op->path()->c_str());
-    // }
+    const auto *op = opContext.type_as_LoadTensorOp();
+    if (op->file_path() && op->file_path()->size() > 0) {
+      attrs["file_path"] = std::string(op->file_path()->c_str());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::AggregateTensorOp: {
@@ -2711,55 +2688,54 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::AnnotateOp: {
-    // const auto *op = opContext.type_as_AnnotateOp();
-    // if (op->name() && op->name()->size() > 0) {
-    //   attrs["name"] = std::string(op->name()->c_str());
-    // }
+    const auto *op = opContext.type_as_AnnotateOp();
+    if (op->annotation() && op->annotation()->size() > 0) {
+      attrs["annotation"] = std::string(op->annotation()->c_str());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::RegionStartOp: {
-    // const auto *op = opContext.type_as_RegionStartOp();
-    // if (op->name() && op->name()->size() > 0) {
-    //   attrs["name"] = std::string(op->name()->c_str());
-    // }
+    const auto *op = opContext.type_as_RegionStartOp();
+    if (op->region_id() && op->region_id()->size() > 0) {
+      attrs["region_id"] = std::string(op->region_id()->c_str());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::RegionEndOp: {
-    // const auto *op = opContext.type_as_RegionEndOp();
-    // if (op->name() && op->name()->size() > 0) {
-    //   attrs["name"] = std::string(op->name()->c_str());
-    // }
+    const auto *op = opContext.type_as_RegionEndOp();
+    if (op->region_id() && op->region_id()->size() > 0) {
+      attrs["region_id"] = std::string(op->region_id()->c_str());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::BreakpointOp: {
-    // const auto *op = opContext.type_as_BreakpointOp();
-    // if (op->name() && op->name()->size() > 0) {
-    //   attrs["name"] = std::string(op->name()->c_str());
-    // }
+    // BreakpointOp doesn't have a name field in the schema
     break;
   }
   case ::tt::target::ttnn::OpType::PrintOp: {
-    // const auto *op = opContext.type_as_PrintOp();
-    // if (op->name() && op->name()->size() > 0) {
-    //   attrs["name"] = std::string(op->name()->c_str());
-    // }
+    const auto *op = opContext.type_as_PrintOp();
+    if (op->message() && op->message()->size() > 0) {
+      attrs["message"] = std::string(op->message()->c_str());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
-    // const auto *op = opContext.type_as_MemorySnapshotOp();
-    // if (op->name() && op->name()->size() > 0) {
-    //   attrs["name"] = std::string(op->name()->c_str());
-    // }
+    const auto *op = opContext.type_as_MemorySnapshotOp();
+    if (op->file_path() && op->file_path()->size() > 0) {
+      attrs["file_path"] = std::string(op->file_path()->c_str());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::CreateGlobalSemaphoreOp: {
-    // const auto *op = opContext.type_as_CreateGlobalSemaphoreOp();
-    // attrs["initial_value"] = op->initial_value();
+    const auto *op = opContext.type_as_CreateGlobalSemaphoreOp();
+    if (op->initial_value().has_value()) {
+      attrs["initial_value"] = op->initial_value().value();
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
-    // const auto *op = opContext.type_as_ResetGlobalSemaphoreOp();
-    // attrs["reset_value"] = op->reset_value();
+    const auto *op = opContext.type_as_ResetGlobalSemaphoreOp();
+    attrs["value"] = op->value();
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -2768,13 +2744,6 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
   }
   }
 
-  std::cout << "getOpAttrs returning " << attrs.size() << " attributes"
-            << std::endl;
-  for (const auto &[key, value] : attrs) {
-    std::cout << "  Attribute key: " << key;
-    std::cout << ", variant index: " << value.index() << std::endl;
-    std::cout << "Type of value: " << typeid(value).name() << std::endl;
-  }
   return attrs;
 }
 

@@ -49,8 +49,33 @@ def runtime_dtype_to_torch_dtype(dtype) -> torch.dtype:
 
 def runtime_dtype_to_mlir_type(dtype):
     if dtype == tt_runtime.runtime.DataType.Float32:
-        return F32Type
-    # elif dtype == tt_runtime.runtime.DataType.UInt32:
+        return "f32"
+    elif dtype == tt_runtime.runtime.DataType.Float16:
+        return "f16"
+    elif dtype == tt_runtime.runtime.DataType.Float64:
+        return "f64"
+    elif dtype == tt_runtime.runtime.DataType.BFloat16:
+        return "bf16"
+    elif dtype == tt_runtime.runtime.DataType.UInt32:
+        return "ui32"
+    elif dtype == tt_runtime.runtime.DataType.UInt16:
+        return "ui16"
+    elif dtype == tt_runtime.runtime.DataType.UInt8:
+        return "ui8"
+    elif dtype == tt_runtime.runtime.DataType.UInt64:
+        return "ui64"
+    elif dtype == tt_runtime.runtime.DataType.Int32:
+        return "si32"
+    elif dtype == tt_runtime.runtime.DataType.Int16:
+        return "si16"
+    elif dtype == tt_runtime.runtime.DataType.Int8:
+        return "si8"
+    elif dtype == tt_runtime.runtime.DataType.Int64:
+        return "si64"
+    elif dtype == tt_runtime.runtime.DataType.Bool:
+        return "i1"
+    else:
+        raise ValueError(f"Runtime dtype: {dtype} has no MLIR type equivalent")
 
 
 def torch_dtype_to_runtime_dtype(dtype):
