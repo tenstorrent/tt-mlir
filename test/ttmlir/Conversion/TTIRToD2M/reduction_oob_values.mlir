@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-materialize-view-returns --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-decompose-min-reduction --ttir-to-d2m --d2m-materialize-view-returns --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verify that reduction ops set the correct identity OOB fill values on their
@@ -47,6 +47,16 @@ module {
     // CHECK: d2m.tile_add
     %0 = "ttir.add"(%a, %b) : (tensor<128x96xf32>, tensor<128x96xf32>) -> tensor<128x96xf32>
     return %0 : tensor<128x96xf32>
+  }
+
+  // Min is decomposed to neg→max→neg by TTIRDecomposeMinReduction.
+  // CHECK-LABEL: func @min_reduce_R
+  // CHECK: d2m.tile_negative
+  // CHECK: d2m.tile_reduce_max
+  // CHECK: d2m.tile_negative
+  func.func @min_reduce_R(%arg: tensor<128x96xf32>) -> tensor<1x96xf32> {
+    %0 = "ttir.min"(%arg) <{dim_arg = [-2: i32], keep_dim = true}> : (tensor<128x96xf32>) -> tensor<1x96xf32>
+    return %0 : tensor<1x96xf32>
   }
 
   // Back-to-back ops: verify that redundant to_layout ops between generics

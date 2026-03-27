@@ -86,6 +86,7 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttir::createPredicateTypeAlignment());
   pm.addPass(ttir::createElementTypeNormalization());
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(ttir::createTTIRDecomposeMinReduction());
   pm.addPass(ttir::createTTIRExplicateTMs());
   pm.addPass(ttir::createTTIREraseInverseOps());
   pm.addPass(ttir::createTTIRMoveReshapeToConstant());
