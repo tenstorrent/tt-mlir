@@ -42,6 +42,18 @@ def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_start
 // TTKernel Register operations
 //===----------------------------------------------------------------------===//
 
+def TTKernel_UnpackStallOnPackOp
+    : TTKernel_Op<"experimental::unpack_stall_on_pack"> {
+  let summary = "Stall UNPACK thread until previous PACK write is committed to L1.";
+  let description = [{
+    Issues a hardware semaphore wait on the MATH_PACK semaphore from the
+    UNPACK thread, blocking until the previous packer cycle's write to L1
+    is visible. Used between consecutive linalg.generics sharing an
+    intermediate L1 buffer in the single-tile shard path.
+  }];
+  let assemblyFormat = [{ attr-dict }];
+}
+
 def TTKernel_TileRegsAcquireOp : TTKernel_Op<"tile_regs_acquire"> {
     let summary = "tile_regs_acquire";
     let description = [{
@@ -122,6 +134,35 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
     }];
 }
 
+def TTKernel_PackTileBlockOp : TTKernel_Op<"pack_tile_block"> {
+    let summary = "PackTileBlock op.";
+    let description = [{
+      Copies a contiguous block of ntiles tiles from the DST register buffer,
+      starting at dst_index through dst_index + ntiles - 1, to a specified
+      output CB. Unlike pack_tile, which copies a single tile and supports
+      out-of-order packing, this copies tiles sequentially from contiguous DST
+      slots. The CB write pointer advances by ntiles after each call and resets
+      after cb_push_back.
+
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+
+      Operates in tandem with functions cb_reserve_back and cb_push_back.
+
+      A typical use case is packing an entire block of computed tiles from DST
+      to an output CB in one call, rather than issuing pack_tile for each tile
+      individually. The producer first reserves space via cb_reserve_back, then
+      calls pack_tile_block to copy all ntiles at once, and finally calls
+      cb_push_back to make the block visible to the consumer.
+    }];
+
+    let arguments = (ins IndexLike:$dst_index, TTKernel_CB:$out_cb, IndexLike:$ntiles);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $out_cb `,` $ntiles `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_PackReconfigL1AccOp : TTKernel_Op<"pack_reconfig_l1_acc"> {
     let summary = "Reconfigure packer to L1 accumulation mode.";
     let description = [{
@@ -132,6 +173,21 @@ def TTKernel_PackReconfigL1AccOp : TTKernel_Op<"pack_reconfig_l1_acc"> {
 
     let assemblyFormat = [{
       `(` $l1_acc_en `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_PackReconfigDataFormatOp : TTKernel_Op<"pack_reconfig_data_format"> {
+    let summary = "Reconfigure packer data format for the given output CB.";
+    let description = [{
+      Reconfigures the packer data format to match the output circular buffer.
+      Must be called before pack_reconfig_l1_acc to ensure format consistency
+      during L1 accumulation.
+    }];
+
+    let arguments = (ins TTKernel_CB:$out_cb);
+
+    let assemblyFormat = [{
+      `(` $out_cb `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -167,6 +223,31 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
 
     let assemblyFormat = [{
       `(` $cb0 `,` $tile_index_cb `,` $tile_index_dst `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_CopyBlockMatmulPartialsOp : TTKernel_Op<"copy_block_matmul_partials"> {
+    let summary = "CopyBlockMatmulPartials op.";
+    let description = [{
+      Copies ntiles consecutive tiles from a specified circular buffer starting
+      at start_tile_index to consecutive DST register slots starting at
+      start_dst_index. The function employs the unpacker to first unpack into
+      SRC registers and then move into DST registers.
+
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+
+      A typical use case is reloading partial matmul results from a CB back
+      into DST for further accumulation. The consumer first calls cb_wait_front
+      to ensure tiles are available, then calls copy_block_matmul_partials to
+      load the block into DST, accumulates with subsequent matmul operations,
+      and finally packs the results back to a CB.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb, IndexLike:$start_tile_index, IndexLike:$start_dst_index, IndexLike:$ntiles);
+
+    let assemblyFormat = [{
+      `(` $cb `,` $start_tile_index `,` $start_dst_index `,` $ntiles `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -1502,6 +1583,93 @@ def TTKernel_SinTileOp : TTKernel_SFPUOp<"sin_tile", [TTKernel_UnaryOpTrait]> {
     let description = [{
       Performs element-wise computation of sine operation
       DST[dst0_index] <- sin(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_AsinTileInitOp : TTKernel_InitOp<"asin_tile_init"> {
+    let summary = "Init function for asin_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before asin_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_AsinTileOp : TTKernel_SFPUOp<"asin_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Arcsine tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of arcsine operation
+      DST[dst0_index] <- asin(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_AcosTileInitOp : TTKernel_InitOp<"acos_tile_init"> {
+    let summary = "Init function for acos_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before acos_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_AcosTileOp : TTKernel_SFPUOp<"acos_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Arccosine tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of arccosine operation
+      DST[dst0_index] <- acos(DST[dst0_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_AtanTileInitOp : TTKernel_InitOp<"atan_tile_init"> {
+    let summary = "Init function for atan_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before atan_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_AtanTileOp : TTKernel_SFPUOp<"atan_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Arctangent tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of arctangent operation
+      DST[dst0_index] <- atan(DST[dst0_index])
       on DST register operands. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call.
     }];
@@ -3053,23 +3221,6 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
     }];
 }
 
-def TTKernel_CBPortOp : TTKernel_Op<"cb_port", [Pure]> {
-    let summary = "Get a CB by its hardware port index.";
-    let description = [{
-      Produces a CB value for the given hardware port index.  Unlike
-      `get_compile_time_arg_val`, the port is resolved directly at
-      code-generation time rather than going through the compile-time
-      argument indirection.
-    }];
-
-    let arguments = (ins I32Attr:$port);
-
-    let results = (outs TTKernel_CB:$result);
-
-    let assemblyFormat = [{
-      `(` $port `)` attr-dict `:` type($result)
-    }];
-}
 
 //===----------------------------------------------------------------------===//
 // TTKernel Helper functions

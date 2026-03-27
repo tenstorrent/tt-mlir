@@ -120,6 +120,47 @@ static Value getDstIdxFromResult(Value d2mOpResult) {
   return storeOp.getIndices().front();
 }
 
+// Ensure that `value` (and any same-block transitive dependencies) dominates
+// the rewriter's current insertion point by moving defining ops upward if
+// needed. This is necessary because getDstIdxFromResult grabs the store index
+// from a memref.store that may appear *after* the compute op being lowered.
+// When the new TTKernel op is created at the compute op's position, the index
+// value must already be defined.
+static void ensureDominatesInsertionPoint(OpBuilder &rewriter, Value value) {
+  Operation *defOp = value.getDefiningOp();
+  if (!defOp) {
+    return; // Block argument - always dominates.
+  }
+
+  Block *insertBlock = rewriter.getInsertionBlock();
+  if (defOp->getBlock() != insertBlock) {
+    // Two cases here:
+    // 1. defOp is in a parent block -> so it dominates the current block
+    // 2. defOp is in an actual non-dominating block, but this can't happen
+    // since the op we are pulling the value from already uses the value (in the
+    // same block), so the IR is already invalid if this is the case. In either
+    // case, we can return since we already know the value dominates the
+    // insertion point.
+    return;
+  }
+
+  Block::iterator ip = rewriter.getInsertionPoint();
+  if (ip == insertBlock->end()) {
+    return; // Inserting at end - everything in the block dominates.
+  }
+
+  if (defOp->isBeforeInBlock(&*ip)) {
+    return; // Already dominates the insertion point.
+  }
+
+  // Recursively ensure operands dominate first.
+  for (Value operand : defOp->getOperands()) {
+    ensureDominatesInsertionPoint(rewriter, operand);
+  }
+
+  defOp->moveBefore(insertBlock, rewriter.getInsertionPoint());
+}
+
 // This is a workaround special case for getting an in/out CB. This whole
 // routine should go away with issue:
 // https://github.com/tenstorrent/tt-mlir/issues/3602
@@ -313,6 +354,21 @@ public:
 } // namespace
 
 namespace {
+class UnpackStallOnPackRewriter
+    : public OpConversionPattern<d2m::UnpackStallOnPackOp> {
+public:
+  using OpConversionPattern<d2m::UnpackStallOnPackOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::UnpackStallOnPackOp op, d2m::UnpackStallOnPackOpAdaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::UnpackStallOnPackOp>(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class D2MSetL1AccumulateRewriter
     : public OpConversionPattern<d2m::SetL1AccumulateOp> {
 public:
@@ -496,9 +552,13 @@ using ComputeOpMap = OpMap<
   // Reductions FPU
   std::pair<d2m::TileReduceSumOp,   std::pair<ttkernel::ComputeKernelHWStartupOp,  ttkernel::ReduceTileOp>>,
   std::pair<d2m::TileReduceMaxOp,   std::pair<ttkernel::ComputeKernelHWStartupOp,  ttkernel::ReduceTileOp>>,
+  std::pair<d2m::TileReduceMeanOp,  std::pair<ttkernel::ComputeKernelHWStartupOp,  ttkernel::ReduceTileOp>>,
 
   // Elementwise SFPU Unary.
   std::pair<d2m::TileAbsOp,         std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
+  std::pair<d2m::TileAcosOp,        std::pair<ttkernel::AcosTileInitOp,            ttkernel::AcosTileOp>>,
+  std::pair<d2m::TileAsinOp,        std::pair<ttkernel::AsinTileInitOp,            ttkernel::AsinTileOp>>,
+  std::pair<d2m::TileAtanOp,        std::pair<ttkernel::AtanTileInitOp,            ttkernel::AtanTileOp>>,
   std::pair<d2m::TileBitwiseNotOp,  std::pair<ttkernel::BitwiseNotTileInitOp,      ttkernel::BitwiseNotTileOp>>,
   std::pair<d2m::TileCeilOp,        std::pair<ttkernel::RoundingTileInitOp,        ttkernel::CeilTileOp>>,
   std::pair<d2m::TileClampScalarOp, std::pair<ttkernel::ClampScalarTileInitOp,     ttkernel::ClampScalarTileOp>>,
@@ -722,13 +782,16 @@ public:
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
           ct_i32, rt_i32, kt_i32, nt_i32);
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp> ||
-                         std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp>) {
+                         std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp> ||
+                         std::is_same_v<ConcreteOp, d2m::TileReduceMeanOp>) {
       ttkernel::ReduceType reduce_type;
       d2m::ReduceDim reduce_dim = op.getReduceDim();
       if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp>) {
         reduce_type = ttkernel::ReduceType::Sum;
-      } else {
+      } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp>) {
         reduce_type = ttkernel::ReduceType::Max;
+      } else {
+        reduce_type = ttkernel::ReduceType::Avg;
       }
       ttkernel::ReduceDim kernel_reduce_dim;
       switch (reduce_dim) {
@@ -776,12 +839,14 @@ public:
       }
       auto cb = getCB(rewriter, op.getInput());
       auto dstIdx = getDstIdxFromResult(op.getResult());
+      ensureDominatesInsertionPoint(rewriter, dstIdx);
       rewriter.create<ttkernel::UnaryBcastInitOp>(op->getLoc(), cb, cb,
                                                   bcastType);
       rewriter.create<ttkernel::UnaryBcastTileOp>(
           op->getLoc(), cb, adaptor.getInput(), dstIdx, bcastType);
     } else if constexpr (arity == 2) {
       auto dstIdx = getDstIdxFromResult(op.getResult());
+      ensureDominatesInsertionPoint(rewriter, dstIdx);
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
                               getCB(rewriter, op.getRhs()));
       rewriter.create<FPUOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
@@ -1111,6 +1176,7 @@ private:
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     auto dstIdx = getDstIdxFromResult(op.getResult());
+    ensureDominatesInsertionPoint(rewriter, dstIdx);
 
     if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
       rewriter.create<ttkernel::AddTilesInitOp>(loc, cbA, cbB);
@@ -1196,6 +1262,7 @@ private:
 
     // Dst index is the same for input and output
     auto dstIdx = getDstIdxFromResult(op.getResult());
+    ensureDominatesInsertionPoint(rewriter, dstIdx);
 
     auto insertionPoint = rewriter.getInsertionPoint();
     setInsertionPointAfterOperands(rewriter, {cb, outCB},
@@ -1309,6 +1376,7 @@ public:
   matchAndRewrite(d2m::TileFillOp op, d2m::TileFillOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Value dstIdx = getDstIdxFromResult(op.getResult());
+    ensureDominatesInsertionPoint(rewriter, dstIdx);
 
     Value fillValue = adaptor.getValue();
     Location loc = op->getLoc();
@@ -1409,6 +1477,7 @@ public:
 
     // Get the destination index where the result will be stored.
     Value dstIdx = getDstIdxFromResult(op.getResult());
+    ensureDominatesInsertionPoint(rewriter, dstIdx);
 
     rewriter.create<ttkernel::TransposeTileOp>(op->getLoc(), inCB, tileIndex,
                                                dstIdx);
@@ -1913,23 +1982,27 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Type cbType = getTypeConverter()->convertType(op.getResult().getType());
 
-    int64_t port = op.getPort();
-    // The operand_index records which generic op operand this CB backs;
-    // the port is the actual hardware CB port number.
-    int64_t operandIndex = op.getOperandIndex().value_or(port);
+    assert(op.getOperandIndex() &&
+           "d2m.get_cb must have an operand_index by the time it reaches "
+           "D2MToTTKernel lowering");
+    int64_t operandIndex = *op.getOperandIndex();
 
     // Append a CBPort entry to the parent function's ArgSpec so that
     // D2MToTTNN can generate the corresponding cb_buffer_index in the
     // kernel descriptor's ct_args.  The operand index tells the runtime
-    // which operand this CB is associated with.
+    // which operand's buffer to associate with this CB.
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
     ArgAttr cbArg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, operandIndex);
-    rewriter.modifyOpInPlace(
-        entry, [&]() { ArgSpecAttr::appendCompileTimeArg(entry, cbArg); });
+    size_t ctArgIndex;
+    rewriter.modifyOpInPlace(entry, [&]() {
+      ctArgIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);
+    });
 
-    // Emit a direct CB port reference using the hardware port number.
-    rewriter.replaceOpWithNewOp<ttkernel::CBPortOp>(
-        op, cbType, rewriter.getI32IntegerAttr(static_cast<int32_t>(port)));
+    // Emit a get_compile_time_arg_val that reads the port from ct_args at
+    // runtime. This allows the spatial op to remap CB ports per grid range
+    // by overriding compile-time arguments.
+    rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
+        op, cbType, static_cast<int32_t>(ctArgIndex));
     return success();
   }
 };
@@ -2191,6 +2264,7 @@ void populateD2MToTTKernelPatterns(
                // Reductions FPU.
                ttkernel::D2MFPUOpsRewriter<d2m::TileReduceSumOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileReduceMaxOp>,
+               ttkernel::D2MFPUOpsRewriter<d2m::TileReduceMeanOp>,
 
                // Elementwise SFPU Unary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAbsOp>,
@@ -2255,6 +2329,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
+               ttkernel::UnpackStallOnPackRewriter,
                ttkernel::D2MSetL1AccumulateRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,

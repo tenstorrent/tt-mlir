@@ -509,6 +509,18 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
     return mlir::tt::ttcore::DataType::BFloat16;
   }
 
+  // Comparison ops do not yet support UINT8 data type.
+  // Comparison use subtractions, which requires signed data type.
+  // https://github.com/tenstorrent/tt-metal/issues/36217
+  // https://github.com/tenstorrent/tt-metal/issues/40286
+  if (isa<ttnn::NotEqualOp, ttnn::EqualOp, ttnn::GreaterThanOp,
+          ttnn::GreaterEqualOp, ttnn::LessThanOp, ttnn::LessEqualOp>(op)) {
+    if (dType == mlir::tt::ttcore::DataType::UInt8) {
+      return mlir::tt::ttcore::DataType::Int32;
+    }
+    return {};
+  }
+
   // All remaining binary ops.
   // Tracked in :
   // https://github.com/issues/created?issue=tenstorrent%7Ctt-metal%7C25112
@@ -1012,6 +1024,40 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
       .addOutputOperandWorkaround(rowMajorUint16Workaround); // reduced
 }
 
+// Factory method to create a set of workarounds for topk op.
+// This operation returns two outputs:
+//   [0] values (same data type as input)
+//   [1] indices (uint16)
+// Input is forced to BFloat16 unless it is already BFloat16 or BFP_BFloat8.
+// Issue page: https://github.com/tenstorrent/tt-metal/issues/40086
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(
+    ttnn::TopKOp op) {
+  auto inputElementType = op.getInputTensor().getType().getElementType();
+  std::optional<ttcore::DataType> inputDataType =
+      ttcore::elementTypeToDataType(inputElementType);
+
+  wa::TTNNOperandWorkarounds inputWorkaround;
+  wa::TTNNOperandWorkarounds outputValuesWorkaround;
+
+  if (!inputDataType || (*inputDataType != ttcore::DataType::BFloat16 &&
+                         *inputDataType != ttcore::DataType::BFP_BFloat8)) {
+    inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+    outputValuesWorkaround.tensorDataTypeWorkaround =
+        ttcore::DataType::BFloat16;
+  } else {
+    outputValuesWorkaround.tensorDataTypeWorkaround = *inputDataType;
+  }
+
+  wa::TTNNOperandWorkarounds outputIndicesWorkaround;
+  outputIndicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(inputWorkaround)
+      .addOutputOperandWorkaround(outputValuesWorkaround)
+      .addOutputOperandWorkaround(outputIndicesWorkaround);
+}
+
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::Conv2dOp op);
@@ -1019,22 +1065,34 @@ template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::ConvTranspose2dOp op);
 
-// TT-Metal's Conv3d requires BFloat16 inputs.
+// TT-Metal's Conv3d has operand format constraints:
+// - input must be row-major bf16
+// - weight must be tile bf16
+// - bias must be tile bf16 when present
+// - output is forced to bf16
 // Tracked in: https://github.com/tenstorrent/tt-metal/issues/35436
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConv3dOpOperandsWorkarounds(
     ttnn::Conv3dOp op) {
-  TTNNOperandWorkarounds bf16Workaround;
-  bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds tiledBf16Workaround;
+  tiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
+  tiledBf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds outputWorkaround;
+  outputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
 
   auto workaround =
       wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-          .addInputOperandWorkaround(bf16Workaround)
-          .addInputOperandWorkaround(bf16Workaround)
-          .addOutputOperandWorkaround(bf16Workaround);
+          .addInputOperandWorkaround(inputWorkaround)
+          .addInputOperandWorkaround(tiledBf16Workaround)
+          .addOutputOperandWorkaround(outputWorkaround);
 
   if (op.getBias()) {
-    workaround = workaround.addInputOperandWorkaround(bf16Workaround);
+    workaround = workaround.addInputOperandWorkaround(tiledBf16Workaround);
   }
 
   return workaround;

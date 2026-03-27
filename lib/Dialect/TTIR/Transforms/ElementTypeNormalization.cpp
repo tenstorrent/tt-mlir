@@ -18,6 +18,7 @@ namespace {
 class ElementTypeConverter : public TypeConverter {
 public:
   ElementTypeConverter() {
+    addConversion([](Type type) -> std::optional<Type> { return type; });
     addConversion(
         [](mlir::RankedTensorType type) -> std::optional<RankedTensorType> {
           Type elementType = type.getElementType();
@@ -141,92 +142,6 @@ private:
   }
 };
 
-// This pattern is currently used only for conversion between bf16 and bfp8.
-// In future it will be extended to support other types as well.
-//
-// This pattern converts types of operations in the function body and
-// inserts materialization operations at the beginning of the function body
-// and at the end of the function body just before the return operation.
-// This way we ensure that input and output types of original function
-// are preserved while the body is converted to use TTMLIR types.
-class FuncBodyTypeCast : public mlir::ConversionPattern {
-public:
-  FuncBodyTypeCast(const mlir::TypeConverter &converter, mlir::MLIRContext *ctx)
-      : mlir::ConversionPattern(converter, MatchAnyOpTypeTag(), 1, ctx) {}
-
-  LogicalResult
-  matchAndRewrite(mlir::Operation *op, llvm::ArrayRef<mlir::Value> operands,
-                  mlir::ConversionPatternRewriter &rewriter) const final {
-
-    // Match this pattern only if at least one result is bf16.
-    bool hasBf16Result = llvm::any_of(op->getResultTypes(), [](mlir::Type t) {
-      if (auto rt = mlir::dyn_cast<mlir::RankedTensorType>(t)) {
-        return mlir::isa<mlir::BFloat16Type>(rt.getElementType());
-      }
-      return false;
-    });
-    if (!hasBf16Result) {
-      return rewriter.notifyMatchFailure(op, "no bf16 results"); // don’t touch
-    }
-
-    // Remap original operands to converted operands.
-    mlir::IRMapping mapping;
-    mapping.map(op->getOperands(), operands);
-
-    // Clone the original operation with the new operands.
-    mlir::Operation *newOp = rewriter.clone(*op, mapping);
-
-    // Convert the result types using the type converter.
-    llvm::SmallVector<Type> convertedTypes;
-    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                convertedTypes))) {
-      return op->emitOpError("Failed to convert result types.");
-    }
-
-    // Update result types in-place on the new operation.
-    rewriter.modifyOpInPlace(newOp, [&]() {
-      for (auto [newResult, newType] :
-           llvm::zip(newOp->getResults(), convertedTypes)) {
-        newResult.setType(newType);
-      }
-    });
-
-    // Replace the old op with the new one.
-    rewriter.replaceOp(op, newOp);
-    return success();
-  }
-
-  struct FuncBodyTypeConverter : mlir::TypeConverter {
-    FuncBodyTypeConverter() {
-      addConversion([](mlir::RankedTensorType type) -> mlir::RankedTensorType {
-        mlir::Type elType = type.getElementType();
-        if (mlir::isa<mlir::BFloat16Type>(elType)) {
-          // For bf16 tensors, change ONLY the element type to tile<bfp8>.
-          return type.clone(ttcore::TileType::get(
-              type.getContext(), ttcore::TileType::getDefaultShape(),
-              ttcore::DataType::BFP_BFloat8));
-        }
-        // Pass-through for everything else (f32, i32, existing tile<bfp8>,
-        // etc.)
-        return type;
-      });
-
-      auto materializeFunc = [](mlir::OpBuilder &builder, mlir::Type type,
-                                mlir::ValueRange inputs,
-                                mlir::Location loc) -> mlir::Value {
-        mlir::RankedTensorType rankedType =
-            mlir::cast<mlir::RankedTensorType>(type);
-        return builder.create<ttir::TypecastOp>(loc, rankedType, inputs);
-      };
-
-      addSourceMaterialization(materializeFunc);
-      addTargetMaterialization(materializeFunc);
-    }
-  };
-};
-
-using FuncBodyTypeConverter = FuncBodyTypeCast::FuncBodyTypeConverter;
-
 struct ElementTypeNormalization
     : public impl::ElementTypeNormalizationBase<ElementTypeNormalization> {
   using impl::ElementTypeNormalizationBase<
@@ -248,37 +163,6 @@ struct ElementTypeNormalization
                                            config))) {
       signalPassFailure();
       return;
-    }
-
-    if (enableBfp8Conversion) {
-      mlir::ConversionTarget target(getContext());
-      FuncBodyTypeConverter funcBodyConverter;
-      target.markUnknownOpDynamicallyLegal([](mlir::Operation *op) {
-        // Non-TTIR ops are not policed by this pass → legal.
-        if (!mlir::isa<TTIRDialect>(op->getDialect())) {
-          return true;
-        }
-        // TTIR ops are illegal iff any result is a RankedTensorType with bf16
-        // element type.
-        bool hasBf16Result =
-            llvm::any_of(op->getResultTypes(), [](mlir::Type t) {
-              if (auto rt = mlir::dyn_cast<mlir::RankedTensorType>(t)) {
-                return mlir::isa<mlir::BFloat16Type>(rt.getElementType());
-              }
-              return false; // non-tensors are fine
-            });
-        // Legal if there are no bf16 results; illegal if there are.
-        return !hasBf16Result;
-      });
-
-      mlir::RewritePatternSet patterns(&getContext());
-
-      patterns.add<FuncBodyTypeCast>(funcBodyConverter, &getContext());
-      if (failed(mlir::applyFullConversion(getOperation(), target,
-                                           std::move(patterns)))) {
-        signalPassFailure();
-        return;
-      }
     }
   }
 

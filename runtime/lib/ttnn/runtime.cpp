@@ -1212,6 +1212,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_LayerNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::LayerNormPreAllGatherOp: {
+    tensorRef = opContext.type_as_LayerNormPreAllGatherOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::GroupNormOp: {
     tensorRef = opContext.type_as_GroupNormOp()->out();
     break;
@@ -1655,6 +1659,18 @@ getOpInputRefs(OpContext opContextHandle,
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::LayerNormPreAllGatherOp: {
+    tensorRefs = {opContext.type_as_LayerNormPreAllGatherOp()->input()};
+    if (opContext.type_as_LayerNormPreAllGatherOp()->residual_input()) {
+      tensorRefs.push_back(
+          opContext.type_as_LayerNormPreAllGatherOp()->residual_input());
+    }
+    if (opContext.type_as_LayerNormPreAllGatherOp()->recip()) {
+      tensorRefs.push_back(
+          opContext.type_as_LayerNormPreAllGatherOp()->recip());
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::GroupNormOp: {
     tensorRefs = {opContext.type_as_GroupNormOp()->input()};
     if (opContext.type_as_GroupNormOp()->input_mask()) {
@@ -1829,7 +1845,8 @@ getOpInputRefs(OpContext opContextHandle,
         opContext.type_as_ScaledDotProductAttentionOp()->query(),
         opContext.type_as_ScaledDotProductAttentionOp()->key(),
         opContext.type_as_ScaledDotProductAttentionOp()->value(),
-        opContext.type_as_ScaledDotProductAttentionOp()->attention_mask()};
+        opContext.type_as_ScaledDotProductAttentionOp()->attention_mask(),
+        opContext.type_as_ScaledDotProductAttentionOp()->attention_sink()};
     break;
   }
   case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {

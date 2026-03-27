@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-ttnn-to-ttir --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path% ttnn-mode=true" -o %t.mlir %s
+// RUN: ttmlir-opt --convert-ttnn-to-ttir --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path% ttnn-mode=true enable-elementwise-fusion=true" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
@@ -33,7 +33,8 @@ module {
     // CHECK: %[[OUT0:.*]] = "ttnn.to_memory_config"
     %2 = "ttnn.abs"(%0) {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
     // CHECK: %[[OUT1:.*]] = "ttnn.empty"
-    // CHECK: "ttnn.generic"(%[[OUT0]], %[[OUT1]])
+    // CHECK: %[[OUT2:.*]] = "ttnn.empty"
+    // CHECK: "ttnn.generic"(%[[OUT0]], %[[OUT2]], %[[OUT1]])
     %3 = "ttnn.neg"(%2) {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
     %4 = "ttnn.to_memory_config"(%3) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
     return %4 : tensor<32x32xf32, #dram_layout>

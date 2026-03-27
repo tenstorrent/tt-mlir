@@ -9,7 +9,6 @@
 
 #l1 = #ttcore.memory_space<l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>
-#remap = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 #sem_layout = #ttcore.metal_layout<logical_shape = 8x8, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
@@ -29,22 +28,10 @@ module {
     %sem = d2m.create_global_semaphore(%sem_backing) {value = 0 : ui32}
       : tensor<8x8x1x1xui32, #sem_layout> -> !d2m.global_semaphore
 
-    // Wrap input and output in identity stream_layout operations
-    %input_storage = d2m.empty() : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
-    %arg0_stream = "d2m.stream_layout"(%arg0, %input_storage) {remapping = #remap}
-      : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>,
-        tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>)
-      -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
-    %output_storage = d2m.empty() : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
-    %output_stream = "d2m.stream_layout"(%output, %output_storage) {remapping = #remap}
-      : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>,
-        tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>)
-      -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
-
     // CHECK: ttmetal.enqueue_program
     // CHECK-SAME: #ttmetal.kernel_args< ct_args = [{{.*}}<global_semaphore[2]>{{.*}}]
     // The below check is to ensure that the semaphore buffer is deallocated after the generic operation (i.e liveness analysis is working).
-    %result = "d2m.generic"(%arg0_stream, %output_stream, %sem) <{
+    %result = "d2m.generic"(%arg0, %output, %sem) <{
       block_factors = [],
       grid = #ttcore.grid<1x1>,
       indexing_maps = [],
@@ -65,7 +52,7 @@ module {
         scf.for %j = %c0 to %c2 step %c1 {
           %buffer_in = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
           %buffer_out = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
-          %loaded = d2m.remote_load %buffer_in %arg0_stream[%i, %j]
+          %loaded = d2m.remote_load %buffer_in %arg0[%i, %j]
             : tensor<2x2x!ttcore.tile<32x32, f32>>,
               tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
             -> tensor<2x2x!ttcore.tile<32x32, f32>>
@@ -79,7 +66,7 @@ module {
             %abs = "d2m.tile_abs"(%in) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             linalg.yield %abs : !ttcore.tile<32x32, f32>
           } -> tensor<2x2x!ttcore.tile<32x32, f32>>
-          %stored = d2m.remote_store %output_stream[%i, %j] %abs_result
+          %stored = d2m.remote_store %output[%i, %j] %abs_result
             : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>,
               tensor<2x2x!ttcore.tile<32x32, f32>>
             -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
@@ -88,7 +75,7 @@ module {
 
       d2m.semaphore_wait %sem, %c1 : !d2m.global_semaphore
 
-      d2m.yield %output_stream : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>)
+      d2m.yield %output : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>)
     }) : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>,
           tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>,
           !d2m.global_semaphore)

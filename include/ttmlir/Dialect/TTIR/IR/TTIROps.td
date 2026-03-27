@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -426,6 +426,35 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
     }];
 }
 
+def TTIR_AcosOp: TTIR_ElementwiseUnaryOp<"acos"> {
+    let summary = "Eltwise arccosine op.";
+    let description = [{
+      The `acos` operation computes the arccosine (inverse cosine) of each element in the input tensor.
+
+      For each element, it returns the angle in radians whose cosine is the input value. The operation
+      returns values in the range [0, π]. Inputs are expected to lie in [-1, 1].
+
+      Example:
+      ```mlir
+      // Compute arccosine of all elements in %input
+      %result = ttir.acos(%input) : (tensor<4xf32>) -> tensor<4xf32>
+      // Input tensor:
+      // [1.0, 0.5, 0.0, -1.0]
+      // Output tensor:
+      // [0.0, 1.047, 1.571, 3.142]  // values in radians
+
+      // Example with different values
+      %result = ttir.acos(%float_input) : (tensor<3xf32>) -> tensor<3xf32>
+      // Input tensor:
+      // [0.707, 0.0, -0.5]
+      // Output tensor:
+      // [0.785, 1.571, 2.094]  // acos(√2/2) = π/4, acos(0) = π/2, acos(-0.5) = 2π/3
+      ```
+
+      Mathematical definition: acos(x) = cos⁻¹(x), where the result is in the range [0, π]
+    }];
+}
+
 def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor", [TTIR_Idempotence]> {
     let summary = "Elementwise floor operation.";
     let description = [{
@@ -589,6 +618,8 @@ def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg", [TTIR_Involution]> {
 
       Mathematical definition: neg(x) = -x
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_TanOp: TTIR_ElementwiseUnaryOp<"tan"> {
@@ -883,6 +914,36 @@ def TTIR_SinOp: TTIR_ElementwiseUnaryOp<"sin"> {
       ```
     }];
 }
+
+def TTIR_AsinOp: TTIR_ElementwiseUnaryOp<"asin"> {
+    let summary = "Eltwise arcsine op.";
+    let description = [{
+      The `asin` operation computes the arcsine (inverse sine) of each element in the input tensor.
+
+      For each element, it returns the angle in radians whose sine is the input value. The operation
+      returns values in the range [-π/2, π/2]. Inputs are expected to lie in [-1, 1].
+
+      Example:
+      ```mlir
+      // Compute arcsine of all elements in %input
+      %result = ttir.asin(%input) : (tensor<4xf32>) -> tensor<4xf32>
+      // Input tensor:
+      // [0.0, 0.5, 1.0, -1.0]
+      // Output tensor:
+      // [0.0, 0.524, 1.571, -1.571]  // values in radians
+
+      // Example with different values
+      %result = ttir.asin(%float_input) : (tensor<3xf32>) -> tensor<3xf32>
+      // Input tensor:
+      // [-0.5, 0.0, 0.707]
+      // Output tensor:
+      // [-0.524, 0.0, 0.785]  // asin(√2/2) = π/4
+      ```
+
+      Mathematical definition: asin(x) = sin⁻¹(x), where the result is in the range [-π/2, π/2]
+    }];
+}
+
 
 def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise square root.";
@@ -4006,6 +4067,8 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
     let hasVerifier = 1;
 
     let hasFolder = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_RearrangeOp : TTIR_NamedOp<"rearrange", [TTIR_TensorManipulation]> {
@@ -4980,7 +5043,7 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
   let hasVerifier = 1;
 }
 
-def TTIR_FullOp : TTIR_CreationOp<"full"> {
+def TTIR_FullOp : TTIR_CreationOp<"full", [ConstantLike]> {
   let summary = "Creates a tensor filled with the specified value";
   let description = [{
     Tensor operation to create a tensor filled with a specified value.
@@ -5007,6 +5070,8 @@ def TTIR_FullOp : TTIR_CreationOp<"full"> {
   ];
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
@@ -5103,7 +5168,7 @@ class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
+def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros", [ConstantLike]> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
     The `zeros` operation creates a tensor filled with zeros of the specified shape.
@@ -5138,9 +5203,11 @@ def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
     This operation is useful for initializing tensors before filling them with computed values or as a
     starting point for accumulation operations.
   }];
+
+  let hasFolder = 1;
 }
 
-def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
+def TTIR_OnesOp : TTIR_NamedFullOp<"ones", [ConstantLike]> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
     The `ones` operation creates a tensor filled with ones of the specified shape.
@@ -5175,6 +5242,8 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
     This operation is useful for initializing tensors before scaling them or as a starting point for
     operations that require tensors filled with ones, such as creating masks or constant multipliers.
   }];
+
+  let hasFolder = 1;
 }
 
 def TTIR_EmptyOp : TTIR_Op<"empty", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTCore_CreationOpTrait, TTCore_NonCacheableTrait]> {
@@ -5744,7 +5813,7 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
 }
 
 
-def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention"> {
+def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention", [AttrSizedOperandSegments]> {
   let summary = "Scaled dot product attention operation.";
   let description = [{
     Scaled dot product attention.
@@ -5770,7 +5839,8 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
                        Optional<AnyRankedTensor>:$attention_mask,
                        DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                        OptionalAttr<F32Attr>:$scale,
-                       OptionalAttr<UI32Attr>:$sliding_window_size);
+                       OptionalAttr<UI32Attr>:$sliding_window_size,
+                       Optional<AnyRankedTensor>:$attention_sink);
 
   let results = (outs AnyRankedTensor:$result);
 

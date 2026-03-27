@@ -180,6 +180,84 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     )
 
 
+# Test where op with NaN/Inf in false_value to exercise the legacy fallback
+# path bug where pred*true + (1-pred)*false produces wrong results because
+# 0 * Inf = NaN.  See: https://github.com/tenstorrent/tt-metal/issues/39181
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        # 2D: broadcast true_value col-dim
+        [(32, 64), (32, 1), (32, 64)],
+        # 2D: broadcast false_value col-dim
+        [(128, 128), (128, 128), (128, 1)],
+        # 3D: broadcast condition on all dims
+        [(1, 1, 1), (8, 16, 32), (8, 16, 32)],
+        # 3D: broadcast true_value and false_value (different dims)
+        [(1, 16, 32), (8, 1, 32), (8, 16, 1)],
+        # 3D: GPT-2 attention mask pattern — scalar false_value
+        [(1, 4, 1), (1, 4, 768), (1, 1, 1)],
+        # 4D: broadcast false_value on all dims
+        [(1, 1, 1, 4), (1, 1, 1, 4), (1, 1, 1, 1)],
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float32, torch.bfloat16],
+    ids=["f32", "bf16"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "special_value",
+    [float("nan"), float("inf"), float("-inf")],
+    ids=["nan", "inf", "neg_inf"],
+)
+def test_where_nan_inf_implicit_broadcast(
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    special_value: float,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * 3)
+        def where(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # All-ones condition so golden is entirely true_value (normal
+            # numbers).  The legacy fallback computes
+            # pred*true + (1-pred)*false; with pred=1 and false=Inf/NaN
+            # this gives true + 0*Inf = true + NaN = NaN, which PCC
+            # will clearly catch against the all-normal golden.
+            condition_tensor = torch.ones(shapes[0], dtype=dtype)
+            true_tensor = torch.randn(shapes[1]).to(dtype)
+            false_tensor = torch.full(shapes[2], special_value, dtype=dtype)
+            output_shape = torch.broadcast_shapes(*shapes)
+            output_golden = true_tensor.broadcast_to(output_shape).clone()
+            result = builder.where(in0, in1, in2, unit_attrs=unit_attrs)
+            builder.set_goldens(
+                inputs={
+                    in0: condition_tensor,
+                    in1: true_tensor,
+                    in2: false_tensor,
+                },
+                outputs={result: output_golden},
+            )
+            return result
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "max_arg,min_arg,dtype",

@@ -1,0 +1,66 @@
+// RUN: ttmlir-opt --convert-d2m-to-ttnn -o %t.mlir %s
+// RUN: FileCheck %s --input-file=%t.mlir
+
+// L1 block-sharded, shape (2, 2, 256, 256), all CBs aliased. Exercises only --convert-d2m-to-ttnn on IR extracted from the JIT pipeline.
+
+// CHECK-NOT: memref.alloc
+// CHECK-NOT: memref.dealloc
+// CHECK-NOT: d2m.view_layout
+// CHECK-NOT: d2m.generic
+// CHECK-NOT: d2m.empty
+
+// CHECK: "ttnn.get_device"
+// CHECK: %[[MUL_OUT:.*]] = "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (7,7)>{{.*}}shape = #ttnn.shape<1024x256>
+// CHECK: "ttnn.generic"(%arg1, %arg2, %[[MUL_OUT]])
+// CHECK-SAME: operandSegmentSizes = array<i32: 3, 0>
+// CHECK-SAME: symbol_ref = @datamovement_kernel0, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [], common_rt_args = [], rt_args = []
+// CHECK-SAME: symbol_ref = @compute_kernel1, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, math_fidelity = hifi4, fp32_dest_acc_en = false, dst_full_sync_en = false, unpack_to_dest_modes = [default], bfp8_pack_precise = false, math_approx_mode = false, ct_args = [#ttnn.kernel_arg_cb_buffer_index<2>, #ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [], rt_args = []
+// CHECK-SAME: <total_size = 8192, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 0, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>
+// CHECK-SAME: <total_size = 8192, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 1, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<1>>
+// CHECK-SAME: <total_size = 8192, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 2, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<2>>
+// CHECK-SAME: semaphores = []>
+// CHECK: %[[ADD_OUT:.*]] = "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (7,7)>{{.*}}shape = #ttnn.shape<2x2x256x256>
+// CHECK: "ttnn.generic"(%[[MUL_OUT]], %arg0, %[[ADD_OUT]])
+// CHECK-SAME: operandSegmentSizes = array<i32: 3, 0>
+// CHECK-SAME: symbol_ref = @datamovement_kernel2, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [], common_rt_args = [], rt_args = []
+// CHECK-SAME: symbol_ref = @compute_kernel3, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, math_fidelity = hifi4, fp32_dest_acc_en = false, dst_full_sync_en = false, unpack_to_dest_modes = [default], bfp8_pack_precise = false, math_approx_mode = false, ct_args = [#ttnn.kernel_arg_cb_buffer_index<2>, #ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [], rt_args = []
+// CHECK-SAME: <total_size = 8192, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 0, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>
+// CHECK-SAME: <total_size = 8192, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 1, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<1>>
+// CHECK-SAME: <total_size = 8192, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 2, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<2>>
+// CHECK-SAME: semaphores = []>
+// CHECK: return %[[ADD_OUT]]
+
+module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 103712, erisc_l1_unreserved_base = 98304, dram_unreserved_base = 1920032, dram_unreserved_end = 1073119552, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], dst_physical_size_tiles = 16, num_cbs = 64, num_compute_threads = 1, num_datamovement_threads = 2}], [0], [1 : i32], [ 0x0x0x0]>} {
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+  func.func @mul_add(%arg0: tensor<2x2x256x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 256 + d2, d3), <8x8>, memref<4x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>, %arg1: tensor<2x2x256x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 256 + d2, d3), <8x8>, memref<4x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>, %arg2: tensor<2x2x256x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 256 + d2, d3), <8x8>, memref<4x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>) -> tensor<2x2x256x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 256 + d2, d3), <8x8>, memref<4x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>> attributes {tt.function_type = "forward_device"} {
+    %cast = ttir.ttnn_metal_layout_cast %arg1 : tensor<2x2x256x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 256 + d2, d3), <8x8>, memref<4x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>> -> memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>
+    %cast_0 = ttir.ttnn_metal_layout_cast %arg2 : tensor<2x2x256x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 256 + d2, d3), <8x8>, memref<4x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>> -> memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>
+    %alloc = memref.alloc() {address = 111904 : i64, alignment = 16 : i64} : memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<8x8>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel0>, #d2m.thread<compute, @compute_kernel1>]}
+        ins(%cast, %cast_0 : memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>, memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>)
+        outs(%alloc : memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>)
+
+    %cast_1 = ttir.ttnn_metal_layout_cast %arg0 : tensor<2x2x256x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 256 + d2, d3), <8x8>, memref<4x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>> -> memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>
+    %alloc_2 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<8x8>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel2>, #d2m.thread<compute, @compute_kernel3>]}
+        ins(%alloc, %cast_1 : memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>, memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>)
+        outs(%alloc_2 : memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>)
+
+    memref.dealloc %alloc : memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>
+    %cast_3 = ttir.ttnn_metal_layout_cast %alloc_2 : memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>> -> tensor<2x2x256x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 256 + d2, d3), <8x8>, memref<4x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>
+    memref.dealloc %alloc_2 : memref<8x8x4x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>
+    return %cast_3 : tensor<2x2x256x256xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 256 + d2, d3), <8x8>, memref<4x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>
+  }
+  func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
+    return
+  }
+  func.func private @compute_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    return
+  }
+  func.func private @datamovement_kernel2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
+    return
+  }
+  func.func private @compute_kernel3() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    return
+  }
+}

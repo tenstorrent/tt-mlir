@@ -35,7 +35,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
         Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
-        Workarounds/Decomposition/ConcatOpPadDimRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
         Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.cpp
@@ -47,6 +46,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
         Workarounds/Decomposition/ScatterOpRewritePattern.cpp
+        Workarounds/Decomposition/ScaledDotProductAttentionDecodeAttentionSinkRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
@@ -54,11 +54,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterConfigRewritePattern.cpp
         Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp
-        Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.cpp
-        Workarounds/Decomposition/Conv3dPadOutputChannelsRewritePattern.cpp
-        Workarounds/Decomposition/Conv3dDepthPaddingRewritePattern.cpp
         Workarounds/Decomposition/PadHighDimRewritePattern.cpp
-        Workarounds/Decomposition/ReshapeNarrowTiledRewritePattern.cpp
+        Workarounds/Decomposition/ProdOpRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS

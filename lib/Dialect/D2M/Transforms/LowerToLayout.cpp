@@ -381,8 +381,7 @@ public:
   // The ViewLayoutOp represents the transformation as an affine map, and the
   // DMA generic materializes the data movement for L1→L1 transformations.
   static Value lowerMappingChange(PatternRewriter &rewriter, Value input,
-                                  Value output, Location loc,
-                                  ArrayRef<int64_t> targetGridShape) {
+                                  Value output, Location loc) {
     auto inputInfo = TensorInfo::from(input);
     auto outputInfo = TensorInfo::from(output);
 
@@ -633,6 +632,9 @@ public:
     bool outputTiled = ttcore::isTiled(outputType);
     assert(inputTiled != outputTiled &&
            "one of input or output must be tiled for now");
+    assert(TensorInfo::from(input).getGridShape() ==
+               TensorInfo::from(output).getGridShape() &&
+           "format conversion generic requires matching input/output grids");
 
     return rewriter
         .create<GenericOp>(
@@ -1016,16 +1018,17 @@ public:
           // untilize → map in scalar space → tilize back.
 
           // Untilize to scalar space (preserve current layout properties).
-          // Reblock virtual grid shape here to align with earlier splitting
-          // phases that use reblocked intermediates to bounce virtual grid
-          // shapes from host to device.
+          // Do not reblock/collapse virtual-grid shape at this stage:
+          // format-conversion generic requires matching shard structure between
+          // input and output, and scalar-space mapping is handled in the next
+          // step.
           Type scalarType = getScalarType(currentInfo.type.getElementType());
           auto untilizedType = typeBuilder.modifyDeviceType(
               currentInfo.type, *currentInfo.layout, targetGridShape,
               currentRemapping.value_or(AffineMap()),
               ttcore::MemorySpace::DeviceL1,
               /*newTensorGrid=*/{}, scalarType,
-              /*newTileShape=*/{}, /* reblockVirtualGridShapes */ true);
+              /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/false);
           auto untilizedEmpty = createEmpty(untilizedType);
           currentValue = lowerFormatConversionGeneric(
               rewriter, currentValue, untilizedEmpty, op.getLoc());
@@ -1048,9 +1051,8 @@ public:
           auto scalarTargetType = RankedTensorType::get(
               scalarTargetDeviceShape, scalarType, scalarTargetLayout);
           auto scalarTargetEmpty = createEmpty(scalarTargetType);
-          currentValue =
-              lowerMappingChange(rewriter, currentValue, scalarTargetEmpty,
-                                 op.getLoc(), targetGridShape);
+          currentValue = lowerMappingChange(rewriter, currentValue,
+                                            scalarTargetEmpty, op.getLoc());
           currentInfo = TensorInfo::from(currentValue);
 
           // Tilize back to match target format.
@@ -1085,9 +1087,8 @@ public:
 
           auto intermediateEmpty = createEmpty(intermediateType);
 
-          currentValue =
-              lowerMappingChange(rewriter, currentValue, intermediateEmpty,
-                                 op.getLoc(), targetGridShape);
+          currentValue = lowerMappingChange(rewriter, currentValue,
+                                            intermediateEmpty, op.getLoc());
           currentInfo = TensorInfo::from(currentValue);
         }
       }
@@ -1115,9 +1116,8 @@ public:
             /*newTensorGrid=*/{}, /*newElementType=*/{},
             /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
         auto reblockedEmpty = createEmpty(reblocked);
-        currentValue =
-            lowerMappingChange(rewriter, currentValue, reblockedEmpty,
-                               op.getLoc(), targetGridShape);
+        currentValue = lowerMappingChange(rewriter, currentValue,
+                                          reblockedEmpty, op.getLoc());
         currentInfo = TensorInfo::from(currentValue);
       }
     }

@@ -243,18 +243,33 @@ public:
     return name;
   }
 
+  StringRef getReduceType(ttkernel::ReduceType reduceType) const {
+    switch (reduceType) {
+    case ttkernel::ReduceType::Max:
+      return "PoolType::MAX";
+    case ttkernel::ReduceType::Avg:
+      return "PoolType::AVG";
+    case ttkernel::ReduceType::Sum:
+      return "PoolType::SUM";
+    }
+  }
+
+  StringRef getReduceDim(ttkernel::ReduceDim reduceDim) const {
+    switch (reduceDim) {
+    case ttkernel::ReduceDim::Col:
+      return "ReduceDim::REDUCE_COL";
+    case ttkernel::ReduceDim::Row:
+      return "ReduceDim::REDUCE_ROW";
+    case ttkernel::ReduceDim::Scalar:
+      return "ReduceDim::REDUCE_SCALAR";
+    }
+  }
+
   std::pair<StringRef, StringRef>
   reduceTypeAndDimToString(ttkernel::ReduceTypeAttr reduceTypeAttr,
                            ttkernel::ReduceDimAttr reduceDimAttr) const {
-    StringRef reduceType =
-        reduceTypeAttr.getValue() == ttkernel::ReduceType::Max
-            ? "PoolType::MAX"
-            : "PoolType::SUM";
-    StringRef reduceDim = reduceDimAttr.getValue() == ttkernel::ReduceDim::Col
-                              ? "ReduceDim::REDUCE_COL"
-                          : reduceDimAttr.getValue() == ttkernel::ReduceDim::Row
-                              ? "ReduceDim::REDUCE_ROW"
-                              : "ReduceDim::REDUCE_SCALAR";
+    StringRef reduceType = getReduceType(reduceTypeAttr.getValue());
+    StringRef reduceDim = getReduceDim(reduceDimAttr.getValue());
     return {reduceType, reduceDim};
   }
 
@@ -435,23 +450,6 @@ public:
         op, getTypeConverter()->convertType(op.getResult().getType()),
         (Twine("get_compile_time_arg_val(") + Twine(op.getArgIndex()) + ")")
             .str());
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-class TTKernelToEmitCCBPortRewriter
-    : public OpConversionPattern<ttkernel::CBPortOp> {
-public:
-  using OpConversionPattern<ttkernel::CBPortOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttkernel::CBPortOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
-        op, getTypeConverter()->convertType(op.getResult().getType()),
-        (Twine("static_cast<::tt::CB>(") + Twine(op.getPort()) + ")").str());
     return success();
   }
 };
@@ -989,6 +987,24 @@ public:
   }
 };
 
+class PackReconfigDataFormatOpConversion
+    : public OpConversionPattern<ttkernel::PackReconfigDataFormatOp> {
+public:
+  using OpConversionPattern<
+      ttkernel::PackReconfigDataFormatOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::PackReconfigDataFormatOp op,
+                  ttkernel::PackReconfigDataFormatOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.create<emitc::CallOpaqueOp>(op->getLoc(), TypeRange{},
+                                         "pack_reconfig_data_format",
+                                         ValueRange{adaptor.getOutCb()});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 // Arith MaxUIOp doesn't have an emitc lowering. We can lower it to a call to
 // std::max.
 class ArithMaxUIRewriter : public OpConversionPattern<arith::MaxUIOp> {
@@ -1083,8 +1099,7 @@ public:
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
     patterns.add<
-        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCCBPortRewriter,
-        TTKernelToEmitCDPrintRewriter,
+        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
@@ -1098,6 +1113,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetMulticastOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocSemaphoreSetMulticastLoopbackOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UnpackStallOnPackOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>,
@@ -1127,8 +1143,11 @@ public:
         // Datamovement
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::CopyBlockMatmulPartialsOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileBlockOp>,
         TTKernelToEmitCPackReconfigL1AccToEmitCRewriter,
+        PackReconfigDataFormatOpConversion,
 
         // FPU Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
@@ -1157,6 +1176,12 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AcosTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AcosTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AsinTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AsinTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AtanTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AtanTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryBitwiseTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinopWithScalarTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseAndBinaryTilesOp>,

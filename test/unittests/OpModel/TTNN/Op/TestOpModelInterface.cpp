@@ -219,9 +219,17 @@ const auto createSin = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<SinOp>(loc, type, ops).getOperation();
 };
+const auto createAsin = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<AsinOp>(loc, type, ops).getOperation();
+};
 const auto createCos = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<CosOp>(loc, type, ops).getOperation();
+};
+const auto createAcos = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<AcosOp>(loc, type, ops).getOperation();
 };
 const auto createExp = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
@@ -312,7 +320,9 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Hardsigmoid", createHardsigmoid, expected},
     {"Silu", createSilu, expected},
     {"Sin", createSin, expected},
+    {"Asin", createAsin, expected},
     {"Cos", createCos, expected},
+    {"Acos", createAcos, expected},
     {"Exp", createExp, expected},
     {"Tanh", createTanh, expected},
     {"Log", createLog, expected},
@@ -2162,6 +2172,7 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
       /*is_causal=*/false,
       /*scale=*/nullptr,
       /*sliding_window_size=*/nullptr,
+      /*attention_sink=*/Value(),
       /*memory_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttention.getOperation());
@@ -2190,6 +2201,88 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
     FAIL() << "Runtime test failed for ScaledDotProductAttentionOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, ScaledDotProductAttentionOpInterfaceWithAttentionSink) {
+  int64_t batchSize = 1;
+  int64_t numHeads = 1;
+  int64_t seqLen = 32;
+  int64_t kvLen = 128;
+  int64_t headSize = 32;
+  int64_t sinkLen = 1;
+
+  llvm::SmallVector<int64_t> queryShape{batchSize, numHeads, seqLen, headSize};
+  llvm::SmallVector<int64_t> keyValueShape{batchSize, numHeads, kvLen,
+                                           headSize};
+  llvm::SmallVector<int64_t> maskShape{batchSize, 1, seqLen, kvLen};
+  llvm::SmallVector<int64_t> sinkShape{batchSize, numHeads, sinkLen, sinkLen};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto queryLayout =
+      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto keyValueLayout =
+      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto maskLayout =
+      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto sinkLayout =
+      TTNNLayoutAttr::get(&context, sinkShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto value = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto attentionMask = createEmptyTensor(maskShape, tiledElemType, maskLayout);
+  auto attentionSink = createEmptyTensor(sinkShape, tiledElemType, sinkLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto sdpAttention = builder.create<ScaledDotProductAttentionOp>(
+      builder.getUnknownLoc(), outputType, query, key, value,
+      /*attention_mask=*/attentionMask,
+      /*is_causal=*/false,
+      /*scale=*/nullptr,
+      /*sliding_window_size=*/nullptr,
+      /*attention_sink=*/attentionSink,
+      /*memory_config=*/nullptr);
+
+  OpModel backend = dyn_cast<OpModel>(sdpAttention.getOperation());
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(sdpAttention),
+                                                 OpConfig(queryLayout));
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(totalPeakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+
+    ASSERT_FALSE(outputLayouts.empty());
+    EXPECT_EQ(outputLayouts[0].getLayout(), Layout::Tile);
+    EXPECT_TRUE(outputLayouts[0].hasInterleavedDRAMTensorMemoryLayout());
+  } else {
+    FAIL() << "Missing L1 constraints for "
+              "ScaledDotProductAttentionOp with attention sink; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(sdpAttention.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for "
+              "ScaledDotProductAttentionOp with attention sink; Error="
            << llvm::toString(runtimeExp.takeError());
   }
 }
@@ -4369,6 +4462,116 @@ TEST_F(OpModelBase, layerNormOpL1Memory) {
   EXPECT_GT(outputSize, 0);
 
   auto runtimeExp = getOpRuntime(layerNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, layerNormPreAllGatherOp) {
+  // Basic LayerNormPreAllGather with input only
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  LayerNormPreAllGatherOp op = builder.create<LayerNormPreAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*residual_input=*/nullptr, /*recip=*/nullptr,
+      /*dtype=*/nullptr, /*memory_config=*/nullptr,
+      /*compute_config=*/nullptr, /*program_config=*/nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, layerNormPreAllGatherOpWithResidual) {
+  // LayerNormPreAllGather with residual_input
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto residualInput = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  LayerNormPreAllGatherOp op = builder.create<LayerNormPreAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*residual_input=*/residualInput, /*recip=*/nullptr,
+      /*dtype=*/nullptr, /*memory_config=*/nullptr,
+      /*compute_config=*/nullptr, /*program_config=*/nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, layerNormPreAllGatherOpL1Memory) {
+  // LayerNormPreAllGather with L1 memory buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 64};
+
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto outputType = createRankedTensorType(outputShape, builder.getBF16Type());
+
+  LayerNormPreAllGatherOp op = builder.create<LayerNormPreAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*residual_input=*/nullptr, /*recip=*/nullptr,
+      /*dtype=*/nullptr, /*memory_config=*/nullptr,
+      /*compute_config=*/nullptr, /*program_config=*/nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {

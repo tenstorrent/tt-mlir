@@ -235,7 +235,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC)),
         rewriter.getAttr<emitc::OpaqueAttr>(
-            "::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE"),
+            "::ttnn::operations::unary::SigmoidMode::ACCURATE"),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
@@ -1669,10 +1669,19 @@ public:
     auto outputDtype =
         dtypeAttr ? dtypeAttr.getValue() : ttcore::DataType::BFloat16;
 
+    // Emit SSA operands in ODS order (input, weight, bias, device) to
+    // maintain correct index mapping, then arrange args in the C++ API
+    // call order (input, weight, device, bias, ...).
+    auto inputAttr = emitter.emit(srcOp.getInput());
+    auto weightAttr = emitter.emit(srcOp.getWeight());
+    auto biasAttr = emitter.emit(srcOp.getBias());
+    auto deviceAttr = emitter.emit(srcOp.getDevice());
+
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getWeight()),
-        emitter.emit(srcOp.getBias()),
+        inputAttr,
+        weightAttr,
+        deviceAttr,
+        biasAttr,
         emitter.emitConv3dConfig(srcOp.getConv3dConfig()),
         emitter.emit(outputDtype),
         emitter.emit(srcOp.getOutChannels()),
@@ -3507,6 +3516,45 @@ public:
 };
 } // namespace
 
+// LayerNormPreAllGatherOp conversion pattern
+//
+namespace {
+class LayerNormPreAllGatherOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::LayerNormPreAllGatherOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormPreAllGatherOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormPreAllGatherOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::LayerNormPreAllGatherOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // Args must match tt-metal invoke parameter order:
+    // input, dtype, residual_input, compute_kernel_config,
+    // program_config, memory_config, recip_tensor
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getResidualInput()),
+        emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getRecip()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // GroupNormOp conversion pattern
 //
 namespace {
@@ -4809,7 +4857,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Relu6Op>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::HardsigmoidOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SiluOp>,
-           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::MishOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::MishOp>,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<
                mlir::tt::ttnn::LeakyReluOp>,
            EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
@@ -4830,7 +4879,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                mlir::tt::ttnn::ErfcOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CeilOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SinOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AsinOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CosOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AcosOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Expm1Op>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::TanOp>,
            EltwiseUnaryWithOutputAndApproxModeOpConversionPattern<
@@ -4937,8 +4988,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
                CumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
                BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-               LayerNormOpConversionPattern, GroupNormOpConversionPattern>(
-      typeConverter, ctx);
+               LayerNormOpConversionPattern,
+               LayerNormPreAllGatherOpConversionPattern,
+               GroupNormOpConversionPattern>(typeConverter, ctx);
 
   // CCL ops
   //

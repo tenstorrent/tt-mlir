@@ -15,10 +15,10 @@ module {
     %3 = "ttir.add"(%arg0, %1) {ttir.should_hoist} : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     // CHECK: %{{.*}} = call @cpu_hoisted_ttir_add_{{.*}}(%{{.*}}, %{{.*}})
     %5 = "ttir.add"(%arg0, %3) {ttir.should_hoist} : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-    // CHECK: %{{.*}} = "ttnn.to_device"(%{{.*}}, %{{.*}}) <{memory_config = {{.*}}}> : (tensor<[[DIMS:.*]], #{{.*}}>, !ttnn.device) -> tensor<[[DIMS]], #{{.*}}>
     // CHECK: %{{.*}} = "ttnn.to_layout"(%{{.*}}) <{layout = #ttnn.layout<{{.*}}>}> : (tensor<[[DIMS:.*]], #{{.*}}>) -> tensor<[[DIMS]], #{{.*}}>
     // CHECK: %{{.*}} = "ttnn.to_device"(%{{.*}}, %{{.*}}) <{memory_config = {{.*}}}> : (tensor<[[DIMS:.*]], #{{.*}}>, !ttnn.device) -> tensor<[[DIMS]], #{{.*}}>
     // CHECK: %{{.*}} = "ttnn.to_layout"(%{{.*}}) <{layout = #ttnn.layout<{{.*}}>}> : (tensor<[[DIMS:.*]], #{{.*}}>) -> tensor<[[DIMS]], #{{.*}}>
+    // CHECK: %{{.*}} = "ttnn.to_device"(%{{.*}}, %{{.*}}) <{memory_config = {{.*}}}> : (tensor<[[DIMS:.*]], #{{.*}}>, !ttnn.device) -> tensor<[[DIMS]], #{{.*}}>
     // CHECK: %{{.*}} = "ttnn.multiply"(%{{.*}}, %{{.*}})
     %7 = "ttir.multiply"(%3, %5) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     return %7 : tensor<64x128xf32>

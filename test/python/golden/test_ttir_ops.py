@@ -560,7 +560,7 @@ def test_embedding_backward(
 
 
 @pytest.mark.parametrize("shape", [(32, 64)], ids=shape_str)
-@pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1)])
+@pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1), (0, -2, 32, 1)])
 def test_index(
     shape: Shape, dim: int, begin: int, end: int, step: int, request, device
 ):
@@ -677,11 +677,6 @@ def test_dropout(
     request,
     device,
 ):
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def dropout(
@@ -982,30 +977,6 @@ def test_fill_cache(shapes: List[Shape], request, device):
             unit_attrs: Optional[List[str]] = None,
         ):
             return builder.fill_cache(in0, in1, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        device=device,
-    )
-
-
-@pytest.mark.xfail(reason="run error")
-@pytest.mark.parametrize(
-    "shapes", [[(1, 32, 64, 512), (1, 32, 1, 512), (1,)]], ids=shapes_list_str
-)
-@pytest.mark.parametrize("dtypes", [[torch.float32, torch.float32, torch.int32]])
-def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, dtypes)
-        def update_cache(
-            in0: Operand,
-            in1: Operand,
-            in2: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.update_cache(in0, in1, in2, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,
@@ -1500,11 +1471,6 @@ def test_topk(
     request,
     device,
 ):
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def topk(

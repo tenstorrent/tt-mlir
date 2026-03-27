@@ -10,6 +10,7 @@
 
 #define GEN_PASS_DECL_CONVERTTTNNTOEMITPY
 #define GEN_PASS_DECL_EMITPYCONSTEVALCACHING
+#define GEN_PASS_DECL_EMITPYFORMEXPRESSIONS
 #define GEN_PASS_DECL_EMITPYLINKMODULES
 #include "ttmlir/Conversion/Passes.h.inc"
 
@@ -25,6 +26,8 @@ std::unique_ptr<OperationPass<ModuleOp>>
 createConvertTTNNToEmitPyPass(const ConvertTTNNToEmitPyOptions &options);
 
 std::unique_ptr<OperationPass<ModuleOp>> createEmitPyConstEvalCachingPass();
+
+std::unique_ptr<OperationPass<ModuleOp>> createEmitPyFormExpressionsPass();
 
 std::unique_ptr<OperationPass<ModuleOp>> createEmitPyNameVarsPass();
 

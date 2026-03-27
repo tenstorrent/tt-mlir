@@ -4,7 +4,7 @@ SHELL ["/bin/bash", "-c"]
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG TT_METAL_DEPENDENCIES_COMMIT=30419c8ecbb1e5c654425a855bfd170350e6342f
+ARG TT_METAL_DEPENDENCIES_COMMIT=23d35e2d6d74f047b770976bb75978b3ce7dffe1
 
 # Install dependencies
 RUN <<EOT
@@ -50,18 +50,18 @@ rm -rf /var/lib/apt/lists/*
 # ANCHOR_END: developer_dependencies
 EOT
 
-# Install clang 17
+# Install clang 20
 RUN wget https://apt.llvm.org/llvm.sh && \
     chmod u+x llvm.sh && \
-    ./llvm.sh 17 && \
+    ./llvm.sh 20 && \
     apt-get update && \
-    apt-get install -y libc++-17-dev libc++abi-17-dev && \
+    apt-get install -y libc++-20-dev libc++abi-20-dev && \
     rm llvm.sh && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
-    ln -s /usr/bin/clang-17 /usr/bin/clang && \
-    ln -s /usr/bin/clang++-17 /usr/bin/clang++ && \
-    ln -s /usr/bin/clangd-17 /usr/bin/clangd
+    ln -s /usr/bin/clang-20 /usr/bin/clang && \
+    ln -s /usr/bin/clang++-20 /usr/bin/clang++ && \
+    ln -s /usr/bin/clangd-20 /usr/bin/clangd
 
 # Install python packages
 RUN python3.12 -m pip install --no-cache-dir --break-system-packages cmake \

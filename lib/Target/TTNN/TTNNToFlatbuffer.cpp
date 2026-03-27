@@ -1530,6 +1530,50 @@ createOp(FlatbufferObjectCache &cache, LayerNormOp op) {
                                                memoryConfig, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormPreAllGatherOp>
+createOp(FlatbufferObjectCache &cache, LayerNormPreAllGatherOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> residualInput = 0;
+  if (op.getResidualInput()) {
+    residualInput = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getResidualInput()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> recip = 0;
+  if (op.getRecip()) {
+    recip = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getRecip()));
+  }
+
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  ::tt::target::DataType dtype = ::tt::target::DataType::BFloat16;
+  if (op.getDtype()) {
+    dtype = toFlatbuffer(cache, op.getDtype().value());
+  }
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+      programConfig = 0;
+  if (op.getProgramConfig()) {
+    programConfig = toFlatbuffer(cache, op.getProgramConfig().value());
+  }
+
+  return ::tt::target::ttnn::CreateLayerNormPreAllGatherOp(
+      *cache.fbb, input, residualInput, recip, dtype, memoryConfig,
+      computeConfig.value_or(0), programConfig, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::GroupNormOp>
 createOp(FlatbufferObjectCache &cache, GroupNormOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -2159,6 +2203,8 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Ceil;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, CosOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Cos;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, AcosOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Acos;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, FloorOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Floor;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, GeluOp>) {
@@ -2187,6 +2233,8 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Mish;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SinOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sin;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, AsinOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Asin;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, ReciprocalOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Reciprocal;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SignOp>) {
@@ -3082,10 +3130,15 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
   ::flatbuffers::Optional<uint32_t> slidingWindowSize =
       toFlatbuffer(cache, op.getSlidingWindowSize());
 
+  auto attentionSink = op.getAttentionSink()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionSink()))
+                           : 0;
+
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
   return ::tt::target::ttnn::CreateScaledDotProductAttentionOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, scale,
-      slidingWindowSize, out, memoryConfig);
+      slidingWindowSize, attentionSink, out, memoryConfig);
 }
 
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
@@ -3987,6 +4040,14 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseUnaryOp(cache, tanhOp),
                            debugString, locInfo);
   }
+  if (auto asinOp = dyn_cast<AsinOp>(op); asinOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, asinOp),
+                           debugString, locInfo);
+  }
+  if (auto acosOp = dyn_cast<AcosOp>(op); acosOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, acosOp),
+                           debugString, locInfo);
+  }
   if (auto atanOp = dyn_cast<AtanOp>(op); atanOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, atanOp),
                            debugString, locInfo);
@@ -4255,6 +4316,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto layerNormOp = dyn_cast<LayerNormOp>(op); layerNormOp) {
     return createOperation(cache, createOp(cache, layerNormOp), debugString,
                            locInfo);
+  }
+  if (auto layerNormPreAllGatherOp = dyn_cast<LayerNormPreAllGatherOp>(op);
+      layerNormPreAllGatherOp) {
+    return createOperation(cache, createOp(cache, layerNormPreAllGatherOp),
+                           debugString, locInfo);
   }
   if (auto groupNormOp = dyn_cast<GroupNormOp>(op); groupNormOp) {
     return createOperation(cache, createOp(cache, groupNormOp), debugString,

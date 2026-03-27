@@ -291,6 +291,10 @@ void createTTIRToLLVMCPUPipeline(OpPassManager &pm,
   cpuPm.addPass(mlir::createCanonicalizerPass());
   cpuPm.addPass(mlir::createCSEPass());
 
+  // Narrow boolean-producing ops back to i1. ElementTypeNormalization widens
+  // i1 → bf16 for hardware, but CPUs handle i1 natively.
+  cpuPm.addPass(ttir::createTTIRCPUBooleanNarrowing());
+
   // Lower TTIR to mix of linalg direct, TOSA (which we can subsequently lower
   // to linalg), and Tensor dialect ops.
   cpuPm.addPass(createConvertTTIRToLinalgPass());

@@ -24,9 +24,9 @@ namespace {
 
 using ttnn_to_emitpy::kConstEvaledAttr;
 using ttnn_to_emitpy::kNameAttr;
+using ttnn_to_emitpy::kWrapperAttr;
 
 constexpr const char *kCacheDictAttr = "cache_dict";
-constexpr const char *kWrapperAttr = "consteval_wrapper";
 
 class EmitPyConstEvalCaching
     : public impl::EmitPyConstEvalCachingBase<EmitPyConstEvalCaching> {

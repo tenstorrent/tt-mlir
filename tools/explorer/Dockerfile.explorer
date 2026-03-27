@@ -4,7 +4,7 @@
 # debugging tool for TT-MLIR models.
 #
 # This Dockerfile:
-#   - Installs all required system dependencies (clang 17, Python 3.12, build tools)
+#   - Installs all required system dependencies (clang 20, Python 3.12, build tools)
 #   - Clones and builds tt-mlir from the main branch
 #   - Builds the tt-explorer web application
 #   - Configures entrypoint to serve explorer on port 8080
@@ -61,16 +61,16 @@ apt-get clean
 rm -rf /var/lib/apt/lists/*
 EOT
 
-# Install clang 17
+# Install clang 20
 RUN <<EOT
 set -e
 wget https://apt.llvm.org/llvm.sh
 chmod u+x llvm.sh
-./llvm.sh 17
-apt-get install -y libc++-17-dev libc++abi-17-dev
-ln -s /usr/bin/clang-17 /usr/bin/clang
-ln -s /usr/bin/clang++-17 /usr/bin/clang++
-ln -s /usr/bin/clangd-17 /usr/bin/clangd
+./llvm.sh 20
+apt-get install -y libc++-20-dev libc++abi-20-dev
+ln -s /usr/bin/clang-20 /usr/bin/clang
+ln -s /usr/bin/clang++-20 /usr/bin/clang++
+ln -s /usr/bin/clangd-20 /usr/bin/clangd
 rm llvm.sh
 apt-get clean
 rm -rf /var/lib/apt/lists/*

@@ -115,16 +115,100 @@ def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleO
 }
 
 def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir::ModuleOp"> {
-  let summary = "";
+  let summary = "Tile linalg.generic compute loops to fit DST register capacity.";
   let description = [{
-    This pass tiles affine compute loops according to the generic's subblock factors.
+    This pass tiles linalg.generic compute loops according to fusion and DST register constraints.
   }];
 
   list<Option> options = [
-    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
+    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0",
+           "Override the max DST physical size in tiles, upper-bounding the numTilesPerFlip for any op. 0 means use the device descriptor value.">,
   ];
 
-  let dependentDialects = ["mlir::tt::d2m::D2MDialect"];
+  let dependentDialects = [
+    "mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
+def D2MInsertSpillAndScratch : Pass<"d2m-insert-spill-and-scratch", "::mlir::ModuleOp"> {
+  let summary = "Replace intermediate allocations with scratch buffers for fusion.";
+  let description = [{
+    This pass transforms compute regions with multiple `d2m.scratch_space_loop` loop
+    nests to use scratch buffers for intermediate results.
+    This enables efficient pipelining by keeping only a few iterations
+    worth of intermediate data alive at a time.
+
+    The pass performs:
+
+    1. **Loop Nest Identification**: Finds all `affine.for` loops tagged with
+       `d2m.scratch_space_loop` attribute within each `d2m.generic` op.
+
+    2. **Intermediate Detection**: Identifies `memref.alloc` ops that are written
+       by one loop nest and read by another (producer/consumer relationship).
+
+    3. **Scratch Buffer Creation**: For each intermediate allocation:
+       - Computes scratch buffer shape from loop structure:
+         [scratch_space_iterations, inner_dim0, inner_dim1, ...]
+       - Creates a `d2m.scratch_allocate` op with the computed shape
+
+    4. **Store/Load Rewriting**: Updates stores and loads to use scratch buffer
+       with full indices including the scratch_space_loop iterator:
+       - Producer stores: `affine.store %val, %scratch[%i, %j, %k]`
+       - Consumer loads: `affine.load %scratch[%i, %j, %k]`
+
+    5. **Cleanup**: Removes old subviews and full-sized allocations that are
+       no longer used.
+
+    Example transformation:
+    ```mlir
+    // Before (separate loop nests with full-sized intermediate):
+    %alloc_14 = memref.alloc() : memref<8x8x!ttcore.tile<...>, #l1>  // 64 tiles
+    affine.for %i = 0 to 2 {d2m.scratch_space_loop} {  // Producer
+      affine.for %j = 0 to 1 {
+        affine.for %k = 0 to 8 {
+          %result = d2m.tile_add ...
+          affine.store %result, %subview_of_alloc_14[%j, %k]
+        }
+      }
+    }
+    affine.for %i = 0 to 2 {d2m.scratch_space_loop} {  // Consumer
+      affine.for %j = 0 to 1 {
+        affine.for %k = 0 to 8 {
+          %val = affine.load %subview_of_alloc_14[%j, %k]
+          ...
+        }
+      }
+    }
+
+    // After (scratch buffer sized for loop structure):
+    %scratch = d2m.scratch_allocate {slot = 0 : i64}
+               : memref<2x1x8x!ttcore.tile<...>, #l1>
+    affine.for %i = 0 to 2 {d2m.scratch_space_loop} {  // Producer
+      affine.for %j = 0 to 1 {
+        affine.for %k = 0 to 8 {
+          %result = d2m.tile_add ...
+          affine.store %result, %scratch[%i, %j, %k]  // Store with full indices
+        }
+      }
+    }
+    affine.for %i = 0 to 2 {d2m.scratch_space_loop} {  // Consumer
+      affine.for %j = 0 to 1 {
+        affine.for %k = 0 to 8 {
+          %val = affine.load %scratch[%i, %j, %k]  // Load with full indices
+          ...
+        }
+      }
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
 }
 
 def D2MLinalgToAffine : Pass<"d2m-linalg-to-affine", "::mlir::ModuleOp"> {
@@ -403,51 +487,42 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   let summary = "Create streams required by generic ops.";
   let description = [{
     This pass handles several related tasks:
-      - allocating data streams (stream_layouts) and their associated buffers as required by generic
-        op operands;
-      - allocating memory addresses/alignments for buffers supporting such streams as well as
+      - replacing in-generic allocs with CBLayoutAttr-tagged allocs for operands
+        that require streaming (circular buffer allocation);
+      - allocating memory addresses/alignments for buffers as well as
         other memref allocs needed by data movement/compute kernel functions;
       - inserting dealloc instructions at the appropriate end-of-scope positions.
 
     Converts:
     ```mlir
-    %alloc = memref.alloc() : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-    %alloc_0 = memref.alloc() : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-    %alloc_1 = memref.alloc() : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
+    %alloc = memref.alloc() : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    %alloc_0 = memref.alloc() : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    %alloc_1 = memref.alloc() : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
     d2m.generic {block_factors = [1, 1, 6], grid = #ttcore.grid<6x6>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
-        ins(%alloc, %alloc_0 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>)
-        outs(%alloc_1 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>)  {
-    ^compute0(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<1x1x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<1x1x!ttcore.tile<32x32, f32>, #l1>):
-      linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "reduction"]} ins(%cb0, %cb1 : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) outs(%cb2 : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
-      ^bb0(%in: !ttcore.tile<32x32, f32>, %in_4: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
-        %0 = "d2m.tile_matmul"(%in, %in_4, %out) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-        linalg.yield %0 : !ttcore.tile<32x32, f32>
-      }
+        ins(%alloc, %alloc_0 : memref<...>, memref<...>)
+        outs(%alloc_1 : memref<...>)  {
+      %cb0 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %cb1 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %cb2 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      "d2m.tile_matmul_block"(%cb0, %cb1, %cb2) : (...) -> ()
     }
     ```
 
     Into:
     ```mlir
-    %alloc = memref.alloc() {address = 5120 : i64, alignment = 32 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #dram>
-    %alloc_0 = memref.alloc() {address = 1024 : i64, alignment = 32 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #dram>
-    %alloc_1 = memref.alloc() {address = 17408 : i64, alignment = 16 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-    %alloc_2 = memref.alloc() {address = 9216 : i64, alignment = 16 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>
-    %stream = "d2m.stream_layout"(%alloc, %alloc_2) : (memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #dram>, memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>) -> memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>
-    %alloc_3 = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>
-    %stream_4 = "d2m.stream_layout"(%alloc_0, %alloc_3) : (memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #dram>, memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>) -> memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>
+    %alloc = memref.alloc() {address = 5120 : i64, alignment = 32 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>
+    %alloc_0 = memref.alloc() {address = 1024 : i64, alignment = 32 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>
+    %alloc_1 = memref.alloc() {address = 17408 : i64, alignment = 16 : i64} : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
     d2m.generic {block_factors = [1, 1, 6], grid = #ttcore.grid<6x6>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
-        ins(%stream, %stream_4 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>, memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
-        outs(%alloc_1 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>)  {
-    ^compute0(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<1x1x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<1x1x!ttcore.tile<32x32, f32>, #l1>):
-      linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "reduction"]} ins(%cb0, %cb1 : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) outs(%cb2 : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
-      ^bb0(%in: !ttcore.tile<32x32, f32>, %in_7: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
-        %0 = "d2m.tile_matmul"(%in, %in_7, %out) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-        linalg.yield %0 : !ttcore.tile<32x32, f32>
-      }
+        ins(%alloc, %alloc_0 : memref<...>, memref<...>)
+        outs(%alloc_1 : memref<...>)  {
+      %cb0 = memref.alloc() {address = 9216 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2, grid = [6x6]>, #l1>
+      %cb1 = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2, grid = [6x6]>, #l1>
+      %cb2 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      "d2m.tile_matmul_block"(%cb0, %cb1, %cb2) : (...) -> ()
     }
-    memref.dealloc %alloc_3 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>
-    memref.dealloc %alloc_0 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #dram>
-    memref.dealloc %alloc_2 : memref<6x6x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 2>, #l1>
+    memref.dealloc %alloc_0 : memref<...>
+    memref.dealloc %alloc : memref<...>
     ```
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
@@ -473,18 +548,6 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
           "std::string", /*default=*/"\"max\"",
           "Set policy for sizing stream buffers ('min', 'max').">,
   ];
-}
-
-def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
-  let summary = "Always insert streams for D2M generic ops.";
-  let description = [{
-    This pass is only available for D2M/TTNN integration (i.e.: when ttnn-mode is on). This pass will aggressively
-    insert a stream for all inputs/outputs of the TTIR generic op.
-
-    Example:
-  }];
-  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
-  let options = D2MStreamingOptions;
 }
 
 def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
@@ -547,7 +610,7 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
   let summary = "Materialize unmaterialized views before return operations";
   let description = [{
     This pass detects when a return value is an unmaterialized tensor view
-    (produced by view operations like d2m.view_layout or d2m.stream_layout)
+    (produced by view operations like d2m.view_layout)
     and emits a d2m.generic op to consume and materialize the view before
     returning it.
 
@@ -894,6 +957,17 @@ def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir:
     (reserve/push/wait/pop). The resulting DMA ops use grid-level indices
     only. Full address indexing and coalescing is deferred
     to D2MLowerDMAToFullyIndexedForm.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MExpandDMAReadCompositeView : Pass<"d2m-expand-dma-read-composite-view", "::mlir::ModuleOp"> {
+  let summary = "Expand shard-level DMA reads that act on composite views.";
+  let description = [{
+    This pass expands GenericOps that contain shard-level DMA reads that act on
+    composite views. The original "place holder" composite view operand is
+    replaced with the list of the actual inputs. The dma read is expanded to
+    an if-else chain of fully-indexed DMA reads that assembles the inputs.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }

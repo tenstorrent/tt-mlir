@@ -15,9 +15,10 @@ module @test_sdpa_workaround attributes {} {
     // CHECK: "ttnn.scaled_dot_product_attention"(%arg0, %arg1, %arg2, %arg3)
     // CHECK-NOT: ttnn.slice
 
-    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value, %mask) {
+    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value, %mask) <{
+      operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>,
       is_causal = false
-    } : (tensor<2x8x31x64xf32>, tensor<2x8x31x64xf32>,
+    }> : (tensor<2x8x31x64xf32>, tensor<2x8x31x64xf32>,
          tensor<2x8x31x64xf32>, tensor<2x1x31x31xf32>)
       -> tensor<2x8x31x64xf32>
     return %result : tensor<2x8x31x64xf32>
@@ -35,9 +36,10 @@ module @test_sdpa_workaround attributes {} {
     // CHECK: "ttnn.scaled_dot_product_attention"(%arg0, %arg1, %arg2)
     // CHECK-NOT: ttnn.slice
 
-    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value) {
+    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value) <{
+      operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>,
       is_causal = true
-    } : (tensor<2x8x31x64xf32>, tensor<2x8x31x64xf32>,
+    }> : (tensor<2x8x31x64xf32>, tensor<2x8x31x64xf32>,
          tensor<2x8x31x64xf32>)
       -> tensor<2x8x31x64xf32>
     return %result : tensor<2x8x31x64xf32>
@@ -56,9 +58,10 @@ module @test_sdpa_workaround attributes {} {
     // CHECK: "ttnn.scaled_dot_product_attention"(%arg0, %arg1, %arg2, %arg3)
     // CHECK-NOT: ttnn.slice
 
-    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value, %mask) {
+    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value, %mask) <{
+      operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>,
       is_causal = false
-    } : (tensor<2x8x64x64xf32>, tensor<2x8x64x64xf32>,
+    }> : (tensor<2x8x64x64xf32>, tensor<2x8x64x64xf32>,
          tensor<2x8x64x64xf32>, tensor<2x1x64x64xf32>)
       -> tensor<2x8x64x64xf32>
     return %result : tensor<2x8x64x64xf32>
@@ -90,9 +93,10 @@ module @test_sdpa_workaround attributes {} {
     // CHECK-SAME: step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]
 
     // CHECK: return %[[SLICED]]
-    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value, %mask) {
+    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value, %mask) <{
+      operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>,
       is_causal = false
-    } : (tensor<2x8x64x48xf32>, tensor<2x8x64x48xf32>,
+    }> : (tensor<2x8x64x48xf32>, tensor<2x8x64x48xf32>,
          tensor<2x8x64x48xf32>, tensor<2x1x64x64xf32>)
       -> tensor<2x8x64x48xf32>
     return %result : tensor<2x8x64x48xf32>
@@ -123,9 +127,10 @@ module @test_sdpa_workaround attributes {} {
     // CHECK-SAME: step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]
 
     // CHECK: return %[[SLICED]]
-    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value) {
+    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value) <{
+      operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>,
       is_causal = true
-    } : (tensor<2x8x64x48xf32>, tensor<2x8x64x48xf32>,
+    }> : (tensor<2x8x64x48xf32>, tensor<2x8x64x48xf32>,
          tensor<2x8x64x48xf32>)
       -> tensor<2x8x64x48xf32>
     return %result : tensor<2x8x64x48xf32>
@@ -160,9 +165,10 @@ module @test_sdpa_workaround attributes {} {
     // CHECK-SAME: step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]
 
     // CHECK: return %[[SLICED]]
-    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value, %mask) {
+    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value, %mask) <{
+      operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>,
       is_causal = false
-    } : (tensor<2x8x31x48xf32>, tensor<2x8x31x48xf32>,
+    }> : (tensor<2x8x31x48xf32>, tensor<2x8x31x48xf32>,
          tensor<2x8x31x48xf32>, tensor<2x1x31x31xf32>)
       -> tensor<2x8x31x48xf32>
     return %result : tensor<2x8x31x48xf32>

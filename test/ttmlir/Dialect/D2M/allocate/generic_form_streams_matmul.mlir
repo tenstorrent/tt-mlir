@@ -12,15 +12,9 @@
 
 func.func @matmul_single_core_stream(%arg0: memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>, %arg1: memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
-  // CHECK-NOT: "d2m.view_layout"
-  // CHECK: [[lhs:%[a-z0-9_]+]] = "d2m.stream_layout"(%arg0, {{.*}} <{remapping = #map{{.*}}}>
   %0 = "d2m.view_layout"(%arg0) {remapping = #remap4} : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
-  // CHECK-NOT: "d2m.view_layout"
-  // CHECK: [[rhs:%[a-z0-9_]+]] = "d2m.stream_layout"(%arg1, {{.*}} <{remapping = #map{{.*}}}>
   %1 = "d2m.view_layout"(%arg1) {remapping = #remap4} : (memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
-  // CHECK: d2m.generic{{.*}}
-  // CHECK-NEXT: ins([[lhs]], [[rhs]] : {{.*}})
-  // CHECK-NEXT: outs([[out:%[a-z0-9_]+]] : {{.*}})
+  // CHECK: d2m.generic
   "d2m.generic"(%0, %1, %alloc) <{block_factors = [1, 1, 2], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1, 0>}> ({
   ^bb0:
     %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
@@ -36,15 +30,9 @@ func.func @matmul_single_core_stream(%arg0: memref<1x2x2x2x!ttcore.tile<32x32, f
 
 func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096, 1>, #l1_>, %arg1: memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1_>) -> memref<2x4x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1_>
-  // CHECK-NOT: "d2m.view_layout"
-  // CHECK: [[lhs:%[a-z0-9_]+]] = "d2m.stream_layout"(%arg0, {{.*}} <{remapping = #map{{.*}}}>
   %0 = "d2m.view_layout"(%arg0) {remapping = #remap4} : (memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096, 1>, #l1_>) -> memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
-  // CHECK-NOT: "d2m.view_layout"
-  // CHECK: [[rhs:%[a-z0-9_]+]] = "d2m.stream_layout"(%arg1, {{.*}} <{remapping = #map{{.*}}}>
   %1 = "d2m.view_layout"(%arg1) {remapping = #remap4} : (memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1_>) -> memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
-  // CHECK: d2m.generic{{.*}}
-  // CHECK-NEXT: ins([[lhs]], [[rhs]] : {{.*}})
-  // CHECK-NEXT: outs([[out:%[a-z0-9_]+]] : {{.*}})
+  // CHECK: d2m.generic
   "d2m.generic"(%0, %1, %alloc) <{block_factors = [1, 1, 4], grid = #ttcore.grid<2x4>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1, 0>}> ({
   ^bb0:
     %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>
@@ -60,15 +48,9 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!ttcore.tile<32x32, f32>, #tt
 
 func.func @matmul_multi_core_transpose(%arg0: memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096, 1>, #l1_>, %arg1: memref<4x4x8x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096, 1>, #l1_>) -> memref<2x4x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1_>
-  // CHECK-NOT: "d2m.view_layout"
-  // CHECK: [[lhs:%[a-z0-9_]+]] = "d2m.stream_layout"(%arg0, {{.*}} <{remapping = #map{{.*}}}>
   %0 = "d2m.view_layout"(%arg0) {remapping = #remap4} : (memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096, 1>, #l1_>) -> memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
-  // CHECK-NOT: "d2m.view_layout"
-  // CHECK: [[rhs:%[a-z0-9_]+]] = "d2m.stream_layout"(%arg1, %{{.*}}) <{remapping = #map{{.*}}}>
   %1 = "d2m.view_layout"(%arg1) {remapping = #remap_transpose} : (memref<4x4x8x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096, 1>, #l1_>) -> memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
-  // CHECK: d2m.generic{{.*}}
-  // CHECK-NEXT: ins([[lhs]], [[rhs]] : {{.*}})
-  // CHECK-NEXT: outs([[out:%[a-z0-9_]+]] : {{.*}})
+  // CHECK: d2m.generic
   "d2m.generic"(%0, %1, %alloc) <{block_factors = [1, 1, 4], grid = #ttcore.grid<2x4>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1, 0>}> ({
   ^bb0:
     %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>

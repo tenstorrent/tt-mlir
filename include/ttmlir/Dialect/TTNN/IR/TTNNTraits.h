@@ -11,11 +11,6 @@
 #include "mlir/IR/OpDefinition.h"
 
 namespace mlir::tt::ttnn {
-template <typename ConcreteType>
-class ExplicateOperandBroadcastsTrait
-    : public mlir::OpTrait::TraitBase<ConcreteType,
-                                      ExplicateOperandBroadcastsTrait> {};
-
 // For ops that return tile-typed tensors, verify that the element type
 // on the tensor matches the element type in the TTNNLayoutAttr encoding.
 template <typename ConcreteType>

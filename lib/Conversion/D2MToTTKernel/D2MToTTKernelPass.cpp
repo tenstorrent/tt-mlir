@@ -71,13 +71,13 @@ struct ConvertD2MToTTKernel
 
     target.addLegalOp<d2m::ToDeviceOp>();
     target.addLegalOp<d2m::ToHostOp>();
-    target.addLegalOp<d2m::StreamLayoutOp>();
     target.addLegalOp<d2m::ViewLayoutOp>();
     target.addLegalOp<d2m::GenericOp>();
     target.addLegalOp<d2m::EmptyOp>();
     target.addLegalOp<d2m::MeshShardOp>();
     target.addLegalOp<d2m::CreateGlobalSemaphoreOp>();
     target.addLegalOp<d2m::ResetGlobalSemaphoreOp>();
+    target.addLegalOp<d2m::SpatialOp>();
 
     if (ttnnMode) {
       target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();

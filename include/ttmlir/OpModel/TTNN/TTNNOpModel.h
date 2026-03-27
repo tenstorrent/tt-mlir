@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -74,10 +74,16 @@ template <>
 struct OpModel<SinOp> : UnaryEltwiseOpModel<SinOp> {};
 
 template <>
+struct OpModel<AsinOp> : UnaryEltwiseOpModel<AsinOp> {};
+
+template <>
 struct OpModel<AbsOp> : UnaryEltwiseOpModel<AbsOp> {};
 
 template <>
 struct OpModel<CosOp> : UnaryEltwiseOpModel<CosOp> {};
+
+template <>
+struct OpModel<AcosOp> : UnaryEltwiseOpModel<AcosOp> {};
 
 template <>
 struct OpModel<TanhOp> : UnaryEltwiseOpModel<TanhOp> {};
@@ -750,7 +756,9 @@ struct OpModel<ScaledDotProductAttentionOp> {
       TTNNLayoutAttr keyLayout, llvm::ArrayRef<int64_t> valueShape,
       TTNNLayoutAttr valueLayout,
       std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
-      std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+      std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
       std::optional<llvm::APFloat> scale,
       std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout);
 
@@ -759,7 +767,9 @@ struct OpModel<ScaledDotProductAttentionOp> {
                llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
                llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
                std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
-               std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
+               std::optional<TTNNLayoutAttr> attentionMaskLayout,
+               std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+               std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
                std::optional<llvm::APFloat> scale,
                std::optional<uint32_t> slidingWindowSize,
                TTNNLayoutAttr outputLayout);
@@ -1508,6 +1518,31 @@ struct OpModel<LayerNormOp> {
                std::optional<TTNNLayoutAttr> weightLayout,
                std::optional<llvm::ArrayRef<int64_t>> biasShape,
                std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// LayerNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<LayerNormPreAllGatherOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+      std::optional<TTNNLayoutAttr> residualInputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> recipShape,
+      std::optional<TTNNLayoutAttr> recipLayout,
+      std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+               std::optional<TTNNLayoutAttr> residualInputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> recipShape,
+               std::optional<TTNNLayoutAttr> recipLayout,
+               std::optional<ttcore::DataType> dtype,
                TTNNLayoutAttr outputLayout);
 };
 

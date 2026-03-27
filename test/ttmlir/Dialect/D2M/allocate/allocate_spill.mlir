@@ -1,10 +1,10 @@
 // RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=9437184 test-buffer-size-policy=max" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// This test uses max-sized stream buffers and verifies that stream buffer
-// allocs do not receive an address from the planner.
+// This test uses max-sized stream buffers and verifies that in-generic
+// CB allocs receive cb_layout attributes.
 
-// CHECK: %{{.+}} = memref.alloc() : memref<{{.+}}shard<65536x4096, 2>{{.+}}#l1>
+// CHECK: cb_layout
 
 #l1 = #ttcore.memory_space<l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>
