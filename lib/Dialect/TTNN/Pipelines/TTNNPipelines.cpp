@@ -123,10 +123,18 @@ void createTTNNPipelineAnalysisPasses(
           options.memoryLayoutAnalysisEnabled;
       propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
       propagationOptions.overrideConv2dConfig = options.overrideConv2dConfig;
+      propagationOptions.enableDecisionTrace = options.enableDecisionTrace;
+      propagationOptions.decisionTraceDir = options.decisionTraceDir;
+      propagationOptions.enableCompileTimeStats =
+          options.enableCompileTimeStats;
+
+      TTNNGreedyL1SpillManagementOptions spillOptions;
+      spillOptions.enableDecisionTrace = options.enableDecisionTrace;
+      spillOptions.decisionTraceDir = options.decisionTraceDir;
 
       bool memLayoutEnabled = options.memoryLayoutAnalysisEnabled;
       pm.addPass(createDevicePassesWrapper(
-          [propagationOptions, validationOptions,
+          [propagationOptions, spillOptions, validationOptions,
            memLayoutEnabled](OpPassManager &innerPm) {
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
@@ -134,8 +142,8 @@ void createTTNNPipelineAnalysisPasses(
                 mlir::tt::ttnn::createTTNNGreedyMemoryLayoutPropagation(
                     propagationOptions));
             if (memLayoutEnabled) {
-              innerPm.addPass(
-                  mlir::tt::ttnn::createTTNNGreedyL1SpillManagement());
+              innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyL1SpillManagement(
+                  spillOptions));
             }
             innerPm.addPass(mlir::createCanonicalizerPass());
             innerPm.addPass(
