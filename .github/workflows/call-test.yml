@@ -85,6 +85,18 @@ jobs:
       run: |
         rm -f *.whl
 
+    - name: Download ttrt run whls
+      uses: actions/download-artifact@v4
+      with:
+        name: ttrt-whl-${{ matrix.build.image }}
+
+    - name: Install ttrt run whls
+      shell: bash
+      run: |
+        source env/activate
+        pip show ttrt && pip uninstall -y ttrt
+        pip install ttrt*.whl --upgrade
+
     - name: Download Build Artifacts
       uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
       with:
