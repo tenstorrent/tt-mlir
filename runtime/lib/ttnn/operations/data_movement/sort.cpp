@@ -27,6 +27,26 @@ void run(const ::tt::target::ttnn::SortOp *op, ProgramContext &context) {
   LOG_ASSERT(
       op->outputs()->size() == outputs.size(),
       "Number of expected outputs does not match with generated outputs.");
+
+  if (outputs.size() >= 2) {
+    ::ttnn::Tensor idxZeros = ::ttnn::zeros_like(outputs[1]);
+    ::ttnn::Tensor idxSum = ::ttnn::add(idxZeros, outputs[1]);
+    ::ttnn::Tensor idxTensor = idxSum.cpu();
+    idxTensor = ::ttnn::to_layout(idxTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt);
+    uint16_t minVal = UINT16_MAX, maxVal = 0;
+    const auto &storage = idxTensor.host_storage();
+    storage.buffer().apply([&](const ::tt::tt_metal::HostBuffer &shard) {
+      auto bytes = shard.view_bytes();
+      auto *data = reinterpret_cast<const uint16_t *>(bytes.data());
+      size_t n = bytes.size() / sizeof(uint16_t);
+      for (size_t i = 0; i < n; ++i) {
+        if (data[i] < minVal) minVal = data[i];
+        if (data[i] > maxVal) maxVal = data[i];
+      }
+    });
+    LOG_INFO("SORT indices: min={} max={}", (int)minVal, (int)maxVal);
+  }
+
   for (size_t i = 0; i < op->outputs()->size(); ++i) {
     tensorPool.insertTTNNTensorAndValidate(op->outputs()->Get(i), outputs[i]);
   }
