@@ -534,12 +534,10 @@ void registerRuntimeBindings(nb::module_ &m) {
 
   m.def(
       "get_op_attrs",
-      [](tt::runtime::OpContext &op_context_handle,
-         tt::runtime::CallbackContext &program_context_handle) {
-        return tt::runtime::getOpAttrs(op_context_handle,
-                                       program_context_handle);
+      [](tt::runtime::OpContext &op_context_handle) {
+        return tt::runtime::getOpAttrs(op_context_handle);
       },
-      nb::arg("op_context_handle"), nb::arg("program_context_handle"),
+      nb::arg("op_context_handle"),
       R"(
     Return a dictionary of attribute names to their values for an operator.
 
@@ -549,13 +547,32 @@ void registerRuntimeBindings(nb::module_ &m) {
     Parameters
     ----------
     op_context_handle : ttrt.runtime.OpContext
-    program_context_handle : ttrt.runtime.CallbackContext
 
     Returns
     -------
     Dict[str, Union[bool, int, float, str, List]]
         A dictionary mapping attribute names to their values. The dictionary is
         empty when the operator has no attributes.
+    )");
+
+  m.def(
+      "get_op_type",
+      [](tt::runtime::OpContext &op_context_handle) {
+        return tt::runtime::getOpType(op_context_handle);
+      },
+      nb::arg("op_context_handle"),
+      R"(
+    Return the string representation of the operation type.
+
+    Parameters
+    ----------
+    op_context_handle : ttrt.runtime.OpContext
+    program_context_handle : ttrt.runtime.CallbackContext
+
+    Returns
+    -------
+    str
+        The operation type as a string, e.g., "ttnn.MatmulOp" or "ttnn.ToLayoutOp".
     )");
 
   m.def(

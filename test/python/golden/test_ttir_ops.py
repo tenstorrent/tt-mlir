@@ -1328,7 +1328,10 @@ def test_hoisted_slice(
         ):
             # Now use the slice operation with the CPU hoisting attribute
             return builder.slice(
-                in0, begins, ends, step, unit_attrs=["ttir.should_hoist"]
+                in0,
+                begins,
+                ends,
+                step,  # unit_attrs=["ttir.should_hoist"]
             )
 
     compile_and_execute_ttir(

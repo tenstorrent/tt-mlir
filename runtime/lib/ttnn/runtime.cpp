@@ -1936,7 +1936,7 @@ getOpInputRefs(OpContext opContextHandle,
 }
 
 std::unordered_map<std::string, tt::runtime::OpAttrValue>
-getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
+getOpAttrs(OpContext opContextHandle) {
 
   const auto &opContext =
       opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
@@ -2745,6 +2745,94 @@ getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
   }
 
   return attrs;
+}
+
+std::string getOpType(OpContext opContextHandle) {
+
+  const auto &opContext =
+      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+
+  switch (opContext.type_type()) {
+  case ::tt::target::ttnn::OpType::EltwiseBinaryOp: {
+    const auto *op = opContext.type_as_EltwiseBinaryOp();
+    return "ttnn." +
+           std::string(
+               ::tt::target::ttnn::EnumNameEltwiseBinaryOpType(op->type())) +
+           "Op";
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
+    const auto *op = opContext.type_as_EltwiseBinaryCompositeOp();
+    return "ttnn." +
+           std::string(::tt::target::ttnn::EnumNameEltwiseBinaryCompositeOpType(
+               op->type())) +
+           "Op";
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
+    const auto *op = opContext.type_as_EltwiseBinaryCompositeScalarOp();
+    return "ttnn." +
+           std::string(
+               ::tt::target::ttnn::EnumNameEltwiseBinaryCompositeScalarOpType(
+                   op->type())) +
+           "Op";
+  }
+  case ::tt::target::ttnn::OpType::EltwiseQuantizationOp: {
+    const auto *op = opContext.type_as_EltwiseQuantizationOp();
+    return "ttnn." +
+           std::string(::tt::target::ttnn::EnumNameEltwiseQuantizationOpType(
+               op->type())) +
+           "Op";
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
+    const auto *op = opContext.type_as_EltwiseUnaryOp();
+    return "ttnn." +
+           std::string(
+               ::tt::target::ttnn::EnumNameEltwiseUnaryOpType(op->type())) +
+           "Op";
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
+    const auto *op = opContext.type_as_EltwiseUnaryCompositeOp();
+    return "ttnn." +
+           std::string(::tt::target::ttnn::EnumNameEltwiseUnaryCompositeOpType(
+               op->type())) +
+           "Op";
+  }
+  case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
+    const auto *op = opContext.type_as_ExperimentalEltwiseBinaryBackwardOp();
+    return "ttnn." +
+           std::string(::tt::target::ttnn::
+                           EnumNameExperimentalEltwiseBinaryBackwardOpType(
+                               op->type())) +
+           "Op";
+  }
+  case ::tt::target::ttnn::OpType::ReductionOp: {
+    const auto *op = opContext.type_as_ReductionOp();
+    return "ttnn." +
+           std::string(
+               ::tt::target::ttnn::EnumNameReductionOpType(op->type())) +
+           "Op";
+  }
+  case ::tt::target::ttnn::OpType::Pool2dOp: {
+    const auto *op = opContext.type_as_Pool2dOp();
+    return "ttnn." +
+           std::string(::tt::target::ttnn::EnumNamePool2dOpType(op->type())) +
+           "Op";
+  }
+  case ::tt::target::ttnn::OpType::NamedFullOp: {
+    const auto *op = opContext.type_as_NamedFullOp();
+    return "ttnn." +
+           std::string(
+               ::tt::target::ttnn::EnumNameNamedFullOpType(op->type())) +
+           "Op";
+  }
+  case ::tt::target::ttnn::OpType::SliceOp: {
+    const auto *op = opContext.type_as_SliceOp();
+    return "ttnn." +
+           std::string(::tt::target::ttnn::EnumNameSliceOpType(op->type()));
+  }
+  default:
+    return "ttnn." + std::string(::tt::target::ttnn::EnumNameOpType(
+                         opContext.type_type()));
+  }
 }
 
 void registerCallback() {

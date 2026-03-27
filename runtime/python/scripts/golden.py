@@ -32,15 +32,14 @@ def pre_op_callback(callback_runtime_config, binary, program_context, op_context
 
 
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
-    # In the future, make a specific binary nanobind func for op name
-    debug_str = tt_runtime.runtime.get_op_debug_str(op_context)
-    parts = debug_str.split('"')
-    op_function_str = parts[1] if len(parts) >= 2 else ""
+    from ttmlir.dialects import ttnn
 
-    golden_fn = golden_module.get_golden_by_op_function_str(op_function_str)
+    op_type_str = tt_runtime.runtime.get_op_type(op_context)
+    op_type = getattr(ttnn, op_type_str[5:])
+    golden_fn = golden_module.get_golden_function(op_type)
     if not golden_fn:
         callback_runtime_config.input_tensors = []
-        print(f"No golden mapping for operation: {op_function_str}")
+        print(f"No golden mapping for operation: {op_type_str}")
         return
 
     op_output_tensor_map = tt_runtime.runtime.get_op_output_tensor(
@@ -56,7 +55,7 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
         dtype = runtime_dtype_to_torch_dtype(op_output_tensor.get_dtype())
         output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
 
-    op_attrs = tt_runtime.runtime.get_op_attrs(op_context, program_context)
+    op_attrs = tt_runtime.runtime.get_op_attrs(op_context)
     reformatted_attrs = {}
     for key, value in op_attrs.items():
         reformatted_attrs[key + "_attr"] = value

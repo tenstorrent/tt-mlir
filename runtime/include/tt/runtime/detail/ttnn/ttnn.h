@@ -265,7 +265,11 @@ getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 // Attributes are all operation parameters that are not outputs or TensorRef
 // types. Returns an empty map if the operation has no attributes.
 std::unordered_map<std::string, tt::runtime::OpAttrValue>
-getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle);
+getOpAttrs(OpContext opContextHandle);
+
+// Returns the string representation of the operation type for the current
+// operation. For example: "ttnn.MatmulOp" or "ttnn.ToLayoutOp".
+std::string getOpType(OpContext opContextHandle);
 
 // Returns tensor to which tensorRef refers
 // In case that that tensor is not in the tensor pool, returns std::nullopt

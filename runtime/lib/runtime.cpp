@@ -1112,19 +1112,34 @@ getOpInputRefs(OpContext opContextHandle,
 }
 
 std::unordered_map<std::string, tt::runtime::OpAttrValue>
-getOpAttrs(OpContext opContextHandle, CallbackContext programContextHandle) {
+getOpAttrs(OpContext opContextHandle) {
   using RetType = std::unordered_map<std::string, tt::runtime::OpAttrValue>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::getOpAttrs(opContextHandle,
-                                               programContextHandle);
+        return ::tt::runtime::ttnn::getOpAttrs(opContextHandle);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("getOpAttrs", DeviceRuntime::TTMetal);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("getOpAttrs", HostRuntime::Distributed);
+        return RetType{};
+      });
+}
+
+std::string getOpType(OpContext opContextHandle) {
+  using RetType = std::string;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getOpType(opContextHandle);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getOpType", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getOpType", HostRuntime::Distributed);
         return RetType{};
       });
 }
