@@ -1420,7 +1420,7 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 
   mlir::SmallVector<mlir::AffineExpr> workerGridExprs = {
       workerDeviceIdx, workerCoreY, workerCoreX};
-  auto workerGridMap =
+  auto virtToPhysicalMap =
       mlir::AffineMap::get(virtualGrid.size(), 0, workerGridExprs, context);
 
   // Create the inverse map (physical to virtual).
@@ -1435,7 +1435,8 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
   auto physicalToVirtMap = mlir::AffineMap::get(virtualGrid.size() + 1, 0,
                                                 physicalToVirtExprs, context);
 
-  return GridAttr::get(context, virtualGrid, workerGridMap, physicalToVirtMap);
+  return GridAttr::get(context, virtualGrid, virtToPhysicalMap,
+                       physicalToVirtMap);
 }
 
 //

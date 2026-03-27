@@ -234,7 +234,7 @@ module attributes {ttcore.device = #any_device} {
 // gets grid with that mapping after GridSelection.
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
 #l1 = #ttnn.buffer_type<l1>
-#ttnn_layout_vgm = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 2, d1 + 2), physical_to_virt_map = (d0, d1) -> (0, d0 - 2, d1 - 2)>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>>
+#ttnn_layout_vgm = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 2, d1 + 2), physical_to_virt_map = (d0, d1, d2) -> (d1 - 2, d2 - 2)>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>>
 #layout_cast = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 #map_vgm_inv = affine_map<(d0, d1) -> (0, d0 - 2, d1 - 2)>
 #map_vgm_fwd = affine_map<(d0, d1, d2, d3) -> (d0 + 2, d1 + 2, d2, d3)>
