@@ -609,6 +609,14 @@ def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mlir::ModuleOp"> {
+  let summary = "Belady's algorithm for L1 budget enforcement.";
+  let description = [{
+    This pass uses Belady's optimal page replacement algorithm to enforce L1
+    memory budgets by spilling tensors to DRAM when necessary.
+  }];
+}
+
 def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagation", "::mlir::ModuleOp"> {
   let summary = "Greedy edge-based memory layout propagation for all operands.";
   let description = [{
