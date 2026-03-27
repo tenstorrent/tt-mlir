@@ -33,11 +33,6 @@ namespace mlir::tt::ttnn {
 // buffers at runtime.
 static constexpr double kCBFragCushionFraction = 0.10;
 
-// Feature toggle: L1 interleaved demotion in OOM Stage 1.
-// Disabled to measure performance impact across model suite.
-// TODO(rpavlovic): Re-enable or remove based on perf comparison results.
-static constexpr bool kEnableL1InterleavedDemotion = false;
-
 //===----------------------------------------------------------------------===//
 // SumL1MemoryTracker
 //===----------------------------------------------------------------------===//
@@ -266,19 +261,6 @@ L1SpillManagement<MemoryTracker>::extractOpConfigFromIR(Operation *op) {
       })
       .Default([](Operation *) {});
 
-  return config;
-}
-
-//===----------------------------------------------------------------------===//
-// makeL1InterleavedConfig
-//===----------------------------------------------------------------------===//
-
-template <typename MemoryTracker>
-OpConfig
-L1SpillManagement<MemoryTracker>::makeL1InterleavedConfig(Operation *op) {
-  OpConfig config = extractOpConfigFromIR(op);
-  config.outputLayout = config.outputLayout.withBufferType(BufferType::L1)
-                            .withMemoryLayout(TensorMemoryLayout::Interleaved);
   return config;
 }
 
@@ -555,29 +537,7 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
   auto inputLayouts = utils::extractInputLayouts(op);
   auto config = extractOpConfigFromIR(op);
 
-  // Stage 1: Demote current op to L1 interleaved.
-  // Skip for matmul/linear (see getOutputHints) and for DRAM-output ops
-  // (opL1Usage == 0) where promoting output to L1 is not intended.
-  if (kEnableL1InterleavedDemotion && opL1Usage > 0 &&
-      !isa<MatmulOp, LinearOp>(op)) {
-    OpConfig l1InterleavedConfig = makeL1InterleavedConfig(op);
-    auto demoteResult =
-        memoryTracker.validate(op, inputLayouts, l1InterleavedConfig);
-
-    if (demoteResult.isSuccess()) {
-      observer_->onDemotion(op, pos, /*success=*/true,
-                            demoteResult.outputL1Usage);
-      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                   "    DEMOTED to L1 interleaved: outputL1Usage={0}",
-                   demoteResult.outputL1Usage);
-      applyOutputConfig(op, demoteResult);
-      addResultsToLiveSet(demoteResult.outputL1Usage);
-      return;
-    }
-    observer_->onDemotion(op, pos, /*success=*/false, 0);
-  }
-
-  // Stage 2: Evict from live set (Belady: farthest last-use first).
+  // Evict from live set (Belady: farthest last-use first).
   // Uses evictUntil which inserts reshards for already-processed consumers
   // instead of cascade revalidation, preserving downstream sharded layouts.
   auto result = memoryTracker.validate(op, inputLayouts, config);
