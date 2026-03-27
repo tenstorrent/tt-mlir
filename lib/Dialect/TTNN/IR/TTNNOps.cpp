@@ -1057,6 +1057,26 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 }
 
 //===----------------------------------------------------------------------===//
+// BitcastConvertOp
+//===----------------------------------------------------------------------===//
+
+// BitcastConvertOp verification
+::mlir::LogicalResult mlir::tt::ttnn::BitcastConvertOp::verify() {
+  ::mlir::RankedTensorType outputType = getResult().getType();
+  TTNNLayoutAttr outputLayout =
+      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+
+  if (getDtype() != outputLayout.getDataType()) {
+    return emitOpError() << "Output tensor data type "
+                         << DataTypeEnumToString(outputLayout.getDataType())
+                         << " must match the data type of dtype attribute "
+                         << DataTypeEnumToString(getDtype()) << ".";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Typecast Op
 //===----------------------------------------------------------------------===//
 
