@@ -1013,8 +1013,8 @@ public:
     return {copyInfos, dstIntermediates};
   }
 
-  // Look through subview/wait/reserve to find the associated CB or
-  // tensor.empty/memref.alloc value for a given memref.
+  // Look through subview/wait/reserve to find the associated CB,
+  // tensor.empty/memref.alloc, or d2m.alias_buffer value for a given memref.
   static Value lookThroughSubView(Value memref) {
     if (!memref) {
       return nullptr;
@@ -1037,6 +1037,10 @@ public:
           return cb;
         }
         return nullptr;
+      } else if (mlir::isa<d2m::AliasOp>(definingOp)) {
+        // AliasOp represents a direct buffer alias (no CB indirection).
+        // Return the alias result as the buffer value.
+        return memref;
       }
     }
     if (mlir::isa<BlockArgument>(memref)) {

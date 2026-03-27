@@ -3130,14 +3130,14 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
     return Value();
   }
 
-  // Walk the region looking for tensor.empty/memref.alloc/d2m.get_cb ops,
-  // stepping into blocking loops only. Do NOT walk into compute loops
-  // (scf.for without d2m.blocking_loop) — allocs inside those are local
-  // working buffers, not operand allocations.
+  // Walk the region looking for tensor.empty/memref.alloc/d2m.alias_buffer/
+  // d2m.get_cb ops, stepping into blocking loops only. Do NOT walk into
+  // compute loops (scf.for without d2m.blocking_loop) — allocs inside those
+  // are local working buffers, not operand allocations.
   //
   // d2m.get_cb ops are matched by operand_index when present, otherwise by
-  // their remote_load/remote_store binding. tensor.empty/memref.alloc ops are
-  // matched by positional order.
+  // their remote_load/remote_store binding. tensor.empty/memref.alloc/
+  // d2m.alias_buffer ops are matched by positional order.
   Value result;
   unsigned idx = 0;
   std::function<void(Block &)> scanBlock = [&](Block &block) {
@@ -3162,7 +3162,8 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
             return;
           }
         }
-      } else if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
+      } else if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp,
+                           d2m::AliasOp>(&op)) {
         if (idx == operandIndex) {
           result = op.getResult(0);
           return;
