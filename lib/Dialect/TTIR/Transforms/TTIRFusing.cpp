@@ -1746,8 +1746,9 @@ private:
   }
 
   // Replace each candidate op with a slice of the fused op result.
-  // Each slice is created at its original candidate's position to ensure
-  // it dominates all users of that candidate's result.
+  // All slices are created after the fused result to ensure the fused
+  // value dominates them. Since the fused op is placed at or before the
+  // earliest candidate, the slices also dominate all original users.
   static void replaceWithSlices(PatternRewriter &rewriter,
                                 ArrayRef<OpType> candidates, Value fusedResult,
                                 int64_t outputFusedDim) {
@@ -1756,6 +1757,8 @@ private:
 
     int64_t currentOffset = 0;
     SmallVector<int32_t> steps(outputRank, 1);
+
+    rewriter.setInsertionPointAfterValue(fusedResult);
 
     for (OpType candidate : candidates) {
       auto originalType = mlir::cast<RankedTensorType>(candidate.getType());
@@ -1769,7 +1772,6 @@ private:
       begins[outputFusedDim] = static_cast<int32_t>(currentOffset);
       ends[outputFusedDim] = static_cast<int32_t>(currentOffset + sliceSize);
 
-      rewriter.setInsertionPoint(candidate);
       auto sliceOp = rewriter.create<SliceStaticOp>(
           candidate.getLoc(), originalType, fusedResult,
           rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
