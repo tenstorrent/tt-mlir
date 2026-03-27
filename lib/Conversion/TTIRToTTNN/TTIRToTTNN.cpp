@@ -2462,10 +2462,12 @@ namespace {
 class BitcastConvertOPConversionPattern
     : public OpConversionPattern<ttir::BitcastConvertOp> {
   using OpConversionPattern<ttir::BitcastConvertOp>::OpConversionPattern;
+
 public:
-  LogicalResult  
-  matchAndRewrite(ttir::BitcastConvertOp op, ttir::BitcastConvertOp::Adaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
+  LogicalResult
+  matchAndRewrite(ttir::BitcastConvertOp op,
+                  ttir::BitcastConvertOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
     auto resultType = op.getType();
     ttnn::TTNNLayoutAttr outputLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());

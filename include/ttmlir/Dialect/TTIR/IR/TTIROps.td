@@ -952,7 +952,7 @@ def TTIR_BitcastConvertOp : TTIR_ElementwiseUnaryOp<"bitcast_convert"> {
       The `bitcast_convert` operation reinterprets the bits of each element in
       the input tensor as a data type of the output tensor. This leads to change
       in numerical values in data.
-      Only same-bit-width element types are supported (e.g. ui32 -> f32). 
+      Only same-bit-width element types are supported (e.g. ui32 -> f32).
 
       Example:
       ```mlir
@@ -964,7 +964,7 @@ def TTIR_BitcastConvertOp : TTIR_ElementwiseUnaryOp<"bitcast_convert"> {
     }];
 
     let hasVerifier = 1;
-    // todo implement a hasCanonicalizeMethod later
+    // TODO implement a hasCanonicalizeMethod later
 }
 
 def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {

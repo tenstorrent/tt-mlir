@@ -107,7 +107,7 @@ def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
       the input tensor as a data type of the output tensor.
     }];
 
-    let arguments = (ins AnyRankedTensor:$input, 
+    let arguments = (ins AnyRankedTensor:$input,
                          TTCore_DataTypeAttr:$dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);

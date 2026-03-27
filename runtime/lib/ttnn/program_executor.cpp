@@ -203,7 +203,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::layout::run(op->type_as_ToLayoutOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::BitcastConvertOp: {
-    return operations::layout::run(op->type_as_BitcastConvertOp(), getContext());
+    return operations::layout::run(op->type_as_BitcastConvertOp(),
+                                   getContext());
   }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     return operations::layout::run(op->type_as_TypecastOp(), getContext());

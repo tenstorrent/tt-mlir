@@ -22,7 +22,8 @@ void run(const ::tt::target::ttnn::BitcastConvertOp *op,
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
-  ::ttnn::Tensor out = ::ttnn::bitcast(inputTensor, targetDataType, memoryConfig);
+  ::ttnn::Tensor out =
+      ::ttnn::bitcast(inputTensor, targetDataType, memoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
