@@ -6,6 +6,8 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTNN/Analysis/CompileTimeStatsObserver.h"
+#include "ttmlir/Dialect/TTNN/Analysis/DecisionTrace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LayoutPropagation.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
@@ -161,12 +163,32 @@ public:
                    "{1} legal op configs.",
                    func.getName(), legalConfigs.size());
 
+      std::unique_ptr<LayoutPropagationObserver> observer;
+      if (enableCompileTimeStats) {
+        observer = std::make_unique<CompileTimeStatsObserver>();
+      } else if (enableDecisionTrace) {
+        observer = std::make_unique<DecisionTraceObserver>();
+      }
+
       LayoutPropagation propagation(
           func, deviceGrid, legalConfigs, &tensorTypePossibleLayouts,
           static_cast<size_t>(beamWidth),
           static_cast<size_t>(maxInputCandidatesPerOperand),
-          static_cast<size_t>(maxReshardCandidates));
+          static_cast<size_t>(maxReshardCandidates), std::move(observer));
       propagation.run();
+
+      // Write decision trace JSON if enabled.
+      if (enableDecisionTrace) {
+        if (const DecisionTrace *dt =
+                propagation.getObserver()->getDecisionTrace()) {
+          if (DecisionTrace::writeTraceForFunc(decisionTraceDir, func.getName(),
+                                               *dt)) {
+            TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                         "Decision trace written to {0}/{1}", decisionTraceDir,
+                         func.getName());
+          }
+        }
+      }
     });
 #endif
   }
