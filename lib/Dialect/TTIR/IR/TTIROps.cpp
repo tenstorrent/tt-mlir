@@ -2017,10 +2017,8 @@ void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
     }
 
     // Check that the trailing reshape only removes leading 1s.
-    auto permuteOutShape =
-        mlir::cast<RankedTensorType>(permuteOp.getType()).getShape();
-    auto outShape =
-        mlir::cast<RankedTensorType>(trailingReshape.getType()).getShape();
+    auto permuteOutShape = permuteOp.getType().getShape();
+    auto outShape = trailingReshape.getType().getShape();
     if (outShape.size() >= permuteOutShape.size()) {
       return failure();
     }
@@ -2049,8 +2047,7 @@ void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
     }
 
     // Build the new input reshape shape (drop leading 1s from permute input).
-    auto permuteInType =
-        mlir::cast<RankedTensorType>(permuteOp.getInput().getType());
+    auto permuteInType = permuteOp.getInput().getType();
     auto permuteInShape = permuteInType.getShape();
     SmallVector<int64_t> newMidShape(permuteInShape.drop_front(n));
 
@@ -2068,7 +2065,7 @@ void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
     for (int64_t i : newPerm) {
       newOutShape.push_back(newMidShape[i]);
     }
-    auto trailingType = mlir::cast<RankedTensorType>(trailingReshape.getType());
+    auto trailingType = trailingReshape.getType();
     auto newOutType = RankedTensorType::get(
         newOutShape, trailingType.getElementType(), trailingType.getEncoding());
     auto newPermute = rewriter.create<mlir::tt::ttir::PermuteOp>(
