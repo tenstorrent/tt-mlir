@@ -1572,7 +1572,7 @@ private:
     bool allSameTransposeB = true;
     bool firstTransposeB = false;
 
-    bool isValid() const { return ops.size() >= 2; }
+    bool isValid() const { return ops.size() >= 3; }
 
     bool getTargetTransposeB() const {
       return allSameTransposeB ? firstTransposeB : false;
