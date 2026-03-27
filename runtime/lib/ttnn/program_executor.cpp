@@ -4,6 +4,12 @@
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
 
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+#include <cstdlib>
+
+#include <tt-metalium/distributed.hpp>
+#endif
+
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/aggregate_tensor.h"
 #include "operations/ccl/all_gather.h"
@@ -169,6 +175,9 @@ void ProgramExecutor::execute() {
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
     runOperation(op);
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    syncAfterOpIfNeeded();
+#endif
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
     dumpPerfCountersIfNeeded();
@@ -583,5 +592,17 @@ void ProgramExecutor::dumpPerfCountersIfNeeded() {
   }
 #endif
 }
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+void ProgramExecutor::syncAfterOpIfNeeded() {
+  static const bool enabled =
+      std::getenv("TT_RUNTIME_SYNC_AFTER_OP") != nullptr;
+  if (enabled) {
+    LOG_DEBUG(LogType::LogRuntimeTTNN, "Synchronizing after operation");
+    ::tt::tt_metal::distributed::Synchronize(context->getMeshDevicePtr().get(),
+                                             std::nullopt);
+  }
+}
+#endif
 
 } // namespace tt::runtime::ttnn
