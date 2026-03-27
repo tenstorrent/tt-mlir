@@ -3649,6 +3649,7 @@ public:
         emitter.emit(srcOp.getExpertMetadata(), "expert_metadata_tensor"),
         emitter.emit(srcOp.getExpertMapping(), "expert_mapping_tensor"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getOutputShardDim(), "output_shard_dim"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
     };
 
