@@ -42,7 +42,7 @@ dim_arg_options = [
 ]
 
 
-@pytest.mark.parametrize("shapes", [[(32, 128, 128)]], ids=shapes_list_str)
+@pytest.mark.parametrize("shapes", [[(32, 128, 128)], [(1, 1, 1)]], ids=shapes_list_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
