@@ -56,6 +56,8 @@ public:
     maxLegalLayouts = opts.maxLegalLayouts;
     rowMajorEnabled = opts.rowMajorEnabled;
     beamWidth = opts.beamWidth;
+    maxInputCandidatesPerOperand = opts.maxInputCandidatesPerOperand;
+    maxReshardCandidates = opts.maxReshardCandidates;
     enableL1ShardingLayouts = opts.enableL1ShardingLayouts;
     enableDecisionTrace = opts.enableDecisionTrace;
     decisionTraceDir = std::move(opts.decisionTraceDir);
@@ -159,9 +161,11 @@ public:
                    "{1} legal op configs.",
                    func.getName(), legalConfigs.size());
 
-      LayoutPropagation propagation(func, deviceGrid, legalConfigs,
-                                    &tensorTypePossibleLayouts,
-                                    static_cast<size_t>(beamWidth));
+      LayoutPropagation propagation(
+          func, deviceGrid, legalConfigs, &tensorTypePossibleLayouts,
+          static_cast<size_t>(beamWidth),
+          static_cast<size_t>(maxInputCandidatesPerOperand),
+          static_cast<size_t>(maxReshardCandidates));
       propagation.run();
     });
 #endif

@@ -30,10 +30,13 @@ LayoutPropagation::LayoutPropagation(
     func::FuncOp func, ttcore::GridAttr deviceGrid,
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     const TensorTypeLayoutsMap *tensorTypePossibleLayouts, size_t beamWidth,
+    size_t maxInputCandidatesPerOperand, size_t maxReshardCandidates,
     std::unique_ptr<LayoutPropagationObserver> observer)
     : func(func), deviceGrid(deviceGrid), legalConfigs(legalConfigs),
       tensorTypePossibleLayouts(tensorTypePossibleLayouts),
-      beamWidth(beamWidth) {
+      beamWidth(beamWidth),
+      maxInputCandidatesPerOperand(maxInputCandidatesPerOperand),
+      maxReshardCandidates(maxReshardCandidates) {
   if (observer) {
     this->observer = std::move(observer);
   } else {
@@ -219,7 +222,7 @@ void recordInplaceOps(func::FuncOp func, LayoutPropagationObserver *observer,
     if (op->getNumResults() != 0) {
       return;
     }
-    LayoutPropagationObserver::InplaceOpInfo info;
+    InplaceOpInfo info;
     info.op = op;
     bool hasTrackedProducer = false;
     for (auto [idx, operand] : llvm::enumerate(op->getOperands())) {
@@ -303,7 +306,7 @@ void LayoutPropagation::run() {
   observer->onStart(func.getName(), beamWidth);
 
   size_t opIndex = 0;
-  // Forward pass: propagate layouts in topological (IR) order.
+  // Forward pass: propagate layouts in scheduled (IR) order.
   func->walk([&](Operation *op) {
     if (!LegalOpLayoutAnalysis::isValidAnalysisTarget(op)) {
       return;
@@ -734,7 +737,7 @@ void LayoutPropagation::addReshardCandidates(
   }
 
   // Fan out: for each unique reshard layout, create one candidate per
-  // producer beam index (KxK evaluation).
+  // producer beam index (K x maxReshardCandidates evaluation).
   size_t producerBeamSize = producerBeam ? producerBeam->size() : 1;
   for (const auto &reshardLayout : uniqueReshardLayouts) {
     if (candidates.size() >= maxCandidates) {
@@ -768,7 +771,7 @@ void LayoutPropagation::addReshardCandidates(
   }
 }
 
-std::vector<std::vector<LayoutPropagation::InputCandidate>>
+std::vector<std::vector<InputCandidate>>
 LayoutPropagation::getInputCandidateSets(Operation *op) {
   std::vector<std::vector<InputCandidate>> result;
 
@@ -779,12 +782,10 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
     }
     auto currentLayout =
         mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
-    if (!currentLayout) {
-      continue;
-    }
+    assert(currentLayout &&
+           "Ranked tensor operand missing TTNNLayoutAttr encoding");
 
     std::vector<InputCandidate> candidatesForOperand;
-    constexpr size_t kMaxInputCandidatesPerOperand = 64;
 
     // Get the producer op's resolved layout from beam state.
     // Cache the lookup -- reused many times below.
@@ -827,22 +828,25 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
     if (producerBeam) {
       addL1InterleavedFallbacks(candidatesForOperand, op, producerBeam,
                                 producerOp, currentLayout, resultIdx,
-                                kMaxInputCandidatesPerOperand);
+                                maxInputCandidatesPerOperand);
     }
 
     applyInputLayoutFilter(candidatesForOperand, op, currentLayout);
 
     addReshardCandidates(candidatesForOperand, op, operand, currentLayout,
                          tensorType, producerBeam, producerOp, resultIdx,
-                         kMaxInputCandidatesPerOperand);
+                         maxInputCandidatesPerOperand);
+
+    // Filter again after reshard candidates are added.
+    applyInputLayoutFilter(candidatesForOperand, op, currentLayout);
 
     // Cap per-operand candidate count to prevent cross-product explosion.
     // Non-reshard candidates (from producer beam) come first and are preserved;
     // reshard candidates at the tail get trimmed.
     // Worst case: 2 operands x 64 = 4096 cross-product combos, scored and
     // trimmed to beam K=8.
-    if (candidatesForOperand.size() > kMaxInputCandidatesPerOperand) {
-      candidatesForOperand.resize(kMaxInputCandidatesPerOperand);
+    if (candidatesForOperand.size() > maxInputCandidatesPerOperand) {
+      candidatesForOperand.resize(maxInputCandidatesPerOperand);
     }
 
     TTMLIR_TRACE(
@@ -942,10 +946,8 @@ LayoutPropagation::generateReshardCandidates(RankedTensorType tensorType,
               return aVol > bVol;
             });
 
-  // Keep top 8 candidates.
-  constexpr size_t kMaxReshardCandidates = 8;
-  if (deduped.size() > kMaxReshardCandidates) {
-    deduped.resize(kMaxReshardCandidates);
+  if (deduped.size() > maxReshardCandidates) {
+    deduped.resize(maxReshardCandidates);
   }
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
