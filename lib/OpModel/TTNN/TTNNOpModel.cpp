@@ -7973,6 +7973,7 @@ llvm::Expected<size_t> OpModel<TopKOp>::getOpRuntime(
 // AllReduceAsyncOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
 static ::reduction_common::ReduceType convertReduceType(uint32_t reduceType) {
   switch (reduceType) {
   case 0:
@@ -7987,6 +7988,7 @@ static ::reduction_common::ReduceType convertReduceType(uint32_t reduceType) {
     llvm_unreachable("Unsupported reduce type for all_reduce_async");
   }
 }
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints> OpModel<AllReduceAsyncOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
