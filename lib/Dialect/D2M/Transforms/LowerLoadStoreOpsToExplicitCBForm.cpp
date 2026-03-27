@@ -35,7 +35,9 @@ static bool isRemoteOperand(Value operand, Operation *op) {
   // A buffer with CBLayoutAttr is a streaming CB that requires real
   // data movement from an external shard.
   if (auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType())) {
-    if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+    auto memspace = ttcore::getMemorySpace(memrefType);
+    if (memspace == ttcore::MemorySpace::DeviceDRAM ||
+        mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
       return true;
     }
   }
@@ -159,12 +161,9 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
       continue;
     }
     if (isRemoteLoad) {
-      // To avoid double-copies, forward data from remote load directly into the
-      // _output_ CB. If the output tensor is aliased with the output CB, job
-      // done. If the output tensor is remote, the store must use the output CB
-      // as its local buffer.
-      rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(),
-                                    outputCB, loadOp.getMcastStartIndex(),
+      auto cb = (isRemoteStore) ? inputCB : outputCB;
+      rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(), cb,
+                                    loadOp.getMcastStartIndex(),
                                     loadOp.getMcastShape());
     } else {
       // Aliased load - insert reserve and push here.
@@ -176,7 +175,7 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
       // If paired remote load has aliased CB, store should read from _input_ CB
       // Otherwise, the paired remote load will load data directly into the
       // output CB, so use it instead.
-      auto cb = (isRemoteLoad) ? outputCB : inputCB;
+      auto cb = inputCB;
       rewriter.create<RemoteStoreOp>(loc, storeMemref, storeOp.getIndices(),
                                      cb);
     } else {
