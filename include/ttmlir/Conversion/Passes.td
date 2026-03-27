@@ -221,6 +221,17 @@ def EmitPyConstEvalCaching : Pass<"emitpy-const-eval-caching", "::mlir::ModuleOp
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
+def EmitPyFormExpressions : Pass<"emitpy-form-expressions", "::mlir::ModuleOp"> {
+  let summary = "Form EmitPy expression ops from known patterns.";
+  let description = [{
+    Post-conversion pass that wraps known patterns of single-use EmitPy ops
+    into `emitpy.expression` blocks so the Python translator can emit them
+    inline, producing more compact and readable code.
+  }];
+  let constructor = "createEmitPyFormExpressionsPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
+}
+
 def EmitPyNameVars : Pass<"emitpy-name-vars", "::mlir::ModuleOp"> {
   let summary = "Pass to add suggested names for variables in EmitPy pipeline.";
   let description = [{
