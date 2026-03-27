@@ -47,6 +47,22 @@ def create_matmul_constrained_inputs(lhs_shape, rhs_shape, dtype=torch.float32):
     return module
 
 
+def get_allocator_policy_override(
+    shape: tuple[int, ...], dtype: torch.dtype, enable_l1_acc: bool
+) -> list[str]:
+    if (
+        dtype == torch.bfloat16
+        and enable_l1_acc
+        and shape in ((1024, 2048, 2048), (2048, 2048, 2048))
+    ):
+        # `auto` over-splits the reduction panel for these large bf16 matmuls,
+        # which increases partial accumulations and hurts PCC.
+        # TODO (anuragsingh): Revert this to the default allocator policy once precision issues are fixed.
+        # Issue here: https://github.com/tenstorrent/tt-mlir/issues/7656
+        return ["test-buffer-size-policy=max"]
+    return []
+
+
 @pytest.mark.parametrize("m", [2])
 @pytest.mark.parametrize("k", [4])
 @pytest.mark.parametrize("n", [4])
@@ -162,6 +178,7 @@ def test_matmul_ttnn_shapes_single_buffered(
         f"use-tile-matmul={use_tile_matmul}",
         f"enable-l1-acc={enable_l1_acc}",
     ]
+    options.extend(get_allocator_policy_override(shape, dtype, enable_l1_acc))
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs, dtype),
         target=target,
@@ -232,6 +249,7 @@ def test_matmul_ttnn_shapes_double_buffered(
         f"use-tile-matmul={use_tile_matmul}",
         f"enable-l1-acc={enable_l1_acc}",
     ]
+    options.extend(get_allocator_policy_override(shape, dtype, enable_l1_acc))
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs, dtype),
         target=target,
