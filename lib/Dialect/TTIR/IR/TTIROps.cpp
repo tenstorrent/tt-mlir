@@ -809,37 +809,27 @@ void mlir::tt::ttir::ConstantOp::getCanonicalizationPatterns(
 
   // Canonicalize ConstantOp to FullOp when the value is a splat value (i.e. all
   // elements are the same).
-  patterns.add(+[](mlir::tt::ttir::ConstantOp op,
-                   mlir::PatternRewriter &rewriter) {
-    auto valueAttr = op.getValueAttr();
-    if (!valueAttr.isSplat()) {
-      return failure();
-    }
+  patterns.add(
+      +[](mlir::tt::ttir::ConstantOp op, mlir::PatternRewriter &rewriter) {
+        auto valueAttr = op.getValueAttr();
+        if (!valueAttr.isSplat()) {
+          return failure();
+        }
 
-    mlir::Attribute fillValueAttr;
-    if (auto integerType =
-            mlir::dyn_cast<mlir::IntegerType>(valueAttr.getElementType())) {
-      auto fillValue = valueAttr.getSplatValue<llvm::APInt>();
-      if (integerType.isSigned()) {
-        fillValueAttr = rewriter.getI32IntegerAttr(fillValue.getSExtValue());
-      } else {
-        fillValueAttr = rewriter.getI32IntegerAttr(fillValue.getZExtValue());
-      }
-    } else if (valueAttr.getElementType().isIntOrFloat()) {
-      auto fillValue = valueAttr.getSplatValue<mlir::APFloat>();
-      fillValueAttr = rewriter.getF32FloatAttr(fillValue.convertToDouble());
-    } else {
-      return failure();
-    }
+        mlir::Attribute fillValueAttr =
+            utils::splatToFillValue(rewriter, valueAttr);
+        if (!fillValueAttr) {
+          return failure();
+        }
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
-        op, op.getType(),
-        rewriter.getDenseI32ArrayAttr(
-            llvm::to_vector_of<int32_t>(op.getType().getShape())),
-        fillValueAttr);
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
+            op, op.getType(),
+            rewriter.getDenseI32ArrayAttr(
+                llvm::to_vector_of<int32_t>(op.getType().getShape())),
+            fillValueAttr);
 
-    return success();
-  });
+        return success();
+      });
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::ConstantOp::verify() {
@@ -5351,9 +5341,9 @@ static mlir::Attribute convertFillValue(mlir::TypedAttr typedAttr,
     // Case D: Integer -> Float (e.g., i32 -> f32)
     if (auto targetFloatType = mlir::dyn_cast<mlir::FloatType>(targetType)) {
       llvm::APFloat floatVal(targetFloatType.getFloatSemantics());
-      auto sourceIntType = IntegerType::get(typedAttr.getContext(), 32);
-      // Treat signless intergers as signed.
-      bool isSigned = !sourceIntType.isUnsigned();
+      // Source type is signless (i32) but we want to keep negative values
+      // negative when converting to float.
+      bool isSigned = true;
       floatVal.convertFromAPInt(intVal, isSigned,
                                 llvm::APFloat::rmNearestTiesToEven);
       return mlir::FloatAttr::get(targetType, floatVal);

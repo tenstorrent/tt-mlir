@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -155,20 +156,7 @@ static bool isOneAttr(mlir::Attribute attr) {
         return builder.create<ttir::OnesOp>(loc, type, shape);
       }
 
-      mlir::Attribute fillValueAttr;
-      if (auto integerType = mlir::dyn_cast<mlir::IntegerType>(
-              elementsAttr.getElementType())) {
-        auto fillValue = elementsAttr.getSplatValue<llvm::APInt>();
-        if (integerType.isSigned()) {
-          fillValueAttr = builder.getI32IntegerAttr(fillValue.getSExtValue());
-        } else {
-          fillValueAttr = builder.getI32IntegerAttr(fillValue.getZExtValue());
-        }
-        return builder.create<ttir::FullOp>(loc, type, shape, fillValueAttr);
-      }
-      if (elementsAttr.getElementType().isIntOrFloat()) {
-        auto fillValue = elementsAttr.getSplatValue<mlir::APFloat>();
-        fillValueAttr = builder.getF32FloatAttr(fillValue.convertToDouble());
+      if (auto fillValueAttr = utils::splatToFillValue(builder, elementsAttr)) {
         return builder.create<ttir::FullOp>(loc, type, shape, fillValueAttr);
       }
     }

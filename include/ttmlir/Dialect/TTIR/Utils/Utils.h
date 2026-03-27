@@ -419,6 +419,29 @@ inline mlir::Value reshapeAndCastToType(mlir::PatternRewriter &rewriter,
   return result;
 }
 
+// Converts a splat ElementsAttr to an i32/f32 attribute that can be used as a
+// fill value in ttir::FullOp. Returns nullptr on failure.
+inline mlir::Attribute splatToFillValue(mlir::OpBuilder &builder,
+                                        mlir::ElementsAttr valueAttr) {
+  if (!valueAttr.isSplat()) {
+    return nullptr;
+  }
+
+  if (auto integerType =
+          mlir::dyn_cast<mlir::IntegerType>(valueAttr.getElementType())) {
+    auto fillValue = valueAttr.getSplatValue<llvm::APInt>();
+    if (integerType.isSigned()) {
+      return builder.getI32IntegerAttr(fillValue.getSExtValue());
+    }
+    return builder.getI32IntegerAttr(fillValue.getZExtValue());
+  }
+  if (valueAttr.getElementType().isIntOrFloat()) {
+    auto fillValue = valueAttr.getSplatValue<mlir::APFloat>();
+    return builder.getF32FloatAttr(fillValue.convertToDouble());
+  }
+  return nullptr;
+}
+
 } // namespace mlir::tt::ttir::utils
 
 #endif // TTMLIR_DIALECT_TTIR_UTILS_UTILS_H
