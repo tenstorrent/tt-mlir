@@ -8,8 +8,8 @@ from typing import Literal
 
 import ttnn
 
-from ttmlir.ir import *
-from ttmlir.passes import (
+from ttnn_jit.ttmlir.ir import *
+from ttnn_jit.ttmlir.passes import (
     ttnn_to_flatbuffer_file,
     ttnn_to_flatbuffer_bin,
     ttnn_to_ttmetal_pipeline,
