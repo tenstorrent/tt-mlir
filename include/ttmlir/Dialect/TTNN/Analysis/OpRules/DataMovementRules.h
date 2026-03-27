@@ -23,6 +23,7 @@ namespace mlir::tt::ttnn {
 // Output hints:
 //   All: non-sharded only
 //     PadOp: invoke_tile crashes with sharded output + interleaved input
+//     https://github.com/tenstorrent/tt-metal/issues/40898
 //     SliceOps: https://github.com/tenstorrent/tt-metal/issues/38016
 //     ConcatOp: device close hang,
 //     https://github.com/tenstorrent/tt-metal/issues/39419

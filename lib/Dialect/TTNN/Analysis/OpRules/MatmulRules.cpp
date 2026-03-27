@@ -42,6 +42,7 @@ OutputHints MatmulRuleBook::getOutputHints(
   // DRAM-interleaved is the safe default: full bias fusion, optimized
   // 1D/2D mcast configs, and no L1 pressure from the output tensor.
   // L1-sharded is best when applicable (eliminates NOC writes entirely).
+  // https://github.com/tenstorrent/tt-mlir/issues/7682
   std::vector<OpConfig> filtered;
   for (const auto &cfg : partialConfigs) {
     if (isL1Interleaved(cfg)) {
