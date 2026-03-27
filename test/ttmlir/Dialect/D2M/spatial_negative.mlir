@@ -212,7 +212,7 @@ module {
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [2, 2] to [2, 2]
 
 module {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
   func.func @spatial_physical_grid_not_contained()
       -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b> {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0, d1)>}
@@ -223,7 +223,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<1x1, (d0, d1) -> (0, d0, d1)>,
+          grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
@@ -246,7 +246,7 @@ module {
 // CHECK: error: 'd2m.generic' op grid has an inverse map but output operand does not have a VGM
 
 module {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
   func.func @spatial_grid_mapping_output_no_vgm(
       %arg0: tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_2>)
       -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_2> {
@@ -256,7 +256,7 @@ module {
       ^region_0:
         %1 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<2x2, (d0, d1) -> (0, d0, d1)>,
+          grid = #ttcore.grid<2x2, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
@@ -280,7 +280,7 @@ module {
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [2, 2] to [2, 2]
 
 module {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
   func.func @spatial_physical_grid_offset_not_contained()
       -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_3> {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>}
@@ -291,7 +291,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<1x1, (d0, d1) -> (0, d0 - 1, d1 - 1)>,
+          grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
@@ -314,7 +314,7 @@ module {
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [2, 0] to [2, 3]
 
 module {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
   func.func @spatial_grid_not_contained_y_only()
       -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_4> {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0, d1)>}
@@ -325,7 +325,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<2x2, (d0, d1) -> (0, d0, d1)>,
+          grid = #ttcore.grid<2x2, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
@@ -348,7 +348,7 @@ module {
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [0, 2] to [3, 2]
 
 module {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
   func.func @spatial_grid_not_contained_x_only()
       -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_5> {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0, d1)>}
@@ -359,7 +359,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<2x2, (d0, d1) -> (0, d0, d1)>,
+          grid = #ttcore.grid<2x2, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
@@ -382,7 +382,7 @@ module {
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [0, 0] to [1, 0]
 
 module {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
   func.func @spatial_grid_not_contained_reversed_y()
       -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_6> {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, 2 - d0, d1)>}
@@ -393,7 +393,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<1x1, (d0, d1) -> (0, 2 - d0, d1)>,
+          grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, 2 - d0, d1), physical_to_virt_map = (d0, d1) -> (0, 2 - d0, d1)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
@@ -416,7 +416,7 @@ module {
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [0, 2] to [0, 2]
 
 module {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
   func.func @spatial_grid_not_contained_swap_map()
       -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_7> {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d1, d0)>}
@@ -427,7 +427,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<1x1, (d0, d1) -> (0, d1, d0)>,
+          grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d1, d0), physical_to_virt_map = (d0, d1) -> (0, d1, d0)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
@@ -450,7 +450,7 @@ module {
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [1, 1] to [2, 1]
 
 module {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
   func.func @spatial_grid_not_contained_offset_x()
       -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_8> {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0, d1 - 1)>}
@@ -461,7 +461,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<1x1, (d0, d1) -> (0, d0, d1 - 1)>,
+          grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0, d1 - 1)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],
@@ -484,7 +484,7 @@ module {
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [0, 0] to [1, 0]
 
 module {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
   func.func @spatial_grid_not_contained_scale_y()
       -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_9> {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, 2 * d0, d1)>}
@@ -495,7 +495,7 @@ module {
       ^region_0:
         %2 = d2m.generic {
           block_factors = [1, 1],
-          grid = #ttcore.grid<2x2, (d0, d1) -> (0, 2 * d0, d1)>,
+          grid = #ttcore.grid<2x2, virt_to_physical_map = (d0, d1) -> (0, d0 floordiv 2, d1), physical_to_virt_map = (d0, d1) -> (0, 2 * d0, d1)>,
           indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
           iterator_types = [#ttcore.iterator_type<parallel>,
                             #ttcore.iterator_type<parallel>],

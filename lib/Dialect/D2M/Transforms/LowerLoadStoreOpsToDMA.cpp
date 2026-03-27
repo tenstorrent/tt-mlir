@@ -101,7 +101,7 @@ public:
     // dimension. We need to check that ALL multicast dimensions have core_index
     // == mcastStartIndex. Pass grid mapping for proper virtualization support.
     Value isSender = nullptr;
-    AffineMap gridMapping = genericOp.getGrid().getMapping();
+    AffineMap gridMapping = genericOp.getGrid().getPhysicalToVirtMap();
     ValueRange mcastStartIndex = remoteLoad.getMcastStartIndex();
     for (size_t i = 0; i < isMcastDim.size(); ++i) {
       if (isMcastDim[i]) {

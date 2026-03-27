@@ -82,12 +82,13 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
 
   // Create an affine map that translates the virtual grid layout to the
   // physical grid layout.
-  auto affineMap = mlir::tt::ttnn::optimizer_utils::
-      createSingleDeviceVirtualToPhysicalAffineMap(
+  auto [virtToPhysicalMap, physicalToVirtMap] = mlir::tt::ttnn::
+      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
           rewriter.getContext(), ttnn::TensorMemoryLayout::WidthSharded,
           physicalGrid);
-  auto grid = mlir::tt::ttcore::GridAttr::get(rewriter.getContext(),
-                                              virtualGridSize, affineMap);
+  auto grid =
+      mlir::tt::ttcore::GridAttr::get(rewriter.getContext(), virtualGridSize,
+                                      virtToPhysicalMap, physicalToVirtMap);
   auto memLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
       rewriter.getContext(), ttnn::TensorMemoryLayout::WidthSharded);
 
@@ -221,8 +222,9 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // on core (0,0) in L1. The fused kernel writes partial RMS statistics here
   // and exchanges them across devices via the allgather.
   SmallVector<int64_t> statsGridShape = {1, 1};
-  auto statsGrid = mlir::tt::ttcore::GridAttr::get(rewriter.getContext(),
-                                                   statsGridShape, affineMap);
+  auto statsGrid =
+      mlir::tt::ttcore::GridAttr::get(rewriter.getContext(), statsGridShape,
+                                      virtToPhysicalMap, physicalToVirtMap);
   auto statsMemLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
       rewriter.getContext(), ttnn::TensorMemoryLayout::WidthSharded);
 

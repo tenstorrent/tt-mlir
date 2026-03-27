@@ -390,7 +390,7 @@ UnaryWithParamAttr getActivationAttr(MLIRContext *ctx,
 
 std::pair<int64_t, int64_t> getPhysicalGridDimensions(TTNNLayoutAttr layout) {
   ttcore::GridAttr shardGrid = layout.getGrid();
-  AffineMap mapping = shardGrid.getMapping();
+  AffineMap mapping = shardGrid.getVirtToPhysicalMap();
 
   auto coreRanges =
       ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping);

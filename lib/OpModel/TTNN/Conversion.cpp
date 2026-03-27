@@ -237,9 +237,10 @@ getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
 
 ::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout) {
   std::set<::tt::tt_metal::CoreRange> coreRangeSet;
-  assert(layout.getGrid().getMapping().isEmpty() == false);
-  for (const auto &[loc, size] : ttcore::utils::toCoreRangeSet(
-           layout.getGrid().getShape(), layout.getGrid().getMapping())) {
+  assert(layout.getGrid().getVirtToPhysicalMap().isEmpty() == false);
+  for (const auto &[loc, size] :
+       ttcore::utils::toCoreRangeSet(layout.getGrid().getShape(),
+                                     layout.getGrid().getVirtToPhysicalMap())) {
     coreRangeSet.insert(::tt::tt_metal::CoreRange(
         ::tt::tt_metal::CoreCoord(loc[0], loc[1]),
         ::tt::tt_metal::CoreCoord(loc[0] + size[0] - 1, loc[1] + size[1] - 1)));
@@ -668,10 +669,12 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
 
   ttcore::GridAttr gridAttr = ttcore::GridAttr::get(context);
   if (isL1BufferType(bufferType)) {
+    auto [virtToPhysicalMap, physicalToVirtMap] =
+        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
+            context, memoryLayoutAttr.getValue(), deviceGrid);
     gridAttr = ttcore::GridAttr::get(
         context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
-            context, memoryLayoutAttr.getValue(), deviceGrid));
+        virtToPhysicalMap, physicalToVirtMap);
   }
 
   return TTNNLayoutAttr::get(context, shape, elementType, bufferType, gridAttr,

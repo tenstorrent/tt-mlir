@@ -432,14 +432,16 @@ void populateTTModule(nb::module_ &m) {
           })
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> gridShape,
-                     MlirAffineMap workerGridMapping, MlirAffineMap l1Map,
+                     MlirAffineMap virtToPhysicalMap,
+                     MlirAffineMap physicalToVirtMap, MlirAffineMap l1Map,
                      MlirAffineMap dramMap, std::vector<int64_t> meshShape,
                      std::vector<unsigned> chipIds,
                      std::vector<tt::ttcore::Topology> meshTopology) {
                     return wrap(tt::ttcore::DeviceAttr::get(
                         unwrap(ctx),
                         tt::ttcore::GridAttr::get(unwrap(ctx), gridShape,
-                                                  unwrap(workerGridMapping)),
+                                                  unwrap(virtToPhysicalMap),
+                                                  unwrap(physicalToVirtMap)),
                         unwrap(l1Map), unwrap(dramMap), meshShape, chipIds,
                         meshTopology));
                   })
