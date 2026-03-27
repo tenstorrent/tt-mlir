@@ -88,20 +88,6 @@ module {
     return
   }
 
-  // Verify that "DMA-only" generics do not have operand streams inserted.
-  // CHECK-LABEL: func @test_generic_dma_only
-  func.func @test_generic_dma_only(%arg0: memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #ttcore.memory_space<dram>>) {
-    %view_arg0 = d2m.view_layout %arg0 remapping = #remap_dma : memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #ttcore.memory_space<dram>> -> memref<1x1x32x32xf32, #ttcore.view<4>, #ttcore.memory_space<dram>>
-    %out = memref.alloc() : memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #ttcore.memory_space<l1>>
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<datamovement>]}
-        ins(%view_arg0 : memref<1x1x32x32xf32, #ttcore.view<4>, #ttcore.memory_space<dram>>)
-        outs(%out : memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #ttcore.memory_space<l1>>)  {
-    ^datamovement0():
-      %buf = memref.alloc() : memref<32x32xf32, #ttcore.memory_space<l1>>
-    }
-    return
-  }
-
   // Verify that the pass works with ttir.ttnn_metal_layout_casts.
   // CHECK-LABEL: func @test_ttnn_arg_cast_bridge
   func.func @test_ttnn_arg_cast_bridge(%arg0: tensor<32x32xf32, #dram_layout>, %arg1: tensor<32x32xf32, #l1_layout>)  {
@@ -124,7 +110,7 @@ module {
           %out = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
           // Use a D2M compute op that accepts AnyRankedTensorOrMemRef to avoid
           // mixed tensor/memref issues after stream insertion converts input CBs
-          // to tensor.empty. This ensures the generic is not classified as "DMA-only".
+          // to tensor.empty. This keeps the test on the compute-generic path.
           %cst = arith.constant 0.0 : f32
           %tile = "d2m.tile_fill"(%cst) : (f32) -> !ttcore.tile<32x32, f32>
         } {d2m.blocking_loop = 1}
