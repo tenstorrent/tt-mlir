@@ -206,10 +206,10 @@ struct PushPopInfo {
 };
 
 // Pass A: Convert all remote_load and remote_store into explicit CB form.
-// Returns information needed for push/pop insertion.
-static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
-                                           IRRewriter &rewriter, CBCache &cache,
-                                           PortCounter &portCounters) {
+// Returns information needed for push/pop insertion, or failure() on error.
+static FailureOr<PushPopInfo>
+convertToExplicitCBForm(ModuleOp moduleOp, IRRewriter &rewriter, CBCache &cache,
+                        PortCounter &portCounters) {
   PushPopInfo info;
 
   // Pre-process generics with load-store idiom
@@ -336,18 +336,18 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
 
     GenericOp generic = dmaCopy->getParentOfType<GenericOp>();
     if (!generic) {
-      dmaCopy.emitWarning(
-          "dma_copy not inside a d2m.generic, skipping conversion");
-      continue;
+      return dmaCopy.emitError(
+          "dma_copy in implicit form must be nested inside a d2m.generic");
     }
 
     Value dst = dmaCopy.getDst();
     auto allocOp =
         mlir::dyn_cast_if_present<memref::AllocOp>(dst.getDefiningOp());
     if (!allocOp) {
-      dmaCopy.emitWarning(
-          "could not find memref.alloc for dma_copy dst, skipping conversion");
-      continue;
+      return dmaCopy.emitError(
+          "dma_copy dst must be defined by memref.alloc before "
+          "LowerLoadStoreOpsToExplicitCBForm; other defining ops are not "
+          "supported");
     }
 
     Region &region = generic.getRegion(0);
@@ -622,11 +622,15 @@ public:
     PortCounter portCounters;
 
     // Pass A: Convert all remote_load and remote_store into explicit CB form
-    PushPopInfo info =
+    FailureOr<PushPopInfo> info =
         convertToExplicitCBForm(moduleOp, rewriter, cbCache, portCounters);
+    if (failed(info)) {
+      signalPassFailure();
+      return;
+    }
 
     // Pass B: Insert push and pop operations
-    insertPushAndPopOps(moduleOp, rewriter, info);
+    insertPushAndPopOps(moduleOp, rewriter, *info);
   }
 };
 } // namespace

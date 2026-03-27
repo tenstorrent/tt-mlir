@@ -121,7 +121,7 @@ public:
               continue;
             }
 
-            bool isDMAOp = isa<RemoteLoadOp, RemoteStoreOp, DMACopyOp>(opPtr);
+            bool isDMAOp = isa<ShardDMAOpInterface>(opPtr);
             // Semaphore waits are replicated: preserved in both threads.
             bool isReplicatedOp = isa<SemaphoreWaitOp>(opPtr);
             if (keepRemoteOps) {

@@ -14,7 +14,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/AffineExpr.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
@@ -411,8 +410,9 @@ public:
     AffineMap composedSrcMap = srcMemoryMap.compose(srcIndexingMap);
     AffineMap composedDstMap = dstMemoryMap.compose(dstIndexingMap);
 
-    // Pad the composed source map with dummy grid dims (all size 1)
-    // as required by computeCoalescingFactorAnalytically.
+    // Pad the composed source map with dummy grid dims (all size 1) so that
+    // the sampling loop executes at least once.
+    // The function requires numGridDims > 0 for correct behaviour.
     unsigned dstRank = dstType.getRank();
     SmallVector<AffineExpr> dimShift;
     for (unsigned i = 0; i < dstRank; ++i) {
