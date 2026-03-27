@@ -160,3 +160,40 @@ def test_get_device_tensors_multi_device(shape, dtype):
         assert_pcc(torch_tensor_1, host_shards[1], threshold=0.99)
 
         ttrt.runtime.deallocate_tensor(device_tensor, force=True)
+
+
+# Testing get_num_shards API.
+# Creates a tensor on device and verifies that the number of shards matches the mesh shape.
+@pytest.mark.parametrize("shape", [(64, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize(
+    "mesh_shape",
+    [[1, 2]],
+)
+def test_get_num_shards(shape, dtype, mesh_shape):
+    runtime_dtype = Binary.Program.to_data_type(dtype)
+
+    torch_tensor = torch.randn(shape, dtype=dtype)
+    runtime_tensor = ttrt.runtime.create_owned_host_tensor(
+        torch_tensor.data_ptr(),
+        list(torch_tensor.shape),
+        list(torch_tensor.stride()),
+        torch_tensor.element_size(),
+        runtime_dtype,
+    )
+
+    device_layout = ttrt.runtime.test.get_dram_interleaved_tile_layout(runtime_dtype)
+
+    with DeviceContext(mesh_shape=mesh_shape) as device:
+        device_tensor = ttrt.runtime.to_layout(runtime_tensor, device, device_layout)
+
+        # Get the number of shards for the device tensor
+        num_shards = ttrt.runtime.get_num_shards(device_tensor)
+
+        # Expected number of shards should equal the product of mesh dimensions
+        expected_num_shards = math.prod(mesh_shape)
+        assert (
+            num_shards == expected_num_shards
+        ), f"Expected {expected_num_shards} shards, got {num_shards}"
+
+        ttrt.runtime.deallocate_tensor(device_tensor, force=True)

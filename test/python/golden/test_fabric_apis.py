@@ -463,7 +463,7 @@ def test_fabric_mcast_1x8_line(
             start_y = i * shard_shape[0]
             start_x = j * shard_shape[1]
             print(
-                f"Shard {i * mesh_shape[1] + j}: {output_tensors['program_0']['device_output_0'][start_y:start_y+shard_shape[0], start_x:start_x+shard_shape[1]].unique()}"
+                f"Shard {i * mesh_shape[1] + j}: {output_tensors['program_0']['device_output_0'][0][start_y:start_y+shard_shape[0], start_x:start_x+shard_shape[1]].unique()}"
             )
 
 
@@ -620,7 +620,7 @@ def test_fabric_mcast_1x8_ring(
             start_y = i * shard_shape[0]
             start_x = j * shard_shape[1]
             print(
-                f"Shard {i * mesh_shape[1] + j}: {output_tensors['program_0']['device_output_0'][start_y:start_y+shard_shape[0], start_x:start_x+shard_shape[1]].unique()}"
+                f"Shard {i * mesh_shape[1] + j}: {output_tensors['program_0']['device_output_0'][0][start_y:start_y+shard_shape[0], start_x:start_x+shard_shape[1]].unique()}"
             )
 
 
@@ -772,7 +772,7 @@ def test_fabric_mcast_2x4_line(
             start_y = i * shard_shape[0]
             start_x = j * shard_shape[1]
             print(
-                f"Shard {i * mesh_shape[1] + j}: {output_tensors['program_0']['device_output_0'][start_y:start_y+shard_shape[0], start_x:start_x+shard_shape[1]].unique()}"
+                f"Shard {i * mesh_shape[1] + j}: {output_tensors['program_0']['device_output_0'][0][start_y:start_y+shard_shape[0], start_x:start_x+shard_shape[1]].unique()}"
             )
 
 
@@ -928,7 +928,7 @@ def test_fabric_mcast_8x4_ring(
             start_y = i * shard_shape[0]
             start_x = j * shard_shape[1]
             print(
-                f"Shard {i * mesh_shape[1] + j}: {output_tensors['program_0']['device_output_0'][start_y:start_y+shard_shape[0], start_x:start_x+shard_shape[1]].unique()}"
+                f"Shard {i * mesh_shape[1] + j}: {output_tensors['program_0']['device_output_0'][0][start_y:start_y+shard_shape[0], start_x:start_x+shard_shape[1]].unique()}"
             )
 
 
@@ -1088,7 +1088,7 @@ def test_fabric_mcast_8x4_torus(
             start_y = i * shard_shape[0]
             start_x = j * shard_shape[1]
             print(
-                f"Shard {i * mesh_shape[1] + j}: {output_tensors['program_0']['device_output_0'][start_y:start_y+shard_shape[0], start_x:start_x+shard_shape[1]].unique()}"
+                f"Shard {i * mesh_shape[1] + j}: {output_tensors['program_0']['device_output_0'][0][start_y:start_y+shard_shape[0], start_x:start_x+shard_shape[1]].unique()}"
             )
 
 
