@@ -2784,7 +2784,9 @@ class TTIRBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             acos_module = Module.create()
-            acos_builder = TTIRBuilder(old_ctx, old_loc)
+            acos_builder = TTIRBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(acos_module.body):
@@ -2804,6 +2806,7 @@ class TTIRBuilder(Builder):
                     acos_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     acos_builder._set_golden_tensor(in0, input0)
+                    acos_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -2999,7 +3002,9 @@ class TTIRBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             asin_module = Module.create()
-            asin_builder = TTIRBuilder(old_ctx, old_loc)
+            asin_builder = TTIRBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(asin_module.body):
@@ -3019,6 +3024,7 @@ class TTIRBuilder(Builder):
                     asin_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     asin_builder._set_golden_tensor(in0, input0)
+                    asin_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -4196,7 +4202,9 @@ class TTIRBuilder(Builder):
         with old_ctx, old_loc:
 
             sort_module = Module.create()
-            sort_builder = TTIRBuilder(old_ctx, old_loc)
+            sort_builder = TTIRBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(sort_module.body):
@@ -4228,6 +4236,7 @@ class TTIRBuilder(Builder):
                     sort_builder._set_golden_tensor(new_op_values, golden_values)
                     sort_builder._set_golden_tensor(new_op_indices, golden_indices)
                     sort_builder._set_golden_tensor(in0, input0)
+                    sort_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.extend([new_op_values, new_op_indices])
 
@@ -11707,7 +11716,9 @@ class TTIRBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             update_cache_module = Module.create()
-            update_cache_builder = TTIRBuilder(old_ctx, old_loc)
+            update_cache_builder = TTIRBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.cache.type,
                 old_op.input.type,
@@ -11747,6 +11758,9 @@ class TTIRBuilder(Builder):
                     update_cache_builder._set_golden_tensor(cache, input_cache)
                     update_cache_builder._set_golden_tensor(input, input_update)
                     update_cache_builder._set_golden_tensor(update_index, input_index)
+                    update_cache_builder._annotate_presharded_arg(cache)
+                    update_cache_builder._annotate_presharded_arg(input)
+                    update_cache_builder._annotate_presharded_arg(update_index)
                     ordered_inputs.extend([cache, input, update_index])
                     ordered_outputs.append(new_op_result)
 
