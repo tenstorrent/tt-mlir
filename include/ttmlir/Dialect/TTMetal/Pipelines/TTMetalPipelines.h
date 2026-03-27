@@ -7,6 +7,7 @@
 
 #include "mlir/Pass/PassOptions.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TopologyParser.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 
 namespace mlir::tt::ttmetal {
@@ -16,6 +17,15 @@ struct TTIRToTTMetalPipelineOptions
     : public PassPipelineOptions<TTIRToTTMetalPipelineOptions> {
   ListOption<int64_t> meshShape{
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
+
+  ListOption<ttcore::Topology> meshTopology{
+      *this, "mesh-topology",
+      llvm::cl::desc("Set the per-axis topology for the mesh."),
+      llvm::cl::values(
+          clEnumValN(ttcore::Topology::Ring, "ring", "Ring topology"),
+          clEnumValN(ttcore::Topology::Linear, "linear", "Linear topology"),
+          clEnumValN(ttcore::Topology::Disabled, "disabled",
+                     "Disabled topology"))};
 
   ListOption<int64_t> overrideDeviceShape{
       *this, "override-device-shape",

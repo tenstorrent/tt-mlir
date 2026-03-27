@@ -17,6 +17,7 @@
 #include "ttmlir/Target/TTKernel/LLKs/experimental_pack_untilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_padding_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_reg_api_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_semaphore_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
 
@@ -281,6 +282,14 @@ void dprint(Arg &&arg, ArgV&&... argv) {
       builder->create<emitc::VerbatimOp>(loc, experimentalDataflowLLKs);
     }
 
+    if (hasCall("experimental::semaphore_wait") ||
+        hasCall("experimental::semaphore_wait_min")) {
+      auto experimentalSemaphoreLLKs =
+          StringRef(experimental_semaphore_generated,
+                    experimental_semaphore_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalSemaphoreLLKs);
+    }
+
     if (hasCall("experimental::convert_logical_x_to_translated") ||
         hasCall("experimental::convert_logical_y_to_translated")) {
       auto experimentalCoordTranslationLLKs =
@@ -295,6 +304,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
         hasCall("experimental::fabric_fast_write_any_len") ||
         hasCall("experimental::fabric_mcast_fast_write_any_len") ||
         hasCall("experimental::fabric_sem_inc") ||
+        hasCall("experimental::fabric_mcast_sem_inc") ||
         hasCall("experimental::get_logical_mesh_position") ||
         hasCall("experimental::get_device_id_from_logical_mesh_position")) {
       // Emit in order: topology_info → routing → api
