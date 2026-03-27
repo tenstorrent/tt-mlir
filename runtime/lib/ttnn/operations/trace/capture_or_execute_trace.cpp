@@ -146,8 +146,8 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                      inputSlotWrapper.getVersion(),
                  "Device trace slots for non-regular inputs (constants and KV "
                  "cache) are persisted across traces, so their versions must "
-                 "be the same. Expected version: ",
-                 inputSlotWrapper.getVersion());
+                 "be the same. Input index: ",
+                 i, ", expected version: ", inputSlotWrapper.getVersion());
       LOG_ASSERT(inputTensorWrapper.getTensor().storage_type() ==
                      ::ttnn::StorageType::DEVICE &&
                  "Non-regular inputs must already be on device.");
