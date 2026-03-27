@@ -293,8 +293,9 @@ def EmitPy_AssignOp : EmitPy_Op<"assign",
   let description = [{
     The `emitpy.assign` operation represents Python variable assignment.
 
-    For subscript assignment (e.g., `dict[5] = value`), wrap both the subscript
-    and assign operations inside an `emitpy.expression` block.
+    For subscript assignment (e.g., `dict[5] = value`), wrap the subscript
+    in an `emitpy.expression` and use its result as the assign target.
+    The expression computes the lvalue; the assign performs the write.
 
     Examples:
 
@@ -302,16 +303,15 @@ def EmitPy_AssignOp : EmitPy_Op<"assign",
     // Simple assignment
     emitpy.assign %target = %value : (!emitpy.opaque<"int">, !emitpy.opaque<"int">)
     ...
-    // Subscript assignment (wrap subscript and assign in expression op)
+    // Subscript assignment (expression computes subscript lvalue)
     %dict = emitpy.create_dict "dict" {literal_expr = "{}"} : () -> !emitpy.dict
     %key = emitpy.literal "5" : index
-    %res = emitpy.expression(%dict, %key, %value) : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"None"> {
-    ^bb0(%d: !emitpy.dict, %k: index, %v: !emitpy.opaque<"[ttnn.Tensor]">):
-      %sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
-      emitpy.assign %sub = %v : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
-      %none = "emitpy.constant"() <{value = #emitpy.opaque<"None">}> : () -> !emitpy.opaque<"None">
-      emitpy.yield %none : !emitpy.opaque<"None">
+    %sub = emitpy.expression(%dict, %key) : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]"> {
+    ^bb0(%d: !emitpy.dict, %k: index):
+      %s = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+      emitpy.yield %s : !emitpy.opaque<"[ttnn.Tensor]">
     }
+    emitpy.assign %sub = %value : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
     ```
 
     ```python
@@ -431,7 +431,7 @@ def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {
   let assemblyFormat = "$value (`args` $fmtArgs^ `:` type($fmtArgs))? attr-dict";
 }
 
-def EmitPy_ConstantOp : EmitPy_Op<"constant", [ConstantLike]> {
+def EmitPy_ConstantOp : EmitPy_Op<"constant", [ConstantLike, PyExpressionInterface]> {
   let summary = "Constant operation";
   let description = [{
     The `emitpy.constant` operation produces an SSA value equal to some constant

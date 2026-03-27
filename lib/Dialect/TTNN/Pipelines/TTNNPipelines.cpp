@@ -524,6 +524,8 @@ void createTTNNToEmitPyDevicePipeline(
 
   devicePm.addPass(createEmitPyConstEvalCachingPass());
 
+  devicePm.addPass(createEmitPyFormExpressionsPass());
+
   devicePm.addPass(createEmitPyNameVarsPass());
 }
 
