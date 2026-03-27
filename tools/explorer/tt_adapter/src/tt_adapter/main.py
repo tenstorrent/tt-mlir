@@ -7,6 +7,7 @@ from . import runner, utils, mlir
 import dataclasses
 import logging
 import os
+import tempfile
 from ttmlir import optimizer_overrides
 
 OVERRIDE_PARAMETER_DISABLED_STR = "None"
@@ -186,8 +187,7 @@ class TTAdapter(model_explorer.Adapter):
             memory_trace = self.model_runner.get_memory_usage(model_path)
             cpp_code = self.model_runner.get_cpp_code(model_path)
 
-            with open(optimized_model_path, "r") as model_file:
-                module = utils.parse_mlir_str(model_file.read())
+            module = utils.parse_mlir_file(optimized_model_path)
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
             graph_handler = mlir.GraphHandler()
@@ -215,12 +215,16 @@ class TTAdapter(model_explorer.Adapter):
                 )
 
                 if module_str:
-                    module = utils.parse_mlir_str(module_str)
+                    with tempfile.NamedTemporaryFile(
+                        mode="w", suffix=".mlir"
+                    ) as tmp_file:
+                        tmp_file.write(module_str)
+                        tmp_file.flush()
+                        module = utils.parse_mlir_file(tmp_file.name)
                 elif module_str is None:
                     raise Exception("Failed to parse flatbuffer")
             else:
-                with open(model_path, "r") as model_file:
-                    module = utils.parse_mlir_str(model_file.read())
+                module = utils.parse_mlir_file(model_path)
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
             graph_handler = mlir.GraphHandler()
