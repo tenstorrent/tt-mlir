@@ -9,15 +9,21 @@
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/AffineMap.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/PatternMatch.h"
+
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 #include <cstdint>
 #include <mlir-c/IR.h>
+#include <optional>
 
 namespace mlir::tt::ttmetal {
 
@@ -61,13 +67,10 @@ public:
 
   static ArrayAttr convertThreadsToKernelConfigs(
       Builder &builder, mlir::ValueRange inputOutputOperands, ArrayAttr threads,
-      ArrayRef<int64_t> physicalGridShape, const SymbolTable &symbolTable,
+      CoreRangeAttr coreRange, const SymbolTable &symbolTable,
       ttmetal::MathFidelity mathFidelity) {
     SmallVector<Attribute> kernelConfigs;
     int unassignedNocCounter = 0;
-
-    auto coreRange = ttmetal::CoreRangeAttr::getPhysicalCoreRange(
-        builder.getContext(), physicalGridShape);
 
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
@@ -182,10 +185,10 @@ public:
     }
 
     ArrayAttr threads = op.getThreads();
-    auto physicalGridShape = op.getPhysicalGridShape();
+    CoreRangeAttr coreRange = coreRangeAttrFromOp(rewriter, op);
     auto kernelConfigs = convertThreadsToKernelConfigs(
-        rewriter, op.getInputsAndOutputs(), threads, physicalGridShape,
-        symbolTable, mathFidelity_);
+        rewriter, op.getInputsAndOutputs(), threads, coreRange, symbolTable,
+        mathFidelity_);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, args, cbs, cbPorts, kernelConfigs,
         op.getFabricConnectionConfigAttr());
@@ -193,8 +196,54 @@ public:
   };
 
 private:
+  /// From the op's grid: virt_to_physical over the virtual grid bbox when
+  /// present (2D); else offset (0,0) with extent from getPhysicalGridShape().
+  static CoreRangeAttr coreRangeAttrFromOp(Builder &builder, d2m::GenericOp op);
+
   ttmetal::MathFidelity mathFidelity_;
 };
+
+CoreRangeAttr D2MGenericRewriter::coreRangeAttrFromOp(Builder &builder,
+                                                      d2m::GenericOp op) {
+  MLIRContext *ctx = builder.getContext();
+  SmallVector<int64_t> physicalGridShape = op.getPhysicalGridShape();
+  ttcore::GridAttr grid = op.getGrid();
+  AffineMap v2p = grid.getVirtToPhysicalMap();
+  if (v2p.isEmpty() || grid.getShape().size() != 2 || v2p.getNumDims() != 2) {
+    return CoreRangeAttr::getPhysicalCoreRange(ctx, physicalGridShape);
+  }
+
+  unsigned numRes = v2p.getNumResults();
+  unsigned yIdx;
+  unsigned xIdx;
+  if (numRes == 3) {
+    yIdx = 1;
+    xIdx = 2;
+  } else if (numRes == 2) {
+    yIdx = 0;
+    xIdx = 1;
+  } else {
+    return CoreRangeAttr::getPhysicalCoreRange(ctx, physicalGridShape);
+  }
+
+  d2m::utils::BoundingBox virtBox;
+  virtBox.start = {0, 0};
+  virtBox.end = {grid.getShape()[0] - 1, grid.getShape()[1] - 1};
+  d2m::utils::BoundingBox physBox =
+      d2m::utils::getProjectedBoundingBox(virtBox, v2p);
+  if (physBox.start.size() <= xIdx) {
+    return CoreRangeAttr::getPhysicalCoreRange(ctx, physicalGridShape);
+  }
+
+  int64_t y0 = physBox.start[yIdx];
+  int64_t x0 = physBox.start[xIdx];
+  int64_t y1 = physBox.end[yIdx];
+  int64_t x1 = physBox.end[xIdx];
+  SmallVector<int64_t> offset = {y0, x0};
+  SmallVector<int64_t> size = {y1 - y0 + 1, x1 - x0 + 1};
+  return CoreRangeAttr::get(ctx, offset, size);
+}
+
 } // namespace
 
 namespace {
@@ -434,6 +483,287 @@ public:
     return success();
   }
 };
+
+/// Second-phase lowering for d2m.spatial:
+/// - Merge all nested ttmetal.enqueue_program ops into one enqueue_program.
+/// - Keep cb_ports unchanged.
+/// - Remap enqueue args indices in kernel args when args lists are
+/// concatenated.
+class SpatialOpRewriter : public OpConversionPattern<d2m::SpatialOp> {
+public:
+  using OpConversionPattern<d2m::SpatialOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::SpatialOp op, d2m::SpatialOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    (void)adaptor;
+
+    if (op.getNumResults() != 0) {
+      return rewriter.notifyMatchFailure(
+          op, "SpatialOp with results is not supported in TTMetal lowering");
+    }
+
+    ArrayAttr gridRanges = op.getGridRanges();
+    SpatialRemapTable remapTable;
+    SmallVector<ttmetal::EnqueueProgramOp> regionEnqueues;
+    SmallVector<Value> mergedCbs;
+    SmallVector<int64_t> mergedCbPorts;
+    SmallVector<Attribute> mergedKernelConfigs;
+    ttcore::FabricConnectionConfigAttr mergedFabricConfig = nullptr;
+    SmallVector<Operation *> preEnqueueOps;
+    SmallVector<Operation *> postEnqueueOps;
+
+    for (auto [regionIndex, region] : llvm::enumerate(op.getRegions())) {
+      auto spatialCoreRange =
+          mlir::cast<ttcore::CoreRangeAttr>(gridRanges.getValue()[regionIndex]);
+      CoreRangeAttr spatialMetalRange =
+          ttCoreSpatialRangeToTtmetalCoreRange(rewriter, spatialCoreRange);
+      ttmetal::EnqueueProgramOp enqueueProgram = nullptr;
+      LogicalResult collectResult = collectRegionOps(
+          region, preEnqueueOps, postEnqueueOps, enqueueProgram);
+      if (failed(collectResult)) {
+        return rewriter.notifyMatchFailure(
+            op, "each spatial region must contain exactly one enqueue_program");
+      }
+      regionEnqueues.push_back(enqueueProgram);
+      remapTable.addEnqueueArgs(enqueueProgram);
+
+      llvm::append_range(mergedCbs, enqueueProgram.getCbs());
+      llvm::append_range(mergedCbPorts, enqueueProgram.getCbPorts());
+      for (Attribute kernelConfig : enqueueProgram.getKernelConfigs()) {
+        mergedKernelConfigs.push_back(remapKernelConfig(
+            kernelConfig, spatialMetalRange, enqueueProgram, remapTable));
+      }
+
+      auto enqueueFabricConfig = enqueueProgram.getFabricConnectionConfigAttr();
+      if (hasConflictingFabricConfig(mergedFabricConfig, enqueueFabricConfig)) {
+        return rewriter.notifyMatchFailure(
+            op, "failed to merge region enqueue_program ops due to fabric "
+                "config conflict");
+      }
+      if (enqueueFabricConfig) {
+        mergedFabricConfig = enqueueFabricConfig;
+      }
+    }
+
+    if (mergedKernelConfigs.empty()) {
+      return rewriter.notifyMatchFailure(
+          op, "SpatialOp has no nested enqueue_program");
+    }
+
+    for (Operation *operation : preEnqueueOps) {
+      rewriter.moveOpBefore(operation, op);
+    }
+
+    rewriter.create<ttmetal::EnqueueProgramOp>(
+        op.getLoc(), remapTable.getUnifiedArgs(), mergedCbs, mergedCbPorts,
+        rewriter.getArrayAttr(mergedKernelConfigs), mergedFabricConfig);
+
+    for (Operation *operation : postEnqueueOps) {
+      rewriter.moveOpBefore(operation, op);
+    }
+
+    for (ttmetal::EnqueueProgramOp enqueueProgram : regionEnqueues) {
+      rewriter.eraseOp(enqueueProgram);
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+
+private:
+  class SpatialRemapTable {
+    using LocalKey = std::pair<Operation *, size_t>;
+
+    SmallVector<Value> unifiedArgs_;
+    DenseMap<Value, size_t> ioToUnifiedIdx_;
+    DenseMap<LocalKey, size_t> ioArgMap_;
+    DenseMap<LocalKey, size_t> globalSemaphoreArgMap_;
+
+  public:
+    void addEnqueueArgs(ttmetal::EnqueueProgramOp enqueueProgram) {
+      Operation *op = enqueueProgram.getOperation();
+      for (const auto [idx, arg] : llvm::enumerate(enqueueProgram.getArgs())) {
+        size_t localIdx = static_cast<size_t>(idx);
+        if (mlir::isa<ttmetal::GlobalSemaphoreType>(arg.getType())) {
+          size_t unifiedIdx = unifiedArgs_.size();
+          unifiedArgs_.push_back(arg);
+          globalSemaphoreArgMap_.insert({{op, localIdx}, unifiedIdx});
+          continue;
+        }
+
+        auto it = ioToUnifiedIdx_.find(arg);
+        size_t unifiedIdx;
+        if (it == ioToUnifiedIdx_.end()) {
+          unifiedIdx = unifiedArgs_.size();
+          ioToUnifiedIdx_.insert({arg, unifiedIdx});
+          unifiedArgs_.push_back(arg);
+        } else {
+          unifiedIdx = it->second;
+        }
+        ioArgMap_.insert({{op, localIdx}, unifiedIdx});
+      }
+    }
+
+    ArrayRef<Value> getUnifiedArgs() const { return unifiedArgs_; }
+
+    std::optional<size_t> lookupIO(ttmetal::EnqueueProgramOp enqueueProgram,
+                                   size_t localIdx) const {
+      auto it = ioArgMap_.find({enqueueProgram.getOperation(), localIdx});
+      if (it != ioArgMap_.end()) {
+        return it->second;
+      }
+      return std::nullopt;
+    }
+
+    std::optional<size_t>
+    lookupGlobalSemaphore(ttmetal::EnqueueProgramOp enqueueProgram,
+                          size_t localIdx) const {
+      auto it = globalSemaphoreArgMap_.find(
+          {enqueueProgram.getOperation(), localIdx});
+      if (it != globalSemaphoreArgMap_.end()) {
+        return it->second;
+      }
+      return std::nullopt;
+    }
+  };
+
+  static KernelArgAttr remapKernelArg(Builder &builder, KernelArgAttr kernelArg,
+                                      ttmetal::EnqueueProgramOp enqueueProgram,
+                                      const SpatialRemapTable &remapTable) {
+    size_t operandIndex = kernelArg.getOperandIndex();
+    if (kernelArg.getType() == ttkernel::ArgType::BufferAddress) {
+      if (auto unified = remapTable.lookupIO(enqueueProgram, operandIndex)) {
+        operandIndex = *unified;
+      }
+    } else if (kernelArg.getType() == ttkernel::ArgType::GlobalSemaphore) {
+      if (auto unified =
+              remapTable.lookupGlobalSemaphore(enqueueProgram, operandIndex)) {
+        operandIndex = *unified;
+      }
+    }
+    return builder.getAttr<KernelArgAttr>(kernelArg.getType(), operandIndex);
+  }
+
+  static KernelArgsAttr
+  remapKernelArgs(Builder &builder, KernelArgsAttr kernelArgs,
+                  ttmetal::EnqueueProgramOp enqueueProgram,
+                  const SpatialRemapTable &remapTable) {
+    SmallVector<KernelArgAttr> remappedRuntimeArgs;
+    SmallVector<KernelArgAttr> remappedCompileTimeArgs;
+    remappedRuntimeArgs.reserve(kernelArgs.getRtArgs().size());
+    remappedCompileTimeArgs.reserve(kernelArgs.getCtArgs().size());
+
+    for (KernelArgAttr runtimeArg : kernelArgs.getRtArgs()) {
+      remappedRuntimeArgs.push_back(
+          remapKernelArg(builder, runtimeArg, enqueueProgram, remapTable));
+    }
+    for (KernelArgAttr compileTimeArg : kernelArgs.getCtArgs()) {
+      remappedCompileTimeArgs.push_back(
+          remapKernelArg(builder, compileTimeArg, enqueueProgram, remapTable));
+    }
+
+    return builder.getAttr<KernelArgsAttr>(remappedRuntimeArgs,
+                                           remappedCompileTimeArgs);
+  }
+
+  static Attribute remapKernelConfig(Attribute kernelConfig,
+                                     CoreRangeAttr spatialCoreRange,
+                                     ttmetal::EnqueueProgramOp enqueueProgram,
+                                     const SpatialRemapTable &remapTable) {
+    Builder builder(kernelConfig.getContext());
+    return TypeSwitch<Attribute, Attribute>(kernelConfig)
+        .Case<ComputeConfigAttr>([&](ComputeConfigAttr computeConfig) {
+          return ComputeConfigAttr::get(
+              computeConfig.getContext(), computeConfig.getKernelSymbol(),
+              spatialCoreRange,
+              remapKernelArgs(builder, computeConfig.getKernelArgs(),
+                              enqueueProgram, remapTable),
+              computeConfig.getMathFidelity(), computeConfig.getFp32DestAccEn(),
+              computeConfig.getDstFullSyncEn(),
+              computeConfig.getMathApproxMode(),
+              computeConfig.getUnpackToDestMode());
+        })
+        .Case<NocConfigAttr>([&](NocConfigAttr nocConfig) {
+          return NocConfigAttr::get(
+              nocConfig.getContext(), nocConfig.getKernelSymbol(),
+              spatialCoreRange,
+              remapKernelArgs(builder, nocConfig.getKernelArgs(),
+                              enqueueProgram, remapTable),
+              nocConfig.getNocIndex());
+        })
+        .Case<EthernetConfigAttr>([&](EthernetConfigAttr ethernetConfig) {
+          return EthernetConfigAttr::get(
+              ethernetConfig.getContext(), ethernetConfig.getKernelSymbol(),
+              spatialCoreRange,
+              remapKernelArgs(builder, ethernetConfig.getKernelArgs(),
+                              enqueueProgram, remapTable),
+              ethernetConfig.getEthType(), ethernetConfig.getNocIndex());
+        })
+        .Default([](Attribute) -> Attribute {
+          llvm_unreachable(
+              "unexpected kernel config attribute kind in spatial merge");
+        });
+  }
+
+  static bool hasConflictingFabricConfig(
+      ttcore::FabricConnectionConfigAttr mergedFabricConfig,
+      ttcore::FabricConnectionConfigAttr enqueueFabricConfig) {
+    return mergedFabricConfig && enqueueFabricConfig &&
+           mergedFabricConfig != enqueueFabricConfig;
+  }
+
+  static LogicalResult
+  collectRegionOps(Region &region, SmallVector<Operation *> &preEnqueueOps,
+                   SmallVector<Operation *> &postEnqueueOps,
+                   ttmetal::EnqueueProgramOp &regionEnqueueProgram) {
+    Block &block = region.front();
+    bool seenEnqueue = false;
+    unsigned enqueueCount = 0;
+
+    for (Operation &innerOperation : block) {
+      if (isa<d2m::SpatialYieldOp>(innerOperation)) {
+        continue;
+      }
+
+      if (auto enqueueProgram =
+              dyn_cast<ttmetal::EnqueueProgramOp>(&innerOperation)) {
+        ++enqueueCount;
+        if (enqueueCount > 1) {
+          return failure();
+        }
+        regionEnqueueProgram = enqueueProgram;
+        seenEnqueue = true;
+        continue;
+      }
+
+      if (!seenEnqueue) {
+        preEnqueueOps.push_back(&innerOperation);
+      } else {
+        postEnqueueOps.push_back(&innerOperation);
+      }
+    }
+    if (enqueueCount != 1) {
+      return failure();
+    }
+    return success();
+  }
+
+  static CoreRangeAttr
+  ttCoreSpatialRangeToTtmetalCoreRange(Builder &builder,
+                                       ttcore::CoreRangeAttr cr);
+};
+
+CoreRangeAttr SpatialOpRewriter::ttCoreSpatialRangeToTtmetalCoreRange(
+    Builder &builder, ttcore::CoreRangeAttr cr) {
+  auto sc = cr.getStartCoord();
+  auto ec = cr.getEndCoord();
+  SmallVector<int64_t> offset = {sc.getY(), sc.getX()};
+  SmallVector<int64_t> size = {ec.getY() - sc.getY() + 1,
+                               ec.getX() - sc.getX() + 1};
+  return CoreRangeAttr::get(builder.getContext(), offset, size);
+}
+
 } // namespace
 
 } // namespace mlir::tt::ttmetal
@@ -450,6 +780,10 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ttmetal::D2MResetGlobalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter>(
       ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
+}
+
+void populateSpatialOpPatterns(MLIRContext *ctx, RewritePatternSet &patterns) {
+  patterns.add<ttmetal::SpatialOpRewriter>(ctx);
 }
 
 } // namespace mlir::tt
