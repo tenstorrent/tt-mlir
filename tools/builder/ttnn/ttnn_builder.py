@@ -942,7 +942,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     acos_builder._set_golden_tensor(in0, input0)
-                    cos_builder._annotate_presharded_arg(in0)
+                    acos_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -2153,7 +2153,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     atan_builder._set_golden_tensor(in0, input0)
-                    tan_builder._annotate_presharded_arg(in0)
+                    atan_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -3253,7 +3253,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     asin_builder._set_golden_tensor(in0, input0)
-                    sin_builder._annotate_presharded_arg(in0)
+                    asin_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -7717,7 +7717,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     leaky_relu_builder._set_golden_tensor(in0, input0)
-                    relu_builder._annotate_presharded_arg(in0)
+                    leaky_relu_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
