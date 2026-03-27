@@ -401,6 +401,15 @@ def TTIRInferKVCacheArgumentTypes: Pass<"ttir-infer-kv-cache-argument-types", ":
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRDecomposeMinReduction: Pass<"ttir-decompose-min-reduction", "::mlir::ModuleOp"> {
+  let summary = "Decompose min reduction into neg(max(neg(x))).";
+  let description = [{
+    Decomposes ttir.min into ttir.neg(ttir.max(ttir.neg(x))) for backends
+    that lack native reduce_min hardware (e.g. TTMetal/D2M).  The TTNN
+    backend has native ttnn.min support and does not need this pass.
+  }];
+}
+
 def TTIRDecomposeComplexReshape: Pass<"ttir-decompose-complex-reshape", "::mlir::ModuleOp"> {
   let summary = "Decompose reshapes that flip trailing 1s into permute + reshape.";
   let description = [{
