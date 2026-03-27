@@ -965,9 +965,11 @@ static ttcore::GridAttr deriveGridAttrForOutput(Value output,
   if (auto invMap = utils::getVirtualGridInverseMapping(output)) {
     // Get virtual to physical map from output as well.
     auto fwdMap = *utils::getVirtualGridForwardMapping(output);
-    fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, 2);
-    fwdMap = ttmlir::utils::dropDim(fwdMap, 3);
-    fwdMap = ttmlir::utils::dropDim(fwdMap, 2);
+    size_t rank = gridShape.size();
+    fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, rank);
+    for (int i = rank - 1; i >= 0; i--) {
+      fwdMap = ttmlir::utils::dropDim(fwdMap, rank + i);
+    }
     fwdMap =
         fwdMap.insertResult(getAffineConstantExpr(0, builder.getContext()), 0);
 

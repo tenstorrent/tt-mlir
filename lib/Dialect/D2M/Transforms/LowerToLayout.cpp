@@ -591,9 +591,11 @@ public:
         auto gridShape = llvm::to_vector(inputInfo.getGridShape());
 
         auto fwdMap = *utils::getVirtualGridForwardMapping(input);
-        fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, 2);
-        fwdMap = ttmlir::utils::dropDim(fwdMap, 3);
-        fwdMap = ttmlir::utils::dropDim(fwdMap, 2);
+        size_t rank = gridShape.size();
+        fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, rank);
+        for (int i = rank - 1; i >= 0; i--) {
+          fwdMap = ttmlir::utils::dropDim(fwdMap, rank + i);
+        }
         fwdMap = fwdMap.insertResult(
             getAffineConstantExpr(0, rewriter.getContext()), 0);
 
