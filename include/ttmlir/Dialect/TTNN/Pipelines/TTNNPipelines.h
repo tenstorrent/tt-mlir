@@ -423,6 +423,16 @@ struct TTIRToTTNNDevicePipelineOptions
   // This allows frontends to pass in an active device without closing it.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
+  // Enable the greedy optimizer (GreedyLayoutPropagation + L1SpillManagement)
+  // instead of the default TTNNOptimizer. This is an experimental alternative
+  // to the chain-based optimizer.
+  Option<bool> enableGreedyOptimizer{
+      *this, "enable-greedy-optimizer",
+      llvm::cl::desc(
+          "Use the greedy layout propagation optimizer instead of the "
+          "default chain-based TTNNOptimizer."),
+      llvm::cl::init(false)};
+
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
     // Validate optimization_level is in valid range.
