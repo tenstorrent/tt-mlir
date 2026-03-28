@@ -503,7 +503,7 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
   return systemDescAttr;
 #endif // TTMLIR_NO_FLATBUFFERS
 }
-#else // TTMLIR_NO_FLATBUFFERS
+#else  // TTMLIR_NO_FLATBUFFERS
 mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
     MLIRContext *context, StringRef path,
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {

@@ -378,6 +378,32 @@ def TTKernel_MatmulBlockInitShortOp : TTKernel_InitOp<"mm_block_init_short"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$transpose,  I32:$ct_dim, I32:$rt_dim, I32:$kt_dim);
 }
 
+def TTKernel_MatmulBlockOp : TTKernel_FPUOp<"matmul_block", [TTKernel_TernaryOpTrait]> {
+    let summary = "Block matmul operation";
+    let description = [{
+      Performs block-sized matrix multiplication *C=A\*B* between blocks of tiles
+      in two input CBs and accumulates the result into DST. Block dimensions are
+      specified by ct_dim (output columns in tiles), rt_dim (output rows in tiles),
+      and kt_dim (inner dimension in tiles). The transpose flag controls whether
+      input 1 is transposed. The DST register buffer must be in acquired state via
+      ttkernel.tile_regs_acquire. Blocking; compute engine only.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb_id,
+                         TTKernel_CB:$in1_cb_id,
+                         IndexLike:$in0_tile_idx,
+                         IndexLike:$in1_tile_idx,
+                         IndexLike:$dst_tile_idx,
+                         I32:$transpose,
+                         I32:$ct_dim,
+                         I32:$rt_dim,
+                         I32:$kt_dim);
+
+    let assemblyFormat = [{
+      `(` $in0_cb_id `,` $in1_cb_id `,` $in0_tile_idx `,` $in1_tile_idx `,` $dst_tile_idx `,` $transpose `,` $ct_dim `,` $rt_dim `,` $kt_dim `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_block", [TTKernel_TernaryOpTrait]> {
     let summary = "Matmul tiles operation";
     let description = [{
