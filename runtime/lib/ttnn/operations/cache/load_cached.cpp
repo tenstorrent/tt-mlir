@@ -37,14 +37,19 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   const auto cacheKey = CacheKey{deviceId, programHash, inputVersions};
 
-  LOG_DEBUG("Running LoadCachedOp for function ", constEvalFuncname,
-            " with hash: ", op->program_hash()->str());
+  LOG_INFO("LoadCachedOp: function=", constEvalFuncname,
+           " hash=", op->program_hash()->str(),
+           " numInputs=", op->inputs()->size());
+  for (size_t i = 0; i < inputVersions.size(); ++i) {
+    LOG_INFO("  input[", i, "] version=", inputVersions[i]);
+  }
 
   // Get the cached tensors, which will be empty if cache is invalid
   const std::vector<Tensor> *cachedOutputs = cache.getAll(cacheKey);
 
   if (cachedOutputs) {
-    LOG_DEBUG("Cache hit for function: ", constEvalFuncname.c_str());
+    LOG_INFO("Cache HIT for function: ", constEvalFuncname,
+             " numOutputs=", cachedOutputs->size());
 
     LOG_ASSERT(cachedOutputs->size() == op->outputs()->size());
     for (size_t i = 0; i < cachedOutputs->size(); ++i) {
@@ -55,7 +60,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
     return;
   }
 
-  LOG_DEBUG("Cache miss or invalid cache for function: ", constEvalFuncname);
+  LOG_INFO("Cache MISS for function: ", constEvalFuncname);
 
   // Collect the ::ttnn::Tensor objects for execution
   std::vector<::tt::runtime::Tensor> inputs;
@@ -70,8 +75,9 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   ProgramExecutor exec(context.getDeviceHandle(), context.getExecutableHandle(),
                        programIndex, inputs, /*constEvalProgram=*/true);
   exec.execute();
-  LOG_DEBUG("executed sub-func: ", constEvalFuncname);
   std::vector<::tt::runtime::Tensor> outputs = exec.gatherOutputTensors();
+  LOG_INFO("Executed sub-func: ", constEvalFuncname,
+           " numOutputs=", outputs.size());
 
   // Const-eval outputs need to be retained
   for (::tt::runtime::Tensor &output : outputs) {

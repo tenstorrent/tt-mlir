@@ -142,6 +142,11 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
     // copy into their trace input slots on device.
     if (input->desc()->layout()->memory_desc()->storage_type() ==
         ::tt::target::ttnn::StorageType::Device) {
+      LOG_INFO(
+          "Device-resident input ", i,
+          ": inputVersion=", inputTensorWrapper.getVersion(),
+          " slotVersion=", inputSlotWrapper.getVersion(), " match=",
+          (inputTensorWrapper.getVersion() == inputSlotWrapper.getVersion()));
       LOG_ASSERT(inputTensorWrapper.getVersion() ==
                      inputSlotWrapper.getVersion(),
                  "Device trace slots for non-regular inputs (constants and KV "
