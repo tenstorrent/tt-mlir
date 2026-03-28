@@ -165,6 +165,13 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
       return mlir::failure();
     }
     comp.getResult(i).replaceAllUsesWith(mapped);
+    // Annotate the defining op with its original output position so that
+    // ReoutlineCompositePass can restore the correct result order regardless of
+    // the op's block position.
+    if (mlir::Operation *defOp = mapped.getDefiningOp()) {
+      defOp->setAttr(utils::kReoutlineOutputPosAttr,
+                     builder.getI64IntegerAttr(i));
+    }
   }
 
   // 6) Erase the original composite op.
