@@ -56,8 +56,29 @@ static void runPagedScaledDotProductAttentionDecodeOp(
     programConfig.emplace();
     programConfig->q_chunk_size = 0;
     programConfig->k_chunk_size = 0;
-    programConfig->compute_with_storage_grid_size = computeGrid;
-    programConfig->max_cores_per_head_batch = computeGrid.x * computeGrid.y;
+
+    // TODO: Remove grid capping once tt-metal fixes core allocation
+    // (https://github.com/tenstorrent/tt-metal/issues/40978)
+    // On Blackhole (10x11=110 cores), batch sizes like 32 with nkv=8 cause
+    // bad integer division in sdpa_decode_program_factory: 110/32=3
+    // cores_per_batch, ceil(8/3)=3 heads_per_core, but 8%3!=0. Cap to 8x8
+    // which gives clean division for all common num_kv_heads values.
+    auto safeGrid = computeGrid;
+    uint32_t B = pageTable.padded_shape()[0];
+    uint32_t numKVHeads = key.padded_shape()[1];
+    uint32_t numCores = safeGrid.x * safeGrid.y;
+    uint32_t coresPerBatchUncapped = numCores / B;
+    if (coresPerBatchUncapped > 0) {
+      uint32_t headsPerCore =
+          (numKVHeads + coresPerBatchUncapped - 1) / coresPerBatchUncapped;
+      if (numKVHeads % headsPerCore != 0) {
+        safeGrid = {std::min<size_t>(computeGrid.x, 8),
+                    std::min<size_t>(computeGrid.y, 8)};
+      }
+    }
+
+    programConfig->compute_with_storage_grid_size = safeGrid;
+    programConfig->max_cores_per_head_batch = safeGrid.x * safeGrid.y;
     programConfig->exp_approx_mode = false;
   }
 
