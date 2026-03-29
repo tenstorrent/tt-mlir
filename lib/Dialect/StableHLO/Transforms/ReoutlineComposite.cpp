@@ -152,25 +152,24 @@ static bool analyzeBoundary(const llvm::SmallVector<mlir::Operation *> &ops,
     return orderByBlockPos(a, b); // both unknown: fallback
   });
 
-  // Collect reoutline.output_pos annotations set by FlattenCompositePass so we
-  // can restore the original result order (which may differ from block order
-  // when the decomposition's return statement uses a cross-order return).
-  llvm::DenseMap<mlir::Value, int64_t> escapeOutputPos;
+  // Collect reoutline.result_pos annotations set by the FlattenComposite pass
+  // so we can restore the original result order
+  llvm::DenseMap<mlir::Value, int64_t> escapeResultPos;
   for (mlir::Value v : escapeSet) {
     if (mlir::Operation *def = v.getDefiningOp()) {
       if (auto posAttr = def->getAttrOfType<mlir::IntegerAttr>(
-              utils::kReoutlineOutputPosAttr)) {
-        escapeOutputPos[v] = posAttr.getInt();
+              utils::kReoutlineResultPosAttr)) {
+        escapeResultPos[v] = posAttr.getInt();
       }
     }
   }
 
   escapes.assign(escapeSet.begin(), escapeSet.end());
   llvm::sort(escapes, [&](mlir::Value a, mlir::Value b) {
-    auto itA = escapeOutputPos.find(a);
-    auto itB = escapeOutputPos.find(b);
-    bool hasA = (itA != escapeOutputPos.end());
-    bool hasB = (itB != escapeOutputPos.end());
+    auto itA = escapeResultPos.find(a);
+    auto itB = escapeResultPos.find(b);
+    bool hasA = (itA != escapeResultPos.end());
+    bool hasB = (itB != escapeResultPos.end());
     if (hasA && hasB) {
       return itA->second < itB->second;
     }

@@ -57,8 +57,17 @@ mlir::func::FuncOp createPrivateFunction(
     if (cloned->hasAttr(utils::kReoutlineSeedAttr)) {
       cloned->removeAttr(utils::kReoutlineSeedAttr);
     }
+    if (cloned->hasAttr(utils::kReoutlineCompAttrsAttr)) {
+      cloned->removeAttr(utils::kReoutlineCompAttrsAttr);
+    }
+    if (cloned->hasAttr(utils::kReoutlineOrigNameAttr)) {
+      cloned->removeAttr(utils::kReoutlineOrigNameAttr);
+    }
     if (cloned->hasAttr(utils::kReoutlineArgOperandIndicesAttr)) {
       cloned->removeAttr(utils::kReoutlineArgOperandIndicesAttr);
+    }
+    if (cloned->hasAttr(utils::kReoutlineResultPosAttr)) {
+      cloned->removeAttr(utils::kReoutlineResultPosAttr);
     }
   }
 

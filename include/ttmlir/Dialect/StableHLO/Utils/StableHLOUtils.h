@@ -22,7 +22,7 @@ inline constexpr llvm::StringLiteral
 inline constexpr llvm::StringLiteral
     kReoutlineArgOperandIndicesAttr("reoutline.arg_operand_indices");
 inline constexpr llvm::StringLiteral
-    kReoutlineOutputPosAttr("reoutline.output_pos");
+    kReoutlineResultPosAttr("reoutline.result_pos");
 
 // Composite op related string definitions.
 inline constexpr llvm::StringLiteral kCompDecompositionKey("decomposition");

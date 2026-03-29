@@ -3,20 +3,8 @@
 // RUN: FileCheck %s --input-file=%t
 
 // Verify that FlattenCompositePass annotates result-producing ops with
-// reoutline.output_pos to preserve the original composite result order.
-// The topk decomposition returns (f32 values, i64 indices) but in block order
-// the i64 convert appears before the f32 slice. The output_pos attribute
-// records the correct mapping so that ReoutlineCompositePass can restore order.
+// reoutline.result_pos to preserve the original composite result order.
 
-// CHECK-LABEL: func.func @main
-// The stablehlo.convert (producing i64 indices, composite result #1) should
-// be annotated with reoutline.output_pos = 1, and the stablehlo.slice
-// (producing f32 values, composite result #0) should be annotated with
-// reoutline.output_pos = 0.
-// CHECK: stablehlo.convert
-// CHECK-SAME: reoutline.output_pos = 1 : i64
-// CHECK: stablehlo.slice
-// CHECK-SAME: reoutline.output_pos = 0 : i64
 module @FlattenCompositeOutputPos attributes {} {
   sdy.mesh @mesh = <["_axis_0"=2]>
   func.func @main(%arg0: tensor<128x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"_axis_0"}]>}) -> (tensor<128x4xf32>, tensor<128x4xi64>) {
@@ -37,3 +25,14 @@ module @FlattenCompositeOutputPos attributes {} {
     return %5, %4 : tensor<128x4xf32>, tensor<128x4xi64>
   }
 }
+// CHECK-LABEL: func.func @main
+// CHECK: %[[INDICES:.*]] = stablehlo.convert
+// The INDICES result (%4) appears second in @tenstorrent.topk.impl's result list
+// so it should have result_pos = 1
+// CHECK-SAME: reoutline.result_pos = 1 : i64
+
+// The VALUES result (%5) appears first in @tenstorrent.topk.impl's result list
+// so it should have result_pos = 0
+// CHECK: %[[VALUES:.*]] = stablehlo.slice
+// CHECK-SAME: reoutline.result_pos = 0 : i64
+// CHECK: return %[[VALUES]], %[[INDICES]] : tensor<128x4xf32>, tensor<128x4xi64>
