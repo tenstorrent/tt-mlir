@@ -169,7 +169,7 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
     // ReoutlineCompositePass can restore the correct result order regardless of
     // the op's block position.
     if (mlir::Operation *defOp = mapped.getDefiningOp()) {
-      defOp->setAttr(utils::kReoutlineOutputPosAttr,
+      defOp->setAttr(utils::kReoutlineResultPosAttr,
                      builder.getI64IntegerAttr(i));
     }
   }
