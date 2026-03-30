@@ -124,12 +124,15 @@ void createTTIRToTTMetalFrontendPipeline(
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  if (options.enableElementwiseFusion || options.enableEltwiseReductionFusion) {
+  if (options.enableElementwiseFusion || options.enableEltwiseReductionFusion ||
+      options.enableReductionEltwiseFusion) {
     d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
     elementwiseFusionOptions.maxDstPhysicalSizeTiles =
         options.maxDstPhysicalSizeTiles;
     elementwiseFusionOptions.enableEltwiseReductionFusion =
         options.enableEltwiseReductionFusion;
+    elementwiseFusionOptions.enableReductionEltwiseFusion =
+        options.enableReductionEltwiseFusion;
     pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
   }
   pm.addPass(mlir::createCanonicalizerPass());

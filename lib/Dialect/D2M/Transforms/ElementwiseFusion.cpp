@@ -261,23 +261,83 @@ getFusedOperands(OpOperand *fusedOperand, GenericOp producer,
                          std::move(fusedMaps));
 }
 
-static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
-                                    GenericOp consumer,
-                                    SmallVector<Value> &fusedInputs,
-                                    SmallVector<Value> &fusedOutputs,
-                                    SmallVector<Value> &mergedAdditionalArgs,
-                                    SmallVector<AffineMap> &fusedMaps,
-                                    PatternRewriter &rewriter) {
+// Remap a consumer operand map into the producer's coordinate space:
+// consArgMap ∘ inv(consInputMapForFused) ∘ prodResMap
+static AffineMap computeReverseFusedArgMap(GenericOp consumer,
+                                           OpOperand *consOpnd,
+                                           AffineMap consInputMapForFused,
+                                           AffineMap prodResMap) {
+  AffineMap inv = inversePermutation(consInputMapForFused);
+  AffineMap arg = consumer.getIndexingMap(consOpnd->getOperandNumber());
+  return arg.compose(inv).compose(prodResMap);
+}
+
+// Producer-centric variant: the fused op uses the producer's coordinate space.
+// Producer inputs keep their original maps; consumer inputs/outputs are
+// remapped via computeReverseFusedArgMap.
+static std::tuple<SmallVector<Value>, SmallVector<Value>,
+                  SmallVector<AffineMap>>
+getFusedOperandsProducerCentric(OpOperand *fusedOperand, GenericOp producer,
+                                GenericOp consumer) {
+  SmallVector<Value> fusedInputs;
+  SmallVector<Value> fusedOutputs;
+  SmallVector<AffineMap> fusedMaps;
+
+  AffineMap prodResMap = producer.getIndexingMap(
+      producer.getDpsInitOperand(0)->getOperandNumber());
+  AffineMap consInputMapForFused =
+      consumer.getIndexingMap(fusedOperand->getOperandNumber());
+
+  auto inputs = consumer.getInputs();
+  size_t fusedIdx = fusedOperand->getOperandNumber();
+
+  // Consumer inputs before the fused operand (remapped to producer space).
+  for (size_t i = 0; i < fusedIdx; ++i) {
+    fusedInputs.push_back(inputs[i]);
+    fusedMaps.push_back(
+        computeReverseFusedArgMap(consumer, consumer.getDpsInputOperand(i),
+                                  consInputMapForFused, prodResMap));
+  }
+  // Producer inputs (keep original maps — already in producer's space).
+  for (OpOperand *pi : producer.getDpsInputOperands()) {
+    fusedInputs.push_back(pi->get());
+    fusedMaps.push_back(producer.getIndexingMap(pi->getOperandNumber()));
+  }
+  // Consumer inputs after the fused operand (remapped to producer space).
+  for (size_t i = fusedIdx + 1; i < inputs.size(); ++i) {
+    fusedInputs.push_back(inputs[i]);
+    fusedMaps.push_back(
+        computeReverseFusedArgMap(consumer, consumer.getDpsInputOperand(i),
+                                  consInputMapForFused, prodResMap));
+  }
+
+  // Consumer outputs (remapped to producer space).
+  for (OpOperand &co : consumer.getDpsInitsMutable()) {
+    fusedOutputs.push_back(co.get());
+    fusedMaps.push_back(computeReverseFusedArgMap(
+        consumer, &co, consInputMapForFused, prodResMap));
+  }
+
+  return std::make_tuple(std::move(fusedInputs), std::move(fusedOutputs),
+                         std::move(fusedMaps));
+}
+
+static GenericOp createFusedGeneric(
+    OpOperand *fusedOperand, GenericOp producer, GenericOp consumer,
+    SmallVector<Value> &fusedInputs, SmallVector<Value> &fusedOutputs,
+    SmallVector<Value> &mergedAdditionalArgs, SmallVector<AffineMap> &fusedMaps,
+    PatternRewriter &rewriter, bool useProducerAsBase = false) {
   /////////////////////////////////////////////////////////////////////////////
   // Create fused op
   /////////////////////////////////////////////////////////////////////////////
   auto fusedResultTypes = TypeRange(fusedOutputs);
 
+  GenericOp baseOp = useProducerAsBase ? producer : consumer;
   auto fusedOp = rewriter.create<GenericOp>(
-      consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
-      mergedAdditionalArgs, consumer.getGrid(), consumer.getBlockFactors(),
-      rewriter.getAffineMapArrayAttr(fusedMaps), consumer.getIteratorTypes(),
-      consumer.getThreads(), consumer.getScratchInputsAttr(), /*regions=*/1);
+      baseOp.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
+      mergedAdditionalArgs, baseOp.getGrid(), baseOp.getBlockFactors(),
+      rewriter.getAffineMapArrayAttr(fusedMaps), baseOp.getIteratorTypes(),
+      baseOp.getThreads(), baseOp.getScratchInputsAttr(), /*regions=*/1);
 
   /////////////////////////////////////////////////////////////////////////////
   // Map the block arguments of the fusedOp
@@ -373,9 +433,12 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     // (e.g. eltwise→eltwise), we can reuse the consumer's tensor.empty.
     // When they differ (e.g. eltwise→reduction where 4x4 -> 4x1), we must
     // create a separate intermediate tensor.empty with the producer's shape.
+    // For reduction→eltwise (useProducerAsBase), always create a separate
+    // intermediate so that SpillAndScratch correctly identifies it.
     auto prodOutType = mlir::cast<ShapedType>(prodOutputEmpty.getType());
     auto consOutType = mlir::cast<ShapedType>(consumerOutputEmpty.getType());
-    if (prodOutType.getShape() == consOutType.getShape()) {
+    if (!useProducerAsBase &&
+        prodOutType.getShape() == consOutType.getShape()) {
       irMap.map(prodOutputEmpty, consumerOutputEmpty);
     } else {
       OpBuilder::InsertionGuard guard(rewriter);
@@ -733,6 +796,166 @@ struct FuseD2MEltwiseReductionOpsPattern : public OpRewritePattern<GenericOp> {
 };
 } // namespace
 
+static bool isValidReductionFusionProducer(GenericOp gOp) {
+  if (!gOp.isComputeOnlyForm()) {
+    return false;
+  }
+
+  if (!gOp.hasPureTensorSemantics()) {
+    return false;
+  }
+
+  if (!gOp.hasReduction()) {
+    return false;
+  }
+
+  if (gOp.hasSkipOpEltwiseFusionTrait()) {
+    return false;
+  }
+
+  if (gOp.hasMultiUseInputOperand()) {
+    return false;
+  }
+
+  return true;
+}
+
+static bool isReductionEltwiseFusable(OpOperand *fusionTargetOperand) {
+  if (!fusionTargetOperand) {
+    return false;
+  }
+
+  auto producer = fusionTargetOperand->get().getDefiningOp<GenericOp>();
+  auto consumer = dyn_cast<GenericOp>(fusionTargetOperand->getOwner());
+
+  if (!producer || !consumer) {
+    return false;
+  }
+
+  if (!isValidReductionFusionProducer(producer)) {
+    return false;
+  }
+
+  if (!isValidElementwiseFusionTarget(consumer)) {
+    return false;
+  }
+
+  // Check that the producer's result is only used by the consumer.
+  for (auto result : producer->getResults()) {
+    unsigned numExternalUsers = 0;
+    for (auto *user : result.getUsers()) {
+      if (producer.getOperation()->isProperAncestor(user)) {
+        continue;
+      }
+      if (consumer.getOperation()->isProperAncestor(user)) {
+        continue;
+      }
+      numExternalUsers++;
+    }
+    if (numExternalUsers != 1) {
+      return false;
+    }
+    bool foundConsumerAsUser = false;
+    for (auto *user : result.getUsers()) {
+      if (!producer.getOperation()->isProperAncestor(user) &&
+          !consumer.getOperation()->isProperAncestor(user)) {
+        if (user == consumer.getOperation()) {
+          foundConsumerAsUser = true;
+        } else {
+          return false;
+        }
+      }
+    }
+    if (!foundConsumerAsUser) {
+      return false;
+    }
+  }
+
+  if (!producer.hasCompatibleBlocking(consumer)) {
+    return false;
+  }
+
+  if (!fitsInL1PostFusion(producer, consumer)) {
+    return false;
+  }
+
+  if (!fitsInDstPostFusion(producer, consumer)) {
+    return false;
+  }
+
+  // The consumer's input map for the fused operand must be a permutation
+  // so we can invert it to remap consumer maps into the producer's space.
+  AffineMap consInputMap =
+      consumer.getIndexingMap(fusionTargetOperand->getOperandNumber());
+  if (!consInputMap.isPermutation()) {
+    return false;
+  }
+
+  // The producer's output shape (via its result map) must match the
+  // consumer's expected input dimensionality.
+  AffineMap prodResMap = producer.getIndexingMap(
+      producer.getDpsInitOperand(0)->getOperandNumber());
+  if (prodResMap.getNumResults() != consumer.getNumDims()) {
+    return false;
+  }
+
+  return true;
+}
+
+namespace {
+struct FuseD2MReductionEltwiseOpsPattern : public OpRewritePattern<GenericOp> {
+  FuseD2MReductionEltwiseOpsPattern(MLIRContext *context)
+      : OpRewritePattern<GenericOp>(context) {}
+
+  LogicalResult matchAndRewrite(GenericOp consumer,
+                                PatternRewriter &rewriter) const final {
+    if (!isValidElementwiseFusionTarget(consumer)) {
+      return failure();
+    }
+
+    assert(consumer.getNumRegions() == 1u);
+
+    auto findFusableOperand = [&]() -> OpOperand * {
+      for (OpOperand *use : consumer.getDpsInputOperands()) {
+        if (isReductionEltwiseFusable(use)) {
+          return use;
+        }
+      }
+      return nullptr;
+    };
+
+    OpOperand *fusedOperand = findFusableOperand();
+
+    if (!fusedOperand) {
+      return failure();
+    }
+
+    auto producer = fusedOperand->get().getDefiningOp<GenericOp>();
+    assert(producer);
+
+    auto [fusedInputs, fusedOutputs, fusedMaps] =
+        getFusedOperandsProducerCentric(fusedOperand, producer, consumer);
+    auto mergedCaptures = llvm::to_vector(llvm::concat<Value>(
+        consumer.getAdditionalArgs(), producer.getAdditionalArgs()));
+
+    auto fusedOp =
+        createFusedGeneric(fusedOperand, producer, consumer, fusedInputs,
+                           fusedOutputs, mergedCaptures, fusedMaps, rewriter,
+                           /*useProducerAsBase=*/true);
+
+    int resIdx = 0;
+    for (auto r : consumer->getResults()) {
+      r.replaceAllUsesWith(fusedOp->getResult(resIdx++));
+    }
+
+    rewriter.eraseOp(consumer);
+    rewriter.eraseOp(producer);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace {
 struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
   FuseD2MElementwiseOpsPattern(MLIRContext *context,
@@ -815,6 +1038,9 @@ class D2MElementwiseFusion
         ctx, maxDstPhysicalSizeTiles.getValue());
     if (enableEltwiseReductionFusion) {
       patterns.add<FuseD2MEltwiseReductionOpsPattern>(ctx);
+    }
+    if (enableReductionEltwiseFusion) {
+      patterns.add<FuseD2MReductionEltwiseOpsPattern>(ctx);
     }
     GreedyRewriteConfig cfg;
 

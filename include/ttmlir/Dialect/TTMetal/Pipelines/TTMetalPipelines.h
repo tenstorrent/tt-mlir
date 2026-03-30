@@ -61,6 +61,13 @@ struct TTIRToTTMetalPipelineOptions
           "d2m.generic consumer."),
       llvm::cl::init(false)};
 
+  Option<bool> enableReductionEltwiseFusion{
+      *this, "enable-reduction-eltwise-fusion",
+      llvm::cl::desc(
+          "Enable fusion of reduction d2m.generic producer into eltwise "
+          "d2m.generic consumer."),
+      llvm::cl::init(false)};
+
   ListOption<int64_t> matmulInterchange{
       *this, "matmul-interchange",
       llvm::cl::desc(

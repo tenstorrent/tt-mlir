@@ -724,22 +724,23 @@ private:
       }
 
       // Step 6: Update loads in all consumer loops.
+      // Loads within the producer's own loop (e.g., reduction accumulator
+      // reads) use the producer's access map. Loads in external consumer
+      // loops use the cross-step-aware consumer map.
       for (auto &consumerEntry : allocInfo.consumers) {
-        if (consumerEntry.loop == allocInfo.producer) {
-          continue;
-        }
-        ScratchLoopInfo &consumer = *consumerEntry.loop;
-        // Use producer-aware map so that consumers with a different linalgRoot
-        // step size correctly address the scratch buffer (which is laid out
-        // according to the producer's step).
-        auto [consumerMap, consumerOperands] =
-            getConsumerScratchAccessMap(producer, consumer, &getContext());
+        bool isProducerSelfRead = (consumerEntry.loop == allocInfo.producer);
+
+        auto [loadMap, loadOperands] =
+            isProducerSelfRead
+                ? getScratchAccessMapAndOperands(producer, &getContext())
+                : getConsumerScratchAccessMap(producer, *consumerEntry.loop,
+                                              &getContext());
 
         for (auto loadOp : consumerEntry.loads) {
           rewriter.setInsertionPoint(loadOp);
 
           Value reloaded = rewriter.create<affine::AffineLoadOp>(
-              loadOp.getLoc(), scratchBuf, consumerMap, consumerOperands);
+              loadOp.getLoc(), scratchBuf, loadMap, loadOperands);
 
           rewriter.replaceOp(loadOp, reloaded);
         }
