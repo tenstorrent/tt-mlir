@@ -429,13 +429,20 @@ createConv2dSliceType(::tt::target::ttnn::Conv2dSliceType sliceType) {
 }
 
 ::ttnn::Conv2dSliceConfig
-createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
+createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfigT &config) {
   ::ttnn::Conv2dSliceConfig sliceConfig;
 
-  sliceConfig.slice_type = createConv2dSliceType(config->slice_type());
-  sliceConfig.num_slices = config->num_slices();
+  sliceConfig.slice_type = createConv2dSliceType(config.slice_type);
+  sliceConfig.num_slices = config.num_slices;
 
   return sliceConfig;
+}
+
+::ttnn::Conv2dSliceConfig
+createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
+  ::tt::target::ttnn::Conv2dSliceConfigT conv2dSliceConfigT;
+  config->UnPackTo(&conv2dSliceConfigT);
+  return createConv2dSliceConfig(conv2dSliceConfigT);
 }
 
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
