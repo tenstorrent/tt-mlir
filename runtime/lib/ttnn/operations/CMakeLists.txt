@@ -109,6 +109,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/split_query_key_value_and_split_heads.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_flash_multi_latent_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_scaled_dot_product_attention_decode.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/unifiedOpLib/unifiedConv2dOp.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )
 

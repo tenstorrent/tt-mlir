@@ -3,8 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+// #include "ttmlir/Target/TTNN/operations/Conv2dParams.h"
+#include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Utils.h"
+// #include "tt/runtime/detail/ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
 #include "llvm/ADT/SmallVector.h"
+// #include "ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -5143,6 +5147,68 @@ llvm::Expected<size_t> OpModel<PagedFillCacheOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+static ::tt::target::ttnn::Conv2dOpT buildConv2dOpTFromMLIR(
+    uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+    uint32_t input_height, uint32_t input_width,
+    llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+    uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig) {
+  ::tt::target::ttnn::Conv2dOpT conv2dOpT;
+  conv2dOpT.in_channels = in_channels;
+  conv2dOpT.out_channels = out_channels;
+  conv2dOpT.batch_size = batch_size;
+  conv2dOpT.input_height = input_height;
+  conv2dOpT.input_width = input_width;
+  conv2dOpT.kernel_size =
+      std::vector<int32_t>(kernel_size.begin(), kernel_size.end());
+  conv2dOpT.stride = std::vector<int32_t>(stride.begin(), stride.end());
+  conv2dOpT.padding = std::vector<int32_t>(padding.begin(), padding.end());
+  conv2dOpT.dilation = std::vector<int32_t>(dilation.begin(), dilation.end());
+  conv2dOpT.groups = groups;
+  conv2dOpT.output_dtype = detail::getNullableDataType(outputLayout)
+                               ? std::make_optional(
+                                     toNative(*detail::getNullableDataType(outputLayout)))
+                               : std::nullopt;
+  // conv2dOpT.output_dtype = detail::getNullableDataType(outputLayout)
+  //                              ?
+  //                              ::flatbuffers::Optional<::tt::target::DataType>(
+  //                                    toNative(*detail::getNullableDataType(outputLayout)))
+  //                              : ::flatbuffers::nullopt;
+  conv2dOpT.conv2d_config =
+      conv2dConfig.has_value()
+          ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
+                toNative(*conv2dConfig))
+          : nullptr;
+  conv2dOpT.compute_config =
+      deviceComputeKernelConfig.has_value()
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  conv2dOpT.conv2d_slice_config =
+      conv2dSliceConfig.has_value()
+          ? std::make_unique<::tt::target::ttnn::Conv2dSliceConfigT>(
+                toNative(*conv2dSliceConfig))
+          : nullptr;
+  return conv2dOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
+// llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+// llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+// std::optional<llvm::ArrayRef<int64_t>> biasShape,
+// std::optional<TTNNLayoutAttr> biasLayout, uint32_t in_channels,
+// uint32_t out_channels, uint32_t batch_size, uint32_t input_height,
+// uint32_t input_width, llvm::ArrayRef<int32_t> kernel_size,
+// llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+// llvm::ArrayRef<int32_t> dilation, uint32_t groups,
+// std::optional<Conv2dConfigAttr> conv2dConfig,
+// std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+// std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+// TTNNLayoutAttr outputLayout
 llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> weightShape,
@@ -5207,6 +5273,18 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
 
   std::optional<::ttnn::Conv2dSliceConfig> sliceConfigConverted =
       conversion::getConv2dSliceConfig(conv2dSliceConfig);
+
+  // Build Conv2dOpT from MLIR params
+  ::tt::target::ttnn::Conv2dOpT conv2dOpT = buildConv2dOpTFromMLIR(
+      in_channels, out_channels, batch_size, input_height, input_width,
+      kernel_size, stride, padding, dilation, groups, conv2dConfig,
+      deviceComputeKernelConfig, conv2dSliceConfig);
+
+  // unifiedOpLib::Conv2dResolvedParams params =
+  //     unifiedOpLib::resolveConv2dParams(conv2dOpT);
+
+  // Override output memory config from MLIR layout (OpModel has richer info)
+  // params.outputMemoryConfig = detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto conv2dOpQuery = [=]() {
@@ -5292,6 +5370,20 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
           conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
   std::optional<::ttnn::Conv2dSliceConfig> sliceConfigConverted =
       conversion::getConv2dSliceConfig(conv2dSliceConfig);
+
+  // Build Conv2dOpT from MLIR params
+  ::tt::target::ttnn::Conv2dOpT conv2dOpT = buildConv2dOpTFromMLIR(
+      in_channels, out_channels, batch_size, input_height, input_width,
+      kernel_size, stride, padding, dilation, groups, conv2dConfig,
+      deviceComputeKernelConfig, conv2dSliceConfig);
+
+  // Resolve Conv2dOpT configs to runtime types via unified path
+  // unifiedOpLib::Conv2dResolvedParams params =
+  //     unifiedOpLib::resolveConv2dParams(conv2dOpT);
+
+  // Override output memory config from MLIR layout (OpModel has richer info)
+  // params.outputMemoryConfig = detail::getNullableMemoryConfig(outputLayout);
+
   // Create query closure
   auto conv2dOpQuery = [=]() {
     return QUERY_OP_RUNTIME(
