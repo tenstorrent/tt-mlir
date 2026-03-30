@@ -168,9 +168,34 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
     // Annotate the defining op with its original output position so that
     // ReoutlineCompositePass can restore the correct result order regardless of
     // the op's block position.
+    // For example: given the following decomposition function:
+    // ...
+    // %0 = stablehlo.iota
+    // %1:2 = stablehlo.sort
+    // %2:2 = stablehlo.sort
+    // return %1#1, %1#0, %2#0, %2#1, %0
+    // This will produce the following annotations in the flattened result:
+    // ...
+    // %0 = stablehlo.iota {reoutline.result_pos = array<i64: 4>}
+    // %1:2 = stablehlo.sort {reoutline.result_pos = array<i64: 1, 0>}
+    // %2:2 = stablehlo.sort {reoutline.result_pos = array<i64: 2, 3>}
+    // return %1#1, %1#0, %2#0, %2#1, %0
     if (mlir::Operation *defOp = mapped.getDefiningOp()) {
+      unsigned resultIdx = mlir::cast<mlir::OpResult>(mapped).getResultNumber();
+      unsigned numResults = defOp->getNumResults();
+
+      llvm::SmallVector<int64_t> positions(numResults, -1);
+      if (auto existing = defOp->getAttrOfType<mlir::DenseI64ArrayAttr>(
+              utils::kReoutlineResultPosAttr)) {
+        auto arr = existing.asArrayRef();
+        // retain existing positions as is
+        for (unsigned j = 0; j < arr.size() && j < numResults; ++j) {
+          positions[j] = arr[j];
+        }
+      }
+      positions[resultIdx] = i;
       defOp->setAttr(utils::kReoutlineResultPosAttr,
-                     builder.getI64IntegerAttr(i));
+                     builder.getDenseI64ArrayAttr(positions));
     }
   }
 
