@@ -28,20 +28,21 @@ namespace mlir::tt::ttir_to_linalg {
 // implementation strategy, in order of preference:
 //
 // 1. TOSA 1:1        — Direct mapping to a single TOSA op.
-//                      Preferred when a TOSA equivalent exists.
-// 2. Named linalg    — Direct mapping to a named linalg op (e.g. linalg.mul).
-//                      Used when no TOSA equivalent exists but a named linalg
-//                      op does.
-// 3. linalg.generic + math/arith — A linalg.generic body containing a single
-//                      math or arith dialect op. Used for ops with no TOSA or
-//                      named linalg equivalent.
-// 4. Custom          — Multi-op sequences in TOSA, linalg, or arith dialects.
+//                      Preferred when a TOSA equivalent exists. TOSA ops
+//                      handle broadcasting natively.
+// 2. linalg.generic + arith/math — A linalg.generic body containing scalar
+//                      arith or math ops. Broadcasting is handled implicitly
+//                      through affine indexing maps, avoiding materialization
+//                      of intermediate broadcast buffers.
+// 3. Custom          — Multi-op sequences in TOSA, linalg, or arith dialects.
 //                      Used for compound operations (e.g. gelu_bw, remainder).
 
 //===----------------------------------------------------------------------===//
 // TOSA Binary Conversion Patterns
 //===----------------------------------------------------------------------===//
 
+// TOSA binary ops support implicit broadcasting natively, so operands are
+// passed directly without explicit broadcast materialization.
 namespace {
 template <typename TTIROpTy, typename TosaOpTy>
 class ElementwiseBinaryOpToTosaPattern : public OpConversionPattern<TTIROpTy> {
@@ -58,16 +59,8 @@ public:
           op, "result type must be a ranked tensor type");
     }
 
-    Location loc = op.getLoc();
-    Value lhs = broadcastToShape(adaptor.getLhs(), resultType.getShape(), loc,
-                                 rewriter);
-    Value rhs = broadcastToShape(adaptor.getRhs(), resultType.getShape(), loc,
-                                 rewriter);
-
-    auto result =
-        rewriter.create<TosaOpTy>(loc, resultType, ValueRange{lhs, rhs});
-
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOpWithNewOp<TosaOpTy>(
+        op, resultType, ValueRange{adaptor.getLhs(), adaptor.getRhs()});
     return success();
   }
 };
@@ -91,18 +84,12 @@ public:
     }
 
     Location loc = op.getLoc();
-    Value lhs = broadcastToShape(adaptor.getLhs(), resultType.getShape(), loc,
-                                 rewriter);
-    Value rhs = broadcastToShape(adaptor.getRhs(), resultType.getShape(), loc,
-                                 rewriter);
-
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
-    auto boolResult = rewriter.create<TosaOpTy>(loc, boolType, lhs, rhs);
+    auto boolResult = rewriter.create<TosaOpTy>(loc, boolType, adaptor.getLhs(),
+                                                adaptor.getRhs());
 
-    auto result = rewriter.create<tosa::CastOp>(loc, resultType, boolResult);
-
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOpWithNewOp<tosa::CastOp>(op, resultType, boolResult);
     return success();
   }
 };
@@ -125,19 +112,13 @@ public:
     }
 
     Location loc = op.getLoc();
-    Value lhs = broadcastToShape(adaptor.getLhs(), resultType.getShape(), loc,
-                                 rewriter);
-    Value rhs = broadcastToShape(adaptor.getRhs(), resultType.getShape(), loc,
-                                 rewriter);
-
     // Swapped operands: rhs, lhs.
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
-    auto boolResult = rewriter.create<TosaOpTy>(loc, boolType, rhs, lhs);
+    auto boolResult = rewriter.create<TosaOpTy>(loc, boolType, adaptor.getRhs(),
+                                                adaptor.getLhs());
 
-    auto result = rewriter.create<tosa::CastOp>(loc, resultType, boolResult);
-
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOpWithNewOp<tosa::CastOp>(op, resultType, boolResult);
     return success();
   }
 };
@@ -160,21 +141,14 @@ public:
     }
 
     Location loc = op.getLoc();
-    Value lhs = broadcastToShape(adaptor.getLhs(), resultType.getShape(), loc,
-                                 rewriter);
-    Value rhs = broadcastToShape(adaptor.getRhs(), resultType.getShape(), loc,
-                                 rewriter);
-
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
-    auto boolResult = rewriter.create<TosaOpTy>(loc, boolType, lhs, rhs);
-
+    auto boolResult = rewriter.create<TosaOpTy>(loc, boolType, adaptor.getLhs(),
+                                                adaptor.getRhs());
     auto notResult =
         rewriter.create<tosa::LogicalNotOp>(loc, boolType, boolResult);
 
-    auto result = rewriter.create<tosa::CastOp>(loc, resultType, notResult);
-
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOpWithNewOp<tosa::CastOp>(op, resultType, notResult);
     return success();
   }
 };
@@ -182,9 +156,9 @@ public:
 
 // Logical binary operations pattern (LogicalAnd, LogicalOr, LogicalXor).
 // These operations:
-// 1. Convert float inputs to boolean (non-zero = true)
-// 2. Apply the TOSA logical operation
-// 3. Convert boolean result back to float (true = 1.0, false = 0.0)
+// 1. Convert inputs to boolean (non-zero = true)
+// 2. Apply the TOSA logical operation (implicit broadcasting)
+// 3. Convert boolean result back to original type
 namespace {
 template <typename TTIROpTy, typename TosaOpTy>
 class LogicalBinaryOpToTosaPattern : public OpConversionPattern<TTIROpTy> {
@@ -202,66 +176,21 @@ public:
     }
 
     Location loc = op.getLoc();
-    Value lhs = broadcastToShape(adaptor.getLhs(), resultType.getShape(), loc,
-                                 rewriter);
-    Value rhs = broadcastToShape(adaptor.getRhs(), resultType.getShape(), loc,
-                                 rewriter);
 
     // Convert both inputs to boolean tensors.
-    Value boolLhs = convertToBooleanTensor(lhs, loc, rewriter);
-    Value boolRhs = convertToBooleanTensor(rhs, loc, rewriter);
+    Value boolLhs = convertToBooleanTensor(adaptor.getLhs(), loc, rewriter);
+    Value boolRhs = convertToBooleanTensor(adaptor.getRhs(), loc, rewriter);
 
-    // Get the boolean type for the intermediate result.
+    // Get the boolean type for the result.
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
 
-    // Apply the logical operation to the boolean tensors.
+    // Apply the logical operation (TOSA handles broadcasting).
     auto logicalResult =
         rewriter.create<TosaOpTy>(loc, boolType, boolLhs, boolRhs);
 
-    // Convert boolean result back to original type using cast.
-    auto result = rewriter.create<tosa::CastOp>(loc, resultType, logicalResult);
-
-    rewriter.replaceOp(op, result);
-    return success();
-  }
-};
-} // namespace
-
-//===----------------------------------------------------------------------===//
-// Named Linalg Op Conversion Patterns
-//===----------------------------------------------------------------------===//
-
-namespace {
-// General elementwise conversion pattern for binary ops lowered to named linalg
-// ops. Supports implicit broadcasting via broadcastToShape.
-template <typename TTIROpTy, typename LinalgOpTy,
-          typename OpAdaptor = typename TTIROpTy::Adaptor>
-class ElementwiseBinaryOpToNamedLinalgPattern
-    : public OpConversionPattern<TTIROpTy> {
-public:
-  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto resultType = dyn_cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getType()));
-    if (!resultType) {
-      return rewriter.notifyMatchFailure(
-          op, "result type must be a ranked tensor type");
-    }
-
-    Location loc = op.getLoc();
-    Value lhs = broadcastToShape(adaptor.getLhs(), resultType.getShape(), loc,
-                                 rewriter);
-    Value rhs = broadcastToShape(adaptor.getRhs(), resultType.getShape(), loc,
-                                 rewriter);
-
-    auto output = rewriter.create<tensor::EmptyOp>(loc, resultType.getShape(),
-                                                   resultType.getElementType());
-    rewriter.replaceOpWithNewOp<LinalgOpTy>(
-        op, resultType, ValueRange{lhs, rhs}, output.getResult());
+    // Convert boolean result back to original type.
+    rewriter.replaceOpWithNewOp<tosa::CastOp>(op, resultType, logicalResult);
     return success();
   }
 };
@@ -271,9 +200,34 @@ public:
 // Linalg Generic + Math/Arith Dialect Patterns
 //===----------------------------------------------------------------------===//
 
+// Build a broadcast-aware affine map for an operand. The map has as many
+// result expressions as the operand rank. Handles rank extension (fewer dims
+// than result — leading dims are dropped) and size-1 broadcasting (maps to 0).
+static AffineMap buildBroadcastAffineMap(ArrayRef<int64_t> operandShape,
+                                         ArrayRef<int64_t> resultShape,
+                                         MLIRContext *ctx) {
+  int64_t resultRank = resultShape.size();
+  int64_t operandRank = operandShape.size();
+  int64_t rankDiff = resultRank - operandRank;
+
+  // Only emit expressions for the operand's own dimensions,
+  // aligned to the trailing dimensions of the result.
+  SmallVector<AffineExpr> exprs;
+  for (int64_t i = 0; i < operandRank; ++i) {
+    int64_t resultDim = i + rankDiff;
+    if (operandShape[i] == 1 && resultShape[resultDim] != 1) {
+      exprs.push_back(getAffineConstantExpr(0, ctx));
+    } else {
+      exprs.push_back(getAffineDimExpr(resultDim, ctx));
+    }
+  }
+  return AffineMap::get(resultRank, 0, exprs, ctx);
+}
+
 // Base class for TTIR binary ops lowered via linalg.generic. Subclasses only
-// need to implement buildBody() to emit the scalar computation. Supports
-// implicit broadcasting by broadcasting both inputs to result shape.
+// need to implement buildBody() to emit the scalar computation.
+// Broadcasting is handled implicitly through affine indexing maps, avoiding
+// materialization of intermediate broadcast buffers.
 namespace {
 template <typename TTIROpTy>
 class ElementwiseBinaryOpToLinalgGenericPatternBase
@@ -292,14 +246,20 @@ public:
     }
 
     Location loc = op.getLoc();
-    Value lhs = broadcastToShape(adaptor.getLhs(), resultType.getShape(), loc,
-                                 rewriter);
-    Value rhs = broadcastToShape(adaptor.getRhs(), resultType.getShape(), loc,
-                                 rewriter);
+    Value lhs = adaptor.getLhs();
+    Value rhs = adaptor.getRhs();
+    auto lhsType = cast<RankedTensorType>(lhs.getType());
+    auto rhsType = cast<RankedTensorType>(rhs.getType());
 
     int64_t rank = resultType.getRank();
-    auto indexingMap =
-        AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
+    MLIRContext *ctx = rewriter.getContext();
+
+    AffineMap lhsMap =
+        buildBroadcastAffineMap(lhsType.getShape(), resultType.getShape(), ctx);
+    AffineMap rhsMap =
+        buildBroadcastAffineMap(rhsType.getShape(), resultType.getShape(), ctx);
+    AffineMap resultMap = AffineMap::getMultiDimIdentityMap(rank, ctx);
+
     SmallVector<utils::IteratorType> iteratorTypes(
         rank, utils::IteratorType::parallel);
 
@@ -308,8 +268,8 @@ public:
 
     auto genericOp = rewriter.create<linalg::GenericOp>(
         loc, resultType, ValueRange{lhs, rhs}, ValueRange{emptyTensor},
-        SmallVector<AffineMap>{indexingMap, indexingMap, indexingMap},
-        iteratorTypes, [&](OpBuilder &b, Location nestedLoc, ValueRange args) {
+        SmallVector<AffineMap>{lhsMap, rhsMap, resultMap}, iteratorTypes,
+        [&](OpBuilder &b, Location nestedLoc, ValueRange args) {
           Value result = buildBody(b, nestedLoc, args, resultType);
           b.create<linalg::YieldOp>(nestedLoc, result);
         });
@@ -337,6 +297,26 @@ protected:
   Value buildBody(OpBuilder &b, Location loc, ValueRange args,
                   RankedTensorType /*resultType*/) const override {
     return b.create<MathOpTy>(loc, args[0], args[1]);
+  }
+};
+} // namespace
+
+// Template for TTIR ops that map to arith dialect ops (float/int variants).
+namespace {
+template <typename TTIROpTy, typename ArithFOpTy, typename ArithIOpTy>
+class ElementwiseBinaryOpToArithPattern
+    : public ElementwiseBinaryOpToLinalgGenericPatternBase<TTIROpTy> {
+public:
+  using ElementwiseBinaryOpToLinalgGenericPatternBase<
+      TTIROpTy>::ElementwiseBinaryOpToLinalgGenericPatternBase;
+
+protected:
+  Value buildBody(OpBuilder &b, Location loc, ValueRange args,
+                  RankedTensorType /*resultType*/) const override {
+    if (isa<FloatType>(args[0].getType())) {
+      return b.create<ArithFOpTy>(loc, args[0], args[1]);
+    }
+    return b.create<ArithIOpTy>(loc, args[0], args[1]);
   }
 };
 } // namespace
@@ -407,7 +387,8 @@ public:
 
     Location loc = op.getLoc();
 
-    // Broadcast both inputs to the result shape for implicit broadcasting.
+    // Compound patterns use resultType for all intermediate ops, so operands
+    // must be pre-broadcast to the result shape.
     grad = broadcastToShape(grad, resultType.getShape(), loc, rewriter);
     x = broadcastToShape(x, resultType.getShape(), loc, rewriter);
 
@@ -544,11 +525,12 @@ private:
 void populateTTIRToLinalgEltwiseBinaryPatterns(MLIRContext *ctx,
                                                RewritePatternSet &patterns,
                                                TypeConverter &typeConverter) {
-  // Named linalg ops (with implicit broadcasting support)
-  patterns.add<
-      ElementwiseBinaryOpToNamedLinalgPattern<ttir::MultiplyOp, linalg::MulOp>,
-      ElementwiseBinaryOpToNamedLinalgPattern<ttir::DivOp, linalg::DivOp>>(
-      typeConverter, ctx);
+  // linalg.generic + arith ops
+  patterns.add<ElementwiseBinaryOpToArithPattern<ttir::MultiplyOp,
+                                                 arith::MulFOp, arith::MulIOp>,
+               ElementwiseBinaryOpToArithPattern<ttir::DivOp, arith::DivFOp,
+                                                 arith::DivSIOp>>(typeConverter,
+                                                                  ctx);
 
   // linalg.generic + math dialect ops
   patterns.add<ElementwiseBinaryOpToMathPattern<ttir::Atan2Op, math::Atan2Op>>(
