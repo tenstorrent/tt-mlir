@@ -164,7 +164,7 @@ public:
 // through the full pipeline since generateReshardCandidates is private)
 //===----------------------------------------------------------------------===//
 
-TEST_F(ReshardCandidatesTest, WithTensorLayoutsMap_DoesNotCrash) {
+TEST_F(ReshardCandidatesTest, WithTensorLayoutsMapDoesNotCrash) {
   // Create a simple graph and run with a populated TensorTypeLayoutsMap.
   // Verifies that reshard candidate generation doesn't crash.
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
@@ -201,7 +201,7 @@ TEST_F(ReshardCandidatesTest, WithTensorLayoutsMap_DoesNotCrash) {
   EXPECT_NO_FATAL_FAILURE(propagation.run());
 }
 
-TEST_F(ReshardCandidatesTest, NullTensorLayouts_NoReshardCandidates) {
+TEST_F(ReshardCandidatesTest, NullTensorLayoutsNoReshardCandidates) {
   // Without a TensorTypeLayoutsMap, no reshard candidates should be generated.
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
   auto layout = createDRAMInterleavedLayout(shape);
@@ -239,7 +239,7 @@ TEST_F(ReshardCandidatesTest, NullTensorLayouts_NoReshardCandidates) {
   }
 }
 
-TEST_F(ReshardCandidatesTest, BeamCandidatesWithTensorLayouts_MoreThanWithout) {
+TEST_F(ReshardCandidatesTest, BeamCandidatesWithTensorLayoutsMoreThanWithout) {
   // With a TensorTypeLayoutsMap, beam search should explore more candidates
   // (reshard candidates from sharded producers create additional combos).
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
@@ -306,7 +306,7 @@ TEST_F(ReshardCandidatesTest, BeamCandidatesWithTensorLayouts_MoreThanWithout) {
       << "Tensor layouts should enable at least as many candidates";
 }
 
-TEST_F(ReshardCandidatesTest, ReshardExploration_K1vsK8) {
+TEST_F(ReshardCandidatesTest, ReshardExplorationK1vsK8) {
   // With K=8, more candidate combinations are explored than K=1.
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
   auto layout = createDRAMInterleavedLayout(shape);

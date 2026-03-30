@@ -179,7 +179,7 @@ public:
 // Beam width K=1 tests
 //===----------------------------------------------------------------------===//
 
-TEST_F(BeamSearchTest, BeamWidthK1_ProducesSingleCandidate) {
+TEST_F(BeamSearchTest, BeamWidthK1ProducesSingleCandidate) {
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
   auto ops = buildChainGraph(shape);
 
@@ -209,7 +209,7 @@ TEST_F(BeamSearchTest, BeamWidthK1_ProducesSingleCandidate) {
 // Beam width K=8 tests
 //===----------------------------------------------------------------------===//
 
-TEST_F(BeamSearchTest, BeamWidthK8_ProducesMultipleCandidates) {
+TEST_F(BeamSearchTest, BeamWidthK8ProducesMultipleCandidates) {
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
   auto ops = buildChainGraph(shape);
 
@@ -235,7 +235,7 @@ TEST_F(BeamSearchTest, BeamWidthK8_ProducesMultipleCandidates) {
   }
 }
 
-TEST_F(BeamSearchTest, BeamWidthK8_CandidatesSortedByScore) {
+TEST_F(BeamSearchTest, BeamWidthK8CandidatesSortedByScore) {
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
   auto ops = buildChainGraph(shape);
 
@@ -264,7 +264,7 @@ TEST_F(BeamSearchTest, BeamWidthK8_CandidatesSortedByScore) {
 // Backward pass tests
 //===----------------------------------------------------------------------===//
 
-TEST_F(BeamSearchTest, BackwardPass_LinearChain_AllOpsHaveFinalChoice) {
+TEST_F(BeamSearchTest, BackwardPassLinearChainAllOpsHaveFinalChoice) {
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
   auto ops = buildChainGraph(shape);
 
@@ -293,7 +293,7 @@ TEST_F(BeamSearchTest, BackwardPass_LinearChain_AllOpsHaveFinalChoice) {
   }
 }
 
-TEST_F(BeamSearchTest, BackwardPass_ForkPoint_ResolvesWithoutCrash) {
+TEST_F(BeamSearchTest, BackwardPassForkPointResolvesWithoutCrash) {
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
   auto ops = buildForkGraph(shape);
   // ops = {add (fork), relu, multiply, add2}
@@ -326,7 +326,7 @@ TEST_F(BeamSearchTest, BackwardPass_ForkPoint_ResolvesWithoutCrash) {
   }
 }
 
-TEST_F(BeamSearchTest, BackwardPass_ForkPoint_BothConsumersInBeam) {
+TEST_F(BeamSearchTest, BackwardPassForkPointBothConsumersInBeam) {
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
   auto ops = buildForkGraph(shape);
   // ops = {add (fork), relu, multiply, add2}
@@ -354,7 +354,7 @@ TEST_F(BeamSearchTest, BackwardPass_ForkPoint_BothConsumersInBeam) {
 // K=1 backward pass is trivial (no consolidation)
 //===----------------------------------------------------------------------===//
 
-TEST_F(BeamSearchTest, BeamWidthK1_NoConsolidation) {
+TEST_F(BeamSearchTest, BeamWidthK1NoConsolidation) {
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
   auto ops = buildForkGraph(shape);
 
@@ -381,7 +381,7 @@ TEST_F(BeamSearchTest, BeamWidthK1_NoConsolidation) {
 // Smoke test: complex graph with K=8
 //===----------------------------------------------------------------------===//
 
-TEST_F(BeamSearchTest, BeamWidthK8_ComplexGraph_DoesNotCrash) {
+TEST_F(BeamSearchTest, BeamWidthK8ComplexGraphDoesNotCrash) {
   llvm::SmallVector<int64_t> shape = {1, 1, 64, 64};
   auto layout = createDRAMInterleavedLayout(shape);
   auto tensorType =
@@ -438,7 +438,7 @@ TEST_F(BeamSearchTest, BeamWidthK8_ComplexGraph_DoesNotCrash) {
 // Edge case: no valid candidates -> DRAM fallback
 //===----------------------------------------------------------------------===//
 
-TEST_F(BeamSearchTest, NoValidCandidate_FallbackToDRAM) {
+TEST_F(BeamSearchTest, NoValidCandidateFallbackToDRAM) {
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
   auto layout = createDRAMInterleavedLayout(shape);
   auto tensorType =
