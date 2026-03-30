@@ -540,7 +540,12 @@ class EmitC:
                     pass
                 gc.collect()
 
-                ttrt.runtime.test.close_so(emitc_dylib_handle)
+                try:
+                    ttrt.runtime.test.close_so(emitc_dylib_handle)
+                except Exception as close_exc:
+                    self.logging.warning(
+                        f"close_so() failed during cleanup: {close_exc}"
+                    )
 
         self.logging.debug(f"finished executing emitc_dylibs")
 
