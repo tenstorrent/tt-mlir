@@ -4356,6 +4356,18 @@ void CaptureOrExecuteTraceOp::getEffects(
            << executeInputTypes.size() << " arguments";
   }
 
+  // Verify that the single argument is a trace_id tensor (scalar ui32 with
+  // TraceIdAttr encoding).
+  auto traceIdType =
+      mlir::dyn_cast<mlir::RankedTensorType>(executeInputTypes[0]);
+  if (!traceIdType || traceIdType.getRank() != 0 ||
+      !mlir::isa_and_present<ttnn::TraceIdAttr>(traceIdType.getEncoding())) {
+    return emitOpError()
+           << "Execute function '" << executeCalleeAttr.getValue()
+           << "' argument must be a trace_id tensor (scalar ui32 with "
+              "TraceIdAttr encoding)";
+  }
+
   return ::mlir::success();
 }
 

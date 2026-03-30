@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Support/LLVM.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -14,7 +15,6 @@
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Utils.h"
 #include <atomic>
-#include "mlir/Support/LLVM.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNTRACEHOISTTRANSFORM
@@ -361,9 +361,10 @@ private:
       // transfer. These are already on device and will be used directly as
       // trace input slots.
       if (shouldKeepArgOnDevice(traceFunc, i)) {
-        assert(utils::getBufferTypeFromTensor(originalRankedTensorType) !=
-                   ttnn::BufferType::SystemMemory &&
-               "Device-resident arguments must already be in device memory.");
+        if (!utils::isTensorOnDevice(originalRankedTensorType)) {
+          return funcOp.emitError("Device-resident argument ")
+                 << i << " must already be in device memory";
+        }
         inputTypes.push_back(traceFuncArg.getType());
         traceInputSlotTypes.push_back(traceFuncArg.getType());
         continue;
@@ -378,8 +379,8 @@ private:
 
       inputTypes.push_back(inputArgType);
 
-      // Create the new output result type with the updated buffer type for the
-      // trace input slot for this argument on host.
+      // Create the device-side trace input slot type (DRAM) for this argument.
+      // This slot persists on device across trace executions.
       RankedTensorType dramTraceInputSlotType =
           utils::RankedTensorTypeFactory::create(originalRankedTensorType,
                                                  BufferType::DRAM);
@@ -680,10 +681,10 @@ private:
             utils::getLayoutAttrFromTensor(targetTensorType);
         TTNNLayoutAttr currentLayoutAttr =
             utils::getLayoutAttrFromTensor(currentTensorType);
-        assert(targetLayoutAttr.getDataType() ==
-                   currentLayoutAttr.getDataType() &&
-               "The data type should be the same since added ToLayoutOp only "
-               "changed buffer type.");
+        if (targetLayoutAttr.getDataType() != currentLayoutAttr.getDataType()) {
+          return funcOp.emitError("ToLayoutOp changed data type for argument ")
+                 << argIdx << ", expected only buffer type change";
+        }
         auto newArgType = utils::RankedTensorTypeFactory::create(
             currentTensorType, targetLayoutAttr.getBufferType());
         newArgType = utils::RankedTensorTypeFactory::create(
@@ -705,10 +706,10 @@ private:
             utils::getLayoutAttrFromTensor(targetTensorType);
         TTNNLayoutAttr currentLayoutAttr =
             utils::getLayoutAttrFromTensor(currentTensorType);
-        assert(targetLayoutAttr.getDataType() ==
-                   currentLayoutAttr.getDataType() &&
-               "The data type should be the same since added ToLayoutOp only "
-               "changed buffer type.");
+        if (targetLayoutAttr.getDataType() != currentLayoutAttr.getDataType()) {
+          return funcOp.emitError("ToLayoutOp changed data type for argument ")
+                 << argIdx << ", expected only buffer type change";
+        }
         newInputTypes.push_back(targetTensorType);
 
         // Replace all uses of ToLayoutOp with the function argument
@@ -812,8 +813,11 @@ private:
       // Device-resident values (constants, parameters, KV cache) can be
       // captured directly without moving to system memory.
       if (keepOnDevice) {
-        assert(layout.getBufferType() != ttnn::BufferType::SystemMemory &&
-               "Device-resident inputs must be on device.");
+        if (layout.getBufferType() == ttnn::BufferType::SystemMemory) {
+          return funcOp.emitError(
+              "Device-resident input must be on device, but found on "
+              "system memory");
+        }
         captureOrExecuteTraceOpInputs.push_back(input);
       }
       // For inputs, convert them to system memory/row major if needed
