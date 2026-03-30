@@ -2029,7 +2029,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 }
 
 // Fold reshape if input is constant
-static mlir::OpFoldResult constFoldRehsape(mlir::tt::ttir::ReshapeOp op,
+static mlir::OpFoldResult constFoldReshape(mlir::tt::ttir::ReshapeOp op,
                                            Attribute constInput) {
   if (auto denseAttr = dyn_cast_if_present<DenseElementsAttr>(constInput)) {
     RankedTensorType type = op.getResult().getType();
@@ -2051,7 +2051,7 @@ static mlir::OpFoldResult constFoldRehsape(mlir::tt::ttir::ReshapeOp op,
     return foldResult;
   }
 
-  if (auto foldResult = constFoldRehsape(*this, adaptor.getInput())) {
+  if (auto foldResult = constFoldReshape(*this, adaptor.getInput())) {
     return foldResult;
   }
 
@@ -2583,10 +2583,15 @@ foldConsecutiveSliceStatic(mlir::tt::ttir::SliceStaticOp consumerOp) {
   return nullptr;
 }
 
+// Constant fold SliceStaticOp when the input is a constant, non-splat and
+// non-empty DenseElementsAttr.
 template <typename ElemType>
 static mlir::OpFoldResult
 constantFoldNonSplatSliceStatic(mlir::tt::ttir::SliceStaticOp op,
                                 DenseElementsAttr denseAttr) {
+  assert(denseAttr && !denseAttr.isSplat() && !denseAttr.empty() &&
+         "Expected a non-splat, non-empty dense attribute");
+
   llvm::ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
   // Calculate step size for iterating over any dimension.
   llvm::SmallVector<int64_t> iterStepSize(inputShape.size());
@@ -2601,8 +2606,12 @@ constantFoldNonSplatSliceStatic(mlir::tt::ttir::SliceStaticOp op,
   llvm::SmallVector<int64_t> currIndex(inputShape.size());
   int64_t startPos = 0;
   for (size_t i = 0; i < currIndex.size(); ++i) {
-    begins[i] = mlir::cast<mlir::IntegerAttr>(op.getBegins()[i]).getInt();
-    ends[i] = mlir::cast<mlir::IntegerAttr>(op.getEnds()[i]).getInt();
+    int64_t dimSize = inputShape[i];
+    int64_t begin = mlir::cast<mlir::IntegerAttr>(op.getBegins()[i]).getInt();
+    int64_t end = mlir::cast<mlir::IntegerAttr>(op.getEnds()[i]).getInt();
+    // Adjust negative begin and end.
+    begins[i] = (begin < 0) ? (begin + dimSize) : begin;
+    ends[i] = (end < 0) ? (end + dimSize) : end;
     step[i] = mlir::cast<mlir::IntegerAttr>(op.getStep()[i]).getInt();
     currIndex[i] = begins[i];
     startPos += currIndex[i] * iterStepSize[i];

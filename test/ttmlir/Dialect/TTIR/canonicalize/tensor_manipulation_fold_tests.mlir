@@ -61,7 +61,7 @@ module {
     // CHECK: "ttir.constant"
     // CHECK-SAME: value = dense<{{\[\[}}2, 6], {{\[}}8, 12]]> : tensor<2x2xui64>
     %0 = "ttir.constant"() {value = dense<[[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]> : tensor<2x3x2xui64>} : () -> tensor<2x3x2xui64>
-    %1 = "ttir.slice_static"(%0) {begins = [0 : i32, 0 : i32, 1 : i32], ends = [2 : i32, 3 : i32, 0 : i32], step = [1 : i32, 2 : i32, -1 : i32]} : (tensor<2x3x2xui64>) -> tensor<2x2x1xui64>
+    %1 = "ttir.slice_static"(%0) {begins = [0 : i32, 0 : i32, -1 : i32], ends = [2 : i32, 3 : i32, 0 : i32], step = [1 : i32, 2 : i32, -1 : i32]} : (tensor<2x3x2xui64>) -> tensor<2x2x1xui64>
     %2 = "ttir.reshape"(%1) {shape = [2 : i32, 2 : i32]} : (tensor<2x2x1xui64>) -> tensor<2x2xui64>
     return %2 : tensor<2x2xui64>
   }
