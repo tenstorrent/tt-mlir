@@ -5,12 +5,15 @@
 #ifndef TTMLIR_CONVERSION_TTIRTOLINALG_UTILS_H
 #define TTMLIR_CONVERSION_TTIRTOLINALG_UTILS_H
 
+#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <functional>
 
 // Forward-declare to avoid pulling in the full TTIROps header.
 namespace mlir::tt::ttir {
@@ -69,6 +72,53 @@ Value createTosaConst(ConversionPatternRewriter &rewriter, Location loc,
 
 // Helper to create the TOSA mul shift operand (i8 zero tensor).
 Value createTosaMulShift(ConversionPatternRewriter &rewriter, Location loc);
+
+//===----------------------------------------------------------------------===//
+// Dimension helpers
+//===----------------------------------------------------------------------===//
+
+// Normalize negative dimension to positive. Negative dimensions are interpreted
+// as indexing from the end (e.g., -1 is the last dimension).
+int64_t normalizeDim(int64_t dim, int64_t rank);
+
+//===----------------------------------------------------------------------===//
+// TOSA reduction helpers
+//===----------------------------------------------------------------------===//
+
+// Create a chain of TOSA reduction operations for multiple dimensions.
+// Reduces each dimension in descending order and optionally reshapes if
+// !keepDim.
+template <typename TosaReductionOp>
+Value createReductionOpChain(Value input, RankedTensorType resultType,
+                             ArrayRef<int64_t> dims, bool keepDim, Location loc,
+                             ConversionPatternRewriter &rewriter) {
+  SmallVector<int64_t> sortedDims(dims.begin(), dims.end());
+  std::sort(sortedDims.begin(), sortedDims.end(), std::greater<int64_t>());
+
+  Value result = input;
+  auto inputType = cast<RankedTensorType>(input.getType());
+
+  SmallVector<int64_t> shape(inputType.getShape().begin(),
+                             inputType.getShape().end());
+  for (size_t i = 0; i < sortedDims.size(); ++i) {
+    int64_t dim = sortedDims[i];
+    auto axisAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(dim));
+    shape[dim] = 1;
+    auto opResultType =
+        RankedTensorType::get(shape, inputType.getElementType());
+    result =
+        rewriter.create<TosaReductionOp>(loc, opResultType, result, axisAttr);
+  }
+  if (!keepDim) {
+    ArrayRef<int64_t> newShape = resultType.getShape();
+    auto shapeType =
+        tosa::shapeType::get(rewriter.getContext(), newShape.size());
+    auto attr = rewriter.getIndexTensorAttr(newShape);
+    auto shapeOp = rewriter.create<tosa::ConstShapeOp>(loc, shapeType, attr);
+    result = rewriter.create<tosa::ReshapeOp>(loc, resultType, result, shapeOp);
+  }
+  return result;
+}
 
 //===----------------------------------------------------------------------===//
 // Sliding-window / pooling helpers
