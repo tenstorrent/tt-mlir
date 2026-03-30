@@ -255,6 +255,22 @@ static bool isConstantNonZero(mlir::Value value) {
   return attr && !isZeroAttr(attr);
 }
 
+// Check if the attribute represents one.
+static bool isOneAttr(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValue().isExactlyValue(1.0);
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return intAttr.getValue().isOne();
+  }
+  return false;
+}
+
+static bool isConstantOne(mlir::Value value) {
+  mlir::Attribute attr = getConstantValue(value);
+  return attr && isOneAttr(attr);
+}
+
 // Helper to extract the shape of a RankedTensorType as a vector of i32.
 static llvm::SmallVector<int32_t>
 getShapeAsI32(mlir::RankedTensorType tensorType) {
@@ -265,9 +281,38 @@ getShapeAsI32(mlir::RankedTensorType tensorType) {
 // LogicalAndOp
 //===----------------------------------------------------------------------===//
 
+// Check if a value is known to be boolean-valued (exactly 0 or 1).
+// True for: i1 types, constants that are exactly 0 or 1 (looks through
+// layout ops), and results of comparison/logical ops.
+static bool isBooleanValued(mlir::Value value) {
+  auto type = mlir::cast<mlir::RankedTensorType>(value.getType());
+  if (type.getElementType().isInteger(1)) {
+    return true;
+  }
+
+  if (isConstantZero(value) || isConstantOne(value)) {
+    return true;
+  }
+
+  mlir::Operation *defOp = value.getDefiningOp();
+  if (!defOp) {
+    return false;
+  }
+
+  // Comparison and logical ops always produce 0/1.
+  return llvm::isa<mlir::tt::ttir::EqualOp, mlir::tt::ttir::NotEqualOp,
+                   mlir::tt::ttir::GreaterEqualOp,
+                   mlir::tt::ttir::GreaterThanOp, mlir::tt::ttir::LessEqualOp,
+                   mlir::tt::ttir::LessThanOp, mlir::tt::ttir::LogicalAndOp,
+                   mlir::tt::ttir::LogicalOrOp, mlir::tt::ttir::LogicalXorOp,
+                   mlir::tt::ttir::LogicalNotOp, mlir::tt::ttir::IsFiniteOp>(
+      defOp);
+}
+
 // LogicalAndOp canonicalization:
-//   and(zero, x)    -> ZerosOp        (absorbing)
-//   and(nonzero, x) -> x (i1) or OnesOp (identity, both const nonzero)
+//   and(zero, x)    -> ZerosOp   (absorbing)
+//   and(nonzero, x) -> x         (identity, when x is boolean-valued)
+//   and(nonzero, nonzero) -> OnesOp (both constant nonzero)
 void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
@@ -275,7 +320,6 @@ void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
       +[](mlir::tt::ttir::LogicalAndOp op, mlir::PatternRewriter &rewriter) {
         auto resultType =
             mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
-        bool isI1 = resultType.getElementType().isInteger(1);
 
         // Absorbing: and(zero, x) -> 0
         if (isConstantZero(op.getLhs()) || isConstantZero(op.getRhs())) {
@@ -285,12 +329,12 @@ void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
           return mlir::success();
         }
 
-        // Identity: and(nonzero, x) -> x when x is guaranteed boolean (i1)
-        if (isConstantNonZero(op.getLhs()) && isI1) {
+        // Identity: and(nonzero, x) -> x when x is boolean-valued
+        if (isConstantNonZero(op.getLhs()) && isBooleanValued(op.getRhs())) {
           rewriter.replaceOp(op, op.getRhs());
           return mlir::success();
         }
-        if (isConstantNonZero(op.getRhs()) && isI1) {
+        if (isConstantNonZero(op.getRhs()) && isBooleanValued(op.getLhs())) {
           rewriter.replaceOp(op, op.getLhs());
           return mlir::success();
         }
@@ -313,8 +357,9 @@ void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
 //===----------------------------------------------------------------------===//
 
 // LogicalOrOp canonicalization:
-//   or(nonzero, x) -> OnesOp          (absorbing)
-//   or(zero, x)    -> x (i1) or ZerosOp (identity, both const zero)
+//   or(nonzero, x) -> OnesOp   (absorbing)
+//   or(zero, x)    -> x        (identity, when x is boolean-valued)
+//   or(zero, zero)  -> ZerosOp  (both constant zero)
 void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
@@ -322,7 +367,6 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
       +[](mlir::tt::ttir::LogicalOrOp op, mlir::PatternRewriter &rewriter) {
         auto resultType =
             mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
-        bool isI1 = resultType.getElementType().isInteger(1);
 
         // Absorbing: or(nonzero, x) -> 1
         if (isConstantNonZero(op.getLhs()) || isConstantNonZero(op.getRhs())) {
@@ -332,12 +376,12 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
           return mlir::success();
         }
 
-        // Identity: or(zero, x) -> x when x is guaranteed boolean (i1)
-        if (isConstantZero(op.getLhs()) && isI1) {
+        // Identity: or(zero, x) -> x when x is boolean-valued
+        if (isConstantZero(op.getLhs()) && isBooleanValued(op.getRhs())) {
           rewriter.replaceOp(op, op.getRhs());
           return mlir::success();
         }
-        if (isConstantZero(op.getRhs()) && isI1) {
+        if (isConstantZero(op.getRhs()) && isBooleanValued(op.getLhs())) {
           rewriter.replaceOp(op, op.getLhs());
           return mlir::success();
         }
