@@ -362,7 +362,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), reductionAxis, adaptor.getKeepDim(),
-        /*use_multicore=*/false, /*memoryConfig=*/nullptr);
+        /*use_multicore=*/true, /*memoryConfig=*/nullptr);
     return success();
   }
 };
