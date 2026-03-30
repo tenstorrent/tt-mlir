@@ -77,27 +77,21 @@ static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
-  if (memref::LoadOp loadOp =
-          mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
-      loadOp) {
+  if (auto loadOp = cb.getDefiningOp<memref::LoadOp>()) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
-    return rewriter.getRemappedValue(loadOp.getMemref());
+    return rewriter.getRemappedValue(loadOp.getMemRef());
   }
 
-  if (auto affLoad =
-          mlir::dyn_cast_if_present<affine::AffineLoadOp>(cb.getDefiningOp())) {
+  if (auto affLoad = cb.getDefiningOp<affine::AffineLoadOp>()) {
     return rewriter.getRemappedValue(affLoad.getMemRef());
   }
 
-  if (mlir::isa<memref::SubViewOp>(cb.getDefiningOp())) {
-    memref::SubViewOp subViewOp =
-        mlir::cast<memref::SubViewOp>(cb.getDefiningOp());
+  if (auto subViewOp = cb.getDefiningOp<memref::SubViewOp>()) {
     return rewriter.getRemappedValue(subViewOp.getSource());
   }
 
-  if (mlir::isa<memref::CastOp>(cb.getDefiningOp())) {
-    memref::CastOp castOp = mlir::cast<memref::CastOp>(cb.getDefiningOp());
+  if (auto castOp = cb.getDefiningOp<memref::CastOp>()) {
     return rewriter.getRemappedValue(castOp.getSource());
   }
   llvm_unreachable("Expected load or subview op");
@@ -170,14 +164,10 @@ static void ensureDominatesInsertionPoint(OpBuilder &rewriter, Value value) {
 // (including DST-only producers such as fill_tile).
 static Value tryGetL1CbFromTensorShardLoad(ConversionPatternRewriter &rewriter,
                                            Value v) {
-  Operation *def = v.getDefiningOp();
-  if (!def) {
-    return nullptr;
-  }
   Value memref;
-  if (auto load = mlir::dyn_cast<memref::LoadOp>(def)) {
-    memref = load.getMemref();
-  } else if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(def)) {
+  if (auto load = v.getDefiningOp<memref::LoadOp>()) {
+    memref = load.getMemRef();
+  } else if (auto load = v.getDefiningOp<affine::AffineLoadOp>()) {
     memref = load.getMemRef();
   } else {
     return nullptr;
@@ -188,25 +178,14 @@ static Value tryGetL1CbFromTensorShardLoad(ConversionPatternRewriter &rewriter,
   return rewriter.getRemappedValue(memref);
 }
 
-// Walk the enclosing host `func.func` for the first L1 load / store (memref or
-// affine). Used when operand-local CB resolution is insufficient.
-static Value findFirstL1InputCbMemref(func::FuncOp func) {
-  Value cb = nullptr;
-  func.walk([&](memref::LoadOp loadOp) {
-    if (ttcore::getMemorySpace(loadOp.getMemRef()) ==
-        ttcore::MemorySpace::DeviceL1) {
-      cb = loadOp.getMemRef();
-      return WalkResult::interrupt();
-    }
-    return WalkResult::advance();
-  });
-  if (cb) {
-    return cb;
-  }
-  func.walk([&](affine::AffineLoadOp loadOp) {
-    if (ttcore::getMemorySpace(loadOp.getMemRef()) ==
-        ttcore::MemorySpace::DeviceL1) {
-      cb = loadOp.getMemRef();
+// Walk `func` for the first L1 memref touched by `OpTy` (load or store).
+template <typename OpTy>
+static Value findFirstL1CbForOpKind(func::FuncOp func) {
+  Value cb;
+  func.walk([&](OpTy accessOp) {
+    Value m = accessOp.getMemRef();
+    if (ttcore::getMemorySpace(m) == ttcore::MemorySpace::DeviceL1) {
+      cb = m;
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
@@ -214,44 +193,36 @@ static Value findFirstL1InputCbMemref(func::FuncOp func) {
   return cb;
 }
 
-static Value findFirstL1OutputCbMemref(func::FuncOp func) {
-  Value cb = nullptr;
-  func.walk([&](memref::StoreOp storeOp) {
-    if (ttcore::getMemorySpace(storeOp.getMemRef()) ==
-        ttcore::MemorySpace::DeviceL1) {
-      cb = storeOp.getMemRef();
-      return WalkResult::interrupt();
+// First memref load/store wins; memref dialect ops are scanned before affine.
+// Used when operand-local CB resolution is insufficient.
+static Value findFirstL1CbMemref(func::FuncOp func, bool forInput) {
+  if (forInput) {
+    if (Value cb = findFirstL1CbForOpKind<memref::LoadOp>(func)) {
+      return cb;
     }
-    return WalkResult::advance();
-  });
-  if (cb) {
+    return findFirstL1CbForOpKind<affine::AffineLoadOp>(func);
+  }
+  if (Value cb = findFirstL1CbForOpKind<memref::StoreOp>(func)) {
     return cb;
   }
-  func.walk([&](affine::AffineStoreOp storeOp) {
-    if (ttcore::getMemorySpace(storeOp.getMemRef()) ==
-        ttcore::MemorySpace::DeviceL1) {
-      cb = storeOp.getMemRef();
-      return WalkResult::interrupt();
-    }
-    return WalkResult::advance();
-  });
-  return cb;
+  return findFirstL1CbForOpKind<affine::AffineStoreOp>(func);
+}
+
+static Value getRemappedFirstL1Cb(ConversionPatternRewriter &rewriter,
+                                  Operation *op, bool forInput) {
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  assert(func && "Expected func op.");
+  Value cb = findFirstL1CbMemref(func, forInput);
+  assert(cb && "CB not found.");
+  return rewriter.getRemappedValue(cb);
 }
 
 static Value getInCB(ConversionPatternRewriter &rewriter, Operation *op) {
-  func::FuncOp func = op->getParentOfType<func::FuncOp>();
-  assert(func && "Expected func op.");
-  Value cb = findFirstL1InputCbMemref(func);
-  assert(cb && "CB not found.");
-  return rewriter.getRemappedValue(cb);
+  return getRemappedFirstL1Cb(rewriter, op, /*forInput=*/true);
 }
 
 static Value getOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
-  func::FuncOp func = op->getParentOfType<func::FuncOp>();
-  assert(func && "Expected func op.");
-  Value cb = findFirstL1OutputCbMemref(func);
-  assert(cb && "CB not found.");
-  return rewriter.getRemappedValue(cb);
+  return getRemappedFirstL1Cb(rewriter, op, /*forInput=*/false);
 }
 
 // Check if an operand comes from DST.

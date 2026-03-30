@@ -18,7 +18,6 @@ from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
-torch.manual_seed(0)
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
@@ -118,9 +117,15 @@ def test_constant_binary(
     """Constant as one operand of a binary op: maximum(input, constant)."""
 
     if dtype.is_floating_point:
-        floor = torch.full(shape, -1.0, dtype=dtype)
+        low, high = -4.0, 4.0
+        midpoint = (low + high) / 2
+        input_tensor = torch.rand(shape, dtype=dtype) * (high - low) + low
+        const_tensor = torch.full(shape, midpoint, dtype=dtype)
     else:
-        floor = torch.full(shape, -100, dtype=dtype)
+        low, high = -100, 100
+        midpoint = (low + high) // 2
+        input_tensor = torch.randint(low, high + 1, shape, dtype=dtype)
+        const_tensor = torch.full(shape, midpoint, dtype=dtype)
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -129,7 +134,8 @@ def test_constant_binary(
             builder: TTIRBuilder,
             unit_attrs: List[str] = None,
         ):
-            c = builder.constant(floor, unit_attrs=unit_attrs)
+            builder.set_goldens(inputs={in0: input_tensor})
+            c = builder.constant(const_tensor, unit_attrs=unit_attrs)
             return builder.maximum(in0, c, unit_attrs=unit_attrs)
 
     kwargs = {
