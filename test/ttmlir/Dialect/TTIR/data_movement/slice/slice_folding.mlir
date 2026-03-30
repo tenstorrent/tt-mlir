@@ -8,6 +8,7 @@ module attributes {} {
                                       %t3: tensor<8x128x1x1x4xbf16>,
                                       %t4: tensor<8x128x1x1x4xbf16>) -> tensor<8x128x1x1x4xbf16> {
     // CHECK-NOT: ttir.concat
+    // CHECK-NOT: ttir.slice_static
     // CHECK: return %arg0 : tensor<8x128x1x1x4xbf16>
     %concat = "ttir.concat"(%t1, %t2, %t3, %t4) <{dim = 3 : si32}> : (tensor<8x128x1x1x4xbf16>, tensor<8x128x1x1x4xbf16>, tensor<8x128x1x1x4xbf16>, tensor<8x128x1x1x4xbf16>) -> tensor<8x128x1x4x4xbf16>
     %slice = "ttir.slice_static"(%concat) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [8 : i32, 128 : i32, 1 : i32, 1 : i32, 4 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<8x128x1x4x4xbf16>) -> tensor<8x128x1x1x4xbf16>
@@ -19,6 +20,7 @@ module attributes {} {
                                        %t2: tensor<8x128x1x2x4xbf16>,
                                        %t3: tensor<8x128x1x2x4xbf16>) -> tensor<8x128x1x2x4xbf16> {
     // CHECK-NOT: ttir.concat
+    // CHECK-NOT: ttir.slice_static
     // CHECK: return %arg1 : tensor<8x128x1x2x4xbf16>
     %concat = "ttir.concat"(%t1, %t2, %t3) <{dim = 3 : si32}> : (tensor<8x128x1x2x4xbf16>, tensor<8x128x1x2x4xbf16>, tensor<8x128x1x2x4xbf16>) -> tensor<8x128x1x6x4xbf16>
     %slice = "ttir.slice_static"(%concat) <{begins = [0 : i32, 0 : i32, 0 : i32, 2 : i32, 0 : i32], ends = [8 : i32, 128 : i32, 1 : i32, 4 : i32, 4 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<8x128x1x6x4xbf16>) -> tensor<8x128x1x2x4xbf16>
@@ -41,6 +43,7 @@ module attributes {} {
                                       %t3: tensor<8x128x1x1x4xbf16>,
                                       %t4: tensor<8x128x1x1x4xbf16>) -> tensor<8x128x1x1x4xbf16> {
     // CHECK-NOT: ttir.concat
+    // CHECK-NOT: ttir.slice_static
     // CHECK: return %arg0 : tensor<8x128x1x1x4xbf16>
     %concat = "ttir.concat"(%t1, %t2, %t3, %t4) <{dim = -2 : si32}> : (tensor<8x128x1x1x4xbf16>, tensor<8x128x1x1x4xbf16>, tensor<8x128x1x1x4xbf16>, tensor<8x128x1x1x4xbf16>) -> tensor<8x128x1x4x4xbf16>
     %slice = "ttir.slice_static"(%concat) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [8 : i32, 128 : i32, 1 : i32, 1 : i32, 4 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<8x128x1x4x4xbf16>) -> tensor<8x128x1x1x4xbf16>
