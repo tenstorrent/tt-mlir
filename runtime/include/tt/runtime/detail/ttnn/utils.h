@@ -16,6 +16,8 @@ bool isOnHost(const ::ttnn::StorageType &storageType);
 
 bool isOnDevice(const ::ttnn::StorageType &storageType);
 
+bool inSystemMemory(const ::tt::target::ttnn::TensorRefT &tensorRef);
+
 bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 bool inDeviceMemory(const ::tt::target::ttnn::TensorRef *tensorRef);
@@ -117,8 +119,14 @@ fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
 
 CoreType toCoreType(const ::tt::target::ttnn::CoreType &coreType);
 
+const ::tt::target::ttnn::MemoryConfigT
+getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRefT &tensorRef);
+
 const ::tt::target::ttnn::MemoryConfig *
 getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef);
+
+std::optional<::ttnn::MemoryConfig>
+createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfigT &memcfg);
 
 std::optional<::ttnn::MemoryConfig>
 createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);

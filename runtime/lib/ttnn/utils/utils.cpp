@@ -16,6 +16,7 @@
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
+#include "ttmlir/Target/TTNN/types_generated.h"
 
 namespace tt::runtime::ttnn::utils {
 
@@ -47,10 +48,16 @@ bool isOnDevice(const ::ttnn::StorageType &storageType) {
   return storageType == ::ttnn::StorageType::DEVICE;
 }
 
-bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef) {
+bool inSystemMemory(const ::tt::target::ttnn::TensorRefT &tensorRef) {
   const ::tt::target::ttnn::StorageType storageType =
-      tensorRef->desc()->layout()->memory_desc()->storage_type();
+    tensorRef.desc->layout->memory_desc->storage_type;
   return storageType == ::tt::target::ttnn::StorageType::Host;
+}
+
+bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef) {
+  ::tt::target::ttnn::TensorRefT tensorRefT;
+  tensorRef->UnPackTo(&tensorRefT);
+  return inSystemMemory(tensorRefT);
 }
 
 bool inDeviceMemory(const ::tt::target::ttnn::TensorRef *tensorRef) {
@@ -474,45 +481,46 @@ fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
   }
 }
 
+const ::tt::target::ttnn::MemoryConfigT
+getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRefT &tensorRef) {
+  return *tensorRef.desc->layout->memory_desc->memory_config;
+}
+
 const ::tt::target::ttnn::MemoryConfig *
 getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef) {
   return tensorRef->desc()->layout()->memory_desc()->memory_config();
 }
 
 std::optional<::ttnn::MemoryConfig>
-createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
-  if (!memcfg) {
-    return std::nullopt;
-  }
-
-  const auto targetBufferType = memcfg->buffer_type();
+createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfigT &memcfg) {
+  const auto targetBufferType = memcfg.buffer_type;
   LOG_ASSERT(targetBufferType == ::tt::target::BufferType::DRAM ||
                  targetBufferType == ::tt::target::BufferType::L1,
              "Memory config buffer type should be DRAM or L1");
   const auto ttnnBufferType = toTTNNBufferType(targetBufferType);
 
-  const auto targetMemLayout = memcfg->tensor_memory_layout();
+  const auto targetMemLayout = memcfg.tensor_memory_layout;
   const auto memLayout = toTTNNTensorMemoryLayout(targetMemLayout);
 
   // Verify that shard spec is present only for sharded memory layouts
   const bool hasShardSpec =
-      (memcfg->shard_spec() != nullptr) || (memcfg->nd_shard_spec() != nullptr);
+      (memcfg.shard_spec != nullptr) || (memcfg.nd_shard_spec != nullptr);
   LOG_ASSERT(
       hasShardSpec == isSharded(targetMemLayout),
       "A shard spec must be present if and only if the tensor is sharded");
 
   // Handle (legacy) shard spec
-  if (const auto *shardSpec = memcfg->shard_spec()) {
-    const auto *shardShape = shardSpec->shape();
-    LOG_ASSERT(shardShape->size() == 2,
+  if (const auto &shardSpec = memcfg.shard_spec) {
+    const auto &shardShape = shardSpec->shape;
+    LOG_ASSERT(shardShape.size() == 2,
                "Only 2D shard shape is supported in TTNN backend");
     std::array<uint32_t, 2> shape;
-    std::copy(shardShape->begin(), shardShape->end(), shape.begin());
+    std::copy(shardShape.begin(), shardShape.end(), shape.begin());
 
     const tt::tt_metal::CoreRangeSet coreRangeSet =
-        toTTNNCoreRangeSet(*shardSpec->core_range_set());
+        toTTNNCoreRangeSet(*shardSpec->core_range_set);
     const ::ttnn::ShardOrientation orientation =
-        toTTNNShardOrientation(shardSpec->orientation());
+        toTTNNShardOrientation(shardSpec->orientation);
     auto metalShardSpec =
         ::tt::tt_metal::ShardSpec(coreRangeSet, shape, orientation);
 
@@ -520,16 +528,16 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
   }
 
   // Handle ND shard spec
-  if (const auto *ndShardSpec = memcfg->nd_shard_spec()) {
-    const auto *shardShape = ndShardSpec->shape();
-    std::vector<uint32_t> shape(shardShape->begin(), shardShape->end());
+  if (const auto &ndShardSpec = memcfg.nd_shard_spec) {
+    const auto &shardShape = ndShardSpec->shape;
+    std::vector<uint32_t> shape(shardShape.begin(), shardShape.end());
 
     const tt::tt_metal::CoreRangeSet coreRangeSet =
-        toTTNNCoreRangeSet(*ndShardSpec->core_range_set());
+        toTTNNCoreRangeSet(*ndShardSpec->core_range_set);
     const ::ttnn::ShardOrientation orientation =
-        toTTNNShardOrientation(ndShardSpec->orientation());
+        toTTNNShardOrientation(ndShardSpec->orientation);
     const tt::tt_metal::ShardDistributionStrategy strategy =
-        toTTNNShardDistributionStrategy(ndShardSpec->distribution_strategy());
+        toTTNNShardDistributionStrategy(ndShardSpec->distribution_strategy);
     auto metalNdShardSpec = tt::tt_metal::NdShardSpec(
         tt::tt_metal::Shape(ttsl::Span<const uint32_t>(shape)), coreRangeSet,
         orientation, strategy);
@@ -539,6 +547,17 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
 
   // Non-sharded memory config
   return ::ttnn::MemoryConfig{memLayout, ttnnBufferType};
+}
+
+std::optional<::ttnn::MemoryConfig>
+createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
+  if (!memcfg) {
+    return std::nullopt;
+  }
+
+  ::tt::target::ttnn::MemoryConfigT memcfgT;
+  memcfg->UnPackTo(&memcfgT);
+  return createMemoryConfigIfNeeded(memcfgT);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
