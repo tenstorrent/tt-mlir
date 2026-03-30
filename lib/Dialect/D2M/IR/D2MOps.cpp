@@ -3019,17 +3019,13 @@ bool d2m::GenericOp::isNontriviallyEltwiseFused() {
 namespace {
 
 struct LocalBufferAssociation {
+  LocalBufferAssociation() = default;
+  LocalBufferAssociation(Value operand, bool hasRemoteUse)
+      : operand(operand), hasRemoteUse(hasRemoteUse) {}
+
   Value operand;
   bool hasRemoteUse = false;
 };
-
-static LocalBufferAssociation makeLocalBufferAssociation(Value operand,
-                                                         bool hasRemoteUse) {
-  LocalBufferAssociation association;
-  association.operand = operand;
-  association.hasRemoteUse = hasRemoteUse;
-  return association;
-}
 
 static LocalBufferAssociation
 analyzeLocalBufferAssociation(Value localBuffer,
@@ -3075,19 +3071,19 @@ analyzeLocalBufferAssociation(Value localBuffer,
       loadOperand != storeOperand) {
     // A buffer shared between different load/store operands must follow the
     // store-side operand so Allocate can treat it as an output buffer.
-    return makeLocalBufferAssociation(storeOperand, hasRemoteUse);
+    return LocalBufferAssociation(storeOperand, hasRemoteUse);
   }
   if (storeOperand && !hasConflictingStoreOperands) {
-    return makeLocalBufferAssociation(storeOperand, hasRemoteUse);
+    return LocalBufferAssociation(storeOperand, hasRemoteUse);
   }
   if (loadOperand && !hasConflictingLoadOperands) {
-    return makeLocalBufferAssociation(loadOperand, hasRemoteUse);
+    return LocalBufferAssociation(loadOperand, hasRemoteUse);
   }
   if (!hasRemoteUse) {
-    return makeLocalBufferAssociation(fallbackOperand, false);
+    return LocalBufferAssociation(fallbackOperand, false);
   }
 
-  return makeLocalBufferAssociation(Value(), true);
+  return LocalBufferAssociation(Value(), true);
 }
 
 } // namespace

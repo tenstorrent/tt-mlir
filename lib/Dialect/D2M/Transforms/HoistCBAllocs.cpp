@@ -95,35 +95,11 @@ private:
     }
   }
 
-  // Helper function to check if an operand is remote (i.e., implies data
-  // movement). This includes view ops (view_layout) and buffers with
-  // CBLayoutAttr (streaming circular buffers hoisted from the generic).
-  static bool isRemoteOperand(Value operand) {
-    Operation *defOp = operand.getDefiningOp();
-    if (!defOp) {
-      return false;
-    }
-    if (mlir::isa<ViewOpInterface>(defOp)) {
-      return true;
-    }
-    // A buffer with CBLayoutAttr is a streaming CB that requires real
-    // data movement from an external shard.
-    if (auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType())) {
-      auto memspace = ttcore::getMemorySpace(memrefType);
-      if (memspace == ttcore::MemorySpace::DeviceDRAM ||
-          mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   /// Find the regular operand index for a CB alloc by tracing through
   /// its remote_load/remote_store memref operand back to the generic's
   /// operands.
-  /// In the case that a load and store both use the same alloc and both are
-  /// true (non-aliased) remote load/stores, consider the allocation as
-  /// belonging _to the input operand_.
+  /// In the case that a remote load and store both use the same AllocOp,
+  /// consider the allocation as corresponding to the _input_ operand.
   static int64_t findRegularOperandIndex(d2m::GenericOp genericOp,
                                          memref::AllocOp allocOp) {
     for (Operation *user : allocOp.getResult().getUsers()) {
@@ -131,6 +107,8 @@ private:
         Value memref = remoteLoad.getMemref();
         for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
           if (genericOp->getOperand(i) == memref) {
+            // Eagerly return input operand associated with remote load, even if
+            // remote_store may also use the same alloc.
             return static_cast<int64_t>(i);
           }
         }

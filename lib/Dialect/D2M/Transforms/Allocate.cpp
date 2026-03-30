@@ -641,6 +641,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             }
             Value operandAlloc = d2m::GenericOp::getOperandAlloc(
                 region, operandCtx.operandIndex());
+            // If getOperandAlloc fails but requiresCBAllocation is true,
+            // assume that is because the local buffer associated with this
+            // operand might be shared by a pair of remote load and store ops
+            // (buffer is not exclusive to a single operand).
             if (!operandAlloc) {
               operandAlloc = findSharedOutputBuffer(genericOp, operandCtx);
             }

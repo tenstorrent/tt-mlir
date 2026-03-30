@@ -172,9 +172,6 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
     }
 
     if (isRemoteStore) {
-      // If paired remote load has aliased CB, store should read from _input_ CB
-      // Otherwise, the paired remote load will load data directly into the
-      // output CB, so use it instead.
       auto cb = inputCB;
       rewriter.create<RemoteStoreOp>(loc, storeMemref, storeOp.getIndices(),
                                      cb);
