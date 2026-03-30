@@ -1342,6 +1342,7 @@ private:
   // Compute a valid core grid for group_norm.
   // This is mirror to tt-metal's computeGroupNormCoreGrid.
   // ttnn/cpp/ttnn/operations/normalization/groupnorm/groupnorm_grid_utils.cpp
+  // metal issue: https://github.com/tenstorrent/tt-metal/issues/40916
   static std::pair<uint64_t, uint64_t>
   computeGroupNormCoreGrid(int64_t deviceGridX, int64_t deviceGridY,
                            int64_t numChannels, int64_t numGroups,
@@ -1452,9 +1453,10 @@ public:
     RankedTensorType groupNormInputType =
         mlir::cast<RankedTensorType>(input.getType());
 
-    ArrayRef<int64_t> gnShape = groupNormInputType.getShape();
-    int64_t inputNHW = gnShape[0] * gnShape[1] * gnShape[2];
-    int64_t numChannels = gnShape[3];
+    llvm::SmallVector<int64_t> paddedGnShape =
+        ttnn::utils::getTilePaddedShape(groupNormInputType.getShape());
+    int64_t inputNHW = paddedGnShape[0] * paddedGnShape[1] * paddedGnShape[2];
+    int64_t numChannels = paddedGnShape[3];
     int64_t numGroups = adaptor.getNumGroups();
 
     ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
