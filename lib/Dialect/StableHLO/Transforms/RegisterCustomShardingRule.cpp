@@ -37,6 +37,9 @@ static constexpr llvm::StringLiteral allToAllCombineTargetName =
 static constexpr llvm::StringLiteral moeExpertTokenRemapTargetName =
     "tt.moe_expert_token_remap";
 
+static constexpr llvm::StringLiteral layerNormTargetName =
+    "tenstorrent.layer_norm";
+
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
@@ -927,6 +930,79 @@ getMoeExpertTokenRemapShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Sharding rule for tenstorrent.layer_norm composite.
+//
+// Layer norm operands:
+//   operand 0: input  [batch dims..., normalized dims...]
+//   operand 1: weight [normalized dims...] (optional)
+//   operand 2: bias   [normalized dims...] (optional)
+// Result: same shape as input.
+//
+// Batch dimensions (leading dims not in normalized_shape) can be freely
+// sharded. Normalized dimensions require replication because layer norm
+// reduces over them.
+static mlir::sdy::OpShardingRuleAttr
+getLayerNormShardingRule(mlir::stablehlo::CompositeOp op) {
+  auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  if (!inputType) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Extract normalized_shape from composite attributes to determine which
+  // trailing dimensions are normalized (and thus need replication).
+  DictionaryAttr compositeAttrs = op.getCompositeAttributes();
+  auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
+  int64_t numNormalizedDims = 0;
+
+  if (auto denseAttr =
+          mlir::dyn_cast_or_null<DenseIntElementsAttr>(normalizedShapeAttr)) {
+    numNormalizedDims = denseAttr.getNumElements();
+  } else if (auto arrayAttr =
+                 mlir::dyn_cast_or_null<ArrayAttr>(normalizedShapeAttr)) {
+    numNormalizedDims = arrayAttr.size();
+  } else {
+    // Can't determine normalized dimensions — fall back to flatten path.
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  const int64_t inputRank = inputType.getRank();
+  const int64_t numBatchDims = inputRank - numNormalizedDims;
+  if (numBatchDims < 0) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  const int64_t numOperands = op.getNumOperands();
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  // Batch dimensions: pass-through for input (operand 0) and result.
+  // Weight/bias don't have batch dimensions (kNullDim).
+  for (int64_t dim = 0; dim < numBatchDims; dim++) {
+    SmallVector<int64_t> operandDims(numOperands, mlir::sdy::kNullDim);
+    operandDims[0] = dim; // input has this batch dim
+    builder.addFactor(operandDims, {dim}, inputType.getDimSize(dim),
+                      mlir::sdy::FactorType::kPassThrough);
+  }
+
+  // Normalized dimensions: need replication because layer norm reduces over
+  // them. These are the trailing dimensions of the input and ALL dimensions
+  // of weight/bias.
+  for (int64_t i = 0; i < numNormalizedDims; i++) {
+    int64_t inputDim = numBatchDims + i;
+    SmallVector<int64_t> operandDims(numOperands, mlir::sdy::kNullDim);
+    operandDims[0] = inputDim; // input
+    if (numOperands > 1) {
+      operandDims[1] = i; // weight
+    }
+    if (numOperands > 2) {
+      operandDims[2] = i; // bias
+    }
+    builder.addFactor(operandDims, {inputDim}, inputType.getDimSize(inputDim),
+                      mlir::sdy::FactorType::kNeedReplication);
+  }
+
+  return builder.build();
+}
+
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
           StablehloCustomCallShardingModel, ::mlir::stablehlo::CustomCallOp> {
@@ -1004,8 +1080,7 @@ private:
   llvm::DenseMap<llvm::StringRef, std::function<mlir::sdy::OpShardingRuleAttr(
                                       mlir::stablehlo::CompositeOp)>>
       compositeShardingRules = {
-          // Add rules here as needed, e.g.:
-          // {layerNormTargetName, getLayerNormShardingRule},
+          {layerNormTargetName, getLayerNormShardingRule},
       };
 };
 
@@ -1021,7 +1096,6 @@ public:
     MLIRContext *context = rootModule.getContext();
 
     context->loadDialect<mlir::stablehlo::StablehloDialect>();
-    // Register for stablehlo.CustomCallOp
     mlir::stablehlo::CustomCallOp::attachInterface<
         StablehloCustomCallShardingModel>(*context);
     mlir::stablehlo::ScatterOp::attachInterface<
@@ -1030,7 +1104,6 @@ public:
         StablehloShardingModel<mlir::stablehlo::BatchNormTrainingOp>>(*context);
     mlir::stablehlo::BatchNormGradOp::attachInterface<
         StablehloShardingModel<mlir::stablehlo::BatchNormGradOp>>(*context);
-    // Register for stablehlo.CompositeOp
     mlir::stablehlo::CompositeOp::attachInterface<
         StablehloCompositeShardingModel>(*context);
   }
