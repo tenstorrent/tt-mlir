@@ -635,7 +635,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             }
             auto operandMemSpace =
                 ttcore::getMemorySpace(operandCtx.operand->get().getType());
-            if (!requiresCBAllocation(genericOp, operandCtx, operandMemSpace)) {
+            if (!requiresCBAllocation(genericOp, genericIt->second, operandCtx,
+                                      operandMemSpace)) {
               continue;
             }
             Value operandAlloc = d2m::GenericOp::getOperandAlloc(
@@ -1363,7 +1364,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         }
         TT_assert(remappedMemSpace.has_value());
         const MemorySpace finalRemappedMemSpace = *remappedMemSpace;
-        if (requiresCBAllocation(genericOp, operandCtx, *remappedMemSpace)) {
+        if (requiresCBAllocation(genericOp, genericCtx, operandCtx,
+                                 *remappedMemSpace)) {
 
           // Record all aliases along the operand def-chain.
           // This is needed because a generic operand may have several aliases
@@ -1429,7 +1431,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_debug(memrefIt2 != analysis.memrefs.end());
         const MemorySpace operandMemSpace = *memrefIt2->second.remappedMemSpace;
 
-        if (requiresCBAllocation(genericOp, operandCtx, operandMemSpace)) {
+        if (requiresCBAllocation(genericOp, genericCtx, operandCtx,
+                                 operandMemSpace)) {
           Type cbUnderlyingType;
           TT_assert(!genericOp->getRegions().empty());
           Region &region = genericOp->getRegions().front();
@@ -1746,6 +1749,126 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return false;
   }
 
+  struct SharedLoadStoreInfo {
+    Value localBuffer;
+    Value loadMemref;
+    Value storeMemref;
+  };
+
+  static std::optional<SharedLoadStoreInfo>
+  getSharedLoadStoreInfo(Value localBuffer) {
+    if (!localBuffer) {
+      return std::nullopt;
+    }
+
+    SharedLoadStoreInfo info{localBuffer, Value(), Value()};
+    for (Operation *userOp : localBuffer.getUsers()) {
+      if (auto loadOp = mlir::dyn_cast<d2m::RemoteLoadOp>(userOp)) {
+        if (loadOp.getLocalBuffer() == localBuffer) {
+          info.loadMemref = loadOp.getMemref();
+          continue;
+        }
+      }
+      if (auto storeOp = mlir::dyn_cast<d2m::RemoteStoreOp>(userOp)) {
+        if (storeOp.getLocalBuffer() == localBuffer) {
+          info.storeMemref = storeOp.getMemref();
+        }
+      }
+    }
+
+    if (!info.loadMemref || !info.storeMemref ||
+        info.loadMemref == info.storeMemref) {
+      return std::nullopt;
+    }
+
+    return info;
+  }
+
+  static bool isOperandAliasOfValue(const OperandContext &operandCtx,
+                                    Value value) {
+    if (!value) {
+      return false;
+    }
+    if (operandCtx.operand->get() == value) {
+      return true;
+    }
+    for (const ChainRoot &chainRoot : operandCtx.chainRoots) {
+      if (chainRoot.root == value) {
+        return true;
+      }
+      for (Operation *opOnChain : chainRoot.defChain) {
+        if (opOnChain->getNumResults() == 1 &&
+            opOnChain->getResult(0) == value) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  static const OperandContext *
+  findOperandContextForAlias(const GenericOpContext &genericCtx, Value alias,
+                             const OperandContext &excludeOperandCtx) {
+    for (const OperandContext &candidateCtx : genericCtx.operands) {
+      if (&candidateCtx == &excludeOperandCtx) {
+        continue;
+      }
+      if (isOperandAliasOfValue(candidateCtx, alias)) {
+        return &candidateCtx;
+      }
+    }
+    return nullptr;
+  }
+
+  static const OperandContext *
+  findSharedPeerOperandContext(d2m::GenericOp genericOp,
+                               const GenericOpContext &genericCtx,
+                               const OperandContext &operandCtx) {
+    Value operandValue = operandCtx.operand->get();
+    for (Region &region : genericOp->getRegions()) {
+      TT_assert(region.hasOneBlock());
+      const OperandContext *peerCtx = nullptr;
+      WalkResult result = region.front().walk([&](Operation *op) {
+        Value localBuffer;
+        if (auto loadOp = mlir::dyn_cast<d2m::RemoteLoadOp>(op)) {
+          if (loadOp.getMemref() != operandValue) {
+            return WalkResult::advance();
+          }
+          localBuffer = loadOp.getLocalBuffer();
+        } else if (auto storeOp = mlir::dyn_cast<d2m::RemoteStoreOp>(op)) {
+          if (storeOp.getMemref() != operandValue) {
+            return WalkResult::advance();
+          }
+          localBuffer = storeOp.getLocalBuffer();
+        } else {
+          return WalkResult::advance();
+        }
+
+        std::optional<SharedLoadStoreInfo> sharedInfo =
+            getSharedLoadStoreInfo(localBuffer);
+        if (!sharedInfo) {
+          return WalkResult::advance();
+        }
+
+        Value peerAlias = sharedInfo->loadMemref == operandValue
+                              ? sharedInfo->storeMemref
+                              : sharedInfo->loadMemref;
+        peerCtx = findOperandContextForAlias(genericCtx, peerAlias, operandCtx);
+        if (!peerCtx) {
+          return WalkResult::advance();
+        }
+
+        return WalkResult::interrupt();
+      });
+      (void)result;
+      if (peerCtx) {
+        return peerCtx;
+      }
+    }
+
+    return nullptr;
+  }
+
   static Value findSharedOutputBuffer(d2m::GenericOp genericOp,
                                       const OperandContext &operandCtx) {
     if (!operandCtx.isOutput) {
@@ -1777,26 +1900,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   }
 
   bool requiresCBAllocation(d2m::GenericOp genericOp,
+                            const GenericOpContext &genericCtx,
                             const OperandContext &operandCtx,
                             MemorySpace memspace) const {
-    if (findSharedOutputBuffer(genericOp, operandCtx)) {
-      return true;
-    }
-
-    for (Region &region : genericOp->getRegions()) {
-      if (Value operandAlloc = d2m::GenericOp::getOperandAlloc(
-              region, operandCtx.operandIndex())) {
-        if (isSharedLoadStoreBuffer(operandAlloc)) {
-          return true;
-        }
-      }
-    }
 
     if (isOperandExemptFromStreaming(operandCtx, memspace)) {
       return false;
     }
 
-    return inferStreamRequirement(genericOp, operandCtx, memspace);
+    return inferStreamRequirement(genericOp, genericCtx, operandCtx, memspace);
   }
 
   /// @return `true` if `operandCtx` is an output that is exempt from stream
@@ -1814,9 +1926,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// @return `true` if `genericOp` requires a stream
   /// for operand @`operandIndex` based on the available indexing space
   /// information
-  bool inferStreamRequirement(d2m::GenericOp genericOp,
-                              const OperandContext &operandCtx,
-                              MemorySpace memspace) const {
+  bool inferBaseStreamRequirement(d2m::GenericOp genericOp,
+                                  const OperandContext &operandCtx,
+                                  MemorySpace memspace) const {
     if (useAlwaysStreamPolicy()) {
       return true;
     }
@@ -1857,6 +1969,27 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     };
 
     return false;
+  }
+
+  bool inferStreamRequirement(d2m::GenericOp genericOp,
+                              const GenericOpContext &genericCtx,
+                              const OperandContext &operandCtx,
+                              MemorySpace memspace) const {
+    const bool thisOperandNeedsStream =
+        inferBaseStreamRequirement(genericOp, operandCtx, memspace);
+    if (!thisOperandNeedsStream) {
+      return false;
+    }
+
+    const OperandContext *sharedPeerCtx =
+        findSharedPeerOperandContext(genericOp, genericCtx, operandCtx);
+    if (!sharedPeerCtx) {
+      return true;
+    }
+
+    const MemorySpace peerMemspace =
+        ttcore::getMemorySpace(sharedPeerCtx->operand->get().getType());
+    return inferBaseStreamRequirement(genericOp, *sharedPeerCtx, peerMemspace);
   }
 
   /// @return `map` with all broadcast result expressions replaced with
