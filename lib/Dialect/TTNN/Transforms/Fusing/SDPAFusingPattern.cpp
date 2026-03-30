@@ -158,49 +158,17 @@ std::optional<float> SDPAFusing::extractConstant(Value v) const {
   return std::nullopt;
 }
 
-// ============================================================================
-// Q/K Extraction with Scale Handling
-// ============================================================================
-
 std::pair<Value, std::optional<float>>
-SDPAFusing::extractTensorWithScale(Value v) const {
-  std::optional<float> scale;
-
-  Value skipped = ttmlir::utils::lookThrough<TypecastOp>(v);
-  if (auto mulOp = skipped.getDefiningOp<MultiplyOp>()) {
+SDPAFusing::extractMultiplyWithConstant(Value v) const {
+  if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
     if (auto s = extractConstant(mulOp.getRhs())) {
-      scale = s;
-      return {mulOp.getLhs(), scale};
+      return {mulOp.getLhs(), s};
     }
     if (auto s = extractConstant(mulOp.getLhs())) {
-      scale = s;
-      return {mulOp.getRhs(), scale};
+      return {mulOp.getRhs(), s};
     }
   }
-
-  return {v, scale};
-}
-
-bool SDPAFusing::extractQKWithScales(Value a, Value b,
-                                     SDPAComponents &c) const {
-  auto [query, qScale] = extractTensorWithScale(a);
-  auto [key, kScale] = extractTensorWithScale(b);
-
-  bool hasPostMatmulScale = c.scale.has_value();
-  bool hasPreScale = qScale.has_value() || kScale.has_value();
-  if (hasPostMatmulScale && hasPreScale) {
-    return false;
-  }
-
-  c.query = query;
-  c.key = key;
-
-  if (hasPreScale) {
-    float qs = qScale.value_or(1.0f);
-    float ks = kScale.value_or(1.0f);
-    c.scale = qs * ks;
-  }
-  return true;
+  return {v, std::nullopt};
 }
 
 // ============================================================================
@@ -274,9 +242,8 @@ bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c) const {
 
   if (auto linearOp = v.getDefiningOp<LinearOp>()) {
     c.scoreOp = linearOp;
-    if (!extractQKWithScales(linearOp.getA(), linearOp.getB(), c)) {
-      return false;
-    }
+    c.query = linearOp.getA();
+    c.key = linearOp.getB();
     if (linearOp.getBias()) {
       c.mask = linearOp.getBias();
     }
@@ -323,9 +290,8 @@ bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
   if (auto matmul = v.getDefiningOp<MatmulOp>()) {
     if (matmul != c.attentionMatmul) {
       c.scoreOp = matmul;
-      if (!extractQKWithScales(matmul.getA(), matmul.getB(), c)) {
-        return false;
-      }
+      c.query = matmul.getA();
+      c.key = matmul.getB();
       return true;
     }
   }
@@ -334,81 +300,44 @@ bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
 }
 
 // ============================================================================
-// Input Canonicalization (dtype/TM/mask)
+// Input Canonicalization
 // ============================================================================
 
-Value SDPAFusing::castToBF16IfNeeded(Value v, PatternRewriter &rewriter) {
-  auto vType = cast<RankedTensorType>(v.getType());
-  if (!vType.getElementType().isF32()) {
-    return v;
+std::pair<Value, std::optional<float>> SDPAFusing::analyzeQ(Value v) const {
+  // Look through typecast to find multiply-with-constant (pre-scale on Q).
+  Value skipped = ttmlir::utils::lookThrough<TypecastOp>(v);
+  auto [inner, scale] = extractMultiplyWithConstant(skipped);
+  if (scale) {
+    v = inner;
   }
 
-  auto dataType = ttcore::DataType::BFloat16;
-  auto castType = utils::RankedTensorTypeFactory::create(vType, dataType);
-  return rewriter.create<TypecastOp>(
-      v.getLoc(), castType, v,
-      ttcore::DataTypeAttr::get(rewriter.getContext(), dataType));
-}
-
-Value SDPAFusing::restoreElementTypeIfNeeded(Value v, Type elementType,
-                                             PatternRewriter &rewriter) {
-  auto vType = cast<RankedTensorType>(v.getType());
-  if (vType.getElementType() == elementType) {
-    return v;
-  }
-
-  auto dataType = ttcore::elementTypeToDataType(elementType);
-  auto castType = utils::RankedTensorTypeFactory::create(vType, dataType);
-  return rewriter.create<TypecastOp>(
-      v.getLoc(), castType, v,
-      ttcore::DataTypeAttr::get(rewriter.getContext(), dataType));
-}
-
-Type SDPAFusing::getTargetElementType(Value v) {
-  Type lastSeen = cast<RankedTensorType>(v.getType()).getElementType();
-  while (Operation *defOp = v.getDefiningOp()) {
-    if (isa<TypecastOp, ReshapeOp, PermuteOp, RepeatInterleaveOp>(defOp)) {
-      v = defOp->getOperand(0);
-      lastSeen = cast<RankedTensorType>(v.getType()).getElementType();
-      continue;
-    }
-
-    break;
-  }
-  return lastSeen;
-}
-
-std::pair<Value, Type> SDPAFusing::analyzeQ(Value v) const {
   if (auto typecastOp = v.getDefiningOp<TypecastOp>()) {
     v = typecastOp.getInput();
   }
 
-  if (auto loadCached = v.getDefiningOp<ttcore::LoadCachedOp>()) {
-    auto funcOp = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
-        loadCached, loadCached.getCalleeAttr());
-    if (funcOp) {
-      unsigned resultIdx = cast<OpResult>(v).getResultNumber();
-      for (auto &block : funcOp.getBody()) {
-        if (auto returnOp = dyn_cast<func::ReturnOp>(block.getTerminator())) {
-          Value innerV = returnOp.getOperand(resultIdx);
-          auto [originalTensor, scale] = extractTensorWithScale(innerV);
-          return {v, getTargetElementType(originalTensor)};
-        }
-      }
-    }
-  }
-
-  return {v, getTargetElementType(v)};
+  return {v, scale};
 }
 
-std::tuple<Value, Type, bool> SDPAFusing::analyzeK(Value v) const {
-  Type targetDtype = getTargetElementType(v);
+std::tuple<Value, bool, std::optional<float>>
+SDPAFusing::analyzeK(Value v) const {
   bool skippedTranspose = false;
+  std::optional<float> scale;
 
   while (Operation *defOp = v.getDefiningOp()) {
     if (isa<TypecastOp>(defOp)) {
       v = defOp->getOperand(0);
       continue;
+    }
+
+    // Walk through multiply-with-constant (pre-scale on K).
+    // The elementwise commute pass may place this before or after the permute.
+    if (!scale) {
+      auto [inner, s] = extractMultiplyWithConstant(v);
+      if (s) {
+        scale = s;
+        v = inner;
+        continue;
+      }
     }
 
     if (auto repeatOp = dyn_cast<RepeatInterleaveOp>(defOp)) {
@@ -430,12 +359,10 @@ std::tuple<Value, Type, bool> SDPAFusing::analyzeK(Value v) const {
     break;
   }
 
-  return {v, targetDtype, skippedTranspose};
+  return {v, skippedTranspose, scale};
 }
 
-std::pair<Value, Type> SDPAFusing::analyzeV(Value v) const {
-  Type targetDtype = getTargetElementType(v);
-
+Value SDPAFusing::analyzeV(Value v) const {
   while (Operation *defOp = v.getDefiningOp()) {
     if (isa<TypecastOp>(defOp)) {
       v = defOp->getOperand(0);
@@ -453,34 +380,42 @@ std::pair<Value, Type> SDPAFusing::analyzeV(Value v) const {
     break;
   }
 
-  return {v, targetDtype};
+  return v;
 }
 
 // Prepare SDPA inputs for the hardware op. This involves several steps:
 //
-//  1. Analyze Q, K, V to look through typecasts, repeat-interleave, and
-//     permute ops, recovering the original element types and detecting key
+//  1. Analyze Q, K, V to look through typecasts, repeat-interleave, multiply
+//     (pre-scale), and permute ops, extracting pre-scales and detecting key
 //     transposition.
-//  2. Validate and accept the "prepared" (looked-through) versions of Q, K, V
+//  2. Combine pre-scales (from Q and K) into c.scale.
+//  3. Validate and accept the "prepared" (looked-through) versions of Q, K, V
 //     if their shapes are compatible.
-//  3. Un-transpose K if needed ([B, H, D, S] -> [B, H, S, D]).
-//  4. Restore original element types that were stripped during analysis.
+//  4. Un-transpose K if needed ([B, H, D, S] -> [B, H, S, D]).
 //  5. Unsqueeze the attention mask to 4D if it is lower-rank.
 //  6. Handle attention sink batch dimension from load_cached ops.
 //  7. Unsqueeze Q, K, V to 4D by prepending 1s if they are 3D. Some frontends
 //     squeeze away the head dimension when num_heads=1.
-void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
+bool SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
                                       PatternRewriter &rewriter) const {
-  auto [preparedQ, preparedQElementType] = analyzeQ(c.query);
-  auto [preparedK, preparedKElementType, skippedKTranspose] = analyzeK(c.key);
-  auto [preparedV, preparedVElementType] = analyzeV(c.value);
+  auto [preparedQ, qPreScale] = analyzeQ(c.query);
+  auto [preparedK, skippedKTranspose, kPreScale] = analyzeK(c.key);
+  Value preparedV = analyzeV(c.value);
+
+  // Reject ambiguous double-scaling (both post-matmul and pre-matmul scales).
+  bool hasPostScale = c.scale.has_value();
+  bool hasPreScale = qPreScale.has_value() || kPreScale.has_value();
+  if (hasPostScale && hasPreScale) {
+    return false;
+  }
+
+  // Combine pre-scales into c.scale.
+  if (hasPreScale) {
+    c.scale = qPreScale.value_or(1.0f) * kPreScale.value_or(1.0f);
+  }
 
   if (validateShapes(preparedQ, c.key, c.value)) {
-    c.query =
-        restoreElementTypeIfNeeded(preparedQ, preparedQElementType, rewriter);
-  } else {
-    c.query =
-        restoreElementTypeIfNeeded(c.query, preparedQElementType, rewriter);
+    c.query = preparedQ;
   }
 
   if (validateShapes(c.query, preparedK, preparedV)) {
@@ -492,9 +427,6 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
     c.key = unTransposeKeyIfNeeded(c.query, c.key, c.value, rewriter,
                                    c.attentionMatmul.getLoc());
   }
-
-  c.key = restoreElementTypeIfNeeded(c.key, preparedKElementType, rewriter);
-  c.value = restoreElementTypeIfNeeded(c.value, preparedVElementType, rewriter);
 
   if (c.mask) {
     c.mask = ttmlir::utils::lookThrough<TypecastOp, RepeatOp>(c.mask);
@@ -515,8 +447,6 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
                                  /*memory_config=*/MemoryConfigAttr())
               .getResult();
     }
-
-    c.mask = restoreElementTypeIfNeeded(c.mask, preparedQElementType, rewriter);
   }
 
   if (c.attentionSink) {
@@ -588,6 +518,8 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
   c.query = unsqueezeTo4D(c.query);
   c.key = unsqueezeTo4D(c.key);
   c.value = unsqueezeTo4D(c.value);
+
+  return true;
 }
 
 // ============================================================================
@@ -723,7 +655,9 @@ SDPAFusing::matchAndRewrite(MatmulOp srcOp,
     return failure();
   }
 
-  prepareInputsForSDPA(c, rewriter);
+  if (!prepareInputsForSDPA(c, rewriter)) {
+    return failure();
+  }
 
   return createSDPAOp(rewriter, c);
 }
@@ -739,18 +673,6 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
 
   auto originalOutputType =
       mlir::cast<RankedTensorType>(c.attentionMatmul.getResult().getType());
-  Type originalElementType = originalOutputType.getElementType();
-
-  // Cast inputs to bf16 if they are f32, since tt-metal SDPA only supports
-  // bf16/bfp8_b/bfp4_b. The output will be cast back to the original dtype.
-  // TODO(tt-metal): Remove this once tt-metal adds f32 support.
-  // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/36717
-  c.query = castToBF16IfNeeded(c.query, rewriter);
-  c.key = castToBF16IfNeeded(c.key, rewriter);
-  c.value = castToBF16IfNeeded(c.value, rewriter);
-  if (c.mask) {
-    c.mask = castToBF16IfNeeded(c.mask, rewriter);
-  }
 
   // Workaround for https://github.com/tenstorrent/tt-metal/issues/40470:
   // tt-metal's SDPA kernel computes exp((sink - max) * scale), applying scale
@@ -810,9 +732,6 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         ttmlir::utils::inversePermutation(kToDecodePermutation), rewriter,
         c.attentionMatmul.getLoc());
 
-    finalResult =
-        restoreElementTypeIfNeeded(finalResult, originalElementType, rewriter);
-
     finalResult = squeezeToOriginalRank(finalResult, originalOutputType,
                                         rewriter, c.attentionMatmul.getLoc());
 
@@ -840,11 +759,9 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
         /*memory_config=*/MemoryConfigAttr());
 
-    Value finalResult = restoreElementTypeIfNeeded(
-        sdpaOp.getResult(), originalElementType, rewriter);
-
-    finalResult = squeezeToOriginalRank(finalResult, originalOutputType,
-                                        rewriter, c.attentionMatmul.getLoc());
+    Value finalResult =
+        squeezeToOriginalRank(sdpaOp.getResult(), originalOutputType, rewriter,
+                              c.attentionMatmul.getLoc());
 
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   }

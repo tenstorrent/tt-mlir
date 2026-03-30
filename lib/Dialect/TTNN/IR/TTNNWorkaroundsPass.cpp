@@ -889,6 +889,94 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
       .addOutputOperandWorkaround(indicesWorkaround);
 }
 
+// Create workarounds for SDPA prefill op: cast f32 inputs to bf16.
+// tt-metal SDPA only supports bf16/bfp8_b/bfp4_b.
+// Issue page: https://github.com/tenstorrent/tt-metal/issues/36717
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createScaledDotProductAttentionOpOperandsWorkarounds(Operation *op) {
+  TTNNOperandWorkarounds bf16Workaround;
+  bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds emptyWorkaround;
+
+  auto sdpaOp = cast<ScaledDotProductAttentionOp>(op);
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  // Query, key, value: cast to bf16 if f32.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+
+  // Attention mask (optional).
+  if (sdpaOp.getAttentionMask()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  }
+
+  // Attention sink (optional).
+  if (sdpaOp.getAttentionSink()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  }
+
+  // Output: cast to bf16 if f32.
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(bf16Workaround);
+
+  return operandsWorkaround;
+}
+
+// Create workarounds for SDPA decode op: cast f32 inputs to bf16.
+// tt-metal SDPA only supports bf16/bfp8_b/bfp4_b.
+// Issue page: https://github.com/tenstorrent/tt-metal/issues/36717
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createScaledDotProductAttentionDecodeOpOperandsWorkarounds(Operation *op) {
+  TTNNOperandWorkarounds bf16Workaround;
+  bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds emptyWorkaround;
+
+  auto sdpaOp = cast<ScaledDotProductAttentionDecodeOp>(op);
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  // Query, key, value: cast to bf16 if f32.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+
+  // Attention mask (optional).
+  if (sdpaOp.getAttentionMask()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+  }
+
+  // Cur pos tensor (optional).
+  if (sdpaOp.getCurPosTensor()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  }
+
+  // Attention sink (optional).
+  if (sdpaOp.getAttentionSink()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  }
+
+  // Output: cast to bf16 if f32.
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(bf16Workaround);
+
+  return operandsWorkaround;
+}
+
 TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
     createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
         Operation *op) {
