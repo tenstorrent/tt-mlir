@@ -11,24 +11,12 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
-#include <optional>
 
 namespace mlir::tt::stablehlo {
 
-// Tier 2: intermediate op result eligible for sdy.sharding_constraint.
-struct ConstraintCandidate {
-  size_t opIndex;
-  int64_t rank;
-};
-
 struct ShardingConfig {
-  // Tier 1: per-arg per-dim sharding (true = sharded on the axis).
+  // Per-arg per-dim sharding (true = sharded on the axis).
   llvm::SmallVector<llvm::SmallVector<bool>> argDimSharded;
-
-  // Tier 2: per-constraint-candidate target sharding.
-  // std::nullopt = no constraint at this point.
-  // SmallVector<bool> = insert sdy.sharding_constraint with this target.
-  llvm::SmallVector<std::optional<llvm::SmallVector<bool>>> constraintTargets;
 };
 
 struct ShardingResult {
