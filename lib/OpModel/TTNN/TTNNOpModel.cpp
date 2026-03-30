@@ -7973,27 +7973,10 @@ llvm::Expected<size_t> OpModel<TopKOp>::getOpRuntime(
 // AllReduceAsyncOp
 //===----------------------------------------------------------------------===//
 
-#ifdef TTMLIR_ENABLE_OPMODEL
-static ::reduction_common::ReduceType convertReduceType(uint32_t reduceType) {
-  switch (reduceType) {
-  case 0:
-    return ::reduction_common::ReduceType::Sum;
-  case 1:
-    return ::reduction_common::ReduceType::Mean;
-  case 2:
-    return ::reduction_common::ReduceType::Max;
-  case 3:
-    return ::reduction_common::ReduceType::Min;
-  default:
-    llvm_unreachable("Unsupported reduce type for all_reduce_async");
-  }
-}
-#endif // TTMLIR_ENABLE_OPMODEL
-
 llvm::Expected<OpConstraints> OpModel<AllReduceAsyncOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, uint32_t reduceType, uint32_t clusterAxis,
-    TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr inputLayout, ttcore::ReduceType reduceType,
+    uint32_t clusterAxis, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -8005,7 +7988,7 @@ llvm::Expected<OpConstraints> OpModel<AllReduceAsyncOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  auto metalReduceType = convertReduceType(reduceType);
+  auto metalReduceType = conversion::convertReduceType(reduceType);
 
   auto allReduceAsyncOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(::ttnn::experimental::all_reduce_async, device,
@@ -8025,7 +8008,8 @@ llvm::Expected<OpConstraints> OpModel<AllReduceAsyncOp>::getOpConstraints(
 
 llvm::Expected<size_t> OpModel<AllReduceAsyncOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    uint32_t reduceType, uint32_t clusterAxis, TTNNLayoutAttr outputLayout) {
+    ttcore::ReduceType reduceType, uint32_t clusterAxis,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -8037,7 +8021,7 @@ llvm::Expected<size_t> OpModel<AllReduceAsyncOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  auto metalReduceType = convertReduceType(reduceType);
+  auto metalReduceType = conversion::convertReduceType(reduceType);
 
   auto allReduceAsyncOpQuery = [=]() {
     return QUERY_OP_RUNTIME(::ttnn::experimental::all_reduce_async, device,

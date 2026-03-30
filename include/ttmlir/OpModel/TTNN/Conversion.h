@@ -142,6 +142,8 @@ getSDPAProgramConfig(
 std::optional<std::string> getScatterReductionType(
     const std::optional<ttcore::ReduceTypeAttr> &reduceTypeAttr);
 
+::reduction_common::ReduceType convertReduceType(ttcore::ReduceType reduceType);
+
 std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
 getMatmulProgramConfig(mlir::Attribute programConfigAttr);
 

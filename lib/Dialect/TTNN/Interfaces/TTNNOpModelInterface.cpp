@@ -4870,7 +4870,7 @@ AllReduceAsyncOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   const auto inputShape = getInput().getType().getShape();
-  uint32_t reduceType = static_cast<uint32_t>(getReduceType());
+  ttcore::ReduceType reduceType = getReduceType();
   uint32_t clusterAxis = getClusterAxis();
 
   return opConstraintsCache().getOrCompute(
@@ -4884,7 +4884,7 @@ AllReduceAsyncOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   assert(inputs.size() == 1);
 
   const auto inputShape = getInput().getType().getShape();
-  uint32_t reduceType = static_cast<uint32_t>(getReduceType());
+  ttcore::ReduceType reduceType = getReduceType();
   uint32_t clusterAxis = getClusterAxis();
 
   return opRuntimeCache().getOrCompute(
