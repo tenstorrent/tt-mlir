@@ -5962,4 +5962,179 @@ INSTANTIATE_TEST_SUITE_P(MeshPartitionRuntime,
                              MeshPartitionRuntimeParam{2, 4, 1, 0},
                              MeshPartitionRuntimeParam{2, 4, 1, 1}));
 
+//===----------------------------------------------------------------------===//
+// GatherOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelBase, GatherOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {64, 128};
+  llvm::SmallVector<int64_t> indexShape = {32, 128};
+  llvm::SmallVector<int64_t> outputShape = {32, 128};
+
+  auto input = createEmptyTensor(inputShape);
+  auto index = createEmptyTensor(
+      indexShape,
+      mlir::IntegerType::get(&context, 32, mlir::IntegerType::Unsigned));
+  auto outputType = createRankedTensorType(outputShape);
+
+  auto gatherOp =
+      builder.create<GatherOp>(builder.getUnknownLoc(), outputType, input,
+                               index, builder.getI32IntegerAttr(0),
+                               /*memory_config=*/nullptr);
+
+  gatherOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(gatherOp.getOperation());
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for GatherOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(gatherOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for GatherOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// AllReduceAsyncOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelBase, AllReduceAsyncOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 128};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  auto allReduceAsync = builder.create<AllReduceAsyncOp>(
+      builder.getUnknownLoc(), outputType, input,
+      ttcore::ReduceTypeAttr::get(&context, ttcore::ReduceType::Sum),
+      builder.getUI32IntegerAttr(0),
+      /*sub_device_id=*/nullptr,
+      /*memory_config=*/nullptr,
+      /*num_links=*/nullptr,
+      /*topology=*/nullptr);
+
+  allReduceAsync->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(allReduceAsync.getOperation());
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for AllReduceAsyncOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(allReduceAsync.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for AllReduceAsyncOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// PagedFlashMultiLatentAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
+  // MLA config: batch=4, n_heads=8, nkv=1, kv_lora_rank=128, d_rope=64
+  int64_t batch = 4;
+  int64_t nHeads = 8;
+  int64_t headDim = 192;  // kv_lora_rank + d_rope
+  int64_t headDimV = 128; // kv_lora_rank
+  int64_t numBlocks = 64;
+  int64_t nkv = 1;
+  int64_t blockSize = 64;
+  int64_t blocksPerUser = 16;
+
+  llvm::SmallVector<int64_t> queryShape{1, batch, nHeads, headDim};
+  llvm::SmallVector<int64_t> keyShape{numBlocks, nkv, blockSize, headDim};
+  llvm::SmallVector<int64_t> pageTableShape{batch, blocksPerUser};
+  llvm::SmallVector<int64_t> curPosShape{batch};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+  auto pageTableType = builder.getI32Type();
+  auto curPosType = builder.getI32Type();
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto queryLayout =
+      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto keyLayout =
+      TTNNLayoutAttr::get(&context, keyShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto pageTableLayout =
+      TTNNLayoutAttr::get(&context, pageTableShape, pageTableType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto curPosLayout =
+      TTNNLayoutAttr::get(&context, curPosShape, curPosType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyShape, tiledElemType, keyLayout);
+  auto pageTable =
+      createEmptyTensor(pageTableShape, pageTableType, pageTableLayout);
+  auto curPos = createEmptyTensor(curPosShape, curPosType, curPosLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto mlaOp = builder.create<PagedFlashMultiLatentAttentionDecodeOp>(
+      builder.getUnknownLoc(), outputType, query, key,
+      /*value=*/nullptr,
+      /*head_dim_v=*/headDimV, pageTable,
+      /*is_causal=*/false,
+      /*attention_mask=*/nullptr,
+      /*cur_pos_tensor=*/curPos,
+      /*attention_sink=*/nullptr,
+      /*scale=*/builder.getF32FloatAttr(headDim * 1.0f),
+      /*memory_config=*/nullptr);
+
+  mlaOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(mlaOp.getOperation());
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(totalPeakSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for "
+              "PagedFlashMultiLatentAttentionDecodeOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  // Skip runtime test — paged ops may sporadically hang (see issue #5738).
+  constexpr bool skipRuntimeTest = true;
+  if (!skipRuntimeTest) {
+    auto runtimeExp = getOpRuntime(mlaOp.getOperation());
+    if (runtimeExp) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      FAIL() << "Runtime test failed for "
+                "PagedFlashMultiLatentAttentionDecodeOp; Error="
+             << llvm::toString(runtimeExp.takeError());
+    }
+  }
+}
+
 } // namespace mlir::tt::ttnn

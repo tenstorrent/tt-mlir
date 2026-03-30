@@ -6632,4 +6632,302 @@ INSTANTIATE_TEST_SUITE_P(MeshPartitionRuntime, OpModelMeshPartitionRuntimeTest,
                              MeshPartitionRuntimeParam{2, 4, 1, 0},
                              MeshPartitionRuntimeParam{2, 4, 1, 1}));
 
+//===----------------------------------------------------------------------===//
+// GatherOp
+//===----------------------------------------------------------------------===//
+
+struct GatherOpParam {
+  detail::TestTensor input;
+  detail::TestTensor index;
+  int32_t dim;
+  detail::TestTensor output;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelGatherParam : public OpModelTest,
+                           public testing::WithParamInterface<GatherOpParam> {
+protected:
+  void RunTest() {
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = GetParam().input;
+    const auto [indexShape, indexTensorLayout, indexBufferType,
+                indexVirtualGrid] = GetParam().index;
+    const auto dim = GetParam().dim;
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+    const auto expectedLegal = GetParam().expectedResult.expectedLegal;
+
+    const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr indexLayout = CreateTiledLayoutUInt32(
+        indexShape, indexBufferType, indexTensorLayout, indexVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<GatherOp>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, indexShape, indexLayout,
+        dim, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBacks] = constraintsExp.get();
+      EXPECT_GE(cbSize, 0);
+      EXPECT_GE(l1PeakSize, 0);
+      EXPECT_GE(totalPeakSize, 0);
+      EXPECT_GE(outputSizeResult, 0);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    llvm::Expected<size_t> runtimeExp = OpModel<GatherOp>::getOpRuntime(
+        inputShape, inputLayout, indexShape, indexLayout, dim, outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelGatherParam, GatherOp) { RunTest(); }
+
+const auto gatherOpTestValues = testing::Values(
+    // Gather along dim 0: input [64, 128], index [32, 128] -> output [32, 128]
+    GatherOpParam{
+        detail::TestTensor{
+            {64, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        0,
+        detail::TestTensor{
+            {32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true}},
+    // Gather along dim 1: input [64, 128], index [64, 32] -> output [64, 32]
+    GatherOpParam{
+        detail::TestTensor{
+            {64, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {64, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        1,
+        detail::TestTensor{
+            {64, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true}});
+
+INSTANTIATE_TEST_SUITE_P(GatherTests, OpModelGatherParam, gatherOpTestValues);
+
+//===----------------------------------------------------------------------===//
+// AllReduceAsyncOp
+//===----------------------------------------------------------------------===//
+
+struct AllReduceAsyncOpParam {
+  detail::TestTensor input;
+  ttcore::ReduceType reduceType;
+  uint32_t clusterAxis;
+  detail::TestTensor output;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelAllReduceAsyncParam
+    : public OpModelTest,
+      public testing::WithParamInterface<AllReduceAsyncOpParam> {
+protected:
+  void RunTest() {
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = GetParam().input;
+    const auto reduceType = GetParam().reduceType;
+    const auto clusterAxis = GetParam().clusterAxis;
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+    const auto expectedLegal = GetParam().expectedResult.expectedLegal;
+
+    const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<AllReduceAsyncOp>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, reduceType, clusterAxis,
+        outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBacks] = constraintsExp.get();
+      EXPECT_GE(cbSize, 0);
+      EXPECT_GE(l1PeakSize, 0);
+      EXPECT_GE(totalPeakSize, 0);
+      EXPECT_GE(outputSizeResult, 0);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    llvm::Expected<size_t> runtimeExp = OpModel<AllReduceAsyncOp>::getOpRuntime(
+        inputShape, inputLayout, reduceType, clusterAxis, outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelAllReduceAsyncParam, AllReduceAsyncOp) { RunTest(); }
+
+const auto allReduceAsyncOpTestValues = testing::Values(
+    AllReduceAsyncOpParam{detail::TestTensor{{1, 1, 128, 128},
+                                             TensorMemoryLayout::Interleaved,
+                                             BufferType::DRAM},
+                          ttcore::ReduceType::Sum, 0,
+                          detail::TestTensor{{1, 1, 128, 128},
+                                             TensorMemoryLayout::Interleaved,
+                                             BufferType::DRAM},
+                          detail::ExpectedResult{true}},
+    AllReduceAsyncOpParam{detail::TestTensor{{1, 1, 256, 256},
+                                             TensorMemoryLayout::Interleaved,
+                                             BufferType::DRAM},
+                          ttcore::ReduceType::Max, 1,
+                          detail::TestTensor{{1, 1, 256, 256},
+                                             TensorMemoryLayout::Interleaved,
+                                             BufferType::DRAM},
+                          detail::ExpectedResult{true}});
+
+INSTANTIATE_TEST_SUITE_P(AllReduceAsyncTests, OpModelAllReduceAsyncParam,
+                         allReduceAsyncOpTestValues);
+
+//===----------------------------------------------------------------------===//
+// PagedFlashMultiLatentAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+struct PagedFlashMLADecodeOpParam {
+  detail::TestTensor query;
+  detail::TestTensor key;
+  std::optional<detail::TestTensor> value;
+  uint32_t headDimV;
+  detail::TestTensor pageTable;
+  bool isCausal;
+  std::optional<detail::TestTensor> curPosTensor;
+  bool withScale;
+  detail::TestTensor output;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelPagedFlashMLADecodeParam
+    : public OpModelTest,
+      public testing::WithParamInterface<PagedFlashMLADecodeOpParam> {
+protected:
+  void RunTest() {
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    const auto [queryShape, queryTensorLayout, queryBufferType,
+                queryVirtualGrid] = GetParam().query;
+    const auto [keyShape, keyTensorLayout, keyBufferType, keyVirtualGrid] =
+        GetParam().key;
+    const auto headDimV = GetParam().headDimV;
+    const auto [pageTableShape, pageTableTensorLayout, pageTableBufferType,
+                pageTableVirtualGrid] = GetParam().pageTable;
+    const auto isCausal = GetParam().isCausal;
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+    const auto expectedLegal = GetParam().expectedResult.expectedLegal;
+
+    const TTNNLayoutAttr queryLayout = CreateTiledLayout(
+        queryShape, queryBufferType, queryTensorLayout, queryVirtualGrid);
+    const TTNNLayoutAttr keyLayout = CreateTiledLayout(
+        keyShape, keyBufferType, keyTensorLayout, keyVirtualGrid);
+
+    std::optional<SmallVector<int64_t>> valueShape = std::nullopt;
+    std::optional<TTNNLayoutAttr> valueLayout = std::nullopt;
+    if (auto valueDetail = GetParam().value) {
+      valueShape = valueDetail->shape;
+      valueLayout =
+          CreateTiledLayout(valueDetail->shape, valueDetail->bufferType,
+                            valueDetail->layout, valueDetail->virtualGrid);
+    }
+
+    const TTNNLayoutAttr pageTableLayout =
+        CreateRowMajorLayoutInt32(pageTableShape, pageTableBufferType,
+                                  pageTableTensorLayout, pageTableVirtualGrid);
+
+    std::optional<SmallVector<int64_t>> curPosTensorShape = std::nullopt;
+    std::optional<TTNNLayoutAttr> curPosTensorLayout = std::nullopt;
+    if (auto curPosDetail = GetParam().curPosTensor) {
+      curPosTensorShape = curPosDetail->shape;
+      curPosTensorLayout = CreateRowMajorLayoutInt32(
+          curPosDetail->shape, curPosDetail->bufferType, curPosDetail->layout,
+          curPosDetail->virtualGrid);
+    }
+
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    const llvm::APFloat scaleAPFloat(1.0f);
+    std::optional<llvm::APFloat> scale = std::nullopt;
+    if (GetParam().withScale) {
+      scale.emplace(scaleAPFloat);
+    }
+
+    auto constraintsExp =
+        OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints(
+            CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
+            valueShape, valueLayout, headDimV, pageTableShape, pageTableLayout,
+            isCausal,
+            /*attentionMaskShape=*/std::nullopt,
+            /*attentionMaskLayout=*/std::nullopt, curPosTensorShape,
+            curPosTensorLayout,
+            /*attentionSinkShape=*/std::nullopt,
+            /*attentionSinkLayout=*/std::nullopt, scale, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBacks] = constraintsExp.get();
+      EXPECT_GE(cbSize, 0);
+      EXPECT_GE(l1PeakSize, 0);
+      EXPECT_GE(totalPeakSize, 0);
+      EXPECT_GE(outputSizeResult, 0);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+  }
+};
+
+TEST_P(OpModelPagedFlashMLADecodeParam,
+       PagedFlashMultiLatentAttentionDecodeOp) {
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+  RunTest();
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+}
+
+// MLA config: batch=4, n_heads=8, nkv=1, kv_lora_rank=128, d_rope=64,
+// seq_len=1024, block_size=64
+// Q: [1, batch, n_heads, head_dim] = [1, 4, 8, 192]
+// K: [num_blocks, nkv, block_size, head_dim] = [64, 1, 64, 192]
+// page_table: [batch, blocks_per_user] = [4, 16]
+// cur_pos: [batch] = [4]
+const auto pagedFlashMLADecodeOpTestValues =
+    testing::Values(PagedFlashMLADecodeOpParam{
+        detail::TestTensor{
+            {1, 4, 8, 192}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{64, 1, 64, 192},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        std::nullopt, // value
+        128,          // headDimV = kv_lora_rank
+        detail::TestTensor{
+            {4, 16}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        true, // isCausal
+        std::make_optional(detail::TestTensor{
+            {4}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        false, // withScale
+        detail::TestTensor{
+            {1, 4, 8, 192}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true}});
+
+INSTANTIATE_TEST_SUITE_P(PagedFlashMLADecodeTests,
+                         OpModelPagedFlashMLADecodeParam,
+                         pagedFlashMLADecodeOpTestValues);
+
 } // namespace mlir::tt::ttnn::op_model
