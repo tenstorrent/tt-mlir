@@ -620,6 +620,25 @@ struct LegalizeStableHLOCompositeToTTIR
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns)))) {
       signalPassFailure();
+      return;
+    }
+
+    // Verify that all composites with custom sharding rules were lowered to
+    // single TTIR ops. These composites were kept intact (not flattened) so
+    // Shardy could propagate shardings at their boundary. If they survive
+    // unlowered, the internal ops would have no sharding annotations.
+    bool hasUnlowered = false;
+    getOperation().walk([&](mlir::stablehlo::CompositeOp op) {
+      if (op->hasAttr("tt.has_custom_sharding")) {
+        op.emitError()
+            << "composite '" << op.getName()
+            << "' has a custom sharding rule and must be lowered to a single "
+               "TTIR op, but no lowering pattern matched";
+        hasUnlowered = true;
+      }
+    });
+    if (hasUnlowered) {
+      signalPassFailure();
     }
   }
 };

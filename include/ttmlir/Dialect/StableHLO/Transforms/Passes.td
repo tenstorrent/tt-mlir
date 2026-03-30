@@ -297,18 +297,25 @@ def DecomposeCustomCallTuplesPass : Pass<"decompose-custom-call-tuples", "::mlir
   ];
 }
 
-def FlattenCompositePass : Pass<"flatten-composite", "::mlir::ModuleOp"> {
-  let summary = "Inline (flatten) stablehlo.composite ops and tag cloned ops for optional re-outlining.";
+def FlattenGenericCompositesPass : Pass<"flatten-generic-composites", "::mlir::ModuleOp"> {
+  let summary = "Inline (flatten) stablehlo.composite ops that lack custom sharding rules.";
   let description = [{
-    This pass inlines each `stablehlo.composite` by cloning the callee body at its call site.
-    Every cloned op is annotated with `reoutline.group = "composite_<callee>"`.
-    The first cloned op additionally receives a `reoutline.seed` (UnitAttr).
-    After rewiring the cloned return values to the original users, the composite op itself is erased.
+    This pass inlines each `stablehlo.composite` that does not have a custom sharding rule
+    by cloning the callee body at its call site. Composites with a registered
+    `ShardingRuleOpInterface` that returns a non-null rule are marked with a
+    `tt.has_custom_sharding` attribute and left intact for Shardy to propagate through
+    directly.
 
-    This pass is intended to run **before** sharding propagation so that propagation
-    occurs on a fully flattened graph. A later re-outlining pass may reconstruct
-    composite ops by grouping operations with the same `reoutline.group` attribute,
-    provided that the subgraph is closed and movable.
+    For flattened composites, every cloned op is annotated with
+    `reoutline.group = "composite_<callee>"`. The first cloned op additionally receives
+    a `reoutline.seed` (UnitAttr). After rewiring the cloned return values to the original
+    users, the composite op itself is erased.
+
+    This pass is intended to run **after** `RegisterCustomShardingRulePass` and **before**
+    sharding propagation so that propagation occurs on a fully flattened graph for generic
+    composites, while composites with custom sharding rules are preserved. A later
+    re-outlining pass may reconstruct flattened composite ops by grouping operations with
+    the same `reoutline.group` attribute, provided that the subgraph is closed and movable.
 
     This pass also checks whether the arguments and results of the composite are sharded,
     and performs inlining only if sharding (not replicated) is detected.

@@ -974,6 +974,41 @@ private:
       };
 };
 
+// Sharding model for stablehlo.composite ops. Dispatches to per-composite
+// sharding rule functions based on the composite's name attribute.
+// Composites without a registered rule return null, causing them to fall
+// through to the flatten/reoutline path.
+struct StablehloCompositeShardingModel
+    : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
+          StablehloCompositeShardingModel, ::mlir::stablehlo::CompositeOp> {
+
+  mlir::sdy::OpShardingRuleAttr getShardingRule(mlir::Operation *op) const {
+    auto composite = llvm::cast<mlir::stablehlo::CompositeOp>(op);
+    llvm::StringRef name = composite.getName();
+
+    auto shardOpFunc = compositeShardingRules.lookup(name);
+    if (shardOpFunc) {
+      return shardOpFunc(composite);
+    }
+
+    // No rule for this composite — return null so flatten handles it.
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  bool shouldKeepOutputShardingsDivisible(mlir::Operation *) const {
+    return true;
+  }
+
+private:
+  // Map from composite names to their corresponding sharding rule functions.
+  llvm::DenseMap<llvm::StringRef, std::function<mlir::sdy::OpShardingRuleAttr(
+                                      mlir::stablehlo::CompositeOp)>>
+      compositeShardingRules = {
+          // Add rules here as needed, e.g.:
+          // {layerNormTargetName, getLayerNormShardingRule},
+      };
+};
+
 class RegisterCustomShardingRulePass
     : public impl::RegisterCustomShardingRulePassBase<
           RegisterCustomShardingRulePass> {
@@ -995,6 +1030,9 @@ public:
         StablehloShardingModel<mlir::stablehlo::BatchNormTrainingOp>>(*context);
     mlir::stablehlo::BatchNormGradOp::attachInterface<
         StablehloShardingModel<mlir::stablehlo::BatchNormGradOp>>(*context);
+    // Register for stablehlo.CompositeOp
+    mlir::stablehlo::CompositeOp::attachInterface<
+        StablehloCompositeShardingModel>(*context);
   }
 };
 

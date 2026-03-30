@@ -8,9 +8,10 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/IRMapping.h"
+#include "shardy/dialect/sdy/ir/dialect.h"
 
 namespace mlir::tt::stablehlo {
-#define GEN_PASS_DEF_FLATTENCOMPOSITEPASS
+#define GEN_PASS_DEF_FLATTENGENERICCOMPOSITESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
 // Inline a single stablehlo.composite op. Returns success if it was flattened.
@@ -185,11 +186,15 @@ static void eraseDeadPrivateCallees(mlir::ModuleOp module) {
   }
 }
 
-// The pass that flattens all stablehlo.composite ops in the module.
-struct FlattenCompositePass
-    : public impl::FlattenCompositePassBase<FlattenCompositePass> {
-  using impl::FlattenCompositePassBase<
-      FlattenCompositePass>::FlattenCompositePassBase;
+// The pass that flattens stablehlo.composite ops without custom sharding rules.
+// Composites with a registered ShardingRuleOpInterface that returns a non-null
+// rule are marked with `tt.has_custom_sharding` and left intact for Shardy to
+// propagate through directly.
+struct FlattenGenericCompositesPass
+    : public impl::FlattenGenericCompositesPassBase<
+          FlattenGenericCompositesPass> {
+  using impl::FlattenGenericCompositesPassBase<
+      FlattenGenericCompositesPass>::FlattenGenericCompositesPassBase;
 
 public:
   void runOnOperation() override {
@@ -207,6 +212,17 @@ public:
     for (mlir::func::FuncOp funcOp : module.getOps<mlir::func::FuncOp>()) {
       for (auto compositeOp : llvm::make_early_inc_range(
                funcOp.getOps<mlir::stablehlo::CompositeOp>())) {
+        // If this composite has a custom sharding rule, mark it and skip —
+        // Shardy will propagate through it directly.
+        if (auto iface = llvm::dyn_cast<mlir::sdy::ShardingRuleOpInterface>(
+                compositeOp.getOperation())) {
+          if (iface.getShardingRule()) {
+            compositeOp->setAttr("tt.has_custom_sharding",
+                                 mlir::UnitAttr::get(context));
+            continue;
+          }
+        }
+        // No sharding rule — flatten as before.
         if (mlir::failed(flattenOneComposite(compositeOp, symTable, builder))) {
           compositeOp.emitOpError() << "failed to inline/flatten composite '"
                                     << compositeOp.getName() << "'";

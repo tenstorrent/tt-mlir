@@ -58,11 +58,14 @@ void createStableHLOPipeline(OpPassManager &pm,
   // tuple types).
   pm.addPass(createDecomposeCustomCallTuplesPass());
 
-  // Flatten all composite ops to make sharding propagation easier.
-  pm.addPass(createFlattenCompositePass());
-
   // Register custom sharding rules for unsupported ops in Shardy.
+  // Must run before flatten so that composites with rules are preserved.
   pm.addPass(createRegisterCustomShardingRulePass());
+
+  // Flatten composite ops without custom sharding rules to make sharding
+  // propagation easier. Composites with custom sharding rules are left intact
+  // for Shardy to propagate through directly.
+  pm.addPass(createFlattenGenericCompositesPass());
 
   // Apply sharding constraints.
   pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
