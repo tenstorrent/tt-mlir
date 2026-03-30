@@ -2,8 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="mesh-shape=1,2 enable-trace=true" -o %t %s
-// RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="mesh-shape=1,2 enable-trace=true" --mlir-print-local-scope %s | FileCheck %s
 
 // Verify that KV cache arguments flowing through mesh_shard ops are correctly
 // detected and kept on device during trace hoisting (not moved to host).
@@ -11,15 +10,21 @@
 module {
     // In the capture function, the KV cache arg should remain on DRAM (device),
     // while the regular input should be on system_memory (host).
+    // Constants are hoisted as the first arguments.
     //
     // CHECK-LABEL: func.func private @run_and_capture_trace_0_main
+    // Constant args come first.
+    // CHECK-SAME: %arg0:
+    // CHECK-SAME: ttcore.argument_type = #ttcore.argument_type<constant>
+    // CHECK-SAME: %arg1:
+    // CHECK-SAME: ttcore.argument_type = #ttcore.argument_type<constant>
     // The regular input arg should be on system_memory (host).
-    // CHECK-SAME: %arg0: tensor<5x128x512xbf16,
-    // CHECK-SAME: #system_memory
+    // CHECK-SAME: %arg2: tensor<5x128x512xbf16,
+    // CHECK-SAME: buffer_type<system_memory>
     // The KV cache arg should remain on dram (device), marked with kv_cache.
-    // CHECK-SAME: %arg1: tensor<1x32x64x512xbf16,
-    // CHECK-SAME: #dram
-    // CHECK-SAME: {ttcore.kv_cache}
+    // CHECK-SAME: %arg3: tensor<1x32x64x512xbf16,
+    // CHECK-SAME: buffer_type<dram>
+    // CHECK-SAME: ttcore.kv_cache
 
     // CHECK-LABEL: func.func @main(
     // CHECK: "ttnn.mesh_shard"

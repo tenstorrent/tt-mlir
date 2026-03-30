@@ -14,6 +14,7 @@
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Utils.h"
 #include <atomic>
+#include "mlir/Support/LLVM.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNTRACEHOISTTRANSFORM
@@ -950,13 +951,12 @@ private:
     }
 
     // Perform the hoist transform
-    mlir::LogicalResult result = performHoistTransform(funcOp, opsToHoist);
-    if (failed(result)) {
-      return result;
+    if (failed(performHoistTransform(funcOp, opsToHoist))) {
+      return mlir::failure();
     }
 
     if (failed(mergeToLayoutOpsWithFuncArgs(funcOp))) {
-      return result;
+      return mlir::failure();
     }
 
     return mlir::success();
