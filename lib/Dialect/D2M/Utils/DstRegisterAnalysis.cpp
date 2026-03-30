@@ -216,7 +216,8 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
       // duplicates since the packing info is identical for the same Value.
       results.perResult.try_emplace(
           outputValue, DSTPackingPerResultInfo{/*numDstFlips=*/1,
-                                               /*numTilesPerFlip=*/1});
+                                               /*numTilesPerFlip=*/1,
+                                               /*numTilesPerResult=*/1});
     }
     return results;
   }
@@ -252,12 +253,6 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     if (!commonNumTilesPerResult) {
       commonNumTilesPerResult = numTilesPerResult;
     }
-    if (*commonNumTilesPerResult != numTilesPerResult) {
-      generic.emitOpError(
-          "expected identical num tiles per result for all linalg.generic "
-          "outputs");
-      return std::nullopt;
-    }
 
     // Fused generics may have multiple linalg ops writing to the same output
     // buffer with potentially different DST constraints. Keep the most
@@ -266,11 +261,12 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     // binary_min, consuming 2 DST slots per tile vs 1 for a plain SFPU op).
     auto [perResultIt, inserted] = results.perResult.try_emplace(
         pending.outputValue,
-        DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip});
+        DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip,
+                                numTilesPerResult});
     if (!inserted &&
         pending.numTilesPerFlip < perResultIt->second.numTilesPerFlip) {
-      perResultIt->second =
-          DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip};
+      perResultIt->second = DSTPackingPerResultInfo{
+          numDstFlips, pending.numTilesPerFlip, numTilesPerResult};
     }
   }
 

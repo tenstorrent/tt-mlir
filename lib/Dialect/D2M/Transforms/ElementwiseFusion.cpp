@@ -360,15 +360,31 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 
     // The producer's init tensor.empty (output) is not part of the fused
     // operands, but we need to ensure it's mapped so that any operations in
-    // the producer that reference it can be cloned properly. Map it to the
-    // consumer's first output tensor.empty.
+    // the producer that reference it can be cloned properly.
     Value prodOutputEmpty =
         GenericOp::getOperandAlloc(*orig.getParent(), prodInitArgNum);
     unsigned consumerFirstOutputArgNum =
         consumer.getDpsInitOperand(0)->getOperandNumber();
     unsigned consumerOutputFusedIdx =
         sourceToFusedIdx[{consumer.getOperation(), consumerFirstOutputArgNum}];
-    irMap.map(prodOutputEmpty, fusedTensorEmpties[consumerOutputFusedIdx]);
+    Value consumerOutputEmpty = fusedTensorEmpties[consumerOutputFusedIdx];
+
+    // When the producer's output shape matches the consumer's output shape
+    // (e.g. eltwise→eltwise), we can reuse the consumer's tensor.empty.
+    // When they differ (e.g. eltwise→reduction where 4x4 -> 4x1), we must
+    // create a separate intermediate tensor.empty with the producer's shape.
+    auto prodOutType = mlir::cast<ShapedType>(prodOutputEmpty.getType());
+    auto consOutType = mlir::cast<ShapedType>(consumerOutputEmpty.getType());
+    if (prodOutType.getShape() == consOutType.getShape()) {
+      irMap.map(prodOutputEmpty, consumerOutputEmpty);
+    } else {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointAfterValue(fusedTensorEmpties.back());
+      auto intermediateEmpty = rewriter.create<mlir::tensor::EmptyOp>(
+          fusedOp.getLoc(), prodOutType.getShape(),
+          prodOutType.getElementType());
+      irMap.map(prodOutputEmpty, intermediateEmpty.getResult());
+    }
   };
 
   mapProdRegionEmpties(producer, pb);
@@ -384,10 +400,20 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   // consumer.
   rewriter.setInsertionPointToEnd(&fusedBlock);
 
-  // Clone producer body (skip tensor.empty, d2m.yield, and remote_store to
-  // output). tensor.empty ops have already been created in the fused block.
+  // Clone producer body (skip d2m.yield and remote_store to output).
+  // Operand-associated tensor.empty ops have already been created in the fused
+  // block and mapped via mapProdRegionEmpties. However, if the producer is
+  // itself a fused op from a prior fusion, it may contain unmapped
+  // intermediate tensor.empty ops that must be cloned.
   for (Operation &op : pb) {
-    if (isa<YieldOp, mlir::tensor::EmptyOp>(op)) {
+    if (isa<YieldOp>(op)) {
+      continue;
+    }
+    if (isa<mlir::tensor::EmptyOp>(op)) {
+      if (irMap.lookupOrDefault(op.getResult(0)) != op.getResult(0)) {
+        continue;
+      }
+      rewriter.clone(op, irMap);
       continue;
     }
     // Skip remote_store operations that store to the producer's output operand
@@ -463,8 +489,15 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     }
   }
   for (Operation &op : cb.without_terminator()) {
-    // Skip tensor.empty ops - already created in the fused block.
+    // Skip operand-associated tensor.empty ops (already created in the fused
+    // block and mapped via mapConsRegionEmpties). Clone any unmapped
+    // tensor.empty ops — these are intermediates from prior fusion passes that
+    // must be carried into the new fused region.
     if (isa<mlir::tensor::EmptyOp>(op)) {
+      if (irMap.lookupOrDefault(op.getResult(0)) != op.getResult(0)) {
+        continue;
+      }
+      rewriter.clone(op, irMap);
       continue;
     }
 
@@ -544,6 +577,161 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 
   return fusedOp;
 }
+
+static bool isValidReductionFusionConsumer(GenericOp gOp) {
+  if (!gOp.isComputeOnlyForm()) {
+    return false;
+  }
+
+  if (!gOp.hasPureTensorSemantics()) {
+    return false;
+  }
+
+  if (!gOp.hasReduction()) {
+    return false;
+  }
+
+  if (gOp.hasSkipOpEltwiseFusionTrait()) {
+    return false;
+  }
+
+  if (gOp.hasMultiUseInputOperand()) {
+    return false;
+  }
+
+  return true;
+}
+
+static bool isEltwiseReductionFusable(OpOperand *fusionTargetOperand) {
+  if (!fusionTargetOperand) {
+    return false;
+  }
+
+  auto producer = fusionTargetOperand->get().getDefiningOp<GenericOp>();
+  auto consumer = dyn_cast<GenericOp>(fusionTargetOperand->getOwner());
+
+  if (!producer || !consumer) {
+    return false;
+  }
+
+  if (!isValidElementwiseFusionTarget(producer)) {
+    return false;
+  }
+
+  if (!isValidReductionFusionConsumer(consumer)) {
+    return false;
+  }
+
+  // Check that the producer's result is only used by the consumer.
+  for (auto result : producer->getResults()) {
+    unsigned numExternalUsers = 0;
+    for (auto *user : result.getUsers()) {
+      if (producer.getOperation()->isProperAncestor(user)) {
+        continue;
+      }
+      if (consumer.getOperation()->isProperAncestor(user)) {
+        continue;
+      }
+      numExternalUsers++;
+    }
+    if (numExternalUsers != 1) {
+      return false;
+    }
+    bool foundConsumerAsUser = false;
+    for (auto *user : result.getUsers()) {
+      if (!producer.getOperation()->isProperAncestor(user) &&
+          !consumer.getOperation()->isProperAncestor(user)) {
+        if (user == consumer.getOperation()) {
+          foundConsumerAsUser = true;
+        } else {
+          return false;
+        }
+      }
+    }
+    if (!foundConsumerAsUser) {
+      return false;
+    }
+  }
+
+  if (!producer.hasCompatibleBlocking(consumer)) {
+    return false;
+  }
+
+  if (!fitsInL1PostFusion(producer, consumer)) {
+    return false;
+  }
+
+  if (!fitsInDstPostFusion(producer, consumer)) {
+    return false;
+  }
+
+  AffineMap consMap =
+      consumer.getIndexingMap(fusionTargetOperand->getOperandNumber());
+  if (consMap.getNumResults() != producer.getNumDims()) {
+    return false;
+  }
+
+  AffineMap prodResMap = producer.getIndexingMap(
+      producer.getDpsInitOperand(0)->getOperandNumber());
+  if (!prodResMap.isPermutation()) {
+    return false;
+  }
+
+  return true;
+}
+
+namespace {
+struct FuseD2MEltwiseReductionOpsPattern : public OpRewritePattern<GenericOp> {
+  FuseD2MEltwiseReductionOpsPattern(MLIRContext *context)
+      : OpRewritePattern<GenericOp>(context) {}
+
+  LogicalResult matchAndRewrite(GenericOp consumer,
+                                PatternRewriter &rewriter) const final {
+    if (!isValidReductionFusionConsumer(consumer)) {
+      return failure();
+    }
+
+    assert(consumer.getNumRegions() == 1u);
+
+    auto findFusableOperand = [&]() -> OpOperand * {
+      for (OpOperand *use : consumer.getDpsInputOperands()) {
+        if (isEltwiseReductionFusable(use)) {
+          return use;
+        }
+      }
+      return nullptr;
+    };
+
+    OpOperand *fusedOperand = findFusableOperand();
+
+    if (!fusedOperand) {
+      return failure();
+    }
+
+    auto producer = fusedOperand->get().getDefiningOp<GenericOp>();
+    assert(producer);
+
+    auto [fusedInputs, fusedOutputs, fusedMaps] =
+        getFusedOperands(fusedOperand, producer, consumer);
+    auto mergedCaptures = llvm::to_vector(llvm::concat<Value>(
+        consumer.getAdditionalArgs(), producer.getAdditionalArgs()));
+
+    auto fusedOp =
+        createFusedGeneric(fusedOperand, producer, consumer, fusedInputs,
+                           fusedOutputs, mergedCaptures, fusedMaps, rewriter);
+
+    int resIdx = 0;
+    for (auto r : consumer->getResults()) {
+      r.replaceAllUsesWith(fusedOp->getResult(resIdx++));
+    }
+
+    rewriter.eraseOp(consumer);
+    rewriter.eraseOp(producer);
+
+    return success();
+  }
+};
+} // namespace
 
 namespace {
 struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
@@ -625,6 +813,9 @@ class D2MElementwiseFusion
     RewritePatternSet patterns(ctx);
     patterns.add<FuseD2MElementwiseOpsPattern>(
         ctx, maxDstPhysicalSizeTiles.getValue());
+    if (enableEltwiseReductionFusion) {
+      patterns.add<FuseD2MEltwiseReductionOpsPattern>(ctx);
+    }
     GreedyRewriteConfig cfg;
 
     if (failed(

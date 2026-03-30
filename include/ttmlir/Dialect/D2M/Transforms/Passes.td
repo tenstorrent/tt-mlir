@@ -67,6 +67,7 @@ def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
 
   list<Option> options = [
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
+    Option<"enableEltwiseReductionFusion", "enable-eltwise-reduction-fusion", "bool", "false", "Enable fusion of eltwise producer into reduction consumer.">,
   ];
 
   let dependentDialects = [
