@@ -3072,7 +3072,7 @@ def test_all_reduce_async(
     "batch,n_heads,nkv,kv_lora_rank,d_rope,seq_len,block_size",
     [
         # Small MLA config from tt-metal unit tests (test_mla_decode.py Case B)
-        (2, 8, 1, 128, 64, 1024, 64),
+        (4, 8, 1, 128, 64, 1024, 64),
     ],
     ids=["small_mla"],
 )
