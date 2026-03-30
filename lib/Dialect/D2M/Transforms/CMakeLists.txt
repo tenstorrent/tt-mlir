@@ -1,5 +1,5 @@
 add_mlir_dialect_library(MLIRD2MTransforms
-        AddScratchInputs.cpp
+        InsertScratchBuffers.cpp
         Allocate.cpp
         DecomposeArange.cpp
         DecomposeMasking.cpp

@@ -206,24 +206,6 @@ static LogicalResult expandCompositeDMARead(IRRewriter &rewriter,
   return success();
 }
 
-static DenseI64ArrayAttr remapScratchInputs(OpBuilder &builder,
-                                            DenseI64ArrayAttr oldScratchInputs,
-                                            const int64_t expandedInputIndex,
-                                            const int64_t extraInputs) {
-  if (!oldScratchInputs || oldScratchInputs.size() == 0) {
-    return nullptr;
-  }
-
-  SmallVector<int64_t> remapped;
-  remapped.reserve(oldScratchInputs.size());
-  for (int64_t scratchInput : oldScratchInputs.asArrayRef()) {
-    remapped.push_back(scratchInput > expandedInputIndex
-                           ? scratchInput + extraInputs
-                           : scratchInput);
-  }
-  return builder.getDenseI64ArrayAttr(remapped);
-}
-
 static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
                                                    GenericOp gOp) {
   CompositeViewOp compositeView = nullptr;
@@ -255,9 +237,6 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
   }
 
   int64_t compositeOperandIdx = gOp.getOperandIndex(compositeView.getResult());
-  DenseI64ArrayAttr newScratchInputs =
-      remapScratchInputs(rewriter, gOp.getScratchInputsAttr(),
-                         compositeOperandIdx, extraNumInputs);
 
   rewriter.setInsertionPoint(gOp);
   // Passing empty block_factors/indexing_maps/iterator_types.
@@ -266,7 +245,7 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
       gOp.getLoc(), gOp.getResultTypes(), newInputs, gOp.getOutputs(),
       gOp.getAdditionalArgs(), gOp.getGrid(), rewriter.getI64ArrayAttr({}),
       rewriter.getAffineMapArrayAttr({}), rewriter.getArrayAttr({}),
-      gOp.getThreads(), newScratchInputs, gOp.getNumRegions());
+      gOp.getThreads(), gOp.getNumRegions());
 
   // Step 2: clone old regions into the new GenericOp and fix up d2m.get_cb
   // operand indices that shifted due to the input list expansion.
