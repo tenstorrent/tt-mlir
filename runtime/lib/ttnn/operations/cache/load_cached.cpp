@@ -51,40 +51,65 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
       context.getTensorPool().insertRuntimeTensorAndValidate(
           op->outputs()->Get(i), (*cachedOutputs)[i]);
     }
+  } else {
+    LOG_DEBUG("Cache miss or invalid cache for function: ", constEvalFuncname);
 
-    return;
+    // Collect the ::ttnn::Tensor objects for execution
+    std::vector<::tt::runtime::Tensor> inputs;
+    inputs.reserve(op->inputs()->size());
+    for (const auto *input : *op->inputs()) {
+      auto &tensor = context.getTensorPool().getRuntimeTensorAndValidate(input);
+      inputs.emplace_back(tensor);
+    }
+
+    // Execute the function
+    const size_t programIndex = op->program_idx();
+    ProgramExecutor exec(context.getDeviceHandle(),
+                         context.getExecutableHandle(), programIndex, inputs,
+                         /*constEvalProgram=*/true);
+    exec.execute();
+    LOG_DEBUG("executed sub-func: ", constEvalFuncname);
+    std::vector<::tt::runtime::Tensor> outputs = exec.gatherOutputTensors();
+
+    // Const-eval outputs need to be retained
+    for (::tt::runtime::Tensor &output : outputs) {
+      ::tt::runtime::ttnn::TTNNTensorWrapper &outputWrapper =
+          output.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+      outputWrapper.setRetain(true);
+    }
+
+    cache.store(cacheKey, inputs, outputs);
+
+    for (size_t i = 0; i < outputs.size(); ++i) {
+      context.getTensorPool().insertRuntimeTensorAndValidate(
+          op->outputs()->Get(i), outputs[i]);
+    }
   }
 
-  LOG_DEBUG("Cache miss or invalid cache for function: ", constEvalFuncname);
-
-  // Collect the ::ttnn::Tensor objects for execution
-  std::vector<::tt::runtime::Tensor> inputs;
-  inputs.reserve(op->inputs()->size());
-  for (const auto *input : *op->inputs()) {
-    auto &tensor = context.getTensorPool().getRuntimeTensorAndValidate(input);
-    inputs.emplace_back(tensor);
-  }
-
-  // Execute the function
-  const size_t programIndex = op->program_idx();
-  ProgramExecutor exec(context.getDeviceHandle(), context.getExecutableHandle(),
-                       programIndex, inputs, /*constEvalProgram=*/true);
-  exec.execute();
-  LOG_DEBUG("executed sub-func: ", constEvalFuncname);
-  std::vector<::tt::runtime::Tensor> outputs = exec.gatherOutputTensors();
-
-  // Const-eval outputs need to be retained
-  for (::tt::runtime::Tensor &output : outputs) {
-    ::tt::runtime::ttnn::TTNNTensorWrapper &outputWrapper =
-        output.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
-    outputWrapper.setRetain(true);
-  }
-
-  cache.store(cacheKey, inputs, outputs);
-
-  for (size_t i = 0; i < outputs.size(); ++i) {
-    context.getTensorPool().insertRuntimeTensorAndValidate(
-        op->outputs()->Get(i), outputs[i]);
+  // DEBUG: print KV cache tensor values after every forward call
+  if (constEvalFuncname.find("kv_cache_const_eval") != std::string::npos) {
+    for (size_t i = 0; i < op->outputs()->size(); ++i) {
+      const ::ttnn::Tensor &t =
+          context.getTensorPool().getTTNNTensorAndValidate(op->outputs()->Get(i));
+      const auto &shape = t.logical_shape();
+      std::string shapeStr = "[";
+      for (size_t d = 0; d < shape.rank(); ++d) {
+        if (d > 0) { shapeStr += ", "; }
+        shapeStr += std::to_string(shape[d]);
+      }
+      shapeStr += "]";
+      auto vals = t.to_vector<float>();
+      constexpr size_t kMaxPrint = 16;
+      std::string valStr;
+      for (size_t v = 0; v < std::min(vals.size(), kMaxPrint); ++v) {
+        if (v > 0) { valStr += ", "; }
+        valStr += std::to_string(vals[v]);
+      }
+      if (vals.size() > kMaxPrint) { valStr += ", ..."; }
+      LOG_INFO("[load_cached] kv_cache '", constEvalFuncname, "' output[", i,
+               "] dtype=", toString(t.dtype()), " shape=", shapeStr,
+               " vals=[", valStr, "]");
+    }
   }
 }
 } // namespace tt::runtime::ttnn::operations::cache
