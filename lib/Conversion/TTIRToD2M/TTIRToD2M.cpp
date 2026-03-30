@@ -2408,7 +2408,7 @@ public:
     auto topology = device.getMeshTopology()[clusterAxis];
     assert(topology == ttcore::Topology::Ring &&
            "Only ring topology is supported for all gather");
-    // TODO: get num links from DeviceAttr
+    // TODO(sohaibnadeemTT): get num links from DeviceAttr (issue #7720)
     uint32_t num_links = 1;
     // We use unidir routing mode for ring topology so we get 2 cores for each
     // link
