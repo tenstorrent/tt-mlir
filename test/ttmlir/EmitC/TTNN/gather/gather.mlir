@@ -4,8 +4,8 @@
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
 module attributes {} {
-  func.func @forward(%arg0: tensor<3x4xbf16>, %arg1: tensor<3x2xi32>) -> tensor<3x2xbf16> {
-    %0 = "ttir.gather_dim"(%arg0, %arg1) <{dim = 1 : i32}> : (tensor<3x4xbf16>, tensor<3x2xi32>) -> tensor<3x2xbf16>
+  func.func @forward(%arg0: tensor<3x4xbf16>, %arg1: tensor<3x2xui32>) -> tensor<3x2xbf16> {
+    %0 = "ttir.gather_dim"(%arg0, %arg1) <{dim = 1 : i32}> : (tensor<3x4xbf16>, tensor<3x2xui32>) -> tensor<3x2xbf16>
     return %0 : tensor<3x2xbf16>
   }
 }
