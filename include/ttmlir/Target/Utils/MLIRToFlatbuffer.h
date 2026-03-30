@@ -925,7 +925,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
 }
 
 inline ::tt::target::ttnn::Conv2dSliceType
-toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dSliceType sliceType) {
+toNative(ttnn::Conv2dSliceType sliceType) {
   switch (sliceType) {
   case ttnn::Conv2dSliceType::DramHeight:
     return ::tt::target::ttnn::Conv2dSliceType::DramHeight;
@@ -937,12 +937,24 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dSliceType sliceType) {
   llvm_unreachable("Unsupported Conv2dSliceType");
 }
 
+inline ::tt::target::ttnn::Conv2dSliceType
+toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dSliceType sliceType) {
+  return toNative(sliceType);
+}
+
+inline ::tt::target::ttnn::Conv2dSliceConfigT
+toNative(ttnn::Conv2dSliceConfigAttr sliceConfigAttr) {
+  ::tt::target::ttnn::Conv2dSliceConfigT sliceConfigT;
+  sliceConfigT.slice_type = toNative(sliceConfigAttr.getSliceType());
+  sliceConfigT.num_slices = sliceConfigAttr.getNumSlices();
+  return sliceConfigT;
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::Conv2dSliceConfigAttr sliceConfigAttr) {
-  return ::tt::target::ttnn::CreateConv2dSliceConfig(
-      *cache.fbb, toFlatbuffer(cache, sliceConfigAttr.getSliceType()),
-      sliceConfigAttr.getNumSlices());
+  auto sliceConfigT = toNative(sliceConfigAttr);
+  return ::tt::target::ttnn::Conv2dSliceConfig::Pack(*cache.fbb, &sliceConfigT);
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv3dConfig>
