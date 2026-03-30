@@ -663,7 +663,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             ctx.isMemspaceBound = true;
             ctx.allocSize[ordinal(asPlannerSpace(MemorySpace::DeviceL1))] =
                 ttmlir::utils::alignUp(
-                    getStreamBufferSizeBytes(operandCtx.bufferType, device),
+                    getCBBufferSizeBytes(operandCtx.bufferType, device),
                     L1memInfo.alignment);
           }
         }
@@ -718,27 +718,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return genericCtx;
   }
 
-  static std::optional<std::size_t>
-  getSingleReductionDim(ArrayRef<ttcore::IteratorType> iteratorTypes) {
-    std::optional<std::size_t> reductionDim;
-    for (auto [dim, iteratorType] : llvm::enumerate(iteratorTypes)) {
-      if (iteratorType != ttcore::IteratorType::Reduction) {
-        continue;
-      }
-      if (reductionDim.has_value()) {
-        return std::nullopt;
-      }
-      reductionDim = dim;
-    }
-    return reductionDim;
-  }
-
   static bool
   shouldApplyAutoReblocking(d2m::GenericOp genericOp,
                             ArrayRef<AffineMap> indexingMaps,
                             ArrayRef<ttcore::IteratorType> iteratorTypes) {
     const std::optional<std::size_t> reductionDim =
-        getSingleReductionDim(iteratorTypes);
+        allocation::getSingleReductionDim(iteratorTypes);
     if (!reductionDim.has_value()) {
       return false;
     }
@@ -924,15 +909,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         const auto operandType =
             mlir::cast<MemRefType>(operand.get().getType());
 
-        operandCtx.bufferType = getStreamBufferType(
+        operandCtx.bufferType = getCBBufferType(
             gridShapeRescaled, shardShapeRescaled, operandType.getElementType(),
             L1Attr, numStreamBuffers);
         TT_ALLOC_TRACE("\t[operand #{}], would-be buffer "
                        "type ({} byte(s)): {}",
                        operandIndex,
-                       getStreamBufferSizeBytes(operandCtx.bufferType, device),
+                       getCBBufferSizeBytes(operandCtx.bufferType, device),
                        operandCtx.bufferType);
-        TT_debug(getStreamBufferSizeBytes(operandCtx.bufferType, device) > 0);
+        TT_debug(getCBBufferSizeBytes(operandCtx.bufferType, device) > 0);
       }
 
       // Finally, insert `operandCtx` into `genericCtx`.
@@ -1723,36 +1708,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return false;
   }
 
-  static bool isSharedLoadStoreBuffer(Value localBuffer) {
-    if (!localBuffer) {
-      return false;
-    }
-
-    Value loadMemref;
-    Value storeMemref;
-    for (Operation *userOp : localBuffer.getUsers()) {
-      if (auto loadOp = mlir::dyn_cast<d2m::RemoteLoadOp>(userOp)) {
-        if (loadOp.getLocalBuffer() == localBuffer) {
-          loadMemref = loadOp.getMemref();
-          if (storeMemref && storeMemref != loadMemref) {
-            return true;
-          }
-        }
-        continue;
-      }
-      if (auto storeOp = mlir::dyn_cast<d2m::RemoteStoreOp>(userOp)) {
-        if (storeOp.getLocalBuffer() == localBuffer) {
-          storeMemref = storeOp.getMemref();
-          if (loadMemref && loadMemref != storeMemref) {
-            return true;
-          }
-        }
-      }
-    }
-
-    return false;
-  }
-
   struct SharedLoadStoreInfo {
     Value localBuffer;
     Value loadMemref;
@@ -1888,7 +1843,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           return WalkResult::advance();
         }
         Value localBuffer = storeOp.getLocalBuffer();
-        if (isSharedLoadStoreBuffer(localBuffer)) {
+        if (getSharedLoadStoreInfo(localBuffer)) {
           sharedBuffer = localBuffer;
           return WalkResult::interrupt();
         }
@@ -1996,47 +1951,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return inferBaseStreamRequirement(genericOp, *sharedPeerCtx, peerMemspace);
   }
 
-  /// @return `map` with all broadcast result expressions replaced with
-  /// const-1 expression
-  static AffineMap canonicalizeBroadcasts(AffineMap map) {
-    auto *ctx = map.getContext();
-
-    // This could almost be a simple AffineMap::replace() but need to make
-    // sure only complete `0`-result expressions are replaced, not other
-    // possible zero const terms within result expression trees, however
-    // unlikely that seems.
-
-    const auto replacement = mlir::getAffineConstantExpr(1, ctx);
-    SmallVector<AffineExpr> exprs;
-
-    for (auto expr : map.getResults()) {
-      if (auto constExpr = llvm::dyn_cast<AffineConstantExpr>(expr)) {
-        if (constExpr.getValue() == 0) {
-          exprs.push_back(replacement);
-          continue;
-        }
-      }
-      exprs.push_back(expr);
-    }
-
-    return AffineMap::get(map.getNumDims(), map.getNumSymbols(), exprs, ctx);
-  }
-
-  static MemRefType getStreamBufferType(ArrayRef<int64_t> gridShape,
-                                        ArrayRef<int64_t> shardShape,
-                                        Type elementType,
-                                        ttcore::MemorySpaceAttr memSpaceAttr,
-                                        uint32_t buffers) {
-    TT_debug(gridShape.size() == shardShape.size());
-
-    const SmallVector<int64_t> fullShape =
-        concatToVector<int64_t>(gridShape, shardShape);
-    const auto bufferLayout =
-        ttcore::ShardLayoutAttr::get(shardShape, elementType, buffers);
-
-    return MemRefType::get(fullShape, elementType, bufferLayout, memSpaceAttr);
-  }
-
   static std::tuple</* input */ SmallVector<int64_t>,
                     /* output */ SmallVector<int64_t>>
   getOperandTileShapes(d2m::GenericOp genericOp) {
@@ -2069,49 +1983,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return SmallVector<int64_t>(tileType.getShape());
     }
     return {1, 1};
-  }
-
-  static std::tuple</* grid */ SmallVector<int64_t>,
-                    /* shard */ SmallVector<int64_t>>
-  getGridAndShardExtents(d2m::GenericOp genericOp) {
-    auto flatInverseMap = ttmlir::utils::concatInversePermutationMap(
-        genericOp.getIndexingMapsValue(), /*reverse=*/false);
-
-    return {flatInverseMap.compose(
-                concatToVector(genericOp.getInputOutputOperandGridShapes())),
-            flatInverseMap.compose(
-                concatToVector(genericOp.getInputOutputOperandShardShapes()))};
-  }
-
-  /// Return a bitmask that indicates which of the dims are "participating"
-  /// (defined as dims that are used by any of the `genericOp`'s output
-  /// expressions.
-  static llvm::BitVector getParticipatingDimMask(d2m::GenericOp genericOp) {
-    TT_debug(genericOp.getOutputs().size() == 1u);
-    AffineMap outputMap = genericOp.getIndexingMapsValue().back();
-
-    const std::size_t rank = outputMap.getNumDims();
-
-    llvm::BitVector mask(rank, false);
-    for (std::size_t d = 0; d < rank; ++d) {
-      mask[d] = outputMap.isFunctionOfDim(d);
-    }
-    return mask;
-  }
-
-  /// Calculate full "shard-only" blocking factors (defined as full blocking
-  /// factors divided by blocking factors)
-  static SmallVector<int64_t> getShardBlockFactors(d2m::GenericOp genericOp) {
-    SmallVector<int64_t> r = genericOp.getFullBlockFactors();
-    SmallVector<int64_t> blockFactors = genericOp.getBlockFactorsValue();
-    TT_debug(r.size() == blockFactors.size());
-    for (std::size_t d = 0; d < r.size(); ++d) {
-      TT_debugv(blockFactors[d] > 0, "unexpected block factor {} for dim {}",
-                blockFactors[d], d);
-      r[d] /= blockFactors[d];
-    }
-
-    return r;
   }
 
   static void assignAddressAndAlignment(RewriterBase &rewriter,
@@ -2219,18 +2090,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // A tighter size calculation is possible for memrefs that don't map to
     // CBs which we don't attempt here except to ignore `buffers` multiplier.
     return device.getMemrefSizeBytes(bufferType, 0, false);
-  }
-
-  // Factor out defaults passed into DeviceAttr::getMemrefSizeBytes()
-  // for stream buffer memrefs.
-  static int64_t getStreamBufferSizeBytes(MemRefType bufferType,
-                                          ttcore::DeviceAttr device) {
-    TT_assertv(ttcore::getMemorySpace(bufferType) ==
-                   ttcore::MemorySpace::DeviceL1,
-               "stream buffers must be allocated in L1");
-    // Stream buffers map to CBs and therefore are subject to CB size
-    // alignment requirements (invoke with `pageSize` default of 0).
-    return device.getMemrefSizeBytes(bufferType, 0, true);
   }
 
   /// @return aligned allocation sizes for a `type` buffer for different

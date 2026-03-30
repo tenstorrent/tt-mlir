@@ -18,24 +18,6 @@ namespace {
 // Block factor analysis logic
 //===----------------------------------------------------------------------===//
 
-/// Returns the index of the single dimension eligible for block factor scaling,
-/// if exactly one such dimension exists.
-// This check is a stopgap until we expand eligible dimensions for reblocking.
-static std::optional<std::size_t>
-getSingleScalableDim(ArrayRef<ttcore::IteratorType> iteratorTypes) {
-  std::optional<std::size_t> scalableDim;
-  for (auto [dim, iteratorType] : llvm::enumerate(iteratorTypes)) {
-    if (iteratorType != ttcore::IteratorType::Reduction) {
-      continue;
-    }
-    if (scalableDim.has_value()) {
-      return std::nullopt;
-    }
-    scalableDim = dim;
-  }
-  return scalableDim;
-}
-
 /// Computes the total circular buffer bytes for a candidate grid and shard
 /// extents.
 static std::optional<uint64_t> computeCBBytesForCandidate(
@@ -118,7 +100,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
                 ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers) {
   SmallVector<int64_t> blockFactors = genericOp.getBlockFactorsValue();
   const std::optional<std::size_t> scalableDim =
-      getSingleScalableDim(iteratorTypes);
+      getSingleReductionDim(iteratorTypes);
   if (!scalableDim.has_value()) {
     return blockFactors;
   }
