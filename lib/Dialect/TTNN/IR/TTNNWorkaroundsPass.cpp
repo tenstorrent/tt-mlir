@@ -1029,6 +1029,10 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   TTNNOperandWorkarounds rowMajorLayoutWorkaround;
   rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
 
+  TTNNOperandWorkarounds rowMajorInt32Workaround;
+  rowMajorInt32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorInt32Workaround.tensorDataTypeWorkaround = ttcore::DataType::Int32;
+
   auto mlaOp = cast<PagedFlashMultiLatentAttentionDecodeOp>(op);
 
   TTNNOperandsWorkarounds operandsWorkaround =
@@ -1046,9 +1050,9 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
         operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
   }
 
-  // page_table requires ROW_MAJOR layout.
+  // page_table requires ROW_MAJOR layout and INT32 dtype.
   operandsWorkaround =
-      operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
+      operandsWorkaround.addInputOperandWorkaround(rowMajorInt32Workaround);
 
   // attention_mask (optional) needs no workaround.
   if (mlaOp.getAttentionMask()) {
