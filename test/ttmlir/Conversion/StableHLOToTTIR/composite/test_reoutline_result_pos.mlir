@@ -19,8 +19,8 @@ module @ReoutlineCompositeResultOrder attributes {} {
       stablehlo.return %6 : tensor<i1>
     }) {reoutline.arg_operand_indices = array<i64: 0, -1>, reoutline.group = "composite_tenstorrent.topk.impl"} : (tensor<128x32xf32>, tensor<128x32xi32>) -> (tensor<128x32xf32>, tensor<128x32xi32>)
     %3 = stablehlo.slice %2#1 [0:128, 0:4] {reoutline.group = "composite_tenstorrent.topk.impl"} : (tensor<128x32xi32>) -> tensor<128x4xi32>
-    %4 = stablehlo.convert %3 {reoutline.group = "composite_tenstorrent.topk.impl", reoutline.result_pos = 1 : i64} : (tensor<128x4xi32>) -> tensor<128x4xi64>
-    %5 = stablehlo.slice %2#0 [0:128, 0:4] {reoutline.group = "composite_tenstorrent.topk.impl", reoutline.result_pos = 0 : i64} : (tensor<128x32xf32>) -> tensor<128x4xf32>
+    %4 = stablehlo.convert %3 {reoutline.group = "composite_tenstorrent.topk.impl", reoutline.result_pos = array<i64: 1>} : (tensor<128x4xi32>) -> tensor<128x4xi64>
+    %5 = stablehlo.slice %2#0 [0:128, 0:4] {reoutline.group = "composite_tenstorrent.topk.impl", reoutline.result_pos = array<i64: 0>} : (tensor<128x32xf32>) -> tensor<128x4xf32>
     return %5, %4 : tensor<128x4xf32>, tensor<128x4xi64>
   }
 }

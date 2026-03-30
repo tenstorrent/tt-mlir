@@ -28,11 +28,11 @@ module @FlattenCompositeOutputPos attributes {} {
 // CHECK-LABEL: func.func @main
 // CHECK: %[[INDICES:.*]] = stablehlo.convert
 // The INDICES result (%4) appears second in @tenstorrent.topk.impl's result list
-// so it should have result_pos = 1
-// CHECK-SAME: reoutline.result_pos = 1 : i64
+// so it should have result_pos = [1] (single-result op, array indexed by result number)
+// CHECK-SAME: reoutline.result_pos = array<i64: 1>
 
 // The VALUES result (%5) appears first in @tenstorrent.topk.impl's result list
-// so it should have result_pos = 0
+// so it should have result_pos = [0]
 // CHECK: %[[VALUES:.*]] = stablehlo.slice
-// CHECK-SAME: reoutline.result_pos = 0 : i64
+// CHECK-SAME: reoutline.result_pos = array<i64: 0>
 // CHECK: return %[[VALUES]], %[[INDICES]] : tensor<128x4xf32>, tensor<128x4xi64>
