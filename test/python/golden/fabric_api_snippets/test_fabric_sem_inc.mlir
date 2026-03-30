@@ -55,7 +55,7 @@ module attributes {} {
     %is_dst_device = arith.cmpi eq, %my_device_id, %dst_dev_id : i16
     scf.if %is_dst_device {
       // Destination device waits for semaphore inc
-      ttkernel.noc_semaphore_wait(%global_semaphore_ptr, %incr) : (!ttkernel.l1_addr_ptr, index) -> ()
+      ttkernel.experimental::semaphore_wait(%global_semaphore_ptr, %incr) : (!ttkernel.l1_addr_ptr, index) -> ()
     }
 
     // Close fabric connections

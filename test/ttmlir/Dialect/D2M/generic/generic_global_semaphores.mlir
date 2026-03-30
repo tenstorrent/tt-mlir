@@ -89,6 +89,6 @@ module {
     return %result : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
 
     // CHECK: func.func {{.*}} {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [{{.*}}<arg_type = global_semaphore, operand_index = {{[0-9]+}}>{{.*}}]>, {{.*}}}
-    // CHECK: "noc_semaphore_wait"
+    // CHECK: "experimental::semaphore_wait"
   }
 }

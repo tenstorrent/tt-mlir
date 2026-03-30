@@ -3229,15 +3229,6 @@ public:
     // buffers for remote_load and remote_store ops.
     target.addLegalOp<::mlir::tensor::EmptyOp>();
 
-    // Debug: log any ops that are checked for legality and found illegal
-    target.markUnknownOpDynamicallyLegal([](Operation *op) {
-      llvm::errs() << "DEBUG: Checking legality of unknown op: "
-                   << op->getName()
-                   << " from dialect: " << op->getDialect()->getNamespace()
-                   << "\n";
-      return false; // Mark as illegal to see what's being checked
-    });
-
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
       signalPassFailure();
     }

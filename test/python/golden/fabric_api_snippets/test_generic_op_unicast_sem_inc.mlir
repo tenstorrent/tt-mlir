@@ -102,7 +102,7 @@ module attributes {} {
 
     %is_dst_device = emitc.cmp eq, %my_device_id, %dst_dev_id : (i16, i16) -> i1
     emitc.if %is_dst_device {
-      emitc.call_opaque "noc_semaphore_wait"(%global_semaphore_ptr, %incr) : (!emitc.ptr<!emitc.opaque<"volatile tt_l1_ptr uint32_t">>, i32) -> ()
+      emitc.call_opaque "experimental::semaphore_wait"(%global_semaphore_ptr, %incr) : (!emitc.ptr<!emitc.opaque<"volatile tt_l1_ptr uint32_t">>, i32) -> ()
     }
     emitc.call_opaque "experimental::close_fabric_connections"(%fabric_connection_manager) : (!emitc.opaque<"experimental::FabricConnectionManager">) -> ()
     return
