@@ -456,15 +456,17 @@ protected:
   static std::pair<SmallVector<SmallVector<Value>>,
                    SmallVector<SmallVector<int64_t>>>
   createInputIndicesAndMcastGridDims(mlir::OpBuilder &builder,
-                                     mlir::Location loc,
-                                     d2m::GenericOp generic) {
+                                     mlir::Location loc, d2m::GenericOp generic,
+                                     bool enableMulticastInference) {
     SmallVector<SmallVector<Value>> inputIndices(generic.getNumOperands());
     SmallVector<SmallVector<int64_t>> mcastGridDims(generic.getNumOperands());
     for (size_t i = 0; i < generic.getNumOperands(); ++i) {
       inputIndices[i] =
           d2m::utils::buildGridIndices(builder, loc, generic.getIndexingMap(i));
-      mcastGridDims[i] = getMulticastGridDims(generic.getIndexingMap(i),
-                                              generic.getIteratorTypes());
+      if (enableMulticastInference) {
+        mcastGridDims[i] = getMulticastGridDims(generic.getIndexingMap(i),
+                                                generic.getIteratorTypes());
+      }
     }
     return std::make_pair(inputIndices, mcastGridDims);
   }
@@ -971,8 +973,8 @@ private:
 
       // Populate 'block'.
       {
-        auto [inputIndices, mcastGridDims] =
-            createInputIndicesAndMcastGridDims(rewriter, loc, generic);
+        auto [inputIndices, mcastGridDims] = createInputIndicesAndMcastGridDims(
+            rewriter, loc, generic, enableMulticastInference);
         auto blockArgsVec = createBlockArguments(
             rewriter, block, loc, TypeRange(inputs), TypeRange(outputs),
             generic, inputIndices, mcastGridDims);
@@ -1141,8 +1143,8 @@ private:
 
       // Populate 'block'.
       {
-        auto [inputIndices, mcastGridDims] =
-            createInputIndicesAndMcastGridDims(rewriter, loc, generic);
+        auto [inputIndices, mcastGridDims] = createInputIndicesAndMcastGridDims(
+            rewriter, loc, generic, enableMulticastInference);
         auto blockArgsVec = createBlockArguments(
             rewriter, block, loc, TypeRange(inputs), TypeRange(outputs),
             generic, inputIndices, mcastGridDims);
@@ -1452,8 +1454,8 @@ private:
 
       // Populate 'block'.
       {
-        auto [inputIndices, mcastGridDims] =
-            createInputIndicesAndMcastGridDims(rewriter, loc, generic);
+        auto [inputIndices, mcastGridDims] = createInputIndicesAndMcastGridDims(
+            rewriter, loc, generic, enableMulticastInference);
         auto blockArgsVec = createBlockArguments(
             rewriter, block, loc, TypeRange(inputs), TypeRange(outputs),
             generic, inputIndices, mcastGridDims);
@@ -2199,8 +2201,8 @@ public:
       mlir::Region &region = generic->getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
 
-      auto [inputIndices, mcastGridDims] =
-          createInputIndicesAndMcastGridDims(rewriter, loc, generic);
+      auto [inputIndices, mcastGridDims] = createInputIndicesAndMcastGridDims(
+          rewriter, loc, generic, enableMulticastInference);
       auto blockArgsVec = createBlockArguments(
           rewriter, block, loc, TypeRange(genericInputs), TypeRange(outputs),
           generic, inputIndices, mcastGridDims);
