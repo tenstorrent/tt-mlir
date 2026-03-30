@@ -1571,7 +1571,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       (`semaphore` `increment` $semaphore^ `[` $semaphoreIndices `]`)?
       attr-dict `:` type($memref)
       (`,` type($localBuffer)^)?
-      (`,` type($cb)^)?
+      (`from` type($cb)^)?
       (`->` type($result)^)?
     }];
 
