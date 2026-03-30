@@ -82,75 +82,79 @@ func.func @test_logical_right_shift(%arg0: tensor<64x128xi32>, %arg1: tensor<64x
 
 // ===--- Broadcasting ---=================================================//
 
-// TOSA op with rhs broadcast (single dim).
+// TOSA op with rhs broadcast (single dim, implicit in TOSA).
 // CHECK-LABEL: func.func @test_subtract_broadcast_rhs
 func.func @test_subtract_broadcast_rhs(%arg0: tensor<32x32xf32>, %arg1: tensor<32x1xf32>) -> tensor<32x32xf32> {
-  // CHECK: linalg.broadcast
+  // CHECK-NOT: linalg.broadcast
   // CHECK: tosa.sub
   %0 = "ttir.subtract"(%arg0, %arg1) : (tensor<32x32xf32>, tensor<32x1xf32>) -> tensor<32x32xf32>
   return %0 : tensor<32x32xf32>
 }
 
-// Named linalg op with both operands broadcast.
+// Multiply with both operands broadcast (implicit via affine maps).
 // CHECK-LABEL: func.func @test_multiply_broadcast_both
 func.func @test_multiply_broadcast_both(%arg0: tensor<1x32xf32>, %arg1: tensor<32x1xf32>) -> tensor<32x32xf32> {
-  // CHECK: linalg.broadcast
-  // CHECK: linalg.broadcast
-  // CHECK: linalg.mul
+  // CHECK-NOT: linalg.broadcast
+  // CHECK: linalg.generic
+  // CHECK: arith.mulf
   %0 = "ttir.multiply"(%arg0, %arg1) : (tensor<1x32xf32>, tensor<32x1xf32>) -> tensor<32x32xf32>
   return %0 : tensor<32x32xf32>
 }
 
-// Rank-extending broadcast (2D -> 3D).
+// Rank-extending broadcast (2D -> 3D, implicit via affine maps).
 // CHECK-LABEL: func.func @test_multiply_broadcast_rank_extend
 func.func @test_multiply_broadcast_rank_extend(%arg0: tensor<32x1xf32>, %arg1: tensor<32x32x32xf32>) -> tensor<32x32x32xf32> {
-  // CHECK: linalg.broadcast
-  // CHECK: linalg.mul
+  // CHECK-NOT: linalg.broadcast
+  // CHECK: linalg.generic
+  // CHECK: arith.mulf
   %0 = "ttir.multiply"(%arg0, %arg1) : (tensor<32x1xf32>, tensor<32x32x32xf32>) -> tensor<32x32x32xf32>
   return %0 : tensor<32x32x32xf32>
 }
 
-// 4D broadcast with multiple singleton dims.
+// 4D broadcast with multiple singleton dims (implicit via affine maps).
 // CHECK-LABEL: func.func @test_multiply_broadcast_4d
 func.func @test_multiply_broadcast_4d(%arg0: tensor<32x1x32x1xf32>, %arg1: tensor<32x32x32x32xf32>) -> tensor<32x32x32x32xf32> {
-  // CHECK: linalg.broadcast
-  // CHECK: linalg.mul
+  // CHECK-NOT: linalg.broadcast
+  // CHECK: linalg.generic
+  // CHECK: arith.mulf
   %0 = "ttir.multiply"(%arg0, %arg1) : (tensor<32x1x32x1xf32>, tensor<32x32x32x32xf32>) -> tensor<32x32x32x32xf32>
   return %0 : tensor<32x32x32x32xf32>
 }
 
-// Scalar (0D) broadcast uses tensor.extract + linalg.fill.
+// Scalar (0D) broadcast (implicit via affine maps, no results in map).
 // CHECK-LABEL: func.func @test_multiply_broadcast_scalar
 func.func @test_multiply_broadcast_scalar(%arg0: tensor<f32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
-  // CHECK: tensor.extract
-  // CHECK: linalg.fill
-  // CHECK: linalg.mul
+  // CHECK-NOT: linalg.broadcast
+  // CHECK: linalg.generic
+  // CHECK: arith.mulf
   %0 = "ttir.multiply"(%arg0, %arg1) : (tensor<f32>, tensor<32x32xf32>) -> tensor<32x32xf32>
   return %0 : tensor<32x32xf32>
 }
 
-// linalg.generic op with broadcast (atan2).
+// linalg.generic op with broadcast (atan2, implicit via affine maps).
 // CHECK-LABEL: func.func @test_atan2_broadcast
 func.func @test_atan2_broadcast(%arg0: tensor<64x128xf32>, %arg1: tensor<1x128xf32>) -> tensor<64x128xf32> {
-  // CHECK: linalg.broadcast
+  // CHECK-NOT: linalg.broadcast
   // CHECK: linalg.generic
   // CHECK: math.atan2
   %0 = "ttir.atan2"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<1x128xf32>) -> tensor<64x128xf32>
   return %0 : tensor<64x128xf32>
 }
 
-// ===--- Named Linalg Ops ---=============================================//
+// ===--- Multiply / Div via linalg.generic ---=============================//
 
 // CHECK-LABEL: func.func @test_multiply
 func.func @test_multiply(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
-  // CHECK: linalg.mul
+  // CHECK: linalg.generic
+  // CHECK: arith.mulf
   %0 = "ttir.multiply"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %0 : tensor<64x128xf32>
 }
 
 // CHECK-LABEL: func.func @test_div
 func.func @test_div(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
-  // CHECK: linalg.div
+  // CHECK: linalg.generic
+  // CHECK: arith.divf
   %0 = "ttir.div"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %0 : tensor<64x128xf32>
 }
