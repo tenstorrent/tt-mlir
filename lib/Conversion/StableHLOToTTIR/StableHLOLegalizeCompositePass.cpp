@@ -636,6 +636,16 @@ public:
           "at least 3 operands (query, key, value).");
     }
 
+    // For now, frontend composite doesnt support attention_sink.
+    // Issue: https://github.com/tenstorrent/tt-xla/issues/4030
+    if (numOperands > 4) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.scaled_dot_product_attention composite op must have "
+          "at most 4 operands (query, key, value, attention_mask). "
+          "Attention sink is not supported yet.");
+    }
+
     auto outputType =
         mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
 
@@ -659,7 +669,7 @@ public:
     // The composite's first 3 operands are always query, key, value.
     // A 4th boundary input (attention_mask) is present only when
     // is_causal is false and the frontend marked 4 inputs.
-    bool hasAttnMask = !isCausal && numOperands >= 4;
+    bool hasAttnMask = !isCausal && numOperands == 4;
     SmallVector<Value> sdpaOperands = {adaptor.getOperands()[0],
                                        adaptor.getOperands()[1],
                                        adaptor.getOperands()[2]};
