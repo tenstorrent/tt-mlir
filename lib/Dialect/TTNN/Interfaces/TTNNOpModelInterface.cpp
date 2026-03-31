@@ -4860,36 +4860,15 @@ AllReduceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 AllReduceAsyncOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                    const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
-  const auto inputShape = getInput().getType().getShape();
-  ttcore::ReduceType reduceType = getReduceType();
-  uint32_t clusterAxis = getClusterAxis();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<AllReduceAsyncOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], reduceType, clusterAxis, opConfig.outputLayout);
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 
 llvm::Expected<size_t>
 AllReduceAsyncOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getInput().getType().getShape();
-  ttcore::ReduceType reduceType = getReduceType();
-  uint32_t clusterAxis = getClusterAxis();
-
-  return opRuntimeCache().getOrCompute(
-      op_model::OpModel<AllReduceAsyncOp>::getOpRuntime, *this, inputShape,
-      inputs[0], reduceType, clusterAxis, opConfig.outputLayout);
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 
 //===----------------------------------------------------------------------===//

@@ -737,22 +737,6 @@ std::optional<std::string> getScatterReductionType(
   }
 }
 
-::reduction_common::ReduceType
-convertReduceType(ttcore::ReduceType reduceType) {
-  switch (reduceType) {
-  case ttcore::ReduceType::Sum:
-    return ::reduction_common::ReduceType::Sum;
-  case ttcore::ReduceType::Mean:
-    return ::reduction_common::ReduceType::Mean;
-  case ttcore::ReduceType::Max:
-    return ::reduction_common::ReduceType::Max;
-  case ttcore::ReduceType::Min:
-    return ::reduction_common::ReduceType::Min;
-  default:
-    llvm_unreachable("Unsupported reduce type");
-  }
-}
-
 std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
 getMatmulProgramConfig(mlir::Attribute programConfigAttr) {
   if (!programConfigAttr) {

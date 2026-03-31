@@ -6006,48 +6006,6 @@ TEST_F(OpModelBase, GatherOpInterface) {
 }
 
 //===----------------------------------------------------------------------===//
-// AllReduceAsyncOp
-//===----------------------------------------------------------------------===//
-
-TEST_F(OpModelBase, AllReduceAsyncOpInterface) {
-  llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 128};
-
-  auto input = createEmptyTensor(inputShape);
-  auto outputType = createRankedTensorType(inputShape);
-
-  auto allReduceAsync = builder.create<AllReduceAsyncOp>(
-      builder.getUnknownLoc(), outputType, input,
-      ttcore::ReduceTypeAttr::get(&context, ttcore::ReduceType::Sum),
-      builder.getUI32IntegerAttr(0),
-      /*sub_device_id=*/nullptr,
-      /*memory_config=*/nullptr,
-      /*num_links=*/nullptr,
-      /*topology=*/nullptr);
-
-  allReduceAsync->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
-
-  auto constraintsExp = getOpConstraints(allReduceAsync.getOperation());
-  if (constraintsExp) {
-    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
-        constraintsExp.get();
-    EXPECT_GE(cbSize, 0);
-    EXPECT_GE(l1PeakSize, 0);
-    EXPECT_GT(outputSize, 0);
-  } else {
-    FAIL() << "Missing L1 constraints for AllReduceAsyncOp; Error="
-           << llvm::toString(constraintsExp.takeError());
-  }
-
-  auto runtimeExp = getOpRuntime(allReduceAsync.getOperation());
-  if (runtimeExp) {
-    EXPECT_TRUE(runtimeExp.get() > 0);
-  } else {
-    FAIL() << "Runtime test failed for AllReduceAsyncOp; Error="
-           << llvm::toString(runtimeExp.takeError());
-  }
-}
-
-//===----------------------------------------------------------------------===//
 // PagedFlashMultiLatentAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
