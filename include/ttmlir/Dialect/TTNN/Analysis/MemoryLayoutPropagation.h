@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_LAYOUTPROPAGATION_H
-#define TTMLIR_DIALECT_TTNN_ANALYSIS_LAYOUTPROPAGATION_H
+#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTPROPAGATION_H
+#define TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTPROPAGATION_H
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/Analysis/LayoutPropagationObserver.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagationObserver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
@@ -23,18 +23,18 @@
 
 namespace mlir::tt::ttnn {
 
-/// LayoutPropagation performs greedy (K=1) or beam search (K>1) layout
+/// MemoryLayoutPropagation performs greedy (K=1) or beam search (K>1) layout
 /// propagation over a function's operations in topological order. It determines
 /// the best layout for each op's output by evaluating cross-products of input
 /// candidate layouts and output hints, scoring via backend validation. After
 /// propagation, it applies all decisions directly to the IR.
-class LayoutPropagation {
+class MemoryLayoutPropagation {
 public:
   /// Construct a layout propagation instance for the given function.
   /// Uses the provided legal configs and device grid to evaluate candidates.
   /// When tensorTypePossibleLayouts is provided, reshard candidates are
   /// generated from all possible sharded layouts for each tensor type.
-  LayoutPropagation(
+  MemoryLayoutPropagation(
       func::FuncOp func, ttcore::GridAttr deviceGrid,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts = nullptr,
@@ -43,7 +43,7 @@ public:
       std::unique_ptr<LayoutPropagationObserver> observer = nullptr);
 
   /// Destructor defined in .cpp (observer is forward-declared).
-  ~LayoutPropagation();
+  ~MemoryLayoutPropagation();
 
   /// Run layout propagation and apply all changes directly to the IR.
   void run();
@@ -179,4 +179,4 @@ private:
 
 } // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_LAYOUTPROPAGATION_H
+#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTPROPAGATION_H

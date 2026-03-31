@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_GREEDYLAYOUTPROPAGATION_H
-#define TTMLIR_DIALECT_TTNN_TRANSFORMS_GREEDYLAYOUTPROPAGATION_H
+#ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_GREEDYMEMORYLAYOUTPROPAGATION_H
+#define TTMLIR_DIALECT_TTNN_TRANSFORMS_GREEDYMEMORYLAYOUTPROPAGATION_H
 
 #include "mlir/Pass/PassRegistry.h"
 
@@ -15,7 +15,7 @@ namespace mlir::tt::ttnn {
 
 // Pipeline options: extends tablegen-generated Options with complex fields
 // that need custom CLI parsers (not supported by tablegen).
-struct TTNNGreedyLayoutPropagationPipelineOptions {
+struct TTNNGreedyMemoryLayoutPropagationPipelineOptions {
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
   int64_t beamWidth = 8;
@@ -29,9 +29,9 @@ struct TTNNGreedyLayoutPropagationPipelineOptions {
   bool enableCompileTimeStats = false;
 };
 
-std::unique_ptr<::mlir::Pass> createTTNNGreedyLayoutPropagation(
-    TTNNGreedyLayoutPropagationPipelineOptions options);
+std::unique_ptr<::mlir::Pass> createTTNNGreedyMemoryLayoutPropagation(
+    TTNNGreedyMemoryLayoutPropagationPipelineOptions options);
 
 } // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_GREEDYLAYOUTPROPAGATION_H
+#endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_GREEDYMEMORYLAYOUTPROPAGATION_H

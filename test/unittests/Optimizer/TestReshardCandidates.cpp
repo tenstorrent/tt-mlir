@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Analysis/LayoutPropagation.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagation.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 
@@ -160,7 +160,7 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
-// Reshard candidate generation via LayoutPropagation (tested indirectly
+// Reshard candidate generation via MemoryLayoutPropagation (tested indirectly
 // through the full pipeline since generateReshardCandidates is private)
 //===----------------------------------------------------------------------===//
 
@@ -195,7 +195,7 @@ TEST_F(ReshardCandidatesTest, WithTensorLayoutsMapDoesNotCrash) {
   TensorTypeLayoutsMap tensorLayouts =
       buildTensorTypeLayoutsMap(bareType, shape);
 
-  LayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
                                 &tensorLayouts, /*beamWidth=*/8);
 
   EXPECT_NO_FATAL_FAILURE(propagation.run());
@@ -223,7 +223,7 @@ TEST_F(ReshardCandidatesTest, NullTensorLayoutsNoReshardCandidates) {
   legalConfigs[addOp.getOperation()] = createElementwiseLegalConfigs(shape);
   legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
-  LayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
                                 /*tensorTypePossibleLayouts=*/nullptr,
                                 /*beamWidth=*/8);
   propagation.run();
@@ -280,7 +280,7 @@ TEST_F(ReshardCandidatesTest, BeamCandidatesWithTensorLayoutsMoreThanWithout) {
     legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
     legalConfigs[mulOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
-    LayoutPropagation propagation(localFunc, getDeviceGrid(), legalConfigs,
+    MemoryLayoutPropagation propagation(localFunc, getDeviceGrid(), legalConfigs,
                                   layouts, /*beamWidth=*/8);
     propagation.run();
 
@@ -344,7 +344,7 @@ TEST_F(ReshardCandidatesTest, ReshardExplorationK1vsK8) {
     legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
     legalConfigs[mulOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
-    LayoutPropagation propagation(localFunc, getDeviceGrid(), legalConfigs,
+    MemoryLayoutPropagation propagation(localFunc, getDeviceGrid(), legalConfigs,
                                   /*tensorTypePossibleLayouts=*/nullptr,
                                   beamWidth);
     propagation.run();

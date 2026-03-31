@@ -6,7 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-#include "ttmlir/Dialect/TTNN/Analysis/LayoutPropagation.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagation.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
@@ -38,21 +38,21 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNGREEDYLAYOUTPROPAGATION
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
-class TTNNGreedyLayoutPropagation
-    : public impl::TTNNGreedyLayoutPropagationBase<
-          TTNNGreedyLayoutPropagation> {
+class TTNNGreedyMemoryLayoutPropagation
+    : public impl::TTNNGreedyMemoryLayoutPropagationBase<
+          TTNNGreedyMemoryLayoutPropagation> {
 public:
-  using impl::TTNNGreedyLayoutPropagationBase<
-      TTNNGreedyLayoutPropagation>::TTNNGreedyLayoutPropagationBase;
+  using impl::TTNNGreedyMemoryLayoutPropagationBase<
+      TTNNGreedyMemoryLayoutPropagation>::TTNNGreedyMemoryLayoutPropagationBase;
 
   // Custom copy constructor: Pass::Option members are non-copyable, so we
   // delegate to the base copy constructor and default-initialize them.
-  TTNNGreedyLayoutPropagation(const TTNNGreedyLayoutPropagation &other)
-      : TTNNGreedyLayoutPropagationBase(other) {}
+  TTNNGreedyMemoryLayoutPropagation(const TTNNGreedyMemoryLayoutPropagation &other)
+      : TTNNGreedyMemoryLayoutPropagationBase(other) {}
 
   // Pipeline constructor: accepts complex options beyond what tablegen handles.
-  TTNNGreedyLayoutPropagation(TTNNGreedyLayoutPropagationPipelineOptions opts)
-      : TTNNGreedyLayoutPropagationBase() {
+  TTNNGreedyMemoryLayoutPropagation(TTNNGreedyMemoryLayoutPropagationPipelineOptions opts)
+      : TTNNGreedyMemoryLayoutPropagationBase() {
     maxLegalLayouts = opts.maxLegalLayouts;
     rowMajorEnabled = opts.rowMajorEnabled;
     beamWidth = opts.beamWidth;
@@ -69,7 +69,7 @@ public:
   void runOnOperation() final {
 #ifndef TTMLIR_ENABLE_OPMODEL
     llvm::llvm_unreachable_internal(
-        "TTNNGreedyLayoutPropagation pass requires OpModel support to be "
+        "TTNNGreedyMemoryLayoutPropagation pass requires OpModel support to be "
         "enabled.");
 #else
     ModuleOp moduleOp = getOperation();
@@ -161,7 +161,7 @@ public:
                    "{1} legal op configs.",
                    func.getName(), legalConfigs.size());
 
-      LayoutPropagation propagation(
+      MemoryLayoutPropagation propagation(
           func, deviceGrid, legalConfigs, &tensorTypePossibleLayouts,
           static_cast<size_t>(beamWidth),
           static_cast<size_t>(maxInputCandidatesPerOperand),
@@ -187,9 +187,9 @@ protected:
 };
 
 // Pipeline create function.
-std::unique_ptr<::mlir::Pass> createTTNNGreedyLayoutPropagation(
-    TTNNGreedyLayoutPropagationPipelineOptions options) {
-  return std::make_unique<TTNNGreedyLayoutPropagation>(std::move(options));
+std::unique_ptr<::mlir::Pass> createTTNNGreedyMemoryLayoutPropagation(
+    TTNNGreedyMemoryLayoutPropagationPipelineOptions options) {
+  return std::make_unique<TTNNGreedyMemoryLayoutPropagation>(std::move(options));
 }
 
 } // namespace mlir::tt::ttnn

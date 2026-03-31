@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_LAYOUTPROPAGATIONOBSERVER_H
-#define TTMLIR_DIALECT_TTNN_ANALYSIS_LAYOUTPROPAGATIONOBSERVER_H
+#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTPROPAGATIONOBSERVER_H
+#define TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTPROPAGATIONOBSERVER_H
 
-#include "ttmlir/Dialect/TTNN/Analysis/LayoutPropagationTypes.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagationTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 
 #include "llvm/ADT/ArrayRef.h"
@@ -18,11 +18,11 @@ namespace mlir::tt::ttnn {
 
 class DecisionTrace;
 
-/// Observer interface for LayoutPropagation decisions.
+/// Observer interface for MemoryLayoutPropagation decisions.
 /// NullObject pattern: all methods have empty default implementations.
 /// Concrete observers (DecisionTraceObserver) override the methods they care
 /// about. This eliminates all `if (trace) { ... }` conditionals in
-/// LayoutPropagation.cpp.
+/// MemoryLayoutPropagation.cpp.
 class LayoutPropagationObserver {
 public:
   virtual ~LayoutPropagationObserver() = default;
@@ -73,4 +73,4 @@ public:
 
 } // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_LAYOUTPROPAGATIONOBSERVER_H
+#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTPROPAGATIONOBSERVER_H

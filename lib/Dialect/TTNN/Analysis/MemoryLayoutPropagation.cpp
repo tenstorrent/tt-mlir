@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Analysis/LayoutPropagation.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagation.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
@@ -26,7 +26,7 @@
 
 namespace mlir::tt::ttnn {
 
-LayoutPropagation::LayoutPropagation(
+MemoryLayoutPropagation::MemoryLayoutPropagation(
     func::FuncOp func, ttcore::GridAttr deviceGrid,
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     const TensorTypeLayoutsMap *tensorTypePossibleLayouts, size_t beamWidth,
@@ -44,10 +44,10 @@ LayoutPropagation::LayoutPropagation(
   }
 }
 
-LayoutPropagation::~LayoutPropagation() = default;
+MemoryLayoutPropagation::~MemoryLayoutPropagation() = default;
 
 const BeamCandidate *
-LayoutPropagation::getChosenCandidate(Operation *op) const {
+MemoryLayoutPropagation::getChosenCandidate(Operation *op) const {
   auto it = beamState.find(op);
   if (it == beamState.end() || it->second.empty()) {
     return nullptr;
@@ -130,7 +130,7 @@ static void applyOpSpecificAttrs(Operation *op,
   getRuleBook(op).applyOpSpecificAttrs(op, candidate);
 }
 
-std::optional<BeamCandidate> LayoutPropagation::evaluateHint(
+std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
     Operation *op, const OpConfig &hint, size_t hintIdx,
     const std::vector<TTNNLayoutAttr> &inputLayouts, bool anyReshard,
     const llvm::SmallVector<size_t> &producerCandidateIndices,
@@ -298,9 +298,9 @@ void recordEdges(func::FuncOp func, LayoutPropagationObserver *observer,
 
 } // namespace observer_recording
 
-void LayoutPropagation::run() {
+void MemoryLayoutPropagation::run() {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-               "LayoutPropagation::run() starting for func {0}",
+               "MemoryLayoutPropagation::run() starting for func {0}",
                func.getName());
 
   observer->onStart(func.getName(), beamWidth);
@@ -374,7 +374,7 @@ void LayoutPropagation::run() {
                                        opIndex);
 
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-               "LayoutPropagation: processed {0} ops with beamWidth={1}",
+               "MemoryLayoutPropagation: processed {0} ops with beamWidth={1}",
                opIndex, beamWidth);
 
   // Backward pass: consolidate beam at fork points (only for K > 1).
@@ -393,7 +393,7 @@ void LayoutPropagation::run() {
 }
 
 llvm::SmallVector<BeamCandidate, 0>
-LayoutPropagation::processOp(Operation *op) {
+MemoryLayoutPropagation::processOp(Operation *op) {
   // Step 1: Build input candidate sets (one set per operand).
   std::vector<std::vector<InputCandidate>> inputCandidateSets =
       getInputCandidateSets(op);
@@ -577,7 +577,7 @@ LayoutPropagation::processOp(Operation *op) {
   return candidates;
 }
 
-bool LayoutPropagation::validateReshard(Operation *consumerOp,
+bool MemoryLayoutPropagation::validateReshard(Operation *consumerOp,
                                         Operation *producerOp,
                                         TTNNLayoutAttr producerOutputLayout,
                                         TTNNLayoutAttr reshardLayout,
@@ -600,7 +600,7 @@ bool LayoutPropagation::validateReshard(Operation *consumerOp,
   return valid;
 }
 
-void LayoutPropagation::addL1InterleavedFallbacks(
+void MemoryLayoutPropagation::addL1InterleavedFallbacks(
     std::vector<InputCandidate> &candidates, Operation *op,
     const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
     Operation *producerOp, TTNNLayoutAttr currentLayout, size_t resultIdx,
@@ -654,7 +654,7 @@ void LayoutPropagation::addL1InterleavedFallbacks(
                op->getName());
 }
 
-void LayoutPropagation::applyInputLayoutFilter(
+void MemoryLayoutPropagation::applyInputLayoutFilter(
     std::vector<InputCandidate> &candidates, Operation *op,
     TTNNLayoutAttr currentLayout) {
   // Per-op input layout filtering: remove candidates that the op cannot
@@ -678,7 +678,7 @@ void LayoutPropagation::applyInputLayoutFilter(
   }
 }
 
-void LayoutPropagation::addReshardCandidates(
+void MemoryLayoutPropagation::addReshardCandidates(
     std::vector<InputCandidate> &candidates, Operation *op, Value operand,
     TTNNLayoutAttr currentLayout, RankedTensorType tensorType,
     const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
@@ -773,7 +773,7 @@ void LayoutPropagation::addReshardCandidates(
 }
 
 std::vector<std::vector<InputCandidate>>
-LayoutPropagation::getInputCandidateSets(Operation *op) {
+MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
   std::vector<std::vector<InputCandidate>> result;
 
   for (auto operand : op->getOperands()) {
@@ -866,7 +866,7 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
 }
 
 std::vector<TTNNLayoutAttr>
-LayoutPropagation::generateReshardCandidates(RankedTensorType tensorType,
+MemoryLayoutPropagation::generateReshardCandidates(RankedTensorType tensorType,
                                              TTNNLayoutAttr currentLayout) {
   // Only generate sharded-to-sharded reshard candidates. Resharding from
   // sharded to interleaved (DRAM or L1) almost always hurts performance.
@@ -960,7 +960,7 @@ LayoutPropagation::generateReshardCandidates(RankedTensorType tensorType,
 }
 
 Operation *
-LayoutPropagation::getProducerForOperandIdx(Operation *op,
+MemoryLayoutPropagation::getProducerForOperandIdx(Operation *op,
                                             size_t tensorOperandIdx) {
   size_t tensorIdx = 0;
   for (auto operand : op->getOperands()) {
@@ -975,7 +975,7 @@ LayoutPropagation::getProducerForOperandIdx(Operation *op,
   return nullptr;
 }
 
-void LayoutPropagation::consolidateBeam() {
+void MemoryLayoutPropagation::consolidateBeam() {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "consolidateBeam: starting backward pass for {0} ops in beam",
                beamState.size());
@@ -1077,7 +1077,7 @@ void LayoutPropagation::consolidateBeam() {
 }
 
 size_t
-LayoutPropagation::resolveForForkPoint(Operation *forkOp,
+MemoryLayoutPropagation::resolveForForkPoint(Operation *forkOp,
                                        llvm::ArrayRef<Operation *> consumers) {
   const auto &forkBeam = beamState[forkOp];
   size_t bestK = 0;
@@ -1113,7 +1113,7 @@ LayoutPropagation::resolveForForkPoint(Operation *forkOp,
   return bestK;
 }
 
-TTNNLayoutAttr LayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
+TTNNLayoutAttr MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
   if (op->getNumResults() == 0) {
     return nullptr;
   }
@@ -1135,7 +1135,7 @@ TTNNLayoutAttr LayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
 // IR Transformation
 //===----------------------------------------------------------------------===//
 
-void LayoutPropagation::insertReturnDramSpills() {
+void MemoryLayoutPropagation::insertReturnDramSpills() {
   func->walk([&](func::ReturnOp returnOp) {
     for (unsigned i = 0; i < returnOp.getNumOperands(); ++i) {
       Value operand = returnOp.getOperand(i);
@@ -1162,7 +1162,7 @@ void LayoutPropagation::insertReturnDramSpills() {
   });
 }
 
-void LayoutPropagation::applyToIR() {
+void MemoryLayoutPropagation::applyToIR() {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "applyToIR: applying configs for {0} ops in beam state",
                beamState.size());
@@ -1193,7 +1193,7 @@ void LayoutPropagation::applyToIR() {
   updateFunctionReturnTypes();
 }
 
-void LayoutPropagation::applyOpConfig(Operation *op,
+void MemoryLayoutPropagation::applyOpConfig(Operation *op,
                                       const BeamCandidate &candidate) {
   TTNNLayoutAttr chosenLayout = getOutputLayoutForResult(candidate, 0);
   if (!chosenLayout) {
@@ -1272,7 +1272,7 @@ void LayoutPropagation::applyOpConfig(Operation *op,
   }
 }
 
-void LayoutPropagation::insertReshardOp(Operation *consumerOp,
+void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
                                         size_t operandIndex,
                                         TTNNLayoutAttr reshardLayout) {
   Value operand = consumerOp->getOperand(operandIndex);
@@ -1338,7 +1338,7 @@ void LayoutPropagation::insertReshardOp(Operation *consumerOp,
                "Inserted memory reconfig op: {0}", memoryReconfigOp);
 }
 
-void LayoutPropagation::updateFunctionReturnTypes() {
+void MemoryLayoutPropagation::updateFunctionReturnTypes() {
   SmallVector<Type> funcResultTypes;
 
   func->walk([&](Operation *op) {

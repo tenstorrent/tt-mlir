@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Analysis/LayoutPropagation.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagation.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -188,7 +188,7 @@ TEST_F(BeamSearchTest, BeamWidthK1ProducesSingleCandidate) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  LayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
                                 /*tensorTypePossibleLayouts=*/nullptr,
                                 /*beamWidth=*/1);
   propagation.run();
@@ -218,7 +218,7 @@ TEST_F(BeamSearchTest, BeamWidthK8ProducesMultipleCandidates) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  LayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
                                 /*tensorTypePossibleLayouts=*/nullptr,
                                 /*beamWidth=*/8);
   propagation.run();
@@ -244,7 +244,7 @@ TEST_F(BeamSearchTest, BeamWidthK8CandidatesSortedByScore) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  LayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
                                 /*tensorTypePossibleLayouts=*/nullptr,
                                 /*beamWidth=*/8);
   propagation.run();
@@ -273,7 +273,7 @@ TEST_F(BeamSearchTest, BackwardPassLinearChainAllOpsHaveFinalChoice) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  LayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
                                 /*tensorTypePossibleLayouts=*/nullptr,
                                 /*beamWidth=*/4);
   propagation.run();
@@ -303,7 +303,7 @@ TEST_F(BeamSearchTest, BackwardPassForkPointResolvesWithoutCrash) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  LayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
                                 /*tensorTypePossibleLayouts=*/nullptr,
                                 /*beamWidth=*/8);
 
@@ -336,7 +336,7 @@ TEST_F(BeamSearchTest, BackwardPassForkPointBothConsumersInBeam) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  LayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
                                 /*tensorTypePossibleLayouts=*/nullptr,
                                 /*beamWidth=*/4);
   propagation.run();
@@ -363,7 +363,7 @@ TEST_F(BeamSearchTest, BeamWidthK1NoConsolidation) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  LayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
                                 /*tensorTypePossibleLayouts=*/nullptr,
                                 /*beamWidth=*/1);
   propagation.run();
@@ -422,7 +422,7 @@ TEST_F(BeamSearchTest, BeamWidthK8ComplexGraphDoesNotCrash) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  LayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
                                 /*tensorTypePossibleLayouts=*/nullptr,
                                 /*beamWidth=*/8);
 
@@ -461,7 +461,7 @@ TEST_F(BeamSearchTest, NoValidCandidateFallbackToDRAM) {
   legalConfigs[addOp.getOperation()] = {};
   legalConfigs[reluOp.getOperation()] = {};
 
-  LayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
                                 /*tensorTypePossibleLayouts=*/nullptr,
                                 /*beamWidth=*/8);
 
