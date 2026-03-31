@@ -23,8 +23,8 @@ module {
     %device = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: %[[CACHED:.*]] = ttcore.load_cached(@standalone_full_const_eval_0, [])
     %full = "ttnn.full"(%device) <{dtype = #ttcore.supportedDataTypes<bf16>, fill_value = 0.000000e+00 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
-    // CHECK: %[[RESULT:.*]] = "ttnn.add"(%arg0, %[[CACHED]])
-    %result = "ttnn.add"(%arg0, %full) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+    // CHECK: %[[RESULT:.*]] = "ttnn.add"(%arg0, %[[CACHED]]) <{dtype = #ttcore.supportedDataTypes<bf16>, lhs_activations = [], post_activations = [], rhs_activations = []}>
+    %result = "ttnn.add"(%arg0, %full) <{dtype = #ttcore.supportedDataTypes<bf16>, post_activations = [], lhs_activations = [], rhs_activations = []}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
     return %result : tensor<32x32xbf16, #ttnn_layout>
   }
 
@@ -48,10 +48,10 @@ module {
     %full1 = "ttnn.full"(%device) <{dtype = #ttcore.supportedDataTypes<bf16>, fill_value = 1.000000e+00 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
     // CHECK: %[[CACHED2:.*]] = ttcore.load_cached(@multiple_creation_ops_const_eval_1, [])
     %full2 = "ttnn.full"(%device) <{dtype = #ttcore.supportedDataTypes<bf16>, fill_value = 2.000000e+00 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
-    // CHECK: %[[ADD1:.*]] = "ttnn.add"(%arg0, %[[CACHED1]])
-    %add1 = "ttnn.add"(%arg0, %full1) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
-    // CHECK: %[[ADD2:.*]] = "ttnn.add"(%[[ADD1]], %[[CACHED2]])
-    %add2 = "ttnn.add"(%add1, %full2) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+    // CHECK: %[[ADD1:.*]] = "ttnn.add"(%arg0, %[[CACHED1]]) <{dtype = #ttcore.supportedDataTypes<bf16>, lhs_activations = [], post_activations = [], rhs_activations = []}>
+    %add1 = "ttnn.add"(%arg0, %full1) <{dtype = #ttcore.supportedDataTypes<bf16>, post_activations = [], lhs_activations = [], rhs_activations = []}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+    // CHECK: %[[ADD2:.*]] = "ttnn.add"(%[[ADD1]], %[[CACHED2]]) <{dtype = #ttcore.supportedDataTypes<bf16>, lhs_activations = [], post_activations = [], rhs_activations = []}>
+    %add2 = "ttnn.add"(%add1, %full2) <{dtype = #ttcore.supportedDataTypes<bf16>, post_activations = [], lhs_activations = [], rhs_activations = []}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
     return %add2 : tensor<32x32xbf16, #ttnn_layout>
   }
 
@@ -62,7 +62,7 @@ module {
   // CHECK: %[[DEVICE:.*]] = "ttnn.get_device"()
   // CHECK: %[[FULL_INNER:.*]] = "ttnn.full"(%[[DEVICE]])
   // CHECK-SAME: fill_value = 5.000000e+00 : f32
-  // CHECK: %[[SUB:.*]] = "ttnn.subtract"(%arg0, %[[FULL_INNER]])
+  // CHECK: %[[SUB:.*]] = "ttnn.subtract"(%arg0, %[[FULL_INNER]]) <{dtype = #ttcore.supportedDataTypes<bf16>, lhs_activations = [], post_activations = [], rhs_activations = []}>
   // CHECK: return %[[SUB]]
 
   // CHECK-LABEL: func.func @merged_with_const_eval(
@@ -73,9 +73,9 @@ module {
     // The full op and subtract should be in the same const-eval subgraph
     // CHECK: %[[CACHED:.*]] = ttcore.load_cached(@merged_with_const_eval_const_eval_0, [%arg1])
     %full = "ttnn.full"(%device) <{dtype = #ttcore.supportedDataTypes<bf16>, fill_value = 5.000000e+00 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
-    %sub = "ttnn.subtract"(%arg1, %full) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
-    // CHECK: %[[RESULT:.*]] = "ttnn.add"(%arg0, %[[CACHED]])
-    %result = "ttnn.add"(%arg0, %sub) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+    %sub = "ttnn.subtract"(%arg1, %full) <{dtype = #ttcore.supportedDataTypes<bf16>, post_activations = [], lhs_activations = [], rhs_activations = []}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+    // CHECK: %[[RESULT:.*]] = "ttnn.add"(%arg0, %[[CACHED]]) <{dtype = #ttcore.supportedDataTypes<bf16>, lhs_activations = [], post_activations = [], rhs_activations = []}>
+    %result = "ttnn.add"(%arg0, %sub) <{dtype = #ttcore.supportedDataTypes<bf16>, post_activations = [], lhs_activations = [], rhs_activations = []}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
     return %result : tensor<32x32xbf16, #ttnn_layout>
   }
 
@@ -93,8 +93,8 @@ module {
   func.func @arange_op(%arg0: tensor<32xbf16, #ttnn_layout_1d> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<32xbf16, #ttnn_layout_1d> {
     // CHECK: %[[CACHED:.*]] = ttcore.load_cached(@arange_op_const_eval_0, [])
     %arange = "ttnn.arange"() <{dtype = #ttcore.supportedDataTypes<bf16>, end = 32 : i64, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, start = 0 : i64, step = 1 : i64}> : () -> tensor<32xbf16, #ttnn_layout_1d>
-    // CHECK: %[[RESULT:.*]] = "ttnn.add"(%arg0, %[[CACHED]])
-    %result = "ttnn.add"(%arg0, %arange) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32xbf16, #ttnn_layout_1d>, tensor<32xbf16, #ttnn_layout_1d>) -> tensor<32xbf16, #ttnn_layout_1d>
+    // CHECK: %[[RESULT:.*]] = "ttnn.add"(%arg0, %[[CACHED]]) <{dtype = #ttcore.supportedDataTypes<bf16>, lhs_activations = [], post_activations = [], rhs_activations = []}>
+    %result = "ttnn.add"(%arg0, %arange) <{dtype = #ttcore.supportedDataTypes<bf16>, post_activations = [], lhs_activations = [], rhs_activations = []}> : (tensor<32xbf16, #ttnn_layout_1d>, tensor<32xbf16, #ttnn_layout_1d>) -> tensor<32xbf16, #ttnn_layout_1d>
     return %result : tensor<32xbf16, #ttnn_layout_1d>
   }
 
@@ -112,8 +112,8 @@ module {
     %device = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: %[[CACHED:.*]] = ttcore.load_cached(@constant_op_const_eval_0, [])
     %constant = "ttnn.constant"(%device) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, value = dense<3.000000e+00> : tensor<32x32xbf16>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
-    // CHECK: %[[RESULT:.*]] = "ttnn.multiply"(%arg0, %[[CACHED]])
-    %result = "ttnn.multiply"(%arg0, %constant) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+    // CHECK: %[[RESULT:.*]] = "ttnn.multiply"(%arg0, %[[CACHED]]) <{dtype = #ttcore.supportedDataTypes<bf16>, lhs_activations = [], post_activations = [], rhs_activations = []}>
+    %result = "ttnn.multiply"(%arg0, %constant) <{dtype = #ttcore.supportedDataTypes<bf16>, post_activations = [], lhs_activations = [], rhs_activations = []}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
     return %result : tensor<32x32xbf16, #ttnn_layout>
   }
 

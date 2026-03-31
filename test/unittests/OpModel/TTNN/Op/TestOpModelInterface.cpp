@@ -358,7 +358,8 @@ INSTANTIATE_TEST_SUITE_P(
 //===---------------------------------------------------------===
 struct BinaryOpTestParams {
   std::string testName;
-  std::function<Operation *(OpBuilder &, Location, Type, ValueRange)> createOp;
+  std::function<Operation *(OpBuilder &, Location, Type, Value, Value)>
+      createOp;
   ExpectedResult expectedResult;
 };
 
@@ -381,7 +382,7 @@ TEST_P(BinaryOpModelTest, TestOpInterface) {
   auto input2 = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
   Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
-                                  mlir::ValueRange{input1, input2});
+                                  input1, input2);
   // Test constraints
   auto constraintsExp = getOpConstraints(op);
   if (constraintsExp) {
@@ -414,7 +415,7 @@ TEST_P(BinaryOpModelTest, TestOpInterfaceNullOutput) {
   auto input2 = createEmptyTensor(tensorShape);
   auto outputType = createRankedTensorType(tensorShape);
   Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
-                                  mlir::ValueRange{input1, input2});
+                                  input1, input2);
   // Test constraints with null output
   OpModel backend = dyn_cast<OpModel>(op);
   auto constraintsExp = backend.getOpConstraints(
@@ -466,7 +467,7 @@ TEST_P(BinaryBitwiseOpModelTest, TestOpInterface) {
       createRankedTensorType(tensorShapeA, builder.getI32Type(), outputLayout);
 
   Operation *op = params.createOp(builder, builder.getUnknownLoc(), outputType,
-                                  mlir::ValueRange{input1, input2});
+                                  input1, input2);
 
   // Test constraints using the created layouts
   OpModel backend = dyn_cast<OpModel>(op);
@@ -496,72 +497,89 @@ const ExpectedResult binaryExpected{true};
 
 //===---------------------------------------------------------===
 // Lambda functions for creating binary operations
-const auto createAdd = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<AddOp>(l, t, r).getOperation();
+const auto createAdd = [](OpBuilder &b, Location l, Type t, Value lhs,
+                          Value rhs) {
+  return b.create<AddOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createSubtract = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<SubtractOp>(l, t, r).getOperation();
+const auto createSubtract = [](OpBuilder &b, Location l, Type t, Value lhs,
+                               Value rhs) {
+  return b.create<SubtractOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createMultiply = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<MultiplyOp>(l, t, r).getOperation();
+const auto createMultiply = [](OpBuilder &b, Location l, Type t, Value lhs,
+                               Value rhs) {
+  return b.create<MultiplyOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createDivide = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<DivideOp>(l, t, r).getOperation();
+const auto createDivide = [](OpBuilder &b, Location l, Type t, Value lhs,
+                             Value rhs) {
+  return b.create<DivideOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createEqual = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<EqualOp>(l, t, r).getOperation();
+const auto createEqual = [](OpBuilder &b, Location l, Type t, Value lhs,
+                            Value rhs) {
+  return b.create<EqualOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createNotEqual = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<NotEqualOp>(l, t, r).getOperation();
+const auto createNotEqual = [](OpBuilder &b, Location l, Type t, Value lhs,
+                               Value rhs) {
+  return b.create<NotEqualOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createGE = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<GreaterEqualOp>(l, t, r).getOperation();
+const auto createGE = [](OpBuilder &b, Location l, Type t, Value lhs,
+                         Value rhs) {
+  return b.create<GreaterEqualOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createGT = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<GreaterThanOp>(l, t, r).getOperation();
+const auto createGT = [](OpBuilder &b, Location l, Type t, Value lhs,
+                         Value rhs) {
+  return b.create<GreaterThanOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createLE = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LessEqualOp>(l, t, r).getOperation();
+const auto createLE = [](OpBuilder &b, Location l, Type t, Value lhs,
+                         Value rhs) {
+  return b.create<LessEqualOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createLT = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LessThanOp>(l, t, r).getOperation();
+const auto createLT = [](OpBuilder &b, Location l, Type t, Value lhs,
+                         Value rhs) {
+  return b.create<LessThanOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createAnd = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LogicalAndOp>(l, t, r).getOperation();
+const auto createAnd = [](OpBuilder &b, Location l, Type t, Value lhs,
+                          Value rhs) {
+  return b.create<LogicalAndOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createOr = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LogicalOrOp>(l, t, r).getOperation();
+const auto createOr = [](OpBuilder &b, Location l, Type t, Value lhs,
+                         Value rhs) {
+  return b.create<LogicalOrOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createXor = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<LogicalXorOp>(l, t, r).getOperation();
+const auto createXor = [](OpBuilder &b, Location l, Type t, Value lhs,
+                          Value rhs) {
+  return b.create<LogicalXorOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createMax = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<MaximumOp>(l, t, r).getOperation();
+const auto createMax = [](OpBuilder &b, Location l, Type t, Value lhs,
+                          Value rhs) {
+  return b.create<MaximumOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createMin = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<MinimumOp>(l, t, r).getOperation();
+const auto createMin = [](OpBuilder &b, Location l, Type t, Value lhs,
+                          Value rhs) {
+  return b.create<MinimumOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createPow = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<PowTensorOp>(l, t, r).getOperation();
+const auto createPow = [](OpBuilder &b, Location l, Type t, Value lhs,
+                          Value rhs) {
+  return b.create<PowTensorOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createBitwiseAnd = [](OpBuilder &b, Location l, Type t,
-                                 ValueRange r) {
-  return b.create<BitwiseAndOp>(l, t, r).getOperation();
+const auto createBitwiseAnd = [](OpBuilder &b, Location l, Type t, Value lhs,
+                                 Value rhs) {
+  return b.create<BitwiseAndOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createBitwiseOr = [](OpBuilder &b, Location l, Type t,
-                                ValueRange r) {
-  return b.create<BitwiseOrOp>(l, t, r).getOperation();
+const auto createBitwiseOr = [](OpBuilder &b, Location l, Type t, Value lhs,
+                                Value rhs) {
+  return b.create<BitwiseOrOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createBitwiseXor = [](OpBuilder &b, Location l, Type t,
-                                 ValueRange r) {
-  return b.create<BitwiseXorOp>(l, t, r).getOperation();
+const auto createBitwiseXor = [](OpBuilder &b, Location l, Type t, Value lhs,
+                                 Value rhs) {
+  return b.create<BitwiseXorOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createRemainder = [](OpBuilder &b, Location l, Type t,
-                                ValueRange r) {
-  return b.create<RemainderOp>(l, t, r).getOperation();
+const auto createRemainder = [](OpBuilder &b, Location l, Type t, Value lhs,
+                                Value rhs) {
+  return b.create<RemainderOp>(l, t, lhs, rhs).getOperation();
 };
-const auto createAtan2 = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<Atan2Op>(l, t, r).getOperation();
+const auto createAtan2 = [](OpBuilder &b, Location l, Type t, Value lhs,
+                            Value rhs) {
+  return b.create<Atan2Op>(l, t, lhs, rhs).getOperation();
 };
 
 //===---------------------------------------------------------===
@@ -729,7 +747,7 @@ TEST_F(OpModelBase, LogicalRightShiftOpInterface) {
       ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
 
   auto logicalRightShift = builder.create<LogicalRightShiftOp>(
-      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input1, input2});
+      builder.getUnknownLoc(), outputType, input1, input2);
 
   // Test LogicalRightShift interface
   auto constraintsExp = getOpConstraints(logicalRightShift.getOperation());
@@ -784,7 +802,7 @@ TEST_F(OpModelBase, LogicalLeftShiftOpInterface) {
       ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
 
   auto logicalLeftShift = builder.create<LogicalLeftShiftOp>(
-      builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input1, input2});
+      builder.getUnknownLoc(), outputType, input1, input2);
 
   // Test LogicalLeftShift interface
   auto constraintsExp = getOpConstraints(logicalLeftShift.getOperation());
@@ -3875,7 +3893,7 @@ TEST_F(OpModelBase, CacheOpConstraintsTest) {
   auto outputType = createRankedTensorType(tensorShape);
 
   auto sub = builder.create<SubtractOp>(builder.getUnknownLoc(), outputType,
-                                        mlir::ValueRange{input1, input2});
+                                        input1, input2);
 
   // test SubtractOp interface
   auto constraintsExp = getOpConstraints(sub.getOperation());
@@ -3934,14 +3952,14 @@ TEST_F(OpModelBase, CacheOpConstraintsMissesTest) {
   auto input2 = createEmptyTensor(tensorShape1);
   auto outputType1 = createRankedTensorType(tensorShape1);
   auto add1 = builder.create<AddOp>(builder.getUnknownLoc(), outputType1,
-                                    mlir::ValueRange{input1, input2});
+                                    input1, input2);
 
   llvm::SmallVector<int64_t> tensorShape2 = {workerCoresN300, 512};
   auto input3 = createEmptyTensor(tensorShape2);
   auto input4 = createEmptyTensor(tensorShape2);
   auto outputType2 = createRankedTensorType(tensorShape2);
   auto add2 = builder.create<AddOp>(builder.getUnknownLoc(), outputType2,
-                                    mlir::ValueRange{input3, input4});
+                                    input3, input4);
 
   // test AddOp interface
   auto constraintsExp1 = getOpConstraints(add1.getOperation());

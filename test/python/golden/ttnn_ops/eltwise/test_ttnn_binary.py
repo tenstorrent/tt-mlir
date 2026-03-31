@@ -17,10 +17,128 @@ from test_utils import (
     shape_str,
     shapes_list_str,
 )
+from ttmlir.ir import ArrayAttr, UnitAttr
 from ttmlir.dialects import ttnn
 
 
 pytestmark = pytest.mark.frontend("ttnn")
+
+
+def relu_activation(x: torch.Tensor) -> torch.Tensor:
+    return torch.relu(x)
+
+
+def sigmoid_activation(x: torch.Tensor) -> torch.Tensor:
+    return torch.sigmoid(x)
+
+
+activation_specs = [
+    pytest.param(
+        "relu",
+        relu_activation,
+        ttnn.UnaryOpType.Relu,
+        id="relu",
+    ),
+    pytest.param(
+        "sigmoid",
+        sigmoid_activation,
+        ttnn.UnaryOpType.Sigmoid,
+        id="sigmoid",
+    ),
+]
+
+binary_activation_slots = [
+    pytest.param("lhs", id="lhs"),
+    pytest.param("rhs", id="rhs"),
+    pytest.param("post", id="post"),
+]
+
+
+def make_activation_array(
+    builder: TTNNBuilder, unary_op_type: Optional[ttnn.UnaryOpType]
+) -> ArrayAttr:
+    if unary_op_type is None:
+        return ArrayAttr.get([])
+
+    return ArrayAttr.get(
+        [ttnn.ir.UnaryWithParamAttr.get(builder._ctx, unary_op_type, [])]
+    )
+
+
+def create_binary_op_with_activations(
+    builder: TTNNBuilder,
+    op_class: type,
+    in0: Operand,
+    in1: Operand,
+    *,
+    has_dtype: bool,
+    lhs_activation: Optional[
+        Tuple[str, Callable[[torch.Tensor], torch.Tensor], ttnn.UnaryOpType]
+    ] = None,
+    rhs_activation: Optional[
+        Tuple[str, Callable[[torch.Tensor], torch.Tensor], ttnn.UnaryOpType]
+    ] = None,
+    post_activation: Optional[
+        Tuple[str, Callable[[torch.Tensor], torch.Tensor], ttnn.UnaryOpType]
+    ] = None,
+    unit_attrs: Optional[List[str]] = None,
+):
+    mlir_output_type = builder.get_type(in0)
+    input0 = builder._get_golden_tensor(in0)
+    input1 = builder._get_golden_tensor(in1)
+
+    lhs_tensor = lhs_activation[1](input0) if lhs_activation else input0
+    rhs_tensor = rhs_activation[1](input1) if rhs_activation else input1
+
+    op_golden_function = get_golden_function(op_class)
+    golden_output = op_golden_function(lhs_tensor, rhs_tensor, mlir_output_type)
+    if post_activation:
+        golden_output = post_activation[1](golden_output)
+
+    result = builder.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+    loc = builder._get_location()
+
+    post_activations = make_activation_array(
+        builder, post_activation[2] if post_activation else None
+    )
+    lhs_activations = make_activation_array(
+        builder, lhs_activation[2] if lhs_activation else None
+    )
+    rhs_activations = make_activation_array(
+        builder, rhs_activation[2] if rhs_activation else None
+    )
+
+    if has_dtype:
+        dtype = builder._get_data_type_attribute(in0)
+        op = op_class(
+            result,
+            in0,
+            in1,
+            dtype=dtype,
+            memory_config=None,
+            post_activations=post_activations,
+            lhs_activations=lhs_activations,
+            rhs_activations=rhs_activations,
+            loc=loc,
+        )
+    else:
+        op = op_class(
+            result,
+            in0,
+            in1,
+            memory_config=None,
+            post_activations=post_activations,
+            lhs_activations=lhs_activations,
+            rhs_activations=rhs_activations,
+            loc=loc,
+        )
+
+    if unit_attrs is not None:
+        for attr_name in unit_attrs:
+            op.operation.attributes[attr_name] = UnitAttr.get(builder._ctx)
+
+    builder._set_golden_tensor(op.result, golden_output)
+    return op.result
 
 
 def module_add(builder: TTNNBuilder):
@@ -188,6 +306,67 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
         target=target,
         device=device,
         pipeline_options=pipeline_options,
+    )
+
+
+activated_binary_ops = [
+    pytest.param("add", ttnn.AddOp, True, id="add"),
+    pytest.param("maximum", ttnn.MaximumOp, False, id="maximum"),
+    pytest.param("multiply", ttnn.MultiplyOp, True, id="multiply"),
+]
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("activation_slot", binary_activation_slots)
+@pytest.mark.parametrize(
+    "activation_name,activation_fn,activation_type", activation_specs
+)
+@pytest.mark.parametrize("op_name,op_class,has_dtype", activated_binary_ops)
+def test_binary_ops_with_activations(
+    op_name: str,
+    op_class: type,
+    has_dtype: bool,
+    activation_name: str,
+    activation_fn: Callable[[torch.Tensor], torch.Tensor],
+    activation_type: ttnn.UnaryOpType,
+    activation_slot: str,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTNNBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def binary_op_fn(
+            in0: Operand,
+            in1: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            activation = (activation_name, activation_fn, activation_type)
+            lhs_activation = activation if activation_slot == "lhs" else None
+            rhs_activation = activation if activation_slot == "rhs" else None
+            post_activation = activation if activation_slot == "post" else None
+            return create_binary_op_with_activations(
+                builder,
+                op_class,
+                in0,
+                in1,
+                has_dtype=has_dtype,
+                lhs_activation=lhs_activation,
+                rhs_activation=rhs_activation,
+                post_activation=post_activation,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
     )
 
 
