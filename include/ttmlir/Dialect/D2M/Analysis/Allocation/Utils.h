@@ -22,6 +22,7 @@
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -280,6 +281,22 @@ struct AsOperandPrinter {
 //===---------------------------------------------------------------------===//
 // Shared helpers for the allocator and block factor analysis.
 //===---------------------------------------------------------------------===//
+
+/// Returns the index of the single reduction dimension if exactly one exists.
+inline std::optional<std::size_t>
+getSingleReductionDim(ArrayRef<ttcore::IteratorType> iteratorTypes) {
+  std::optional<std::size_t> reductionDim;
+  for (auto [dim, iteratorType] : llvm::enumerate(iteratorTypes)) {
+    if (iteratorType != ttcore::IteratorType::Reduction) {
+      continue;
+    }
+    if (reductionDim.has_value()) {
+      return std::nullopt;
+    }
+    reductionDim = dim;
+  }
+  return reductionDim;
+}
 
 /// @return `map` with all broadcast result expressions replaced with const-1
 /// expression.
