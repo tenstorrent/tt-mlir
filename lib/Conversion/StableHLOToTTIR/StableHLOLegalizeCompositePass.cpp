@@ -689,6 +689,53 @@ public:
   }
 };
 
+class TenstorrentGatherConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+public:
+  TenstorrentGatherConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.gather") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.gather must have exactly 2 operands");
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.gather must have exactly one result");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    IntegerAttr dimAttr = rewriter.getI32IntegerAttr(0);
+
+    if (compositeAttrs) {
+      if (auto attr = compositeAttrs.getAs<IntegerAttr>("dim")) {
+        dimAttr =
+            rewriter.getI32IntegerAttr(static_cast<int32_t>(attr.getInt()));
+      }
+    }
+
+    auto input = adaptor.getOperands()[0];
+    auto index = adaptor.getOperands()[1];
+
+    rewriter.replaceOpWithNewOp<ttir::GatherDimOp>(
+        srcOp, outputType, input, index, dimAttr);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -729,6 +776,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
   patterns.add<TenstorrentTopKConversionPattern>(context);
   patterns.add<TenstorrentScaledDotProductAttentionConversionPattern>(context);
+  patterns.add<TenstorrentGatherConversionPattern>(context);
   patterns.add<ShardyAllSliceToTTIRMeshPartitionConversionPattern>(context);
 }
 } // namespace mlir::tt

@@ -3031,7 +3031,9 @@ def TTNN_GatherOp : TTNN_Op<"gather", [TTNN_MemoryConfigOpInterface]> {
     let description = [{
       Gathers values from the input tensor along the given dimension using an
       index tensor. This corresponds to torch.gather semantics and maps
-      directly to the tt-metal `ttnn::gather` device op.
+      directly to the tt-metal `ttnn::gather` device op. Note that the
+      `sparse_grad` attribute is not supported for this operation yet, so it is
+      always set to false.
 
       Parameters:
         - `input` (ttnn.Tensor): The source tensor to gather from.
