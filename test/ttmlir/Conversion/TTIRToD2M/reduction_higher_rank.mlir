@@ -6,7 +6,7 @@ module {
   // 3D sum reducing last dim (R): tensor<32x1x8192xf32> -> tensor<32x1x1xf32>
   // CHECK-LABEL: func @sum_3d_reduce_last
   func.func @sum_3d_reduce_last(%arg0: tensor<32x1x8192xf32>) -> tensor<32x1x1xf32> {
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel", "reduction"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim R>
@@ -17,7 +17,7 @@ module {
   // 3D sum reducing second-to-last dim (C): tensor<32x8192x1xf32> -> tensor<32x1x1xf32>
   // CHECK-LABEL: func @sum_3d_reduce_second_to_last
   func.func @sum_3d_reduce_second_to_last(%arg0: tensor<32x8192x1xf32>) -> tensor<32x1x1xf32> {
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction", "parallel"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim C>
@@ -28,7 +28,7 @@ module {
   // 3D sum reducing both inner dims (RC): tensor<32x128x96xf32> -> tensor<32x1x1xf32>
   // CHECK-LABEL: func @sum_3d_reduce_both_inner
   func.func @sum_3d_reduce_both_inner(%arg0: tensor<32x128x96xf32>) -> tensor<32x1x1xf32> {
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction", "reduction"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim RC>
@@ -41,7 +41,7 @@ module {
   // CHECK-LABEL: func @min_3d_reduce_last
   func.func @min_3d_reduce_last(%arg0: tensor<32x1x8192xf32>) -> tensor<32x1x1xf32> {
     // CHECK: d2m.tile_negative
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel", "reduction"]
     // CHECK: d2m.tile_reduce_max{{.+}}d2m<reduce_dim R>
@@ -54,7 +54,7 @@ module {
   // CHECK-LABEL: func @min_3d_reduce_second_to_last
   func.func @min_3d_reduce_second_to_last(%arg0: tensor<32x8192x1xf32>) -> tensor<32x1x1xf32> {
     // CHECK: d2m.tile_negative
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction", "parallel"]
     // CHECK: d2m.tile_reduce_max{{.+}}d2m<reduce_dim C>
@@ -67,7 +67,7 @@ module {
   // CHECK-LABEL: func @min_3d_reduce_both_inner
   func.func @min_3d_reduce_both_inner(%arg0: tensor<32x128x96xf32>) -> tensor<32x1x1xf32> {
     // CHECK: d2m.tile_negative
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction", "reduction"]
     // CHECK: d2m.tile_reduce_max{{.+}}d2m<reduce_dim RC>
@@ -79,7 +79,7 @@ module {
   // 3D sum reducing last dim with negative index: tensor<32x1x8192xf32> -> tensor<32x1x1xf32>
   // CHECK-LABEL: func @sum_3d_reduce_last_neg
   func.func @sum_3d_reduce_last_neg(%arg0: tensor<32x1x8192xf32>) -> tensor<32x1x1xf32> {
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel", "reduction"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim R>
@@ -90,7 +90,7 @@ module {
   // 3D mean reducing last dim (R): tensor<32x1x8192xf32> -> tensor<32x1x1xf32>
   // CHECK-LABEL: func @mean_3d_reduce_last
   func.func @mean_3d_reduce_last(%arg0: tensor<32x1x8192xf32>) -> tensor<32x1x1xf32> {
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel", "reduction"]
     // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim R>
@@ -101,7 +101,7 @@ module {
   // 3D mean reducing second-to-last dim (C): tensor<32x8192x1xf32> -> tensor<32x1x1xf32>
   // CHECK-LABEL: func @mean_3d_reduce_second_to_last
   func.func @mean_3d_reduce_second_to_last(%arg0: tensor<32x8192x1xf32>) -> tensor<32x1x1xf32> {
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction", "parallel"]
     // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim C>

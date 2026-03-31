@@ -83,11 +83,11 @@ module attributes {ttcore.system_desc = #system_desc} {
     // OOB rows fill
     // CHECK: scf.for
     // CHECK:   scf.for
-    // CHECK:     d2m.fill_tile
+    // CHECK:     d2m.tile_fill
     // OOB cols fill
     // CHECK: scf.for
     // CHECK:   scf.for
-    // CHECK:     d2m.fill_tile
+    // CHECK:     d2m.tile_fill
     d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>) {
