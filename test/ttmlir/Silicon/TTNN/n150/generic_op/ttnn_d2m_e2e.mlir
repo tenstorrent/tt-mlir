@@ -60,7 +60,9 @@ module {
   // CHECK-LABEL: func.func @test_no_scalarize
   func.func @test_no_scalarize() -> tensor<32x32xf32, #l1_layout> {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: "ttnn.full"
+    // Full+cos hoists to empty + generic (fill is in-kernel); cos is not scalarized.
+    // CHECK: "ttnn.empty"
+    // CHECK: "ttnn.generic"
     %1 = "ttnn.full"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, fill_value = 5.000000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> {ttnn.hoist_generic_via_d2m} : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
     %2 = "ttnn.cos"(%1) {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
     return %2 : tensor<32x32xf32, #l1_layout>

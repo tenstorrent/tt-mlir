@@ -77,22 +77,21 @@ static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
-  if (memref::LoadOp loadOp =
-          mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
-      loadOp) {
+  if (auto loadOp = cb.getDefiningOp<memref::LoadOp>()) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
-    return rewriter.getRemappedValue(loadOp.getMemref());
+    return rewriter.getRemappedValue(loadOp.getMemRef());
   }
 
-  if (mlir::isa<memref::SubViewOp>(cb.getDefiningOp())) {
-    memref::SubViewOp subViewOp =
-        mlir::cast<memref::SubViewOp>(cb.getDefiningOp());
+  if (auto affLoad = cb.getDefiningOp<affine::AffineLoadOp>()) {
+    return rewriter.getRemappedValue(affLoad.getMemRef());
+  }
+
+  if (auto subViewOp = cb.getDefiningOp<memref::SubViewOp>()) {
     return rewriter.getRemappedValue(subViewOp.getSource());
   }
 
-  if (mlir::isa<memref::CastOp>(cb.getDefiningOp())) {
-    memref::CastOp castOp = mlir::cast<memref::CastOp>(cb.getDefiningOp());
+  if (auto castOp = cb.getDefiningOp<memref::CastOp>()) {
     return rewriter.getRemappedValue(castOp.getSource());
   }
   llvm_unreachable("Expected load or subview op");
@@ -161,42 +160,69 @@ static void ensureDominatesInsertionPoint(OpBuilder &rewriter, Value value) {
   defOp->moveBefore(insertBlock, rewriter.getInsertionPoint());
 }
 
-// This is a workaround special case for getting an in/out CB. This whole
-// routine should go away with issue:
-// https://github.com/tenstorrent/tt-mlir/issues/3602
-template <typename LoadOrStoreOp>
-static Value getInOrOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
-  static_assert(std::is_same_v<LoadOrStoreOp, memref::LoadOp> ||
-                std::is_same_v<LoadOrStoreOp, memref::StoreOp>);
-  func::FuncOp func = op->getParentOfType<func::FuncOp>();
-  assert(func && "Expected func op.");
-  Value cb = nullptr;
-  func.walk([&](LoadOrStoreOp loadStore) {
-    if (ttcore::getMemorySpace(loadStore.getMemRef()) ==
-        ttcore::MemorySpace::DeviceL1) {
-      cb = loadStore.getMemRef();
+// Remapped L1 CB for a tile loaded from L1; null if the value is not an L1 load
+// (including DST-only producers such as fill_tile).
+static Value tryGetL1CbFromTensorShardLoad(ConversionPatternRewriter &rewriter,
+                                           Value v) {
+  Value memref;
+  if (auto load = v.getDefiningOp<memref::LoadOp>()) {
+    memref = load.getMemRef();
+  } else if (auto load = v.getDefiningOp<affine::AffineLoadOp>()) {
+    memref = load.getMemRef();
+  } else {
+    return nullptr;
+  }
+  if (ttcore::getMemorySpace(memref) != ttcore::MemorySpace::DeviceL1) {
+    return nullptr;
+  }
+  return rewriter.getRemappedValue(memref);
+}
+
+// Walk `func` for the first L1 memref touched by `OpTy` (load or store).
+template <typename OpTy>
+static Value findFirstL1CbForOpKind(func::FuncOp func) {
+  Value cb;
+  func.walk([&](OpTy accessOp) {
+    Value m = accessOp.getMemRef();
+    if (ttcore::getMemorySpace(m) == ttcore::MemorySpace::DeviceL1) {
+      cb = m;
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
+  return cb;
+}
+
+// First memref load/store wins; memref dialect ops are scanned before affine.
+// Used when operand-local CB resolution is insufficient.
+static Value findFirstL1CbMemref(func::FuncOp func, bool forInput) {
+  if (forInput) {
+    if (Value cb = findFirstL1CbForOpKind<memref::LoadOp>(func)) {
+      return cb;
+    }
+    return findFirstL1CbForOpKind<affine::AffineLoadOp>(func);
+  }
+  if (Value cb = findFirstL1CbForOpKind<memref::StoreOp>(func)) {
+    return cb;
+  }
+  return findFirstL1CbForOpKind<affine::AffineStoreOp>(func);
+}
+
+static Value getRemappedFirstL1Cb(ConversionPatternRewriter &rewriter,
+                                  Operation *op, bool forInput) {
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  assert(func && "Expected func op.");
+  Value cb = findFirstL1CbMemref(func, forInput);
   assert(cb && "CB not found.");
   return rewriter.getRemappedValue(cb);
 }
 
-// This is a workaround special case for getting an input CB. This whole
-// routine should go away with issue:
-// https://github.com/tenstorrent/tt-mlir/issues/3602
 static Value getInCB(ConversionPatternRewriter &rewriter, Operation *op) {
-  // Search for a load from L1.
-  return getInOrOutCB<memref::LoadOp>(rewriter, op);
+  return getRemappedFirstL1Cb(rewriter, op, /*forInput=*/true);
 }
 
-// This is a workaround special case for getting an output CB. This whole
-// routine should go away with issue:
-// https://github.com/tenstorrent/tt-mlir/issues/3602
 static Value getOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
-  // Search for a store to L1.
-  return getInOrOutCB<memref::StoreOp>(rewriter, op);
+  return getRemappedFirstL1Cb(rewriter, op, /*forInput=*/false);
 }
 
 // Check if an operand comes from DST.
@@ -882,8 +908,18 @@ public:
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto insertionPoint = rewriter.getInsertionPoint();
-    auto inCB = getInCB(rewriter, op);
-    auto outCB = getOutCB(rewriter, op);
+    Value outCB = getOutCB(rewriter, op);
+    Value inCB;
+    if constexpr (arity == 1) {
+      inCB = tryGetL1CbFromTensorShardLoad(rewriter, op.getInput());
+      if (!inCB) {
+        // DST-only tile (e.g. after fill_tile): no L1 CB; reuse output CB for
+        // init_sfpu.
+        inCB = outCB;
+      }
+    } else {
+      inCB = getInCB(rewriter, op);
+    }
     rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
     setInsertionPointAfterOperands(rewriter, {inCB, outCB},
                                    /*allowHoisting*/ true);
@@ -999,27 +1035,49 @@ public:
         // Handle scalar operand - need to use unary scalar ops
         const auto dstIdx = adaptor.getLhs();
         auto loc = op->getLoc();
+        auto scalarToI32Param = [&](Value scalar) -> Value {
+          auto scalarType = mlir::cast<Type>(scalar.getType());
+          if (auto floatType = llvm::dyn_cast<FloatType>(scalarType)) {
+            Value f32Scalar = scalar;
+            if (!floatType.isF32()) {
+              f32Scalar = rewriter.create<arith::ExtFOp>(
+                  loc, rewriter.getF32Type(), scalar);
+            }
+            return rewriter.create<arith::BitcastOp>(loc, rewriter.getI32Type(),
+                                                     f32Scalar);
+          }
+
+          // Integer scalars are passed as i32 numeric values.
+          if (scalarType.isInteger(32)) {
+            return scalar;
+          }
+          if (auto intType = llvm::dyn_cast<IntegerType>(scalarType)) {
+            if (intType.getWidth() < 32) {
+              return rewriter.create<arith::ExtSIOp>(loc, rewriter.getI32Type(),
+                                                     scalar);
+            }
+            return rewriter.create<arith::TruncIOp>(loc, rewriter.getI32Type(),
+                                                    scalar);
+          }
+
+          llvm_unreachable("Expected scalar rhs to be integer or float");
+        };
 
         // Create the appropriate unary scalar op based on the D2M op type
         if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
-          // Bitcast the scalar value to i32 to pass as parameter
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Param(adaptor.getRhs());
           rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Param(adaptor.getRhs());
           rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Param(adaptor.getRhs());
           rewriter.create<ttkernel::MulUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileDivOp>) {
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Param(adaptor.getRhs());
           rewriter.create<ttkernel::DivUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
           // For power, convert float value to integer (not bitcast)
@@ -1368,23 +1426,69 @@ public:
   };
 };
 
-class D2MTileFillRewriter : public OpConversionPattern<d2m::TileFillOp> {
+// Coerce `d2m.fill_tile` scalar to i32 (FillTileIntOp) or f32 (FillTileOp).
+static LogicalResult materializeFillTileKernelValue(
+    Location loc, d2m::FillTileOp op, Value &fillValue,
+    ConversionPatternRewriter &rewriter, bool &useIntFill) {
+  Type ty = fillValue.getType();
+  if (auto intTy = dyn_cast<IntegerType>(ty)) {
+    if (!intTy.isInteger(32)) {
+      Type i32Ty = rewriter.getI32Type();
+      fillValue = intTy.getWidth() < 32
+                      ? rewriter.create<arith::ExtSIOp>(loc, i32Ty, fillValue)
+                            .getResult()
+                      : rewriter.create<arith::TruncIOp>(loc, i32Ty, fillValue)
+                            .getResult();
+    }
+    useIntFill = true;
+    return success();
+  }
+  if (!isa<FloatType>(ty)) {
+    return rewriter.notifyMatchFailure(
+        op, "fill_tile value must be a float or integer type");
+  }
+  if (!ty.isF32()) {
+    fillValue =
+        rewriter.create<arith::ExtFOp>(loc, rewriter.getF32Type(), fillValue)
+            .getResult();
+  }
+  useIntFill = false;
+  return success();
+}
+
+class D2MFillTileRewriter : public OpConversionPattern<d2m::FillTileOp> {
 public:
-  using OpConversionPattern<d2m::TileFillOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::FillTileOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(d2m::TileFillOp op, d2m::TileFillOpAdaptor adaptor,
+  matchAndRewrite(d2m::FillTileOp op, d2m::FillTileOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Value dstIdx = getDstIdxFromResult(op.getResult());
     ensureDominatesInsertionPoint(rewriter, dstIdx);
 
-    Value fillValue = adaptor.getValue();
     Location loc = op->getLoc();
+    // No L1 input: HW startup uses the output CB for both unpack and pack.
+    Value outCB = getOutCB(rewriter, op);
+    auto insertionPoint = rewriter.getInsertionPoint();
+    setInsertionPointAfterOperands(rewriter, {outCB}, /*allowHoisting*/ true);
+    rewriter.create<ttkernel::ComputeKernelHWStartupOp>(loc, outCB, nullptr,
+                                                        outCB);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
-    rewriter.create<ttkernel::ExperimentalTileFillOp>(loc, dstIdx, fillValue);
+    Value fillValue = adaptor.getValue();
+    bool useIntFill = false;
+    if (failed(materializeFillTileKernelValue(loc, op, fillValue, rewriter,
+                                              useIntFill))) {
+      return failure();
+    }
 
-    // Replace the op with its DST index so users (like TileWhereOp) get the
-    // correct operand value.
+    rewriter.create<ttkernel::FillTileInitOp>(loc);
+    if (useIntFill) {
+      rewriter.create<ttkernel::FillTileIntOp>(loc, dstIdx, fillValue);
+    } else {
+      rewriter.create<ttkernel::FillTileOp>(loc, dstIdx, fillValue);
+    }
+
     rewriter.replaceOp(op, dstIdx);
     return success();
   }
@@ -2366,7 +2470,7 @@ void populateD2MToTTKernelPatterns(
 
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalPackUntilizeBlockOp>,
-               ttkernel::D2MTileFillRewriter,
+               ttkernel::D2MFillTileRewriter,
                ttkernel::D2MWriteRowMaskTileRewriter,
                ttkernel::D2MWriteColMaskTileRewriter,
                ttkernel::D2MExperimentalFillArangeTileRewriter,
