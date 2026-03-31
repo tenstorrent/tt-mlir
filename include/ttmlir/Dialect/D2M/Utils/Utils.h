@@ -38,7 +38,6 @@ ShapedType reblockShapedType(ShapedType oldType,
 // operand's device layout.
 Type cloneWithShardShape(Value referenceOperand, Type typeToRetype);
 
-
 // Get square target grid shape.
 llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape);
