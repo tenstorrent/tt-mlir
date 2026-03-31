@@ -59,7 +59,7 @@ flowchart LR;
    - Device executes op
    - `postOp`: capture device output, replay on CPU, compare, write report
 5. `postProgram` copies golden tensors to `global_tensor_pool` for cross-program
-   sharing and aggregates metrics.
+   sharing.
 6. **Inspect** the generated CSV report.
 
 ### Usage: Builder Integration (Recommended)

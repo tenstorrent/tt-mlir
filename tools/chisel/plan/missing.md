@@ -1,11 +1,5 @@
 # Gaps from dump.md — Open Items
 
-## Still Needed
-
-- **Aggregate metrics**: `postProgram` should compute and log min/max/mean PCC
-  across all ops in the program. Design is in dump.md but implementation
-  details (where to store, how to display) need specification.
-
 ## Still Open
 
 - **Multi-chip handling**: Per-device tensor lists, per-device comparison.

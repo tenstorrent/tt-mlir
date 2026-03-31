@@ -129,8 +129,7 @@ class ChiselContext:
         Called once at the end of each program execution.
 
         1. Copy program.golden_tensor_pool → global_tensor_pool
-        2. Aggregate metrics (min/max/mean PCC)
-        3. Finalize report section
+        2. Finalize report section
         """
 
     def preop(self, binary, program_context, op_context) -> None:

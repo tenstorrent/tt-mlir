@@ -59,7 +59,6 @@ Fires once at the end of program execution, after the op loop.
 
 - Copy new entries from `program.golden_tensor_pool` into
   `ctx.global_tensor_pool` (for cross-program / cross-binary reuse)
-- Aggregate metrics for the program (min/max/mean PCC across ops)
 - Finalize the report section and write a summary row
 - Clear `device_tensor_pool` (also cleared by next `reset_for_new_execution()`)
 - Log program-level diagnostics (total ops processed, ops with low PCC, etc.)
@@ -82,5 +81,5 @@ preProgram(binary, program_context)
   |
 postProgram(binary, program_context)
   |-- copy program golden pool → global
-  |-- aggregate metrics, finalize report
+  |-- finalize report
 ```
