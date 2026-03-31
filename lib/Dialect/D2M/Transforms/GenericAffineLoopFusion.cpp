@@ -190,77 +190,39 @@ buildFusedOperandInfo(GenericOp producer, GenericOp consumer,
 // Populate fused block arguments and seed IRMapping for producer/consumer args.
 static IRMapping buildFusedBlockArgMapping(GenericOp producer,
                                            GenericOp consumer,
-                                           OpOperand *inputOperand,
-                                           GenericOp fusedOp,
-                                           unsigned fusedSharedInputIdx,
-                                           unsigned producerSharedInitIdx) {
+                                           GenericOp supersetGeneric,
+                                           GenericOp fusedOp) {
   Block &fusedBlock = fusedOp.getRegion(0).emplaceBlock();
   Block &prodBlock = producer.getRegion(0).front();
   Block &consBlock = consumer.getRegion(0).front();
+  Block &supersetBlock = supersetGeneric.getRegion(0).front();
 
-  SmallVector<Type> fusedBlockArgTypes;
-  SmallVector<Location> fusedBlockArgLocs;
-  SmallVector<std::pair<Operation *, unsigned>> argSources;
-
-  auto appendSource = [&](Operation *op, unsigned operandNumber) {
-    argSources.emplace_back(op, operandNumber);
-    Block *srcBlock = (op == producer.getOperation()) ? &prodBlock : &consBlock;
-    BlockArgument srcArg = srcBlock->getArgument(operandNumber);
-    fusedBlockArgTypes.push_back(srcArg.getType());
-    fusedBlockArgLocs.push_back(srcArg.getLoc());
-  };
-
-  for (OpOperand *pi : producer.getDpsInputOperands()) {
-    appendSource(producer.getOperation(), pi->getOperandNumber());
-  }
-  appendSource(consumer.getOperation(), inputOperand->getOperandNumber());
-  for (OpOperand *ci : consumer.getDpsInputOperands()) {
-    if (ci == inputOperand) {
-      continue;
-    }
-    appendSource(consumer.getOperation(), ci->getOperandNumber());
-  }
-  for (OpOperand &co : consumer.getDpsInitsMutable()) {
-    appendSource(consumer.getOperation(), co.getOperandNumber());
+  // Region block arguments represent semaphores (not DPS operands). Preserve
+  // semaphore argument shape from the superset generic used to build fusedOp.
+  SmallVector<Type> fusedSemArgTypes;
+  SmallVector<Location> fusedSemArgLocs;
+  fusedSemArgTypes.reserve(supersetBlock.getNumArguments());
+  fusedSemArgLocs.reserve(supersetBlock.getNumArguments());
+  for (BlockArgument semArg : supersetBlock.getArguments()) {
+    fusedSemArgTypes.push_back(semArg.getType());
+    fusedSemArgLocs.push_back(semArg.getLoc());
   }
 
-  fusedBlock.addArguments(fusedBlockArgTypes, fusedBlockArgLocs);
-
-  DenseMap<std::pair<Operation *, unsigned>, unsigned> sourceToFusedIdx;
-  for (auto [idx, src] : llvm::enumerate(argSources)) {
-    sourceToFusedIdx[src] = static_cast<unsigned>(idx);
-  }
+  fusedBlock.addArguments(fusedSemArgTypes, fusedSemArgLocs);
 
   IRMapping irMap;
 
-  // Map producer block args.
-  for (OpOperand *pi : producer.getDpsInputOperands()) {
-    unsigned fusedIdx =
-        sourceToFusedIdx[{producer.getOperation(), pi->getOperandNumber()}];
-    irMap.map(prodBlock.getArgument(pi->getOperandNumber()),
-              fusedBlock.getArgument(fusedIdx));
-  }
-  irMap.map(prodBlock.getArgument(producerSharedInitIdx),
-            fusedBlock.getArgument(fusedSharedInputIdx));
-
-  // Map consumer block args.
-  irMap.map(consBlock.getArgument(inputOperand->getOperandNumber()),
-            fusedBlock.getArgument(fusedSharedInputIdx));
-  for (OpOperand *ci : consumer.getDpsInputOperands()) {
-    if (ci == inputOperand) {
-      continue;
+  auto mapSemaphoreArgsToFused = [&](Block &srcBlock) {
+    unsigned srcCount = srcBlock.getNumArguments();
+    unsigned fusedCount = fusedBlock.getNumArguments();
+    unsigned count = std::min(srcCount, fusedCount);
+    for (unsigned idx = 0; idx < count; ++idx) {
+      irMap.map(srcBlock.getArgument(idx), fusedBlock.getArgument(idx));
     }
-    unsigned fusedIdx =
-        sourceToFusedIdx[{consumer.getOperation(), ci->getOperandNumber()}];
-    irMap.map(consBlock.getArgument(ci->getOperandNumber()),
-              fusedBlock.getArgument(fusedIdx));
-  }
-  for (OpOperand &co : consumer.getDpsInitsMutable()) {
-    unsigned fusedIdx =
-        sourceToFusedIdx[{consumer.getOperation(), co.getOperandNumber()}];
-    irMap.map(consBlock.getArgument(co.getOperandNumber()),
-              fusedBlock.getArgument(fusedIdx));
-  }
+  };
+
+  mapSemaphoreArgsToFused(prodBlock);
+  mapSemaphoreArgsToFused(consBlock);
 
   return irMap;
 }
@@ -416,9 +378,8 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
       supersetGeneric.getIteratorTypes(), supersetGeneric.getThreads(),
       supersetGeneric.getScratchInputsAttr(), /*regions=*/1);
 
-  IRMapping irMap = buildFusedBlockArgMapping(producer, consumer, inputOperand,
-                                              fusedOp, fusedInfo.sharedInputIdx,
-                                              producerSharedInitIdx);
+  IRMapping irMap =
+      buildFusedBlockArgMapping(producer, consumer, supersetGeneric, fusedOp);
 
   if (!runAffineLoopFusion(fusedOp, producerLoop, consumerLoop, producerDepth,
                            consumerDepth, builder, irMap)) {

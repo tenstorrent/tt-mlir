@@ -4,6 +4,7 @@
 #dram = #ttcore.memory_space<dram>
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #map1 = affine_map<() -> ()>
+#map4 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #parallel = #ttcore.iterator_type<parallel>
 #reduction = #ttcore.iterator_type<reduction>
 #mapL = affine_map<(d0, d1, d2) -> (d0, d2)>
@@ -29,13 +30,13 @@ func.func @test_basic_fusion(
   %intermediate = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   %output = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   %cb_in = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
-  %stream_in = "d2m.stream_layout"(%input, %cb_in) : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>
+  %stream_in = d2m.view_layout %input remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
 
   // Producer: reads from input, applies relu, stores to intermediate
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
-      ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
+      ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
       outs(%intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -45,7 +46,7 @@ func.func @test_basic_fusion(
         %idx0 = affine.apply #map_add(%i)[%off0]
         %off1 = d2m.block_offset(1) : index
         %idx1 = affine.apply #map_add(%j)[%off1]
-        %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 
         %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         linalg.generic {
@@ -72,7 +73,7 @@ func.func @test_basic_fusion(
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
       ins(%intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
       outs(%output : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified0(%cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb3: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -116,16 +117,16 @@ func.func @test_basic_fusion(
 func.func @test_fusion_producer_view_output(
     %input: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
   %intermediate = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
-  %intermediate_view = d2m.view_layout %intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
+  %intermediate_view = d2m.view_layout %intermediate remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
   %output = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   %cb_in = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
-  %stream_in = "d2m.stream_layout"(%input, %cb_in) : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>
+  %stream_in = d2m.view_layout %input remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
 
   // Producer writes via view wrapper.
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
-      ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
-      outs(%intermediate_view : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>) {
-  ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+      ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+      outs(%intermediate_view : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>) {
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -135,17 +136,17 @@ func.func @test_fusion_producer_view_output(
         %idx0 = affine.apply #map_add(%i)[%off0]
         %idx1 = affine.apply #map_add(%j)[%off1]
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-        %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-        %stored = d2m.remote_store %intermediate_view[%idx0, %idx1] %loaded : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
+        %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %stored = d2m.remote_store %intermediate_view[%idx0, %idx1] %loaded : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
       } {d2m.blocking_loop = 1}
     } {d2m.blocking_loop = 0}
   }
 
   // Consumer reads through the same view wrapper.
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
-      ins(%intermediate_view : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>)
+      ins(%intermediate_view : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>)
       outs(%output : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified1(%cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb3: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -155,7 +156,7 @@ func.func @test_fusion_producer_view_output(
         %idx0 = affine.apply #map_add(%i)[%off0]
         %idx1 = affine.apply #map_add(%j)[%off1]
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-        %loaded = d2m.remote_load %buf_in %intermediate_view[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %loaded = d2m.remote_load %buf_in %intermediate_view[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %stored = d2m.remote_store %output[%idx0, %idx1] %loaded : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
       } {d2m.blocking_loop = 1}
     } {d2m.blocking_loop = 0}
@@ -175,13 +176,13 @@ func.func @test_no_fusion_multiple_readers(
   %output1 = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   %output2 = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   %cb_in = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
-  %stream_in = "d2m.stream_layout"(%input, %cb_in) : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>
+  %stream_in = d2m.view_layout %input remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
 
   // Producer
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
-      ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
+      ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
       outs(%intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -191,7 +192,7 @@ func.func @test_no_fusion_multiple_readers(
         %idx0 = affine.apply #map_add(%i)[%off0]
         %idx1 = affine.apply #map_add(%j)[%off1]
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-        %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %stored = d2m.remote_store %intermediate[%idx0, %idx1] %buf_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
       } {d2m.blocking_loop = 1}
@@ -202,7 +203,7 @@ func.func @test_no_fusion_multiple_readers(
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
       ins(%intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
       outs(%output1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified0(%cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb3: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -223,7 +224,7 @@ func.func @test_no_fusion_multiple_readers(
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
       ins(%intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
       outs(%output2 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified0(%cb4: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb5: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -254,13 +255,13 @@ func.func @test_no_fusion_chained_view_reader(
   %output1 = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   %output2 = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   %cb_in = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
-  %stream_in = "d2m.stream_layout"(%input, %cb_in) : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>
+  %stream_in = d2m.view_layout %input remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
 
   // Producer
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
-      ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
+      ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
       outs(%intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -270,21 +271,21 @@ func.func @test_no_fusion_chained_view_reader(
         %idx0 = affine.apply #map_add(%i)[%off0]
         %idx1 = affine.apply #map_add(%j)[%off1]
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-        %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %stored = d2m.remote_store %intermediate[%idx0, %idx1] %buf_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
       } {d2m.blocking_loop = 1}
     } {d2m.blocking_loop = 0}
   }
 
-  %view1 = d2m.view_layout %intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
-  %view2 = d2m.view_layout %view1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
+  %view1 = d2m.view_layout %intermediate remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
+  %view2 = d2m.view_layout %view1 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
 
   // Consumer 1: direct reader from intermediate.
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
       ins(%intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
       outs(%output1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified1(%cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb3: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -303,9 +304,9 @@ func.func @test_no_fusion_chained_view_reader(
 
   // Consumer 2: hidden reader through a two-level view chain.
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
-      ins(%view2 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>)
+      ins(%view2 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>)
       outs(%output2 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified2(%cb4: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb5: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -315,7 +316,7 @@ func.func @test_no_fusion_chained_view_reader(
         %idx0 = affine.apply #map_add(%i)[%off0]
         %idx1 = affine.apply #map_add(%j)[%off1]
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-        %loaded = d2m.remote_load %buf_in %view2[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %loaded = d2m.remote_load %buf_in %view2[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %stored = d2m.remote_store %output2[%idx0, %idx1] %buf_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
       } {d2m.blocking_loop = 1}
@@ -340,14 +341,14 @@ func.func @test_matmul_add_subset_fusion(
   %output = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
   %cb_lhs = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
   %cb_rhs = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
-  %stream_lhs = "d2m.stream_layout"(%lhs, %cb_lhs) : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>
-  %stream_rhs = "d2m.stream_layout"(%rhs, %cb_rhs) : (memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>
+  %stream_lhs = d2m.view_layout %lhs remapping = #map4 : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram> -> memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+  %stream_rhs = d2m.view_layout %rhs remapping = #map4 : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram> -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
 
   // Producer: matmul with 3 blocking loops (M, N, K)
   d2m.generic {block_factors = [1, 1, 2], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<unified>]}
-      ins(%stream_lhs, %stream_rhs : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>)
+      ins(%stream_lhs, %stream_rhs : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
       outs(%intermediate : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) {
-  ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0(%sem0: !d2m.semaphore, %sem1: !d2m.semaphore, %sem2: !d2m.semaphore):
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     %bf2 = d2m.get_block_factor(2) : index
@@ -362,12 +363,12 @@ func.func @test_matmul_add_subset_fusion(
           %idx0 = affine.apply #map_add(%m)[%off0]
           %off2 = d2m.block_offset(2) : index
           %idx2 = affine.apply #map_add(%k)[%off2]
-          %loaded_lhs = d2m.remote_load %buf_lhs %stream_lhs[%idx0, %idx2]      : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+          %loaded_lhs = d2m.remote_load %buf_lhs %stream_lhs[%idx0, %idx2]      : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
           %off1 = d2m.block_offset(1) : index
           %idx1 = affine.apply #map_add(%n)[%off1]
           %off2_rhs = d2m.block_offset(2) : index
           %idx2_rhs = affine.apply #map_add(%k)[%off2_rhs]
-          %loaded_rhs = d2m.remote_load %buf_rhs %stream_rhs[%idx2_rhs, %idx1]      : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+          %loaded_rhs = d2m.remote_load %buf_rhs %stream_rhs[%idx2_rhs, %idx1]      : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
           "d2m.tile_matmul_block"(%loaded_lhs, %loaded_rhs, %buf_out) : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
         } {d2m.blocking_loop = 2}
 
@@ -385,7 +386,7 @@ func.func @test_matmul_add_subset_fusion(
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
       ins(%intermediate, %bias : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>)
       outs(%output : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) {
-  ^unified1(%cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb4: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb5: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified1(%sem0: !d2m.semaphore, %sem1: !d2m.semaphore, %sem2: !d2m.semaphore):
     %abf0 = d2m.get_block_factor(0) : index
     %abf1 = d2m.get_block_factor(1) : index
     affine.for %am = 0 to %abf0 {
@@ -438,12 +439,12 @@ func.func @test_store_load_index_mismatch_ab(
   %intermediate = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   %output = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   %cb_in = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
-  %stream_in = "d2m.stream_layout"(%input, %cb_in) : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>
+  %stream_in = d2m.view_layout %input remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
 
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
-      ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
+      ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
       outs(%intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -453,7 +454,7 @@ func.func @test_store_load_index_mismatch_ab(
         %idx0 = affine.apply #map_add(%i)[%off0]
         %idx1 = affine.apply #map_add(%j)[%off1]
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-        %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         linalg.generic {
           indexing_maps = [#map, #map],
@@ -473,7 +474,7 @@ func.func @test_store_load_index_mismatch_ab(
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
       ins(%intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
       outs(%output : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified1(%cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb3: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
