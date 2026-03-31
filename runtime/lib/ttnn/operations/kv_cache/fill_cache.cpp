@@ -14,6 +14,6 @@ void run(const ::tt::target::ttnn::FillCacheOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &input =
       tensorPool.getTTNNTensorAndValidate(op->input());
 
-  ::ttnn::fill_cache(cache, input, op->batch_offset());
+  ::ttnn::fill_cache(cache, input, op->batch_offset(), op->update_index());
 }
 } // namespace tt::runtime::ttnn::operations::kv_cache

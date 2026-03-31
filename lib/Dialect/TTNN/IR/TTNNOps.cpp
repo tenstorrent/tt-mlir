@@ -3573,13 +3573,17 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Input tensor must be a 4D tensor");
   }
 
-  if (inputType.getShape()[2] > cacheType.getShape()[2]) {
+  int64_t updateIndex = static_cast<int64_t>(getUpdateIndex());
+  int64_t inputSeqLen = inputType.getShape()[2];
+  int64_t cacheSeqLen = cacheType.getShape()[2];
+
+  if (updateIndex + inputSeqLen > cacheSeqLen) {
     return emitOpError(
-        "Input tensor requires that dim 2 have a size which is less than or "
-        "equal to the size of dim 2 of the cache tensor. Got cache dim 2 size "
-        "= " +
-        std::to_string(cacheType.getShape()[2]) +
-        ", input dim 2 size = " + std::to_string(inputType.getShape()[2]));
+        "update_index + input sequence length must not exceed cache sequence "
+        "length. Got update_index = " +
+        std::to_string(updateIndex) +
+        ", input dim 2 size = " + std::to_string(inputSeqLen) +
+        ", cache dim 2 size = " + std::to_string(cacheSeqLen));
   }
 
   if (cacheType.getShape()[1] != inputType.getShape()[1] ||

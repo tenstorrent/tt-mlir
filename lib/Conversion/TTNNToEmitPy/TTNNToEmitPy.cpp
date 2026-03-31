@@ -2543,7 +2543,8 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getCache()), emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getBatchOffset())};
+        emitter.emit(srcOp.getBatchOffset()),
+        emitter.emit(srcOp.getUpdateIndex(), "update_idx")};
 
     emitter.replaceOp(*this, args);
 

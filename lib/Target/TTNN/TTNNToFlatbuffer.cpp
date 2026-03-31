@@ -1715,7 +1715,8 @@ createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
       getOperandThroughDPSOps(op.getInput()));
 
   return ::tt::target::ttnn::CreateFillCacheOp(*cache.fbb, cacheOperand, input,
-                                               op.getBatchOffset());
+                                               op.getBatchOffset(),
+                                               op.getUpdateIndex());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ConstantOp>

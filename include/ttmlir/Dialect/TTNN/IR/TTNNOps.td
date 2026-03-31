@@ -1084,11 +1084,14 @@ def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
   let summary = "Fill static cache tensor.";
   let description = [{
       Fills the `cache` tensor in-place with values from `input` at `batch_offset`.
+      The `update_index` specifies the starting position along the sequence
+      dimension (default 0).
   }];
 
   let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
                        AnyRankedTensor:$input,
-                       I32Attr:$batch_offset);
+                       I32Attr:$batch_offset,
+                       DefaultValuedAttr<I32Attr, "0">:$update_index);
 
   let hasVerifier = 1;
 }

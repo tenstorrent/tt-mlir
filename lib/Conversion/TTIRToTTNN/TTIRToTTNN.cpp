@@ -820,7 +820,8 @@ public:
 
     rewriter.create<ttnn::FillCacheOp>(op.getLoc(), adaptor.getCache(),
                                        adaptor.getInput(),
-                                       adaptor.getBatchOffset());
+                                       adaptor.getBatchOffset(),
+                                       /*update_index=*/0);
 
     rewriter.replaceOp(op, adaptor.getCache());
     return success();
