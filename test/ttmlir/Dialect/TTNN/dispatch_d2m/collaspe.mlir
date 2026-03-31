@@ -75,7 +75,7 @@ module {
   // CHECK-LABEL: func.func @mixed_ttnn_ops_d2m_subgraph
   func.func @mixed_ttnn_ops_d2m_subgraph(%arg0: tensor<32x32xf32, #ttnn_layout>, %arg1: tensor<32x32xf32, #ttnn_layout>, %out0: tensor<32x32xf32, #ttnn_layout>, %out1: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
     // CHECK: "ttnn.add"
-    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout>
+    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>, post_activations = [], lhs_activations = [], rhs_activations = []}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout>
     // CHECK-NOT: ttnn.d2m_subgraph
     // CHECK: "ttnn.generic"
     %1 = ttnn.d2m_subgraph @d2m_subgraph_0

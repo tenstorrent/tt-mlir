@@ -31,7 +31,7 @@ module {
     }> : (tensor<1x1x1024x64xbf16, #ttnn_layout>, tensor<64x64x3x3xbf16, #ttnn_layout1>, tensor<1x1x1x64xbf16, #ttnn_layout2>, !ttnn.device) -> tensor<1x1x1024x64xbf16, #ttnn_layout>
 
     // This operation also uses %input, creating a use-after-free since conv2d above deallocates it
-    %result = "ttnn.add"(%input, %conv_out) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x1x1024x64xbf16, #ttnn_layout>, tensor<1x1x1024x64xbf16, #ttnn_layout>) -> tensor<1x1x1024x64xbf16, #ttnn_layout>
+    %result = "ttnn.add"(%input, %conv_out) <{dtype = #ttcore.supportedDataTypes<bf16>, post_activations = [], lhs_activations = [], rhs_activations = []}> : (tensor<1x1x1024x64xbf16, #ttnn_layout>, tensor<1x1x1024x64xbf16, #ttnn_layout>) -> tensor<1x1x1024x64xbf16, #ttnn_layout>
 
     return %result : tensor<1x1x1024x64xbf16, #ttnn_layout>
   }

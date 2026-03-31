@@ -11,10 +11,10 @@
 module {
   func.func @d2m_fusing_two_legs_insertion_dominance(%arg0: tensor<64x256xbf16, #layout_256>, %arg1: tensor<64x128xbf16, #layout_128>) -> tensor<64x128xbf16, #layout_128> {
     %0 = "ttnn.slice_static"(%arg0) <{begins = [0 : i32, 0 : i32], ends = [64 : i32, 128 : i32], step = [1 : i32, 1 : i32]}> : (tensor<64x256xbf16, #layout_256>) -> tensor<64x128xbf16, #layout_128>
-    %1 = "ttnn.add"(%0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x128xbf16, #layout_128>, tensor<64x128xbf16, #layout_128>) -> tensor<64x128xbf16, #layout_128>
+    %1 = "ttnn.add"(%0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>, post_activations = [], lhs_activations = [], rhs_activations = []}> : (tensor<64x128xbf16, #layout_128>, tensor<64x128xbf16, #layout_128>) -> tensor<64x128xbf16, #layout_128>
     %2 = "ttnn.slice_static"(%arg0) <{begins = [0 : i32, 128 : i32], ends = [64 : i32, 256 : i32], step = [1 : i32, 1 : i32]}> : (tensor<64x256xbf16, #layout_256>) -> tensor<64x128xbf16, #layout_128>
-    %3 = "ttnn.add"(%2, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x128xbf16, #layout_128>, tensor<64x128xbf16, #layout_128>) -> tensor<64x128xbf16, #layout_128>
-    %4 = "ttnn.multiply"(%1, %3) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x128xbf16, #layout_128>, tensor<64x128xbf16, #layout_128>) -> tensor<64x128xbf16, #layout_128>
+    %3 = "ttnn.add"(%2, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>, post_activations = [], lhs_activations = [], rhs_activations = []}> : (tensor<64x128xbf16, #layout_128>, tensor<64x128xbf16, #layout_128>) -> tensor<64x128xbf16, #layout_128>
+    %4 = "ttnn.multiply"(%1, %3) <{dtype = #ttcore.supportedDataTypes<bf16>, post_activations = [], lhs_activations = [], rhs_activations = []}> : (tensor<64x128xbf16, #layout_128>, tensor<64x128xbf16, #layout_128>) -> tensor<64x128xbf16, #layout_128>
     return %4 : tensor<64x128xbf16, #layout_128>
   }
 }
@@ -28,5 +28,5 @@ module {
 // CHECK: func.func private @d2m_subgraph_0
 // CHECK: %[[ADD_0:.*]] = "ttnn.add"
 // CHECK: %[[ADD_1:.*]] = "ttnn.add"
-// CHECK: %[[MULTIPLY:.*]] = "ttnn.multiply"(%[[ADD_0]], %[[ADD_1]])
+// CHECK: %[[MULTIPLY:.*]] = "ttnn.multiply"(%[[ADD_0]], %[[ADD_1]]) <{dtype = #ttcore.supportedDataTypes<bf16>, lhs_activations = [], post_activations = [], rhs_activations = []}>
 // CHECK: return %[[MULTIPLY]]

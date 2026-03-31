@@ -6,8 +6,27 @@
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include <vector>
 
 namespace tt::runtime::ttnn::operations::eltwise::binary {
+
+static std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>
+toTTNNUnaryWithParamVector(
+    const flatbuffers::Vector<
+        flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam>> *activations) {
+  std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> converted;
+  if (activations == nullptr) {
+    return converted;
+  }
+
+  converted.reserve(activations->size());
+  for (const auto *activation : *activations) {
+    converted.push_back(
+        ::tt::runtime::ttnn::operations::utils::toTTNNUnaryWithParam(
+            *activation));
+  }
+  return converted;
+}
 
 template <typename Fn>
 static void runEltwiseBinaryCompositeOp(
@@ -25,6 +44,32 @@ static void runEltwiseBinaryCompositeOp(
              "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputMemoryConfig);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
+template <typename Fn>
+static void runEltwiseBinaryCompositeOpWithActivations(
+  const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
+  ProgramTensorPool &tensorPool, Fn &&ttnnOp) {
+
+  ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
+  ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  auto postActivations = toTTNNUnaryWithParamVector(op->post_activations());
+  auto lhsActivations = toTTNNUnaryWithParamVector(op->lhs_activations());
+  auto rhsActivations = toTTNNUnaryWithParamVector(op->rhs_activations());
+
+  ::ttnn::Tensor out =
+      ttnnOp(*lhs, *rhs, std::nullopt, outputMemoryConfig, std::nullopt,
+             postActivations, lhsActivations, rhsActivations, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -53,20 +98,18 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Maximum: {
-    runEltwiseBinaryCompositeOp(
+    runEltwiseBinaryCompositeOpWithActivations(
         op, tensorPool,
-        [](const ::ttnn::Tensor &lhs, const ::ttnn::Tensor &rhs,
-           const std::optional<::ttnn::MemoryConfig> &memCfg) {
-          return ::ttnn::maximum(lhs, rhs, std::nullopt, memCfg);
+        [](auto &&...args) {
+          return ::ttnn::maximum(std::forward<decltype(args)>(args)...);
         });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Minimum: {
-    runEltwiseBinaryCompositeOp(
+    runEltwiseBinaryCompositeOpWithActivations(
         op, tensorPool,
-        [](const ::ttnn::Tensor &lhs, const ::ttnn::Tensor &rhs,
-           const std::optional<::ttnn::MemoryConfig> &memCfg) {
-          return ::ttnn::minimum(lhs, rhs, std::nullopt, memCfg);
+        [](auto &&...args) {
+          return ::ttnn::minimum(std::forward<decltype(args)>(args)...);
         });
     break;
   }
@@ -83,11 +126,10 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow: {
-    runEltwiseBinaryCompositeOp(
+    runEltwiseBinaryCompositeOpWithActivations(
         op, tensorPool,
-        [](const ::ttnn::Tensor &lhs, const ::ttnn::Tensor &rhs,
-           const std::optional<::ttnn::MemoryConfig> &memCfg) {
-          return ::ttnn::pow(lhs, rhs, std::nullopt, memCfg);
+        [](auto &&...args) {
+          return ::ttnn::pow(std::forward<decltype(args)>(args)...);
         });
     break;
   }

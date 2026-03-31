@@ -194,11 +194,18 @@ struct BinaryEltwiseOpModel {
   static llvm::Expected<OpConstraints> getOpConstraints(
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
       TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
-      TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr inputLayoutB,
+      llvm::ArrayRef<UnaryWithParamAttr> postActivations,
+      llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
+      llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
                llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+               llvm::ArrayRef<UnaryWithParamAttr> postActivations,
+               llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
+               llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
                TTNNLayoutAttr outputLayout);
 };
 
@@ -207,11 +214,18 @@ struct BinaryCompositeOpModel {
   static llvm::Expected<OpConstraints> getOpConstraints(
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
       TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
-      TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr inputLayoutB,
+      llvm::ArrayRef<UnaryWithParamAttr> postActivations,
+      llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
+      llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
                llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+               llvm::ArrayRef<UnaryWithParamAttr> postActivations,
+               llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
+               llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
                TTNNLayoutAttr outputLayout);
 };
 
