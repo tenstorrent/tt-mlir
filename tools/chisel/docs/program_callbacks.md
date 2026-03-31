@@ -11,6 +11,7 @@ Fires once at the start of program execution, before the op loop.
 - Get or create `BinaryState` for `binary.id`
     - If new binary: extract TTNN MLIR from `binary.mlir.source`, parse
       `IRModule`, create `Registry`, call `load_all_ops()`
+- Get `program_index` via `ttrt.runtime.get_program_index(program_context)`
 - Get or create `ProgramState` for `program_index`
 - `program.reset_for_new_execution()` — reset `op_iter`, clear `_skip_stash`
   (golden pool preserved)
@@ -67,6 +68,7 @@ Fires once at the end of program execution, after the op loop.
 
 ```
 preProgram(binary, program_context)
+  |-- program_index = get_program_index(program_context)
   |-- get/create BinaryState + ProgramState
   |-- reset_for_new_execution()
   |-- copy global → program golden pool

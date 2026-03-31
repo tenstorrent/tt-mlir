@@ -324,6 +324,19 @@ Chisel uses two callback signatures:
 These are compatible with `DebugHooks` and work whether the caller is builder,
 ttrt, or any other runner.
 
+### Runtime Helper Functions
+
+The following standalone functions extract information from callback context
+objects (bound via nanobind in `runtime/python/runtime/runtime.cpp`):
+
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `get_program_index` | `(CallbackContext) → int` | Returns the program index from the underlying `ProgramContext`. Used by `preProgram` to look up or create the correct `ProgramState`. |
+| `get_op_output_ref` | `(OpContext, CallbackContext) → TensorRef` | Returns a reference to the op's output tensor on device. |
+| `get_op_input_refs` | `(OpContext, CallbackContext) → list[TensorRef]` | Returns references to the op's input tensors on device. |
+| `retrieve_tensor_from_pool` | `(CallbackContext, TensorRef, bool) → Tensor` | Retrieves a tensor from the runtime tensor pool. |
+| `update_tensor_in_pool` | `(CallbackContext, TensorRef, Tensor) → None` | Updates a tensor in the runtime tensor pool. |
+
 ## Comparison with Old Architecture
 
 | Aspect | Old | New |
