@@ -1540,13 +1540,28 @@ public:
     // Move RHS chains to after LHS definition so they dominate the fused op
     // insertAfterOp is updated to track the last moved operation
     for (OpType candidate : candidates.ops) {
-      if (failed(
-              moveRhsChainAfter(candidate.getB(), insertAfterOp, rewriter))) {
+      if (failed(moveOpChainAfter(candidate.getB(), insertAfterOp, rewriter))) {
         return mlir::failure();
       }
     }
 
-    // Set insertion point after all moved RHS chains
+    // For LinearOp, also move bias chains so they dominate the insertion
+    // point. The bias concat is created at the insertion point, so all bias
+    // values must be defined before it (e.g. mesh_partition ops in
+    // multi-device graphs).
+    if constexpr (std::is_same_v<OpType, LinearOp>) {
+      for (OpType candidate : candidates.ops) {
+        Value bias = candidate.getBias();
+        if (!bias || isa<BlockArgument>(bias)) {
+          continue;
+        }
+        if (failed(moveOpChainAfter(bias, insertAfterOp, rewriter))) {
+          return mlir::failure();
+        }
+      }
+    }
+
+    // Set insertion point after all moved RHS chains and bias ops
     rewriter.setInsertionPointAfter(insertAfterOp);
 
     // Prepare and concatenate RHS operands
@@ -1782,36 +1797,32 @@ private:
     }
   }
 
-  // Move a chain of permute/reshape ops to after the given reference
-  // operation. This ensures the RHS values dominate the insertion point for
+  // Move a chain of single-operand ops to after the given reference
+  // operation. This ensures the value dominates the insertion point for
   // the fused op. Updates insertAfterRef to point to the last moved operation.
-  // Returns failure if the chain contains unsupported ops.
-  static LogicalResult moveRhsChainAfter(Value rhsValue,
-                                         Operation *&insertAfterRef,
-                                         PatternRewriter &rewriter) {
-    // Collect ops that need moving (in reverse order: from rhsValue toward
-    // root)
+  // Only moves ops earlier in the block, which is always safe for dominance
+  // of existing users.
+  static LogicalResult moveOpChainAfter(Value value, Operation *&insertAfterRef,
+                                        PatternRewriter &rewriter) {
+    // Collect ops that need moving (in reverse order: from value toward root)
     SmallVector<Operation *> opsToMove;
 
-    for (Value current = rhsValue; !isa<BlockArgument>(current);) {
+    for (Value current = value; !isa<BlockArgument>(current);) {
       Operation *defOp = current.getDefiningOp();
       if (!defOp || defOp->isBeforeInBlock(insertAfterRef) ||
           defOp == insertAfterRef) {
         break;
       }
 
-      if (auto permuteOp = dyn_cast<PermuteOp>(defOp)) {
-        opsToMove.push_back(defOp);
-        current = permuteOp.getInput();
-      } else if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
-        opsToMove.push_back(defOp);
-        current = reshapeOp.getInput();
-      } else {
+      if (defOp->getNumOperands() != 1) {
         return failure();
       }
+
+      opsToMove.push_back(defOp);
+      current = defOp->getOperand(0);
     }
 
-    // Move ops in forward order (from root toward rhsValue)
+    // Move ops in forward order (from root toward value)
     for (Operation *op : llvm::reverse(opsToMove)) {
       rewriter.moveOpAfter(op, insertAfterRef);
       insertAfterRef = op;
