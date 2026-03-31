@@ -7,15 +7,22 @@ the TTNN dialect level.
 ## Architecture
 
 Chisel is a **passive observer** — it does not drive compilation or execution.
-It hooks into TTRT binary execution via `DebugHooks` preop/postop callbacks and
-compares each TTNN op's device output against a CPU golden reference.
+It hooks into TTRT binary execution via `DebugHooks` callbacks (preProgram,
+postProgram, preOp, postOp) and compares each TTNN op's device output against
+a CPU golden reference.
 
 Key design decisions:
 - **Single TTNN module** for both golden and device (no TTIR/TTNN correlation)
+- **Hierarchical state model**: `ChiselContext → BinaryState → ProgramState`
+  — each level owns appropriate state (global tensor pool, per-binary MLIR/registry,
+  per-program golden/device pools and op iterator)
 - **Singleton `ChiselContext`** because `DebugHooks` callbacks are plain
   functions that need shared state
+- **Iterator-based op tracking** — `ProgramState.op_iter` advances with each
+  preOp/postOp callback, no manual index or reset needed
 - **Reuses `tools/golden/GOLDEN_MAPPINGS`** for TTNN op golden implementations
-- **MLIR from flatbuffer** — reads TTNN MLIR string from `TTNNBinary.mlir.source` and parses it internally
+- **MLIR from flatbuffer** — reads TTNN MLIR string from `TTNNBinary.mlir.source`
+  and parses it in `BinaryState` on first encounter
 - **Library only** — no CLI entry point; caller registers callbacks and drives
   TTRT execution
 
@@ -24,8 +31,8 @@ Key design decisions:
 ```
 tools/chisel/chisel/
 ├── __init__.py        # Package init
-├── context.py         # ChiselContext singleton (central orchestrator)
-├── callbacks.py       # preop/postop callback functions for DebugHooks
+├── context.py         # ChiselContext, BinaryState, ProgramState
+├── callbacks.py       # 4 callback functions for DebugHooks
 ├── executor.py        # GoldenExecutor (TTNN ops on CPU via PyTorch)
 ├── registry.py        # TTNN op tracking and tensor registration
 ├── tensors.py         # TensorPool and TensorValue
@@ -36,12 +43,17 @@ tools/chisel/chisel/
 
 ## Data Flow
 
-For each TTNN op during TTRT execution:
-1. **preop**: On first op, extract TTNN MLIR from `binary.mlir.source` and parse
-   module. Then capture device input tensors, copy to golden tensor pool
-2. **HW executes op**
-3. **postop**: Capture device output, look up op in `GOLDEN_MAPPINGS`, execute
-   golden function on CPU, compare (PCC, abs error, rel error), write CSV row
+For each program during TTRT execution:
+1. **preProgram**: Get/create `BinaryState` (parse MLIR if new binary) and
+   `ProgramState`. Reset device pool, reset op iterator. Copy
+   `global_tensor_pool` → program's golden pool.
+2. For each TTNN op:
+   - **preOp**: `next(op_iter)`, capture device inputs, copy to golden pool
+   - **HW executes op**
+   - **postOp**: Capture device output, execute golden via `GOLDEN_MAPPINGS`,
+     compare (PCC, abs error, rel error), write CSV row
+3. **postProgram**: Copy program's golden pool → `global_tensor_pool`,
+   aggregate metrics, finalize report section.
 
 ## Key Dependencies
 

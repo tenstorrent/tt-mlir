@@ -24,12 +24,13 @@ hardware operation introduces numerical divergence.
 - **Tensor caching**: Optional disk-based caching of golden and device tensors
   for post-mortem analysis.
 - **Callback-driven**: Integrates non-invasively into any execution flow
-  (builder or direct `DebugHooks`) via preop/postop callbacks — no separate CLI
-  or execution pipeline required.
+  (builder or direct `DebugHooks`) via four callbacks (preProgram, postProgram,
+  preOp, postOp) — no separate CLI or execution pipeline required.
 - **Multi-program execution**: Supports multiple programs per binary
-  (e.g., forward + backward passes) and training loops with automatic program
-  transition detection via `Binary.id`, asymmetric state reset (device tensors
-  cleared, golden tensors preserved), and cross-program golden tensor sharing.
+  (e.g., forward + backward passes) and training loops via hierarchical state
+  model (`ChiselContext → BinaryState → ProgramState`). Per-program golden and
+  device tensor pools, iterator-based op tracking, and cross-program golden
+  tensor sharing via `global_tensor_pool`.
 - **Builder integration**: First-class support via `enable_chisel` parameter
   in the builder's `compile_and_execute_ttnn()` — mutually exclusive with
   builder's own `verify_intermediates` PCC checking.
@@ -42,23 +43,24 @@ callback registration**.
 
 ```mermaid
 flowchart LR;
-    A["Initialize<br/>ChiselContext singleton"] --> B["Register<br/>preop/postop callbacks<br/>via DebugHooks.get()"]
+    A["Initialize<br/>ChiselContext singleton"] --> B["Register 4 callbacks<br/>via DebugHooks"]
     B --> C["Execute<br/>TTNN binary"]
-    C --> D["Per-op callbacks:<br/>capture tensors,<br/>replay on CPU,<br/>compute metrics"]
+    C --> D["preProgram: setup state<br/>preOp/postOp: golden + compare<br/>postProgram: finalize"]
     D --> E["Inspect<br/>CSV report"]
 ```
 
-1. **Initialize** a `ChiselContext` singleton with the TTNN MLIR module and
-   output configuration.
-2. **Register** Chisel's preop/postop callback functions with
-   `DebugHooks.get()`.
+1. **Initialize** a `ChiselContext` singleton with output configuration.
+2. **Register** Chisel's four callback functions (preProgram, postProgram,
+   preOp, postOp) with `DebugHooks`.
 3. **Execute** the TTNN flatbuffer binary (via builder or any other runner).
-4. For each TTNN op, Chisel's callbacks automatically:
-   - Capture device input/output tensors
-   - Replay the op on CPU using golden reference implementations from
-     `tools/golden/`
-   - Compute and record accuracy metrics
-5. **Inspect** the generated CSV report.
+4. For each program, `preProgram` creates/finds `BinaryState` and
+   `ProgramState`, then for each TTNN op:
+   - `preOp`: advance `op_iter`, capture device inputs, copy to golden pool
+   - Device executes op
+   - `postOp`: capture device output, replay on CPU, compare, write report
+5. `postProgram` copies golden tensors to `global_tensor_pool` for cross-program
+   sharing and aggregates metrics.
+6. **Inspect** the generated CSV report.
 
 ### Usage: Builder Integration (Recommended)
 
@@ -92,20 +94,28 @@ manually:
 
 ```python
 from chisel.context import ChiselContext
-from chisel.callbacks import chisel_pre_op_callback, chisel_post_op_callback
+from chisel.callbacks import (
+    chisel_pre_program_callback,
+    chisel_post_program_callback,
+    chisel_pre_op_callback,
+    chisel_post_op_callback,
+)
 import ttrt.runtime
 
 # Initialize the singleton context
 ctx = ChiselContext(
     output_dir=Path("./chisel_output"),
-    report_path=Path("./chisel_report.csv"),
+    report_base_path=Path("./chisel_report.csv"),
 )
-# TTNN MLIR is extracted from the binary on the first preop callback
 
-# Register callbacks — same signature works with any DebugHooks caller
-debug_hooks = ttrt.runtime.DebugHooks.get(
-    chisel_pre_op_callback,
-    chisel_post_op_callback,
+# Register all 4 callbacks
+# preProgram/postProgram handle state setup/teardown per program
+# preOp/postOp handle golden comparison per operation
+ttrt.runtime.DebugHooks.register(
+    pre_program=chisel_pre_program_callback,
+    post_program=chisel_post_program_callback,
+    pre_op=chisel_pre_op_callback,
+    post_op=chisel_post_op_callback,
 )
 
 # Execute the binary — Chisel observes via callbacks
@@ -117,75 +127,79 @@ ChiselContext.reset_instance()
 
 ## Multi-Program Execution
 
-Chisel supports multiple programs per binary (e.g., forward + backward passes)
-and repeated execution of the same program (training loops). This requires
-handling three concerns: stale device tensors, program transition detection,
-and cross-program golden tensor reuse.
+Chisel supports multiple programs per binary (e.g., forward + backward passes),
+repeated execution of the same program (training loops), and multiple binaries
+in the same process (tt-xla flows). This is handled by the hierarchical state
+model: `ChiselContext → BinaryState → ProgramState`.
 
-### Program Transition Detection
+### Hierarchical State
 
-Chisel detects program boundaries using two mechanisms:
+- **`ChiselContext`** holds a `global_tensor_pool` (keyed by `Tensor::globalId`)
+  and a `binaries` dict mapping `binary.id` to `BinaryState`.
+- **`BinaryState`** is created once per binary. Holds the parsed `IRModule`,
+  `Registry`, `ReportWriter`, and a `programs` dict mapping `program_index` to
+  `ProgramState`.
+- **`ProgramState`** is created once per program. Holds isolated
+  `golden_tensor_pool` and `device_tensor_pool`, a `GoldenExecutor`, and an
+  `op_iter` that advances with each preOp/postOp callback.
 
-- **Different binary**: The `Binary.id` property (exposed from C++ via Python
-  bindings) is a process-scoped monotonically increasing counter. When
-  `binary.id` changes between callbacks, a new binary is executing.
-- **Same-binary re-execution**: Since `ProgramContext` is opaque in Python,
-  Chisel tracks the op counter. When all ops in the registry have been
-  processed and `preop` fires again, a new program execution has started.
+### Program Boundaries
 
-### Asymmetric State Reset
+Program boundaries are explicit — `preProgram(binary, program_context)` fires
+at the start of each program execution with the `binary.id` and
+`program_index`. No heuristic detection is needed.
 
-On program transition, Chisel performs an **asymmetric reset** — device state
-is cleared while golden state is preserved:
+### State Lifecycle
 
-| State | Reset | Preserved | Reason |
-|-------|:-----:|:---------:|--------|
-| `device_tensor_pool` | Yes | | `TensorRef`/`DeviceHandle` objects are tied to the destroyed `ProgramContext` |
-| `golden_tensor_pool` | | Yes | Pure CPU/PyTorch tensors with no device dependency |
-| `device_ir_module` | | Yes | Same MLIR module for the same binary |
-| `registry` | | Yes | Op groups derived from module |
-| `executor` | | Yes | References registry + golden pool |
-| `_op_index` | Yes | | Reset for new program |
-| `report` section | Yes | | New program gets a new report section |
+On each `preProgram` call, `ProgramState.reset_for_new_execution()`:
+- Clears `device_tensor_pool` (stale `TensorRef`s from previous execution)
+- Resets `op_iter` to the beginning of the ops list
+- Preserves `golden_tensor_pool` (pure CPU tensors, no device dependency)
 
-### Golden Tensor Sharing Across Programs
+| State | On re-execution | On new binary |
+|-------|:--------------:|:-------------:|
+| `ProgramState.device_tensor_pool` | Cleared | N/A (new state) |
+| `ProgramState.golden_tensor_pool` | Preserved | N/A (new state) |
+| `ProgramState.op_iter` | Reset | N/A (new state) |
+| `BinaryState.ir_module` | Preserved | New |
+| `BinaryState.registry` | Preserved | New |
+| `ChiselContext.global_tensor_pool` | Preserved | Preserved |
 
-Preserving the golden tensor pool across program boundaries enables three
-scenarios:
+### Golden Tensor Sharing
 
-1. **Shared weights**: Forward and backward passes use the same model weights.
-   Golden weight tensors computed in program 0 are found in the pool by name
-   when program 1 looks them up — no recomputation needed.
-2. **Output-to-input chaining**: If program 0 produces a golden output for
-   tensor `%5` and program 1 takes `%5` as input, the golden value is already
-   available from program 0's postop.
-3. **Re-execution warm cache**: When the same program re-runs in a training
-   loop, golden tensors from the previous iteration serve as a warm cache for
-   unchanged inputs.
+Golden tensors flow through a two-level pool system:
 
-Tensor names are derived from MLIR SSA values in the TTNN module. Since all
-programs in the same binary share the same module, names for shared weights and
-inter-program connections are identical. If a later program produces a tensor
-with the same name but different values, the pool entry is overwritten in
-postop (latest golden wins).
+1. **Per-program pool** (keyed by SSA name): Used during op execution within a
+   program. The `GoldenExecutor` reads inputs from and writes outputs to this
+   pool.
+2. **Global pool** (keyed by `Tensor::globalId`): Cross-program and cross-binary
+   sharing hub. `postProgram` copies new golden tensors from program → global.
+   `preProgram` copies matching tensors from global → program.
+
+This enables:
+- **Shared weights**: Forward pass golden weights flow through the global pool
+  to the backward pass's program pool.
+- **Output-to-input chaining**: Program 0's golden output for `%5` is stored
+  in the global pool, then copied into program 1's pool when it takes `%5`
+  as input.
+- **Re-execution warm cache**: Same program re-runs find their
+  `golden_tensor_pool` already populated from the previous iteration.
 
 ### Different Binary Handling
 
-When `binary.id` changes, the TTNN MLIR module is different and `IRModule` and
-`Registry` must be rebuilt. Two approaches:
+Different binaries are naturally separate `BinaryState` entries in
+`ctx.binaries`. When `preProgram` encounters a new `binary.id`, it creates a
+new `BinaryState` — parsing the MLIR, building the registry, etc. No
+`module_provider` callback or `ChiselContext` recreation needed.
 
-- **`module_provider` callback**: An optional `Callable[[Binary], Module]`
-  provided at init time. When a new binary is detected, Chisel calls it to
-  obtain the new module and rebuilds internal state automatically.
-- **Caller re-creates `ChiselContext`**: The builder already creates/destroys
-  `ChiselContext` per `execute_fb()` call, so different binaries are handled
-  naturally.
+The `global_tensor_pool` is preserved across binary boundaries, enabling
+cross-binary golden tensor sharing via `Tensor::globalId`.
 
 ### Per-Program Reporting
 
-The report writer supports per-program sections via `start_program()`. Each
-program's ops are grouped under a `program_index` column in the CSV output,
-keeping multi-program results organized in a single file.
+The `ReportWriter` (scoped per-`BinaryState`) supports per-program sections
+via `start_program(program_index)`. Each program's ops are grouped under a
+`program_index` column in the CSV output.
 
 ## What Changed From the Previous Chisel
 
@@ -196,10 +210,13 @@ keeping multi-program results organized in a single file.
 | Entry point | CLI via `main.py` with argparse | Library only — callback functions |
 | Compilation | Chisel ran its own TTIR-to-TTNN pass pipeline | None — reads TTNN MLIR from flatbuffer |
 | Execution | Chisel drove TTRT execution via `RtApi` | Passive — observes via callbacks |
-| Context pattern | Single-use object created in `main()` | Singleton accessed by callbacks |
+| State model | Flat singleton with `_op_index` counter | Hierarchical: ChiselContext → BinaryState → ProgramState |
+| Op tracking | Manual `_op_index` with reset heuristics | Iterator (`op_iter`) advancing with callbacks |
+| Callbacks | 2 (preop, postop) | 4 (preProgram, postProgram, preOp, postOp) |
 | Golden executor | Custom PyTorch mappings for TTIR ops | Reuses `tools/golden/GOLDEN_MAPPINGS` for TTNN ops |
+| Golden pool scope | Single global pool | Per-program pool + global pool for cross-program sharing |
 | Packaging | `setup.py` with `pip install -e` | CMake `declare_mlir_python_sources()` |
-| Multi-program | Single program only | Automatic transition detection, asymmetric reset, cross-program golden sharing |
+| Multi-program | Single program only | Explicit program boundaries, per-program state, cross-program/cross-binary golden sharing |
 
 ### Why TTNN-Level Comparison?
 

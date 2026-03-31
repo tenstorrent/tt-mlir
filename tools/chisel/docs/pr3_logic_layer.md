@@ -2,11 +2,11 @@
 
 ## Goal
 
-Add the `ChiselContext` singleton that wires all components together, plus
-the `callbacks.py` module with plain functions compatible with `DebugHooks.get()`,
-and the utility/metrics modules (`utils.py`, `metrics.py`) that are consumed by
-the orchestration layer. After this PR, Chisel is fully functional as a
-library — callers can register callbacks and observe TTNN binary execution.
+Add the `ChiselContext` singleton with its hierarchical state model
+(`BinaryState`, `ProgramState`), the `callbacks.py` module with four callback
+functions compatible with `DebugHooks`, and the utility module (`utils.py`).
+After this PR, Chisel is fully functional as a library — callers can register
+callbacks and observe TTNN binary execution.
 
 ## Files
 
@@ -14,15 +14,15 @@ library — callers can register callbacks and observe TTNN binary execution.
 
 | File | Description |
 |------|-------------|
-| `tools/chisel/chisel/context.py` | `ChiselContext` singleton — central orchestrator |
-| `tools/chisel/chisel/callbacks.py` | `chisel_pre_op_callback`, `chisel_post_op_callback` |
+| `tools/chisel/chisel/context.py` | `ChiselContext` singleton, `BinaryState`, `ProgramState` |
+| `tools/chisel/chisel/callbacks.py` | 4 callback functions: `preProgram`, `postProgram`, `preOp`, `postOp` |
 | `tools/chisel/chisel/utils.py` | Location parsing, dtype maps, runtime tensor conversion |
 
 ### Modified Files
 
 | File | Change |
 |------|--------|
-| `tools/chisel/chisel/__init__.py` | Export `ChiselContext`, callback functions |
+| `tools/chisel/chisel/__init__.py` | Export `ChiselContext`, all 4 callback functions |
 | `tools/chisel/CMakeLists.txt` | Add new source files |
 
 ## Implementation Details
@@ -76,6 +76,8 @@ See [PR 0c](pr0c_unified_metrics.md) for the full API and implementation details
 
 ### `context.py`
 
+Contains three classes that form the hierarchical state model:
+
 ```python
 class ChiselContext:
     _instance: Optional["ChiselContext"] = None
@@ -83,29 +85,21 @@ class ChiselContext:
     def __init__(
         self,
         output_dir: Path,
-        report_path: Path,
-        main_fn: str = "main",
+        report_base_path: Path,
         caching: bool = True,
     ):
         ChiselContext._instance = self
 
-        # MLIR module initialized lazily on first preop callback —
-        # the binary (containing TTNNBinary.mlir.source) is available there.
-        self.device_ir_module: IRModule | None = None
+        # Cross-binary/cross-program golden tensor sharing
+        # Keyed by Tensor::globalId
+        self.global_tensor_pool = TensorPool(caching=caching, output_dir=output_dir / "global")
 
-        # Dual tensor pools — golden (CPU) and device (hardware)
-        self.golden_tensor_pool = TensorPool(caching=caching, output_dir=output_dir / "golden")
-        self.device_tensor_pool = TensorPool(caching=caching, output_dir=output_dir / "device")
+        # State per binary — created lazily on first preProgram
+        self.binaries: Dict[int, BinaryState] = {}
 
-        # Single-module registry
-        self.registry = Registry(module=self.device_ir_module)
-        self.registry.load_all_ops()
-
-        # Golden executor reusing GOLDEN_MAPPINGS
-        self.executor = GoldenExecutor(self.registry, self.golden_tensor_pool)
-
-        # Reporting
-        self.report = ReportWriter(report_path, self.device_ir_module.get_asm_state())
+        # Set by preProgram, used by preOp/postOp
+        self.current_binary: BinaryState | None = None
+        self.current_program: ProgramState | None = None
 
     @classmethod
     def get_instance(cls) -> "ChiselContext":
@@ -117,35 +111,93 @@ class ChiselContext:
     def reset_instance(cls) -> None:
         cls._instance = None
 
+    def preprogram(self, binary, program_context) -> None:
+        """
+        Called once at the start of each program execution.
+
+        1. Get or create BinaryState for binary.id
+           - If new: parse MLIR, init Registry
+        2. Get or create ProgramState for program_index
+        3. program.reset_for_new_execution()
+        4. Copy global_tensor_pool → program.golden_tensor_pool
+        5. Set current_binary and current_program
+        6. Start new report section
+        """
+
+    def postprogram(self, binary, program_context) -> None:
+        """
+        Called once at the end of each program execution.
+
+        1. Copy program.golden_tensor_pool → global_tensor_pool
+        2. Aggregate metrics (min/max/mean PCC)
+        3. Finalize report section
+        """
+
     def preop(self, binary, program_context, op_context) -> None:
         """
         Called before each TTNN op executes on device.
 
-        1. Get op location via tt_runtime.runtime.get_op_loc_info(op_context)
-        2. Capture device input tensors from op_context
-        3. Store in device_tensor_pool
-        4. Copy inputs to golden_tensor_pool for golden execution
+        1. op = next(self.current_program.op_iter)
+        2. Capture device input tensors
+        3. Copy to program.golden_tensor_pool if not already present
         """
 
     def postop(self, binary, program_context, op_context) -> None:
         """
         Called after each TTNN op executes on device.
 
-        1. Capture device output tensor from op_context
-        2. Store in device_tensor_pool
-        3. Look up TTNN op in registry by location
-        4. Execute golden function via GoldenExecutor
-        5. Compare golden vs device output (PCC, abs_err, rel_err)
-        6. Write row to CSV report
+        1. Capture device output tensor
+        2. Execute golden function via program.executor
+        3. Compare golden vs device (PCC, abs_err, rel_err)
+        4. Write row to CSV report
         """
+
+
+class BinaryState:
+    def __init__(self, binary, caching: bool = True, output_dir: Path = None):
+        # Extract TTNN MLIR from binary.mlir.source, parse module
+        self.ir_module = IRModule(mlir_source=binary.mlir.source)
+        self.registry = Registry(module=self.ir_module)
+        self.registry.load_all_ops()
+        self.programs: Dict[int, ProgramState] = {}
+        self.report = ReportWriter(...)
+
+    def get_or_create_program(self, program_index) -> "ProgramState":
+        if program_index not in self.programs:
+            self.programs[program_index] = ProgramState(
+                program_index, self.registry
+            )
+        return self.programs[program_index]
+
+
+class ProgramState:
+    def __init__(self, program_index: int, registry: Registry):
+        self.program_index = program_index
+        self.golden_tensor_pool = TensorPool(...)
+        self.device_tensor_pool = TensorPool(...)
+        self.executor = GoldenExecutor(registry, self.golden_tensor_pool)
+        self.ops: List[OpInfo] = [...]  # ordered from registry for this program
+        self.op_iter: Iterator[OpInfo] = iter(self.ops)
+
+    def reset_for_new_execution(self) -> None:
+        """Called by preProgram on each program execution."""
+        self.device_tensor_pool.clear()
+        self.op_iter = iter(self.ops)
+        # golden_tensor_pool is NOT cleared
 ```
 
 ### `callbacks.py`
 
-Thin module with two plain functions compatible with `DebugHooks.get()`:
+Thin module with four plain functions compatible with `DebugHooks`:
 
 ```python
 from chisel.context import ChiselContext
+
+def chisel_pre_program_callback(binary, program_context):
+    ChiselContext.get_instance().preprogram(binary, program_context)
+
+def chisel_post_program_callback(binary, program_context):
+    ChiselContext.get_instance().postprogram(binary, program_context)
 
 def chisel_pre_op_callback(binary, program_context, op_context):
     ChiselContext.get_instance().preop(binary, program_context, op_context)
@@ -154,22 +206,28 @@ def chisel_post_op_callback(binary, program_context, op_context):
     ChiselContext.get_instance().postop(binary, program_context, op_context)
 ```
 
-These use the same `(binary, program_context, op_context)` signature as
-builder's own callbacks (see `builder_runtime.py:584-601`), making them a
-drop-in replacement.
+Two signatures:
+- **Program-level**: `(binary, program_context)` — same `(Binary, CallbackContext)` types
+- **Op-level**: `(binary, program_context, op_context)` — same signature as builder's own callbacks
 
 ### `__init__.py` exports
 
 ```python
 from chisel.context import ChiselContext
-from chisel.callbacks import chisel_pre_op_callback, chisel_post_op_callback
+from chisel.callbacks import (
+    chisel_pre_program_callback,
+    chisel_post_program_callback,
+    chisel_pre_op_callback,
+    chisel_post_op_callback,
+)
 ```
 
 ## Porting Notes for `context.py`
 
 ### From `runtime/tools/chisel/chisel/core/context.py`
 
-The old ChiselContext is the most heavily modified file. Here's what changes:
+The old ChiselContext is the most heavily modified file. The new version is a
+complete redesign with a hierarchical state model.
 
 **Remove entirely:**
 - `ttir_module` parameter — no golden TTIR module
@@ -183,18 +241,25 @@ The old ChiselContext is the most heavily modified file. Here's what changes:
 - `setup_ttrt()` — Chisel doesn't own runtime setup
 - `load_inputs_from_disk()` / `generate_random_inputs()` — inputs captured from
   runtime in preop callback, not generated upfront
+- `_op_index` — replaced by `ProgramState.op_iter`
+- `_current_binary_id` — replaced by `binaries` dict + `preProgram` callback
+- `_check_program_transition()` — not needed with explicit callbacks
+- `_reset_for_new_program()` — replaced by `ProgramState.reset_for_new_execution()`
 
 **Add new:**
 - Singleton pattern (`_instance`, `get_instance()`, `reset_instance()`)
-- `preop()` method — captures device inputs, copies to golden pool
-- `postop()` method — captures device output, runs golden, compares, reports
+- `BinaryState` class — per-binary state (IRModule, Registry, programs dict)
+- `ProgramState` class — per-program state (golden/device pools, executor, op_iter)
+- `preprogram()` / `postprogram()` methods — program-level callbacks
+- `preop()` / `postop()` methods — op-level callbacks
+- `global_tensor_pool` — cross-binary/cross-program golden tensor sharing
 
-**Adapt from old `preop()`/`postop()` in old context:**
+**Adapt from old `preop()`/`postop()`:**
 The old context has these methods but they work with dual modules and the
 Registry's `should_compare()`. The new versions are simpler:
 - Old `preop()` checked `program_context`, extracted tensor refs, updated device
   pool, and handled function arguments. New `preop()` does the same but without
-  ExecutionType branching.
+  ExecutionType branching and uses `next(op_iter)` instead of `_op_index`.
 - Old `postop()` called `compare_outputs()` which used the Registry to find
   corresponding golden/device tensors. New `postop()` directly runs the golden
   executor and compares.
@@ -215,6 +280,7 @@ The new design separates callbacks into their own module because:
 - `DebugHooks.get()` expects plain functions, not bound methods
 - The singleton pattern lets callbacks access context without closure capture
 - It mirrors the builder's pattern (`pre_op_get_callback_fn`, `post_op_get_callback_fn`)
+- Four callbacks instead of two (program-level + op-level)
 
 ## Test Plan
 
@@ -234,24 +300,52 @@ runtime because these utilities need runtime types to exercise meaningfully.
 **Singleton lifecycle tests (no hardware needed):**
 - `test_singleton_not_initialized()` — `get_instance()` raises `RuntimeError`
   before any construction
-- `test_singleton_construction()` — construct with mocked TTNN module,
+- `test_singleton_construction()` — construct with mocked deps,
   `get_instance()` returns same object
 - `test_singleton_reset()` — call `reset_instance()`, `get_instance()` raises again
 - `test_singleton_reinitialization()` — construct → reset → construct new →
   `get_instance()` returns new object
 
-**Component wiring tests (mock MLIR module):**
-- `test_components_initialized()` — after construction, verify `device_ir_module`,
-  `golden_tensor_pool`, `device_tensor_pool`, `registry`, `executor`, `report`
-  are all non-None
-- `test_registry_loaded()` — verify `registry.load_all_ops()` was called during init
+**BinaryState tests:**
+- `test_binary_state_creation()` — mock binary with `mlir.source`, verify
+  `IRModule` and `Registry` are created and `load_all_ops()` is called
+- `test_get_or_create_program()` — first call creates `ProgramState`, second
+  call returns the same instance
+- `test_multiple_programs()` — create programs 0 and 1, verify they have
+  independent golden/device pools
+
+**ProgramState tests:**
+- `test_program_state_creation()` — verify golden/device pools, executor,
+  and `op_iter` are initialized
+- `test_reset_for_new_execution()` — add tensors to device pool, call
+  `reset_for_new_execution()`, verify device pool is empty and `op_iter` is
+  reset. Verify golden pool is preserved.
+- `test_op_iter_advances()` — create ProgramState with known ops, call
+  `next(op_iter)` repeatedly, verify correct op sequence
+- `test_op_iter_reset()` — exhaust iter, reset, verify starts from beginning
+
+**PreProgram/PostProgram flow tests:**
+- `test_preprogram_creates_binary_state()` — call `preprogram()` with mock
+  binary, verify `BinaryState` created in `ctx.binaries`
+- `test_preprogram_creates_program_state()` — verify `ProgramState` created
+  in binary's `programs` dict
+- `test_preprogram_copies_global_to_program_pool()` — pre-populate
+  `global_tensor_pool`, call `preprogram()`, verify matching tensors appear
+  in `program.golden_tensor_pool`
+- `test_postprogram_copies_program_to_global_pool()` — populate
+  `program.golden_tensor_pool`, call `postprogram()`, verify entries appear
+  in `global_tensor_pool`
 
 ### `test_callbacks.py`
 
+- `test_pre_program_delegates_to_context()` — mock `ChiselContext.get_instance()`,
+  call `chisel_pre_program_callback(binary, prog_ctx)`, verify
+  `context.preprogram(binary, prog_ctx)` was called
+- `test_post_program_delegates_to_context()` — same for `postprogram`
 - `test_pre_op_delegates_to_context()` — mock `ChiselContext.get_instance()`,
   call `chisel_pre_op_callback(binary, prog_ctx, op_ctx)`, verify
   `context.preop(binary, prog_ctx, op_ctx)` was called
-- `test_post_op_delegates_to_context()` — same for postop
+- `test_post_op_delegates_to_context()` — same for `postop`
 - `test_callback_without_context_raises()` — call callback without initializing
   context, verify `RuntimeError` from `get_instance()`
 
@@ -263,8 +357,9 @@ No hardware or MLIR needed for callback delegation tests.
 - **PR 2** — `registry.py`, `executor.py`, `report.py`
 - **PR 1** — `tensors.py`, `ops.py`
 - **PR 0a** — DebugHooks refactor must land before this PR. This is where
-  Python callbacks get registered and invoked via `DebugHooks.get()`. Without
-  the fix, callback copies cause segfaults when called from tt-xla without GIL.
+  Python callbacks get registered and invoked via `DebugHooks`. Without the
+  fix, callback copies cause segfaults when called from tt-xla without GIL.
+  Also exposes `Binary.id` property and program-level callbacks.
 - **PR 0c** — Unified metrics in `tools/golden/metrics.py`. This PR's
   `context.py` imports `compute_pcc`, `compute_atol`, `compute_rtol` from
   `golden.metrics` instead of a local `metrics.py`.
