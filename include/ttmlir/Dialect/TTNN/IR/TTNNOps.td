@@ -138,7 +138,8 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device", [OpModelExempt]> {
 }
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_ElementwiseUnary] # traits> {
+    TTNN_Op<mnemonic, [
+                       DeclareOpInterfaceMethods<TTNN_ElementwiseUnary>] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -164,7 +165,10 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     }];
 
     let arguments = (ins AnyRankedTensor:$lhs,
-                         AnyRankedTensor:$rhs);
+                         AnyRankedTensor:$rhs,
+                         TTNN_UnaryWithParamArrayAttr:$activations,
+                         TTNN_UnaryWithParamArrayAttr:$input_tensor_a_activations,
+                         TTNN_UnaryWithParamArrayAttr:$input_tensor_b_activations);
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -173,17 +177,34 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
           wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
       }
     }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType,
+               "Value": $lhs,
+               "Value": $rhs),
+      [{
+        auto *ctx = resultType.getContext();
+        build($_builder, $_state, resultType, lhs, rhs,
+          /*activations=*/mlir::ArrayAttr::get(ctx, {}),
+          /*input_tensor_a_activations=*/mlir::ArrayAttr::get(ctx, {}),
+          /*input_tensor_b_activations=*/mlir::ArrayAttr::get(ctx, {}));
+      }]>
+    ];
 }
 
 class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, traits> {
+    TTNN_Op<mnemonic, [TTNN_ElementwiseBinary] # traits> {
     let summary = "Eltwise binary composite op.";
     let description = [{
       Eltwise binary composite op.
     }];
 
     let arguments = (ins AnyRankedTensor:$lhs,
-                         AnyRankedTensor:$rhs);
+                         AnyRankedTensor:$rhs,
+                         TTNN_UnaryWithParamArrayAttr:$activations,
+                         TTNN_UnaryWithParamArrayAttr:$input_tensor_a_activations,
+                         TTNN_UnaryWithParamArrayAttr:$input_tensor_b_activations);
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -193,7 +214,14 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
       }
     }];
 
-    // Use the default generated builder for the typed form.
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
+      [{
+        auto *ctx = resultType.getContext();
+        build($_builder, $_state, resultType, lhs, rhs, /*activations=*/mlir::ArrayAttr::get(ctx, {}), /*input_tensor_a_activations=*/mlir::ArrayAttr::get(ctx, {}), /*input_tensor_b_activations=*/mlir::ArrayAttr::get(ctx, {}));
+      }]>
+    ];
 }
 
 class TTNN_ElementwiseBinaryCompositeScalarOp<string mnemonic, list<Trait> traits = []> :
@@ -821,7 +849,7 @@ def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
     }];
 }
 
-def TTNN_GeluBackwardOp : TTNN_ElementwiseBinaryOp<"gelu_bw"> {
+def TTNN_GeluBackwardOp : TTNN_Op<"gelu_bw", [TTNN_MemoryConfigOpInterface]> {
   let summary = "Backward pass operation for the GELU activation function.";
   let description = [{
     Computes the gradient of the GELU (Gaussian Error Linear Unit) activation

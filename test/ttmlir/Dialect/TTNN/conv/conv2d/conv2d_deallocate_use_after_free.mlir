@@ -28,7 +28,7 @@ module {
       conv2d_slice_config = #ttnn.conv2d_slice_config<l1_full, 0>}> : (tensor<1x1x1024x64xbf16, #ttnn_layout>, tensor<64x64x3x3xbf16, #ttnn_layout1>, tensor<1x1x1x64xbf16, #ttnn_layout2>, !ttnn.device) -> tensor<1x1x1024x64xbf16, #ttnn_layout>
 
     // This operation also uses %input, creating a use-after-free since conv2d above deallocates it
-    %result = "ttnn.add"(%input, %conv_out) : (tensor<1x1x1024x64xbf16, #ttnn_layout>, tensor<1x1x1024x64xbf16, #ttnn_layout>) -> tensor<1x1x1024x64xbf16, #ttnn_layout>
+    %result = "ttnn.add"(%input, %conv_out) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x1024x64xbf16, #ttnn_layout>, tensor<1x1x1024x64xbf16, #ttnn_layout>) -> tensor<1x1x1024x64xbf16, #ttnn_layout>
 
     return %result : tensor<1x1x1024x64xbf16, #ttnn_layout>
   }

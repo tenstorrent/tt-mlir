@@ -1257,6 +1257,9 @@ template <typename OpTy>
 llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<UnaryWithParamAttr> postActivations,
+    llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
+    llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
     TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr opDtypeAttr) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -1295,6 +1298,9 @@ template <typename OpTy>
 llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<UnaryWithParamAttr> postActivations,
+    llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
+    llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -1330,6 +1336,9 @@ template <typename OpTy>
 llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<UnaryWithParamAttr> postActivations,
+    llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
+    llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
     TTNNLayoutAttr outputLayout, ttcore::DataTypeAttr /*opDtypeAttr*/) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -1363,6 +1372,9 @@ template <typename OpTy>
 llvm::Expected<size_t> BinaryCompositeOpModel<OpTy>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+    llvm::ArrayRef<UnaryWithParamAttr> postActivations,
+    llvm::ArrayRef<UnaryWithParamAttr> lhsActivations,
+    llvm::ArrayRef<UnaryWithParamAttr> rhsActivations,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
