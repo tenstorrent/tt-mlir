@@ -19,7 +19,10 @@ Fires before each TTNN operation executes on hardware.
 - Capture device input tensors via `get_op_input_refs(op_context, program_context)`
 - Copy device inputs to `golden_tensor_pool` if the input was not alrady calculated in some graph before
 - If operation should be skipped
-  - Copy all inputs to host
+  - Copy all inputs to host **before** the device op executes — this snapshot
+    is needed because the device op may overwrite its input buffers in-place,
+    so the golden op in postop must run with the original (pre-execution)
+    device values to produce a correct replacement output
 
 ## Post-Op Callback
 

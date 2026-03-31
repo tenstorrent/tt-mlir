@@ -48,11 +48,10 @@ Chisel does **not** have a local `metrics.py`. All comparison functions are
 imported from the unified `golden.metrics` module (created in PR 0c):
 
 ```python
-from golden.metrics import compute_pcc, compute_atol, compute_rtol, align_shapes
+from golden.metrics import compute_pcc, compute_atol, compute_rtol
 ```
 
 This module provides:
-- `align_shapes(golden, calculated)` — shape alignment via squeeze/broadcast/permute/flatten
 - `compute_pcc(golden, calculated)` — Pearson Correlation Coefficient (pure torch)
 - `compute_atol(golden, calculated)` — maximum absolute difference
 - `compute_rtol(golden, calculated)` — maximum relative error

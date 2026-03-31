@@ -167,7 +167,7 @@ Three separate PCC/tensor comparison implementations exist across the codebase:
 |----------|---------------|---------|
 | `tools/builder/base/builder_runtime.py` | numpy-based `get_atol_rtol_pcc()` with full metrics dict | builder's `execute_fb()` |
 | `tools/ttrt/common/util.py` | Near-identical copy with logging param and message string return | ttrt callbacks |
-| Old chisel `metrics.py` | Pure torch `compute_pcc()` with shape alignment | Old chisel `context.py` |
+| Old chisel `metrics.py` | Pure torch `compute_pcc()` | Old chisel `context.py` |
 
 These implementations disagree on edge cases (single-element tensors, constant
 tensors, bfloat16 handling), have different dependencies (numpy vs pure torch),
@@ -178,9 +178,6 @@ and return different types (dict vs tuple vs scalar).
 Consolidate into a single `tools/golden/metrics.py` module:
 - **Pure torch, no numpy** — eliminates the numpy dependency and
   `.detach().numpy()` conversions.
-- **`align_shapes()` as opt-in utility** — handles squeeze/broadcast/permute/
-  flatten for minor layout differences; callers that already ensure matching
-  shapes skip it.
 - **`compute_metrics()` returns a dict** — superset of all existing result
   formats; callers pick what they need.
 - Builder, ttrt, and chisel all import from this single module.

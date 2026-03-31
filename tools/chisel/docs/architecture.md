@@ -186,9 +186,6 @@ Writes per-op comparison results to CSV with columns:
 - `compute_pcc(golden, device)` — Pearson Correlation Coefficient
 - `compute_abs_err(golden, device)` — Maximum absolute difference
 - `compute_rel_err(golden, device)` — Maximum relative error
-- Shape alignment utilities (squeeze, broadcast, permute, flatten) to handle
-  minor layout differences between golden and device tensors
-
 ### `utils.py` — Utilities
 
 Consolidated utility module:
