@@ -131,7 +131,7 @@ static Value getDeviceInMcastRange(OpBuilder &rewriter, Location loc,
          startIndices.size() == deviceIndices.size() &&
          "startIndices, endIndices, and deviceIndices must have the same size");
   Value result = rewriter.create<arith::ConstantOp>(
-      loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(1));
+      loc, rewriter.getIntegerAttr(rewriter.getI1Type(), 1));
   for (auto [start, end, device] :
        llvm::zip(startIndices, endIndices, deviceIndices)) {
     Value lowerBoundCheck = rewriter.create<arith::CmpIOp>(
@@ -1950,9 +1950,13 @@ public:
         auto ifOp = rewriter.create<scf::IfOp>(
             op.getLoc(), TypeRange{}, isDeviceInMcastRange,
             true /*addThenBlock*/, false /*addElseBlock*/);
-        auto thenBuilder = ifOp.getThenBodyBuilder();
-        thenBuilder.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
-                                                      dstNocAddr, size);
+        {
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+          rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
+                                                     dstNocAddr, size);
+          rewriter.create<scf::YieldOp>(op.getLoc());
+        }
       }
     } else if (op.isDstLocal()) {
       // Local to Local Datamovement & Multicast
@@ -2433,9 +2437,14 @@ public:
         auto ifOp = rewriter.create<scf::IfOp>(
             op.getLoc(), TypeRange{}, isDeviceInMcastRange,
             true /*addThenBlock*/, false /*addElseBlock*/);
-        auto thenBuilder = ifOp.getThenBodyBuilder();
-        thenBuilder.template create<ttkernel::NocSemaphoreIncOp>(
-            op.getLoc(), nocAddr, value, /*noc_id=*/nullptr);
+        {
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+          rewriter.create<ttkernel::NocSemaphoreIncOp>(op.getLoc(), nocAddr,
+                                                       value,
+                                                       /*noc_id=*/nullptr);
+          rewriter.create<scf::YieldOp>(op.getLoc());
+        }
       }
     } else if (op.getDstCoreIndex().empty()) {
       assert(!mlir::isa<d2m::SemaphoreIncOp>(op) &&
