@@ -12,20 +12,18 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 LayoutFilterFn ConcatRuleBook::getInputLayoutFilter() const {
-  // Concat: cannot consume any sharded inputs.
-  // https://github.com/tenstorrent/tt-mlir/issues/7145
-  return layout_filter_utils::rejectAllSharded;
-}
-
-bool ConcatRuleBook::shouldExploreReshards() const { return false; }
-
-OutputHints ConcatRuleBook::getOutputHints(
-    Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
-  // ConcatOp: sharded output causes device close hang in tt-metal.
+  // Concat sharded inputs: re-enabled after tt-metal hang fix landed.
   // https://github.com/tenstorrent/tt-metal/issues/39419
-  // TODO(rpavlovicTT): re-enable sharded concat once tt-metal fixes it.
-  return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+  // Fix: https://github.com/tenstorrent/tt-metal/pull/39882
+  return nullptr;
 }
+
+bool ConcatRuleBook::shouldExploreReshards() const { return true; }
+
+// ConcatOp::getOutputHints — uses default OpRuleBook impl (sharded + NULL hints).
+// Sharded output re-enabled after tt-metal hang fix landed.
+// https://github.com/tenstorrent/tt-metal/issues/39419
+// Fix: https://github.com/tenstorrent/tt-metal/pull/39882
 
 //===----------------------------------------------------------------------===//
 // SliceRuleBook

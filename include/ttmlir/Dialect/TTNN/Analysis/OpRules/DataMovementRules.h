@@ -31,13 +31,11 @@ namespace mlir::tt::ttnn {
 // Reshard exploration: disabled for all data movement ops.
 //===----------------------------------------------------------------------===//
 
-/// ConcatOp: reject all sharded inputs, non-sharded output, no reshards.
+/// ConcatOp: sharded inputs/output re-enabled after tt-metal hang fix.
+/// https://github.com/tenstorrent/tt-metal/pull/39882
 struct ConcatRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter() const override;
   bool shouldExploreReshards() const override;
-  OutputHints
-  getOutputHints(Operation *op,
-                 const std::vector<OpConfig> &legalConfigs) const override;
 };
 
 /// SliceStaticOp, SliceDynamicOp: reject all sharded inputs, non-sharded
