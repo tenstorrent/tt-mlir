@@ -184,7 +184,7 @@ Tests the full callback flow using the mock runtime (Section 2.2). No hardware r
 | `test_postop_op_skipping` | Op matching `skip_op_regex` → device output replaced with golden |
 | `test_callback_sequence` | preop→\[hw\]→postop ordering, state transitions verified |
 | `test_preprogram_callback` | Initializes registry, starts new report section |
-| `test_postprogram_callback` | Flushes report, clears device pool, preserves golden pool |
+| `test_postprogram_callback` | Flushes report, preserves golden pool |
 | `test_multi_program_golden_sharing` | Golden tensors from program 0 visible in program 1 preop |
 | `test_multiple_callbacks_coexist` | Chisel \+ another callback both fire (multi-callback support) |
 
@@ -210,4 +210,4 @@ These tests are gated behind `@pytest.mark.silicon` and skipped in software-only
 | `test_debug_hooks_registration` | Real `DebugHooks.get()` registration with TTRT runtime |
 | `test_device_tensor_readback` | `retrieve_tensor_from_pool` returns correct data from device |
 | `test_multi_chip_comparison` | Tensor comparison across multiple chips |
-| `test_op_skip_updates_device_pool` | `update_tensor_in_pool` replaces device tensor with golden |
+| `test_op_skip_updates_device_tensor` | `update_tensor_in_pool` replaces device tensor with golden |

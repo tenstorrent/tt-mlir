@@ -210,10 +210,9 @@ class TensorPool(dict):
 - **Port as-is** — no ExecutionType dependency. The dict subclass with optional
   caching works unchanged.
 - Update caching to use `value.snapshot` instead of `value.data`
-- In the new design, two `TensorPool` instances exist: `golden_tensor_pool`
-  (CPU tensors) and `device_tensor_pool` (hardware tensors), but neither needs
-  an ExecutionType tag — the pool identity is determined by which pool the
-  context holds.
+- In the new design, `golden_tensor_pool` (CPU tensors) is the only
+  `TensorPool` on `ProgramState`. Device tensors are ephemeral — captured from
+  the runtime API in each callback and consumed immediately.
 
 ## Test Plan
 

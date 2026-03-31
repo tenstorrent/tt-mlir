@@ -28,9 +28,9 @@ hardware operation introduces numerical divergence.
   preOp, postOp) — no separate CLI or execution pipeline required.
 - **Multi-program execution**: Supports multiple programs per binary
   (e.g., forward + backward passes) and training loops via hierarchical state
-  model (`ChiselContext → BinaryState → ProgramState`). Per-program golden and
-  device tensor pools, iterator-based op tracking, and cross-program golden
-  tensor sharing via `global_tensor_pool`.
+  model (`ChiselContext → BinaryState → ProgramState`). Per-program golden
+  tensor pool, iterator-based op tracking, and cross-program golden tensor
+  sharing via `global_tensor_pool`.
 - **Builder integration**: First-class support via `enable_chisel` parameter
   in the builder's `compile_and_execute_ttnn()` — mutually exclusive with
   builder's own `verify_intermediates` PCC checking.
@@ -140,8 +140,8 @@ model: `ChiselContext → BinaryState → ProgramState`.
   `Registry`, `ReportWriter`, and a `programs` dict mapping `program_index` to
   `ProgramState`.
 - **`ProgramState`** is created once per program. Holds isolated
-  `golden_tensor_pool` and `device_tensor_pool`, a `GoldenExecutor`, and an
-  `op_iter` that advances with each preOp/postOp callback.
+  `golden_tensor_pool`, a `GoldenExecutor`, and an `op_iter` that advances
+  with each preOp/postOp callback.
 
 ### Program Boundaries
 
@@ -152,15 +152,15 @@ at the start of each program execution with the `binary.id` and
 ### State Lifecycle
 
 On each `preProgram` call, `ProgramState.reset_for_new_execution()`:
-- Clears `device_tensor_pool` (stale `TensorRef`s from previous execution)
 - Resets `op_iter` to the beginning of the ops list
+- Clears `_skip_stash`
 - Preserves `golden_tensor_pool` (pure CPU tensors, no device dependency)
 
 | State | On re-execution | On new binary |
 |-------|:--------------:|:-------------:|
-| `ProgramState.device_tensor_pool` | Cleared | N/A (new state) |
 | `ProgramState.golden_tensor_pool` | Preserved | N/A (new state) |
 | `ProgramState.op_iter` | Reset | N/A (new state) |
+| `ProgramState._skip_stash` | Cleared | N/A (new state) |
 | `BinaryState.ir_module` | Preserved | New |
 | `BinaryState.registry` | Preserved | New |
 | `ChiselContext.global_tensor_pool` | Preserved | Preserved |

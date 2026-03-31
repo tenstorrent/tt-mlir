@@ -39,10 +39,10 @@ BinaryState
 
 ProgramState
 ├── golden_tensor_pool: TensorPool       # isolated per-program, keyed by SSA name
-├── device_tensor_pool: TensorPool       # cleared each execution
 ├── executor: GoldenExecutor             # refs own golden pool + registry
 ├── ops: List[OpInfo]                    # ordered ops for this program
-└── op_iter: Iterator[OpInfo]            # advances with preop/postop callbacks
+├── op_iter: Iterator[OpInfo]            # advances with preop/postop callbacks
+└── _skip_stash: dict[str, Tensor] | None  # preOp saves inputs here for skip mode
 ```
 
 This eliminates heuristic-based program transition detection (`_op_index`
@@ -110,15 +110,15 @@ class ProgramState:
     def __init__(self, program_index, registry):
         self.program_index = program_index
         self.golden_tensor_pool = TensorPool(...)
-        self.device_tensor_pool = TensorPool(...)
         self.executor = GoldenExecutor(registry, self.golden_tensor_pool)
         self.ops: List[OpInfo] = [...]  # ordered from registry
         self.op_iter: Iterator[OpInfo] = iter(self.ops)
+        self._skip_stash: dict[str, Tensor] | None = None
 
     def reset_for_new_execution(self) -> None:
         """Called by preProgram on each program execution."""
-        self.device_tensor_pool.clear()   # Stale TensorRefs
         self.op_iter = iter(self.ops)     # Reset iterator
+        self._skip_stash = None
         # golden_tensor_pool is NOT cleared — preserved across re-executions
 ```
 
@@ -195,7 +195,7 @@ Contains three classes:
   given `binary.id`. Owns the `IRModule`, `Registry`, and `ReportWriter`.
 - **`ProgramState`** — per-program state. Created on first `preProgram` for a
   given `program_index`. Owns isolated `golden_tensor_pool`,
-  `device_tensor_pool`, `GoldenExecutor`, and the `op_iter`.
+  `GoldenExecutor`, and the `op_iter`.
 
 ### `callbacks.py` — Callback Functions
 
@@ -239,7 +239,7 @@ Compared to the old chisel, this is significantly simplified:
   reference, execution data).
 - **`TensorPool`**: Dict-based tensor store with optional disk caching. Multiple
   instances exist at different levels: `global_tensor_pool` on `ChiselContext`
-  (keyed by `Tensor::globalId`), and per-`ProgramState` golden and device pools
+  (keyed by `Tensor::globalId`) and per-`ProgramState` `golden_tensor_pool`
   (keyed by SSA value name).
 
 ### `ops.py` — IRModule Wrapper

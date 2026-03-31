@@ -30,13 +30,14 @@ BinaryState
 
 ProgramState
 ├── golden_tensor_pool: TensorPool       # isolated, preserved across re-executions
-├── device_tensor_pool: TensorPool       # cleared each execution
 ├── executor: GoldenExecutor
 ├── ops + op_iter                        # iterator advances with callbacks
+└── _skip_stash: dict[str, Tensor] | None  # preOp saves inputs here for skip mode
 ```
 
-**Stale TensorRefs** — `device_tensor_pool` is per-`ProgramState` and cleared in
-`reset_for_new_execution()` at each `preProgram` call.
+**Stale TensorRefs** — device tensors are ephemeral, captured from the runtime
+API in each preOp/postOp callback and consumed immediately. No device tensor
+pool is needed.
 
 **Program identity** — `preProgram(binary, program_context)` provides explicit
 `binary.id` and `program_index`. No heuristic needed.
@@ -175,9 +176,9 @@ postProgram(binary, program_context):
 
 | State | On `reset_for_new_execution()` | On new binary |
 |-------|:------------------------------:|:-------------:|
-| `ProgramState.device_tensor_pool` | Cleared | N/A (new ProgramState) |
 | `ProgramState.golden_tensor_pool` | Preserved | N/A (new ProgramState) |
 | `ProgramState.op_iter` | Reset to start | N/A (new ProgramState) |
+| `ProgramState._skip_stash` | Cleared | N/A (new ProgramState) |
 | `ProgramState.executor` | Preserved | N/A (new ProgramState) |
 | `BinaryState.ir_module` | Preserved | New (parsed from new binary) |
 | `BinaryState.registry` | Preserved | New (from new module) |

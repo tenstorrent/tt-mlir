@@ -27,10 +27,10 @@ BinaryState
 
 ProgramState
 ├── golden_tensor_pool: TensorPool       # isolated per-program, keyed by SSA name
-├── device_tensor_pool: TensorPool       # cleared each execution
 ├── executor: GoldenExecutor             # refs own golden pool + registry
 ├── ops: List[OpInfo]                    # ordered ops for this program
-└── op_iter: Iterator[OpInfo]            # advances with preop/postop callbacks
+├── op_iter: Iterator[OpInfo]            # advances with preop/postop callbacks
+└── _skip_stash: dict[str, Tensor] | None  # preOp saves inputs here for skip mode
 ```
 
 ## Chisel Initialization
@@ -52,8 +52,8 @@ Called once at the start of each program execution.
 - Get or create `ProgramState` for `program_index`
     - If new program: build ordered op list from registry for this program
 - `program.reset_for_new_execution()`
-    - Clear `device_tensor_pool` (stale TensorRefs from previous execution)
     - Reset `op_iter` to beginning of ops list
+    - Clear `_skip_stash`
     - `golden_tensor_pool` is NOT cleared (preserved across re-executions)
 - Copy matching entries from `global_tensor_pool` into
   `program.golden_tensor_pool` (matched by `Tensor::globalId` to SSA name)
@@ -71,9 +71,10 @@ Called before each TTNN op executes on device.
   `program.golden_tensor_pool`
     - If not: copy device input to host and store in golden pool
 - If op should be skipped:
-    - Copy all inputs to host **before** the device op runs — the device op may
-      overwrite input buffers in-place, so the golden op in postop needs the
-      original values to produce a correct replacement output
+    - Copy all inputs to host and stash in `program._skip_stash` **before** the
+      device op runs — the device op may overwrite input buffers in-place, so the
+      golden op in postop needs the original values to produce a correct
+      replacement output
 
 ## PostOp
 
@@ -88,8 +89,9 @@ Called after each TTNN op executes on device.
     - Calculate metrics (PCC, abs error, rel error)
     - Write row to CSV report
 - If op should be skipped:
-    - Execute the golden op with inputs extracted from device in preop
+    - Execute the golden op with inputs from `program._skip_stash`
     - Overwrite the device tensors with the golden-calculated outputs
+    - Clear `_skip_stash`
 
 ## PostProgram
 
@@ -100,5 +102,3 @@ Called once at the end of each program execution.
 - Aggregate metrics for the program (min/max/mean PCC across ops)
 - Finalize report section, write summary row
 - Log program-level diagnostics (total ops, ops with low PCC, etc.)
-- `device_tensor_pool` is already cleared by next `reset_for_new_execution()`,
-  but can optionally dump to disk here for offline analysis
