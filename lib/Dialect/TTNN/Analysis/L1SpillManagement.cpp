@@ -45,7 +45,11 @@ SumL1MemoryTracker::validate(Operation *op,
   // set. OpModel's overallPeakL1Usage already accounts for input buffers, so
   // including them in additionalL1Usage would double-count.
   uint64_t inputOverlap = 0;
+  llvm::DenseSet<Value> seen;
   for (auto operand : op->getOperands()) {
+    if (!seen.insert(operand).second) {
+      continue;
+    }
     auto it = tensorSizes.find(operand);
     if (it != tensorSizes.end()) {
       inputOverlap += it->second;

@@ -17,6 +17,8 @@ module attributes {} {
     %2 = "ttir.add"(%0, %1) : (tensor<512x512xbf16>, tensor<512x512xbf16>) -> tensor<512x512xbf16>
     // CHECK: "ttnn.relu"{{.*}} -> tensor<512x512xbf16, #{{.*}}>
     %3 = "ttir.relu"(%2) : (tensor<512x512xbf16>) -> tensor<512x512xbf16>
+    // Verify at least one spill was emitted under extreme L1 pressure.
+    // CHECK: "ttnn.to_memory_config"
     // Verify no L1 usage attributes remain (cleaned up).
     // CHECK-NOT: ttnn.output_l1_usage
     return %3 : tensor<512x512xbf16>

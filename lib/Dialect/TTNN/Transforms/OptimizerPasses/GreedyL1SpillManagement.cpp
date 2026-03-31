@@ -52,7 +52,7 @@ public:
       }
 
       L1SpillManagement<SumL1MemoryTracker> spill(func, deviceGrid,
-                                                   l1BudgetPerCore);
+                                                  l1BudgetPerCore);
       spill.run();
     });
   }
