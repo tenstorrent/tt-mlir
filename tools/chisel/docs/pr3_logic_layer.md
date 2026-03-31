@@ -173,15 +173,15 @@ class ProgramState:
     def __init__(self, program_index: int, registry: Registry):
         self.program_index = program_index
         self.golden_tensor_pool = TensorPool(...)
-        self.device_tensor_pool = TensorPool(...)
         self.executor = GoldenExecutor(registry, self.golden_tensor_pool)
         self.ops: List[OpInfo] = [...]  # ordered from registry for this program
         self.op_iter: Iterator[OpInfo] = iter(self.ops)
+        self._skip_stash: dict[str, Tensor] | None = None
 
     def reset_for_new_execution(self) -> None:
         """Called by preProgram on each program execution."""
-        self.device_tensor_pool.clear()
         self.op_iter = iter(self.ops)
+        self._skip_stash = None
         # golden_tensor_pool is NOT cleared
 ```
 
@@ -248,7 +248,7 @@ complete redesign with a hierarchical state model.
 **Add new:**
 - Singleton pattern (`_instance`, `get_instance()`, `reset_instance()`)
 - `BinaryState` class — per-binary state (IRModule, Registry, programs dict)
-- `ProgramState` class — per-program state (golden/device pools, executor, op_iter)
+- `ProgramState` class — per-program state (golden pool, executor, op_iter)
 - `preprogram()` / `postprogram()` methods — program-level callbacks
 - `preop()` / `postop()` methods — op-level callbacks
 - `global_tensor_pool` — cross-binary/cross-program golden tensor sharing
@@ -311,14 +311,13 @@ runtime because these utilities need runtime types to exercise meaningfully.
 - `test_get_or_create_program()` — first call creates `ProgramState`, second
   call returns the same instance
 - `test_multiple_programs()` — create programs 0 and 1, verify they have
-  independent golden/device pools
+  independent golden pools
 
 **ProgramState tests:**
-- `test_program_state_creation()` — verify golden/device pools, executor,
+- `test_program_state_creation()` — verify golden pool, executor,
   and `op_iter` are initialized
-- `test_reset_for_new_execution()` — add tensors to device pool, call
-  `reset_for_new_execution()`, verify device pool is empty and `op_iter` is
-  reset. Verify golden pool is preserved.
+- `test_reset_for_new_execution()` — call `reset_for_new_execution()`, verify
+  `op_iter` is reset and `_skip_stash` is None. Verify golden pool is preserved.
 - `test_op_iter_advances()` — create ProgramState with known ops, call
   `next(op_iter)` repeatedly, verify correct op sequence
 - `test_op_iter_reset()` — exhaust iter, reset, verify starts from beginning

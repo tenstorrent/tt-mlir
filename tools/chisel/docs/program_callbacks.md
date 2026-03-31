@@ -12,8 +12,8 @@ Fires once at the start of program execution, before the op loop.
     - If new binary: extract TTNN MLIR from `binary.mlir.source`, parse
       `IRModule`, create `Registry`, call `load_all_ops()`
 - Get or create `ProgramState` for `program_index`
-- `program.reset_for_new_execution()` — clear `device_tensor_pool`, reset
-  `op_iter` (golden pool preserved)
+- `program.reset_for_new_execution()` — reset `op_iter`, clear `_skip_stash`
+  (golden pool preserved)
 - Copy matching entries from `ctx.global_tensor_pool` into
   `program.golden_tensor_pool` (matched by `Tensor::globalId`)
 - Set `ctx.current_binary` and `ctx.current_program`
@@ -60,7 +60,6 @@ Fires once at the end of program execution, after the op loop.
 - Copy new entries from `program.golden_tensor_pool` into
   `ctx.global_tensor_pool` (for cross-program / cross-binary reuse)
 - Finalize the report section and write a summary row
-- Clear `device_tensor_pool` (also cleared by next `reset_for_new_execution()`)
 - Log program-level diagnostics (total ops processed, ops with low PCC, etc.)
 - Optionally dump `golden_tensor_pool` to disk for offline analysis
 

@@ -111,7 +111,7 @@ The four callbacks Chisel registers:
 - **Pre-program**: Extract TTNN MLIR from the flatbuffer, initialize or rebuild the `Registry`, preserve `golden_tensor_pool` across programs, and start a new report section.  
 - **Pre-op**: Capture device input tensors and copy them to `golden_tensor_pool` if not already present from a previous program. If the op is marked for skipping, copy all inputs to host for golden-only execution.  
 - **Post-op**: Capture device output, look up the TTNN op in `GOLDEN_MAPPINGS`, execute the golden function on CPU, compare golden vs device output (PCC, atol, rtol), and write a CSV row. If the op is marked for skipping, re-run the golden function with the device inputs copied in preop and replace the device output tensor with the golden result. This effectively removes the op's device contribution from downstream computation.  
-- **Post-program**: Finalize metrics, flush the report, clear `device_tensor_pool` while preserving golden tensors for cross-program sharing, and log program-level diagnostics.
+- **Post-program**: Finalize metrics, flush the report, preserve golden tensors for cross-program sharing, and log program-level diagnostics.
 
 ### 
 
