@@ -77,6 +77,13 @@
 
 namespace tt::runtime::ttnn {
 
+// Creates host tensor with borrowed storage managed by a shared_ptr (the buffer
+// is on the host and its lifetime is tied to the shared_ptr).
+::tt::runtime::Tensor createBorrowedHostTensor(
+    std::shared_ptr<void> data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType);
+
 // Creates host tensor with borrowed storage (the buffer of the tensor is on the
 // host and it was borrowed from an external buffer which is responsible for its
 // allocation/deallocation).

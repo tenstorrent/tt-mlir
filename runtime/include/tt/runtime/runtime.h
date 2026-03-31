@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -48,6 +49,15 @@ SystemDesc getCurrentSystemDesc(
 
 void launchDistributedRuntime(const DistributedOptions &options = {});
 void shutdownDistributedRuntime();
+
+// Creates host tensor with a view of the input data (the buffer of the tensor
+// is on the host and it was borrowed from an external buffer managed by the
+// given shared_ptr, which keeps the buffer alive for the tensor's lifetime).
+Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
+                                const std::vector<std::uint32_t> &shape,
+                                const std::vector<std::uint32_t> &stride,
+                                std::uint32_t itemsize,
+                                ::tt::target::DataType dataType);
 
 // Creates host tensor with a view of the input data (the buffer of the tensor
 // is on the host and it was borrowed from an external buffer which is
@@ -100,6 +110,12 @@ Tensor createEmptyTensor(Device device, Layout layout,
                          const std::vector<std::uint32_t> &shape,
                          const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize);
+
+inline Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
+                                       const TensorDesc &desc) {
+  return ::tt::runtime::createBorrowedHostTensor(
+      std::move(data), desc.shape, desc.stride, desc.itemsize, desc.dataType);
+}
 
 inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
   return ::tt::runtime::createBorrowedHostTensor(data, desc.shape, desc.stride,
