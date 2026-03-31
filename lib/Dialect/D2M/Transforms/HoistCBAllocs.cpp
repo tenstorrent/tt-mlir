@@ -98,6 +98,8 @@ private:
   /// Find the regular operand index for a CB alloc by tracing through
   /// its remote_load/remote_store memref operand back to the generic's
   /// operands.
+  /// In the case that a remote load and store both use the same AllocOp,
+  /// consider the allocation as corresponding to the _input_ operand.
   static int64_t findRegularOperandIndex(d2m::GenericOp genericOp,
                                          memref::AllocOp allocOp) {
     for (Operation *user : allocOp.getResult().getUsers()) {
@@ -105,6 +107,8 @@ private:
         Value memref = remoteLoad.getMemref();
         for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
           if (genericOp->getOperand(i) == memref) {
+            // Eagerly return input operand associated with remote load, even if
+            // remote_store may also use the same alloc.
             return static_cast<int64_t>(i);
           }
         }

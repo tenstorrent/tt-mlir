@@ -253,6 +253,9 @@ static void updateTensorEmptyResultType(
   }
 
   Value newCB = newGenericOp.findAssocCBByOperandIndex(clonedOp, it->second);
+  if (!newCB) {
+    return;
+  }
   auto cbType = mlir::dyn_cast<d2m::CBType>(newCB.getType());
   if (!cbType) {
     return;
