@@ -51,52 +51,6 @@ static bool fitsInL1PostFusion(GenericOp producer, GenericOp consumer) {
   return true;
 }
 
-// A fused op with 31 inputs and 1 output (all 16b) can be fully dst fused over
-// sub-blocks of size 1xTile. Hence, if a 16b fused op meets the CB limit, it
-// will automatically meet the dst limit as well (at least for now, when we're
-// forcing sub-blocks of size 1xTile). In the case where one or more operands
-// are >16b, we must be conservative for now and set a limit of 7 inputs (8
-// total operands, including output), as that is the largest number of inputs
-// that we can reduce down with a maximum of 4 DST tiles available. A lot of
-// ways to increase this limit or use the resources more intelligently but we'll
-// save that for later revisions.
-/* static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer) {
-  bool has32bit = false;
-
-  Type largestDstType =
-      utils::getRegionLargestDstElemType(producer.getRegion(0));
-  if (largestDstType.getIntOrFloatBitWidth() > 16) {
-    has32bit = true;
-  }
-
-  largestDstType = utils::getRegionLargestDstElemType(consumer.getRegion(0));
-  if (largestDstType.getIntOrFloatBitWidth() > 16) {
-    has32bit = true;
-  }
-
-  if (!has32bit) {
-    return true;
-  }
-
-  int operandLimit32b = 8;
-
-  int operandsRemaining = operandLimit32b;
-
-  // Account for number of CBs needed to store input/output operands after
-  // fusion. -2 accounts for removal of producer init (output) operand and
-  // consumer input operand since we're fusing over them.
-  int numConsOperands = static_cast<int>(consumer.getNumOperands());
-  int numProdOperands = static_cast<int>(producer.getNumOperands());
-
-  operandsRemaining -= numConsOperands + numProdOperands - 2;
-
-  if (operandsRemaining < 0) {
-    return false;
-  }
-
-  return true;
-} */
-
 static bool isValidElementwiseFusionTarget(GenericOp gOp) {
   if (!gOp.isComputeOnlyForm()) {
     llvm::errs() << "[D2MElementwiseFusion]   op at " << gOp->getLoc()
@@ -123,10 +77,6 @@ static bool isValidElementwiseFusionTarget(GenericOp gOp) {
         << " is not a valid target: has skip elementwise fusion trait\n";
     return false;
   }
-
-  // if (gOp.hasMultiUseInputOperand()) {
-  //   return false;
-  // }
 
   return true;
 }
@@ -204,10 +154,6 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   if (!fitsInL1PostFusion(producer, consumer)) {
     return false;
   }
-
-  // if (!fitsInDstPostFusion(producer, consumer)) {
-  //   return false;
-  // }
 
   // Rank/perm checks
   AffineMap consMap =
@@ -475,11 +421,12 @@ static GenericOp createFusedGeneric(
   // Storing repl for later use when we skip the consumer's remote_load:
   Value producerYieldedValue = repl;
 
-  // Map skipped duplicate consumer block arguments to the producer's yielded
-  // value. These positions reference the same producer result as fusedOperand
-  // and were excluded from the fused op's operand list.
+  // Map skipped duplicate consumer tensor.empty values to the producer's
+  // yielded value. These positions reference the same producer result as
+  // fusedOperand and were excluded from the fused op's operand list.
   for (unsigned skippedIdx : skippedDups) {
-    irMap.map(cb.getArgument(skippedIdx), producerYieldedValue);
+    Value origEmpty = GenericOp::getOperandAlloc(*cb.getParent(), skippedIdx);
+    irMap.map(origEmpty, producerYieldedValue);
   }
 
   // Clone remaining consumer body ops (except terminator). Treat nested
