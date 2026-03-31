@@ -2454,6 +2454,10 @@ public:
       return rewriter.notifyMatchFailure(
           srcOp, "Failed to extract constant init values.");
     }
+    if (initValues->size() != srcOp.getInputs().size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Mismatch between init values and inputs count.");
+    }
     // Validate block body.
     Block &block = srcOp.getBody().getBlocks().front();
     auto &operations = block.getOperations();
@@ -2503,6 +2507,13 @@ public:
 
     BoolAttr countIncludesPad = rewriter.getBoolAttr(true);
 
+    // TTIR pooling ops do not support base dilations.
+    if (!llvm::all_of(baseDilations.asArrayRef(),
+                      [](int64_t d) { return d == 1; })) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Base dilations other than 1 are not supported.");
+    }
+
     // Handle the special case of lowering to CumSumOp.
     if (srcOp.getInputs().size() == 1) {
       std::optional<int64_t> dimension =
@@ -2517,13 +2528,6 @@ public:
       }
     }
 
-    // TTIR pooling ops do not support base dilations.
-    if (!llvm::all_of(baseDilations.asArrayRef(),
-                      [](int64_t d) { return d == 1; })) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Base dilations other than 1 are not supported.");
-    }
-
     // Handle 5D input (3D pooling) by decomposing into two 2D pooling passes.
     // This works because max is associative: max(i,j,k) = max_i(max(j,k)).
     if (inputRank == 5) {
@@ -2532,8 +2536,8 @@ public:
                                  windowDilations, padding, ceilMode);
     }
 
-    // Not a special case of CumSumOp - lowering to TTIR pooling ops is
-    // supported only for 2D and 4D input tensors.
+    // Lowering to a single TTIR pooling op is supported only for 2D and 4D
+    // input tensors.
     if (!(inputRank == 2 || inputRank == 4)) {
       return rewriter.notifyMatchFailure(srcOp, "Invalid input tensor rank.");
     }
@@ -2796,7 +2800,7 @@ private:
 
     // Non-spatial dimensions are folded into batch, so they must have trivial
     // window attributes. Stride > 1 would subsample, padding would change the
-    // output size — neither is handled by the batch-folding reshapes.
+    // output size - neither is handled by the batch-folding reshapes.
     for (size_t dim : nonSpatialDims) {
       if (windowStrides[dim] != 1 || padding[dim * 2] != 0 ||
           padding[dim * 2 + 1] != 0) {
@@ -2860,8 +2864,9 @@ private:
     auto paddingD = rewriter.getDenseI32ArrayAttr(
         {static_cast<int32_t>(pDLo), 0, static_cast<int32_t>(pDHi), 0});
 
-    // TODO: Fuse preceding stablehlo.PadOp into pooling padding, similar to
-    // the 4D path (getFusablePadOp / combinePaddingFromPadOp).
+    // A preceding stablehlo.PadOp could be fused into the pooling padding,
+    // similar to the 4D path (getFusablePadOp / combinePaddingFromPadOp), but
+    // the 5D case is uncommon enough that this optimization is deferred.
     SmallVector<Value> resultVals;
     for (size_t i = 0; i < srcOp.getInputs().size(); ++i) {
       Value input = adaptor.getInputs()[i];
