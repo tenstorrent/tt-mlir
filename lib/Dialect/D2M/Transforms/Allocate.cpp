@@ -720,30 +720,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return genericCtx;
   }
 
-  static bool
-  shouldApplyAutoReblocking(d2m::GenericOp genericOp,
-                            ArrayRef<AffineMap> indexingMaps,
-                            ArrayRef<ttcore::IteratorType> iteratorTypes) {
-    const std::optional<std::size_t> reductionDim =
-        allocation::getSingleReductionDim(iteratorTypes);
-    if (!reductionDim.has_value()) {
-      return false;
-    }
-
-    int64_t scalableInputCount = 0;
-    for (auto [operandIndex, indexingMap] : llvm::enumerate(indexingMaps)) {
-      if (genericOp.isOutputOperandIdx(operandIndex) ||
-          genericOp.isScratchInput(operandIndex)) {
-        continue;
-      }
-      if (indexingMap.isFunctionOfDim(*reductionDim)) {
-        ++scalableInputCount;
-      }
-    }
-
-    return scalableInputCount >= 2;
-  }
-
   // Internal helper used by `analyzeGenericOps()` to create analysis entries
   // for each operand of `genericOp`.
   void createOperandContexts(FuncAnalysisData &analysis,
@@ -802,11 +778,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // analysis.
       if (const auto *bfResult = blockFactorAnalysis.lookup(genericOp)) {
         blockFactors = bfResult->reblockedFactors;
-        if (bufferSizePolicy == BufferSizePolicy::Auto &&
-            !shouldApplyAutoReblocking(genericOp, indexingMaps,
-                                       iteratorTypes)) {
-          blockFactors = originalBlockFactors;
-        }
       }
 
       for (std::size_t d = 0; d < rank; ++d) {
@@ -1938,23 +1909,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         ttcore::getMemorySpace(sharedPeerCtx->operand->get().getType());
     return inferBaseStreamRequirement(genericOp, *sharedPeerCtx, peerMemspace);
   }
-
-  static std::tuple</* input */ SmallVector<int64_t>,
-                    /* output */ SmallVector<int64_t>>
-  getOperandTileShapes(d2m::GenericOp genericOp) {
-    const Type inputElementType =
-        mlir::cast<MemRefType>(
-            genericOp.getInputsAndOutputs().front().getType())
-            .getElementType();
-    for (std::size_t operandIndex = 1;
-         operandIndex < genericOp.getOutputs().getBeginOperandIndex();
-         ++operandIndex) {
-      TT_assertv(inputElementType ==
-                     mlir::cast<MemRefType>(
-                         genericOp->getOperand(operandIndex).getType())
-                         .getElementType(),
-                 "expected no change in tile shapes across generic op inputs");
-    }
 
   static void assignAddressAndAlignment(RewriterBase &rewriter,
                                         memref::AllocOp op,

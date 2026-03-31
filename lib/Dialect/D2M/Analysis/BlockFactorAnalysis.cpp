@@ -116,7 +116,6 @@ classifyAutoSearch(GenericOp genericOp,
     }
   }
 
-  // Candidate dim filter: single reduction dimension.
   if (reductionDims.size() == 1) {
     return AutoSearchConfig{AutoShapeClass::SingleReduction,
                             std::move(reductionDims)};
