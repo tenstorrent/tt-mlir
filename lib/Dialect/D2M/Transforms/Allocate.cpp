@@ -1923,6 +1923,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return true;
     }
 
+    // Early out if in explicit datamovement form (no indexing map info
+    // available).
+    if (genericOp.isExplicitDatamovementForm()) {
+      return false;
+    }
+
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
 
     const auto broadcastDims = indexingMap.getBroadcastDims();
