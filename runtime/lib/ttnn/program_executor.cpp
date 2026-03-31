@@ -104,6 +104,10 @@
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
+#include "tracy/Tracy.hpp"
+
+#include <cstring>
+
 namespace tt::runtime::ttnn {
 
 using LogType = ::tt::runtime::logger::LogType;
@@ -157,11 +161,15 @@ void ProgramExecutor::runCallback(
 }
 
 void ProgramExecutor::execute() {
+  ZoneScopedN("program_execute");
+  ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
+    // TODO(#7743): Remove these tracy messages.
+    // Currently they are being used by `ttrt perf` for parsing the csv output.
     perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
@@ -182,6 +190,9 @@ std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
+  ZoneScoped;
+  ZoneName(::tt::target::ttnn::EnumNameOpType(op->type_type()),
+           std::strlen(::tt::target::ttnn::EnumNameOpType(op->type_type())));
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   ::tt::runtime::utils::logMemoryStateIfNeeded(
