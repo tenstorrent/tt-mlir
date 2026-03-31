@@ -117,16 +117,14 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging=None):
             return 0.0
         # Both tensors are nan
         if torch.all(torch.isnan(golden)) and torch.all(torch.isnan(calculated)):
-            if logging:
-                logging.debug("Both tensors are 'nan'")
+            logging.debug("Both tensors are 'nan'")
             return 1.0
         # Test if either is completely zero
         elif torch.any(golden.bool()) != torch.any(calculated.bool()):
             return 0.0
         # One tensor is all nan, the other is not
         elif torch.all(torch.isnan(golden)) or torch.all(torch.isnan(calculated)):
-            if logging:
-                logging.debug("One tensor is all nan, the other is not.")
+            logging.debug("One tensor is all nan, the other is not.")
             return 0.0
         else:
             # For now, mask all infs and nans so that we check the rest... TODO

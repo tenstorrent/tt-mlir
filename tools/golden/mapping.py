@@ -5910,10 +5910,10 @@ def sdy_all_gather_golden(
 
 
 def ttnn_abs_golden(
-    input_tensor: GoldenMapTensor, output_type_mlir: Type = None
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
-    # dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.abs(input_tensor)  # .to(dtype)
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.abs(input_tensor).to(dtype)
 
 
 def ttnn_cbrt_golden(
@@ -6406,15 +6406,6 @@ def ttnn_repeat_golden(
     return input_tensor.repeat(repeats=repeat_dims).to(output_dtype)
 
 
-def ttnn_reshape_golden(
-    input_tensor: GoldenMapTensor, shape_attr: ArrayAttr, output_type_mlir: Type
-) -> GoldenMapTensor:
-    print(shape_attr, type(shape_attr), type(shape_attr[0]))
-    new_shape = unpack_mlir_attr(shape_attr)
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.reshape(input_tensor, new_shape).clone().to(output_dtype)
-
-
 def ttnn_where_golden(
     condition: GoldenMapTensor,
     x: GoldenMapTensor,
@@ -6567,9 +6558,7 @@ def ttnn_all_gather_golden(
 
 
 def ttnn_to_layout_golden(
-    input_tensor: GoldenMapTensor,
-    output_ranked_tensor_type: RankedTensorType,
-    output_type_mlir: Type,
+    input_tensor: GoldenMapTensor, output_ranked_tensor_type: RankedTensorType
 ) -> GoldenMapTensor:
     casted_type = ttcore.ir.TileType.maybe_downcast(
         output_ranked_tensor_type.element_type
@@ -6578,7 +6567,7 @@ def ttnn_to_layout_golden(
     if casted_type:
         output_dtype = mlir_datatype_to_torch_dtype(casted_type.data_type)
     else:
-        output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+        output_dtype = mlir_type_to_torch_dtype(output_ranked_tensor_type.element_type)
 
     output_tensor = input_tensor.clone()
     return output_tensor.to(output_dtype)
@@ -6916,7 +6905,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Tensor manipulation
     ttnn.ConcatOp: ttnn_concat_golden,
     ttnn.RepeatOp: ttnn_repeat_golden,
-    ttnn.ReshapeOp: ttnn_reshape_golden,
     ttnn.RepeatInterleaveOp: ttnn_repeat_interleave_golden,
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
@@ -6932,7 +6920,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,
     debug.RegionEndOp: debug_region_end_golden,
-    ttnn.OnesOp: ttir_ones_golden,
 }
 
 
@@ -6963,5 +6950,4 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
     if ttir_op_class in GOLDEN_MAPPINGS:
         return GOLDEN_MAPPINGS[ttir_op_class]
 
-    print(f"No golden function found for operation: {ttir_op_class}")
-    return None
+    assert False, f"No golden function found for TTIR operation: {ttir_op_class}"

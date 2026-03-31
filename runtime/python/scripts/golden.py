@@ -19,24 +19,30 @@ class CallbackRuntimeConfig:
         self.input_tensors = []
         self.artifact_dir = artifact_dir
         self.golden_results = []
-        self.op_counter = 0
 
     def add_result(
-        self, op_type, pcc_value, atol, rtol, status="success", error_msg=None
+        self,
+        op_type,
+        pcc_value=None,
+        atol=None,
+        rtol=None,
+        status="success",
+        error_msg=None,
     ):
         """Add a golden comparison result."""
         result = {
-            "op_index": self.op_counter,
             "op_type": op_type,
-            "pcc": float(pcc_value) if pcc_value is not None else None,
-            "atol": float(atol) if atol is not None else None,
-            "rtol": float(rtol) if rtol is not None else None,
             "status": status,
         }
+        if pcc_value is not None:
+            result["pcc"] = float(pcc_value)
+        if atol is not None:
+            result["atol"] = float(atol)
+        if rtol is not None:
+            result["rtol"] = float(rtol)
         if error_msg:
             result["error"] = error_msg
         self.golden_results.append(result)
-        self.op_counter += 1
 
     def save_results(self):
         """Save golden results to JSON file."""
@@ -49,16 +55,8 @@ class CallbackRuntimeConfig:
         # Save results to JSON file
         output_path = os.path.join(self.artifact_dir, "golden_results.json")
         with open(output_path, "w") as f:
-            json.dump(
-                {"total_ops": self.op_counter, "results": self.golden_results},
-                f,
-                indent=2,
-            )
+            json.dump(self.golden_results, f, indent=4)
         print(f"Golden results saved to: {output_path}")
-
-    def get_results(self):
-        """Return the golden results."""
-        return {"total_ops": self.op_counter, "results": self.golden_results}
 
 
 def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
@@ -81,14 +79,12 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
 
     op_type_str = tt_runtime.runtime.get_op_type(op_context)
     op_type = getattr(ttnn, op_type_str[5:])
-    golden_fn = golden_module.get_golden_function(op_type)
-    if not golden_fn:
+    try:
+        golden_fn = golden_module.get_golden_function(op_type)
+    except:
         callback_runtime_config.input_tensors = []
         callback_runtime_config.add_result(
             op_type_str,
-            None,
-            None,
-            None,
             status="skipped",
             error_msg="No golden mapping for operation",
         )
@@ -102,9 +98,6 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
         callback_runtime_config.input_tensors = []
         callback_runtime_config.add_result(
             op_type_str,
-            None,
-            None,
-            None,
             status="skipped",
             error_msg="Output tensor is empty",
         )
@@ -143,12 +136,12 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
         # Store the result
         callback_runtime_config.add_result(
             op_type_str, cal_pcc, atol, rtol, status="success"
-        )
+        )  # CHECK RESULTS INSTEAD
 
     except Exception as e:
         print(f"Error in golden comparison for {op_type_str}: {str(e)}")
         callback_runtime_config.add_result(
-            op_type_str, None, None, None, status="error", error_msg=str(e)
+            op_type_str, status="error", error_msg=str(e)
         )
 
     callback_runtime_config.input_tensors = []
@@ -165,7 +158,6 @@ def post_op_get_callback_fn(callback_runtime_config):
 def post_execution_callback(
     callback_runtime_config, binary, program_context, op_context
 ):
-    """Called after all operations have been executed."""
     callback_runtime_config.save_results()
 
 
