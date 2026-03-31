@@ -114,7 +114,7 @@ func.func @test_scalar_replacement_fused_generic(
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
       ins(%input : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
       outs(%output : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0(%sem0: !d2m.semaphore):
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -153,7 +153,7 @@ func.func @test_multiple_block_index_same_dimension(
       ins(
         %input, %temp : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> , memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
       outs(%output : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
 
@@ -209,7 +209,7 @@ func.func @test_intermediate_internalization(
     threads = [#d2m.thread<unified>]}
       ins(%input, %intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
       outs(%output : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb_inter: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb_out: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0:
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
@@ -266,7 +266,7 @@ func.func @test_matmul_add_subset_fusion(
     threads = [#d2m.thread<unified>]}
       ins(%arg0, %arg1, %alloc : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
       outs(%alloc_0 : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0(%sem0: !d2m.semaphore, %sem1: !d2m.semaphore, %sem2: !d2m.semaphore):
     %block_factor0 = d2m.get_block_factor(0) : index
     %block_factor1 = d2m.get_block_factor(1) : index
     %block_factor2 = d2m.get_block_factor(2) : index
@@ -320,7 +320,7 @@ func.func @test_block_offset_bridge_roundtrip(
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
       ins(%input : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
       outs(%output : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-  ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+  ^unified0(%sem0: !d2m.semaphore):
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {

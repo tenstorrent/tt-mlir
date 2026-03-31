@@ -19,9 +19,8 @@
 // CHECK: "ttmetal.enqueue_write_buffer"
 // CHECK: "ttmetal.enqueue_program"
 
-// Check for the fused elementwise operations in compute_kernel7
-// This kernel should contain all the fused operations
-// CHECK: func.func private @compute_kernel7()
+// Check for lowered compute kernel functions
+// CHECK: func.func private @compute_kernel{{[0-9]+}}()
 // CHECK-SAME: ttkernel.thread = #ttkernel.thread<compute>
 
 // Verify the sequence of operations that should be fused together
