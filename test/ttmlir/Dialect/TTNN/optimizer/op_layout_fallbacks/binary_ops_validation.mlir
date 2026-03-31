@@ -19,7 +19,7 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"
     // CHECK-SAME: (%[[SUB_RES]]
 
-    %1 = "ttnn.subtract"(%arg0, %arg1) : (tensor<1x1x32x32xsi32, #ttnn_layout_row_major_si32>, tensor<1x1x32x32xsi32, #ttnn_layout_row_major_si32>) -> tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
+    %1 = "ttnn.subtract"(%arg0, %arg1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x32x32xsi32, #ttnn_layout_row_major_si32>, tensor<1x1x32x32xsi32, #ttnn_layout_row_major_si32>) -> tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
 
     return %1 : tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
   }
@@ -35,7 +35,7 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"
     // CHECK-SAME: (%[[ADD_RES]]
 
-    %1 = "ttnn.add"(%arg0, %arg1) : (tensor<1x1x32x32xbf16, #ttnn_layout_row_major_bf16>, tensor<1x1x32x32xbf16, #ttnn_layout_row_major_bf16>) -> tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
+    %1 = "ttnn.add"(%arg0, %arg1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x32x32xbf16, #ttnn_layout_row_major_bf16>, tensor<1x1x32x32xbf16, #ttnn_layout_row_major_bf16>) -> tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
 
     return %1 : tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
   }
