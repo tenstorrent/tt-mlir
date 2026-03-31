@@ -626,8 +626,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // passes like LowerToLayout).  In both cases the internal alloc needs
       // a planner-assigned L1 address and will be stamped with
       // CBLayoutAttr.
-      if (genericIt != analysis.generics.end() &&
-          !genericIt->second.isExplicitDatamovement) {
+      if (genericIt != analysis.generics.end()) {
         for (Region &region : genericOp->getRegions()) {
           for (const OperandContext &operandCtx : genericIt->second.operands) {
             if (!operandCtx.bufferType) {
@@ -918,6 +917,24 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                        getCBBufferSizeBytes(operandCtx.bufferType, device),
                        operandCtx.bufferType);
         TT_debug(getCBBufferSizeBytes(operandCtx.bufferType, device) > 0);
+      } else {
+        // If no iteration info is available, generic op should be classified as
+        // explicit datamovement form
+        TT_assert(genericCtx.isExplicitDatamovement);
+
+        // For explicit datamovement ops, the grid and shard shapes aren't
+        // reblockable, so use operand device shape as-is for CB buffer type
+        // computation.
+        auto operandValue = genericOp->getOperand(operandIndex);
+        auto gridShape = ttcore::getGridShape(operandValue);
+        auto shardShape = ttcore::getShardShape(operandValue);
+
+        const auto operandType =
+            mlir::cast<MemRefType>(operand.get().getType());
+
+        operandCtx.bufferType =
+            getCBBufferType(gridShape, shardShape, operandType.getElementType(),
+                            L1Attr, numStreamBuffers);
       }
 
       // Finally, insert `operandCtx` into `genericCtx`.
@@ -1307,11 +1324,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     llvm::DenseSet<Operation *> visited;
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
-      if (genericCtx.isExplicitDatamovement) {
-        // Generics in "explicit datamovement" form manage their own
-        // streams which should already be present in the incoming IR.
-        continue;
-      }
 
       // Map every pre-stream alias back to its operand index so nested
       // remote ops can be retargeted even if they still reference an older
