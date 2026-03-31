@@ -382,7 +382,29 @@ nb::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
     .def("__str__", [...]);
 ```
 
-**5c. Update `unregister_hooks`:**
+**5c. Expose `get_program_index`** (standalone function, same pattern as
+`get_op_output_ref` etc.):
+
+```cpp
+m.def("get_program_index",
+      [](CallbackContext programContext) -> size_t {
+        const auto &ctx =
+            programContext.as<tt::runtime::ttnn::ProgramContext>(
+                DeviceRuntime::TTNN);
+        return ctx.getProgramIndex();
+      });
+```
+
+Chisel's `preProgram` callback uses this to look up or create the right
+`ProgramState`:
+
+```python
+def chisel_pre_program_callback(binary, program_context):
+    program_index = ttrt.runtime.get_program_index(program_context)
+    ...
+```
+
+**5d. Update `unregister_hooks`:**
 
 ```cpp
 m.def("unregister_hooks",

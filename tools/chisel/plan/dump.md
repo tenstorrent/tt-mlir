@@ -5,8 +5,12 @@ chisel implementation. The data model is hierarchical:
 ## Questions
 
 - How to handle `load_cache` and `funcCall` ops?
-- How does `program_index` get exposed to Python? (needed for `preProgram` to
-  create the right `ProgramState`)
+- ~~How does `program_index` get exposed to Python?~~ **Resolved**: Add a
+  nanobind binding `get_program_index(CallbackContext)` in
+  `runtime/python/runtime/runtime.cpp`. The C++ side already has
+  `ProgramContext::getProgramIndex()` — the new binding casts the
+  `CallbackContext` handle to the underlying `ProgramContext` and returns the
+  index. See `tools/chisel/docs/pr0a_program_callbacks.md` Step 5d.
 
 ## Data Model
 
