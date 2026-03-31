@@ -2019,9 +2019,11 @@ public:
       mlir::Region &region = generic->getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
 
+      auto [inputIndices, mcastGridDims] = createInputIndicesAndMcastGridDims(
+          rewriter, loc, generic, enableMulticastInference);
       auto blockArgsVec = createBlockArguments(
           rewriter, block, loc, TypeRange(inputs), TypeRange(outputs), generic,
-          enableMulticastInference);
+          inputIndices, mcastGridDims);
       ArrayRef<Value> blockArgs(blockArgsVec);
       Value outputShard = blockArgs[0];
 
