@@ -5971,10 +5971,18 @@ TEST_F(OpModelBase, GatherOpInterface) {
   llvm::SmallVector<int64_t> indexShape = {32, 128};
   llvm::SmallVector<int64_t> outputShape = {32, 128};
 
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+  auto uint32Type =
+      mlir::IntegerType::get(&context, 32, mlir::IntegerType::Unsigned);
+  auto tiledUint32Type = ttcore::TileType::get(uint32Type);
+  auto indexLayout =
+      TTNNLayoutAttr::get(&context, indexShape, tiledUint32Type,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+
   auto input = createEmptyTensor(inputShape);
-  auto index = createEmptyTensor(
-      indexShape,
-      mlir::IntegerType::get(&context, 32, mlir::IntegerType::Unsigned));
+  auto index = createEmptyTensor(indexShape, tiledUint32Type, indexLayout);
   auto outputType = createRankedTensorType(outputShape);
 
   auto gatherOp =
@@ -6059,7 +6067,7 @@ TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
       builder.getUnknownLoc(), outputType, query, key,
       /*value=*/nullptr,
       /*head_dim_v=*/headDimV, pageTable,
-      /*is_causal=*/false,
+      /*is_causal=*/true,
       /*attention_mask=*/nullptr,
       /*cur_pos_tensor=*/curPos,
       /*attention_sink=*/nullptr,
