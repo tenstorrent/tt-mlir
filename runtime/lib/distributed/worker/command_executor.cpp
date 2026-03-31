@@ -342,11 +342,19 @@ void CommandExecutor::execute(uint64_t commandId,
   uint32_t itemSize = command->item_size();
   ::tt::target::DataType dataType = command->data_type();
 
-  std::shared_ptr<void> cachedData = tensorDataCache_.getOrInsert(
-      tensorData, shape, stride, itemSize, dataType);
+  bool canBorrow = tensorData != nullptr &&
+                   ::tt::runtime::utils::isSupportedDataType(dataType);
 
-  tt::runtime::Tensor tensor = ::tt::runtime::createBorrowedHostTensor(
-      std::move(cachedData), shape, stride, itemSize, dataType);
+  tt::runtime::Tensor tensor = [&]() {
+    if (canBorrow) {
+      std::shared_ptr<void> cachedData = tensorDataCache_.getOrInsert(
+          tensorData, shape, stride, itemSize, dataType);
+      return ::tt::runtime::createBorrowedHostTensor(
+          std::move(cachedData), shape, stride, itemSize, dataType);
+    }
+    return ::tt::runtime::createOwnedHostTensor(tensorData, shape, stride,
+                                                itemSize, dataType);
+  }();
 
   tensor.setGlobalId(tensorGlobalId);
 
