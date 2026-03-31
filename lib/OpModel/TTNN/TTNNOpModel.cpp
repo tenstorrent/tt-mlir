@@ -4614,6 +4614,12 @@ static ::tt::target::ttnn::Conv2dOpT buildConv2dOpTFromMLIR(
   conv2dOpT.kernel_size =
       std::vector<int32_t>(kernel_size.begin(), kernel_size.end());
   conv2dOpT.stride = std::vector<int32_t>(stride.begin(), stride.end());
+  auto reorderedPadding = detail::reorderPool2dPadding(padding);
+  std::visit(
+      [&conv2dOpT](const auto &arr) {
+        conv2dOpT.padding.assign(arr.begin(), arr.end());
+      },
+      reorderedPadding);
   conv2dOpT.padding = std::vector<int32_t>(padding.begin(), padding.end());
   conv2dOpT.dilation = std::vector<int32_t>(dilation.begin(), dilation.end());
   conv2dOpT.groups = groups;
@@ -4739,7 +4745,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
         weightSpec,
         biasSpec.has_value() ? std::optional<unifiedOpLib::TensorArg>(*biasSpec)
                              : std::nullopt,
-        *device);
+        *device, detail::getNullableMemoryConfig(outputLayout));
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -4847,12 +4853,12 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
         weightSpec,
         biasSpec.has_value() ? std::optional<unifiedOpLib::TensorArg>(*biasSpec)
                              : std::nullopt,
-        *device);
+        *device, detail::getNullableMemoryConfig(outputLayout));
 
-    assert(std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(
-               result) &&
-           "Expected Conv2dOp constraints query to return "
-           "ConstraintQueryResponse");
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected Conv2dOp constraints query to return "
+        "ConstraintQueryResponse");
     return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
     // return ::ttnn::graph::query_op_runtime(
     //     ::ttnn::conv2d, device, inputSpec, weightSpec, device, in_channels,
