@@ -79,10 +79,12 @@ Called before each TTNN op executes on device.
 
 Called after each TTNN op executes on device.
 
-- Get the op outputs from the device
+- Get all op outputs from the device (loop over `get_op_output_refs` which
+  returns a list — handles both single- and multi-output ops like Sort,
+  MaxPool2dWithIndices, BatchNormTraining)
+- Execute golden operation via `program.executor`, store results in
+  `program.golden_tensor_pool` (keyed by SSA value name)
 - For each output:
-    - Execute golden operation via `program.executor`, store result in
-      `program.golden_tensor_pool` (keyed by SSA value name)
     - Calculate metrics (PCC, abs error, rel error)
     - Write row to CSV report
 - If op should be skipped:
