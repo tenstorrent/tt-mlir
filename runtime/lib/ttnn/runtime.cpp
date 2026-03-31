@@ -1114,6 +1114,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ReductionOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::GatherOp: {
+    tensorRef = opContext.type_as_GatherOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
     tensorRef = opContext.type_as_EmbeddingOp()->out();
     break;
@@ -1555,6 +1559,11 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_TopKRouterGptOp()->input(),
                   opContext.type_as_TopKRouterGptOp()->weight(),
                   opContext.type_as_TopKRouterGptOp()->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GatherOp: {
+    tensorRefs = {opContext.type_as_GatherOp()->input(),
+                  opContext.type_as_GatherOp()->index()};
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
