@@ -98,18 +98,21 @@ Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback, ...) {
 auto &hooks = debug::Hooks::get();
 
 // Register named callbacks — multiple clients can coexist
-hooks.setPreOp("chisel", [](Binary b, CallbackContext pc, OpContext oc) { ... });
-hooks.setPostOp("chisel", [](Binary b, CallbackContext pc, OpContext oc) { ... });
-hooks.setPreProgram("chisel", [](Binary b, CallbackContext pc) { ... });
-hooks.setPostProgram("chisel", [](Binary b, CallbackContext pc) { ... });
+hooks.setCallbacks("chisel", {
+    .preOp = [](Binary b, CallbackContext pc, OpContext oc) { ... },
+    .postOp = [](Binary b, CallbackContext pc, OpContext oc) { ... },
+    .preProgram = [](Binary b, CallbackContext pc) { ... },
+    .postProgram = [](Binary b, CallbackContext pc) { ... },
+});
 
 // ttrt registers its own callbacks under a different name
-hooks.setPreOp("ttrt", [](Binary b, CallbackContext pc, OpContext oc) { ... });
-hooks.setPostOp("ttrt", [](Binary b, CallbackContext pc, OpContext oc) { ... });
+hooks.setCallbacks("ttrt", {
+    .preOp = [](Binary b, CallbackContext pc, OpContext oc) { ... },
+    .postOp = [](Binary b, CallbackContext pc, OpContext oc) { ... },
+});
 
 // Unregister by name
 hooks.unregisterHooks("chisel");   // removes only chisel's callbacks
-hooks.unregisterHooks();           // removes all callbacks (no argument)
 ```
 
 ### Python API
@@ -117,18 +120,20 @@ hooks.unregisterHooks();           // removes all callbacks (no argument)
 ```python
 hooks = ttrt.runtime.DebugHooks.get()
 
-# Named setters — multiple clients coexist
-hooks.set_pre_op("chisel", chisel_pre_op_fn)
-hooks.set_post_op("chisel", chisel_post_op_fn)
-hooks.set_pre_program("chisel", chisel_pre_program_fn)
-hooks.set_post_program("chisel", chisel_post_program_fn)
+# Register all callbacks for a client in one call
+hooks.set_callbacks(
+    "chisel",
+    pre_op=chisel_pre_op_fn,
+    post_op=chisel_post_op_fn,
+    pre_program=chisel_pre_program_fn,
+    post_program=chisel_post_program_fn,
+)
 
 # List registered names
 hooks.get_registered_names()  # e.g. ["chisel", "ttrt"]
 
 # Unregister
-ttrt.runtime.unregister_hooks("chisel")  # by name
-ttrt.runtime.unregister_hooks()          # all
+ttrt.runtime.unregister_hooks("chisel")
 ```
 
 ## Implementation
@@ -171,19 +176,13 @@ operate on a single map instead of four.
 
 Note: returns non-const `Hooks &` so setters can be called on it.
 
-**1c. Named setter methods:**
+**1c. Single setter method for all callbacks:**
 
 ```cpp
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  void setPreOp(const std::string &name, CallbackFn &&callback);
-  void setPostOp(const std::string &name, CallbackFn &&callback);
-  void setPreProgram(const std::string &name, ProgramCallbackFn &&callback);
-  void setPostProgram(const std::string &name, ProgramCallbackFn &&callback);
+  void setCallbacks(const std::string &name, CallbackSet &&callbackSet);
 #else
-  void setPreOp(const std::string &, CallbackFn &&) {}
-  void setPostOp(const std::string &, CallbackFn &&) {}
-  void setPreProgram(const std::string &, ProgramCallbackFn &&) {}
-  void setPostProgram(const std::string &, ProgramCallbackFn &&) {}
+  void setCallbacks(const std::string &, CallbackSet &&) {}
 #endif
 ```
 
@@ -207,8 +206,7 @@ The executor iterates this single map and picks the relevant field
 **1e. Unregister and list methods:**
 
 ```cpp
-  void unregisterHooks(const std::string &name) const;  // by name
-  void unregisterHooks() const;                          // all
+  void unregisterHooks(const std::string &name) const;
   std::vector<std::string> getRegisteredNames() const;
 ```
 
@@ -233,22 +231,8 @@ Hooks &Hooks::get() {
   return config;
 }
 
-void Hooks::setPreOp(const std::string &name, CallbackFn &&callback) {
-  callbacks[name].preOp = std::move(callback);
-}
-
-void Hooks::setPostOp(const std::string &name, CallbackFn &&callback) {
-  callbacks[name].postOp = std::move(callback);
-}
-
-void Hooks::setPreProgram(const std::string &name,
-                          ProgramCallbackFn &&callback) {
-  callbacks[name].preProgram = std::move(callback);
-}
-
-void Hooks::setPostProgram(const std::string &name,
-                           ProgramCallbackFn &&callback) {
-  callbacks[name].postProgram = std::move(callback);
+void Hooks::setCallbacks(const std::string &name, CallbackSet &&callbackSet) {
+  callbacks[name] = std::move(callbackSet);
 }
 
 void Hooks::unregisterHooks(const std::string &name) const {
@@ -375,46 +359,26 @@ void ProgramExecutor::execute() {
 .def_prop_ro("id", &tt::runtime::Binary::id)
 ```
 
-**5b. Replace `DebugHooks` binding with named setter API:**
+**5b. Replace `DebugHooks` binding with `set_callbacks` API:**
 
 ```cpp
 nb::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
-    .def_static("get", &tt::runtime::debug::Hooks::get,
-                nb::rv_policy::reference)
-    .def("set_pre_op",
+    .def_static("get", ...)
+    .def("set_callbacks",
          [](tt::runtime::debug::Hooks &self, const std::string &name,
-            nb::callable fn) {
-           self.setPreOp(name,
-               [fn](tt::runtime::Binary b, tt::runtime::CallbackContext pc,
-                    tt::runtime::OpContext oc) { fn(b, pc, oc); });
+            nb::object preOp, nb::object postOp,
+            nb::object preProgram, nb::object postProgram) {
+           tt::runtime::debug::Hooks::CallbackSet cbs;
+           // wrap each non-None callable into the appropriate std::function
+           ...
+           self.setCallbacks(name, std::move(cbs));
          },
-         nb::arg("name"), nb::arg("callback"))
-    .def("set_post_op",
-         [](tt::runtime::debug::Hooks &self, const std::string &name,
-            nb::callable fn) {
-           self.setPostOp(name,
-               [fn](tt::runtime::Binary b, tt::runtime::CallbackContext pc,
-                    tt::runtime::OpContext oc) { fn(b, pc, oc); });
-         },
-         nb::arg("name"), nb::arg("callback"))
-    .def("set_pre_program",
-         [](tt::runtime::debug::Hooks &self, const std::string &name,
-            nb::callable fn) {
-           self.setPreProgram(name,
-               [fn](tt::runtime::Binary b,
-                    tt::runtime::CallbackContext pc) { fn(b, pc); });
-         },
-         nb::arg("name"), nb::arg("callback"))
-    .def("set_post_program",
-         [](tt::runtime::debug::Hooks &self, const std::string &name,
-            nb::callable fn) {
-           self.setPostProgram(name,
-               [fn](tt::runtime::Binary b,
-                    tt::runtime::CallbackContext pc) { fn(b, pc); });
-         },
-         nb::arg("name"), nb::arg("callback"))
-    .def("get_registered_names",
-         &tt::runtime::debug::Hooks::getRegisteredNames)
+         nb::arg("name"),
+         nb::arg("pre_op") = nb::none(),
+         nb::arg("post_op") = nb::none(),
+         nb::arg("pre_program") = nb::none(),
+         nb::arg("post_program") = nb::none())
+    .def("get_registered_names", ...)
     .def("__str__", [...]);
 ```
 
@@ -446,8 +410,11 @@ callback_env = ttrt.runtime.DebugHooks.get(
 
 # AFTER:
 hooks = ttrt.runtime.DebugHooks.get()
-hooks.set_pre_op("ttrt", pre_op_get_callback_fn(pre_op_callback_runtime_config))
-hooks.set_post_op("ttrt", post_op_get_callback_fn(post_op_callback_runtime_config))
+hooks.set_callbacks(
+    "ttrt",
+    pre_op=pre_op_get_callback_fn(pre_op_callback_runtime_config),
+    post_op=post_op_get_callback_fn(post_op_callback_runtime_config),
+)
 ```
 
 **builder** (`tools/builder/base/builder_runtime.py:722-726`):
@@ -461,8 +428,11 @@ tt_runtime.runtime.DebugHooks.get(
 
 # AFTER:
 hooks = tt_runtime.runtime.DebugHooks.get()
-hooks.set_pre_op("builder", pre_op_get_callback_fn(callback_runtime_config))
-hooks.set_post_op("builder", post_op_get_callback_fn(callback_runtime_config))
+hooks.set_callbacks(
+    "builder",
+    pre_op=pre_op_get_callback_fn(callback_runtime_config),
+    post_op=post_op_get_callback_fn(callback_runtime_config),
+)
 ```
 
 **test** (`runtime/test/ttnn/python/n150/test_intermidate_tensor_manipulation.py:104,122`):
@@ -475,8 +445,7 @@ ttrt.runtime.unregister_hooks()
 
 # AFTER:
 hooks = ttrt.runtime.DebugHooks.get()
-hooks.set_pre_op("test", identity)
-hooks.set_post_op("test", postop)
+hooks.set_callbacks("test", pre_op=identity, post_op=postop)
 ...
 ttrt.runtime.unregister_hooks("test")
 ```
