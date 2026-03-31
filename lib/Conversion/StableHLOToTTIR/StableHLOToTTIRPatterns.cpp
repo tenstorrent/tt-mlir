@@ -6521,14 +6521,64 @@ public:
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
 
     Value attentionMask = nullptr;
-    if (adaptor.getOperands().size() == 4) {
-      attentionMask = adaptor.getOperands()[3];
+    auto hasAttentionMaskStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
+    bool hasAttentionMask = false;
+    if (hasAttentionMaskStringAttr) {
+      if (failed(parseBoolFromStringAttr(hasAttentionMaskStringAttr,
+                                         hasAttentionMask))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to parse has_attention_mask attribute.");
+      }
+    }
+
+    Value attentionSink = nullptr;
+    auto hasAttentionSinkStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_sink");
+    bool hasAttentionSink = false;
+    if (hasAttentionSinkStringAttr) {
+      if (failed(parseBoolFromStringAttr(hasAttentionSinkStringAttr,
+                                         hasAttentionSink))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to parse has_attention_sink attribute.");
+      }
+    }
+
+    // For backward compatibility, if the frontend did not provide
+    // has_attention_mask and has_attention_sink attributes, we will infer the
+    // presence of attention mask based on the number of operands. The new
+    // frontend should always provide these attributes, so this inference logic
+    // will eventually be removed.
+    if (adaptor.getOperands().size() == 4 && !hasAttentionMask &&
+        !hasAttentionSink) {
+      hasAttentionMask = true;
+    }
+
+    // Validate that the number of operands matches what the attributes imply.
+    auto operands = adaptor.getOperands();
+    size_t operandIndex = 3; // Start after query, key, value
+    unsigned expectedNumOperands =
+        operandIndex + (hasAttentionMask ? 1 : 0) + (hasAttentionSink ? 1 : 0);
+    if (expectedNumOperands != operands.size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "Mismatch between operands and has_attention_mask/has_attention_sink "
+          "attributes.");
+    }
+
+    if (hasAttentionMask) {
+      attentionMask = operands[operandIndex];
+      operandIndex++;
+    }
+    if (hasAttentionSink) {
+      attentionSink = operands[operandIndex];
+      operandIndex++;
     }
 
     rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
         srcOp, outputType, query, key, value, attentionMask, isCausalAttr,
         scaleAttr, /*slidingWindowSize=*/nullptr,
-        /*attention_sink=*/Value());
+        /*attention_sink=*/attentionSink);
 
     return success();
   }
