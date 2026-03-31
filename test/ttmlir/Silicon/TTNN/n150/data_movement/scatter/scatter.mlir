@@ -39,9 +39,9 @@ func.func @scatter_simple_3(%arg0: tensor<71x32xbf16>, %arg1: tensor<71x4x2xi64>
   // Scatter indices shape is [71, 4, 2], so we break it into 2 slices of shape [71, 4, 1]
   // Then we reshape each slice to [71,4] and calculate flattened indices using strides.
   // CHECK: "ttnn.slice_static"({{.*}}) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [71 : i32, 4 : i32, 1 : i32], step = [1 : i32, 1 : i32, 1 : i32]}>
-  // CHECK: "ttnn.multiply"({{.*}}) <{dtype = #ttcore.supportedDataTypes<si32>}>
+  // CHECK: "ttnn.multiply"({{.*}}) <{dtype = #ttcore.supportedDataTypes<si32>, input_tensor_a_activations = [], activations = [], input_tensor_b_activations = []}>
   // CHECK: "ttnn.slice_static"({{.*}}) <{begins = [0 : i32, 0 : i32, 1 : i32], ends = [71 : i32, 4 : i32, 2 : i32], step = [1 : i32, 1 : i32, 1 : i32]}>
-  // CHECK: "ttnn.add"({{.*}})
+  // CHECK: "ttnn.add"({{.*}}) <{dtype = #ttcore.supportedDataTypes<si32>, input_tensor_a_activations = [], activations = [], input_tensor_b_activations = []}>
   // flatten indices:
   // CHECK: "ttnn.reshape"({{.*}}) <{shape = [284 : i32]}>
   // flatten input:

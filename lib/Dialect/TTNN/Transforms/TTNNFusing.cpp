@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -175,6 +176,104 @@ private:
   }
 };
 
+namespace {
+class TTNNBinaryOpInputsActivation
+    : public mlir::OpInterfaceRewritePattern<ElementwiseBinary> {
+  using TTNNBinaryOpInputsActivation::OpInterfaceRewritePattern<
+      ElementwiseBinary>::OpInterfaceRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ElementwiseBinary binaryOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    bool isFused = false;
+
+    if (auto lhsUnaryOp = getFusableUnaryOp(binaryOp.getLhs())) {
+      fuseInputActivation(lhsUnaryOp, binaryOp, rewriter, /*isLhs=*/true);
+      isFused = true;
+    }
+
+    if (auto rhsUnaryOp = getFusableUnaryOp(binaryOp.getRhs())) {
+      fuseInputActivation(rhsUnaryOp, binaryOp, rewriter, /*isLhs=*/false);
+      isFused = true;
+    }
+
+    return mlir::success(isFused);
+  }
+
+private:
+  ElementwiseUnary getFusableUnaryOp(Value operand) const {
+    if (!operand.hasOneUse()) {
+      return {};
+    }
+
+    auto unaryOp = operand.getDefiningOp<ElementwiseUnary>();
+    if (unaryOp && unaryOp.getUnaryOpType() != UnaryOpType::Unknown) {
+      return unaryOp;
+    }
+
+    return {};
+  }
+
+  void fuseInputActivation(ElementwiseUnary unaryOp, ElementwiseBinary binaryOp,
+                           mlir::PatternRewriter &rewriter, bool isLhs) const {
+    rewriter.modifyOpInPlace(binaryOp, [&]() {
+      if (isLhs) {
+        binaryOp.addInputTensorAActivation(unaryOp.getUnaryOpType(),
+                                           unaryOp.getParams());
+      } else {
+        binaryOp.addInputTensorBActivation(unaryOp.getUnaryOpType(),
+                                           unaryOp.getParams());
+      }
+      rewriter.replaceOp(unaryOp, unaryOp.getInput());
+    });
+  }
+};
+} // namespace
+
+namespace {
+class TTNNBinaryOpOutputActivation
+    : public mlir::OpInterfaceRewritePattern<ElementwiseUnary> {
+  using TTNNBinaryOpOutputActivation::OpInterfaceRewritePattern<
+      ElementwiseUnary>::OpInterfaceRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ElementwiseUnary unaryOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    if (!isFusable(unaryOp)) {
+      return failure();
+    }
+
+    auto binaryOp = getFusableBinaryOp(unaryOp.getInput());
+    if (!binaryOp) {
+      return failure();
+    }
+
+    rewriter.modifyOpInPlace(binaryOp, [&]() {
+      binaryOp.addActivation(unaryOp.getUnaryOpType(), unaryOp.getParams());
+      binaryOp->getResult(0).setType(unaryOp->getResult(0).getType());
+    });
+    rewriter.replaceOp(unaryOp, unaryOp.getInput());
+
+    return mlir::success();
+  }
+
+private:
+  bool isFusable(ElementwiseUnary unaryOp) const {
+    return unaryOp.getUnaryOpType() != UnaryOpType::Unknown;
+  }
+
+  ElementwiseBinary getFusableBinaryOp(Value operand) const {
+    if (!operand.hasOneUse()) {
+      return {};
+    }
+
+    return operand.getDefiningOp<ElementwiseBinary>();
+  }
+};
+} // namespace
+
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 // ============================================================================
@@ -317,7 +416,9 @@ public:
         TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, GeluOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>>(&getContext());
+        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>,
+        TTNNBinaryOpInputsActivation, TTNNBinaryOpOutputActivation>(
+        &getContext());
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {

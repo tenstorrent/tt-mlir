@@ -75,6 +75,146 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// TTNN_ElementwiseUnary Interface Implementations
+//===----------------------------------------------------------------------===//
+
+UnaryOpType AbsOp::getUnaryOpType() { return UnaryOpType::Abs; }
+
+llvm::SmallVector<mlir::FloatAttr> AbsOp::getParams() { return {}; }
+
+UnaryOpType CbrtOp::getUnaryOpType() { return UnaryOpType::Unknown; }
+
+llvm::SmallVector<mlir::FloatAttr> CbrtOp::getParams() { return {}; }
+
+UnaryOpType CeilOp::getUnaryOpType() { return UnaryOpType::Ceil; }
+
+llvm::SmallVector<mlir::FloatAttr> CeilOp::getParams() { return {}; }
+
+UnaryOpType SignOp::getUnaryOpType() { return UnaryOpType::Sign; }
+
+llvm::SmallVector<mlir::FloatAttr> SignOp::getParams() { return {}; }
+
+UnaryOpType CosOp::getUnaryOpType() { return UnaryOpType::Cos; }
+
+llvm::SmallVector<mlir::FloatAttr> CosOp::getParams() { return {}; }
+
+UnaryOpType AcosOp::getUnaryOpType() { return UnaryOpType::Acos; }
+
+llvm::SmallVector<mlir::FloatAttr> AcosOp::getParams() { return {}; }
+
+UnaryOpType ExpOp::getUnaryOpType() { return UnaryOpType::Exp; }
+
+llvm::SmallVector<mlir::FloatAttr> ExpOp::getParams() { return {}; }
+
+UnaryOpType ErfOp::getUnaryOpType() { return UnaryOpType::Erf; }
+
+llvm::SmallVector<mlir::FloatAttr> ErfOp::getParams() { return {}; }
+
+UnaryOpType ErfcOp::getUnaryOpType() { return UnaryOpType::Erfc; }
+
+llvm::SmallVector<mlir::FloatAttr> ErfcOp::getParams() { return {}; }
+
+UnaryOpType FloorOp::getUnaryOpType() { return UnaryOpType::Floor; }
+
+llvm::SmallVector<mlir::FloatAttr> FloorOp::getParams() { return {}; }
+
+UnaryOpType GeluOp::getUnaryOpType() { return UnaryOpType::Gelu; }
+
+llvm::SmallVector<mlir::FloatAttr> GeluOp::getParams() { return {}; }
+
+UnaryOpType IsFiniteOp::getUnaryOpType() { return UnaryOpType::IsFinite; }
+
+llvm::SmallVector<mlir::FloatAttr> IsFiniteOp::getParams() { return {}; }
+
+UnaryOpType LogicalNotOp::getUnaryOpType() {
+  return UnaryOpType::LogicalNotUnary;
+}
+
+llvm::SmallVector<mlir::FloatAttr> LogicalNotOp::getParams() { return {}; }
+
+UnaryOpType BitwiseNotOp::getUnaryOpType() { return UnaryOpType::BitwiseNot; }
+
+llvm::SmallVector<mlir::FloatAttr> BitwiseNotOp::getParams() { return {}; }
+
+UnaryOpType NegOp::getUnaryOpType() { return UnaryOpType::Neg; }
+
+llvm::SmallVector<mlir::FloatAttr> NegOp::getParams() { return {}; }
+
+UnaryOpType TanOp::getUnaryOpType() { return UnaryOpType::Tan; }
+
+llvm::SmallVector<mlir::FloatAttr> TanOp::getParams() { return {}; }
+
+UnaryOpType AtanOp::getUnaryOpType() { return UnaryOpType::Atan; }
+
+llvm::SmallVector<mlir::FloatAttr> AtanOp::getParams() { return {}; }
+
+UnaryOpType TanhOp::getUnaryOpType() { return UnaryOpType::Tanh; }
+
+llvm::SmallVector<mlir::FloatAttr> TanhOp::getParams() { return {}; }
+
+UnaryOpType ReciprocalOp::getUnaryOpType() { return UnaryOpType::Recip; }
+
+llvm::SmallVector<mlir::FloatAttr> ReciprocalOp::getParams() { return {}; }
+
+UnaryOpType ReluOp::getUnaryOpType() { return UnaryOpType::Relu; }
+
+llvm::SmallVector<mlir::FloatAttr> ReluOp::getParams() { return {}; }
+
+UnaryOpType Relu6Op::getUnaryOpType() { return UnaryOpType::Relu6; }
+
+llvm::SmallVector<mlir::FloatAttr> Relu6Op::getParams() { return {}; }
+
+UnaryOpType SinOp::getUnaryOpType() { return UnaryOpType::Sin; }
+
+llvm::SmallVector<mlir::FloatAttr> SinOp::getParams() { return {}; }
+
+UnaryOpType AsinOp::getUnaryOpType() { return UnaryOpType::Asin; }
+
+llvm::SmallVector<mlir::FloatAttr> AsinOp::getParams() { return {}; }
+
+UnaryOpType SqrtOp::getUnaryOpType() { return UnaryOpType::Sqrt; }
+
+llvm::SmallVector<mlir::FloatAttr> SqrtOp::getParams() { return {}; }
+
+UnaryOpType RsqrtOp::getUnaryOpType() { return UnaryOpType::Rsqrt; }
+
+llvm::SmallVector<mlir::FloatAttr> RsqrtOp::getParams() { return {}; }
+
+UnaryOpType SigmoidOp::getUnaryOpType() { return UnaryOpType::Sigmoid; }
+
+llvm::SmallVector<mlir::FloatAttr> SigmoidOp::getParams() { return {}; }
+
+UnaryOpType HardsigmoidOp::getUnaryOpType() { return UnaryOpType::Hardsigmoid; }
+
+llvm::SmallVector<mlir::FloatAttr> HardsigmoidOp::getParams() { return {}; }
+
+UnaryOpType SiluOp::getUnaryOpType() { return UnaryOpType::Silu; }
+
+llvm::SmallVector<mlir::FloatAttr> SiluOp::getParams() { return {}; }
+
+UnaryOpType MishOp::getUnaryOpType() { return UnaryOpType::Unknown; }
+
+llvm::SmallVector<mlir::FloatAttr> MishOp::getParams() { return {}; }
+
+UnaryOpType LogOp::getUnaryOpType() { return UnaryOpType::Log; }
+
+llvm::SmallVector<mlir::FloatAttr> LogOp::getParams() { return {}; }
+
+UnaryOpType Log1pOp::getUnaryOpType() { return UnaryOpType::Unknown; }
+
+llvm::SmallVector<mlir::FloatAttr> Log1pOp::getParams() { return {}; }
+
+UnaryOpType Expm1Op::getUnaryOpType() { return UnaryOpType::Expm1; }
+
+llvm::SmallVector<mlir::FloatAttr> Expm1Op::getParams() { return {}; }
+
+UnaryOpType LeakyReluOp::getUnaryOpType() { return UnaryOpType::LeakyRelu; }
+
+llvm::SmallVector<mlir::FloatAttr> LeakyReluOp::getParams() {
+  return {getParameterAttr()};
+}
+
+//===----------------------------------------------------------------------===//
 // RandOp
 //===----------------------------------------------------------------------===//
 
