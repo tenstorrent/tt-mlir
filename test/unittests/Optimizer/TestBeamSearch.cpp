@@ -189,8 +189,8 @@ TEST_F(BeamSearchTest, BeamWidthK1ProducesSingleCandidate) {
   }
 
   MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                /*tensorTypePossibleLayouts=*/nullptr,
-                                /*beamWidth=*/1);
+                                      /*tensorTypePossibleLayouts=*/nullptr,
+                                      /*beamWidth=*/1);
   propagation.run();
 
   const auto &beamState = propagation.getBeamState();
@@ -219,8 +219,8 @@ TEST_F(BeamSearchTest, BeamWidthK8ProducesMultipleCandidates) {
   }
 
   MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                /*tensorTypePossibleLayouts=*/nullptr,
-                                /*beamWidth=*/8);
+                                      /*tensorTypePossibleLayouts=*/nullptr,
+                                      /*beamWidth=*/8);
   propagation.run();
 
   const auto &beamState = propagation.getBeamState();
@@ -245,8 +245,8 @@ TEST_F(BeamSearchTest, BeamWidthK8CandidatesSortedByScore) {
   }
 
   MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                /*tensorTypePossibleLayouts=*/nullptr,
-                                /*beamWidth=*/8);
+                                      /*tensorTypePossibleLayouts=*/nullptr,
+                                      /*beamWidth=*/8);
   propagation.run();
 
   const auto &beamState = propagation.getBeamState();
@@ -274,8 +274,8 @@ TEST_F(BeamSearchTest, BackwardPassLinearChainAllOpsHaveFinalChoice) {
   }
 
   MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                /*tensorTypePossibleLayouts=*/nullptr,
-                                /*beamWidth=*/4);
+                                      /*tensorTypePossibleLayouts=*/nullptr,
+                                      /*beamWidth=*/4);
   propagation.run();
 
   const auto &beamState = propagation.getBeamState();
@@ -304,8 +304,8 @@ TEST_F(BeamSearchTest, BackwardPassForkPointResolvesWithoutCrash) {
   }
 
   MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                /*tensorTypePossibleLayouts=*/nullptr,
-                                /*beamWidth=*/8);
+                                      /*tensorTypePossibleLayouts=*/nullptr,
+                                      /*beamWidth=*/8);
 
   // Should not crash during fork resolution.
   EXPECT_NO_FATAL_FAILURE(propagation.run());
@@ -337,8 +337,8 @@ TEST_F(BeamSearchTest, BackwardPassForkPointBothConsumersInBeam) {
   }
 
   MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                /*tensorTypePossibleLayouts=*/nullptr,
-                                /*beamWidth=*/4);
+                                      /*tensorTypePossibleLayouts=*/nullptr,
+                                      /*beamWidth=*/4);
   propagation.run();
 
   const auto &beamState = propagation.getBeamState();
@@ -364,8 +364,8 @@ TEST_F(BeamSearchTest, BeamWidthK1NoConsolidation) {
   }
 
   MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                /*tensorTypePossibleLayouts=*/nullptr,
-                                /*beamWidth=*/1);
+                                      /*tensorTypePossibleLayouts=*/nullptr,
+                                      /*beamWidth=*/1);
   propagation.run();
 
   const auto &finalChoice = propagation.getFinalChoice();
@@ -423,8 +423,8 @@ TEST_F(BeamSearchTest, BeamWidthK8ComplexGraphDoesNotCrash) {
   }
 
   MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                /*tensorTypePossibleLayouts=*/nullptr,
-                                /*beamWidth=*/8);
+                                      /*tensorTypePossibleLayouts=*/nullptr,
+                                      /*beamWidth=*/8);
 
   EXPECT_NO_FATAL_FAILURE(propagation.run());
 
@@ -462,8 +462,8 @@ TEST_F(BeamSearchTest, NoValidCandidateFallbackToDRAM) {
   legalConfigs[reluOp.getOperation()] = {};
 
   MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                /*tensorTypePossibleLayouts=*/nullptr,
-                                /*beamWidth=*/8);
+                                      /*tensorTypePossibleLayouts=*/nullptr,
+                                      /*beamWidth=*/8);
 
   // Should not crash -- falls back to DRAM interleaved.
   EXPECT_NO_FATAL_FAILURE(propagation.run());

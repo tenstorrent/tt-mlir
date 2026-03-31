@@ -196,7 +196,7 @@ TEST_F(ReshardCandidatesTest, WithTensorLayoutsMapDoesNotCrash) {
       buildTensorTypeLayoutsMap(bareType, shape);
 
   MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                &tensorLayouts, /*beamWidth=*/8);
+                                      &tensorLayouts, /*beamWidth=*/8);
 
   EXPECT_NO_FATAL_FAILURE(propagation.run());
 }
@@ -224,8 +224,8 @@ TEST_F(ReshardCandidatesTest, NullTensorLayoutsNoReshardCandidates) {
   legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
   MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                /*tensorTypePossibleLayouts=*/nullptr,
-                                /*beamWidth=*/8);
+                                      /*tensorTypePossibleLayouts=*/nullptr,
+                                      /*beamWidth=*/8);
   propagation.run();
 
   // With null tensor layouts map, no reshard ops should have been inserted.
@@ -280,8 +280,8 @@ TEST_F(ReshardCandidatesTest, BeamCandidatesWithTensorLayoutsMoreThanWithout) {
     legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
     legalConfigs[mulOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
-    MemoryLayoutPropagation propagation(localFunc, getDeviceGrid(), legalConfigs,
-                                  layouts, /*beamWidth=*/8);
+    MemoryLayoutPropagation propagation(localFunc, getDeviceGrid(),
+                                        legalConfigs, layouts, /*beamWidth=*/8);
     propagation.run();
 
     size_t totalCandidates = 0;
@@ -344,9 +344,9 @@ TEST_F(ReshardCandidatesTest, ReshardExplorationK1vsK8) {
     legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
     legalConfigs[mulOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
-    MemoryLayoutPropagation propagation(localFunc, getDeviceGrid(), legalConfigs,
-                                  /*tensorTypePossibleLayouts=*/nullptr,
-                                  beamWidth);
+    MemoryLayoutPropagation propagation(
+        localFunc, getDeviceGrid(), legalConfigs,
+        /*tensorTypePossibleLayouts=*/nullptr, beamWidth);
     propagation.run();
 
     size_t totalCandidates = 0;

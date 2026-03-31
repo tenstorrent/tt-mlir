@@ -6,10 +6,10 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagation.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagation.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
@@ -35,7 +35,7 @@
 
 namespace mlir::tt::ttnn {
 
-#define GEN_PASS_DEF_TTNNGREEDYLAYOUTPROPAGATION
+#define GEN_PASS_DEF_TTNNGREEDYMEMORYLAYOUTPROPAGATION
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNGreedyMemoryLayoutPropagation
@@ -47,11 +47,13 @@ public:
 
   // Custom copy constructor: Pass::Option members are non-copyable, so we
   // delegate to the base copy constructor and default-initialize them.
-  TTNNGreedyMemoryLayoutPropagation(const TTNNGreedyMemoryLayoutPropagation &other)
+  TTNNGreedyMemoryLayoutPropagation(
+      const TTNNGreedyMemoryLayoutPropagation &other)
       : TTNNGreedyMemoryLayoutPropagationBase(other) {}
 
   // Pipeline constructor: accepts complex options beyond what tablegen handles.
-  TTNNGreedyMemoryLayoutPropagation(TTNNGreedyMemoryLayoutPropagationPipelineOptions opts)
+  TTNNGreedyMemoryLayoutPropagation(
+      TTNNGreedyMemoryLayoutPropagationPipelineOptions opts)
       : TTNNGreedyMemoryLayoutPropagationBase() {
     maxLegalLayouts = opts.maxLegalLayouts;
     rowMajorEnabled = opts.rowMajorEnabled;
@@ -189,7 +191,8 @@ protected:
 // Pipeline create function.
 std::unique_ptr<::mlir::Pass> createTTNNGreedyMemoryLayoutPropagation(
     TTNNGreedyMemoryLayoutPropagationPipelineOptions options) {
-  return std::make_unique<TTNNGreedyMemoryLayoutPropagation>(std::move(options));
+  return std::make_unique<TTNNGreedyMemoryLayoutPropagation>(
+      std::move(options));
 }
 
 } // namespace mlir::tt::ttnn

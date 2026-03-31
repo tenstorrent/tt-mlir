@@ -577,11 +577,10 @@ MemoryLayoutPropagation::processOp(Operation *op) {
   return candidates;
 }
 
-bool MemoryLayoutPropagation::validateReshard(Operation *consumerOp,
-                                        Operation *producerOp,
-                                        TTNNLayoutAttr producerOutputLayout,
-                                        TTNNLayoutAttr reshardLayout,
-                                        size_t producerResultIdx) {
+bool MemoryLayoutPropagation::validateReshard(
+    Operation *consumerOp, Operation *producerOp,
+    TTNNLayoutAttr producerOutputLayout, TTNNLayoutAttr reshardLayout,
+    size_t producerResultIdx) {
   auto inputShape = mlir::cast<RankedTensorType>(
                         producerOp->getResult(producerResultIdx).getType())
                         .getShape();
@@ -865,9 +864,8 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
   return result;
 }
 
-std::vector<TTNNLayoutAttr>
-MemoryLayoutPropagation::generateReshardCandidates(RankedTensorType tensorType,
-                                             TTNNLayoutAttr currentLayout) {
+std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
+    RankedTensorType tensorType, TTNNLayoutAttr currentLayout) {
   // Only generate sharded-to-sharded reshard candidates. Resharding from
   // sharded to interleaved (DRAM or L1) almost always hurts performance.
   if (!tensorTypePossibleLayouts) {
@@ -961,7 +959,7 @@ MemoryLayoutPropagation::generateReshardCandidates(RankedTensorType tensorType,
 
 Operation *
 MemoryLayoutPropagation::getProducerForOperandIdx(Operation *op,
-                                            size_t tensorOperandIdx) {
+                                                  size_t tensorOperandIdx) {
   size_t tensorIdx = 0;
   for (auto operand : op->getOperands()) {
     if (!mlir::isa<RankedTensorType>(operand.getType())) {
@@ -1076,9 +1074,8 @@ void MemoryLayoutPropagation::consolidateBeam() {
                "consolidateBeam: backward pass complete");
 }
 
-size_t
-MemoryLayoutPropagation::resolveForForkPoint(Operation *forkOp,
-                                       llvm::ArrayRef<Operation *> consumers) {
+size_t MemoryLayoutPropagation::resolveForForkPoint(
+    Operation *forkOp, llvm::ArrayRef<Operation *> consumers) {
   const auto &forkBeam = beamState[forkOp];
   size_t bestK = 0;
   int bestFreeCount = -1;
@@ -1113,7 +1110,8 @@ MemoryLayoutPropagation::resolveForForkPoint(Operation *forkOp,
   return bestK;
 }
 
-TTNNLayoutAttr MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
+TTNNLayoutAttr
+MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
   if (op->getNumResults() == 0) {
     return nullptr;
   }
@@ -1194,7 +1192,7 @@ void MemoryLayoutPropagation::applyToIR() {
 }
 
 void MemoryLayoutPropagation::applyOpConfig(Operation *op,
-                                      const BeamCandidate &candidate) {
+                                            const BeamCandidate &candidate) {
   TTNNLayoutAttr chosenLayout = getOutputLayoutForResult(candidate, 0);
   if (!chosenLayout) {
     return;
@@ -1273,8 +1271,8 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
 }
 
 void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
-                                        size_t operandIndex,
-                                        TTNNLayoutAttr reshardLayout) {
+                                              size_t operandIndex,
+                                              TTNNLayoutAttr reshardLayout) {
   Value operand = consumerOp->getOperand(operandIndex);
   auto producerTensorType = mlir::cast<RankedTensorType>(operand.getType());
 
