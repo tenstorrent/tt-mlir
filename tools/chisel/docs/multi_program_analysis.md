@@ -166,7 +166,7 @@ postProgram(binary, program_context):
         global_id = resolve_global_id(ssa_name, program_context)
         ctx.global_tensor_pool[global_id] = tensor
 
-    # Aggregate metrics, finalize report section
+    # Finalize report section
 ```
 
 ## State Lifecycle Per Execution

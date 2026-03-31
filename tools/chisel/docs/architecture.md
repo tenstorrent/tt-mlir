@@ -55,7 +55,7 @@ explicit `binary.id` and `program_index`, so state lookup is direct.
 flowchart TD;
     A["ChiselContext(output_dir, ...)<br/>Register singleton, bind 4 callbacks"] --> B["preProgram<br/>Get/create BinaryState + ProgramState<br/>Parse MLIR if new binary"]
     B --> C["preOp / postOp loop<br/>op_iter advances with each callback<br/>Golden execution + comparison"]
-    C --> D["postProgram<br/>Copy golden pool → global pool<br/>Aggregate metrics, finalize report"]
+    C --> D["postProgram<br/>Copy golden pool → global pool<br/>Finalize report"]
     D -->|"Next program"| B
     D --> E["ChiselContext.reset_instance()<br/>Cleanup after all execution"]
 ```
@@ -162,7 +162,7 @@ flowchart TD;
 
     S8 --> POSTPROG["postProgram(binary, program_ctx)"]
     POSTPROG --> S9["Copy program.golden_tensor_pool →<br/>global_tensor_pool"]
-    S9 --> S10["Aggregate metrics<br/>Finalize report section"]
+    S9 --> S10["Finalize report section"]
 ```
 
 ## Module Dependencies
@@ -309,7 +309,7 @@ sequenceDiagram;
             Chisel->>Chisel: Golden execution + comparison
         end
         Hooks->>Chisel: postProgram(binary, program_ctx)
-        Note over Chisel: Copy golden→global, aggregate metrics
+        Note over Chisel: Copy golden→global, finalize report
     end
     Runtime->>Chisel: ChiselContext.reset_instance()
 ```
