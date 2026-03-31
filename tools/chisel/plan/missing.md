@@ -1,31 +1,55 @@
-# Missing from dump.md
+# Gaps from dump.md — Resolution Status
 
-## Initialization
+Items marked **Resolved** are addressed by the hierarchical data model redesign
+(`ChiselContext -> BinaryState -> ProgramState`). Items marked **Open** still
+need design work.
 
-- No mention of `module_provider` callback for handling different binaries
-- Missing: the `caching` option for tensor pools (disk caching of `.pt` files)
+## Resolved by Hierarchical Design
 
-## PreProgram
+- **`module_provider` callback**: Not needed. Multiple binaries are separate
+  `BinaryState` entries in `ctx.binaries`. Each creates its own `IRModule` and
+  `Registry` when first encountered.
 
-- Missing: matching preserved golden tensors with incoming device TensorRefs (cross-program tensor reuse)
-- Missing: reset `_op_index` to 0
+- **`_op_index` reset**: Eliminated. Replaced by `ProgramState.op_iter` which
+  advances naturally with callbacks and resets via
+  `reset_for_new_execution()`.
 
-## PostOp
+- **Cross-program tensor reuse**: Handled by two-level golden pool design.
+  `postProgram` copies `program.golden_tensor_pool` entries into
+  `ctx.global_tensor_pool`. `preProgram` copies matching entries back into
+  the next program's pool. Keyed by `Tensor::globalId` at the global level.
 
-- Missing: **multi-output ops** — some ops (Sort, MaxPool2dWithIndices, BatchNormTraining) produce multiple outputs; the plan assumes single output per op
+- **Asymmetric reset**: Structural. `device_tensor_pool` is per-`ProgramState`
+  and cleared in `reset_for_new_execution()`. `golden_tensor_pool` is also
+  per-`ProgramState` but preserved across re-executions of the same program.
 
-## PostProgram
+- **Program transition detection**: Eliminated. `preProgram(binary,
+  program_context)` provides explicit `binary.id` and `program_index`. No
+  heuristic needed.
 
-- Missing: **asymmetric reset** — must clear `device_tensor_pool` (stale TensorRefs) but **preserve** `golden_tensor_pool`
-- Missing: aggregate metrics logging (min/max/mean PCC across ops)
-- Missing: reset `_op_index`
+## Still Needed
 
-## Cross-cutting concerns not mentioned
+- **`caching` option**: Per-pool disk caching of `.pt` files for post-mortem
+  analysis. Should be configurable per `TensorPool` instance (passed through
+  from `ChiselContext` init config).
 
-- **Multi-chip** handling (per-device tensor lists, per-device comparison)
-- **Cross-binary tensor identity** via `Tensor::globalId` (for tt-xla flows where outputs from one binary become inputs to another)
-- **Unmapped ops** — what happens when an op has no entry in `GOLDEN_MAPPINGS`? (fail-hard vs warn-and-skip)
+- **Aggregate metrics**: `postProgram` should compute and log min/max/mean PCC
+  across all ops in the program. Design is in dump.md but implementation
+  details (where to store, how to display) need specification.
 
-## Open questions
+## Still Open
 
-- The question about `load_cache` and `funcCall` ops is noted but the docs don't answer it either — this remains an open item.
+- **Multi-output ops**: Some ops (Sort, MaxPool2dWithIndices,
+  BatchNormTraining) produce multiple outputs. The iterator/hierarchy change
+  doesn't address this. Depends on PR 0b (`getOpOutputRef` returning
+  `std::vector<TensorRef>`).
+
+- **Multi-chip handling**: Per-device tensor lists, per-device comparison.
+  Not addressed by hierarchical redesign. Needs separate analysis.
+
+- **Unmapped ops**: What happens when an op has no entry in
+  `GOLDEN_MAPPINGS`? Current plan is fail-hard (`RuntimeError`). Should this
+  be configurable (fail-hard vs warn-and-skip)?
+
+- **`load_cache` and `funcCall` ops**: How to handle these special ops in the
+  callback flow. Open question from original dump.md, not yet answered.
