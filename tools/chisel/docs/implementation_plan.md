@@ -100,10 +100,10 @@ Consolidate 3 duplicate PCC/comparison implementations into a single
 `tools/golden/metrics.py` module:
 - `tools/builder/base/builder_runtime.py` — `get_atol_rtol_pcc()`, `check_outputs()` (numpy-based)
 - `tools/ttrt/common/util.py` — near-identical copy with logging + message string
-- `runtime/tools/chisel/chisel/utils/metrics.py` — pure torch, has shape alignment
+- `runtime/tools/chisel/chisel/utils/metrics.py` — pure torch
 
 The unified module uses pure torch (no numpy), exposes `compute_pcc()`,
-`compute_atol()`, `compute_rtol()`, `compute_metrics()`, and `align_shapes()`.
+`compute_atol()`, `compute_rtol()`, and `compute_metrics()`.
 Builder's `check_outputs()` keeps its signature but delegates internally.
 
 **Must land before PR 3.** Can be developed in parallel with PRs 1-2.

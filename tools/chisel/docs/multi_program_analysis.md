@@ -50,6 +50,66 @@ Callback signature: `(Binary, CallbackContext, OpContext)`
 - Callbacks are registered once globally via `DebugHooks.get()` and fire for
   ALL program executions.
 
+### Binary vs Program
+
+A **Binary** (`TTNNBinary`) is a serialized flatbuffer file containing one or
+more programs, a system descriptor, and optionally the original MLIR source
+(`include/ttmlir/Target/TTNN/binary.fbs`):
+
+```
+TTNNBinary {
+  version, schema_hash, ttmlir_git_hash,
+  system_desc,
+  mlir,
+  programs: [Program]    // one or more programs
+}
+```
+
+A **Program** is a named sequence of operations within a binary, corresponding
+to a single MLIR function (e.g. `forward`, `backward`, or a const-eval helper).
+Each program has its own inputs, outputs, and operation list
+(`include/ttmlir/Target/TTNN/program.fbs:151-161`):
+
+```
+Program {
+  name,                  // e.g. "forward", "backward"
+  inputs: [TensorRef],
+  outputs: [TensorRef],
+  operations: [Operation],
+  private: bool,         // true for internal-only (e.g. hoisted const-eval)
+  mesh_shape
+}
+```
+
+A single binary can contain multiple programs — for example, a training binary
+might have a forward pass (program 0), a backward pass (program 1), and a
+const-eval function (program 2, marked private). Each call to
+`submit(device, binary, program_index, inputs)` executes exactly one program.
+
+### Runtime Identifiers
+
+The runtime provides several identifiers for tracking execution across programs
+and binaries:
+
+| Identifier | Type | Source | Scope |
+|---|---|---|---|
+| `Binary::binaryId` | `static atomic<uint64_t>` | `runtime/lib/binary.cpp:56-58` | Unique per `Binary` construction, process-wide |
+| `Tensor::globalId` | `static atomic<uint64_t>` | `runtime/lib/common/types.cpp:192-194` | Unique per `Tensor` construction, process-wide |
+| Program index | `uint32_t` | `program_index` arg to `submit()` | Positional within a binary (0, 1, 2...) |
+
+Programs have **no process-wide counter** of their own. To uniquely identify a
+program execution across all binaries, use the composite key
+`(binary.id, program_index)`.
+
+**`Tensor::globalId` vs `TensorRef.global_id`**: The flatbuffer-level
+`TensorRef.global_id` is assigned at compile time and scoped per-binary — it
+serves as an index into `ProgramTensorPool`. The runtime-level
+`Tensor::globalId` is assigned at tensor construction via a static atomic
+counter and is unique across all binaries, programs, and executors within a
+process. `ProgramExecutor` stores **pointers** to the original input `Tensor`
+objects (`program_executor.cpp:126-127`), not copies, so `Tensor::globalId`
+survives across program and binary boundaries.
+
 ## Problem 1: Stale TensorRefs
 
 ### Root Cause

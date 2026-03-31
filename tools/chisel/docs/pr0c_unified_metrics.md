@@ -48,14 +48,6 @@ dependencies, and return types.
 from typing import Dict, List, Optional, Tuple
 import torch
 
-def align_shapes(
-    golden: torch.Tensor,
-    calculated: torch.Tensor,
-) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
-    """Squeeze/broadcast/permute/flatten to make shapes match.
-    Returns (None, None) if alignment is impossible.
-    Ported from chisel's _to_common_shape — the most robust implementation."""
-
 def mask_inf_nan(tensor: torch.Tensor) -> torch.Tensor:
     """Clone tensor and zero out inf/nan values. Returns cleaned clone."""
 
@@ -113,19 +105,14 @@ def get_topk_diff(
    `.detach().numpy()` conversions. The torch implementation uses
    `sum(x_centered * y_centered) / sqrt(sum(x²) * sum(y²))` directly.
 
-2. **`align_shapes` is opt-in** — Builder and ttrt callers already ensure
-   matching shapes before calling PCC. Chisel needs shape alignment for
-   minor layout differences. Making it a separate function keeps the core
-   metrics pure and lets callers compose as needed.
-
-3. **No logging parameter** — The ttrt variant passes `logging` only to emit
+2. **No logging parameter** — The ttrt variant passes `logging` only to emit
    debug messages inside PCC. Callers should log before/after instead.
 
-4. **No message string in return** — The ttrt 4-tuple return
+3. **No message string in return** — The ttrt 4-tuple return
    `(atol, rtol, pcc, message_string)` couples formatting with computation.
    Callers format the returned dict however they like.
 
-5. **`compute_metrics` returns a dict** — Superset of builder's `check_outputs`
+4. **`compute_metrics` returns a dict** — Superset of builder's `check_outputs`
    result dict and ttrt's callback result dict. Callers pick what they need.
 
 ### Edge Case Reconciliation
@@ -137,7 +124,7 @@ The three implementations disagree in a few spots. The unified version resolves:
 | Single-element tensor | `cosine_similarity` fallback + `isclose` | `allclose` fallback | `torch.isclose` (builder/ttrt approach, more precise for scalars) |
 | Constant tensors (all same value) | `isclose` on max values | Zero-variance → `equal()` | Zero-variance check → `torch.equal` fallback |
 | numpy vs torch PCC | `np.ma.corrcoef` | `sum(x*y) / sqrt(sx² * sy²)` | Pure torch (equivalent, no numpy dependency) |
-| Shape mismatch | Caller's responsibility | `_to_common_shape` with squeeze/broadcast/permute/flatten | `align_shapes()` as separate opt-in utility |
+| Shape mismatch | Caller's responsibility | `_to_common_shape` with squeeze/broadcast/permute/flatten | Not needed — single-module TTNN means shapes match by construction |
 | bfloat16 upcast | Explicit `bfloat16 → float32` check | Generic `.to(float32)` | Generic `.to(float32)` for all low-precision dtypes |
 | MaskedConstant return | Returns 1.0 | N/A (no numpy) | N/A — zero-variance check handles this |
 
@@ -188,7 +175,6 @@ declare_mlir_python_sources(GoldenSources
 ```python
 from .mapping import *
 from .metrics import (
-    align_shapes,
     mask_inf_nan,
     compute_pcc,
     compute_atol,
@@ -212,13 +198,6 @@ Merge in builder/ttrt edge cases:
 - Single-element `isclose` fallback (builder line 270-276)
 - bfloat16 → float32 upcast (builder line 137-140)
 - Empty tensor handling (builder/ttrt line 108-117)
-
-### `align_shapes` base: chisel's `_to_common_shape`
-
-Port from `runtime/tools/chisel/chisel/utils/metrics.py:7-60`. This is the
-most robust shape alignment (6 strategies: direct equality, squeeze,
-broadcast, permute, merge-last-two-dims, full flatten). Rename parameter
-names from `x`/`y` to `golden`/`calculated`.
 
 ### Old chisel (`runtime/tools/chisel/`)
 
@@ -252,11 +231,6 @@ deprecated by the rewrite. The new `tools/chisel/` imports from
 - `test_mixed_nan_tensors()` — one all-NaN returns 0.0
 - `test_inf_tensors()` — inf handling
 - `test_scalar_tensors()` — 0-dim tensors
-
-**Shape alignment tests:**
-- `test_align_shapes_broadcast()` — `(1, 4)` vs `(4,)` aligned correctly
-- `test_align_shapes_squeeze()` — extra singleton dims are squeezed
-- `test_align_shapes_impossible()` — incompatible shapes return `(None, None)`
 
 **Full metrics tests:**
 - `test_compute_metrics_returns_all_keys()` — verify all expected keys in result dict

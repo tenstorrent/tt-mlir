@@ -89,10 +89,6 @@ Tests for the shared `tools/golden/metrics.py` module.
 | `test_abs_err_nan_nan` | Both NaN → 0.0 |
 | `test_rel_err_zero` | Identical tensors → 0.0 |
 | `test_rel_err_known` | Verify against hand-computed value |
-| `test_to_common_shape_squeeze` | Verifies squeeze path |
-| `test_to_common_shape_permute` | Verifies permutation path |
-| `test_to_common_shape_flatten` | Verifies flatten fallback |
-
 ### 3.2 Config (`test_config.py`)
 
 | Test | Description |
