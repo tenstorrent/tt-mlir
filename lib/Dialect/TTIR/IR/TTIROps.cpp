@@ -290,6 +290,22 @@ static DenseElementsAttr reshapeIfSplatAndPresent(RankedTensorType type,
   return nullptr;
 }
 
+// Heuristic for whether constant folding should run when the input is not a
+// splat, based on the output size. Folding is skipped for very large tensors
+// to avoid dramatically increasing compile time and memory usage.
+static bool shouldFold(mlir::Operation *op) {
+  constexpr int64_t foldLimit = 1'000'000;
+  mlir::Type resultType = op->getResult(0).getType();
+  if (auto shapedType = mlir::dyn_cast<mlir::ShapedType>(resultType)) {
+    llvm::ArrayRef<int64_t> shape = shapedType.getShape();
+    if (std::reduce(shape.begin(), shape.end(), 1, std::multiplies<int64_t>()) <
+        foldLimit) {
+      return true;
+    }
+  }
+  return false;
+}
+
 //===----------------------------------------------------------------------===//
 // LogicalAndOp
 //===----------------------------------------------------------------------===//
@@ -884,6 +900,9 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 ::mlir::OpFoldResult mlir::tt::ttir::NegOp::fold(FoldAdaptor adaptor) {
   Attribute attr = adaptor.getInput();
   if (!attr) {
+    return nullptr;
+  }
+  if (!shouldFold(*this)) {
     return nullptr;
   }
 
@@ -2658,20 +2677,15 @@ constantFoldSliceStatic(mlir::tt::ttir::SliceStaticOp op,
     // would prevent folding of consecutive SliceStaticOps.
     return nullptr;
   }
+  if (!shouldFold(op)) {
+    return nullptr;
+  }
 
   if (auto denseAttr =
           mlir::dyn_cast_if_present<DenseElementsAttr>(constInput)) {
     if (denseAttr.empty()) {
       return mlir::DenseElementsAttr::get(op.getType(),
                                           llvm::ArrayRef<mlir::Attribute>{});
-    }
-    llvm::ArrayRef<int64_t> outputShape = op.getType().getShape();
-    constexpr int64_t maxElements = 1'000'000;
-    if (std::reduce(outputShape.begin(), outputShape.end(), 1,
-                    std::multiplies<int64_t>()) > maxElements) {
-      // Avoid folding if the number of elements is too large, to prevent
-      // excessive compile time and memory usage.
-      return nullptr;
     }
 
     if (denseAttr.getElementType().isFloat()) {
@@ -5229,14 +5243,11 @@ static mlir::OpFoldResult constantFoldPermute(mlir::tt::ttir::PermuteOp op,
     // Don't constant fold yet if folding of consecutive permutes is possible
     return nullptr;
   }
+  if (!shouldFold(op)) {
+    return nullptr;
+  }
 
   if (auto denseElements = dyn_cast_if_present<DenseElementsAttr>(input)) {
-    constexpr int64_t foldLimit = 1'000'000;
-    // Limit constant folding to small tensors to avoid long compile times and
-    // large memory usage.
-    if (denseElements.getNumElements() > foldLimit) {
-      return nullptr;
-    }
     if (denseElements.getElementType().isInteger()) {
       return constantFoldNonSplatPermute<llvm::APInt>(op, denseElements);
     }

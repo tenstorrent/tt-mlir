@@ -423,7 +423,9 @@ inline mlir::Value reshapeAndCastToType(mlir::PatternRewriter &rewriter,
 // fill value in ttir::FullOp. Returns nullptr on failure.
 inline mlir::Attribute splatToFillValue(mlir::OpBuilder &builder,
                                         mlir::ElementsAttr valueAttr) {
-  if (!valueAttr.isSplat()) {
+  // valueAttr is ElementsAttr (not SplatElementsAttr) because ConstantOp's
+  // value attribute uses that type; this helper is mainly for that case.
+  if (!valueAttr || !valueAttr.isSplat()) {
     return nullptr;
   }
 
@@ -435,7 +437,7 @@ inline mlir::Attribute splatToFillValue(mlir::OpBuilder &builder,
     }
     return builder.getI32IntegerAttr(fillValue.getZExtValue());
   }
-  if (valueAttr.getElementType().isIntOrFloat()) {
+  if (valueAttr.getElementType().isFloat()) {
     auto fillValue = valueAttr.getSplatValue<mlir::APFloat>();
     return builder.getF32FloatAttr(fillValue.convertToDouble());
   }
