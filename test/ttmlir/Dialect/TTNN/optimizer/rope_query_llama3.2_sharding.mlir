@@ -23,7 +23,7 @@ module {
         %1 = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 1 : i32, 1 : i32, 64 : i32]}> : (tensor<1x1x1x64xbf16, #ttnn_layout>) -> tensor<1x1x1x64xbf16, #ttnn_layout2>
         // CHECK: "ttnn.rotary_embedding"{{.*}}height_sharded
         %2 = "ttnn.rotary_embedding"(%arg1, %0, %1) : (tensor<1x1x32x64xbf16, #ttnn_layout1>, tensor<1x1x1x64xbf16, #ttnn_layout2>, tensor<1x1x1x64xbf16, #ttnn_layout2>) -> tensor<1x1x32x64xbf16, #ttnn_layout1>
-        %3 = "ttnn.add"(%2, %2) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x1x32x64xbf16, #ttnn_layout1>, tensor<1x1x32x64xbf16, #ttnn_layout1>) -> tensor<1x1x32x64xbf16, #ttnn_layout1>
+        %3 = "ttnn.add"(%2, %2) <{dtype = #ttcore.supportedDataTypes<bf16>, activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x32x64xbf16, #ttnn_layout1>, tensor<1x1x32x64xbf16, #ttnn_layout1>) -> tensor<1x1x32x64xbf16, #ttnn_layout1>
         return %3 : tensor<1x1x32x64xbf16, #ttnn_layout1>
       }
     }

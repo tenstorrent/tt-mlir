@@ -86,21 +86,29 @@ llvm::Expected<bool> checkDeviceWorkerGrid(mlir::Operation *op) {
   return op_model::Device::getDeviceConstraints(deviceAttr.getWorkerGrid());
 }
 
-llvm::SmallVector<int64_t>
-convertArrayAttrToSmallVec(mlir::ArrayAttr arrayAttr) {
-  llvm::SmallVector<int64_t> result;
-  for (const mlir::Attribute &attr : arrayAttr) {
-    result.push_back(mlir::cast<mlir::IntegerAttr>(attr).getInt());
-  }
-  return result;
+template <typename TargetTy,
+          std::enable_if_t<std::is_integral_v<TargetTy>> * = nullptr>
+llvm::SmallVector<TargetTy> convertAttr(mlir::ArrayAttr arrayAttr) {
+  return llvm::map_to_vector(arrayAttr, [](mlir::Attribute attr) {
+    return mlir::cast<mlir::IntegerAttr>(attr).getInt();
+  });
 }
 
-std::optional<llvm::SmallVector<int64_t>>
-convertOptionalArrayAttrToSmallVec(std::optional<mlir::ArrayAttr> arrayAttr) {
-  if (!arrayAttr.has_value()) {
-    return std::nullopt;
-  }
-  return convertArrayAttrToSmallVec(arrayAttr.value());
+template <
+    typename TargetTy,
+    std::enable_if_t<std::is_same_v<TargetTy, UnaryWithParamAttr>> * = nullptr>
+llvm::SmallVector<TargetTy> convertAttr(mlir::ArrayAttr arrayAttr) {
+  return llvm::map_to_vector(arrayAttr, [](mlir::Attribute attr) {
+    return mlir::cast<TargetTy>(attr);
+  });
+}
+
+template <typename TargetTy>
+std::optional<llvm::SmallVector<TargetTy>>
+convertAttr(std::optional<mlir::ArrayAttr> arrayAttr) {
+  return llvm::transformOptional(arrayAttr, [](mlir::ArrayAttr attr) {
+    return convertAttr<TargetTy>(attr);
+  });
 }
 
 template <typename OpT>
@@ -158,7 +166,11 @@ getBinaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShapeA,
-      inputs[0], inputShapeB, inputs[1], opConfig.outputLayout, opDtypeAttr);
+      inputs[0], inputShapeB, inputs[1],
+      detail::convertAttr<UnaryWithParamAttr>(op.getActivations()),
+      detail::convertAttr<UnaryWithParamAttr>(op.getInputTensorAActivations()),
+      detail::convertAttr<UnaryWithParamAttr>(op.getInputTensorBActivations()),
+      opConfig.outputLayout, opDtypeAttr);
 }
 
 template <typename OpT>
@@ -170,9 +182,13 @@ getBinaryOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShapeA = op.getLhs().getType().getShape();
   const auto inputShapeB = op.getRhs().getType().getShape();
 
-  return opRuntimeCache().getOrCompute(op_model::OpModel<OpT>::getOpRuntime, op,
-                                       inputShapeA, inputs[0], inputShapeB,
-                                       inputs[1], opConfig.outputLayout);
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<OpT>::getOpRuntime, op, inputShapeA, inputs[0],
+      inputShapeB, inputs[1],
+      detail::convertAttr<UnaryWithParamAttr>(op.getActivations()),
+      detail::convertAttr<UnaryWithParamAttr>(op.getInputTensorAActivations()),
+      detail::convertAttr<UnaryWithParamAttr>(op.getInputTensorBActivations()),
+      opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -227,8 +243,8 @@ getReductionOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
-      inputs[0], detail::convertOptionalArrayAttrToSmallVec(op.getDimArg()),
-      op.getKeepDim(), opConfig.outputLayout);
+      inputs[0], detail::convertAttr<int64_t>(op.getDimArg()), op.getKeepDim(),
+      opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -239,8 +255,8 @@ getReductionOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape = op.getInput().getType().getShape();
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
-      detail::convertOptionalArrayAttrToSmallVec(op.getDimArg()),
-      op.getKeepDim(), opConfig.outputLayout);
+      detail::convertAttr<int64_t>(op.getDimArg()), op.getKeepDim(),
+      opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -1667,9 +1683,9 @@ SliceStaticOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<SliceStaticOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], detail::convertArrayAttrToSmallVec(getBegins()),
-      detail::convertArrayAttrToSmallVec(getEnds()),
-      detail::convertArrayAttrToSmallVec(getStep()), opConfig.outputLayout);
+      inputShape, inputs[0], detail::convertAttr<int64_t>(getBegins()),
+      detail::convertAttr<int64_t>(getEnds()),
+      detail::convertAttr<int64_t>(getStep()), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1681,9 +1697,9 @@ SliceStaticOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<SliceStaticOp>::getOpRuntime, *this, inputShape,
-      inputs[0], detail::convertArrayAttrToSmallVec(getBegins()),
-      detail::convertArrayAttrToSmallVec(getEnds()),
-      detail::convertArrayAttrToSmallVec(getStep()), opConfig.outputLayout);
+      inputs[0], detail::convertAttr<int64_t>(getBegins()),
+      detail::convertAttr<int64_t>(getEnds()),
+      detail::convertAttr<int64_t>(getStep()), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1709,8 +1725,7 @@ SliceDynamicOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<SliceDynamicOp>::getOpConstraints, *this, deviceGrid,
       inputShape, inputs[0], beginsShape, inputs[1], endsShape, inputs[2],
-      detail::convertOptionalArrayAttrToSmallVec(getStep()),
-      opConfig.outputLayout);
+      detail::convertAttr<int64_t>(getStep()), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1725,8 +1740,7 @@ SliceDynamicOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<SliceDynamicOp>::getOpRuntime, *this, inputShape,
       inputs[0], beginsShape, inputs[1], endsShape, inputs[2],
-      detail::convertOptionalArrayAttrToSmallVec(getStep()),
-      opConfig.outputLayout);
+      detail::convertAttr<int64_t>(getStep()), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

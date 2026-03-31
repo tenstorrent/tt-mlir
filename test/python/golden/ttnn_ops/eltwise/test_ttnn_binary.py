@@ -17,10 +17,132 @@ from test_utils import (
     shape_str,
     shapes_list_str,
 )
+from ttmlir.ir import ArrayAttr, UnitAttr
 from ttmlir.dialects import ttnn
 
 
 pytestmark = pytest.mark.frontend("ttnn")
+
+
+def relu_activation(x: torch.Tensor) -> torch.Tensor:
+    return torch.relu(x)
+
+
+def sigmoid_activation(x: torch.Tensor) -> torch.Tensor:
+    return torch.sigmoid(x)
+
+
+activation_specs = [
+    pytest.param(
+        "relu",
+        relu_activation,
+        ttnn.UnaryOpType.Relu,
+        id="relu",
+    ),
+    pytest.param(
+        "sigmoid",
+        sigmoid_activation,
+        ttnn.UnaryOpType.Sigmoid,
+        id="sigmoid",
+    ),
+]
+
+binary_activation_slots = [
+    pytest.param("input_a", id="input_a"),
+    pytest.param("input_b", id="input_b"),
+    pytest.param("output", id="output"),
+]
+
+
+def make_activation_array(
+    builder: TTNNBuilder, unary_op_type: Optional[ttnn.UnaryOpType]
+) -> ArrayAttr:
+    if unary_op_type is None:
+        return ArrayAttr.get([])
+
+    return ArrayAttr.get(
+        [ttnn.ir.UnaryWithParamAttr.get(builder._ctx, unary_op_type, [])]
+    )
+
+
+def create_binary_op_with_activations(
+    builder: TTNNBuilder,
+    op_class: type,
+    in0: Operand,
+    in1: Operand,
+    *,
+    has_dtype: bool,
+    input_tensor_a_activation: Optional[
+        Tuple[str, Callable[[torch.Tensor], torch.Tensor], ttnn.UnaryOpType]
+    ] = None,
+    input_tensor_b_activation: Optional[
+        Tuple[str, Callable[[torch.Tensor], torch.Tensor], ttnn.UnaryOpType]
+    ] = None,
+    output_activation: Optional[
+        Tuple[str, Callable[[torch.Tensor], torch.Tensor], ttnn.UnaryOpType]
+    ] = None,
+    unit_attrs: Optional[List[str]] = None,
+):
+    mlir_output_type = builder.get_type(in0)
+    input0 = builder._get_golden_tensor(in0)
+    input1 = builder._get_golden_tensor(in1)
+
+    input_a_tensor = (
+        input_tensor_a_activation[1](input0) if input_tensor_a_activation else input0
+    )
+    input_b_tensor = (
+        input_tensor_b_activation[1](input1) if input_tensor_b_activation else input1
+    )
+
+    op_golden_function = get_golden_function(op_class)
+    golden_output = op_golden_function(input_a_tensor, input_b_tensor, mlir_output_type)
+    if output_activation:
+        golden_output = output_activation[1](golden_output)
+
+    result = builder.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+    loc = builder._get_location()
+
+    activations = make_activation_array(
+        builder, output_activation[2] if output_activation else None
+    )
+    input_tensor_a_activations = make_activation_array(
+        builder, input_tensor_a_activation[2] if input_tensor_a_activation else None
+    )
+    input_tensor_b_activations = make_activation_array(
+        builder, input_tensor_b_activation[2] if input_tensor_b_activation else None
+    )
+
+    if has_dtype:
+        dtype = builder._get_data_type_attribute(in0)
+        op = op_class(
+            result,
+            in0,
+            in1,
+            dtype=dtype,
+            memory_config=None,
+            activations=activations,
+            input_tensor_a_activations=input_tensor_a_activations,
+            input_tensor_b_activations=input_tensor_b_activations,
+            loc=loc,
+        )
+    else:
+        op = op_class(
+            result,
+            in0,
+            in1,
+            memory_config=None,
+            activations=activations,
+            input_tensor_a_activations=input_tensor_a_activations,
+            input_tensor_b_activations=input_tensor_b_activations,
+            loc=loc,
+        )
+
+    if unit_attrs is not None:
+        for attr_name in unit_attrs:
+            op.operation.attributes[attr_name] = UnitAttr.get(builder._ctx)
+
+    builder._set_golden_tensor(op.result, golden_output)
+    return op.result
 
 
 def module_add(builder: TTNNBuilder):
@@ -188,6 +310,71 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
         target=target,
         device=device,
         pipeline_options=pipeline_options,
+    )
+
+
+activated_binary_ops = [
+    pytest.param("add", ttnn.AddOp, True, id="add"),
+    pytest.param("maximum", ttnn.MaximumOp, False, id="maximum"),
+    pytest.param("multiply", ttnn.MultiplyOp, True, id="multiply"),
+]
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("activation_slot", binary_activation_slots)
+@pytest.mark.parametrize(
+    "activation_name,activation_fn,activation_type", activation_specs
+)
+@pytest.mark.parametrize("op_name,op_class,has_dtype", activated_binary_ops)
+def test_binary_ops_with_activations(
+    op_name: str,
+    op_class: type,
+    has_dtype: bool,
+    activation_name: str,
+    activation_fn: Callable[[torch.Tensor], torch.Tensor],
+    activation_type: ttnn.UnaryOpType,
+    activation_slot: str,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTNNBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def binary_op_fn(
+            in0: Operand,
+            in1: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            activation = (activation_name, activation_fn, activation_type)
+            input_tensor_a_activation = (
+                activation if activation_slot == "input_a" else None
+            )
+            input_tensor_b_activation = (
+                activation if activation_slot == "input_b" else None
+            )
+            output_activation = activation if activation_slot == "output" else None
+            return create_binary_op_with_activations(
+                builder,
+                op_class,
+                in0,
+                in1,
+                has_dtype=has_dtype,
+                input_tensor_a_activation=input_tensor_a_activation,
+                input_tensor_b_activation=input_tensor_b_activation,
+                output_activation=output_activation,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
     )
 
 

@@ -20,7 +20,7 @@ module attributes {} {
     // CHECK-SAME: (%[[SUB_RES]]
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
 
-    %1 = "ttnn.subtract"(%arg0, %arg1) <{operandSegmentSizes = array<i32: 2, 0>, dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x1x32x32xsi32, #ttnn_layout_row_major_si32>, tensor<1x1x32x32xsi32, #ttnn_layout_row_major_si32>) -> tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
+    %1 = "ttnn.subtract"(%arg0, %arg1) <{operandSegmentSizes = array<i32: 2, 0>, dtype = #ttcore.supportedDataTypes<bf16>, activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x32x32xsi32, #ttnn_layout_row_major_si32>, tensor<1x1x32x32xsi32, #ttnn_layout_row_major_si32>) -> tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
 
     return %1 : tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
   }
@@ -37,7 +37,7 @@ module attributes {} {
     // CHECK-SAME: (%[[ADD_RES]]
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
 
-    %1 = "ttnn.add"(%arg0, %arg1) <{operandSegmentSizes = array<i32: 2, 0>, dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x1x32x32xbf16, #ttnn_layout_row_major_bf16>, tensor<1x1x32x32xbf16, #ttnn_layout_row_major_bf16>) -> tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
+    %1 = "ttnn.add"(%arg0, %arg1) <{operandSegmentSizes = array<i32: 2, 0>, dtype = #ttcore.supportedDataTypes<bf16>, activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x32x32xbf16, #ttnn_layout_row_major_bf16>, tensor<1x1x32x32xbf16, #ttnn_layout_row_major_bf16>) -> tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
 
     return %1 : tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
   }
