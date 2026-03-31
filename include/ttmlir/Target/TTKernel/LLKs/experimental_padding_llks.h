@@ -87,18 +87,6 @@ inline void _write_col_mask_to_l1_(volatile T *ptr, uint32_t validCols,
   }
 }
 
-// Include fill.h for ckernel::fill_tile
-#include "api/compute/eltwise_unary/fill.h"
-
-// Fill a tile in DST with a constant scalar value.
-// Uses the standard fill_tile API from compute_kernel_api.
-template <DataFormat df = DataFormat::Float32>
-ALWI void tile_fill(uint32_t dst_index, float value) {
-  static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b,
-                "tile_fill: unsupported DataFormat");
-  MATH((ckernel::fill_tile(dst_index, value)));
-}
-
 // CB-based mask write functions - write mask patterns directly to CB memory.
 // Compiled for TRISC_UNPACK so UNPACK thread blocks until mask is written.
 // NO cb_reserve_back/push_back - DM kernel handles CB allocation.

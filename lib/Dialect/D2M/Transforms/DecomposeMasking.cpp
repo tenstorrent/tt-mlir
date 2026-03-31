@@ -212,7 +212,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
 
     // === Tile operation helpers ===
     auto createFillTile = [&]() {
-      return rewriter.create<TileFillOp>(loc, tileType, fillScalar).getResult();
+      return rewriter.create<FillTileOp>(loc, tileType, fillScalar).getResult();
     };
 
     auto emitPassthrough = [&](Value localRowIdx, Value localColIdx) {
