@@ -11,6 +11,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
+#include <cstdint>
 #include <thread>
 
 namespace tt::runtime::distributed::worker {
@@ -341,8 +342,15 @@ void CommandExecutor::execute(uint64_t commandId,
   uint32_t itemSize = command->item_size();
   ::tt::target::DataType dataType = command->data_type();
 
-  ::tt::runtime::Tensor tensor = ::tt::runtime::createOwnedHostTensor(
-      tensorData, shape, stride, itemSize, dataType);
+  // try get from cache
+  std::shared_ptr<std::vector<uint8_t>> cachedTensorData =
+      tensorDataCache_.insert_or_assign(tensorData, shape, stride, itemSize,
+                                        dataType);
+
+  // ::tt::runtime::Tensor tensor = ::tt::runtime::createOwnedHostTensor(
+  //     tensorData, shape, stride, itemSize, dataType);
+  tt::runtime::Tensor tensor = ::tt::runtime::createBorrowedHostTensor(
+      cachedTensorData->data(), shape, stride, itemSize, dataType);
 
   tensor.setGlobalId(tensorGlobalId);
 
