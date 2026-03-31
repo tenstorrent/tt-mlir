@@ -242,6 +242,83 @@ The builder already creates/destroys `ChiselContext` per `execute_fb()` call
 callers that don't re-create, the `module_provider` provides transparent
 handling.
 
+## Cross-Binary Tensor Identity via `Tensor::globalId`
+
+### The problem
+
+When tt-xla (or any caller) creates multiple separate flatbuffers and calls
+`submit()` for each one sequentially, tensors flow between completely separate
+binaries. The flatbuffer-level `TensorRef.global_id` is useless here — it's
+assigned at compile time, scoped per-binary, and has no meaning across binaries.
+
+### Runtime-level `Tensor::globalId`
+
+`tt::runtime::Tensor` already carries a runtime-level `globalId` field
+(`runtime/include/tt/runtime/types.h:395-412`) that is distinct from the
+flatbuffer `TensorRef.global_id`:
+
+```cpp
+// runtime/lib/common/types.cpp:192-194
+std::uint64_t Tensor::nextTensorGlobalId() {
+  static std::atomic<std::uint64_t> globalId = 0;
+  return globalId.fetch_add(1, std::memory_order_relaxed);
+}
+```
+
+Properties:
+- **Process-scoped**: unique across all binaries, programs, and executors
+- **Assigned at construction**: every `Tensor` object gets a unique ID
+- **Survives across program boundaries**: `ProgramExecutor` stores **pointers**
+  to the original input `Tensor` objects (`program_executor.cpp:126-127`), not
+  copies — the `globalId` is preserved
+
+This means when tt-xla passes output tensors from `submit(binaryA)` as inputs
+to `submit(binaryB)`, the receiving `ProgramExecutor` points to the same
+`Tensor` objects with the same `globalId`.
+
+### `TensorRef.global_id` vs `Tensor::globalId`
+
+| | `TensorRef.global_id` | `Tensor::globalId` |
+|---|---|---|
+| Assigned at | Compile time (flatbuffer emission) | Runtime (`Tensor` construction) |
+| Scope | Per-binary | Process-wide |
+| Source | `FlatbufferObjectCache::nextGlobalId()` | `Tensor::nextTensorGlobalId()` (static atomic) |
+| Purpose | Index into `ProgramTensorPool` | Unique tensor identity across all executions |
+| Cross-binary | Not meaningful | Preserved when same `Tensor` object is reused |
+
+### Usage pattern for Chisel
+
+Using `pre_program`/`post_program` callbacks, Chisel can track which tensors
+were produced by previous programs and detect cross-program tensor reuse:
+
+```python
+self._output_tensor_origins = {}  # Tensor::globalId -> program metadata
+
+def post_program(self, binary, programContext):
+    for tensor in get_program_output_tensors(programContext):
+        self._output_tensor_origins[tensor.global_id] = {
+            "binary_id": binary.id,
+            "program_index": get_program_index(programContext),
+        }
+
+def pre_program(self, binary, programContext):
+    for tensor in get_program_input_tensors(programContext):
+        origin = self._output_tensor_origins.get(tensor.global_id)
+        if origin is not None:
+            # This input was an output of a previous program execution
+            # -> reuse its golden value from golden_tensor_pool
+```
+
+### Required bindings
+
+This pattern requires new Python bindings not yet exposed:
+- `Tensor.global_id` — expose `Tensor::getGlobalId()` to Python
+- `get_program_input_tensors(CallbackContext)` — return the `Tensor` objects
+  from `ProgramTensorPool` for the program's input IDs
+- `get_program_output_tensors(CallbackContext)` — same for output IDs
+- `get_program_index(CallbackContext)` — expose
+  `ProgramContext::getProgramIndex()` (`types.h:312`)
+
 ## Report Per-Program Support
 
 Add `start_program(program_index)` to `ReportWriter`. Two options:
@@ -258,7 +335,8 @@ resets per-program state.
 | Component | Change |
 |-----------|--------|
 | `runtime/python/binary/binary.cpp` | Expose `Binary.id` property (1 line) |
-| `context.py` (new chisel) | Add `_check_program_transition()`, `_reset_for_new_program()`, `_handle_binary_change()`, `module_provider` parameter |
+| `runtime/python/runtime/runtime.cpp` | Expose `Tensor.global_id`, `get_program_input_tensors()`, `get_program_output_tensors()`, `get_program_index()` |
+| `context.py` (new chisel) | Add `_check_program_transition()`, `_reset_for_new_program()`, `_handle_binary_change()`, `module_provider` parameter, cross-binary tensor tracking via `Tensor::globalId` |
 | `tensors.py` (new chisel) | No change — `TensorPool.clear()` from `dict` is sufficient |
 | `report.py` (new chisel) | Add `start_program()` method, `program_index` column |
 | `callbacks.py` (new chisel) | No change — already passes `binary` through to context |
