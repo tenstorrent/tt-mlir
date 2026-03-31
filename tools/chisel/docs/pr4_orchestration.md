@@ -55,17 +55,24 @@ if enable_chisel and enable_intermediate_verification:
 ```python
 if enable_chisel:
     from chisel.context import ChiselContext
-    from chisel.callbacks import chisel_pre_op_callback, chisel_post_op_callback
-
-    # No binary needed here — ChiselContext extracts the TTNN MLIR from
-    # the binary on the first preop callback invocation.
-    chisel_ctx = ChiselContext(
-        output_dir=Path(chisel_output_dir),
-        report_path=Path(chisel_report_path),
-    )
-    tt_runtime.runtime.DebugHooks.get(
+    from chisel.callbacks import (
+        chisel_pre_program_callback,
+        chisel_post_program_callback,
         chisel_pre_op_callback,
         chisel_post_op_callback,
+    )
+
+    # No binary needed here — BinaryState is created lazily on first
+    # preProgram callback when binary.id and MLIR source are available.
+    chisel_ctx = ChiselContext(
+        output_dir=Path(chisel_output_dir),
+        report_base_path=Path(chisel_report_path),
+    )
+    tt_runtime.runtime.DebugHooks.register(
+        pre_program=chisel_pre_program_callback,
+        post_program=chisel_post_program_callback,
+        pre_op=chisel_pre_op_callback,
+        post_op=chisel_post_op_callback,
     )
 elif verify_intermediates or dump_memory:
     tt_runtime.runtime.DebugHooks.get(
@@ -116,11 +123,11 @@ execute_fb(
 
 ### TTNN Module Access
 
-ChiselContext reads the TTNN MLIR text string directly from the flatbuffer
+`BinaryState` reads the TTNN MLIR text string directly from the flatbuffer
 binary's `TTNNBinary.mlir.source` field (always populated, plain MLIR text with
-debug info/locations). The `binary` is available in every preop/postop callback,
-so ChiselContext lazily extracts and parses the MLIR on the first callback
-invocation. No additional parameter threading through builder APIs is needed.
+debug info/locations). The `binary` is available in the `preProgram` callback,
+so `BinaryState` is created lazily on first encounter of a given `binary.id`.
+No additional parameter threading through builder APIs is needed.
 
 ## Porting Notes
 
@@ -160,9 +167,9 @@ initialization/cleanup lifecycle.
   verify `ValueError` is raised
 
 **Callback registration (mock DebugHooks):**
-- `test_chisel_registers_callbacks()` — mock `tt_runtime.runtime.DebugHooks.get`,
-  call `execute_fb(enable_chisel=True)`, verify `DebugHooks.get()` was called
-  with chisel callbacks (not builder's own)
+- `test_chisel_registers_callbacks()` — mock `tt_runtime.runtime.DebugHooks`,
+  call `execute_fb(enable_chisel=True)`, verify all 4 chisel callbacks
+  (preProgram, postProgram, preOp, postOp) are registered (not builder's own)
 - `test_no_chisel_uses_builder_callbacks()` — call with `enable_chisel=False`,
   verify builder's own callback functions are used
 

@@ -26,8 +26,9 @@ tracking), GoldenExecutor (CPU replay via `GOLDEN_MAPPINGS`), and ReportWriter
 
 ### `registry.py`
 
-Tracks TTNN operations from a single IRModule. Massively simplified from the
-old dual-module Registry.
+Tracks TTNN operations from a single IRModule. Scoped per-`BinaryState` —
+each binary gets its own Registry from its parsed module. Massively simplified
+from the old dual-module Registry.
 
 ```python
 class Registry:
@@ -67,7 +68,7 @@ encountered during device execution, the executor replays it with PyTorch.
 class GoldenExecutor:
     def __init__(self, registry: Registry, tensor_pool: TensorPool):
         self.registry = registry
-        self.tensor_pool = tensor_pool
+        self.tensor_pool = tensor_pool  # per-ProgramState golden_tensor_pool
 
     def execute(self, op: Operation) -> Any:
         """
@@ -75,7 +76,7 @@ class GoldenExecutor:
 
         1. Look up op type in GOLDEN_MAPPINGS via get_golden_function()
         2. If not found, raise RuntimeError (fail hard)
-        3. Retrieve input tensors from golden_tensor_pool
+        3. Retrieve input tensors from the per-program golden_tensor_pool
         4. Call golden function with PyTorch tensors
         5. Store result in golden_tensor_pool
         6. Return result
@@ -90,12 +91,16 @@ executor raises `RuntimeError(f"No golden implementation for {type(op).__name__}
 CSV report writer. Simplified from old writer — single AsmState instead of
 dict keyed by ExecutionType.
 
+Scoped per-`BinaryState`. Supports per-program sections via
+`start_program(program_index)`.
+
 ```python
 class ReportWriter:
     def __init__(self, file_path: Path, asm_state: AsmState):
         self.file_path = file_path
         self.asm_state = asm_state
         self.column_names = [
+            "program_index",
             "location",
             "op_name",
             "op_asm",
@@ -108,6 +113,7 @@ class ReportWriter:
 
     def write_header(self) -> None: ...
     def write_row(self, **kwargs) -> None: ...
+    def start_program(self, program_index: int) -> None: ...
 ```
 
 ## Porting Notes
