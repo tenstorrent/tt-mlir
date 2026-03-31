@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/distributed/worker/tensor_data_cache.h"
+#include "tt/runtime/detail/common/logger.h"
 #include <cstdint>
 #include <numeric>
 #include <tt_stl/reflection.hpp>
@@ -18,8 +19,12 @@ std::shared_ptr<void> TensorDataCache::getOrInsert(
 
   if (pool_.contains(tensorHash)) {
     if (auto cached = pool_.at(tensorHash).lock()) {
+      LOG_INFO("TensorDataCache hit for hash ", tensorHash, ", reusing ",
+               cached->size(), " bytes (pool size: ", pool_.size(), ")");
       return std::shared_ptr<void>(cached, cached->data());
     }
+    LOG_INFO("TensorDataCache stale entry for hash ", tensorHash,
+             ", replacing expired weak_ptr");
   }
 
   uint64_t numElements =
@@ -30,6 +35,9 @@ std::shared_ptr<void> TensorDataCache::getOrInsert(
   auto newVector = std::make_shared<std::vector<uint8_t>>(
       tensorDataPtr, tensorDataPtr + length);
   pool_[tensorHash] = newVector;
+
+  LOG_INFO("TensorDataCache miss for hash ", tensorHash, ", copied ", length,
+           " bytes (pool size: ", pool_.size(), ")");
 
   return std::shared_ptr<void>(newVector, newVector->data());
 }
