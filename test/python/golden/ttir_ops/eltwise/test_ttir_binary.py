@@ -796,7 +796,10 @@ hoisted_binary_shapes = [
     [(128, 128), (1, 128)],  # Broadcasting second dimension
     [(128, 128), (128, 1)],  # Broadcasting first dimension
     [(1, 32), (1, 32)],  # Small shapes
+    [(1, 32), (32, 1)],  # Both operands broadcast
+    [(1, 1), (32, 32)],  # Scalar-like broadcast
     [(128, 128, 64), (128, 1, 64)],  # 3D tensors with broadcasting
+    [(1, 1, 64), (128, 128, 64)],  # 3D both leading dims broadcast
     [(7, 41, 43, 11), (7, 41, 43, 11)],  # 4D tensors
 ]
 

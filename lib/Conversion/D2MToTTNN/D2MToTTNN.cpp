@@ -755,6 +755,14 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
   for (auto &info : infos) {
     ios.push_back(info.ioTensor);
   }
+  // Runtime ttnn::generic_op currently requires at least one input and one
+  // output tensor in io_tensors. Some generator-style generics (e.g. fill ->
+  // unary) have only a single output tensor. Mirror that tensor as both input
+  // and output in the IO list so lowering stays within the runtime contract.
+  if (op.getInputs().empty() && op.getOutputs().size() == 1 &&
+      ios.size() == 1) {
+    ios.push_back(ios.front());
+  }
 
   rewriter.setInsertionPoint(op);
   rewriter.replaceOpWithNewOp<ttnn::GenericOp>(op, ios, additionalArgs, program,

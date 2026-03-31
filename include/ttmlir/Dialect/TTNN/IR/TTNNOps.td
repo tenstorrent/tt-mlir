@@ -3473,6 +3473,12 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createScaledDotProductAttentionDecodeOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -3536,6 +3542,12 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createScaledDotProductAttentionOpOperandsWorkarounds(getOperation());
+      }
+    }];
 
     let hasVerifier = 1;
 }

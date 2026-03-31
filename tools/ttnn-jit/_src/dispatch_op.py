@@ -6,17 +6,11 @@ from ttnn_jit._src import (
     submit,
     set_compatible_device_runtime,
     get_current_device_runtime,
-    load_binary_from_path,
     load_binary_from_capsule,
     create_runtime_device_from_ttnn,
     create_runtime_tensor_from_ttnn,
     get_ttnn_tensor_from_runtime_tensor,
 )
-
-
-def run_binary_from_path(binary_path, input_tensors):
-    bin = load_binary_from_path(binary_path)
-    return run_binary(bin, input_tensors)
 
 
 def run_binary_from_capsule(binary_capsule, input_tensors):

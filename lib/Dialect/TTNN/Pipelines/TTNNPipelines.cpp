@@ -360,10 +360,17 @@ void createTTIRToTTNNDevicePipeline(
         devicePm.addPass(mlir::createCanonicalizerPass());
       }
     }
-    createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+
+    // Trace hoisting must run before layout decomposition because it adjusts
+    // layouts of function arguments (e.g. moving inputs to system_memory). It
+    // is much easier to work at the layout abstraction level than on individual
+    // ops after they have been decomposed.
     if (options.enableTrace) {
       devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
     }
+
+    createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+
     // Fold ttcore.optimization_barrier ops before deallocation.
     devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
 

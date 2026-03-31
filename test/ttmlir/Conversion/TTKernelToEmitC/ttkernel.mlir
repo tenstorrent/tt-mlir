@@ -1069,6 +1069,17 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @fill_tile_int
+    func.func @fill_tile_int() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: %[[VAL:.*]] = "emitc.constant"
+      %val = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "fill_tile_int"(%[[DST_INDEX]], %[[VAL]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.fill_tile_int"(%dst_index, %val) : (i32, i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @eqz_tile_init
     func.func @eqz_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "eqz_tile_init"()

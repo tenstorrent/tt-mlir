@@ -161,6 +161,12 @@ RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                newEncoding);
 }
 
+// Helper method to get the buffer type from the tensor layout encoding.
+BufferType getBufferTypeFromTensor(RankedTensorType tensorType) {
+  TTNNLayoutAttr layoutAttr = getLayoutAttrFromTensor(tensorType);
+  return layoutAttr.getBufferType();
+}
+
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies and temporarily within L1 Interleaved
 // Fallback Analysis.
@@ -173,6 +179,19 @@ uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout) {
   }
 
   return opLayout.getShardSizeInBytes();
+}
+
+uint64_t getPerCoreL1Usage(TTNNLayoutAttr layout, uint64_t numCores) {
+  if (!layout.hasL1BufferType()) {
+    return 0;
+  }
+  uint64_t totalSize = layout.getShardSizeInBytes();
+  auto ml = layout.getMemLayout();
+  if (ml && isShardedMemoryLayout(ml.getValue())) {
+    return totalSize;
+  }
+  // L1 interleaved: data is distributed across all device cores.
+  return numCores > 0 ? totalSize / numCores : totalSize;
 }
 
 // Helper method to get the tensor layout attribute from the value.

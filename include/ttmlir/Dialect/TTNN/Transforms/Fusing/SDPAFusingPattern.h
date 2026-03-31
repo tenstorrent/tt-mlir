@@ -42,10 +42,8 @@ private:
 
   // Constant Extraction
   std::optional<float> extractConstant(Value v) const;
-
-  // Q/K Extraction with Scale Handling
-  std::pair<Value, std::optional<float>> extractTensorWithScale(Value v) const;
-  bool extractQKWithScales(Value a, Value b, SDPAComponents &c) const;
+  std::pair<Value, std::optional<float>>
+  extractMultiplyWithConstant(Value v) const;
 
   // Pattern Matching
   bool matchSoftmaxPath(Value v, SDPAComponents &c) const;
@@ -53,15 +51,10 @@ private:
   bool matchScoreChain(Value v, SDPAComponents &c) const;
 
   // Input Canonicalization
-  static Value castToBF16IfNeeded(Value v, PatternRewriter &rewriter);
-  static Value restoreElementTypeIfNeeded(Value v, Type elementType,
-                                          PatternRewriter &rewriter);
-  static Type getTargetElementType(Value v);
-  std::pair<Value, Type> analyzeQ(Value v) const;
-  std::tuple<Value, Type, bool> analyzeK(Value v) const;
-  std::pair<Value, Type> analyzeV(Value v) const;
-  Value prepareMask(Value v) const;
-  void prepareInputsForSDPA(SDPAComponents &c, PatternRewriter &rewriter) const;
+  std::pair<Value, std::optional<float>> analyzeQ(Value v) const;
+  std::tuple<Value, bool, std::optional<float>> analyzeK(Value v) const;
+  Value analyzeV(Value v) const;
+  bool prepareInputsForSDPA(SDPAComponents &c, PatternRewriter &rewriter) const;
 
   // Key Un-transpose
   Value unTransposeKeyIfNeeded(Value query, Value key, Value value,
