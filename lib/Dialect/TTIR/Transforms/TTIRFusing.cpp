@@ -1689,7 +1689,11 @@ private:
 
     SmallVector<Value> biases;
     for (OpType candidate : candidates.ops) {
-      biases.push_back(candidate.getBias());
+      Value bias = candidate.getBias();
+      if (!bias) {
+        return nullptr;
+      }
+      biases.push_back(bias);
     }
 
     if (biases.empty()) {
@@ -1755,6 +1759,20 @@ private:
       result.ops.push_back(op);
       auto outputType = mlir::cast<RankedTensorType>(op.getType());
       result.totalOutputDim += outputType.getDimSize(outputType.getRank() - 1);
+    }
+
+    // For LinearOp, bias must be all-present or all-absent across candidates.
+    // Mixed bias would require materializing zero tensors and is not seen in
+    // practice, so reject fusion in that case.
+    if constexpr (std::is_same_v<OpType, LinearOp>) {
+      bool anyBias =
+          llvm::any_of(result.ops, [](OpType op) { return op.getBias(); });
+      bool allBias =
+          llvm::all_of(result.ops, [](OpType op) { return op.getBias(); });
+      if (anyBias && !allBias) {
+        result.ops.clear();
+        return result;
+      }
     }
 
     return result;
