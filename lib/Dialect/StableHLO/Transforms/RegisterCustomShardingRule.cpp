@@ -932,7 +932,10 @@ getMoeExpertTokenRemapShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
-// Sharding rule for tenstorrent.layer_norm composite.
+static constexpr llvm::StringLiteral kCompositeAttributesKey =
+    "tt.composite_attributes";
+
+// Sharding rule for tenstorrent.layer_norm (custom_call).
 //
 // Layer norm operands:
 //   operand 0: input  [batch dims..., normalized dims...]
@@ -944,15 +947,19 @@ getMoeExpertTokenRemapShardingRule(mlir::stablehlo::CustomCallOp op) {
 // sharded. Normalized dimensions require replication because layer norm
 // reduces over them.
 static mlir::sdy::OpShardingRuleAttr
-getLayerNormShardingRule(mlir::stablehlo::CompositeOp op) {
+getLayerNormShardingRule(mlir::stablehlo::CustomCallOp op) {
   auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
   if (!inputType) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  // Extract normalized_shape from composite attributes to determine which
-  // trailing dimensions are normalized (and thus need replication).
-  DictionaryAttr compositeAttrs = op.getCompositeAttributes();
+  // Extract normalized_shape from composite attributes carried on the
+  // custom_call as a discardable attribute.
+  auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+      op->getDiscardableAttr(kCompositeAttributesKey));
+  if (!compositeAttrs) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
   auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
   int64_t numNormalizedDims = 0;
 
@@ -1005,7 +1012,7 @@ getLayerNormShardingRule(mlir::stablehlo::CompositeOp op) {
   return builder.build();
 }
 
-// Sharding rule for tenstorrent.rms_norm composite (distributed).
+// Sharding rule for tenstorrent.rms_norm (custom_call, distributed).
 //
 // Unlike layer_norm, the distributed rms_norm op handles cross-device
 // reductions internally, so ALL dimensions (batch and normalized) can
@@ -1017,13 +1024,17 @@ getLayerNormShardingRule(mlir::stablehlo::CompositeOp op) {
 //   operand 2: bias   [normalized dims...] (optional)
 // Result: same shape as input.
 static mlir::sdy::OpShardingRuleAttr
-getRMSNormShardingRule(mlir::stablehlo::CompositeOp op) {
+getRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
   auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
   if (!inputType) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  DictionaryAttr compositeAttrs = op.getCompositeAttributes();
+  auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+      op->getDiscardableAttr(kCompositeAttributesKey));
+  if (!compositeAttrs) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
   auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
   int64_t numNormalizedDims = 0;
 
@@ -1117,39 +1128,6 @@ private:
           {allToAllDispatchTargetName, getAllToAllDispatchShardingRule},
           {allToAllCombineTargetName, getAllToAllCombineShardingRule},
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
-      };
-};
-
-// Sharding model for stablehlo.composite ops. Dispatches to per-composite
-// sharding rule functions based on the composite's name attribute.
-// Composites without a registered rule return null, causing them to fall
-// through to the flatten/reoutline path.
-struct StablehloCompositeShardingModel
-    : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
-          StablehloCompositeShardingModel, ::mlir::stablehlo::CompositeOp> {
-
-  mlir::sdy::OpShardingRuleAttr getShardingRule(mlir::Operation *op) const {
-    auto composite = llvm::cast<mlir::stablehlo::CompositeOp>(op);
-    llvm::StringRef name = composite.getName();
-
-    auto shardOpFunc = compositeShardingRules.lookup(name);
-    if (shardOpFunc) {
-      return shardOpFunc(composite);
-    }
-
-    // No rule for this composite — return null so flatten handles it.
-    return mlir::sdy::OpShardingRuleAttr();
-  }
-
-  bool shouldKeepOutputShardingsDivisible(mlir::Operation *) const {
-    return true;
-  }
-
-private:
-  // Map from composite names to their corresponding sharding rule functions.
-  llvm::DenseMap<llvm::StringRef, std::function<mlir::sdy::OpShardingRuleAttr(
-                                      mlir::stablehlo::CompositeOp)>>
-      compositeShardingRules = {
           {layerNormTargetName, getLayerNormShardingRule},
           {rmsNormTargetName, getRMSNormShardingRule},
       };
@@ -1175,8 +1153,6 @@ public:
         StablehloShardingModel<mlir::stablehlo::BatchNormTrainingOp>>(*context);
     mlir::stablehlo::BatchNormGradOp::attachInterface<
         StablehloShardingModel<mlir::stablehlo::BatchNormGradOp>>(*context);
-    mlir::stablehlo::CompositeOp::attachInterface<
-        StablehloCompositeShardingModel>(*context);
   }
 };
 

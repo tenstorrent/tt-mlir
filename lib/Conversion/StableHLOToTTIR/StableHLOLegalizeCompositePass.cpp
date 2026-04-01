@@ -351,6 +351,90 @@ public:
   }
 };
 
+// Converts stablehlo.custom_call @tenstorrent.rms_norm -> ttir.rms_norm.
+// This handles composites that were converted to custom_calls by
+// FlattenGenericCompositesPass because they have custom sharding rules.
+// Attributes are carried in the "tt.composite_attributes" discardable attr.
+class CustomCallRMSNormConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+
+public:
+  CustomCallRMSNormConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CustomCallOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() != "tenstorrent.rms_norm") {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CustomCallOp must have exactly one result.");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+        srcOp->getDiscardableAttr("tt.composite_attributes"));
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "missing tt.composite_attributes on custom_call");
+    }
+
+    auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
+    SmallVector<int64_t> normalizedShapeVec;
+
+    if (auto denseAttr =
+            mlir::dyn_cast<DenseIntElementsAttr>(normalizedShapeAttr)) {
+      for (auto val : denseAttr.getValues<int64_t>()) {
+        normalizedShapeVec.push_back(val);
+      }
+    } else if (auto arrayAttr =
+                   mlir::dyn_cast<ArrayAttr>(normalizedShapeAttr)) {
+      for (auto attr : arrayAttr) {
+        normalizedShapeVec.push_back(mlir::cast<IntegerAttr>(attr).getInt());
+      }
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp, "normalized_shape must be a dense tensor or array attribute");
+    }
+
+    auto normalizedShapeDenseAttr =
+        rewriter.getDenseI64ArrayAttr(normalizedShapeVec);
+
+    auto epsilonAttr = compositeAttrs.get("epsilon");
+
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(
+        rewriter.getNamedAttr("normalized_shape", normalizedShapeDenseAttr));
+    if (epsilonAttr) {
+      namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
+    }
+
+    // ttir.rms_norm has AttrSizedOperandSegments: [input, weight, bias]
+    size_t numOperands = adaptor.getOperands().size();
+    SmallVector<int32_t> segmentSizes;
+    if (numOperands == 3) { // input, weight, bias
+      segmentSizes = {1, 1, 1};
+    } else if (numOperands == 2) { // input, weight
+      segmentSizes = {1, 1, 0};
+    } else { // input
+      segmentSizes = {1, 0, 0};
+    }
+
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+    rewriter.replaceOpWithNewOp<ttir::RMSNormOp>(
+        srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
 // Special handling for tenstorrent.layer_norm -> ttir.layer_norm
 // Converts normalized_shape tensor attribute to DenseI64ArrayAttr
 // and sets operandSegmentSizes for AttrSizedOperandSegments
@@ -623,17 +707,18 @@ struct LegalizeStableHLOCompositeToTTIR
       return;
     }
 
-    // Verify that all composites with custom sharding rules were lowered to
-    // single TTIR ops. These composites were kept intact (not flattened) so
-    // Shardy could propagate shardings at their boundary. If they survive
-    // unlowered, the internal ops would have no sharding annotations.
+    // Verify that all custom_calls converted from composites with custom
+    // sharding rules were lowered to TTIR ops. These were converted from
+    // composites by FlattenGenericCompositesPass so Shardy could propagate
+    // shardings at their boundary. If they survive unlowered, something is
+    // wrong.
     bool hasUnlowered = false;
-    getOperation().walk([&](mlir::stablehlo::CompositeOp op) {
-      if (op->hasAttr("tt.has_custom_sharding")) {
+    getOperation().walk([&](mlir::stablehlo::CustomCallOp op) {
+      if (op->hasAttr("tt.composite_attributes")) {
         op.emitError()
-            << "composite '" << op.getName()
-            << "' has a custom sharding rule and must be lowered to a single "
-               "TTIR op, but no lowering pattern matched";
+            << "custom_call '" << op.getCallTargetName()
+            << "' (converted from composite with custom sharding rule) must be "
+               "lowered to a TTIR op, but no lowering pattern matched";
         hasUnlowered = true;
       }
     });
@@ -658,6 +743,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
+  patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
   patterns.add<TenstorrentGroupNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);

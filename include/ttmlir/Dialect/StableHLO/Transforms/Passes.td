@@ -302,9 +302,11 @@ def FlattenGenericCompositesPass : Pass<"flatten-generic-composites", "::mlir::M
   let description = [{
     This pass inlines each `stablehlo.composite` that does not have a custom sharding rule
     by cloning the callee body at its call site. Composites with a registered
-    `ShardingRuleOpInterface` that returns a non-null rule are marked with a
-    `tt.has_custom_sharding` attribute and left intact for Shardy to propagate through
-    directly.
+    `ShardingRuleOpInterface` that returns a non-null rule are converted to
+    `stablehlo.custom_call` ops with the composite's name as `call_target_name` and the
+    composite attributes carried as a `tt.composite_attributes` discardable attribute.
+    This avoids the decomposition function type-sync problem and allows Shardy to propagate
+    shardings through the custom_call using the existing `StablehloCustomCallShardingModel`.
 
     For flattened composites, every cloned op is annotated with
     `reoutline.group = "composite_<callee>"`. The first cloned op additionally receives
@@ -313,7 +315,7 @@ def FlattenGenericCompositesPass : Pass<"flatten-generic-composites", "::mlir::M
 
     This pass is intended to run **after** `RegisterCustomShardingRulePass` and **before**
     sharding propagation so that propagation occurs on a fully flattened graph for generic
-    composites, while composites with custom sharding rules are preserved. A later
+    composites, while composites with custom sharding rules become custom_calls. A later
     re-outlining pass may reconstruct flattened composite ops by grouping operations with
     the same `reoutline.group` attribute, provided that the subgraph is closed and movable.
 

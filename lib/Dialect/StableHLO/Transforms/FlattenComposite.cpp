@@ -8,7 +8,19 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/IRMapping.h"
-#include "shardy/dialect/sdy/ir/dialect.h"
+
+static constexpr llvm::StringLiteral kCompositeAttributesKey =
+    "tt.composite_attributes";
+
+// Composite names that have custom sharding rules and should be converted
+// to stablehlo.custom_call instead of being flattened. These names must
+// match entries in the customCallShardingRules map in
+// RegisterCustomShardingRule.cpp.
+static const llvm::SmallDenseSet<llvm::StringRef> compositesWithShardingRules =
+    {
+        "tenstorrent.layer_norm",
+        "tenstorrent.rms_norm",
+};
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_FLATTENGENERICCOMPOSITESPASS
@@ -212,15 +224,25 @@ public:
     for (mlir::func::FuncOp funcOp : module.getOps<mlir::func::FuncOp>()) {
       for (auto compositeOp : llvm::make_early_inc_range(
                funcOp.getOps<mlir::stablehlo::CompositeOp>())) {
-        // If this composite has a custom sharding rule, mark it and skip —
-        // Shardy will propagate through it directly.
-        if (auto iface = llvm::dyn_cast<mlir::sdy::ShardingRuleOpInterface>(
-                compositeOp.getOperation())) {
-          if (iface.getShardingRule()) {
-            compositeOp->setAttr("tt.has_custom_sharding",
-                                 mlir::UnitAttr::get(context));
-            continue;
+        // If this composite has a custom sharding rule, convert it to a
+        // stablehlo.custom_call so that Shardy can propagate through it
+        // using the CustomCall sharding model. This avoids the
+        // decomposition function sync problem entirely.
+        if (compositesWithShardingRules.contains(compositeOp.getName())) {
+          builder.setInsertionPoint(compositeOp);
+          // Carry the composite's name as call_target_name, and its
+          // attributes as a discardable attribute on the custom_call.
+          auto customCall = builder.create<mlir::stablehlo::CustomCallOp>(
+              compositeOp.getLoc(), compositeOp.getResultTypes(),
+              compositeOp.getOperands(),
+              builder.getStringAttr(compositeOp.getName()));
+          mlir::DictionaryAttr compAttrs = compositeOp.getCompositeAttributes();
+          if (compAttrs) {
+            customCall->setDiscardableAttr(kCompositeAttributesKey, compAttrs);
           }
+          compositeOp.replaceAllUsesWith(customCall);
+          compositeOp.erase();
+          continue;
         }
         // No sharding rule — flatten as before.
         if (mlir::failed(flattenOneComposite(compositeOp, symTable, builder))) {
