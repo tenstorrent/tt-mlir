@@ -765,6 +765,14 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
   return std::nullopt;
 }
 
+std::vector<Tensor>
+retrieveTensorsFromPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, bool untilize) {
+  LOG_FATAL(
+      "Obtaining tensors from device for metal runtime is not implemented");
+  return {};
+}
+
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor) {
   // Not implemented

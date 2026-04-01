@@ -562,6 +562,34 @@ void registerRuntimeBindings(nb::module_ &m) {
     )");
 
   m.def(
+      "retrieve_tensors_from_pool",
+      [](tt::runtime::CallbackContext program_context_handle,
+         tt::runtime::TensorRef tensor_ref, bool untilize = true) {
+        return tt::runtime::retrieveTensorsFromPool(program_context_handle,
+                                                    tensor_ref, untilize);
+      },
+      nb::arg("program_context_handle"), nb::arg("tensor_ref"),
+      nb::arg("untilize") = true,
+      R"(
+    Returns per-device tensors from tensor pool to which tensor_ref refers.
+    Supports multi-device tensors, returning one tensor per device.
+
+    Parameters
+    ----------
+    program_context_handle : ttrt.runtime.CallbackContext
+    tensor_ref : ttrt.runtime.TensorRef
+        Reference to the tensor of interest (from get_op_output_ref/get_op_input_refs).
+    untilize : bool, default ``True``
+        If the tensor is stored in a tilized format, de-tilize it before returning.
+
+    Returns
+    -------
+    List[tt.runtime.Tensor]
+        Per-device tensors corresponding to *tensor_ref*. Empty list if
+        the tensor is not present in the pool.
+    )");
+
+  m.def(
       "update_tensor_in_pool",
       [](tt::runtime::CallbackContext program_context_handle,
          tt::runtime::TensorRef tensor_ref_handle,

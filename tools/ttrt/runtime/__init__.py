@@ -59,6 +59,7 @@ try:
         get_op_output_ref,
         get_op_input_refs,
         retrieve_tensor_from_pool,
+        retrieve_tensors_from_pool,
         update_tensor_in_pool,
         get_op_debug_str,
         memcpy,

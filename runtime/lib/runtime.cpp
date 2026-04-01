@@ -1129,6 +1129,26 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
       });
 }
 
+std::vector<Tensor>
+retrieveTensorsFromPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, bool untilize) {
+  using RetType = std::vector<Tensor>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return tt::runtime::ttnn::retrieveTensorsFromPool(
+            programContextHandle, tensorRef, untilize);
+      },
+      [&]() -> RetType {
+        return tt::runtime::ttmetal::retrieveTensorsFromPool(
+            programContextHandle, tensorRef, untilize);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("retrieveTensorsFromPool",
+                                    HostRuntime::Distributed);
+      });
+}
+
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor) {
   using RetType = void;

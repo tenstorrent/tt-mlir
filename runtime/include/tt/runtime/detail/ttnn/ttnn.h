@@ -267,6 +267,12 @@ std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        tt::runtime::TensorRef tensorRef, bool untilize);
 
+// Returns per-device tensors to which tensorRef refers.
+// Supports multi-device tensors; returns one tensor per device.
+std::vector<Tensor>
+retrieveTensorsFromPool(CallbackContext programContextHandle,
+                        tt::runtime::TensorRef tensorRef, bool untilize);
+
 // Update tensor to which tensorRef refers
 // Preferred to be owned tensor to avoid unexpected behavior in case of
 // deallocation

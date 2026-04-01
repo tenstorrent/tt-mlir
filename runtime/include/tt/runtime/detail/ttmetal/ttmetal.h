@@ -169,6 +169,10 @@ std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize);
 
+std::vector<Tensor>
+retrieveTensorsFromPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, bool untilize);
+
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);
 

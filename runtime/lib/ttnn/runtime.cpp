@@ -2011,6 +2011,36 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
   return hostTensors[0];
 }
 
+std::vector<Tensor>
+retrieveTensorsFromPool(CallbackContext programContextHandle,
+                        tt::runtime::TensorRef tensorRef, bool untilize) {
+  const auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+
+  const auto *tensorRefPtr =
+      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+
+  if (!tensorRefPtr) {
+    LOG_WARNING("Tensor ref pointer is null when retrieving tensors");
+    return {};
+  }
+
+  if (!tensorPool.contains(tensorRefPtr)) {
+    LOG_WARNING("Tensor not found in tensor pool when retrieving tensors");
+    return {};
+  }
+
+  ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
+      tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
+
+  std::vector<tt::runtime::Tensor> hostTensors =
+      ::tt::runtime::ttnn::toHost(outTensor, untilize);
+
+  return hostTensors;
+}
+
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor tensor) {
   auto &programContext =

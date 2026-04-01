@@ -259,6 +259,13 @@ std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize);
 
+// For the given tensor reference, retrieves the per-device tensors from the
+// program's tensor pool. Supports multi-device tensors. Returns one tensor per
+// device, or an empty vector if not found or on error.
+std::vector<Tensor>
+retrieveTensorsFromPool(CallbackContext programContextHandle,
+                        TensorRef tensorRef, bool untilize);
+
 // Updates the tensor in the program's tensor pool that is referenced by the
 // given tensor reference. Performs necessary layout and device conversions to
 // match the existing tensor.
