@@ -39,6 +39,33 @@
 namespace mlir::tt::ttcore {
 
 namespace {
+SystemDescAttr
+createDefaultQuasarSystemDesc(mlir::MLIRContext *context,
+                              const ::llvm::SmallVector<int64_t> &meshShape) {
+  llvm::SmallVector<ChipDescAttr> chipDescs;
+  llvm::SmallVector<uint32_t> chipIndicesList;
+  llvm::SmallVector<ChipCapabilityAttr> chipCapabilities;
+  llvm::SmallVector<ChipChannelAttr> chipChannelList;
+
+  return SystemDescAttr::get(
+      context,
+      // CPU Descriptors
+      {CPUDescAttr::get(context, CPURole::Host,
+                        mlir::StringAttr::get(context, "x86_64-pc-linux-gnu"))},
+      // Chip Descriptors
+      chipDescs,
+      // Chip Descriptor Indices
+      chipIndicesList,
+      // Chip capabilities
+      chipCapabilities,
+      // Chip Mesh Coordinates
+      {
+          ChipCoordAttr::get(context, 0, 0, 0, 0),
+      },
+      // Chip Channel Connections
+      chipChannelList);
+}
+
 SystemDescAttr createDefaultBlackholeSystemDesc(
     mlir::MLIRContext *context, const ::llvm::SmallVector<int64_t> &meshShape) {
   // Set default values
@@ -275,6 +302,8 @@ SystemDescAttr::getDefault(MLIRContext *context, Arch arch,
     return createDefaultWormholeSystemDesc(context, meshShape);
   case Arch::Blackhole:
     return createDefaultBlackholeSystemDesc(context, meshShape);
+  case Arch::Quasar:
+    return createDefaultQuasarSystemDesc(context, meshShape);
   }
 }
 
@@ -355,6 +384,9 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
       break;
     case ::tt::target::Arch::Blackhole:
       arch = Arch::Blackhole;
+      break;
+    case ::tt::target::Arch::Quasar:
+      arch = Arch::Quasar;
       break;
     }
 

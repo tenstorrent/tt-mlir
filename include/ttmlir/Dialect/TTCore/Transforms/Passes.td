@@ -65,7 +65,9 @@ def TTCoreRegisterDevicePass : Pass<"ttcore-register-device", "::mlir::ModuleOp"
               clEnumValN(ttcore::Arch::WormholeB0, "wormhole_b0",
                "Use mock wormhole_b0 system desc."),
               clEnumValN(ttcore::Arch::Blackhole, "blackhole",
-               "Use mock blackhole system desc.")
+               "Use mock blackhole system desc."),
+              clEnumValN(ttcore::Arch::Quasar, "quasar",
+               "Use mock quasar system desc.")
              )}]>,
         Option<"systemDescPath", "system-desc-path", "std::string", "", "System desc path">,
         ListOption<"meshShape", "mesh-shape", "int64_t", "Set the mesh shape">,

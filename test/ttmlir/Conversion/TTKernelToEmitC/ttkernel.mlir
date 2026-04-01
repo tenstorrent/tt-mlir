@@ -1502,10 +1502,11 @@ module {
     // CHECK-LABEL: func @cb_push_back
     func.func @cb_push_back() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      // CHECK: emitc.verbatim "experimental::CircularBuffer [[PUSH_CB:cb_[a-zA-Z0-9_]+]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
       %num_pages = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "cb_push_back"(%[[CB]], %[[NUM_PAGES]])
+      // CHECK: emitc.verbatim "[[PUSH_CB]].push_back({});"
       "ttkernel.cb_push_back"(%cb, %num_pages) : (!cb0_tiles, i32) -> ()
       return
     }
@@ -1513,10 +1514,11 @@ module {
     // CHECK-LABEL: func @cb_pop_front
     func.func @cb_pop_front() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      // CHECK: emitc.verbatim "experimental::CircularBuffer [[POP_CB:cb_[a-zA-Z0-9_]+]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
       %num_pages = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "cb_pop_front"(%[[CB]], %[[NUM_PAGES]])
+      // CHECK: emitc.verbatim "[[POP_CB]].pop_front({});"
       "ttkernel.cb_pop_front"(%cb, %num_pages) : (!cb0_tiles, i32) -> ()
       return
     }
@@ -1524,10 +1526,11 @@ module {
     // CHECK-LABEL: func @cb_reserve_back
     func.func @cb_reserve_back() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      // CHECK: emitc.verbatim "experimental::CircularBuffer [[RESERVE_CB:cb_[a-zA-Z0-9_]+]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
       %num_pages = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "cb_reserve_back"(%[[CB]], %[[NUM_PAGES]])
+      // CHECK: emitc.verbatim "[[RESERVE_CB]].reserve_back({});"
       "ttkernel.cb_reserve_back"(%cb, %num_pages) : (!cb0_tiles, i32) -> ()
       return
     }
@@ -1535,11 +1538,45 @@ module {
     // CHECK-LABEL: func @cb_wait_front
     func.func @cb_wait_front() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      // CHECK: emitc.verbatim "experimental::CircularBuffer [[WAIT_CB:cb_[a-zA-Z0-9_]+]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
       %num_pages = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "cb_wait_front"(%[[CB]], %[[NUM_PAGES]])
+      // CHECK: emitc.verbatim "[[WAIT_CB]].wait_front({});"
       "ttkernel.cb_wait_front"(%cb, %num_pages) : (!cb0_tiles, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @get_write_ptr
+    func.func @get_write_ptr() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      // CHECK: emitc.verbatim "experimental::CircularBuffer [[WRITE_CB:cb_[a-zA-Z0-9_]+]]({});"
+      %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[PTR:.*]] = emitc.literal "[[WRITE_CB]].get_write_ptr()"
+      %ptr = "ttkernel.get_write_ptr"(%cb) : (!cb0_tiles) -> i32
+      return
+    }
+
+    // CHECK-LABEL: func @get_read_ptr
+    func.func @get_read_ptr() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      // CHECK: emitc.verbatim "experimental::CircularBuffer [[READ_CB:cb_[a-zA-Z0-9_]+]]({});"
+      %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[PTR:.*]] = emitc.literal "[[READ_CB]].get_read_ptr()"
+      %ptr = "ttkernel.get_read_ptr"(%cb) : (!cb0_tiles) -> i32
+      return
+    }
+
+    // CHECK-LABEL: func @cb_object_dedup
+    func.func @cb_object_dedup() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.verbatim "experimental::CircularBuffer [[DEDUP_CB:cb_[a-zA-Z0-9_]+]]({});"
+      %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      %num_pages = arith.constant 1 : i32
+      // CHECK: emitc.verbatim "[[DEDUP_CB]].reserve_back({});"
+      "ttkernel.cb_reserve_back"(%cb, %num_pages) : (!cb0_tiles, i32) -> ()
+      // CHECK-NOT: emitc.verbatim "experimental::CircularBuffer
+      // CHECK: emitc.verbatim "[[DEDUP_CB]].push_back({});"
+      "ttkernel.cb_push_back"(%cb, %num_pages) : (!cb0_tiles, i32) -> ()
       return
     }
 

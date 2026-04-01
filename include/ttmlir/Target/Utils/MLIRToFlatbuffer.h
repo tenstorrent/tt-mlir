@@ -302,6 +302,8 @@ inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::Arch::Wormhole_b0;
   case ttcore::Arch::Blackhole:
     return ::tt::target::Arch::Blackhole;
+  case ttcore::Arch::Quasar:
+    return ::tt::target::Arch::Quasar;
   }
 }
 
