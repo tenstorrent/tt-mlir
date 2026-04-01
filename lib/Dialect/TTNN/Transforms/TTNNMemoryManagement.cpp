@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include <cstdint>
@@ -863,6 +864,162 @@ public:
   }
 };
 
+class PermuteRowMajorAdjusting : public OpRewritePattern<ttnn::PermuteOp> {
+public:
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::PermuteOp op,
+                                PatternRewriter &rewriter) const override {
+    if (!op->hasOneUse()) {
+      return failure();
+    }
+
+    Operation *user = *op->user_begin();
+    ttnn::RepeatOp repeatUser = mlir::dyn_cast<ttnn::RepeatOp>(user);
+    ttnn::ReshapeOp reshapeUser = mlir::dyn_cast<ttnn::ReshapeOp>(user);
+    if (!reshapeUser) {
+      if (!repeatUser || !repeatUser->hasOneUse()) {
+        return failure();
+      }
+      reshapeUser = mlir::dyn_cast<ttnn::ReshapeOp>(*repeatUser->user_begin());
+    }
+    if (!reshapeUser) {
+      return failure();
+    }
+
+    auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    auto resultLayout =
+        mlir::dyn_cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+    if (!resultLayout || !resultLayout.isTiled()) {
+      return failure();
+    }
+
+    auto paddedShape =
+        ttnn::utils::getTilePaddedShape(op.getResult().getType().getShape());
+
+    int64_t tiledVolume = ttmlir::utils::volume(llvm::ArrayRef(paddedShape));
+    int64_t rmVolume =
+        ttmlir::utils::volume(op.getResult().getType().getShape());
+
+    RankedTensorType repeatResultType;
+    ttnn::TTNNLayoutAttr repeatResultLayout;
+    if (repeatUser) {
+      repeatResultType =
+          mlir::cast<RankedTensorType>(repeatUser.getResult().getType());
+      repeatResultLayout =
+          mlir::dyn_cast<ttnn::TTNNLayoutAttr>(repeatResultType.getEncoding());
+      if (!repeatResultLayout || !repeatResultLayout.isTiled()) {
+        return failure();
+      }
+
+      auto repeatPaddedShape =
+          ttnn::utils::getTilePaddedShape(repeatResultType.getShape());
+      tiledVolume =
+          std::max(tiledVolume,
+                   ttmlir::utils::volume(llvm::ArrayRef(repeatPaddedShape)));
+      rmVolume =
+          std::max(rmVolume, ttmlir::utils::volume(repeatResultType.getShape()));
+    }
+
+    // If the difference is less than 5MB, nothing to do.
+    if (tiledVolume - rmVolume < 5LL * 1024LL * 1024LL) {
+      return failure();
+    }
+
+    auto rowMajorLayout =
+        resultLayout.withLayout(ttnn::Layout::RowMajor, resultType.getShape());
+    if (rowMajorLayout == resultLayout) {
+      return failure();
+    }
+
+    RankedTensorType rowMajorResultType =
+        resultType.cloneWithEncoding(rowMajorLayout);
+
+    RankedTensorType rowMajorRepeatResultType;
+    if (repeatUser) {
+      auto rowMajorRepeatLayout = repeatResultLayout.withLayout(
+          ttnn::Layout::RowMajor, repeatResultType.getShape());
+      rowMajorRepeatResultType =
+          repeatResultType.cloneWithEncoding(rowMajorRepeatLayout);
+    }
+
+    auto reshapeResultType =
+        mlir::cast<RankedTensorType>(reshapeUser.getResult().getType());
+    auto reshapeResultLayout =
+        mlir::dyn_cast<ttnn::TTNNLayoutAttr>(reshapeResultType.getEncoding());
+    if (!reshapeResultLayout || !reshapeResultLayout.isTiled()) {
+      return failure();
+    }
+
+    RankedTensorType rowMajorReshapeResultType;
+    if (!repeatUser) {
+      auto rowMajorReshapeLayout = reshapeResultLayout.withLayout(
+          ttnn::Layout::RowMajor, reshapeResultType.getShape());
+      rowMajorReshapeResultType =
+          reshapeResultType.cloneWithEncoding(rowMajorReshapeLayout);
+    }
+
+    Value permuteInput = op.getInput();
+    if (!permuteInput.getDefiningOp<ttnn::ToLayoutOp>()) {
+      auto inputType = mlir::cast<RankedTensorType>(permuteInput.getType());
+      auto inputLayout =
+          mlir::dyn_cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+
+      if (inputLayout && inputLayout.isTiled()) {
+        auto rowMajorInput = utils::createToLayoutOp(
+            op, mlir::cast<mlir::TypedValue<RankedTensorType>>(permuteInput),
+            rewriter, Layout::RowMajor, inputLayout.getBufferType(),
+            inputLayout.getMemLayout(), inputLayout.getDataType(),
+            "_input_row_major");
+        permuteInput = rowMajorInput.getResult();
+      }
+    }
+
+    auto newPermuteOp = rewriter.create<ttnn::PermuteOp>(
+        op.getLoc(), rowMajorResultType, permuteInput, op.getPermutation(),
+        /*memory_config=*/nullptr, op.getPadValue());
+
+    if (repeatUser) {
+      auto newRepeatOp = rewriter.create<ttnn::RepeatOp>(
+          repeatUser.getLoc(), rowMajorRepeatResultType, newPermuteOp.getResult(),
+          repeatUser.getRepeatDims(), /*memory_config=*/nullptr);
+
+      auto restoredRepeatLayout = utils::createToLayoutOp(
+          repeatUser,
+          mlir::cast<mlir::TypedValue<RankedTensorType>>(newRepeatOp.getResult()),
+          rewriter, repeatResultLayout.getLayout(),
+          repeatResultLayout.getBufferType(), repeatResultLayout.getMemLayout(),
+          repeatResultLayout.getDataType(), "_restore_repeat_layout");
+
+      auto newReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+          reshapeUser.getLoc(), reshapeResultType,
+          restoredRepeatLayout.getResult(), reshapeUser.getShapeAttr(),
+          reshapeUser.getMemoryConfigAttr());
+      rewriter.replaceOp(reshapeUser, newReshapeOp.getResult());
+      rewriter.eraseOp(repeatUser);
+    } else {
+      auto newReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+          reshapeUser.getLoc(), rowMajorReshapeResultType,
+          newPermuteOp.getResult(), reshapeUser.getShapeAttr(),
+          /*memory_config=*/nullptr);
+
+      auto restoredLayout = utils::createToLayoutOp(
+          reshapeUser,
+          mlir::cast<mlir::TypedValue<RankedTensorType>>(
+              newReshapeOp.getResult()),
+          rewriter, reshapeResultLayout.getLayout(),
+          reshapeResultLayout.getBufferType(),
+          reshapeResultLayout.getMemLayout(),
+          reshapeResultLayout.getDataType(), "_restore_layout");
+      rewriter.replaceOp(reshapeUser, restoredLayout.getResult());
+    }
+
+    rewriter.eraseOp(op);
+
+    return success();
+  }
+};
+
 class TTNNMemoryManagement
     : public impl::TTNNMemoryManagementBase<TTNNMemoryManagement> {
 public:
@@ -881,7 +1038,7 @@ public:
              RepeatReshapeAdjusting, ReshapeElementwiseAdjusting<ttnn::AddOp>,
              ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
              ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
-             ReshapeElementwiseAdjusting<ttnn::DivideOp>>(&getContext());
+             ReshapeElementwiseAdjusting<ttnn::DivideOp>, PermuteRowMajorAdjusting>(&getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
