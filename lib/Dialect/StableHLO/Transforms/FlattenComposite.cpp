@@ -235,7 +235,14 @@ public:
           auto customCall = builder.create<mlir::stablehlo::CustomCallOp>(
               compositeOp.getLoc(), compositeOp.getResultTypes(),
               compositeOp.getOperands(),
-              builder.getStringAttr(compositeOp.getName()));
+              builder.getStringAttr(compositeOp.getName()),
+              /*has_side_effect=*/nullptr,
+              /*backend_config=*/nullptr,
+              /*api_version=*/nullptr,
+              /*called_computations=*/nullptr,
+              /*operand_layouts=*/nullptr,
+              /*result_layouts=*/nullptr,
+              /*output_operand_aliases=*/nullptr);
           mlir::DictionaryAttr compAttrs = compositeOp.getCompositeAttributes();
           if (compAttrs) {
             customCall->setDiscardableAttr(kCompositeAttributesKey, compAttrs);
