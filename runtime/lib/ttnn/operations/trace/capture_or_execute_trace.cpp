@@ -32,6 +32,11 @@ static void copyTensorFromHostToDevice(const ::ttnn::Tensor &srcTensor,
                  dstTensor.storage_type() == ::ttnn::StorageType::DEVICE,
              "srcTensor must be on host and dstTensor must be on device");
 
+  LOG_INFO("copyTensorFromHostToDevice: src logical_shape=",
+           srcTensor.logical_shape(),
+           ", dst logical_shape=", dstTensor.logical_shape(),
+           ", src storage_type=", srcTensor.storage_type(),
+           ", dst storage_type=", dstTensor.storage_type());
   ::tt::tt_metal::tensor_impl::copy_to_device(srcTensor, dstTensor);
 }
 
@@ -40,6 +45,11 @@ static void copyTensorFromDeviceToDevice(const ::ttnn::Tensor &srcTensor,
   LOG_ASSERT(srcTensor.storage_type() == ::ttnn::StorageType::DEVICE &&
                  dstTensor.storage_type() == ::ttnn::StorageType::DEVICE,
              "srcTensor must be on device and dstTensor must be on device");
+  LOG_INFO("copyTensorFromDeviceToDevice: src logical_shape=",
+           srcTensor.logical_shape(),
+           ", dst logical_shape=", dstTensor.logical_shape(),
+           ", src storage_type=", srcTensor.storage_type(),
+           ", dst storage_type=", dstTensor.storage_type());
   ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
   ::tt::tt_metal::tensor_impl::copy_to_device(hostSrcTensor, dstTensor);
 }
@@ -163,12 +173,14 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
       LOG_DEBUG("Device-resident tensor version changed "
                 "(constant/parameter or KV cache). Input index: ",
                 i, ", expected version: ", inputSlotWrapper.getVersion());
+      LOG_INFO("executeTrace: copying device-to-device for input index ", i);
       copyTensorFromDeviceToDevice(inputTensorWrapper.getTensor(),
                                    inputSlotWrapper.getTensor());
     } else {
       // Regular inputs reside on host and are copied into their trace input
       // slots on device. A version mismatch is expected here since the host
       // tensor can change.
+      LOG_INFO("executeTrace: copying host-to-device for input index ", i);
       copyTensorFromHostToDevice(inputTensorWrapper.getTensor(),
                                  inputSlotWrapper.getTensor());
     }

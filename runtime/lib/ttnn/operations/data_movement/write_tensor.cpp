@@ -23,6 +23,11 @@ void run(const ::tt::target::ttnn::WriteTensorOp *op, ProgramContext &context) {
       tensorPool.getTTNNTensorAndValidate(op->device_tensor());
   ::ttnn::QueueId ttnnCqId = ::ttnn::QueueId(op->cq_id());
 
+  LOG_INFO("write_tensor: host logical_shape=", hostTensor.logical_shape(),
+           ", device logical_shape=", deviceTensor.logical_shape(),
+           ", host storage_type=", hostTensor.storage_type(),
+           ", device storage_type=", deviceTensor.storage_type());
+
   // Note: copy_to_device replaced write_tensor and does not have a blocking
   // parameter. The operation is always blocking.
   ::tt::tt_metal::tensor_impl::copy_to_device(hostTensor, deviceTensor,
