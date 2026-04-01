@@ -259,6 +259,18 @@ const std::initializer_list<
                                BufferType::L1},
             detail::ExpectedResult{false})};
 
+// tt-metal uplift: https://github.com/tenstorrent/tt-mlir/pull/7739
+// Certain ops now accept mixed memory layouts, while others still enforce
+// matching layouts.
+const auto unaryEltwiseMixedLayoutOkParams = []() {
+  using Params = std::tuple<detail::TestTensor, detail::TestTensor,
+                            detail::ExpectedResult>;
+  std::vector<Params> params(unaryEltwiseParams);
+  std::get<2>(params[5]).expectedLegal = true;
+  std::get<2>(params[6]).expectedLegal = true;
+  return params;
+}();
+
 const std::initializer_list<
     std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
     tanhParams = {
@@ -300,95 +312,113 @@ const std::initializer_list<
             detail::ExpectedResult{false})};
 
 INSTANTIATE_TEST_SUITE_P(ReluTests, OpModelReluParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(Relu6Tests, OpModelRelu6Param,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 INSTANTIATE_TEST_SUITE_P(SiluTests, OpModelSiluParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
+// SqrtOp uses UnaryEltwiseWithFastApproxModeOpModel which still enforces
+// matching memory layouts.
 INSTANTIATE_TEST_SUITE_P(SqrtTests, OpModelSqrtParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
+// SigmoidOp has its own dedicated op model which still enforces matching
+// memory layouts.
 INSTANTIATE_TEST_SUITE_P(SigmoidTests, OpModelSigmoidParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 INSTANTIATE_TEST_SUITE_P(HardsigmoidTests, OpModelHardsigmoidParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(SinTests, OpModelSinParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(AsinTests, OpModelAsinParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(CosTests, OpModelCosParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(AcosTests, OpModelAcosParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
+// ExpOp uses UnaryEltwiseWithFastApproxModeOpModel which still enforces
+// matching memory layouts.
 INSTANTIATE_TEST_SUITE_P(ExpTests, OpModelExpParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(TanhTests, OpModelTanhParam,
                          ::testing::ValuesIn(tanhParams));
 
+// LogOp uses UnaryEltwiseWithFastApproxModeOpModel which still enforces
+// matching memory layouts.
 INSTANTIATE_TEST_SUITE_P(LogTests, OpModelLogParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(AbsTests, OpModelAbsParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(CeilTests, OpModelCeilParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(SignTests, OpModelSignParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
+// ErfOp uses UnaryEltwiseWithFastApproxModeOpModel which still enforces
+// matching memory layouts.
 INSTANTIATE_TEST_SUITE_P(ErfTests, OpModelErfParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
+// ErfcOp uses UnaryEltwiseWithFastApproxModeOpModel which still enforces
+// matching memory layouts.
 INSTANTIATE_TEST_SUITE_P(ErfcTests, OpModelErfcParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(FloorTests, OpModelFloorParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
+// GeluOp uses UnaryEltwiseWithFastApproxModeOpModel which still enforces
+// matching memory layouts.
 INSTANTIATE_TEST_SUITE_P(GeluTests, OpModelGeluParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(IsFiniteTests, OpModelIsFiniteParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(LogicalNotTests, OpModelLogicalNotParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(NegTests, OpModelNegParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(TanTests, OpModelTanParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(AtanTests, OpModelAtanParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
+// RsqrtOp uses UnaryEltwiseWithFastApproxModeOpModel which still enforces
+// matching memory layouts.
 INSTANTIATE_TEST_SUITE_P(RsqrtTests, OpModelRsqrtParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
+// Log1pOp uses UnaryEltwiseWithFastApproxModeOpModel which still enforces
+// matching memory layouts.
 INSTANTIATE_TEST_SUITE_P(Log1pTests, OpModelLog1pParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(Expm1Tests, OpModelExpm1Param,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(ReciprocalTests, OpModelReciprocalParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(CbrtTests, OpModelCbrtParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 INSTANTIATE_TEST_SUITE_P(BitwiseNotTests, OpModelBitwiseNotParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(unaryEltwiseMixedLayoutOkParams));
 
 // ==== Unary Eltwise Ops Ends ====
 
