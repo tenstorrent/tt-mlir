@@ -67,4 +67,18 @@ def D2M_ThreadType : I32EnumAttr<"ThreadType", "D2M ThreadType", [
   let cppNamespace = "::mlir::tt::d2m";
 }
 
+// D2M ResolutionStage indicates whether a get_* op argument is resolved at
+// compile time (passed as a compile-time arg) or at runtime (passed as a
+// runtime arg).
+def D2M_ResolutionStageCompile : I32EnumAttrCase<"Compile", 0, "compile">;
+def D2M_ResolutionStageRuntime : I32EnumAttrCase<"Runtime", 1, "runtime">;
+
+def D2M_ResolutionStage : I32EnumAttr<"ResolutionStage", "D2M ResolutionStage", [
+  D2M_ResolutionStageCompile,
+  D2M_ResolutionStageRuntime
+]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::d2m";
+}
+
 #endif // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSENUMS_TD

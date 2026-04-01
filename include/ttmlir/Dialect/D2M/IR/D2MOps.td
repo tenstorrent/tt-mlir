@@ -512,6 +512,18 @@ def D2M_ResetGlobalSemaphoreOp : D2M_Op<"reset_global_semaphore"> {
   let assemblyFormat = [{ `(` $semaphore `)` attr-dict `:` type($semaphore) }];
 }
 
+def D2M_CreateLocalSemaphoreOp : D2M_Op<"create_local_semaphore"> {
+  let summary = "Create local semaphore op.";
+
+  let description = [{
+    This operation is purely a representational op. It creates a local semaphore in the core range specific within the generic op in which it is consumed.
+  }];
+
+  let arguments = (ins UI32Attr:$initialValue);
+  let results = (outs D2M_LocalSemaphore:$result);
+  let assemblyFormat = "prop-dict attr-dict `->` type($result)";
+}
+
 def D2M_FullOp
     : D2M_Op<"full", [Pure, DeclareOpInterfaceMethods<
                                 BufferizableOpInterface,

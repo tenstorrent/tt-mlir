@@ -106,21 +106,9 @@ tt_metal::KernelHandle createKernel(
 }
 
 std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig>
-createKernelConfig(
-    const target::metal::KernelConfig *kernelConfig,
-    const flatbuffers::Vector<target::metal::ArgRef> *argRefsType,
-    const flatbuffers::Vector<flatbuffers::Offset<void>> *argRefs,
-    const std::unordered_map<
-        std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers,
-    const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
-        &global_semaphores_cache,
-    const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
-        *cbs,
-    const DeviceAddressValidator &deviceAddressValidator,
-    std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn) {
-  std::vector<uint32_t> compileArgs = processCompileArgs(
-      kernelConfig->args()->ct_args(), argRefsType, argRefs, meshBuffers,
-      global_semaphores_cache, cbs, deviceAddressValidator, createSemaphoreFn);
+createKernelConfig(const target::metal::KernelConfig *kernelConfig,
+                   std::vector<uint32_t> compileArgs) {
+
   switch (kernelConfig->type_type()) {
   case target::metal::KernelConfigType::NocConfig: {
     switch (kernelConfig->type_as_NocConfig()->noc_index()) {
@@ -132,6 +120,7 @@ createKernelConfig(
     }
     }
   }
+
   case target::metal::KernelConfigType::EthernetConfig: {
     // EthernetConfig has been removed from Metal public API (commit cfc4c40).
     // Ethernet functionality should now use fabric APIs instead.
