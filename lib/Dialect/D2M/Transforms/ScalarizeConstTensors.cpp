@@ -18,8 +18,9 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/STLExtras.h"
 
-#include <climits>
+#include <optional>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSCALARIZECONSTTENSORS
@@ -45,11 +46,58 @@ static Value getLayoutOrCastResult(Operation *op) {
   return nullptr;
 }
 
+/// Splatted fill value when \p genericOp matches the lowered `ttir.full` shape
+/// (one inputless `linalg.generic` in the outer region, body is tile_fill +
+/// arith.constant for the scalar). Otherwise std::nullopt.
+static std::optional<Attribute>
+tryGetSplatAttrFromFillGeneric(GenericOp genericOp) {
+  if (genericOp.getNumRegions() < 1) {
+    return std::nullopt;
+  }
+  Block &outerBlock = genericOp.getRegion(0).front();
+  linalg::GenericOp fillLinalg;
+  for (Operation &op : outerBlock.without_terminator()) {
+    auto lg = dyn_cast<linalg::GenericOp>(&op);
+    if (!lg || lg.getNumDpsInputs() != 0) {
+      continue;
+    }
+    if (fillLinalg) {
+      return std::nullopt;
+    }
+    fillLinalg = lg;
+  }
+  if (!fillLinalg) {
+    return std::nullopt;
+  }
+
+  Block *body = fillLinalg.getBody();
+  TileFillOp tileFill;
+  for (Operation &op : body->without_terminator()) {
+    if (auto tf = dyn_cast<TileFillOp>(&op)) {
+      if (tileFill) {
+        return std::nullopt;
+      }
+      tileFill = tf;
+    } else if (!isa<arith::ConstantOp>(&op)) {
+      return std::nullopt;
+    }
+  }
+  if (!tileFill) {
+    return std::nullopt;
+  }
+
+  Value fillVal = tileFill.getValue();
+  if (auto cst = fillVal.getDefiningOp<arith::ConstantOp>()) {
+    return cst.getValue();
+  }
+  return std::nullopt;
+}
+
 static void
-traceConstantToGenericOps(Operation *constOp,
+traceValueToGenericChains(Value producedValue,
                           SmallVectorImpl<ConstantUseChain> &chains) {
-  for (Operation *user : constOp->getUsers()) {
-    Value currentValue = constOp->getResult(0);
+  for (Operation *user : producedValue.getUsers()) {
+    Value currentValue = producedValue;
     Operation *currentOp = user;
 
     while (Value result = getLayoutOrCastResult(currentOp)) {
@@ -102,15 +150,11 @@ findLinalgBlockArgsForGenericInput(GenericOp genericOp,
 }
 
 static bool isScalarRhsUse(Operation *user, Value arg) {
-  if (auto computeOp = dyn_cast<OperandLoadStoreRegisterOpInterface>(user)) {
-    if (computeOp.supportsTileOrScalarRhs()) {
-      // Check if the arg is used as the RHS (operand 1).
-      if (user->getNumOperands() >= 2 && user->getOperand(1) == arg) {
-        return true;
-      }
-    }
+  auto computeOp = dyn_cast<OperandLoadStoreRegisterOpInterface>(user);
+  if (!computeOp || !computeOp.supportsTileOrScalarRhs()) {
+    return false;
   }
-  return false;
+  return user->getNumOperands() >= 2 && user->getOperand(1) == arg;
 }
 
 static SmallVector<unsigned> findScalarizedInputIndices(Block *block,
@@ -125,7 +169,8 @@ static SmallVector<unsigned> findScalarizedInputIndices(Block *block,
   return scalarizedIndices;
 }
 
-// Build a list of unused input operands for a GenericOp.
+// Indices of generic inputs not referenced by any op inside the generic's
+// regions.
 static SmallVector<unsigned>
 findUnusedGenericInputIndices(GenericOp genericOp) {
   SmallVector<unsigned> unusedIndices;
@@ -195,14 +240,12 @@ static void updateTensorEmptyResultType(
     return;
   }
 
-  // Find the operand index in the old generic op
-  unsigned oldOperandIdx = UINT_MAX;
-  for (unsigned i = 0; i < oldGenericOp->getNumOperands(); ++i) {
-    if (oldGenericOp->getOperand(i) == associatedOperand) {
-      oldOperandIdx = i;
-      break;
-    }
+  auto operands = oldGenericOp->getOperands();
+  auto opIt = llvm::find(operands, associatedOperand);
+  if (opIt == operands.end()) {
+    return;
   }
+  unsigned oldOperandIdx = opIt - operands.begin();
 
   auto it = operandIndexRemap.find(oldOperandIdx);
   if (it == operandIndexRemap.end()) {
@@ -210,6 +253,9 @@ static void updateTensorEmptyResultType(
   }
 
   Value newCB = newGenericOp.findAssocCBByOperandIndex(clonedOp, it->second);
+  if (!newCB) {
+    return;
+  }
   auto cbType = mlir::dyn_cast<d2m::CBType>(newCB.getType());
   if (!cbType) {
     return;
@@ -289,16 +335,14 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
     newIndexingMaps.push_back(oldMaps[i]);
   }
 
-  // Build operand index remapping: old operand index -> new operand index
+  // Old operand index -> new index after dropping scalarized inputs.
   llvm::DenseMap<uint64_t, uint64_t> operandIndexRemap;
   unsigned newOperandIdx = 0;
-  // Map input operands (skip scalarized ones)
   for (unsigned oldIdx = 0; oldIdx < numInputs; ++oldIdx) {
     if (!llvm::is_contained(scalarizedInputIndices, oldIdx)) {
       operandIndexRemap[oldIdx] = newOperandIdx++;
     }
   }
-  // Map output operands (these shift down by the number of removed inputs)
   for (unsigned oldIdx = numInputs; oldIdx < numInputs + numOutputs; ++oldIdx) {
     operandIndexRemap[oldIdx] = newOperandIdx++;
   }
@@ -316,7 +360,6 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
        llvm::zip(genericOp.getRegions(), newGenericOp.getRegions())) {
     Block *oldBlock = &oldRegion.front();
 
-    // Copy all block arguments.
     SmallVector<Type> newBlockArgTypes;
     SmallVector<Location> newBlockArgLocs;
     for (BlockArgument arg : oldBlock->getArguments()) {
@@ -335,7 +378,7 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
     rewriter.setInsertionPointToStart(newBlock);
     for (Operation &op : oldBlock->without_terminator()) {
       Operation *clonedOp = rewriter.clone(op, mapping);
-      // Update tensor.empty result type to match the associated operand CB
+      // Keep tensor.empty result types aligned with remapped CB operand types.
       updateTensorEmptyResultType(&op, clonedOp, genericOp, newGenericOp,
                                   operandIndexRemap);
     }
@@ -347,140 +390,142 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
   return newGenericOp;
 }
 
-class ScalarizeFullOpPattern : public OpRewritePattern<FullOp> {
-public:
-  using OpRewritePattern<FullOp>::OpRewritePattern;
+/// Replace splat tensor uses (via layout/cast chains) with scalar RHS constants
+/// where supported, then drop now-unused generic inputs.
+static LogicalResult
+scalarizeSplatThroughUseChains(Location loc, Attribute splatValue,
+                               ArrayRef<ConstantUseChain> chains,
+                               PatternRewriter &rewriter) {
+  bool madeChanges = false;
 
-  LogicalResult matchAndRewrite(FullOp fullOp,
+  SmallVector<linalg::GenericOp> linalgOpsToCleanup;
+  SmallVector<GenericOp> genericOpsToCleanup;
+
+  for (const auto &chain : chains) {
+    SmallVector<BlockArgument> linalgArgs;
+    findLinalgBlockArgsForGenericInput(chain.genericOp, chain.genericInputIdx,
+                                       linalgArgs);
+
+    if (linalgArgs.empty()) {
+      continue;
+    }
+
+    for (BlockArgument arg : linalgArgs) {
+      if (!llvm::any_of(arg.getUsers(), [&](Operation *user) {
+            return isScalarRhsUse(user, arg);
+          })) {
+        continue;
+      }
+
+      Block *linalgBlock = arg.getOwner();
+      rewriter.setInsertionPointToStart(linalgBlock);
+
+      Value scalarConst;
+      if (auto floatAttr = dyn_cast<FloatAttr>(splatValue)) {
+        scalarConst = rewriter.create<arith::ConstantOp>(loc, floatAttr);
+      } else if (auto intAttr = dyn_cast<IntegerAttr>(splatValue)) {
+        scalarConst = rewriter.create<arith::ConstantOp>(loc, intAttr);
+      }
+
+      if (!scalarConst) {
+        continue;
+      }
+
+      for (Operation *user : llvm::make_early_inc_range(arg.getUsers())) {
+        if (isScalarRhsUse(user, arg)) {
+          rewriter.modifyOpInPlace(user,
+                                   [&]() { user->setOperand(1, scalarConst); });
+          madeChanges = true;
+        }
+      }
+
+      if (arg.use_empty()) {
+        if (auto linalgOp =
+                dyn_cast<linalg::GenericOp>(linalgBlock->getParentOp())) {
+          if (!llvm::is_contained(linalgOpsToCleanup, linalgOp)) {
+            linalgOpsToCleanup.push_back(linalgOp);
+          }
+        }
+      }
+    }
+
+    if (!llvm::is_contained(genericOpsToCleanup, chain.genericOp)) {
+      genericOpsToCleanup.push_back(chain.genericOp);
+    }
+  }
+
+  for (linalg::GenericOp linalgOp : linalgOpsToCleanup) {
+    Block *linalgBlock = linalgOp.getBody();
+    SmallVector<unsigned> scalarizedInputIndices =
+        findScalarizedInputIndices(linalgBlock, linalgOp.getNumDpsInputs());
+
+    if (scalarizedInputIndices.empty()) {
+      continue;
+    }
+
+    // Capture RemoteLoads that will be dead after inputs are removed; erase
+    // after replace.
+    SmallVector<RemoteLoadOp> remoteLoadOpsToErase;
+    for (unsigned idx : scalarizedInputIndices) {
+      Value input = linalgOp.getInputs()[idx];
+      if (auto remoteLoadOp = input.getDefiningOp<RemoteLoadOp>()) {
+        if (remoteLoadOp->hasOneUse()) {
+          remoteLoadOpsToErase.push_back(remoteLoadOp);
+        }
+      }
+    }
+
+    auto newLinalgOp = rebuildLinalgGenericWithoutScalarizedInputs(
+        linalgOp, scalarizedInputIndices, rewriter);
+
+    rewriter.replaceOp(linalgOp, newLinalgOp.getResults());
+
+    for (RemoteLoadOp remoteLoadOp : remoteLoadOpsToErase) {
+      rewriter.eraseOp(remoteLoadOp);
+    }
+
+    madeChanges = true;
+  }
+
+  for (GenericOp genericOp : genericOpsToCleanup) {
+    SmallVector<unsigned> unusedInputIndices =
+        findUnusedGenericInputIndices(genericOp);
+
+    if (unusedInputIndices.empty()) {
+      continue;
+    }
+
+    auto newGenericOp = rebuildD2MGenericWithoutScalarizedInputs(
+        genericOp, unusedInputIndices, rewriter);
+
+    rewriter.replaceOp(genericOp, newGenericOp.getResults());
+    madeChanges = true;
+  }
+
+  return madeChanges ? success() : failure();
+}
+
+class ScalarizeGenericFillPattern : public OpRewritePattern<GenericOp> {
+public:
+  using OpRewritePattern<GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(GenericOp genericOp,
                                 PatternRewriter &rewriter) const override {
-    Attribute splatValue = fullOp.getFillValue();
-    bool madeChanges = false;
+    std::optional<Attribute> splatAttr =
+        tryGetSplatAttrFromFillGeneric(genericOp);
+    if (!splatAttr) {
+      return failure();
+    }
 
     SmallVector<ConstantUseChain> chains;
-    traceConstantToGenericOps(fullOp.getOperation(), chains);
+    traceValueToGenericChains(genericOp.getResult(0), chains);
 
     if (chains.empty()) {
       return failure();
     }
 
-    SmallVector<linalg::GenericOp> linalgOpsToCleanup;
-    SmallVector<GenericOp> genericOpsToCleanup;
-
-    for (const auto &chain : chains) {
-      SmallVector<BlockArgument> linalgArgs;
-      findLinalgBlockArgsForGenericInput(chain.genericOp, chain.genericInputIdx,
-                                         linalgArgs);
-
-      if (linalgArgs.empty()) {
-        continue;
-      }
-
-      // Replace each candidate const linalg block argument with a scalar
-      // constant if possible.
-      for (BlockArgument arg : linalgArgs) {
-        bool canScalarize = false;
-        for (Operation *user : arg.getUsers()) {
-          if (isScalarRhsUse(user, arg)) {
-            canScalarize = true;
-            break;
-          }
-        }
-
-        if (!canScalarize) {
-          continue;
-        }
-
-        Block *linalgBlock = arg.getOwner();
-        rewriter.setInsertionPointToStart(linalgBlock);
-
-        Value scalarConst;
-        if (auto floatAttr = dyn_cast<FloatAttr>(splatValue)) {
-          scalarConst =
-              rewriter.create<arith::ConstantOp>(fullOp.getLoc(), floatAttr);
-        } else if (auto intAttr = dyn_cast<IntegerAttr>(splatValue)) {
-          scalarConst =
-              rewriter.create<arith::ConstantOp>(fullOp.getLoc(), intAttr);
-        }
-
-        if (!scalarConst) {
-          continue;
-        }
-
-        for (Operation *user : llvm::make_early_inc_range(arg.getUsers())) {
-          if (isScalarRhsUse(user, arg)) {
-            rewriter.modifyOpInPlace(
-                user, [&]() { user->setOperand(1, scalarConst); });
-            madeChanges = true;
-          }
-        }
-
-        if (arg.use_empty()) {
-          if (auto linalgOp =
-                  dyn_cast<linalg::GenericOp>(linalgBlock->getParentOp())) {
-            if (!llvm::is_contained(linalgOpsToCleanup, linalgOp)) {
-              linalgOpsToCleanup.push_back(linalgOp);
-            }
-          }
-        }
-      }
-
-      if (!llvm::is_contained(genericOpsToCleanup, chain.genericOp)) {
-        genericOpsToCleanup.push_back(chain.genericOp);
-      }
-    }
-
-    // rewrite modified linalg.generic ops to remove unused inputs
-    for (linalg::GenericOp linalgOp : linalgOpsToCleanup) {
-      Block *linalgBlock = linalgOp.getBody();
-      SmallVector<unsigned> scalarizedInputIndices =
-          findScalarizedInputIndices(linalgBlock, linalgOp.getNumDpsInputs());
-
-      if (scalarizedInputIndices.empty()) {
-        continue;
-      }
-
-      // Collect remote load ops that will become dead after removing scalarized
-      // inputs.
-      SmallVector<RemoteLoadOp> remoteLoadOpsToErase;
-      for (unsigned idx : scalarizedInputIndices) {
-        Value input = linalgOp.getInputs()[idx];
-        if (auto remoteLoadOp = input.getDefiningOp<RemoteLoadOp>()) {
-          if (remoteLoadOp->hasOneUse()) {
-            remoteLoadOpsToErase.push_back(remoteLoadOp);
-          }
-        }
-      }
-
-      auto newLinalgOp = rebuildLinalgGenericWithoutScalarizedInputs(
-          linalgOp, scalarizedInputIndices, rewriter);
-
-      rewriter.replaceOp(linalgOp, newLinalgOp.getResults());
-
-      // Erase RemoteLoadOps after rebuilding linalg.generic
-      for (RemoteLoadOp remoteLoadOp : remoteLoadOpsToErase) {
-        rewriter.eraseOp(remoteLoadOp);
-      }
-
-      madeChanges = true;
-    }
-
-    // Rebuild linalg.generic ops to remove unused inputs
-    for (GenericOp genericOp : genericOpsToCleanup) {
-      SmallVector<unsigned> unusedInputIndices =
-          findUnusedGenericInputIndices(genericOp);
-
-      if (unusedInputIndices.empty()) {
-        continue;
-      }
-
-      auto newGenericOp = rebuildD2MGenericWithoutScalarizedInputs(
-          genericOp, unusedInputIndices, rewriter);
-
-      rewriter.replaceOp(genericOp, newGenericOp.getResults());
-      madeChanges = true;
-    }
-
-    return madeChanges ? success() : failure();
+    return scalarizeSplatThroughUseChains(genericOp.getLoc(), *splatAttr,
+                                          chains, rewriter);
   }
 };
 
@@ -492,9 +537,10 @@ public:
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<ScalarizeFullOpPattern>(ctx);
+    patterns.add<ScalarizeGenericFillPattern>(ctx);
 
     GreedyRewriteConfig config;
+    config.setMaxIterations(25);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
                                      config))) {
       signalPassFailure();

@@ -797,7 +797,7 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
 //===----------------------------------------------------------------------===//
 
 def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
-    let summary = "D2M Tile Fill Op";
+    let summary = "D2M Fill Tile Op";
     let description = [{
         The `tile_fill` operation creates a tile filled with a constant scalar value.
         All elements in the resulting tile will have the same value as the input scalar.
@@ -807,7 +807,7 @@ def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
         for element-wise operations.
     }];
 
-    let arguments = (ins AnyFloat:$value);
+    let arguments = (ins AnyTypeOf<[AnyFloat, AnyInteger]>:$value);
     let results = (outs TTCore_Tile:$result);
 
     let assemblyFormat = [{
@@ -820,9 +820,11 @@ def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
           return {};
         }
         bool getDstRegInPlace() { return false; }
-        // The operand is a scalar (float), not a tile
+        // Operand 0 is the fill scalar (not a tile). Other indices must be
+        // false so passes that query isScalarOperand(1) for tile+scalar rhs do
+        // not treat tile_fill as in-place on store.
         bool isScalarOperand(int64_t operandIdx) {
-          return true;
+          return operandIdx == 0;
         }
     }];
 }

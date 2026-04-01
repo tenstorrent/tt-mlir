@@ -211,7 +211,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     rewriter.create<WriteColMaskTileOp>(loc, validColsVal, colMaskCB);
 
     // === Tile operation helpers ===
-    auto createFillTile = [&]() {
+    auto createTileFill = [&]() {
       return rewriter.create<TileFillOp>(loc, tileType, fillScalar).getResult();
     };
 
@@ -225,12 +225,12 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     auto emitRowMasked = [&](Value localRowIdx, Value localColIdx) {
       auto inputTile = rewriter.create<memref::LoadOp>(
           loc, input, ValueRange{localRowIdx, localColIdx});
-      auto fillTile = createFillTile();
+      auto tileFill = createTileFill();
       auto rowMaskTile = rewriter.create<memref::LoadOp>(
           loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
       auto result =
           rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
-                                       inputTile.getResult(), fillTile);
+                                       inputTile.getResult(), tileFill);
       rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
                                        ValueRange{localRowIdx, localColIdx});
     };
@@ -238,12 +238,12 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     auto emitColMasked = [&](Value localRowIdx, Value localColIdx) {
       auto inputTile = rewriter.create<memref::LoadOp>(
           loc, input, ValueRange{localRowIdx, localColIdx});
-      auto fillTile = createFillTile();
+      auto tileFill = createTileFill();
       auto colMaskTile = rewriter.create<memref::LoadOp>(
           loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
       auto result =
           rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
-                                       inputTile.getResult(), fillTile);
+                                       inputTile.getResult(), tileFill);
       rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
                                        ValueRange{localRowIdx, localColIdx});
     };
@@ -251,25 +251,25 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     auto emitCornerMasked = [&](Value localRowIdx, Value localColIdx) {
       auto inputTile = rewriter.create<memref::LoadOp>(
           loc, input, ValueRange{localRowIdx, localColIdx});
-      auto fillTile1 = createFillTile();
+      auto tileFill1 = createTileFill();
       auto rowMaskTile = rewriter.create<memref::LoadOp>(
           loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
       auto rowMaskedResult =
           rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
-                                       inputTile.getResult(), fillTile1);
-      auto fillTile2 = createFillTile();
+                                       inputTile.getResult(), tileFill1);
+      auto tileFill2 = createTileFill();
       auto colMaskTile = rewriter.create<memref::LoadOp>(
           loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
       auto finalResult =
           rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
-                                       rowMaskedResult.getResult(), fillTile2);
+                                       rowMaskedResult.getResult(), tileFill2);
       rewriter.create<memref::StoreOp>(loc, finalResult.getResult(), output,
                                        ValueRange{localRowIdx, localColIdx});
     };
 
     auto emitFill = [&](Value localRowIdx, Value localColIdx) {
-      auto fillTile = createFillTile();
-      rewriter.create<memref::StoreOp>(loc, fillTile, output,
+      auto tileFill = createTileFill();
+      rewriter.create<memref::StoreOp>(loc, tileFill, output,
                                        ValueRange{localRowIdx, localColIdx});
     };
 

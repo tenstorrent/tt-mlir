@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/AffineMapUtils.h"
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -46,6 +48,40 @@ public:
     return linearResult.compose(map);
   }
 
+  // When the memref being linearized is also an implicit remote_load local
+  // buffer, inserting collapse_shape "after value" can place it after alloc
+  // but before the remote_load that materializes the buffer contents. Anchor
+  // collapse_shape after the matching remote_load so local reads/writes always
+  // occur after the load.
+  static void setInsertionPointForCollapsedMemref(PatternRewriter &rewriter,
+                                                  Value memrefValue,
+                                                  Operation *memrefUseOp) {
+    RemoteLoadOp remoteLoad;
+    for (Operation *user : memrefValue.getUsers()) {
+      auto candidate = mlir::dyn_cast<RemoteLoadOp>(user);
+      if (!candidate || !candidate.isImplicitForm() ||
+          candidate.getLocalBuffer() != memrefValue) {
+        continue;
+      }
+      TT_assertv(!remoteLoad,
+                 "expected at most one implicit remote_load for a local "
+                 "buffer value when linearizing memref accesses");
+      remoteLoad = candidate;
+    }
+
+    if (remoteLoad) {
+      if (remoteLoad->getBlock() == memrefUseOp->getBlock()) {
+        TT_assertv(remoteLoad->isBeforeInBlock(memrefUseOp),
+                   "expected implicit remote_load to precede local memref "
+                   "access for the same local buffer");
+      }
+      rewriter.setInsertionPointAfter(remoteLoad);
+      return;
+    }
+
+    rewriter.setInsertionPointAfterValue(memrefValue);
+  }
+
   LogicalResult matchAndRewrite(LoadStoreOp op,
                                 PatternRewriter &rewriter) const final {
     Value val = op.getMemRef();
@@ -63,7 +99,7 @@ public:
     // Create or get collapsed memref
     memref::CollapseShapeOp linearizedArg = collapseOps->lookup(val);
     if (!linearizedArg) {
-      rewriter.setInsertionPointAfterValue(val);
+      setInsertionPointForCollapsedMemref(rewriter, val, op);
       SmallVector<ReassociationIndices, 4> collapsedDims = {
           llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
       assert(memref::CollapseShapeOp::isGuaranteedCollapsible(memref,

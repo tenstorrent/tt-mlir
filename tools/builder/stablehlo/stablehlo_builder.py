@@ -811,7 +811,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             dynamic_update_slice_module = Module.create()
-            dynamic_update_slice_builder = StableHLOBuilder(old_context, old_loc)
+            dynamic_update_slice_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.operand.type,
                 old_op.update.type,
@@ -852,6 +854,10 @@ class StableHLOBuilder(Builder):
                     dynamic_update_slice_builder._set_golden_tensor(
                         update, update_tensor
                     )
+                    dynamic_update_slice_builder._annotate_presharded_arg(input)
+                    dynamic_update_slice_builder._annotate_presharded_arg(update)
+                    for idx in start_indices:
+                        dynamic_update_slice_builder._annotate_presharded_arg(idx)
                     ordered_inputs.extend([input, update] + list(start_indices))
                     ordered_outputs.append(new_op_result)
 
@@ -945,7 +951,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             add_module = Module.create()
-            add_builder = StableHLOBuilder(old_context, old_loc)
+            add_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -970,6 +978,8 @@ class StableHLOBuilder(Builder):
                     add_builder._set_golden_tensor(new_op_result, old_op_result)
                     add_builder._set_golden_tensor(lhs, input0)
                     add_builder._set_golden_tensor(rhs, input1)
+                    add_builder._annotate_presharded_arg(lhs)
+                    add_builder._annotate_presharded_arg(rhs)
                     ordered_inputs.extend([lhs, rhs])
                     ordered_outputs.append(new_op_result)
 
@@ -1058,7 +1068,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             and_module = Module.create()
-            and_builder = StableHLOBuilder(old_context, old_loc)
+            and_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -1083,6 +1095,8 @@ class StableHLOBuilder(Builder):
                     and_builder._set_golden_tensor(new_op_result, old_op_result)
                     and_builder._set_golden_tensor(lhs, input0)
                     and_builder._set_golden_tensor(rhs, input1)
+                    and_builder._annotate_presharded_arg(lhs)
+                    and_builder._annotate_presharded_arg(rhs)
                     ordered_inputs.extend([lhs, rhs])
                     ordered_outputs.append(new_op_result)
 
@@ -1163,7 +1177,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             abs_module = Module.create()
-            abs_builder = StableHLOBuilder(old_context, old_loc)
+            abs_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.operand.type,
             ]
@@ -1184,6 +1200,7 @@ class StableHLOBuilder(Builder):
                     abs_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.operand)
                     abs_builder._set_golden_tensor(operand, input0)
+                    abs_builder._annotate_presharded_arg(operand)
                     ordered_inputs.append(operand)
                     ordered_outputs.append(new_op_result)
 
@@ -1373,7 +1390,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             sort_module = Module.create()
-            sort_builder = StableHLOBuilder(old_context, old_loc)
+            sort_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [inp.type for inp in old_op.inputs]
 
             with InsertionPoint(sort_module.body):
@@ -1457,6 +1476,7 @@ class StableHLOBuilder(Builder):
                         )
                     for inp_operand, inp_golden in zip(inputs, input_goldens):
                         sort_builder._set_golden_tensor(inp_operand, inp_golden)
+                        sort_builder._annotate_presharded_arg(inp_operand)
                         ordered_inputs.append(inp_operand)
                     for result in new_op.results:
                         ordered_outputs.append(result)
@@ -1553,7 +1573,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             get_dimension_size_module = Module.create()
-            get_dimension_size_builder = StableHLOBuilder(old_context, old_loc)
+            get_dimension_size_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.operand.type,
             ]
@@ -1580,7 +1602,10 @@ class StableHLOBuilder(Builder):
                     get_dimension_size_builder._set_golden_tensor(
                         new_op_result, golden_output
                     )
-                    get_dimension_size_builder._set_golden_tensor(operand, input0)
+                    get_dimension_size_builder._set_golden_tensor(
+                        operand,
+                    )
+                    get_dimension_size_builder._annotate_presharded_arg(operand)
                     ordered_inputs.append(operand)
                     ordered_outputs.append(new_op_result)
 
@@ -1661,7 +1686,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             ceil_module = Module.create()
-            ceil_builder = StableHLOBuilder(old_context, old_loc)
+            ceil_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.operand.type,
             ]
@@ -1682,6 +1709,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     ceil_builder._set_golden_tensor(new_op_result, old_op_result)
                     ceil_builder._set_golden_tensor(operand, input0)
+                    ceil_builder._annotate_presharded_arg(operand)
                     ordered_inputs.append(operand)
                     ordered_outputs.append(new_op_result)
 
@@ -1770,7 +1798,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             divide_module = Module.create()
-            divide_builder = StableHLOBuilder(old_context, old_loc)
+            divide_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -1795,6 +1825,8 @@ class StableHLOBuilder(Builder):
                     divide_builder._set_golden_tensor(new_op_result, old_op_result)
                     divide_builder._set_golden_tensor(lhs, input0)
                     divide_builder._set_golden_tensor(rhs, input1)
+                    divide_builder._annotate_presharded_arg(lhs)
+                    divide_builder._annotate_presharded_arg(rhs)
                     ordered_inputs.extend([lhs, rhs])
                     ordered_outputs.append(new_op_result)
 
@@ -1875,7 +1907,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             cosine_module = Module.create()
-            cosine_builder = StableHLOBuilder(old_context, old_loc)
+            cosine_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.operand.type,
             ]
@@ -1896,6 +1930,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     cosine_builder._set_golden_tensor(new_op_result, old_op_result)
                     cosine_builder._set_golden_tensor(operand, input0)
+                    cosine_builder._annotate_presharded_arg(operand)
                     ordered_inputs.append(operand)
                     ordered_outputs.append(new_op_result)
 
@@ -1976,7 +2011,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             exp_module = Module.create()
-            exp_builder = StableHLOBuilder(old_context, old_loc)
+            exp_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.operand.type,
             ]
@@ -1997,6 +2034,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     exp_builder._set_golden_tensor(new_op_result, old_op_result)
                     exp_builder._set_golden_tensor(operand, input0)
+                    exp_builder._annotate_presharded_arg(operand)
                     ordered_inputs.append(operand)
                     ordered_outputs.append(new_op_result)
 
@@ -2077,7 +2115,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             floor_module = Module.create()
-            floor_builder = StableHLOBuilder(old_context, old_loc)
+            floor_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.operand.type,
             ]
@@ -2098,6 +2138,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     floor_builder._set_golden_tensor(new_op_result, old_op_result)
                     floor_builder._set_golden_tensor(operand, input0)
+                    floor_builder._annotate_presharded_arg(operand)
                     ordered_inputs.append(operand)
                     ordered_outputs.append(new_op_result)
 
@@ -2245,7 +2286,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             log_module = Module.create()
-            log_builder = StableHLOBuilder(old_ctx, old_loc)
+            log_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(log_module.body):
@@ -2264,6 +2307,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     log_builder._set_golden_tensor(new_op_result, old_op_result)
                     log_builder._set_golden_tensor(in0, input0)
+                    log_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -2356,7 +2400,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             neg_module = Module.create()
-            neg_builder = StableHLOBuilder(old_ctx, old_loc)
+            neg_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(neg_module.body):
@@ -2375,6 +2421,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     neg_builder._set_golden_tensor(new_op_result, old_op_result)
                     neg_builder._set_golden_tensor(in0, input0)
+                    neg_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -2467,7 +2514,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             rsqrt_module = Module.create()
-            rsqrt_builder = StableHLOBuilder(old_ctx, old_loc)
+            rsqrt_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(rsqrt_module.body):
@@ -2486,6 +2535,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     rsqrt_builder._set_golden_tensor(new_op_result, old_op_result)
                     rsqrt_builder._set_golden_tensor(in0, input0)
+                    rsqrt_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -2577,7 +2627,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             sine_module = Module.create()
-            sine_builder = StableHLOBuilder(old_ctx, old_loc)
+            sine_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(sine_module.body):
@@ -2596,6 +2648,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     sine_builder._set_golden_tensor(new_op_result, old_op_result)
                     sine_builder._set_golden_tensor(in0, input0)
+                    sine_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -2688,7 +2741,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             sqrt_module = Module.create()
-            sqrt_builder = StableHLOBuilder(old_ctx, old_loc)
+            sqrt_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(sqrt_module.body):
@@ -2707,6 +2762,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     sqrt_builder._set_golden_tensor(new_op_result, old_op_result)
                     sqrt_builder._set_golden_tensor(in0, input0)
+                    sqrt_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -2793,7 +2849,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             tan_module = Module.create()
-            tan_builder = StableHLOBuilder(old_ctx, old_loc)
+            tan_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(tan_module.body):
@@ -2812,6 +2870,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     tan_builder._set_golden_tensor(new_op_result, old_op_result)
                     tan_builder._set_golden_tensor(in0, input0)
+                    tan_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -2904,7 +2963,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             tanh_module = Module.create()
-            tanh_builder = StableHLOBuilder(old_ctx, old_loc)
+            tanh_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(tanh_module.body):
@@ -2923,6 +2984,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     tanh_builder._set_golden_tensor(new_op_result, old_op_result)
                     tanh_builder._set_golden_tensor(in0, input0)
+                    tanh_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -3015,7 +3077,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             log1p_module = Module.create()
-            log1p_builder = StableHLOBuilder(old_ctx, old_loc)
+            log1p_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(log1p_module.body):
@@ -3034,6 +3098,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     log1p_builder._set_golden_tensor(new_op_result, old_op_result)
                     log1p_builder._set_golden_tensor(in0, input0)
+                    log1p_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -3126,7 +3191,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             logistic_module = Module.create()
-            logistic_builder = StableHLOBuilder(old_ctx, old_loc)
+            logistic_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(logistic_module.body):
@@ -3145,6 +3212,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     logistic_builder._set_golden_tensor(new_op_result, old_op_result)
                     logistic_builder._set_golden_tensor(in0, input0)
+                    logistic_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -3264,7 +3332,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             slice_module = Module.create()
-            slice_builder = StableHLOBuilder(old_ctx, old_loc)
+            slice_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(slice_module.body):
@@ -3292,6 +3362,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     slice_builder._set_golden_tensor(new_op_result, old_op_result)
                     slice_builder._set_golden_tensor(in0, input0)
+                    slice_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -3425,7 +3496,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             dynamic_slice_module = Module.create()
-            dynamic_slice_builder = StableHLOBuilder(old_context, old_loc)
+            dynamic_slice_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
 
             op_input_types = [old_op.operand.type] + [
                 idx.type for idx in old_op.start_indices
@@ -3464,7 +3537,9 @@ class StableHLOBuilder(Builder):
                         new_op_result, golden_output
                     )
                     dynamic_slice_builder._set_golden_tensor(operand, operand_tensor)
-
+                    dynamic_slice_builder._annotate_presharded_arg(operand)
+                    for idx in start_indices:
+                        dynamic_slice_builder._annotate_presharded_arg(idx)
                     ordered_inputs.extend([operand] + list(start_indices))
                     ordered_outputs.append(new_op_result)
 
@@ -3560,7 +3635,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             transpose_module = Module.create()
-            transpose_builder = StableHLOBuilder(old_ctx, old_loc)
+            transpose_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(transpose_module.body):
@@ -3584,6 +3661,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     transpose_builder._set_golden_tensor(new_op_result, old_op_result)
                     transpose_builder._set_golden_tensor(in0, input0)
+                    transpose_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -3711,7 +3789,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             pad_module = Module.create()
-            pad_builder = StableHLOBuilder(old_ctx, old_loc)
+            pad_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type, old_op.padding_value.type]
 
             with InsertionPoint(pad_module.body):
@@ -3743,6 +3823,8 @@ class StableHLOBuilder(Builder):
                     pad_builder._set_golden_tensor(new_op_result, old_op_result)
                     pad_builder._set_golden_tensor(in0, input0)
                     pad_builder._set_golden_tensor(padding_value, padding_value_golden)
+                    pad_builder._annotate_presharded_arg(in0)
+                    pad_builder._annotate_presharded_arg(padding_value)
                     ordered_inputs.append(in0)
                     ordered_inputs.append(padding_value)
                     ordered_outputs.append(new_op_result)
@@ -3840,7 +3922,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             reshape_module = Module.create()
-            reshape_builder = StableHLOBuilder(old_ctx, old_loc)
+            reshape_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(reshape_module.body):
@@ -3861,6 +3945,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     reshape_builder._set_golden_tensor(new_op_result, old_op_result)
                     reshape_builder._set_golden_tensor(in0, input0)
+                    reshape_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -3960,7 +4045,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             max_module = Module.create()
-            max_builder = StableHLOBuilder(old_context, old_loc)
+            max_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -3985,6 +4072,8 @@ class StableHLOBuilder(Builder):
                     max_builder._set_golden_tensor(new_op_result, old_op_result)
                     max_builder._set_golden_tensor(lhs, input0)
                     max_builder._set_golden_tensor(rhs, input1)
+                    max_builder._annotate_presharded_arg(lhs)
+                    max_builder._annotate_presharded_arg(rhs)
                     ordered_inputs.extend([lhs, rhs])
                     ordered_outputs.append(new_op_result)
 
@@ -4084,7 +4173,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             min_module = Module.create()
-            min_builder = StableHLOBuilder(old_context, old_loc)
+            min_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -4109,6 +4200,8 @@ class StableHLOBuilder(Builder):
                     min_builder._set_golden_tensor(new_op_result, old_op_result)
                     min_builder._set_golden_tensor(lhs, input0)
                     min_builder._set_golden_tensor(rhs, input1)
+                    min_builder._annotate_presharded_arg(lhs)
+                    min_builder._annotate_presharded_arg(rhs)
                     ordered_inputs.extend([lhs, rhs])
                     ordered_outputs.append(new_op_result)
 
@@ -4257,7 +4350,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             compare_module = Module.create()
-            compare_builder = StableHLOBuilder(old_context, old_loc)
+            compare_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -4301,6 +4396,8 @@ class StableHLOBuilder(Builder):
                     compare_builder._set_golden_tensor(new_op_result, golden_output)
                     compare_builder._set_golden_tensor(lhs, input0)
                     compare_builder._set_golden_tensor(rhs, input1)
+                    compare_builder._annotate_presharded_arg(lhs)
+                    compare_builder._annotate_presharded_arg(rhs)
                     ordered_inputs.extend([lhs, rhs])
                     ordered_outputs.append(new_op_result)
 
@@ -4400,7 +4497,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             mul_module = Module.create()
-            mul_builder = StableHLOBuilder(old_context, old_loc)
+            mul_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -4425,6 +4524,8 @@ class StableHLOBuilder(Builder):
                     mul_builder._set_golden_tensor(new_op_result, old_op_result)
                     mul_builder._set_golden_tensor(lhs, input0)
                     mul_builder._set_golden_tensor(rhs, input1)
+                    mul_builder._annotate_presharded_arg(lhs)
+                    mul_builder._annotate_presharded_arg(rhs)
                     ordered_inputs.extend([lhs, rhs])
                     ordered_outputs.append(new_op_result)
 
@@ -4524,7 +4625,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             sub_module = Module.create()
-            sub_builder = StableHLOBuilder(old_context, old_loc)
+            sub_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -4549,6 +4652,8 @@ class StableHLOBuilder(Builder):
                     sub_builder._set_golden_tensor(new_op_result, old_op_result)
                     sub_builder._set_golden_tensor(lhs, input0)
                     sub_builder._set_golden_tensor(rhs, input1)
+                    sub_builder._annotate_presharded_arg(lhs)
+                    sub_builder._annotate_presharded_arg(rhs)
                     ordered_inputs.extend([lhs, rhs])
                     ordered_outputs.append(new_op_result)
 
@@ -4648,7 +4753,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             pow_module = Module.create()
-            pow_builder = StableHLOBuilder(old_context, old_loc)
+            pow_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -4673,6 +4780,8 @@ class StableHLOBuilder(Builder):
                     pow_builder._set_golden_tensor(new_op_result, old_op_result)
                     pow_builder._set_golden_tensor(lhs, input0)
                     pow_builder._set_golden_tensor(rhs, input1)
+                    pow_builder._annotate_presharded_arg(lhs)
+                    pow_builder._annotate_presharded_arg(rhs)
                     ordered_inputs.extend([lhs, rhs])
                     ordered_outputs.append(new_op_result)
 
@@ -4776,7 +4885,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             srl_module = Module.create()
-            srl_builder = StableHLOBuilder(old_context, old_loc)
+            srl_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -4801,6 +4912,8 @@ class StableHLOBuilder(Builder):
                     srl_builder._set_golden_tensor(new_op_result, old_op_result)
                     srl_builder._set_golden_tensor(lhs, input0)
                     srl_builder._set_golden_tensor(rhs, input1)
+                    srl_builder._annotate_presharded_arg(lhs)
+                    srl_builder._annotate_presharded_arg(rhs)
                     ordered_inputs.extend([lhs, rhs])
                     ordered_outputs.append(new_op_result)
 
@@ -4901,7 +5014,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             reverse_module = Module.create()
-            reverse_builder = StableHLOBuilder(old_ctx, old_loc)
+            reverse_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.operand.type]
 
             with InsertionPoint(reverse_module.body):
@@ -4924,6 +5039,7 @@ class StableHLOBuilder(Builder):
                     old_op_result = self._get_golden_tensor(old_op.result)
                     reverse_builder._set_golden_tensor(new_op_result, old_op_result)
                     reverse_builder._set_golden_tensor(in0, input0)
+                    reverse_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -5030,7 +5146,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             sel_module = Module.create()
-            sel_builder = StableHLOBuilder(old_ctx, old_loc)
+            sel_builder = StableHLOBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.pred.type,
                 old_op.on_true.type,
@@ -5057,6 +5175,9 @@ class StableHLOBuilder(Builder):
                     sel_builder._set_golden_tensor(pred, pred_g)
                     sel_builder._set_golden_tensor(on_true, true_g)
                     sel_builder._set_golden_tensor(on_false, false_g)
+                    sel_builder._annotate_presharded_arg(pred)
+                    sel_builder._annotate_presharded_arg(on_true)
+                    sel_builder._annotate_presharded_arg(on_false)
                     ordered_inputs.extend([pred, on_true, on_false])
                     ordered_outputs.append(new_op_result)
 
@@ -5147,7 +5268,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             clamp_module = Module.create()
-            clamp_builder = StableHLOBuilder(old_context, old_loc)
+            clamp_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.min.type,
                 old_op.operand.type,
@@ -5178,6 +5301,9 @@ class StableHLOBuilder(Builder):
                     clamp_builder._set_golden_tensor(min_val, min_golden)
                     clamp_builder._set_golden_tensor(operand, operand_golden)
                     clamp_builder._set_golden_tensor(max_val, max_golden)
+                    clamp_builder._annotate_presharded_arg(min_val)
+                    clamp_builder._annotate_presharded_arg(operand)
+                    clamp_builder._annotate_presharded_arg(max_val)
                     ordered_inputs.extend([min_val, operand, max_val])
                     ordered_outputs.append(new_op_result)
 
@@ -5269,7 +5395,9 @@ class StableHLOBuilder(Builder):
 
         with old_context, old_loc:
             concatenate_module = Module.create()
-            concatenate_builder = StableHLOBuilder(old_context, old_loc)
+            concatenate_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [inp.type for inp in old_op.inputs]
 
             with InsertionPoint(concatenate_module.body):
@@ -5375,7 +5503,9 @@ class StableHLOBuilder(Builder):
 
         with old_context, old_loc:
             constant_module = Module.create()
-            constant_builder = StableHLOBuilder(old_context, old_loc)
+            constant_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
 
             with InsertionPoint(constant_module.body):
 
@@ -5495,7 +5625,9 @@ class StableHLOBuilder(Builder):
 
         with old_context, old_loc:
             iota_module = Module.create()
-            iota_builder = StableHLOBuilder(old_context, old_loc)
+            iota_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
 
             with InsertionPoint(iota_module.body):
 
@@ -5626,7 +5758,9 @@ class StableHLOBuilder(Builder):
 
         with old_context, old_loc:
             dynamic_iota_module = Module.create()
-            dynamic_iota_builder = StableHLOBuilder(old_context, old_loc)
+            dynamic_iota_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
 
             with InsertionPoint(dynamic_iota_module.body):
 
@@ -5651,6 +5785,7 @@ class StableHLOBuilder(Builder):
                     output_shape_golden = dynamic_iota_builder._get_golden_tensor(
                         output_shape
                     )
+                    dynamic_iota_builder._annotate_presharded_arg(output_shape)
                     mesh_shape_attr = DenseI64ArrayAttr.get(
                         dynamic_iota_builder._mesh_shape
                     )
@@ -5824,7 +5959,9 @@ class StableHLOBuilder(Builder):
 
         with old_context, old_loc:
             batch_norm_grad_module = Module.create()
-            batch_norm_grad_builder = StableHLOBuilder(old_context, old_loc)
+            batch_norm_grad_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.operand.type,
                 old_op.scale.type,
@@ -5888,6 +6025,11 @@ class StableHLOBuilder(Builder):
                     batch_norm_grad_builder._set_golden_tensor(
                         grad_output, grad_output_golden
                     )
+                    batch_norm_grad_builder._annotate_presharded_arg(operand)
+                    batch_norm_grad_builder._annotate_presharded_arg(scale)
+                    batch_norm_grad_builder._annotate_presharded_arg(mean)
+                    batch_norm_grad_builder._annotate_presharded_arg(variance)
+                    batch_norm_grad_builder._annotate_presharded_arg(grad_output)
                     ordered_inputs.extend([operand, scale, mean, variance, grad_output])
                     ordered_outputs.extend(
                         [new_op_grad_operand, new_op_grad_scale, new_op_grad_offset]
@@ -6028,7 +6170,9 @@ class StableHLOBuilder(Builder):
 
         with old_context, old_loc:
             batch_norm_training_module = Module.create()
-            batch_norm_training_builder = StableHLOBuilder(old_context, old_loc)
+            batch_norm_training_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.operand.type,
                 old_op.scale.type,
@@ -6082,6 +6226,9 @@ class StableHLOBuilder(Builder):
                     batch_norm_training_builder._set_golden_tensor(
                         offset, offset_golden
                     )
+                    batch_norm_training_builder._annotate_presharded_arg(operand)
+                    batch_norm_training_builder._annotate_presharded_arg(scale)
+                    batch_norm_training_builder._annotate_presharded_arg(offset)
                     ordered_inputs.extend([operand, scale, offset])
                     ordered_outputs.extend(
                         [new_op_output, new_op_batch_mean, new_op_batch_var]
@@ -6215,7 +6362,9 @@ class StableHLOBuilder(Builder):
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             batch_norm_inference_module = Module.create()
-            batch_norm_inference_builder = StableHLOBuilder(old_context, old_loc)
+            batch_norm_inference_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.operand.type,
                 old_op.scale.type,
@@ -6277,6 +6426,11 @@ class StableHLOBuilder(Builder):
                     batch_norm_inference_builder._set_golden_tensor(
                         variance, variance_golden
                     )
+                    batch_norm_inference_builder._annotate_presharded_arg(operand)
+                    batch_norm_inference_builder._annotate_presharded_arg(scale)
+                    batch_norm_inference_builder._annotate_presharded_arg(offset)
+                    batch_norm_inference_builder._annotate_presharded_arg(mean)
+                    batch_norm_inference_builder._annotate_presharded_arg(variance)
                     ordered_inputs.extend([operand, scale, offset, mean, variance])
                     ordered_outputs.append(new_op_output)
                     return new_op
@@ -7115,7 +7269,9 @@ class StableHLOBuilder(Builder):
 
         with old_context, old_loc:
             reduce_window_module = Module.create()
-            reduce_window_builder = StableHLOBuilder(old_context, old_loc)
+            reduce_window_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.inputs[0].type,
                 old_op.init_values[0].type,
@@ -7189,6 +7345,8 @@ class StableHLOBuilder(Builder):
                     reduce_window_builder._set_golden_tensor(
                         init_value_operand, init_golden
                     )
+                    reduce_window_builder._annotate_presharded_arg(input_operand)
+                    reduce_window_builder._annotate_presharded_arg(init_value_operand)
                     ordered_inputs.extend([input_operand, init_value_operand])
                     ordered_outputs.append(new_op_result)
 
@@ -7424,6 +7582,8 @@ class StableHLOBuilder(Builder):
                     convolution_builder._set_golden_tensor(new_op_result, old_op_result)
                     convolution_builder._set_golden_tensor(in0, input0)
                     convolution_builder._set_golden_tensor(weight, weight0)
+                    convolution_builder._annotate_presharded_arg(in0)
+                    convolution_builder._annotate_presharded_arg(weight)
                     ordered_inputs.extend([in0, weight])
                     ordered_outputs.append(new_op_result)
 

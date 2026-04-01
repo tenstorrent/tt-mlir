@@ -3121,6 +3121,52 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormPostAllGatherOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::LayerNormPostAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType statsType = getStats().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  // Input must have rank >= 2.
+  if (inputType.getRank() < 2) {
+    return emitOpError("input must have rank >= 2");
+  }
+
+  // Stats must have rank >= 2.
+  if (statsType.getRank() < 2) {
+    return emitOpError("stats must have rank >= 2");
+  }
+
+  // Output shape must match input shape.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Verify weight tensor shape if present.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    int64_t lastDimSize = inputType.getShape().back();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != lastDimSize) {
+      return emitOpError("weight tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  // Verify bias tensor shape if present.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    int64_t lastDimSize = inputType.getShape().back();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != lastDimSize) {
+      return emitOpError("bias tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GroupNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::GroupNormOp::verify() {
@@ -4196,6 +4242,27 @@ void CaptureOrExecuteTraceOp::getEffects(
                          << "' does not reference a function";
   }
 
+  // Verify that the input arguments to this op match the capture_callee
+  // function's arguments
+  auto captureInputTypes = captureFuncOp.getFunctionType().getInputs();
+  auto opInputs = this->getInputs();
+
+  if (captureInputTypes.size() != opInputs.size()) {
+    return emitOpError() << "Number of input arguments (" << opInputs.size()
+                         << ") does not match capture function '"
+                         << captureCalleeAttr.getValue() << "' input count ("
+                         << captureInputTypes.size() << ")";
+  }
+
+  for (size_t i = 0; i < opInputs.size(); ++i) {
+    if (opInputs[i].getType() != captureInputTypes[i]) {
+      return emitOpError() << "Input argument " << i << " type mismatch: "
+                           << "expected " << captureInputTypes[i]
+                           << " from capture function, but got "
+                           << opInputs[i].getType();
+    }
+  }
+
   FlatSymbolRefAttr traceFuncCalleeAttr;
   captureFuncOp.walk([&](func::CallOp callOp) {
     traceFuncCalleeAttr = callOp.getCalleeAttr();
@@ -4211,6 +4278,26 @@ void CaptureOrExecuteTraceOp::getEffects(
   if (!traceFuncOp) {
     return emitOpError() << "'" << traceFuncCalleeAttr.getValue()
                          << "' does not reference a function";
+  }
+
+  // Verify that the outputs of this op match the trace function's outputs
+  auto traceOutputTypes = traceFuncOp.getFunctionType().getResults();
+  auto opOutputs = this->getResults();
+
+  if (traceOutputTypes.size() != opOutputs.size()) {
+    return emitOpError() << "Number of output results (" << opOutputs.size()
+                         << ") does not match trace function '"
+                         << traceFuncCalleeAttr.getValue() << "' output count ("
+                         << traceOutputTypes.size() << ")";
+  }
+
+  for (size_t i = 0; i < opOutputs.size(); ++i) {
+    if (opOutputs[i].getType() != traceOutputTypes[i]) {
+      return emitOpError() << "Output result " << i << " type mismatch: "
+                           << "expected " << traceOutputTypes[i]
+                           << " from trace function, but got "
+                           << opOutputs[i].getType();
+    }
   }
 
   for (BlockArgument arg : traceFuncOp.getArguments()) {
@@ -4304,6 +4391,27 @@ void CaptureOrExecuteTraceOp::getEffects(
   if (!executeFuncOp) {
     return emitOpError() << "'" << executeCalleeAttr.getValue()
                          << "' does not reference a function";
+  }
+
+  // Verify that execute function takes exactly one trace_id argument
+  auto executeInputTypes = executeFuncOp.getFunctionType().getInputs();
+  if (executeInputTypes.size() != 1) {
+    return emitOpError()
+           << "Execute function '" << executeCalleeAttr.getValue()
+           << "' must take exactly one trace_id argument, but has "
+           << executeInputTypes.size() << " arguments";
+  }
+
+  // Verify that the single argument is a trace_id tensor (scalar ui32 with
+  // TraceIdAttr encoding).
+  auto traceIdType =
+      mlir::dyn_cast<mlir::RankedTensorType>(executeInputTypes[0]);
+  if (!traceIdType || traceIdType.getRank() != 0 ||
+      !mlir::isa_and_present<ttnn::TraceIdAttr>(traceIdType.getEncoding())) {
+    return emitOpError()
+           << "Execute function '" << executeCalleeAttr.getValue()
+           << "' argument must be a trace_id tensor (scalar ui32 with "
+              "TraceIdAttr encoding)";
   }
 
   return ::mlir::success();

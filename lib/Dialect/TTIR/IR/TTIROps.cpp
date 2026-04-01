@@ -2606,6 +2606,81 @@ foldConsecutiveSliceStatic(mlir::tt::ttir::SliceStaticOp consumerOp) {
   return nullptr;
 }
 
+// Fold slice of concat when taking an entire input tensor along the concat
+// dimension Pattern: slice(concat(t1, t2, ..., tn), dim=concat_dim,
+// begins=[..., offset, ...], ends=[..., offset + size_of_ti, ...]) -> ti This
+// eliminates unnecessary concatenation when only one input tensor is needed.
+static mlir::OpFoldResult
+foldSliceOfConcat(mlir::tt::ttir::SliceStaticOp sliceOp) {
+  auto concatOp = sliceOp.getInput().getDefiningOp<mlir::tt::ttir::ConcatOp>();
+  if (!concatOp) {
+    return nullptr;
+  }
+
+  mlir::ArrayAttr beginsAttr = sliceOp.getBeginsAttr();
+  mlir::ArrayAttr endsAttr = sliceOp.getEndsAttr();
+  mlir::ArrayAttr stepsAttr = sliceOp.getStepAttr();
+
+  if (!beginsAttr || !endsAttr || !stepsAttr ||
+      beginsAttr.size() != endsAttr.size() ||
+      beginsAttr.size() != stepsAttr.size()) {
+    return nullptr;
+  }
+
+  int32_t concatDim = concatOp.getDim();
+  // Normalize negative concat dimension
+  if (concatDim < 0) {
+    concatDim += beginsAttr.size();
+  }
+
+  // Track offset along the concat dimension
+  int64_t offset = 0;
+
+  // Try every concat input to find one that matches the slice pattern
+  for (auto curInput : concatOp.getInputs()) {
+    auto curInputType =
+        mlir::dyn_cast<mlir::RankedTensorType>(curInput.getType());
+    if (!curInputType ||
+        curInputType.getRank() != static_cast<int64_t>(beginsAttr.size()) ||
+        concatDim >= curInputType.getRank()) {
+      continue;
+    }
+
+    int64_t curInputSize = curInputType.getShape()[concatDim];
+    if (curInputSize == mlir::ShapedType::kDynamic) {
+      continue;
+    }
+
+    // Check if the slice covers this input entirely
+    bool matches = llvm::all_of(
+        llvm::enumerate(llvm::zip(beginsAttr, endsAttr, stepsAttr,
+                                  curInputType.getShape())),
+        [&](auto pair) {
+          auto [dimIdx, tuple] = pair;
+          auto [dimBegin, dimEnd, dimStep, inputDimSize] = tuple;
+
+          int32_t begin = mlir::cast<mlir::IntegerAttr>(dimBegin).getInt();
+          int32_t end = mlir::cast<mlir::IntegerAttr>(dimEnd).getInt();
+          int32_t step = mlir::cast<mlir::IntegerAttr>(dimStep).getInt();
+
+          int32_t expectedBegin =
+              (dimIdx == static_cast<size_t>(concatDim)) ? offset : 0;
+          int32_t expectedEnd = (dimIdx == static_cast<size_t>(concatDim))
+                                    ? offset + curInputSize
+                                    : inputDimSize;
+
+          return begin == expectedBegin && end == expectedEnd && step == 1;
+        });
+
+    if (matches) {
+      return curInput;
+    }
+    offset += curInputSize;
+  }
+
+  return nullptr;
+}
+
 // Constant fold SliceStaticOp when the input is a constant, non-splat and
 // non-empty DenseElementsAttr.
 template <typename ElemType>
@@ -2707,6 +2782,10 @@ constantFoldSliceStatic(mlir::tt::ttir::SliceStaticOp op,
 mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
 
   if (auto foldResult = foldConsecutiveSliceStatic(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldSliceOfConcat(*this)) {
     return foldResult;
   }
 

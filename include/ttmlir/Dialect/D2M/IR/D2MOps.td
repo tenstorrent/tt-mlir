@@ -512,33 +512,6 @@ def D2M_ResetGlobalSemaphoreOp : D2M_Op<"reset_global_semaphore"> {
   let assemblyFormat = [{ `(` $semaphore `)` attr-dict `:` type($semaphore) }];
 }
 
-def D2M_FullOp
-    : D2M_Op<"full", [Pure, DeclareOpInterfaceMethods<
-                                BufferizableOpInterface,
-                                ["bufferizesToMemoryRead",
-                                 "bufferizesToMemoryWrite", "bufferize",
-                                 "getAliasingValues", "getBufferType"]>]> {
-  let summary = "Creates a tensor filled with the specified value (D2M).";
-  let description = [{
-    Tensor operation to create a tensor filled with a specified value.
-    Given a `shape` and a `fill_value`, produces a tensor with the shape, filled with the specified value.
-  }];
-
-  let arguments = (ins DenseI32ArrayAttr:$shape,
-      AnyAttrOf<[F32Attr, I32Attr]>:$fill_value);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let builders = [OpBuilder<(ins "Type":$resultType, "Attribute":$fillValue),
-                            [{
-      RankedTensorType tensorType = mlir::cast<RankedTensorType>(resultType);
-      build($_builder, $_state, tensorType, llvm::to_vector_of<int32_t>(tensorType.getShape()), fillValue);
-    }]>];
-
-  let assemblyFormat = "attr-dict `:` type($result)";
-  let hasVerifier = 1;
-}
-
 def D2M_MeshShardOp
     : D2M_Op<"mesh_shard",
              [Pure, DeclareOpInterfaceMethods<
