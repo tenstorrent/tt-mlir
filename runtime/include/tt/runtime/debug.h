@@ -84,19 +84,21 @@ struct Hooks {
   constexpr static Hooks get() { return Hooks(); }
 #endif
 
-  std::optional<CallbackFn> getPreOperatorCallback() const {
+  const std::optional<CallbackFn> &getPreOperatorCallback() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return preOperatorCallback;
 #else
-    return std::nullopt;
+    static const std::optional<CallbackFn> empty = std::nullopt;
+    return empty;
 #endif
   }
 
-  std::optional<CallbackFn> getPostOperatorCallback() const {
+  const std::optional<CallbackFn> &getPostOperatorCallback() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return postOperatorCallback;
 #else
-    return std::nullopt;
+    static const std::optional<CallbackFn> empty = std::nullopt;
+    return empty;
 #endif
   }
 
@@ -111,8 +113,8 @@ private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   Hooks(std::optional<CallbackFn> preOperatorCallback,
         std::optional<CallbackFn> postOperatorCallback)
-      : preOperatorCallback(preOperatorCallback),
-        postOperatorCallback(postOperatorCallback) {}
+      : preOperatorCallback(std::move(preOperatorCallback)),
+        postOperatorCallback(std::move(postOperatorCallback)) {}
 
   mutable std::optional<CallbackFn> preOperatorCallback;
   mutable std::optional<CallbackFn> postOperatorCallback;

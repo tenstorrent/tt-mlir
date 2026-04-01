@@ -29,11 +29,11 @@ public:
   /**
    * Executes pre and post operation callbacks if registered
    */
-  void
-  runCallback(std::optional<::tt::runtime::debug::Hooks::CallbackFn> callback,
-              Binary &executableHandle,
-              const ::tt::target::ttnn::Operation *opContext,
-              ProgramContext *programContext);
+  void runCallback(
+      const std::optional<::tt::runtime::debug::Hooks::CallbackFn> &callback,
+      Binary &executableHandle,
+      const ::tt::target::ttnn::Operation *opContext,
+      ProgramContext *programContext);
 
   /**
    * Executes all operations in the program

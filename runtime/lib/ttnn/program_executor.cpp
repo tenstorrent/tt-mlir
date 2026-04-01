@@ -145,8 +145,8 @@ ProgramExecutor::ProgramExecutor(
 }
 
 void ProgramExecutor::runCallback(
-    std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
-    const ::tt::target::ttnn::Operation *opContext,
+    const std::optional<debug::Hooks::CallbackFn> &callback,
+    Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (callback) {
     std::shared_ptr<void> programContextPtr =
