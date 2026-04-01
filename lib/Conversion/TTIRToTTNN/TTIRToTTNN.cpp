@@ -1963,7 +1963,8 @@ public:
     int64_t inChannels = inputShape[channelDim];
     if (inChannels % TILE_WIDTH_CONST != 0) {
       int32_t cinPadAmount = static_cast<int32_t>(
-          llvm::divideCeil(inChannels, TILE_WIDTH_CONST) * TILE_WIDTH_CONST - inChannels);
+          llvm::divideCeil(inChannels, TILE_WIDTH_CONST) * TILE_WIDTH_CONST -
+          inChannels);
       // Input is now NDHWC; pad dim 4 (C)
       llvm::SmallVector<int32_t> padding = {0, 0, 0, 0, 0,
                                             0, 0, 0, 0, cinPadAmount};
