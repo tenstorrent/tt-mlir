@@ -3,10 +3,11 @@
 ## Overview
 
 This document describes the implementation plan for the new Chisel tool, split
-into 6 PRs: 2 runtime improvements (PR 0a, 0b) and 4 Chisel PRs (PR 1-4).
-Each PR can be merged independently. The runtime PRs are not hard blockers for
-the initial Chisel integration — they improve robustness and coverage but Chisel
-works without them for the common single-output op case.
+into 5 runtime PRs (0a-1, 0a-2a, 0a-2b, 0a-3, 0b), 1 metrics PR (0c), and
+4 Chisel PRs (1-4). The runtime PRs form a dependency chain
+(0a-1 → 0a-2a → 0a-2b → 0a-3) to keep each PR small and independently
+testable. PR 0b is independent. All runtime PRs must land before PR 3
+(orchestration). Chisel PRs 1-2 have no runtime dependencies.
 
 ## Key Design Decisions
 
@@ -34,14 +35,20 @@ works without them for the common single-output op case.
 
 ```mermaid
 graph TD
+    PR0a1["PR 0a-1: GIL-Safety Fix"] --> PR0a2a["PR 0a-2a: Named Callback API"]
+    PR0a2a --> PR0a2b["PR 0a-2b: Program-Level Hooks"]
+    PR0a2b --> PR0a3["PR 0a-3: Introspection Bindings"]
     PR1["PR 1: Scaffold + Data Structures"] --> PR2["PR 2: Logic Layer"]
     PR2 --> PR3["PR 3: Orchestration"]
-    PR0a["PR 0a: DebugHooks Refactor"] --> PR3
+    PR0a3 --> PR3
     PR0c["PR 0c: Unified Metrics"] --> PR3
     PR3 --> PR4["PR 4: Builder Integration"]
     PR0b["PR 0b: Multi-Output Refs"] -.-> Future["Future: Full Multi-Output Op Support"]
 
-    style PR0a fill:#f9d77e,stroke:#d4a017
+    style PR0a1 fill:#f9d77e,stroke:#d4a017
+    style PR0a2a fill:#f9d77e,stroke:#d4a017
+    style PR0a2b fill:#f9d77e,stroke:#d4a017
+    style PR0a3 fill:#f9d77e,stroke:#d4a017
     style PR0b fill:#f9d77e,stroke:#d4a017
     style PR0c fill:#f9d77e,stroke:#d4a017
     style Future fill:#e0e0e0,stroke:#999,stroke-dasharray: 5 5
@@ -49,11 +56,20 @@ graph TD
 
 - **PRs 1-2** have no runtime dependencies — pure Python with no callback
   registration, so the DebugHooks copy bug doesn't affect them.
-- **PR 0a** must land before **PR 3** — that's where callbacks get registered
-  and invoked, hitting the copy/GIL bug in tt-xla.
+- **PR 0a-1** (GIL fix) is minimal and safe — no API change, just const ref
+  returns and move semantics. Can merge quickly.
+- **PR 0a-2a** (named callback API) refactors the `DebugHooks` API to support
+  named multi-client registration. Migrates all existing callers (ttrt, builder,
+  test). Depends on PR 0a-1.
+- **PR 0a-2b** (program hooks) adds `preProgram`/`postProgram` to `CallbackSet`
+  and `runProgramCallbacks()` in the executor. Depends on PR 0a-2a.
+- **PR 0a-3** (introspection bindings) adds `get_program_index`,
+  `get_program_input_refs`, `get_program_output_refs`, `Tensor.global_id`, and
+  `Binary.id`. Depends on PR 0a-2b (needs program callbacks to test).
+- **All 0a-* PRs** must land before **PR 3** — that's where Chisel registers
+  Python callbacks and queries program metadata.
 - **PR 0c** must land before **PR 3** — PR 3's `context.py` imports comparison
-  functions from `golden.metrics`. PR 0c also migrates builder/ttrt duplicates.
-  Can be developed in parallel with PRs 1-2.
+  functions from `golden.metrics`. Can be developed in parallel with PRs 1-2.
 - **PR 0b** is independent and not required for the initial integration.
   Multi-output ops (SortOp, MaxPool2dWithIndicesOp, etc.) will simply be
   unsupported until PR 0b lands. Chisel can skip them gracefully.
@@ -62,27 +78,78 @@ graph TD
 
 | PR | Title | Scope | Tests | Depends On |
 |----|-------|-------|-------|------------|
+| 0a-1 | GIL-Safety Fix | const ref returns + move semantics in debug.h, debug.cpp, program_executor.cpp | Existing runtime tests pass (no behavioral change) | None |
+| 0a-2a | Named Callback API | `setCallbacks(name, ...)`, callback map, migrate callers | Multi-client registration test, existing tests pass after migration | PR 0a-1 |
+| 0a-2b | Program-Level Hooks | `preProgram`/`postProgram` in CallbackSet, `runProgramCallbacks()` | All 4 hooks fire in correct order test | PR 0a-2a |
+| 0a-3 | Introspection Bindings | `get_program_index`, `get_program_input/output_refs`, `Tensor.global_id`, `Binary.id` | Python test querying program metadata from callbacks | PR 0a-2b |
+| 0b | Multi-Output Refs | `getOpOutputRef` → `vector<TensorRef>` | Multi-output op extraction tests | None (independent) |
+| 0c | Unified Metrics | `tools/golden/metrics.py`, migrate builder + ttrt | test/python/golden/test_metrics.py | None (land before PR 3) |
 | 1 | Scaffold + Data Structures | CMakeLists.txt, `__init__.py`, tensors.py, ops.py | test_tensors.py, test_ops.py | None |
 | 2 | Logic Layer | executor.py, report.py | test_executor.py, test_report.py | PR 1 |
-| 3 | Orchestration | context.py, callbacks.py, utils.py | test_context.py, test_callbacks.py, test_utils.py | PR 2, PR 0a, PR 0c |
+| 3 | Orchestration | context.py, callbacks.py, utils.py | test_context.py, test_callbacks.py, test_utils.py | PR 2, PR 0a-3, PR 0c |
 | 4 | Builder Integration | (modifies builder_runtime.py, builder_apis.py) | test_builder_integration.py | PR 3 |
-| 0a | DebugHooks Refactor | runtime C++ — fix callback copy semantics | Existing runtime tests + GIL-safety | None (land before PR 3) |
-| 0b | Multi-Output Refs | runtime C++ — `getOpOutputRef` returns vector | Multi-output op extraction tests | None (independent, future) |
-| 0c | Unified Metrics | `tools/golden/metrics.py`, migrate builder + ttrt | test/python/golden/test_metrics.py | None (land before PR 3) |
 
 ## Runtime PRs
 
-### PR 0a: DebugHooks Refactor ([detail](pr0a_hooks_refactor.md))
+### PR 0a-1: GIL-Safety Fix ([detail](pr0a_hooks_refactor.md))
 
-Fix `debug::Hooks` in `runtime/include/tt/runtime/debug.h` so callbacks are
-never copied. Currently `getPreOperatorCallback()` returns `std::optional<CallbackFn>`
-by value, copying the `std::function` (and its captured `nb::callable`) on every
-op. When called from tt-xla without GIL held, the Python refcount manipulation
-causes a segfault.
+Fix `debug::Hooks` so callbacks are never copied. Return by `const&`, accept
+by rvalue ref + `std::move`. No API change — all existing callers work as-is.
 
-**Fix:** Return by const reference, accept by rvalue reference + move semantics.
+**Files:** `runtime/include/tt/runtime/debug.h`, `runtime/lib/common/debug.cpp`,
+`runtime/lib/ttnn/program_executor.cpp`
 
-**Must land before PR 3.** Can be developed in parallel with PRs 1-2.
+**Test:** Existing runtime tests pass unchanged.
+
+### PR 0a-2a: Named Callback API ([detail](pr0a_program_callbacks.md))
+
+Replace `Hooks::get(pre, post)` with `Hooks::get()` + `setCallbacks(name, CallbackSet)`.
+Store callbacks in `unordered_map<string, CallbackSet>`. Migrate all existing
+callers (ttrt, builder, test) to the new API. `CallbackSet` initially has only
+`preOp`/`postOp` fields.
+
+**Files:** `runtime/include/tt/runtime/debug.h`, `runtime/lib/common/debug.cpp`,
+`runtime/include/tt/runtime/detail/ttnn/program_executor.h`,
+`runtime/lib/ttnn/program_executor.cpp`, `runtime/python/runtime/runtime.cpp`,
+`tools/ttrt/common/run.py`, `tools/builder/base/builder_runtime.py`,
+`runtime/test/ttnn/python/n150/test_intermidate_tensor_manipulation.py`
+
+**Test:** Multi-client registration, unregister by name, existing tests pass
+after caller migration.
+
+### PR 0a-2b: Program-Level Hooks ([detail](pr0a_program_callbacks.md))
+
+Add `ProgramCallbackFn` type and `preProgram`/`postProgram` fields to
+`CallbackSet`. Add `runProgramCallbacks()` in `ProgramExecutor`. Expose
+`pre_program`/`post_program` kwargs in Python `set_callbacks()`.
+
+**Files:** `runtime/include/tt/runtime/debug.h`,
+`runtime/include/tt/runtime/detail/ttnn/program_executor.h`,
+`runtime/lib/ttnn/program_executor.cpp`, `runtime/python/runtime/runtime.cpp`
+
+**Test:** All 4 hooks fire in correct order: pre-program → (pre-op → op →
+post-op)* → post-program.
+
+### PR 0a-3: Program Introspection Bindings ([detail](pr0a_program_input_output_refs.md))
+
+Add Python bindings for querying program metadata from callbacks:
+`get_program_index(CallbackContext)`, `get_program_input_refs(CallbackContext)`,
+`get_program_output_refs(CallbackContext)`, `Tensor.global_id` property,
+`Binary.id` property.
+
+**Files:** `runtime/include/tt/runtime/runtime.h`,
+`runtime/include/tt/runtime/detail/ttnn/ttnn.h`,
+`runtime/include/tt/runtime/detail/ttmetal/ttmetal.h`,
+`runtime/lib/runtime.cpp`, `runtime/lib/ttnn/runtime.cpp`,
+`runtime/lib/ttmetal/runtime.cpp`, `runtime/python/runtime/runtime.cpp`,
+`runtime/python/binary/binary.cpp`, `runtime/python/runtime/stubs_macos.cpp`
+
+**Test:** Python test registering program callbacks and querying
+`get_program_index()`, `get_program_input_refs()`, `get_program_output_refs()`,
+`Binary.id`, `Tensor.global_id`.
+
+**All 0a-* PRs must land before PR 3.** Can be developed in parallel with
+PRs 1-2.
 
 ### PR 0b: Multi-Output Refs ([detail](pr0b_multi_output_ref.md))
 

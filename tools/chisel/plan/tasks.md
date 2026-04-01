@@ -1,14 +1,42 @@
 # Chisel Implementation Tasks
 
-## Runtime Changes (PR 0a)
+## PR 0a-1: GIL-Safety Fix ([detail](../docs/pr0a_hooks_refactor.md))
 
-- Add  `preProgram`/`postProgram` hooks to `DebugHooks` in `runtime/include/tt/runtime/debug.h`.
+- Return callbacks by `const std::optional<CallbackFn>&` instead of by value in `runtime/include/tt/runtime/debug.h`.
+- Change `runCallback()` to take `const std::optional<...>&` in `runtime/lib/ttnn/program_executor.cpp`.
+- Accept callbacks by rvalue ref + `std::move` in `Hooks::get()` in `runtime/lib/common/debug.cpp`.
+- Update non-debug path to return static empty optional by const ref in `runtime/include/tt/runtime/debug.h`.
+
+## PR 0a-2a: Named Callback API ([detail](../docs/pr0a_program_callbacks.md))
+
+- Replace `Hooks::get(pre, post)` with `Hooks::get()` + `setCallbacks(name, CallbackSet)` in `runtime/include/tt/runtime/debug.h`.
+- Add `CallbackSet` struct with `preOp`/`postOp` fields and `unordered_map<string, CallbackSet>` storage.
+- Add `unregisterHooks(name)` and `getRegisteredNames()` methods.
+- Replace `runCallback` with `runOpCallbacks` that iterates the callback map in `runtime/lib/ttnn/program_executor.cpp`.
+- Expose `set_callbacks(name, pre_op=, post_op=)` Python binding in `runtime/python/runtime/runtime.cpp`.
+- Update `unregister_hooks` to accept optional name argument.
+- Migrate callers: `tools/ttrt/common/run.py`, `tools/builder/base/builder_runtime.py`, `runtime/test/ttnn/python/n150/test_intermidate_tensor_manipulation.py`.
+
+## PR 0a-2b: Program-Level Hooks ([detail](../docs/pr0a_program_callbacks.md))
+
+- Add `ProgramCallbackFn = std::function<void(Binary, CallbackContext)>` type alias in `runtime/include/tt/runtime/debug.h`.
+- Add `preProgram`/`postProgram` fields to `CallbackSet`.
+- Add `runProgramCallbacks()` in `runtime/include/tt/runtime/detail/ttnn/program_executor.h` and `runtime/lib/ttnn/program_executor.cpp`.
+- Call `runProgramCallbacks` before/after the op loop in `ProgramExecutor::execute()`.
+- Expose `pre_program`/`post_program` kwargs in Python `set_callbacks()` in `runtime/python/runtime/runtime.cpp`.
+
+## PR 0a-3: Program Introspection Bindings ([detail](../docs/pr0a_program_input_output_refs.md))
+
 - Add `get_program_index(CallbackContext)` Python binding in `runtime/python/runtime/runtime.cpp`.
-- Add `get_program_input_refs(CallbackContext)` → `List[TensorRef]` Python binding in `runtime/python/runtime/runtime.cpp`.
-- Add `get_program_output_refs(CallbackContext)` → `List[TensorRef]` Python binding in `runtime/python/runtime/runtime.cpp`.
-- Expose `Tensor.global_id` (uint64, runtime-assigned) as a read-only Python property in `runtime/python/runtime/runtime.cpp`.
+- Add `getProgramInputRefs(CallbackContext)` → `vector<TensorRef>` in `runtime/include/tt/runtime/runtime.h`, `runtime/lib/ttnn/runtime.cpp`, `runtime/lib/runtime.cpp`.
+- Add `getProgramOutputRefs(CallbackContext)` → `vector<TensorRef>` in same files + TTMetal stubs.
+- Add `get_program_input_refs` / `get_program_output_refs` Python bindings in `runtime/python/runtime/runtime.cpp`.
+- Expose `Tensor.global_id` (uint64) as a read-only Python property in `runtime/python/runtime/runtime.cpp`.
 - Expose `Binary.id` as a read-only Python property in `runtime/python/binary/binary.cpp`.
-- Fix `DebugHooks` callback copy semantics to return by const ref (GIL safety).
+- Add macOS stubs in `runtime/python/runtime/stubs_macos.cpp`.
+
+## PR 0b: Multi-Output Refs ([detail](../docs/pr0b_multi_output_ref.md))
+
 - Change `getOpOutputRef()` to return `vector<TensorRef>` for multi-output ops (Sort, MaxPool2dWithIndices, etc.).
 
 
