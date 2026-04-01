@@ -620,12 +620,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       SequenceT genericSeqPos = analysis.sequencing[genericOp];
       auto *genericIt = analysis.generics.find(genericOp);
 
-      // Register in-generic allocs that back streamed operands.  This covers
-      // both operands that will get new streams inserted by insertStream AND
-      // operands that already have pre-existing streams (created by earlier
-      // passes like LowerToLayout).  In both cases the internal alloc needs
-      // a planner-assigned L1 address and will be stamped with
-      // CBLayoutAttr.
+      // Register in-generic allocs that back streamed operands.
+      // The internal alloc needs a planner-assigned L1 address and will be
+      // stamped with CBLayoutAttr, even for explicit generics, so that it can
+      // be hoisted correctly as a CB later in the HoistCBAllocs pass.
       if (genericIt != analysis.generics.end()) {
         for (Region &region : genericOp->getRegions()) {
           for (const OperandContext &operandCtx : genericIt->second.operands) {
@@ -919,7 +917,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_debug(getCBBufferSizeBytes(operandCtx.bufferType, device) > 0);
       } else {
         // If no iteration info is available, generic op should be classified as
-        // explicit datamovement form
+        // explicit datamovement form.
         TT_assert(genericCtx.isExplicitDatamovement);
 
         // For explicit datamovement ops, the grid and shard shapes aren't
