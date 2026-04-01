@@ -18,10 +18,10 @@ module @L1InterleavedTestForkJoin attributes {} {
     // fork, not a single user -> dram
     // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
     %3 = "ttir.relu"(%2) : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
-    // Fork: %3 used in two ops
-    // CHECK: %{{.*}} = "ttnn.neg"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
+    // Fork: %3 used in two ops; override forces neg/abs to sharded layout
+    // CHECK: %{{.*}} = "ttnn.neg"{{.*}} -> tensor<{{.*}}, #[[SHARDED]]>
     %4 = "ttir.neg"(%3) : (tensor<64x128xbf16>) -> tensor<64x128xbf16> loc(#loc)
-    // CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
+    // CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[SHARDED]]>
     %5 = "ttir.abs"(%3) : (tensor<64x128xbf16>) -> tensor<64x128xbf16> loc(#loc)
     // Join: add the results
     // sharded inputs fit with the result in L1 -> L1
