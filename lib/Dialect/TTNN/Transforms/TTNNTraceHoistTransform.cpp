@@ -472,8 +472,8 @@ private:
 
       // Allocate an empty tensor on the device to serve as the trace input slot
       // for this argument.
-      auto emptyOp = builder.create<ttnn::EmptyOp>(
-          runAndCaptureTraceFunc.getLoc(), deviceTensorType, deviceOp,
+      auto emptyOp = ttnn::EmptyOp::create(
+          builder, runAndCaptureTraceFunc.getLoc(), deviceTensorType, deviceOp,
           ttnn::ShapeAttr::get(context, deviceTensorType.getShape()),
           ttcore::DataTypeAttr::get(context, ttnnLayoutAttr.getDataType()),
           ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()),
@@ -493,31 +493,31 @@ private:
       // input.
       mlir::Value input = runAndCaptureTraceFunc.getArgument(i);
 
-      builder.create<ttnn::WriteTensorOp>(runAndCaptureTraceFunc.getLoc(),
-                                          input, traceInputSlots[i],
-                                          /*blocking=*/false, /*cq_id=*/0);
+      ttnn::WriteTensorOp::create(builder, runAndCaptureTraceFunc.getLoc(),
+                                  input, traceInputSlots[i],
+                                  /*blocking=*/false, /*cq_id=*/0);
     }
 
     // Execute the trace function once without capture to compile programs and
     // populate program cache. The results are discarded since this execution is
     // just for warming up.
-    auto traceFuncCall = builder.create<func::CallOp>(
-        runAndCaptureTraceFunc.getLoc(), traceFunc, traceInputSlots);
+    auto traceFuncCall = func::CallOp::create(
+        builder, runAndCaptureTraceFunc.getLoc(), traceFunc, traceInputSlots);
 
     // Start capturing the trace.
-    auto beginTraceCaptureOp = builder.create<ttnn::BeginTraceCaptureOp>(
-        runAndCaptureTraceFunc.getLoc(), utils::getTraceIdType(context),
-        deviceOp,
+    auto beginTraceCaptureOp = ttnn::BeginTraceCaptureOp::create(
+        builder, runAndCaptureTraceFunc.getLoc(),
+        utils::getTraceIdType(context), deviceOp,
         /*cq_id=*/0);
 
     // Execute the trace on device and capture it.
-    auto captureTraceCall = builder.create<func::CallOp>(
-        runAndCaptureTraceFunc.getLoc(), traceFunc, traceInputSlots);
+    auto captureTraceCall = func::CallOp::create(
+        builder, runAndCaptureTraceFunc.getLoc(), traceFunc, traceInputSlots);
 
     // Complete the trace capture.
-    builder.create<ttnn::EndTraceCaptureOp>(runAndCaptureTraceFunc.getLoc(),
-                                            deviceOp, beginTraceCaptureOp,
-                                            /*cq_id=*/0);
+    ttnn::EndTraceCaptureOp::create(builder, runAndCaptureTraceFunc.getLoc(),
+                                    deviceOp, beginTraceCaptureOp,
+                                    /*cq_id=*/0);
 
     // Assemble return values: trace ID, actual outputs, and persistent slots.
     llvm::SmallVector<mlir::Value> returnValues;
@@ -833,8 +833,8 @@ private:
             ttnn::BufferTypeAttr::get(context, ttnn::BufferType::SystemMemory),
             /*shard_spec=*/nullptr);
 
-        auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
-            funcOp.getLoc(), systemMemoryTileType, input,
+        auto toLayoutOp = ttnn::ToLayoutOp::create(
+            builder, funcOp.getLoc(), systemMemoryTileType, input,
             /*layout=*/LayoutAttr::get(context, layout.getLayout()),
             /*dtype=*/ttcore::DataTypeAttr::get(context, layout.getDataType()),
             /*memory_config=*/memoryConfigAttr);
@@ -845,8 +845,8 @@ private:
       }
     }
 
-    auto traceOp = builder.create<ttnn::CaptureOrExecuteTraceOp>(
-        funcOp.getLoc(), outputTypes, device, captureTraceSymbolAttr,
+    auto traceOp = ttnn::CaptureOrExecuteTraceOp::create(
+        builder, funcOp.getLoc(), outputTypes, device, captureTraceSymbolAttr,
         executeTraceSymbolAttr, captureOrExecuteTraceOpInputs);
 
     // Replace uses of original outputs with the output of the trace op function

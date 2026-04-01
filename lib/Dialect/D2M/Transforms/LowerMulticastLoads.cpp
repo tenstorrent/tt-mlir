@@ -169,8 +169,9 @@ public:
         auto dimPos = *maybeDimPos;
         if (mcastDimSet.contains(dimPos)) {
           // for parallel dim specified by multicast, extent is 0
-          Value coreIdx = rewriter.create<CoreIndexOp>(
-              loc, static_cast<int64_t>(dim), grid.getPhysicalToVirtMap());
+          Value coreIdx =
+              CoreIndexOp::create(rewriter, loc, static_cast<int64_t>(dim),
+                                  grid.getPhysicalToVirtMap());
           mcastStartIndex.push_back(coreIdx);
           mcastShapeInt64.push_back(1);
         } else {

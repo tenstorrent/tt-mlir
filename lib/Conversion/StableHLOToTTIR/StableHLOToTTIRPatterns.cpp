@@ -2889,8 +2889,8 @@ private:
       if (needsPermute) {
         canonShape = ttmlir::utils::applyPermutation(inputType.getShape(),
                                                      permToCanonical);
-        input = rewriter.create<ttir::PermuteOp>(
-            srcOp.getLoc(),
+        input = ttir::PermuteOp::create(
+            rewriter, srcOp.getLoc(),
             RankedTensorType::get(canonShape, elemType, encoding), input,
             permToCanonical);
       } else {
@@ -2922,18 +2922,17 @@ private:
       SmallVector<int64_t> shapeForHW = {batchHW, H, W, 1};
       SmallVector<int32_t> shapeForHW32(shapeForHW.begin(), shapeForHW.end());
 
-      Value reshapedHW = rewriter.create<ttir::ReshapeOp>(
-          srcOp.getLoc(), RankedTensorType::get(shapeForHW, elemType, encoding),
-          input, rewriter.getI32ArrayAttr(shapeForHW32));
+      Value reshapedHW = ttir::ReshapeOp::create(
+          rewriter, srcOp.getLoc(),
+          RankedTensorType::get(shapeForHW, elemType, encoding), input,
+          rewriter.getI32ArrayAttr(shapeForHW32));
 
       SmallVector<int64_t> resultShapeHW = {batchHW, Hout, Wout, 1};
       Value pooledHW =
-          rewriter
-              .create<ttir::MaxPool2dOp>(
-                  srcOp.getLoc(),
-                  RankedTensorType::get(resultShapeHW, elemType, encoding),
-                  reshapedHW, kernelHW, strideHW, dilationHW, paddingHW,
-                  ceilMode)
+          ttir::MaxPool2dOp::create(
+              rewriter, srcOp.getLoc(),
+              RankedTensorType::get(resultShapeHW, elemType, encoding),
+              reshapedHW, kernelHW, strideHW, dilationHW, paddingHW, ceilMode)
               .getResult();
 
       // Pass 2: Pool over D.
@@ -2943,32 +2942,33 @@ private:
       SmallVector<int64_t> shapeForD = {batchD, D, flatHW, 1};
       SmallVector<int32_t> shapeForD32(shapeForD.begin(), shapeForD.end());
 
-      Value reshapedD = rewriter.create<ttir::ReshapeOp>(
-          srcOp.getLoc(), RankedTensorType::get(shapeForD, elemType, encoding),
-          pooledHW, rewriter.getI32ArrayAttr(shapeForD32));
+      Value reshapedD = ttir::ReshapeOp::create(
+          rewriter, srcOp.getLoc(),
+          RankedTensorType::get(shapeForD, elemType, encoding), pooledHW,
+          rewriter.getI32ArrayAttr(shapeForD32));
 
       SmallVector<int64_t> resultShapeD = {batchD, Dout, flatHW, 1};
       Value pooledD =
-          rewriter
-              .create<ttir::MaxPool2dOp>(
-                  srcOp.getLoc(),
-                  RankedTensorType::get(resultShapeD, elemType, encoding),
-                  reshapedD, kernelD, strideD, dilationD, paddingD, ceilMode)
+          ttir::MaxPool2dOp::create(
+              rewriter, srcOp.getLoc(),
+              RankedTensorType::get(resultShapeD, elemType, encoding),
+              reshapedD, kernelD, strideD, dilationD, paddingD, ceilMode)
               .getResult();
 
       // Reshape back to canonical 5D: [N*C, Dout, Hout*Wout, 1] ->
       //                                [N, C, Dout, Hout, Wout].
       SmallVector<int32_t> canonResultShape32(canonResultShape.begin(),
                                               canonResultShape.end());
-      Value result = rewriter.create<ttir::ReshapeOp>(
-          srcOp.getLoc(),
+      Value result = ttir::ReshapeOp::create(
+          rewriter, srcOp.getLoc(),
           RankedTensorType::get(canonResultShape, elemType, encoding), pooledD,
           rewriter.getI32ArrayAttr(canonResultShape32));
 
       // Permute back to original layout if needed.
       if (needsPermute) {
-        result = rewriter.create<ttir::PermuteOp>(
-            srcOp.getLoc(), originalResultType, result, permFromCanonical);
+        result = ttir::PermuteOp::create(rewriter, srcOp.getLoc(),
+                                         originalResultType, result,
+                                         permFromCanonical);
       }
 
       resultVals.push_back(result);
