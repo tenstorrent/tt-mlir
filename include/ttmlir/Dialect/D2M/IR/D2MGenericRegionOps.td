@@ -796,10 +796,10 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
 // D2M Masking Ops
 //===----------------------------------------------------------------------===//
 
-def D2M_FillTileOp : D2M_GenericRegionComputeOp<"fill_tile"> {
+def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
     let summary = "D2M Fill Tile Op";
     let description = [{
-        The `fill_tile` operation creates a tile filled with a constant scalar value.
+        The `tile_fill` operation creates a tile filled with a constant scalar value.
         All elements in the resulting tile will have the same value as the input scalar.
 
         This operation abstracts away the complexity of creating a constant-filled tile,
@@ -822,7 +822,7 @@ def D2M_FillTileOp : D2M_GenericRegionComputeOp<"fill_tile"> {
         bool getDstRegInPlace() { return false; }
         // Operand 0 is the fill scalar (not a tile). Other indices must be
         // false so passes that query isScalarOperand(1) for tile+scalar rhs do
-        // not treat fill_tile as in-place on store.
+        // not treat tile_fill as in-place on store.
         bool isScalarOperand(int64_t operandIdx) {
           return operandIdx == 0;
         }

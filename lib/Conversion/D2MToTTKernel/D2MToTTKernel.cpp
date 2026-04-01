@@ -161,7 +161,7 @@ static void ensureDominatesInsertionPoint(OpBuilder &rewriter, Value value) {
 }
 
 // Remapped L1 CB for a tile loaded from L1; null if the value is not an L1 load
-// (including DST-only producers such as fill_tile).
+// (including DST-only producers such as tile_fill).
 static Value tryGetL1CbFromTensorShardLoad(ConversionPatternRewriter &rewriter,
                                            Value v) {
   Value memref;
@@ -913,7 +913,7 @@ public:
     if constexpr (arity == 1) {
       inCB = tryGetL1CbFromTensorShardLoad(rewriter, op.getInput());
       if (!inCB) {
-        // DST-only tile (e.g. after fill_tile): no L1 CB; reuse output CB for
+        // DST-only tile (e.g. after tile_fill): no L1 CB; reuse output CB for
         // init_sfpu.
         inCB = outCB;
       }
@@ -1426,9 +1426,9 @@ public:
   };
 };
 
-// Coerce `d2m.fill_tile` scalar to i32 (FillTileIntOp) or f32 (FillTileOp).
+// Coerce `d2m.tile_fill` scalar to i32 (FillTileIntOp) or f32 (FillTileOp).
 static LogicalResult materializeFillTileKernelValue(
-    Location loc, d2m::FillTileOp op, Value &fillValue,
+    Location loc, d2m::TileFillOp op, Value &fillValue,
     ConversionPatternRewriter &rewriter, bool &useIntFill) {
   Type ty = fillValue.getType();
   if (auto intTy = dyn_cast<IntegerType>(ty)) {
@@ -1445,7 +1445,7 @@ static LogicalResult materializeFillTileKernelValue(
   }
   if (!isa<FloatType>(ty)) {
     return rewriter.notifyMatchFailure(
-        op, "fill_tile value must be a float or integer type");
+        op, "tile_fill value must be a float or integer type");
   }
   if (!ty.isF32()) {
     fillValue =
@@ -1456,12 +1456,12 @@ static LogicalResult materializeFillTileKernelValue(
   return success();
 }
 
-class D2MFillTileRewriter : public OpConversionPattern<d2m::FillTileOp> {
+class D2MTileFillRewriter : public OpConversionPattern<d2m::TileFillOp> {
 public:
-  using OpConversionPattern<d2m::FillTileOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::TileFillOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(d2m::FillTileOp op, d2m::FillTileOpAdaptor adaptor,
+  matchAndRewrite(d2m::TileFillOp op, d2m::TileFillOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Value dstIdx = getDstIdxFromResult(op.getResult());
     ensureDominatesInsertionPoint(rewriter, dstIdx);
@@ -2426,7 +2426,7 @@ void populateD2MToTTKernelPatterns(
 
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalPackUntilizeBlockOp>,
-               ttkernel::D2MFillTileRewriter,
+               ttkernel::D2MTileFillRewriter,
                ttkernel::D2MWriteRowMaskTileRewriter,
                ttkernel::D2MWriteColMaskTileRewriter,
                ttkernel::D2MExperimentalFillArangeTileRewriter,

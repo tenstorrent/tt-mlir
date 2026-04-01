@@ -112,7 +112,7 @@ module {
           // mixed tensor/memref issues after stream insertion converts input CBs
           // to tensor.empty. This keeps the test on the compute-generic path.
           %cst = arith.constant 0.0 : f32
-          %tile = "d2m.fill_tile"(%cst) : (f32) -> !ttcore.tile<32x32, f32>
+          %tile = "d2m.tile_fill"(%cst) : (f32) -> !ttcore.tile<32x32, f32>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }
