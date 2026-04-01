@@ -852,6 +852,15 @@ public:
     auto input = adaptor.getOperands()[0];
     auto index = adaptor.getOperands()[1];
 
+    // Cast the index tensor to UInt32 type if it isn't already.
+    auto indexType = mlir::cast<RankedTensorType>(index.getType());
+    if (!indexType.getElementType().isUnsignedInteger(32)) {
+      auto ui32Type = RankedTensorType::get(indexType.getShape(),
+                                            rewriter.getIntegerType(32, false));
+      index =
+          rewriter.create<ttir::TypecastOp>(srcOp.getLoc(), ui32Type, index);
+    }
+
     rewriter.replaceOpWithNewOp<ttir::GatherDimOp>(
         srcOp, outputType, input, index, dimAttr);
     return success();
