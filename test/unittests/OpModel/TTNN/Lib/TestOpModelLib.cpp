@@ -4768,6 +4768,132 @@ INSTANTIATE_TEST_SUITE_P(LayerNormPreAllGatherTests,
                          layerNormPreAllGatherTestValues);
 
 //===----------------------------------------------------------------------===//
+// LayerNormPostAllGatherOp Tests
+//===----------------------------------------------------------------------===//
+
+class OpModelLayerNormPostAllGatherParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,                // input
+                     detail::TestTensor,                // stats
+                     detail::TestTensor,                // output
+                     std::optional<detail::TestTensor>, // weight
+                     std::optional<detail::TestTensor>, // bias
+                     float,                             // epsilon
+                     detail::ExpectedResult             // expected result
+                     >> {};
+
+TEST_P(OpModelLayerNormPostAllGatherParam, LayerNormPostAllGatherParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [statsShape, statsTensorLayout, statsBufferType,
+              statsVirtualGrid] = std::get<1>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<2>(params);
+  const auto weightOpt = std::get<3>(params);
+  const auto biasOpt = std::get<4>(params);
+  const auto epsilon = llvm::APFloat(std::get<5>(params));
+  const auto expectedResult = std::get<6>(params);
+  const auto expectedLegal = expectedResult.expectedLegal;
+
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const TTNNLayoutAttr statsLayout = CreateTiledLayout(
+      statsShape, statsBufferType, statsTensorLayout, statsVirtualGrid);
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  std::optional<llvm::ArrayRef<int64_t>> weightShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
+  if (weightOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] = weightOpt.value();
+    weightShape = shape;
+    weightLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+  if (biasOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] = biasOpt.value();
+    biasShape = shape;
+    biasLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  auto constraintsExp =
+      op_model::OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, statsShape, statsLayout,
+          weightShape, weightLayout, biasShape, biasLayout, epsilon,
+          outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  if (constraintsExp) {
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBacks] = constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(totalPeakSize, 0);
+    EXPECT_GE(outputSize, 0);
+  } else {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = op_model::OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
+      inputShape, inputLayout, statsShape, statsLayout, weightShape,
+      weightLayout, biasShape, biasLayout, epsilon, outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+const auto layerNormPostAllGatherTestValues = ::testing::Values(
+    // Test case 1: Basic with input and stats only
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, std::nullopt, 1e-12f, detail::ExpectedResult{true}),
+
+    // Test case 2: With weight and bias
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional(detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::make_optional(detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        1e-12f, detail::ExpectedResult{true}),
+
+    // Test case 3: With L1 memory buffers
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1, 1, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::make_optional(detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::L1}),
+        std::make_optional(detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::L1}),
+        1e-12f, detail::ExpectedResult{true}));
+
+INSTANTIATE_TEST_SUITE_P(LayerNormPostAllGatherTests,
+                         OpModelLayerNormPostAllGatherParam,
+                         layerNormPostAllGatherTestValues);
+
+//===----------------------------------------------------------------------===//
 // GroupNormOp Tests
 //===----------------------------------------------------------------------===//
 

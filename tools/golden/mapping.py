@@ -6413,6 +6413,38 @@ def ttnn_layer_norm_pre_all_gather_golden(
     return GoldenMapTensor.apply_shardwise(input_float, compute_stats)
 
 
+def ttnn_layer_norm_post_all_gather_golden(
+    input: GoldenMapTensor,
+    stats: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor],
+    bias: Optional[GoldenMapTensor],
+    epsilon: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    # The stats tensor is ignored for the golden reference.  The hardware
+    # kernel reconstructs E(x) and E(x^2) from the gathered statistics and
+    # then applies standard layer normalization.  Rather than replicating the
+    # kernel's tiled-reduce logic (which depends on tile width, device count
+    # and a bfloat16 scaler), we compute the reference output directly using
+    # the input tensor — exactly as tt-metal's own test does.
+    del stats
+
+    epsilon = unpack_mlir_attr(epsilon)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    def compute_ln(shard):
+        shard_float = shard.float()
+        normalized_shape = shard_float.shape[-1:]
+        w = weight.shard_map[0].float() if weight is not None else None
+        b = bias.shard_map[0].float() if bias is not None else None
+        out = torch.nn.functional.layer_norm(
+            shard_float, normalized_shape, w, b, epsilon
+        )
+        return out.to(output_dtype)
+
+    return GoldenMapTensor.apply_shardwise(input, compute_ln)
+
+
 def ttnn_group_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -6951,6 +6983,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.LinearOp: ttnn_linear_golden,
     ttnn.LayerNormOp: ttnn_layer_norm_golden,
     ttnn.LayerNormPreAllGatherOp: ttnn_layer_norm_pre_all_gather_golden,
+    ttnn.LayerNormPostAllGatherOp: ttnn_layer_norm_post_all_gather_golden,
     ttnn.GroupNormOp: ttnn_group_norm_golden,
     ttnn.RMSNormOp: rms_norm_golden,
     # Tensor manipulation

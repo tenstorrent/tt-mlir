@@ -38,6 +38,8 @@
 #include "operations/normalization/batch_norm/batch_norm.hpp"
 #include "operations/normalization/groupnorm/groupnorm.hpp"
 #include "operations/normalization/layernorm/layernorm.hpp"
+#include "operations/normalization/layernorm_distributed/layernorm_post_all_gather.hpp"
+#include "operations/normalization/layernorm_distributed/layernorm_pre_all_gather.hpp"
 #include "operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
