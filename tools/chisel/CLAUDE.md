@@ -34,7 +34,7 @@ tools/chisel/chisel/
 ├── context.py         # ChiselContext, BinaryState, ProgramState
 ├── callbacks.py       # 4 callback functions for DebugHooks
 ├── executor.py        # Golden execution function (TTNN ops on CPU via PyTorch)
-├── tensors.py         # TensorPool and TensorValue
+├── tensors.py         # TensorPool (stores GoldenMapTensor directly)
 ├── ops.py             # IRModule wrapper, hash_location, op input/output extraction
 ├── report.py          # CSV report writer
 └── utils.py           # Location parsing, dtype maps, runtime tensor conversion

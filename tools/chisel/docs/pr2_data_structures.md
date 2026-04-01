@@ -136,7 +136,7 @@ to look up the golden callable. The function returns `None` for unmapped ops.
 
 ## Dependencies
 
-- **PR 1** — `tensors.py` (TensorPool, TensorValue), `ops.py` (IRModule, get_op_inputs/outputs)
+- **PR 1** — `tensors.py` (TensorPool), `ops.py` (IRModule, get_op_inputs/outputs)
 
 No runtime PR dependencies. Multi-output ops (SortOp, MaxPool2dWithIndicesOp,
 etc.) are not supported until PR 0b lands — the function should handle the
