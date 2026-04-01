@@ -3003,12 +3003,10 @@ private:
 
       SmallVector<int64_t> resultShapeHW = {batchND, Hout, Wout, C};
       Value pooledHW =
-          rewriter
-              .create<ttir::MaxPool2dOp>(
-                  srcOp.getLoc(),
-                  RankedTensorType::get(resultShapeHW, elemType, encoding),
-                  reshapedHW, kernelHW, strideHW, dilationHW, paddingHW,
-                  ceilMode)
+          ttir::MaxPool2dOp::create(
+              rewriter, srcOp.getLoc(),
+              RankedTensorType::get(resultShapeHW, elemType, encoding),
+              reshapedHW, kernelHW, strideHW, dilationHW, paddingHW, ceilMode)
               .getResult();
 
       // Pass 2: Pool over D.
@@ -3022,11 +3020,10 @@ private:
 
       SmallVector<int64_t> resultShapeD = {N, Dout, flatHW, C};
       Value pooledD =
-          rewriter
-              .create<ttir::MaxPool2dOp>(
-                  srcOp.getLoc(),
-                  RankedTensorType::get(resultShapeD, elemType, encoding),
-                  reshapedD, kernelD, strideD, dilationD, paddingD, ceilMode)
+          ttir::MaxPool2dOp::create(
+              rewriter, srcOp.getLoc(),
+              RankedTensorType::get(resultShapeD, elemType, encoding),
+              reshapedD, kernelD, strideD, dilationD, paddingD, ceilMode)
               .getResult();
 
       // [N, Dout, Hout*Wout, C] (NHWC) -> permute -> [N, C, Dout, Hout*Wout] ->
@@ -3046,8 +3043,9 @@ private:
 
       // Permute back to original layout if needed.
       if (needsPermute) {
-        result = rewriter.create<ttir::PermuteOp>(
-            srcOp.getLoc(), originalResultType, result, permFromCanonical);
+        result = ttir::PermuteOp::create(rewriter, srcOp.getLoc(),
+                                         originalResultType, result,
+                                         permFromCanonical);
       }
 
       resultVals.push_back(result);

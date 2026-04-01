@@ -102,8 +102,8 @@ public:
                                          /*device=*/nullptr,
                                          ShapeAttr::get(&context, inputShape));
 
-    return builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
-                                 input1.getResult(), input2.getResult());
+    return AddOp::create(builder, builder.getUnknownLoc(), tensorType,
+                         input1.getResult(), input2.getResult());
   }
 
   // Create a ReshapeOp for testing.
