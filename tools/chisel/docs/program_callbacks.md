@@ -17,6 +17,10 @@ Fires once at the start of program execution, before the op loop.
   (golden pool preserved)
 - Copy matching entries from `ctx.global_tensor_pool` into
   `program.golden_tensor_pool` (matched by `Tensor::globalId`)
+- Copy program input tensors from device into `program.golden_tensor_pool`:
+    - Use `get_program_input_ids(program_context)` to get global IDs
+    - For each input not already in golden pool: retrieve from device via
+      `retrieve_tensor_from_pool` and store in golden pool
 - Set `ctx.current_binary` and `ctx.current_program`
 - Start a new report section for the program
 
@@ -26,9 +30,6 @@ Fires before each TTNN operation executes on hardware.
 
 - `op = next(ctx.current_program.op_iter)` — advances in sync with callback
   firing order
-- Capture device input tensors via `get_op_input_refs(op_context, program_context)`
-- Copy device inputs to `program.golden_tensor_pool` if the input was not
-  already calculated in a previous graph execution
 - If operation should be skipped:
   - Copy all inputs to host **before** the device op executes — this snapshot
     is needed because the device op may overwrite its input buffers in-place,
@@ -72,6 +73,7 @@ preProgram(binary, program_context)
   |-- get/create BinaryState + ProgramState
   |-- reset_for_new_execution()
   |-- copy global → program golden pool
+  |-- copy program input tensors from device → golden pool
   |
   |-- for each op:
   |     |-- preOp(binary, program_context, op_context)

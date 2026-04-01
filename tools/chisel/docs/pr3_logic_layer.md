@@ -120,8 +120,10 @@ class ChiselContext:
         2. Get or create ProgramState for program_index
         3. program.reset_for_new_execution()
         4. Copy global_tensor_pool → program.golden_tensor_pool
-        5. Set current_binary and current_program
-        6. Start new report section
+        5. Copy program input tensors from device → golden pool
+           (via get_program_input_ids, for inputs not already in pool)
+        6. Set current_binary and current_program
+        7. Start new report section
         """
 
     def postprogram(self, binary, program_context) -> None:
@@ -137,8 +139,7 @@ class ChiselContext:
         Called before each TTNN op executes on device.
 
         1. op = next(self.current_program.op_iter)
-        2. Capture device input tensors
-        3. Copy to program.golden_tensor_pool if not already present
+        2. If skip mode: stash inputs before device op runs
         """
 
     def postop(self, binary, program_context, op_context) -> None:

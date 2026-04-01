@@ -54,8 +54,9 @@ flowchart LR;
    preOp, postOp) with `DebugHooks`.
 3. **Execute** the TTNN flatbuffer binary (via builder or any other runner).
 4. For each program, `preProgram` creates/finds `BinaryState` and
-   `ProgramState`, then for each TTNN op:
-   - `preOp`: advance `op_iter`, capture device inputs, copy to golden pool
+   `ProgramState`, copies program input tensors from device into the golden
+   pool, then for each TTNN op:
+   - `preOp`: advance `op_iter`, handle skip-mode input stashing
    - Device executes op
    - `postOp`: capture device output, replay on CPU, compare, write report
 5. `postProgram` copies golden tensors to `global_tensor_pool` for cross-program

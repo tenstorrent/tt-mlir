@@ -55,14 +55,17 @@ Called once at the start of each program execution.
 - Get or create `BinaryState` for `binary.id`
     - If new binary: extract TTNN MLIR from `binary.mlir.source`, parse
       `IRModule`
-- Get or create `ProgramState` for `program_index`
-    - If new program: build ordered op list from registry for this program
-- `program.reset_for_new_execution()`
-    - Reset `op_iter` to beginning of ops list
-    - Clear `_skip_stash`
-    - `golden_tensor_pool` is NOT cleared (preserved across re-executions)
+- Create fresh `ProgramState` for `program_index`
+    - Build ordered op list from registry for this program
 - Copy matching entries from `global_tensor_pool` into
   `program.golden_tensor_pool` (matched by `Tensor::globalId` to SSA name)
+- Copy program input tensors from device into `program.golden_tensor_pool`:
+    - Use `get_program_input_ids(callback_context)` to get global IDs of all
+      program input tensors
+    - For each input not already in golden pool (from global pool copy above):
+      retrieve from device via `retrieve_tensor_from_pool` and store in golden
+      pool
+    - This ensures all program inputs are available before any op runs
 - Start new report section
 
 ## PreOp
@@ -72,10 +75,6 @@ Called before each TTNN op executes on device.
 - Look up state: `binary_state = ctx.binaries[binary_id]`,
   `program = binary_state.programs[program_index]`
 - `op = next(program.op_iter)` — naturally in sync with callback firing order
-- Capture device input tensors via `get_op_input_refs(op_context, program_context)`
-- For each input: check if golden tensor already exists in
-  `program.golden_tensor_pool`
-    - If not: copy device input to host and store in golden pool
 - If op should be skipped:
     - Copy all inputs to host and stash in `program._skip_stash` **before** the
       device op runs — the device op may overwrite input buffers in-place, so the
@@ -112,3 +111,5 @@ Called once at the end of each program execution.
 - Aggregate metrics for the program (min/max/mean PCC across ops)
 - Finalize report section, write summary row
 - Log program-level diagnostics (total ops, ops with low PCC, etc.)
+- Delete `ProgramState` from `binary_state.programs[program_index]`
+  (state is recreated fresh in `preProgram` on re-execution)
