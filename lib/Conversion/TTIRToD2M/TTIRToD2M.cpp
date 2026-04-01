@@ -556,9 +556,11 @@ protected:
     {
       mlir::Region &region = generic->getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
+      auto [inputIndices, mcastGridDims] = createInputIndicesAndMcastGridDims(
+          rewriter, loc, generic, enableMulticastInference);
       SmallVector<Value> blockArgsVec = createBlockArguments(
           rewriter, block, loc, mlir::TypeRange(inputs),
-          mlir::TypeRange(outputs), generic, enableMulticastInference);
+          mlir::TypeRange(outputs), generic, inputIndices, mcastGridDims);
 
       SmallVector<Value> computedResults = body(blockArgsVec);
       assert(computedResults.size() == outputs.size());
