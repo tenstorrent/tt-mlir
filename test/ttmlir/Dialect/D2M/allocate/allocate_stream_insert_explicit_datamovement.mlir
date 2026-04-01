@@ -8,9 +8,12 @@ module {
 
   // CHECK-LABEL: func.func @test_generic_insert_missing_streams()
   // CHECK: %[[LHS:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64} : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #dram>
+  // CHECK: %[[RHS:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64} : memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
+  // CHECK: d2m.generic
   // CHECK: %[[CB_LHS:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64} : memref<2x3x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<12288x4096, 2>, #l1>
   // CHECK: d2m.remote_load %[[CB_LHS]] %[[LHS]]{{.*}}
   // CHECK: %[[CB_RHS:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64} : memref<3x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+  // CHECK: d2m.remote_load %[[CB_RHS]] %[[RHS]]{{.*}}
   func.func @test_generic_insert_missing_streams() {
     %lhs = memref.alloc() : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #dram>
     %rhs = memref.alloc() : memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
