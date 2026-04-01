@@ -14,7 +14,7 @@ a CPU golden reference.
 Key design decisions:
 - **Single TTNN module** for both golden and device (no TTIR/TTNN correlation)
 - **Hierarchical state model**: `ChiselContext → BinaryState → ProgramState`
-  — each level owns appropriate state (global tensor pool, per-binary MLIR/registry,
+  — each level owns appropriate state (global tensor pool, per-binary MLIR/IRModule,
   per-program golden pool and op iterator)
 - **Singleton `ChiselContext`** because `DebugHooks` callbacks are plain
   functions that need shared state
@@ -34,7 +34,6 @@ tools/chisel/chisel/
 ├── context.py         # ChiselContext, BinaryState, ProgramState
 ├── callbacks.py       # 4 callback functions for DebugHooks
 ├── executor.py        # GoldenExecutor (TTNN ops on CPU via PyTorch)
-├── registry.py        # TTNN op tracking and tensor registration
 ├── tensors.py         # TensorPool and TensorValue
 ├── ops.py             # IRModule wrapper, hash_location, op input/output extraction
 ├── report.py          # CSV report writer

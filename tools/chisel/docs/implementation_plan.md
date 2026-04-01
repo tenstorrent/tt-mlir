@@ -63,7 +63,7 @@ graph TD
 | PR | Title | Scope | Tests | Depends On |
 |----|-------|-------|-------|------------|
 | 1 | Scaffold + Data Structures | CMakeLists.txt, `__init__.py`, tensors.py, ops.py | test_tensors.py, test_ops.py | None |
-| 2 | Logic Layer | registry.py, executor.py, report.py | test_registry.py, test_executor.py, test_report.py | PR 1 |
+| 2 | Logic Layer | executor.py, report.py | test_executor.py, test_report.py | PR 1 |
 | 3 | Orchestration | context.py, callbacks.py, utils.py | test_context.py, test_callbacks.py, test_utils.py | PR 2, PR 0a, PR 0c |
 | 4 | Builder Integration | (modifies builder_runtime.py, builder_apis.py) | test_builder_integration.py | PR 3 |
 | 0a | DebugHooks Refactor | runtime C++ — fix callback copy semantics | Existing runtime tests + GIL-safety | None (land before PR 3) |
@@ -125,7 +125,7 @@ Builder's `check_outputs()` keeps its signature but delegates internally.
 | Aspect | Old (`runtime/tools/chisel/`) | New (`tools/chisel/`) |
 |--------|-------------------------------|----------------------|
 | IR modules | Two: TTIR (golden) + TTNN (device) | One: TTNN (both) |
-| Registry | Correlates ops across TTIR/TTNN by location | Tracks ops in single TTNN module |
+| Registry | Correlates ops across TTIR/TTNN by location | Removed — IRModule tracks ops directly |
 | Fusion handling | `_merge_empty_golden_groups()` | Not needed |
 | Golden executor | Custom TTIR op mappings | Reuses `GOLDEN_MAPPINGS` TTNN entries |
 | Compilation | `compile_pipeline.py` runs passes | None — reads TTNN MLIR from flatbuffer |
