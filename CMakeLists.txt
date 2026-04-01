@@ -208,6 +208,7 @@ add_subdirectory(test)
 endif()
 add_subdirectory(tools)
 add_subdirectory(runtime)
+add_subdirectory(unified_op_lib)
 add_subdirectory(docs)
 add_subdirectory(cmake/modules)
 
