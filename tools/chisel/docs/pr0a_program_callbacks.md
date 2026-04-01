@@ -404,6 +404,38 @@ def chisel_pre_program_callback(binary, program_context):
     ...
 ```
 
+**5c-2. Expose `get_program_input_ids` and `get_program_output_ids`**:
+
+```cpp
+m.def("get_program_input_ids",
+      [](CallbackContext programContext) -> std::vector<std::uint32_t> {
+        const auto &ctx =
+            programContext.as<tt::runtime::ttnn::ProgramContext>(
+                DeviceRuntime::TTNN);
+        return ctx.getTensorPool().getProgramInputIds();
+      });
+
+m.def("get_program_output_ids",
+      [](CallbackContext programContext) -> std::vector<std::uint32_t> {
+        const auto &ctx =
+            programContext.as<tt::runtime::ttnn::ProgramContext>(
+                DeviceRuntime::TTNN);
+        return ctx.getTensorPool().getProgramOutputIds();
+      });
+```
+
+Chisel's `preProgram` uses these to copy all program input tensors from device
+into the golden pool upfront, so `preOp` does not need per-op "check if exists"
+logic:
+
+```python
+input_ids = ttrt.runtime.get_program_input_ids(program_context)
+for global_id in input_ids:
+    if global_id not in program.golden_tensor_pool:
+        # retrieve from device and store in golden pool
+        ...
+```
+
 **5d. Update `unregister_hooks`:**
 
 ```cpp

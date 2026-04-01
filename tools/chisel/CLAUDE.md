@@ -45,9 +45,10 @@ tools/chisel/chisel/
 For each program during TTRT execution:
 1. **preProgram**: Get/create `BinaryState` (parse MLIR if new binary) and
    `ProgramState`. Reset op iterator. Copy
-   `global_tensor_pool` → program's golden pool.
+   `global_tensor_pool` → program's golden pool. Copy program input tensors
+   from device → golden pool (via `get_program_input_ids`).
 2. For each TTNN op:
-   - **preOp**: `next(op_iter)`, capture device inputs, copy to golden pool
+   - **preOp**: `next(op_iter)`, handle skip-mode input stashing
    - **HW executes op**
    - **postOp**: Capture device output, execute golden via `GOLDEN_MAPPINGS`,
      compare (PCC, abs error, rel error), write CSV row

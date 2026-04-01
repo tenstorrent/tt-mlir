@@ -142,9 +142,10 @@ flowchart TD;
     PREPROG --> S0["Get/create BinaryState<br/>Parse MLIR if new binary"]
     S0 --> S1["Get/create ProgramState<br/>reset_for_new_execution()"]
     S1 --> S2["Copy global_tensor_pool →<br/>program.golden_tensor_pool"]
+    S2 --> S2b["Copy program input tensors<br/>from device → golden pool"]
 
-    S2 --> PREOP["preOp(binary, program_ctx, op_ctx)"]
-    PREOP --> S3["op = next(program.op_iter)<br/>Capture device inputs<br/>Copy to golden pool if new"]
+    S2b --> PREOP["preOp(binary, program_ctx, op_ctx)"]
+    PREOP --> S3["op = next(program.op_iter)"]
 
     S3 --> HW["HW executes op"]
     HW --> POSTOP["postOp(binary, program_ctx, op_ctx)"]
@@ -318,6 +319,8 @@ objects (bound via nanobind in `runtime/python/runtime/runtime.cpp`):
 | Function | Signature | Purpose |
 |----------|-----------|---------|
 | `get_program_index` | `(CallbackContext) → int` | Returns the program index from the underlying `ProgramContext`. Used by `preProgram` to look up or create the correct `ProgramState`. |
+| `get_program_input_ids` | `(CallbackContext) → list[int]` | Returns global IDs of program input tensors. Used by `preProgram` to copy input tensors from device into golden pool upfront. |
+| `get_program_output_ids` | `(CallbackContext) → list[int]` | Returns global IDs of program output tensors. |
 | `get_op_output_ref` | `(OpContext, CallbackContext) → TensorRef` | Returns a reference to the op's output tensor on device. |
 | `get_op_input_refs` | `(OpContext, CallbackContext) → list[TensorRef]` | Returns references to the op's input tensors on device. |
 | `retrieve_tensor_from_pool` | `(CallbackContext, TensorRef, bool) → Tensor` | Retrieves a tensor from the runtime tensor pool. |
