@@ -29,10 +29,7 @@ callbacks and observe TTNN binary execution.
 
 ### `utils.py`
 
-Consolidated utility module with three concerns:
-
-**Location parsing:**
-- `parse_op_location(op_location: str) -> Tuple[int, int]` — parse runtime location string to tuple
+Consolidated utility module with two concerns:
 
 **Dtype maps:**
 - `ttir_dtype_maps: Dict` — TTIR element types to PyTorch dtypes
@@ -60,11 +57,6 @@ This module provides:
 See [PR 0c](pr0c_unified_metrics.md) for the full API and implementation details.
 
 ### Porting Notes for `utils.py`
-
-**From `runtime/tools/chisel/chisel/utils/location.py`:**
-- **Port:** `parse_op_location()` — used in context.py preop/postop to parse
-  runtime location strings
-- `hash_location()` and `UNKNOWN_LOCATION` are already inlined in `ops.py` (PR 1)
 
 **From `runtime/tools/chisel/chisel/utils/runtime_utils.py`:**
 - **Port as-is:** `ttir_dtype_maps`, `ttrt_dtype_maps`, `get_torch_tensor()`
@@ -282,7 +274,6 @@ The new design separates callbacks into their own module because:
 ## Test Plan
 
 ### `test_utils.py`
-- `test_parse_op_location()` — known location strings yield expected `(line, col)` tuples
 - `test_dtype_maps()` — verify all expected dtype mappings exist and are valid torch dtypes
 - `test_get_torch_tensor()` — mock runtime tensor, verify conversion to torch.Tensor
 

@@ -16,7 +16,7 @@ foundation from the first PR.
 | `tools/chisel/CMakeLists.txt` | CMake packaging using `declare_mlir_python_sources` |
 | `tools/chisel/chisel/__init__.py` | Minimal package init |
 | `tools/chisel/chisel/tensors.py` | `TensorPool` (stores `GoldenMapTensor` directly) |
-| `tools/chisel/chisel/ops.py` | `IRModule` wrapper, `get_op_inputs()`, `get_op_outputs()`, `hash_location()` |
+| `tools/chisel/chisel/ops.py` | `IRModule` wrapper, `get_op_inputs()`, `get_op_outputs()` |
 
 ### Modified Files
 
@@ -61,27 +61,6 @@ endif()
 
 ### `ops.py`
 
-**Location utilities** (inlined, no separate utils.py needed yet):
-
-```python
-from typing import Tuple
-from ttmlir.ir import Location
-
-UNKNOWN_LOCATION = (-1, -1)
-
-def hash_location(location: Location) -> Tuple[int, int]:
-    assert location is not None
-    if not hasattr(location, "start_line"):
-        return UNKNOWN_LOCATION
-    if not hasattr(location, "start_col"):
-        return UNKNOWN_LOCATION
-    return (location.start_line, location.start_col)
-```
-
-These are inlined into `ops.py` because they are tiny (5 lines) and only used
-here and in `registry.py` (PR 2), which imports from `ops.py`. This avoids
-creating a `utils.py` module that can't be meaningfully tested in isolation.
-
 **Utility functions:**
 
 ```python
@@ -116,9 +95,6 @@ class IRModule:
     def get_function_ops(self) -> List[Operation]: ...
     def get_asm_state(self) -> AsmState: ...
 
-    @property
-    def last_loc_line(self) -> Dict[Tuple[int, int], int]:
-        """Map of (line, column) locations to operation indices."""
 ```
 
 ### `tensors.py`
@@ -167,13 +143,9 @@ class TensorPool(dict):
 - **Remove** `execution_type: ExecutionType` constructor parameter and attribute
 - **Remove** `self.execution_type` — used only in `__repr__` and passed to AsmState
 - **Keep as-is:** `get_function()`, `get_function_inputs()`, `get_function_ops()`,
-  `get_asm_state()`, `last_loc_line` property
+  `get_asm_state()`
 - The `ignored_ops` parameter stays — useful for skipping `ttnn.deallocate` and
   similar non-compute ops
-
-**`hash_location` and `UNKNOWN_LOCATION`:**
-- **Inline from** `runtime/tools/chisel/chisel/utils/location.py` into `ops.py`
-- Avoids needing a separate `utils.py` at this stage
 
 ### `tensors.py` from `runtime/tools/chisel/chisel/core/tensors.py`
 
@@ -202,11 +174,8 @@ class TensorPool(dict):
 - `test_ir_module_creation()` — parse a small TTNN MLIR module string, create IRModule
 - `test_get_function()` — verify `get_function()` returns the expected function op
 - `test_get_function_ops()` — verify operations are listed in correct order
-- `test_last_loc_line()` — verify location-to-index mapping
 - `test_get_op_inputs_outputs()` — verify tensor-like operand/result extraction
 - `test_ignored_ops()` — verify ops in `ignored_ops` list are filtered
-- `test_hash_location()` — mock MLIR Location objects, verify consistent hashing
-- `test_unknown_location_constant()` — verify `UNKNOWN_LOCATION == (-1, -1)`
 
 **Test dependencies:** `ttmlir` Python bindings for MLIR module parsing. Tests
 parse small inline MLIR strings — no hardware needed.

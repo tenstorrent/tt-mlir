@@ -237,7 +237,6 @@ Wraps an MLIR Module with caching and traversal utilities:
 - Cached function lookups
 - Cached operation lists per function
 - AsmState management for efficient name/ASM lookups
-- Location-to-operation index mapping
 
 ### `report.py` — CSV Report Writer
 
@@ -253,7 +252,6 @@ Scoped per-`BinaryState`. Supports per-program sections via `start_program()`.
 ### `utils.py` — Utilities
 
 Consolidated utility module:
-- **Location parsing**: MLIR location to `(line, col)` tuple conversion
 - **Dtype maps**: TTNN-to-PyTorch and TTRT-to-PyTorch dtype mappings
 - **Debug utilities**: `@debug_wrap()` decorator for pdb integration
 
