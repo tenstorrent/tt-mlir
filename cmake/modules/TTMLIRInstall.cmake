@@ -81,6 +81,7 @@ set(ttmlir_export_targets
   TTMLIRSupport
   coverage_config
   TTNNOpModelLib
+  TTUnifiedOpLib
   MLIRScheduler
 )
 
