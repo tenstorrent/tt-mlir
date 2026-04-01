@@ -1,4 +1,4 @@
-# PR 0a: Refactor DebugHooks to Avoid Callback Copies
+# PR 0a-1: Refactor DebugHooks to Avoid Callback Copies
 
 ## Goal
 
@@ -179,5 +179,5 @@ For the non-debug path, we need a static empty optional:
 
 None — standalone runtime fix. **Must land before Chisel PR 3**
 (orchestration), which registers Python callbacks via `DebugHooks.get()`.
-PRs 1-2 don't register callbacks and are unaffected, so PR 0a can be
+PRs 1-2 don't register callbacks and are unaffected, so PR 0a-1 can be
 developed in parallel with them.

@@ -255,12 +255,10 @@ tt-xla execution begins. Since `DebugHooks` is a global singleton, callbacks
 registered from Python are visible to the C++ runtime regardless of who drives
 execution. One potential problem does wheel works with it?
 
-### Pre-program and post-program callbacks?
+### ~~Pre-program and post-program callbacks?~~ (Resolved)
 
-Current `DebugHooks` only supports preop/postop callbacks at the operation
-level. Should we add program-level callbacks (`pre_program` / `post_program`)
-for setup/teardown, reporting boundaries, or state management? This would
-simplify Chisel's program transition detection logic.
+**Resolved:** Yes — PR 0a-2b adds `preProgram`/`postProgram` callbacks to
+`DebugHooks`. See [PR 0a-2b detail](pr0a2b_program_level_hooks.md).
 
 ---
 

@@ -101,7 +101,7 @@ by rvalue ref + `std::move`. No API change — all existing callers work as-is.
 
 **Test:** Existing runtime tests pass unchanged.
 
-### PR 0a-2a: Named Callback API ([detail](pr0a_program_callbacks.md))
+### PR 0a-2a: Named Callback API ([detail](pr0a2a_named_callback_api.md))
 
 Replace `Hooks::get(pre, post)` with `Hooks::get()` + `setCallbacks(name, CallbackSet)`.
 Store callbacks in `unordered_map<string, CallbackSet>`. Migrate all existing
@@ -117,7 +117,7 @@ callers (ttrt, builder, test) to the new API. `CallbackSet` initially has only
 **Test:** Multi-client registration, unregister by name, existing tests pass
 after caller migration.
 
-### PR 0a-2b: Program-Level Hooks ([detail](pr0a_program_callbacks.md))
+### PR 0a-2b: Program-Level Hooks ([detail](pr0a2b_program_level_hooks.md))
 
 Add `ProgramCallbackFn` type and `preProgram`/`postProgram` fields to
 `CallbackSet`. Add `runProgramCallbacks()` in `ProgramExecutor`. Expose

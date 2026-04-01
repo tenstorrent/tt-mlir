@@ -352,10 +352,11 @@ No hardware or MLIR needed for callback delegation tests.
 
 - **PR 2** — `executor.py`, `report.py`
 - **PR 1** — `tensors.py`, `ops.py`
-- **PR 0a** — DebugHooks refactor must land before this PR. This is where
-  Python callbacks get registered and invoked via `DebugHooks`. Without the
-  fix, callback copies cause segfaults when called from tt-xla without GIL.
-  Also exposes `Binary.id` property and program-level callbacks.
+- **PRs 0a-1 through 0a-3** — All runtime DebugHooks PRs must land before
+  this PR. PR 0a-1 fixes GIL safety, PR 0a-2a adds named callback API,
+  PR 0a-2b adds program-level hooks, and PR 0a-3 adds introspection bindings
+  (`get_program_index`, `get_program_input/output_refs`, `Binary.id`,
+  `Tensor.global_id`).
 - **PR 0c** — Unified metrics in `tools/golden/metrics.py`. This PR's
   `context.py` imports `compute_pcc`, `compute_atol`, `compute_rtol` from
   `golden.metrics` instead of a local `metrics.py`.

@@ -7,7 +7,7 @@
 - Accept callbacks by rvalue ref + `std::move` in `Hooks::get()` in `runtime/lib/common/debug.cpp`.
 - Update non-debug path to return static empty optional by const ref in `runtime/include/tt/runtime/debug.h`.
 
-## PR 0a-2a: Named Callback API ([detail](../docs/pr0a_program_callbacks.md))
+## PR 0a-2a: Named Callback API ([detail](../docs/pr0a2a_named_callback_api.md))
 
 - Replace `Hooks::get(pre, post)` with `Hooks::get()` + `setCallbacks(name, CallbackSet)` in `runtime/include/tt/runtime/debug.h`.
 - Add `CallbackSet` struct with `preOp`/`postOp` fields and `unordered_map<string, CallbackSet>` storage.
@@ -17,7 +17,7 @@
 - Update `unregister_hooks` to accept optional name argument.
 - Migrate callers: `tools/ttrt/common/run.py`, `tools/builder/base/builder_runtime.py`, `runtime/test/ttnn/python/n150/test_intermidate_tensor_manipulation.py`.
 
-## PR 0a-2b: Program-Level Hooks ([detail](../docs/pr0a_program_callbacks.md))
+## PR 0a-2b: Program-Level Hooks ([detail](../docs/pr0a2b_program_level_hooks.md))
 
 - Add `ProgramCallbackFn = std::function<void(Binary, CallbackContext)>` type alias in `runtime/include/tt/runtime/debug.h`.
 - Add `preProgram`/`postProgram` fields to `CallbackSet`.

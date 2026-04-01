@@ -16,7 +16,7 @@ chisel implementation. The data model is hierarchical:
   `runtime/python/runtime/runtime.cpp`. The C++ side already has
   `ProgramContext::getProgramIndex()` — the new binding casts the
   `CallbackContext` handle to the underlying `ProgramContext` and returns the
-  index. See `tools/chisel/docs/pr0a_program_callbacks.md` Step 5d.
+  index. See `tools/chisel/docs/pr0a_program_input_output_refs.md`.
 
 ## Data Model
 

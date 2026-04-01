@@ -68,16 +68,20 @@ if enable_chisel:
         output_dir=Path(chisel_output_dir),
         report_base_path=Path(chisel_report_path),
     )
-    tt_runtime.runtime.DebugHooks.register(
+    hooks = tt_runtime.runtime.DebugHooks.get()
+    hooks.set_callbacks(
+        "chisel",
         pre_program=chisel_pre_program_callback,
         post_program=chisel_post_program_callback,
         pre_op=chisel_pre_op_callback,
         post_op=chisel_post_op_callback,
     )
 elif verify_intermediates or dump_memory:
-    tt_runtime.runtime.DebugHooks.get(
-        pre_op_get_callback_fn(callback_runtime_config),
-        post_op_get_callback_fn(callback_runtime_config),
+    hooks = tt_runtime.runtime.DebugHooks.get()
+    hooks.set_callbacks(
+        "builder",
+        pre_op=pre_op_get_callback_fn(callback_runtime_config),
+        post_op=post_op_get_callback_fn(callback_runtime_config),
     )
 ```
 
@@ -136,15 +140,17 @@ No additional parameter threading through builder APIs is needed.
 The old chisel at `runtime/tools/chisel/` had its own CLI (`main.py`) and
 drove execution independently. It never integrated with the builder.
 
-**Reference:** The builder's existing callback registration at
-`builder_runtime.py:723-727` shows the pattern to follow:
+**Reference:** The builder's callback registration (after PR 0a-2a migration)
+at `builder_runtime.py` shows the pattern to follow:
 
 ```python
-# Existing code:
+# Existing code (after PR 0a-2a):
 if verify_intermediates or dump_memory:
-    tt_runtime.runtime.DebugHooks.get(
-        pre_op_get_callback_fn(callback_runtime_config),
-        post_op_get_callback_fn(callback_runtime_config),
+    hooks = tt_runtime.runtime.DebugHooks.get()
+    hooks.set_callbacks(
+        "builder",
+        pre_op=pre_op_get_callback_fn(callback_runtime_config),
+        post_op=post_op_get_callback_fn(callback_runtime_config),
     )
 ```
 
