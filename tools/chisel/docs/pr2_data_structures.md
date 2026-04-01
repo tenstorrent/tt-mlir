@@ -2,9 +2,9 @@
 
 ## Goal
 
-Add the three modules that implement core logic: Registry (single-module op
-tracking), GoldenExecutor (CPU replay via `GOLDEN_MAPPINGS`), and ReportWriter
-(CSV output). Together these form the computational backbone of Chisel.
+Add the two modules that implement core logic: GoldenExecutor (CPU replay via
+`GOLDEN_MAPPINGS`) and ReportWriter (CSV output). Together these form the
+computational backbone of Chisel.
 
 ## Files
 
@@ -12,7 +12,6 @@ tracking), GoldenExecutor (CPU replay via `GOLDEN_MAPPINGS`), and ReportWriter
 
 | File | Description |
 |------|-------------|
-| `tools/chisel/chisel/registry.py` | Single-module op tracking by location, tensor name mapping |
 | `tools/chisel/chisel/executor.py` | `GoldenExecutor` — CPU replay of TTNN ops using `GOLDEN_MAPPINGS` |
 | `tools/chisel/chisel/report.py` | `ReportWriter` — CSV writer with per-op metrics |
 
@@ -24,41 +23,6 @@ tracking), GoldenExecutor (CPU replay via `GOLDEN_MAPPINGS`), and ReportWriter
 
 ## Implementation Details
 
-### `registry.py`
-
-Tracks TTNN operations from a single IRModule. Scoped per-`BinaryState` —
-each binary gets its own Registry from its parsed module. Massively simplified
-from the old dual-module Registry.
-
-```python
-class Registry:
-    def __init__(self, module: IRModule):
-        self.module = module
-        self.op_groups: Dict[Tuple[int, int], OpGroup] = {}
-        self.tensors: Dict[Tuple[int, int], OpResult | BlockArgument] = {}
-        self.tensor_to_location: Dict[str, Tuple[int, int]] = {}
-
-    def load_all_ops(self) -> None:
-        """Load and group all TTNN operations by source location."""
-
-    def get_op_at_location(self, loc: Tuple[int, int]) -> OpGroup | None: ...
-    def get_tensor_name_for_output(self, op_result) -> str: ...
-    def add_tensor(self, tensor) -> None: ...
-    def get_tensor(self, loc: Tuple[int, int]) -> OpResult | BlockArgument | None: ...
-```
-
-**`OpGroup`** — simplified container for ops at a single location:
-
-```python
-class OpGroup:
-    def __init__(self, id: Tuple[int, int]):
-        self.id = id
-        self.ops: List[Operation] = []
-
-    def add_op(self, op: Operation) -> None: ...
-    def get_last_op(self, with_output: bool = True) -> Operation | None: ...
-```
-
 ### `executor.py`
 
 Executes TTNN operations on CPU using `GOLDEN_MAPPINGS`. For each TTNN op
@@ -66,8 +30,8 @@ encountered during device execution, the executor replays it with PyTorch.
 
 ```python
 class GoldenExecutor:
-    def __init__(self, registry: Registry, tensor_pool: TensorPool):
-        self.registry = registry
+    def __init__(self, ir_module: IRModule, tensor_pool: TensorPool):
+        self.ir_module = ir_module
         self.tensor_pool = tensor_pool  # per-ProgramState golden_tensor_pool
 
     def execute(self, op: Operation) -> Any:
@@ -118,34 +82,6 @@ class ReportWriter:
 
 ## Porting Notes
 
-### `registry.py` from `runtime/tools/chisel/chisel/core/registry.py`
-
-**What to remove:**
-- `ExecutionType` from all data structures — `self.tensors` was
-  `Dict[Tuple, Dict[ExecutionType, ...]]`, becomes `Dict[Tuple, ...]`
-- `self.tensor_to_location` was `Dict[ExecutionType, Dict[str, Tuple]]`,
-  becomes `Dict[str, Tuple]`
-- `self.modules` dict — replace with single `self.module`
-- `self.module_iters` dict — replace with single iterator
-- `_merge_empty_golden_groups()` — delete entirely, this handled TTIR/TTNN
-  fusion mismatches that don't exist with single-module design
-- `should_compare()` — delete, was used to check if both golden and device
-  groups had ops
-
-**What to simplify:**
-- `OpGroup.ops` was `Dict[ExecutionType, List[Operation]]`, becomes `List[Operation]`
-- `OpGroup.add_op()` — remove `execution_type` parameter
-- `OpGroup.get_last_op()` — remove `kind` parameter
-- `load_all_ops()` — iterate single module instead of two
-- `_add_op()` — remove ExecutionType parameter
-
-**What to keep as-is:**
-- Location-based grouping logic (hash_location → OpGroup)
-- Tensor registration and lookup by location
-- `find_op()` for location/asm-based op lookup
-
-**Import `hash_location`** from `chisel.ops` (inlined there in PR 1).
-
 ### `executor.py` — NEW (does not port from old `golden_executor.py`)
 
 The old `GoldenExecutor` at `runtime/tools/chisel/chisel/core/golden_executor.py`
@@ -180,16 +116,6 @@ to look up the golden callable. The function returns `None` for unmapped ops.
 
 ## Test Plan
 
-### `test_registry.py`
-- `test_load_all_ops()` — parse TTNN MLIR module, create IRModule + Registry,
-  call `load_all_ops()`, verify ops are grouped by location
-- `test_op_group_single_op()` — verify OpGroup with one op
-- `test_tensor_registration()` — register tensors, retrieve by location
-- `test_tensor_name_mapping()` — verify tensor name → location mapping
-- `test_get_op_at_location()` — verify lookup returns correct OpGroup or None
-
-**Test dependencies:** `ttmlir` Python bindings for MLIR parsing.
-
 ### `test_executor.py`
 - `test_execute_abs()` — pre-populate golden_tensor_pool with input tensor,
   execute `ttnn.AbsOp`, verify output matches `torch.abs(input)`
@@ -211,7 +137,7 @@ to look up the golden callable. The function returns `None` for unmapped ops.
 
 ## Dependencies
 
-- **PR 1** — `tensors.py` (TensorPool, TensorValue), `ops.py` (IRModule, get_op_inputs/outputs, hash_location)
+- **PR 1** — `tensors.py` (TensorPool, TensorValue), `ops.py` (IRModule, get_op_inputs/outputs)
 
 No runtime PR dependencies. Multi-output ops (SortOp, MaxPool2dWithIndicesOp,
 etc.) are not supported until PR 0b lands — the executor should handle the

@@ -4,7 +4,13 @@ chisel implementation. The data model is hierarchical:
 
 ## Questions
 
-- How to handle `load_cache` and `funcCall` ops?
+- ~~How to handle `load_cache` and `funcCall` ops?~~ **Resolved**: Both ops
+  spawn a child `ProgramExecutor` with a different `program_index` but the same
+  binary. Debug hooks are global, so sub-program ops also fire preOp/postOp
+  callbacks. Each callback uses `(binary_id, program_index)` to look up the
+  right `BinaryState`/`ProgramState` — no special-casing needed, the
+  hierarchical model handles this naturally. Requires the same Python bindings
+  for `binary.id` and `get_program_index(callback_context)` identified below.
 - ~~How does `program_index` get exposed to Python?~~ **Resolved**: Add a
   nanobind binding `get_program_index(CallbackContext)` in
   `runtime/python/runtime/runtime.cpp`. The C++ side already has
@@ -19,13 +25,10 @@ ChiselContext (singleton)
 ├── global_tensor_pool: TensorPool       # keyed by Tensor::globalId
 │                                        # cross-binary AND cross-program sharing
 ├── binaries: Dict[binary_id, BinaryState]
-├── current_binary: BinaryState | None
-├── current_program: ProgramState | None
 └── output_dir, report_base_path, caching config
 
 BinaryState
 ├── ir_module: IRModule                  # parsed MLIR from binary.mlir.source
-├── registry: Registry                   # op groups from module
 ├── programs: Dict[program_index, ProgramState]
 └── report: ReportWriter                 # per-binary CSV
 
@@ -44,7 +47,6 @@ Inits the singleton ChiselContext and binds all 4 callback functions
 
 - Create `global_tensor_pool` (keyed by `Tensor::globalId`)
 - Create empty `binaries` dict
-- Set `current_binary` and `current_program` to None
 
 ## PreProgram
 
@@ -52,7 +54,7 @@ Called once at the start of each program execution.
 
 - Get or create `BinaryState` for `binary.id`
     - If new binary: extract TTNN MLIR from `binary.mlir.source`, parse
-      `IRModule`, create `Registry`, call `load_all_ops()`
+      `IRModule`
 - Get or create `ProgramState` for `program_index`
     - If new program: build ordered op list from registry for this program
 - `program.reset_for_new_execution()`
@@ -61,15 +63,15 @@ Called once at the start of each program execution.
     - `golden_tensor_pool` is NOT cleared (preserved across re-executions)
 - Copy matching entries from `global_tensor_pool` into
   `program.golden_tensor_pool` (matched by `Tensor::globalId` to SSA name)
-- Set `ctx.current_binary` and `ctx.current_program`
 - Start new report section
 
 ## PreOp
 
 Called before each TTNN op executes on device.
 
-- `op = next(ctx.current_program.op_iter)` — naturally in sync with callback
-  firing order
+- Look up state: `binary_state = ctx.binaries[binary_id]`,
+  `program = binary_state.programs[program_index]`
+- `op = next(program.op_iter)` — naturally in sync with callback firing order
 - Capture device input tensors via `get_op_input_refs(op_context, program_context)`
 - For each input: check if golden tensor already exists in
   `program.golden_tensor_pool`
@@ -84,6 +86,8 @@ Called before each TTNN op executes on device.
 
 Called after each TTNN op executes on device.
 
+- Look up state: `binary_state = ctx.binaries[binary_id]`,
+  `program = binary_state.programs[program_index]`
 - Get all op outputs from the device (loop over `get_op_output_refs` which
   returns a list — handles both single- and multi-output ops like Sort,
   MaxPool2dWithIndices, BatchNormTraining)
@@ -101,6 +105,8 @@ Called after each TTNN op executes on device.
 
 Called once at the end of each program execution.
 
+- Look up state: `binary_state = ctx.binaries[binary_id]`,
+  `program = binary_state.programs[program_index]`
 - Copy new entries from `program.golden_tensor_pool` into
   `global_tensor_pool` (for cross-program / cross-binary reuse)
 - Aggregate metrics for the program (min/max/mean PCC across ops)

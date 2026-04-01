@@ -10,7 +10,7 @@ Fires once at the start of program execution, before the op loop.
 
 - Get or create `BinaryState` for `binary.id`
     - If new binary: extract TTNN MLIR from `binary.mlir.source`, parse
-      `IRModule`, create `Registry`, call `load_all_ops()`
+      `IRModule`
 - Get `program_index` via `ttrt.runtime.get_program_index(program_context)`
 - Get or create `ProgramState` for `program_index`
 - `program.reset_for_new_execution()` — reset `op_iter`, clear `_skip_stash`
@@ -40,7 +40,7 @@ Fires before each TTNN operation executes on hardware.
 Fires after each TTNN operation executes on hardware.
 
 - Capture device output tensor via `get_op_output_ref(op_context)`
-- Look up the TTNN op in `Registry` by source location
+- Look up the TTNN op in `IRModule` by source location
 - Find the corresponding golden function in `GOLDEN_MAPPINGS`
   (from `tools/golden/mapping.py`)
 - Execute golden function on CPU with inputs from `program.golden_tensor_pool`

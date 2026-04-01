@@ -10,7 +10,6 @@ tools/chisel/
     ├── context.py         # ChiselContext singleton, BinaryState, ProgramState
     ├── callbacks.py       # preProgram/postProgram/preOp/postOp callback functions
     ├── executor.py        # Golden executor (TTNN ops on CPU via PyTorch)
-    ├── registry.py        # TTNN op tracking and tensor registration
     ├── tensors.py         # TensorPool and TensorValue
     ├── ops.py             # IRModule wrapper for TTNN module
     ├── report.py          # CSV report writer
@@ -33,13 +32,12 @@ ChiselContext (singleton)
 
 BinaryState
 ├── ir_module: IRModule                  # parsed MLIR from binary.mlir.source
-├── registry: Registry                   # op groups from module
 ├── programs: Dict[program_index, ProgramState]
 └── report: ReportWriter                 # per-binary CSV
 
 ProgramState
 ├── golden_tensor_pool: TensorPool       # isolated per-program, keyed by SSA name
-├── executor: GoldenExecutor             # refs own golden pool + registry
+├── executor: GoldenExecutor             # refs own golden pool + ir_module
 ├── ops: List[OpInfo]                    # ordered ops for this program
 ├── op_iter: Iterator[OpInfo]            # advances with preop/postop callbacks
 └── _skip_stash: dict[str, Tensor] | None  # preOp saves inputs here for skip mode
@@ -95,23 +93,21 @@ class BinaryState:
     def __init__(self, binary):
         # Extract and parse TTNN MLIR from binary.mlir.source
         self.ir_module = IRModule(mlir_source=binary.mlir.source)
-        self.registry = Registry(module=self.ir_module)
-        self.registry.load_all_ops()
         self.programs: Dict[int, ProgramState] = {}
         self.report = ReportWriter(...)
 
-    def get_or_create_program(self, program_index, registry) -> "ProgramState":
+    def get_or_create_program(self, program_index) -> "ProgramState":
         if program_index not in self.programs:
-            self.programs[program_index] = ProgramState(program_index, registry)
+            self.programs[program_index] = ProgramState(program_index, self.ir_module)
         return self.programs[program_index]
 
 
 class ProgramState:
-    def __init__(self, program_index, registry):
+    def __init__(self, program_index, ir_module: IRModule):
         self.program_index = program_index
         self.golden_tensor_pool = TensorPool(...)
-        self.executor = GoldenExecutor(registry, self.golden_tensor_pool)
-        self.ops: List[OpInfo] = [...]  # ordered from registry
+        self.executor = GoldenExecutor(ir_module, self.golden_tensor_pool)
+        self.ops: List[OpInfo] = [...]  # ordered from ir_module
         self.op_iter: Iterator[OpInfo] = iter(self.ops)
         self._skip_stash: dict[str, Tensor] | None = None
 
@@ -173,12 +169,11 @@ flowchart TD;
     CB["callbacks.py<br/>4 callbacks"] --> CTX["context.py<br/>ChiselContext / BinaryState / ProgramState"]
     CTX --> IR["ops.py<br/>IRModule"]
     CTX --> TP["tensors.py<br/>TensorPool / TensorValue"]
-    CTX --> REG["registry.py"]
     CTX --> EX["executor.py<br/>GoldenExecutor"]
     CTX --> RPT["report.py<br/>ReportWriter"]
     EX --> GM["tools/golden/mapping.py<br/>GOLDEN_MAPPINGS"]
     EX --> TP
-    REG --> IR
+    EX --> IR
     CTX --> UT["utils.py"]
 ```
 
@@ -192,7 +187,7 @@ Contains three classes:
   `preprogram()`, `postprogram()`, `preop()`, `postop()` methods that manage
   the hierarchy and delegate to the appropriate `ProgramState`.
 - **`BinaryState`** — per-binary state. Created on first `preProgram` for a
-  given `binary.id`. Owns the `IRModule`, `Registry`, and `ReportWriter`.
+  given `binary.id`. Owns the `IRModule` and `ReportWriter`.
 - **`ProgramState`** — per-program state. Created on first `preProgram` for a
   given `program_index`. Owns isolated `golden_tensor_pool`,
   `GoldenExecutor`, and the `op_iter`.
@@ -223,15 +218,6 @@ For each TTNN op encountered during device execution, the executor:
 2. Looks up the op type in `GOLDEN_MAPPINGS`
 3. Calls the golden function with PyTorch tensors
 4. Stores the result in the per-program `golden_tensor_pool`
-
-### `registry.py` — Op Tracking
-
-Tracks TTNN operations from a single module. Scoped per-`BinaryState`.
-Compared to the old chisel, this is significantly simplified:
-- **No dual-module correlation** — operates on one TTNN module
-- **No fusion group merging** — both golden and device see the same ops
-- Maps MLIR source locations to operations
-- Tracks tensor names and their associations with operations
 
 ### `tensors.py` — Tensor Management
 
@@ -346,7 +332,7 @@ objects (bound via nanobind in `runtime/python/runtime/runtime.cpp`):
 | Program detection | Heuristic (`binary.id` change + `_op_index` wrapping) | Explicit via `preProgram` callback |
 | Op tracking | Manual `_op_index` counter with reset | Iterator (`op_iter`) that advances with callbacks |
 | Golden pool scope | Single global pool on ChiselContext | Per-program pool + global pool for cross-program sharing |
-| Registry | Correlates ops across TTIR and TTNN by source location | Tracks ops in single TTNN module, scoped per-BinaryState |
+| Registry | Correlates ops across TTIR and TTNN by source location | Removed — IRModule handles op tracking directly |
 | Fusion handling | `_merge_empty_golden_groups()` for TTIR/TTNN mismatches | Not needed — same ops in both paths |
 | Golden executor | Custom TTIR op mappings with special-case handling | Reuses `tools/golden/GOLDEN_MAPPINGS` for TTNN ops |
 | Compilation | `compile_pipeline.py` runs TTIR-to-TTNN passes | None — reads TTNN MLIR from flatbuffer's `TTNNBinary.mlir.source` |
@@ -361,6 +347,7 @@ objects (bound via nanobind in `runtime/python/runtime/runtime.cpp`):
 - `main.py` — CLI entry point
 - `compile_pipeline.py` — TTIR-to-TTNN compilation
 - `setup.py` — pip packaging
+- `registry.py` — Registry and OpGroup (absorbed into IRModule)
 - `enums.py` — `ExecutionType` enum (simplified or inlined)
 
 ### Files Added

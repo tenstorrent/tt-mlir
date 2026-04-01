@@ -63,7 +63,7 @@ Benefits:
 
 - **1:1 op correspondence** — no cross-dialect correlation needed.
 - **No fusion mismatch handling** — both golden and device see the same ops.
-- **Single Registry** tracking ops in one module, significantly simplified.
+- **No separate Registry** — `IRModule` tracks ops directly.
 - **No `ExecutionType` enum** — removed entirely.
 
 ## 2. TTNN Op Golden Coverage

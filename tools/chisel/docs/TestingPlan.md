@@ -9,8 +9,7 @@ This document describes the testing strategy for Chisel V2. The primary constrai
 | Category | Dependencies | CI | Description |
 | :---- | :---- | :---- | :---- |
 | Unit | PyTorch only | Yes | Pure logic: metrics, config, report, tensor pool |
-| MLIR Parsing | ttmlir bindings | Yes | Module parsing, op/SSA/attribute extraction |
-| Registry | ttmlir bindings | Yes | Single-module TTNN op tracking |
+| MLIR Parsing | ttmlir bindings | Yes | Module parsing, op/SSA/attribute extraction, op tracking |
 | Golden Executor | ttmlir \+ tools/golden | Yes | CPU golden correctness per op |
 | Callback Integration | Mocked TTRT | Yes | Full callback flow with mock runtime |
 | End-to-End | Mocked TTRT \+ real MLIR | Yes | bind() through CSV report |
@@ -143,21 +142,14 @@ module {
 | `test_extract_input_output_shapes` | Tensor shapes extracted from op types |
 | `test_hash_location` | `hash_location` returns consistent `(line, col)` tuples |
 | `test_unknown_location_sentinel` | Ops without location info → `(-1, -1)` |
+| `test_ir_module_loads_all_ops` | All ops from parsed module are tracked by IRModule |
+| `test_ir_module_lookup_by_location` | Op lookup by location returns correct op |
+| `test_ir_module_op_ordering` | Ops iterated in program order |
+| `test_ir_module_multi_function` | Module with 2 `func.func`s, both tracked |
+| `test_ir_module_tracks_tensor_locations` | Input/output SSA values linked to ops |
+| `test_ir_module_skip_non_ttnn_ops` | `func.return`, `ttnn.empty` etc. excluded from comparison |
 
-## Section 5 \- Registry Tests (`test_registry.py`)
-
-Tests for the single-module TTNN registry (V2 removes TTIR/TTNN correlation).
-
-| Test | Description |
-| :---- | :---- |
-| `test_registry_loads_all_ops` | All ops from parsed module are registered |
-| `test_registry_lookup_by_location` | `find_op(location)` returns correct op |
-| `test_registry_op_ordering` | Ops iterated in program order |
-| `test_registry_multi_function` | Module with 2 `func.func`s, both tracked |
-| `test_registry_tracks_tensor_locations` | Input/output SSA values linked to ops |
-| `test_registry_skip_non_ttnn_ops` | `func.return`, `ttnn.empty` etc. excluded from comparison |
-
-## Section 6 \- Golden Executor Tests (`test_golden_executor.py`)
+## Section 5 \- Golden Executor Tests (`test_golden_executor.py`)
 
 Parameterized tests verifying CPU golden correctness for individual TTNN ops via `GOLDEN_MAPPINGS`.
 
@@ -172,23 +164,23 @@ Parameterized tests verifying CPU golden correctness for individual TTNN ops via
 | `test_golden_preserves_dtype` | any | bf16 input | bf16 output (or expected upcast) |
 | `test_golden_executor_populates_pool` | any | — | Output tensor present in `TensorPool` after execution |
 
-## Section 7 \- Callback Integration Tests (`test_callbacks.py`)
+## Section 6 \- Callback Integration Tests (`test_callbacks.py`)
 
 Tests the full callback flow using the mock runtime (Section 2.2). No hardware required.
 
 | Test | Description |
 | :---- | :---- |
-| `test_preop_initializes_module_on_first_call` | First preop call parses MLIR and builds registry |
+| `test_preop_initializes_module_on_first_call` | First preop call parses MLIR and builds IRModule |
 | `test_preop_captures_input_tensors` | Input tensors copied to golden pool |
 | `test_postop_executes_golden_and_compares` | Golden runs, PCC/atol/rtol computed, CSV row written |
 | `test_postop_op_skipping` | Op matching `skip_op_regex` → device output replaced with golden |
 | `test_callback_sequence` | preop→\[hw\]→postop ordering, state transitions verified |
-| `test_preprogram_callback` | Initializes registry, starts new report section |
+| `test_preprogram_callback` | Initializes IRModule, starts new report section |
 | `test_postprogram_callback` | Flushes report, preserves golden pool |
 | `test_multi_program_golden_sharing` | Golden tensors from program 0 visible in program 1 preop |
 | `test_multiple_callbacks_coexist` | Chisel \+ another callback both fire (multi-callback support) |
 
-## Section 8 \- End-to-End Tests (`test_e2e.py`)
+## Section 7 \- End-to-End Tests (`test_e2e.py`)
 
 Uses mock runtime with real MLIR fixtures from `test/mlir/test_*.mlir`.
 
@@ -201,7 +193,7 @@ Uses mock runtime with real MLIR fixtures from `test/mlir/test_*.mlir`.
 | `test_output_dir_created` | Report lands in configured `output_dir` |
 | `test_e2e_all_ops` (parameterized) | `@pytest.mark.parametrize("mlir_file", glob("test/mlir/test_*.mlir"))` |
 
-## Section 9 \- Silicon Tests (Hardware CI Only)
+## Section 8 \- Silicon Tests (Hardware CI Only)
 
 These tests are gated behind `@pytest.mark.silicon` and skipped in software-only CI.
 

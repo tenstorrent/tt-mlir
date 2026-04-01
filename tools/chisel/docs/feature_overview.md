@@ -137,7 +137,7 @@ model: `ChiselContext → BinaryState → ProgramState`.
 - **`ChiselContext`** holds a `global_tensor_pool` (keyed by `Tensor::globalId`)
   and a `binaries` dict mapping `binary.id` to `BinaryState`.
 - **`BinaryState`** is created once per binary. Holds the parsed `IRModule`,
-  `Registry`, `ReportWriter`, and a `programs` dict mapping `program_index` to
+  `ReportWriter`, and a `programs` dict mapping `program_index` to
   `ProgramState`.
 - **`ProgramState`** is created once per program. Holds isolated
   `golden_tensor_pool`, a `GoldenExecutor`, and an `op_iter` that advances
@@ -162,7 +162,6 @@ On each `preProgram` call, `ProgramState.reset_for_new_execution()`:
 | `ProgramState.op_iter` | Reset | N/A (new state) |
 | `ProgramState._skip_stash` | Cleared | N/A (new state) |
 | `BinaryState.ir_module` | Preserved | New |
-| `BinaryState.registry` | Preserved | New |
 | `ChiselContext.global_tensor_pool` | Preserved | Preserved |
 
 ### Golden Tensor Sharing

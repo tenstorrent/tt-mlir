@@ -116,7 +116,7 @@ class ChiselContext:
         Called once at the start of each program execution.
 
         1. Get or create BinaryState for binary.id
-           - If new: parse MLIR, init Registry
+           - If new: parse MLIR
         2. Get or create ProgramState for program_index
         3. program.reset_for_new_execution()
         4. Copy global_tensor_pool → program.golden_tensor_pool
@@ -156,25 +156,23 @@ class BinaryState:
     def __init__(self, binary, caching: bool = True, output_dir: Path = None):
         # Extract TTNN MLIR from binary.mlir.source, parse module
         self.ir_module = IRModule(mlir_source=binary.mlir.source)
-        self.registry = Registry(module=self.ir_module)
-        self.registry.load_all_ops()
         self.programs: Dict[int, ProgramState] = {}
         self.report = ReportWriter(...)
 
     def get_or_create_program(self, program_index) -> "ProgramState":
         if program_index not in self.programs:
             self.programs[program_index] = ProgramState(
-                program_index, self.registry
+                program_index, self.ir_module
             )
         return self.programs[program_index]
 
 
 class ProgramState:
-    def __init__(self, program_index: int, registry: Registry):
+    def __init__(self, program_index: int, ir_module: IRModule):
         self.program_index = program_index
         self.golden_tensor_pool = TensorPool(...)
-        self.executor = GoldenExecutor(registry, self.golden_tensor_pool)
-        self.ops: List[OpInfo] = [...]  # ordered from registry for this program
+        self.executor = GoldenExecutor(ir_module, self.golden_tensor_pool)
+        self.ops: List[OpInfo] = [...]  # ordered from ir_module for this program
         self.op_iter: Iterator[OpInfo] = iter(self.ops)
         self._skip_stash: dict[str, Tensor] | None = None
 
@@ -247,21 +245,21 @@ complete redesign with a hierarchical state model.
 
 **Add new:**
 - Singleton pattern (`_instance`, `get_instance()`, `reset_instance()`)
-- `BinaryState` class — per-binary state (IRModule, Registry, programs dict)
+- `BinaryState` class — per-binary state (IRModule, programs dict)
 - `ProgramState` class — per-program state (golden pool, executor, op_iter)
 - `preprogram()` / `postprogram()` methods — program-level callbacks
 - `preop()` / `postop()` methods — op-level callbacks
 - `global_tensor_pool` — cross-binary/cross-program golden tensor sharing
 
 **Adapt from old `preop()`/`postop()`:**
-The old context has these methods but they work with dual modules and the
-Registry's `should_compare()`. The new versions are simpler:
+The old context has these methods but they work with dual modules. The new
+versions are simpler:
 - Old `preop()` checked `program_context`, extracted tensor refs, updated device
   pool, and handled function arguments. New `preop()` does the same but without
   ExecutionType branching and uses `next(op_iter)` instead of `_op_index`.
 - Old `postop()` called `compare_outputs()` which used the Registry to find
-  corresponding golden/device tensors. New `postop()` directly runs the golden
-  executor and compares.
+  corresponding golden/device tensors. New `postop()` directly runs the
+  golden executor and compares.
 
 **Runtime API usage (same as old):**
 - `tt_runtime.runtime.get_op_loc_info(op_context)` — get operation location string
@@ -307,7 +305,7 @@ runtime because these utilities need runtime types to exercise meaningfully.
 
 **BinaryState tests:**
 - `test_binary_state_creation()` — mock binary with `mlir.source`, verify
-  `IRModule` and `Registry` are created and `load_all_ops()` is called
+  `IRModule` is created
 - `test_get_or_create_program()` — first call creates `ProgramState`, second
   call returns the same instance
 - `test_multiple_programs()` — create programs 0 and 1, verify they have
@@ -352,7 +350,7 @@ No hardware or MLIR needed for callback delegation tests.
 
 ## Dependencies
 
-- **PR 2** — `registry.py`, `executor.py`, `report.py`
+- **PR 2** — `executor.py`, `report.py`
 - **PR 1** — `tensors.py`, `ops.py`
 - **PR 0a** — DebugHooks refactor must land before this PR. This is where
   Python callbacks get registered and invoked via `DebugHooks`. Without the
