@@ -4484,7 +4484,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     // GatherOp can be used to implement embedding lookup, check for that case.
     LogicalResult err = checkBasicLegality(srcOp, rewriter);
-    if (not err.succeeded()) {
+    if (!err.succeeded()) {
       return err;
     }
 
