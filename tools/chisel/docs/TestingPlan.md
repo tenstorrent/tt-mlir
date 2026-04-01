@@ -140,10 +140,7 @@ module {
 | `test_extract_ssa_values` | SSA result names (`%0`, `%1`, …) correctly extracted |
 | `test_extract_op_attributes` | Attributes (e.g. `transpose_b=true`) are readable |
 | `test_extract_input_output_shapes` | Tensor shapes extracted from op types |
-| `test_hash_location` | `hash_location` returns consistent `(line, col)` tuples |
-| `test_unknown_location_sentinel` | Ops without location info → `(-1, -1)` |
 | `test_ir_module_loads_all_ops` | All ops from parsed module are tracked by IRModule |
-| `test_ir_module_lookup_by_location` | Op lookup by location returns correct op |
 | `test_ir_module_op_ordering` | Ops iterated in program order |
 | `test_ir_module_multi_function` | Module with 2 `func.func`s, both tracked |
 | `test_ir_module_tracks_tensor_locations` | Input/output SSA values linked to ops |
