@@ -11,7 +11,8 @@
 #include <ttnn/graph/graph_query_op_runtime.hpp>
 #include <tuple>
 // #include "ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
-#include "../runtime/include/tt/runtime/detail/ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
+// #include "../runtime/include/tt/runtime/detail/ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
+#include "conv/unifiedConv2dOp.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 

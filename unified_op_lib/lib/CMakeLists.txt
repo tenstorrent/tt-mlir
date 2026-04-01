@@ -5,15 +5,14 @@ add_library(TTUnifiedOpLib STATIC
 set_property(TARGET TTUnifiedOpLib PROPERTY CXX_STANDARD 20)
 
 target_include_directories(TTUnifiedOpLib PUBLIC
-  ${PROJECT_SOURCE_DIR}/unified_op_lib/include
-  ${PROJECT_BINARY_DIR}/include
-  ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/unified_op_lib/include>
+  $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>
+  $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common>
+)
 
-  PRIVATE
+target_include_directories(TTUnifiedOpLib PRIVATE
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/runtime/include
-
-  
 )
 
 target_include_directories(TTUnifiedOpLib SYSTEM PUBLIC
