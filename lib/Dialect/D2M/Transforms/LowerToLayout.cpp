@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTCore/Utils/AffineMapUtils.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
 
@@ -857,17 +858,27 @@ public:
 
     // Helper to create empty ops for intermediate types. If the type matches
     // the final target, reuse the original output.
-    auto createEmpty = [&](RankedTensorType type) -> Value {
+    auto createEmpty = [&](RankedTensorType type,
+                           bool inheritExplicitVgm = true) -> Value {
       // If this type matches the final target, reuse the original output
       if (type == op.getOutput().getType()) {
         return op.getOutput();
       }
-
+      if (inheritExplicitVgm) {
+        auto inv = utils::getVirtualGridInverseMapping(op.getOutput());
+        auto fwd = utils::getVirtualGridForwardMapping(op.getOutput());
+        if (inv && fwd) {
+          return rewriter
+              .create<d2m::EmptyOp>(op.getLoc(), type, AffineMapAttr::get(*inv),
+                                    AffineMapAttr::get(*fwd))
+              .getResult();
+        }
+      }
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(type.getEncoding());
-      auto emptyOp = rewriter.create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
-                                                   type.getElementType(),
-                                                   layout, targetGridShape);
-      return emptyOp.getResult();
+      return rewriter
+          .create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
+                                type.getElementType(), layout, targetGridShape)
+          .getResult();
     };
 
     // SYSTEM→DEVICE: Transfer to L1/DRAM with same element type as input.
@@ -971,7 +982,7 @@ public:
       auto maskedEmptyOp = rewriter.create<d2m::EmptyOp>(
           op.getLoc(), currentInfo.type.getShape(),
           currentInfo.type.getElementType(), layout, targetGridShape);
-      auto maskedEmpty = maskedEmptyOp.getResult();
+      Value maskedEmpty = maskedEmptyOp.getResult();
       currentValue =
           lowerMaskingGeneric(rewriter, currentValue, maskedEmpty, op.getLoc(),
                               currentInfo.layout->getLogicalShape(),
@@ -1125,7 +1136,8 @@ public:
             existingRemapping, ttcore::MemorySpace::DeviceL1,
             /*newTensorGrid=*/{}, /*newElementType=*/{},
             /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
-        auto reblockedEmpty = createEmpty(reblocked);
+        auto reblockedEmpty =
+            createEmpty(reblocked, /*inheritExplicitVgm=*/false);
         currentValue = lowerMappingChange(rewriter, currentValue,
                                           reblockedEmpty, op.getLoc());
         currentInfo = TensorInfo::from(currentValue);
