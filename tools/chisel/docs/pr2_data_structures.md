@@ -2,9 +2,9 @@
 
 ## Goal
 
-Add the two modules that implement core logic: GoldenExecutor (CPU replay via
-`GOLDEN_MAPPINGS`) and ReportWriter (CSV output). Together these form the
-computational backbone of Chisel.
+Add the two modules that implement core logic: golden execution function (CPU
+replay via `GOLDEN_MAPPINGS`) and ReportWriter (CSV output). Together these
+form the computational backbone of Chisel.
 
 ## Files
 
@@ -12,7 +12,7 @@ computational backbone of Chisel.
 
 | File | Description |
 |------|-------------|
-| `tools/chisel/chisel/executor.py` | `GoldenExecutor` — CPU replay of TTNN ops using `GOLDEN_MAPPINGS` |
+| `tools/chisel/chisel/executor.py` | `execute_golden()` — CPU replay of TTNN ops using `GOLDEN_MAPPINGS` |
 | `tools/chisel/chisel/report.py` | `ReportWriter` — CSV writer with per-op metrics |
 
 ### Modified Files
@@ -25,30 +25,26 @@ computational backbone of Chisel.
 
 ### `executor.py`
 
-Executes TTNN operations on CPU using `GOLDEN_MAPPINGS`. For each TTNN op
-encountered during device execution, the executor replays it with PyTorch.
+Provides a standalone function that executes TTNN operations on CPU using
+`GOLDEN_MAPPINGS`. For each TTNN op encountered during device execution, the
+function replays it with PyTorch.
 
 ```python
-class GoldenExecutor:
-    def __init__(self, ir_module: IRModule, tensor_pool: TensorPool):
-        self.ir_module = ir_module
-        self.tensor_pool = tensor_pool  # per-ProgramState golden_tensor_pool
+def execute_golden(op: Operation, ir_module: IRModule, tensor_pool: TensorPool) -> Any:
+    """
+    Execute a TTNN op on CPU via GOLDEN_MAPPINGS.
 
-    def execute(self, op: Operation) -> Any:
-        """
-        Execute a TTNN op on CPU via GOLDEN_MAPPINGS.
-
-        1. Look up op type in GOLDEN_MAPPINGS via get_golden_function()
-        2. If not found, raise RuntimeError (fail hard)
-        3. Retrieve input tensors from the per-program golden_tensor_pool
-        4. Call golden function with PyTorch tensors
-        5. Store result in golden_tensor_pool
-        6. Return result
-        """
+    1. Look up op type in GOLDEN_MAPPINGS via get_golden_function()
+    2. If not found, raise RuntimeError (fail hard)
+    3. Retrieve input tensors from the per-program golden_tensor_pool
+    4. Call golden function with PyTorch tensors
+    5. Store result in golden_tensor_pool
+    6. Return result
+    """
 ```
 
 **Fail-hard behavior:** If `get_golden_function(type(op))` returns `None`, the
-executor raises `RuntimeError(f"No golden implementation for {type(op).__name__}")`.
+function raises `RuntimeError(f"No golden implementation for {type(op).__name__}")`.
 
 ### `report.py`
 
@@ -84,17 +80,20 @@ class ReportWriter:
 
 ### `executor.py` — NEW (does not port from old `golden_executor.py`)
 
-The old `GoldenExecutor` at `runtime/tools/chisel/chisel/core/golden_executor.py`
+The old `GoldenExecutor` class at `runtime/tools/chisel/chisel/core/golden_executor.py`
 executed TTIR ops with custom golden functions and had extensive special-case
 handling for TTIR-specific ops (`ttir.empty`, `func.return`, `ttir.dot_general`,
 `ttir.broadcast`, `ttir.pad`, `ttir.permute`).
 
-**Write fresh** because:
-- The old executor targets TTIR ops; the new one targets TTNN ops
+**Write fresh as a standalone function** because:
+- The old executor targets TTIR ops; the new function targets TTNN ops
 - TTNN ops in `GOLDEN_MAPPINGS` use a different calling convention
   (they accept `GoldenMapTensor` objects from `tools/golden/`)
 - The old special-case handling for TTIR ops doesn't apply
 - The integration with `TensorPool` is simpler without dual pools
+- A class adds no value — `ir_module` and `tensor_pool` live on
+  `BinaryState`/`ProgramState` already; a standalone function takes them
+  as arguments
 
 **Key dependency:** `tools/golden/mapping.py` — use `get_golden_function(type(op))`
 to look up the golden callable. The function returns `None` for unmapped ops.
@@ -117,9 +116,9 @@ to look up the golden callable. The function returns `None` for unmapped ops.
 ## Test Plan
 
 ### `test_executor.py`
-- `test_execute_abs()` — pre-populate golden_tensor_pool with input tensor,
-  execute `ttnn.AbsOp`, verify output matches `torch.abs(input)`
-- `test_execute_add()` — two-input op, verify output matches `torch.add(a, b)`
+- `test_execute_golden_abs()` — pre-populate golden_tensor_pool with input tensor,
+  call `execute_golden()` with `ttnn.AbsOp`, verify output matches `torch.abs(input)`
+- `test_execute_golden_add()` — two-input op, verify output matches `torch.add(a, b)`
 - `test_unmapped_op_raises()` — mock an op type not in GOLDEN_MAPPINGS,
   verify `RuntimeError` is raised
 - `test_result_stored_in_pool()` — after execution, verify result is in tensor_pool
@@ -140,6 +139,6 @@ to look up the golden callable. The function returns `None` for unmapped ops.
 - **PR 1** — `tensors.py` (TensorPool, TensorValue), `ops.py` (IRModule, get_op_inputs/outputs)
 
 No runtime PR dependencies. Multi-output ops (SortOp, MaxPool2dWithIndicesOp,
-etc.) are not supported until PR 0b lands — the executor should handle the
+etc.) are not supported until PR 0b lands — the function should handle the
 case where `getOpOutputRef` returns empty/None for these ops by skipping
 comparison and logging a warning in the report.

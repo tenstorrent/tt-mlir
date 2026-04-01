@@ -9,7 +9,7 @@ tools/chisel/
     ├── __init__.py        # Package init, exports ChiselContext accessors
     ├── context.py         # ChiselContext singleton, BinaryState, ProgramState
     ├── callbacks.py       # preProgram/postProgram/preOp/postOp callback functions
-    ├── executor.py        # Golden executor (TTNN ops on CPU via PyTorch)
+    ├── executor.py        # Golden execution function (TTNN ops on CPU via PyTorch)
     ├── tensors.py         # TensorPool and TensorValue
     ├── ops.py             # IRModule wrapper for TTNN module
     ├── report.py          # CSV report writer
@@ -37,7 +37,6 @@ BinaryState
 
 ProgramState
 ├── golden_tensor_pool: TensorPool       # isolated per-program, keyed by SSA name
-├── executor: GoldenExecutor             # refs own golden pool + ir_module
 ├── ops: List[OpInfo]                    # ordered ops for this program
 ├── op_iter: Iterator[OpInfo]            # advances with preop/postop callbacks
 └── _skip_stash: dict[str, Tensor] | None  # preOp saves inputs here for skip mode
@@ -106,7 +105,6 @@ class ProgramState:
     def __init__(self, program_index, ir_module: IRModule):
         self.program_index = program_index
         self.golden_tensor_pool = TensorPool(...)
-        self.executor = GoldenExecutor(ir_module, self.golden_tensor_pool)
         self.ops: List[OpInfo] = [...]  # ordered from ir_module
         self.op_iter: Iterator[OpInfo] = iter(self.ops)
         self._skip_stash: dict[str, Tensor] | None = None
@@ -170,7 +168,7 @@ flowchart TD;
     CB["callbacks.py<br/>4 callbacks"] --> CTX["context.py<br/>ChiselContext / BinaryState / ProgramState"]
     CTX --> IR["ops.py<br/>IRModule"]
     CTX --> TP["tensors.py<br/>TensorPool / TensorValue"]
-    CTX --> EX["executor.py<br/>GoldenExecutor"]
+    CTX --> EX["executor.py<br/>execute_golden()"]
     CTX --> RPT["report.py<br/>ReportWriter"]
     EX --> GM["tools/golden/mapping.py<br/>GOLDEN_MAPPINGS"]
     EX --> TP
@@ -191,7 +189,7 @@ Contains three classes:
   given `binary.id`. Owns the `IRModule` and `ReportWriter`.
 - **`ProgramState`** — per-program state. Created on first `preProgram` for a
   given `program_index`. Owns isolated `golden_tensor_pool`,
-  `GoldenExecutor`, and the `op_iter`.
+  and the `op_iter`.
 
 ### `callbacks.py` — Callback Functions
 
@@ -211,10 +209,12 @@ def chisel_post_op_callback(binary, program_context, op_context):
     ChiselContext.get_instance().postop(binary, program_context, op_context)
 ```
 
-### `executor.py` — Golden Executor
+### `executor.py` — Golden Execution
 
-Executes TTNN operations on CPU using `GOLDEN_MAPPINGS` from `tools/golden/mapping.py`.
-For each TTNN op encountered during device execution, the executor:
+Provides the standalone `execute_golden(op, ir_module, tensor_pool)` function
+that replays TTNN operations on CPU using `GOLDEN_MAPPINGS` from
+`tools/golden/mapping.py`. For each TTNN op encountered during device
+execution, the function:
 1. Retrieves input tensors from the per-program `golden_tensor_pool`
 2. Looks up the op type in `GOLDEN_MAPPINGS`
 3. Calls the golden function with PyTorch tensors
@@ -337,7 +337,7 @@ objects (bound via nanobind in `runtime/python/runtime/runtime.cpp`):
 | Golden pool scope | Single global pool on ChiselContext | Per-program pool + global pool for cross-program sharing |
 | Registry | Correlates ops across TTIR and TTNN by source location | Removed — IRModule handles op tracking directly |
 | Fusion handling | `_merge_empty_golden_groups()` for TTIR/TTNN mismatches | Not needed — same ops in both paths |
-| Golden executor | Custom TTIR op mappings with special-case handling | Reuses `tools/golden/GOLDEN_MAPPINGS` for TTNN ops |
+| Golden execution | Custom TTIR op mappings with special-case handling | Reuses `tools/golden/GOLDEN_MAPPINGS` for TTNN ops via standalone `execute_golden()` |
 | Compilation | `compile_pipeline.py` runs TTIR-to-TTNN passes | None — reads TTNN MLIR from flatbuffer's `TTNNBinary.mlir.source` |
 | Input initialization | `generate_random_inputs()` / `load_inputs_from_disk()` | Inputs captured from runtime in preop callback |
 | Execution driver | Chisel creates `RtApi.Run` and calls `rt_api()` | Passive observer — caller drives TTRT |

@@ -147,7 +147,7 @@ class ChiselContext:
         Called after each TTNN op executes on device.
 
         1. Capture device output tensor
-        2. Execute golden function via program.executor
+        2. Execute golden function via execute_golden()
         3. Compare golden vs device (PCC, abs_err, rel_err)
         4. Write row to CSV report
         """
@@ -172,7 +172,6 @@ class ProgramState:
     def __init__(self, program_index: int, ir_module: IRModule):
         self.program_index = program_index
         self.golden_tensor_pool = TensorPool(...)
-        self.executor = GoldenExecutor(ir_module, self.golden_tensor_pool)
         self.ops: List[OpInfo] = [...]  # ordered from ir_module for this program
         self.op_iter: Iterator[OpInfo] = iter(self.ops)
         self._skip_stash: dict[str, Tensor] | None = None
@@ -247,7 +246,7 @@ complete redesign with a hierarchical state model.
 **Add new:**
 - Singleton pattern (`_instance`, `get_instance()`, `reset_instance()`)
 - `BinaryState` class — per-binary state (IRModule, programs dict)
-- `ProgramState` class — per-program state (golden pool, executor, op_iter)
+- `ProgramState` class — per-program state (golden pool, op_iter)
 - `preprogram()` / `postprogram()` methods — program-level callbacks
 - `preop()` / `postop()` methods — op-level callbacks
 - `global_tensor_pool` — cross-binary/cross-program golden tensor sharing
@@ -260,7 +259,7 @@ versions are simpler:
   ExecutionType branching and uses `next(op_iter)` instead of `_op_index`.
 - Old `postop()` called `compare_outputs()` which used the Registry to find
   corresponding golden/device tensors. New `postop()` directly runs the
-  golden executor and compares.
+  `execute_golden()` and compares.
 
 **Runtime API usage (same as old):**
 - `tt_runtime.runtime.get_op_loc_info(op_context)` — get operation location string
@@ -313,7 +312,7 @@ runtime because these utilities need runtime types to exercise meaningfully.
   independent golden pools
 
 **ProgramState tests:**
-- `test_program_state_creation()` — verify golden pool, executor,
+- `test_program_state_creation()` — verify golden pool
   and `op_iter` are initialized
 - `test_reset_for_new_execution()` — call `reset_for_new_execution()`, verify
   `op_iter` is reset and `_skip_stash` is None. Verify golden pool is preserved.
