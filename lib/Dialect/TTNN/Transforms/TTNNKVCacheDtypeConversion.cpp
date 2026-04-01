@@ -76,6 +76,10 @@ public:
   }
 
   static void changeCacheArgTypes(func::FuncOp funcOp, ttcore::DataType targetDtype) {
+    if (funcOp.isDeclaration()) {
+      return;
+    }
+
     auto *ctx = funcOp.getContext();
     auto funcType = funcOp.getFunctionType();
     llvm::SmallVector<Type> newArgTypes(funcType.getInputs());
@@ -121,9 +125,11 @@ public:
       changeCacheArgTypes(funcOp, dtype);
     });
 
-    // Insert typecast operations on the input operands of fill_cache op.
+    // Insert typecast operations on the input operands of fill_cache and
+    // update_cache ops so written data matches the new cache dtype.
     mlir::RewritePatternSet patterns(&getContext());
     patterns.add<KVCacheDtypePattern<FillCacheOp>>(&getContext(), dtype);
+    patterns.add<KVCacheDtypePattern<UpdateCacheOp>>(&getContext(), dtype);
 
     if (failed(
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {

@@ -183,7 +183,7 @@ struct TensorDesc {
 
   size_t volume() const;
 
-  size_t sizeBytes() const { return physicalVolume * itemsize; }
+  size_t sizeBytes() const;
 
   bool isPadded() const { return physicalVolume > volume(); }
 };
