@@ -385,22 +385,35 @@ public:
           srcOp, "missing tt.composite_attributes on custom_call");
     }
 
+    // Determine the number of normalized dimensions from the stored attribute.
+    // The actual dimension sizes come from the (possibly sharded) input tensor,
+    // since UpdateGlobalToLocalShapes may have rewritten types to local shapes.
     auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
-    SmallVector<int64_t> normalizedShapeVec;
+    int64_t numNormalizedDims = 0;
 
     if (auto denseAttr =
             mlir::dyn_cast<DenseIntElementsAttr>(normalizedShapeAttr)) {
-      for (auto val : denseAttr.getValues<int64_t>()) {
-        normalizedShapeVec.push_back(val);
-      }
+      numNormalizedDims = denseAttr.getNumElements();
     } else if (auto arrayAttr =
                    mlir::dyn_cast<ArrayAttr>(normalizedShapeAttr)) {
-      for (auto attr : arrayAttr) {
-        normalizedShapeVec.push_back(mlir::cast<IntegerAttr>(attr).getInt());
-      }
+      numNormalizedDims = arrayAttr.size();
     } else {
       return rewriter.notifyMatchFailure(
           srcOp, "normalized_shape must be a dense tensor or array attribute");
+    }
+
+    auto inputType =
+        mlir::cast<RankedTensorType>(srcOp.getOperand(0).getType());
+    int64_t inputRank = inputType.getRank();
+    if (numNormalizedDims > inputRank) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "normalized_shape has more dims than input rank");
+    }
+
+    // Use actual trailing dimensions from the input tensor.
+    SmallVector<int64_t> normalizedShapeVec;
+    for (int64_t i = inputRank - numNormalizedDims; i < inputRank; ++i) {
+      normalizedShapeVec.push_back(inputType.getDimSize(i));
     }
 
     auto normalizedShapeDenseAttr =
