@@ -124,6 +124,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
 endif()
 target_include_directories(TTRuntimeTTNNOps PRIVATE
   ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn
+  ${PROJECT_SOURCE_DIR}/unified_op_lib/include
 )
 target_include_directories(TTRuntimeTTNNOps PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
@@ -132,7 +133,7 @@ target_include_directories(TTRuntimeTTNNOps PUBLIC
 )
 
 target_include_directories(TTRuntimeTTNNOps SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN_LIBRARY TTRuntimeTTNNDebug TTRuntimeTTNNTypes TTRuntimeTTNNUtils TRACY_LIBRARY)
+target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN_LIBRARY TTRuntimeTTNNDebug TTRuntimeTTNNTypes TTRuntimeTTNNUtils TRACY_LIBRARY TTUnifiedOpLib)
 target_link_libraries(TTRuntimeTTNNOps PUBLIC coverage_config Python::Python)
 
 
