@@ -422,9 +422,9 @@ scalarizeSplatThroughUseChains(Location loc, Attribute splatValue,
 
       Value scalarConst;
       if (auto floatAttr = dyn_cast<FloatAttr>(splatValue)) {
-        scalarConst = rewriter.create<arith::ConstantOp>(loc, floatAttr);
+        scalarConst = arith::ConstantOp::create(rewriter, loc, floatAttr);
       } else if (auto intAttr = dyn_cast<IntegerAttr>(splatValue)) {
-        scalarConst = rewriter.create<arith::ConstantOp>(loc, intAttr);
+        scalarConst = arith::ConstantOp::create(rewriter, loc, intAttr);
       }
 
       if (!scalarConst) {

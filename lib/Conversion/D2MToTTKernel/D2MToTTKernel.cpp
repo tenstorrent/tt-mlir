@@ -1041,11 +1041,11 @@ public:
           if (auto floatType = llvm::dyn_cast<FloatType>(scalarType)) {
             Value f32Scalar = scalar;
             if (!floatType.isF32()) {
-              f32Scalar = rewriter.create<arith::ExtFOp>(
-                  loc, rewriter.getF32Type(), scalar);
+              f32Scalar = arith::ExtFOp::create(rewriter, loc,
+                                                rewriter.getF32Type(), scalar);
             }
-            return rewriter.create<arith::BitcastOp>(loc, rewriter.getI32Type(),
-                                                     f32Scalar);
+            return arith::BitcastOp::create(rewriter, loc,
+                                            rewriter.getI32Type(), f32Scalar);
           }
 
           // Integer scalars are passed as i32 numeric values.
@@ -1054,11 +1054,11 @@ public:
           }
           if (auto intType = llvm::dyn_cast<IntegerType>(scalarType)) {
             if (intType.getWidth() < 32) {
-              return rewriter.create<arith::ExtSIOp>(loc, rewriter.getI32Type(),
-                                                     scalar);
+              return arith::ExtSIOp::create(rewriter, loc,
+                                            rewriter.getI32Type(), scalar);
             }
-            return rewriter.create<arith::TruncIOp>(loc, rewriter.getI32Type(),
-                                                    scalar);
+            return arith::TruncIOp::create(rewriter, loc, rewriter.getI32Type(),
+                                           scalar);
           }
 
           llvm_unreachable("Expected scalar rhs to be integer or float");
@@ -1066,20 +1066,20 @@ public:
 
         // Create the appropriate unary scalar op based on the D2M op type
         if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
-          rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
+          ttkernel::BinopWithScalarTileInitOp::create(rewriter, loc);
           auto scalarParam = scalarToI32Param(adaptor.getRhs());
-          rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
+          ttkernel::AddUnaryTileOp::create(rewriter, loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
-          rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
+          ttkernel::BinopWithScalarTileInitOp::create(rewriter, loc);
           auto scalarParam = scalarToI32Param(adaptor.getRhs());
-          rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
+          ttkernel::SubUnaryTileOp::create(rewriter, loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
-          rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
+          ttkernel::BinopWithScalarTileInitOp::create(rewriter, loc);
           auto scalarParam = scalarToI32Param(adaptor.getRhs());
-          rewriter.create<ttkernel::MulUnaryTileOp>(loc, dstIdx, scalarParam);
+          ttkernel::MulUnaryTileOp::create(rewriter, loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileDivOp>) {
           auto scalarParam = scalarToI32Param(adaptor.getRhs());
-          rewriter.create<ttkernel::DivUnaryTileOp>(loc, dstIdx, scalarParam);
+          ttkernel::DivUnaryTileOp::create(rewriter, loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
           // For power, convert float value to integer (not bitcast)
           auto scalarParam = arith::FPToSIOp::create(
@@ -1436,9 +1436,9 @@ static LogicalResult materializeFillTileKernelValue(
     if (!intTy.isInteger(32)) {
       Type i32Ty = rewriter.getI32Type();
       fillValue = intTy.getWidth() < 32
-                      ? rewriter.create<arith::ExtSIOp>(loc, i32Ty, fillValue)
+                      ? arith::ExtSIOp::create(rewriter, loc, i32Ty, fillValue)
                             .getResult()
-                      : rewriter.create<arith::TruncIOp>(loc, i32Ty, fillValue)
+                      : arith::TruncIOp::create(rewriter, loc, i32Ty, fillValue)
                             .getResult();
     }
     useIntFill = true;
@@ -1450,7 +1450,7 @@ static LogicalResult materializeFillTileKernelValue(
   }
   if (!ty.isF32()) {
     fillValue =
-        rewriter.create<arith::ExtFOp>(loc, rewriter.getF32Type(), fillValue)
+        arith::ExtFOp::create(rewriter, loc, rewriter.getF32Type(), fillValue)
             .getResult();
   }
   useIntFill = false;
@@ -1472,8 +1472,8 @@ public:
     Value outCB = getOutCB(rewriter, op);
     auto insertionPoint = rewriter.getInsertionPoint();
     setInsertionPointAfterOperands(rewriter, {outCB}, /*allowHoisting*/ true);
-    rewriter.create<ttkernel::ComputeKernelHWStartupOp>(loc, outCB, nullptr,
-                                                        outCB);
+    ttkernel::ComputeKernelHWStartupOp::create(rewriter, loc, outCB, nullptr,
+                                               outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     Value fillValue = adaptor.getValue();
@@ -1483,11 +1483,11 @@ public:
       return failure();
     }
 
-    rewriter.create<ttkernel::FillTileInitOp>(loc);
+    ttkernel::FillTileInitOp::create(rewriter, loc);
     if (useIntFill) {
-      rewriter.create<ttkernel::FillTileIntOp>(loc, dstIdx, fillValue);
+      ttkernel::FillTileIntOp::create(rewriter, loc, dstIdx, fillValue);
     } else {
-      rewriter.create<ttkernel::FillTileOp>(loc, dstIdx, fillValue);
+      ttkernel::FillTileOp::create(rewriter, loc, dstIdx, fillValue);
     }
 
     rewriter.replaceOp(op, dstIdx);

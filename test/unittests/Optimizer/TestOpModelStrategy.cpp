@@ -92,18 +92,18 @@ public:
     auto tensorType =
         mlir::RankedTensorType::get(inputShape, builder.getBF16Type(), layout);
 
-    auto input1 = builder.create<OnesOp>(
-        builder.getUnknownLoc(), tensorType,
+    auto input1 = OnesOp::create(
+        builder, builder.getUnknownLoc(), tensorType,
         /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
         /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
-    auto input2 = builder.create<OnesOp>(
-        builder.getUnknownLoc(), tensorType,
+    auto input2 = OnesOp::create(
+        builder, builder.getUnknownLoc(), tensorType,
         /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
         /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
-    return builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
-                                 input1.getResult(), input2.getResult());
+    return AddOp::create(builder, builder.getUnknownLoc(), tensorType,
+                         input1.getResult(), input2.getResult());
   }
 
   // Create a ReshapeOp for testing.
@@ -118,17 +118,17 @@ public:
     auto outputTensorType = mlir::RankedTensorType::get(
         outputShape, builder.getBF16Type(), outputLayout);
 
-    auto input = builder.create<OnesOp>(
-        builder.getUnknownLoc(), inputTensorType,
+    auto input = OnesOp::create(
+        builder, builder.getUnknownLoc(), inputTensorType,
         /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
         /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
     llvm::SmallVector<int32_t> outputShapeI32(outputShape.begin(),
                                               outputShape.end());
-    return builder.create<ReshapeOp>(builder.getUnknownLoc(), outputTensorType,
-                                     input.getResult(),
-                                     builder.getI32ArrayAttr(outputShapeI32),
-                                     /*memory_config=*/nullptr);
+    return ReshapeOp::create(builder, builder.getUnknownLoc(), outputTensorType,
+                             input.getResult(),
+                             builder.getI32ArrayAttr(outputShapeI32),
+                             /*memory_config=*/nullptr);
   }
 
   // Create a MatmulOp for testing.
@@ -149,23 +149,23 @@ public:
     auto outputTensorType = mlir::RankedTensorType::get(
         outputShape, builder.getBF16Type(), outputLayout);
 
-    auto lhs = builder.create<OnesOp>(
-        builder.getUnknownLoc(), lhsTensorType,
+    auto lhs = OnesOp::create(
+        builder, builder.getUnknownLoc(), lhsTensorType,
         /*device=*/nullptr, ShapeAttr::get(&context, lhsShape),
         /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
-    auto rhs = builder.create<OnesOp>(
-        builder.getUnknownLoc(), rhsTensorType,
+    auto rhs = OnesOp::create(
+        builder, builder.getUnknownLoc(), rhsTensorType,
         /*device=*/nullptr, ShapeAttr::get(&context, rhsShape),
         /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
-    return builder.create<MatmulOp>(builder.getUnknownLoc(), outputTensorType,
-                                    lhs.getResult(), rhs.getResult(),
-                                    /*transpose_a=*/nullptr,
-                                    /*transpose_b=*/nullptr,
-                                    /*memory_config=*/nullptr,
-                                    /*program_config=*/nullptr,
-                                    /*compute_kernel_config=*/nullptr);
+    return MatmulOp::create(builder, builder.getUnknownLoc(), outputTensorType,
+                            lhs.getResult(), rhs.getResult(),
+                            /*transpose_a=*/nullptr,
+                            /*transpose_b=*/nullptr,
+                            /*memory_config=*/nullptr,
+                            /*program_config=*/nullptr,
+                            /*compute_kernel_config=*/nullptr);
   }
 
   // Create legal configs for an elementwise op (DRAM + L1-interleaved).

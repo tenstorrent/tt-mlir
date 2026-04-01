@@ -1989,8 +1989,8 @@ public:
         rewriter.getContext(), ttcore::IteratorType::Parallel);
     SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
 
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+    auto generic = d2m::GenericOp::create(
+        rewriter, loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -2011,8 +2011,8 @@ public:
       SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
           iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
-      auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
-          loc,
+      auto linalgGeneric = mlir::linalg::GenericOp::create(
+          rewriter, loc,
           llvm::to_vector(mlir::ValueRange(blockArgs.take_back(1)).getTypes()),
           /*inputs=*/ValueRange{},
           /*outs=*/blockArgs.take_back(1), indexingMaps, linalgIteratorTypes,
@@ -2035,24 +2035,23 @@ public:
                                      .getValue()
                                      .getSExtValue());
             }
-            Value fillScalar = bbBuilder.create<mlir::arith::ConstantOp>(
-                bbLoc, scalarAttr.getType(), scalarAttr);
+            Value fillScalar = mlir::arith::ConstantOp::create(
+                bbBuilder, bbLoc, scalarAttr.getType(), scalarAttr);
             mlir::Value yieldTile =
-                bbBuilder.create<d2m::FillTileOp>(bbLoc, tType, fillScalar)
+                d2m::FillTileOp::create(bbBuilder, bbLoc, tType, fillScalar)
                     .getResult();
-            bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yieldTile);
+            mlir::linalg::YieldOp::create(bbBuilder, bbLoc, yieldTile);
           });
 
       AffineMap outputIndexingMap = generic.getIndexingMap(0);
       SmallVector<Value> indices =
           d2m::utils::buildGridIndices(rewriter, loc, outputIndexingMap);
       Value storeResult =
-          rewriter
-              .create<d2m::RemoteStoreOp>(loc, output.getType(), output,
-                                          indices, linalgGeneric.getResult(0))
+          d2m::RemoteStoreOp::create(rewriter, loc, output.getType(), output,
+                                     indices, linalgGeneric.getResult(0))
               .getResult();
 
-      rewriter.create<d2m::YieldOp>(loc, storeResult);
+      d2m::YieldOp::create(rewriter, loc, storeResult);
     }
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);

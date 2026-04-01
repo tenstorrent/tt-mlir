@@ -162,23 +162,22 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
     }
     if (isRemoteLoad) {
       auto cb = (isRemoteStore) ? inputCB : outputCB;
-      rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(), cb,
-                                    loadOp.getMcastStartIndex(),
-                                    loadOp.getMcastShape());
+      RemoteLoadOp::create(rewriter, loc, loadMemref, loadOp.getIndices(), cb,
+                           loadOp.getMcastStartIndex(), loadOp.getMcastShape());
     } else {
       // Aliased load - insert reserve and push here.
-      rewriter.create<ReserveOp>(loc, inputCB);
-      rewriter.create<PushOp>(loc, inputCB);
+      ReserveOp::create(rewriter, loc, inputCB);
+      PushOp::create(rewriter, loc, inputCB);
     }
 
     if (isRemoteStore) {
       auto cb = inputCB;
-      rewriter.create<RemoteStoreOp>(loc, storeMemref, storeOp.getIndices(),
-                                     cb);
+      RemoteStoreOp::create(rewriter, loc, storeMemref, storeOp.getIndices(),
+                            cb);
     } else {
       // Aliased store - insert wait and pop here.
-      rewriter.create<WaitOp>(loc, outputCB);
-      rewriter.create<PopOp>(loc, outputCB);
+      WaitOp::create(rewriter, loc, outputCB);
+      PopOp::create(rewriter, loc, outputCB);
     }
 
     // Get the shared localBuffer before erasing operations
@@ -223,7 +222,7 @@ static void ensurePopForWait(IRRewriter &rewriter, WaitOp waitOp) {
   } else {
     rewriter.setInsertionPointToEnd(waitBlock);
   }
-  rewriter.create<PopOp>(waitOp.getLoc(), waitOp.getCb());
+  PopOp::create(rewriter, waitOp.getLoc(), waitOp.getCb());
 }
 
 static void rewriteImplicitRemoteLoadOpsToExplicitCBForm(
@@ -269,12 +268,12 @@ static void rewriteImplicitRemoteLoadOpsToExplicitCBForm(
     rewriter.setInsertionPoint(remoteLoad);
 
     // Create explicit CB form remote_load (no localBuffer/result, has CB).
-    rewriter.create<RemoteLoadOp>(loc, memref, remoteLoad.getIndices(), assocCb,
-                                  remoteLoad.getMcastStartIndex(),
-                                  remoteLoad.getMcastShape());
+    RemoteLoadOp::create(rewriter, loc, memref, remoteLoad.getIndices(),
+                         assocCb, remoteLoad.getMcastStartIndex(),
+                         remoteLoad.getMcastShape());
 
     // Create wait to produce the local memref value consumed by compute.
-    auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
+    auto waitOp = WaitOp::create(rewriter, loc, assocCb);
 
     // Replace uses of the local buffer with the wait result.
     // Only replace uses inside the generic's regions — the local buffer may
@@ -364,7 +363,7 @@ static void rewriteRemoteStoreOpsToExplicitCBForm(ModuleOp moduleOp,
               rewriter.setInsertionPointToStart(remoteStore->getBlock());
             }
             auto newReserve =
-                rewriter.create<ReserveOp>(allocOp.getLoc(), assocCb);
+                ReserveOp::create(rewriter, allocOp.getLoc(), assocCb);
             rewriter.replaceUsesWithIf(
                 localBuffer, newReserve.getResult(), [&](OpOperand &use) {
                   return generic->isProperAncestor(use.getOwner());
@@ -372,7 +371,7 @@ static void rewriteRemoteStoreOpsToExplicitCBForm(ModuleOp moduleOp,
           } else {
             rewriter.setInsertionPoint(allocOp);
             auto newReserve =
-                rewriter.create<ReserveOp>(allocOp.getLoc(), assocCb);
+                ReserveOp::create(rewriter, allocOp.getLoc(), assocCb);
             rewriter.replaceAllUsesWith(allocOp.getResult(),
                                         newReserve.getResult());
             rewriter.eraseOp(allocOp);
@@ -382,7 +381,7 @@ static void rewriteRemoteStoreOpsToExplicitCBForm(ModuleOp moduleOp,
 
       rewriter.setInsertionPoint(remoteStore);
 
-      rewriter.create<PushOp>(loc, assocCb);
+      PushOp::create(rewriter, loc, assocCb);
 
       // Create the explicit CB form of remote_store (no local buffer, has CB)
       // d2m.remote_store %memref[indices] from %cb

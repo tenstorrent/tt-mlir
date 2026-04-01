@@ -1318,8 +1318,8 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                      "_mem_reconfig");
 
-  ToMemoryConfigOp memoryReconfigOp = builder.create<ToMemoryConfigOp>(
-      loc, newTensorType, operand, outputMemConfigAttr);
+  ToMemoryConfigOp memoryReconfigOp = ToMemoryConfigOp::create(
+      builder, loc, newTensorType, operand, outputMemConfigAttr);
 
   consumerOp->setOperand(operandIndex, memoryReconfigOp->getResult(0));
 
