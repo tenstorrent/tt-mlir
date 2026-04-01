@@ -48,7 +48,7 @@
 
 - Create `tools/chisel/CMakeLists.txt` with `declare_mlir_python_sources` packaging.
 - Create `tools/chisel/chisel/__init__.py` package init.
-- Implement `TensorValue` and `TensorPool` (keyed by SSA name or globalId) in `chisel/tensors.py`.
+- Implement `TensorPool` (keyed by SSA name or globalId, stores `GoldenMapTensor` directly) in `chisel/tensors.py`.
 - Implement `IRModule` wrapper with MLIR traversal, `get_op_inputs()`, `get_op_outputs()`, and `hash_location()` in `chisel/ops.py`.
 
 ## Chisel Executor & Report (PR 2)

@@ -10,7 +10,7 @@ tools/chisel/
     ├── context.py         # ChiselContext singleton, BinaryState, ProgramState
     ├── callbacks.py       # preProgram/postProgram/preOp/postOp callback functions
     ├── executor.py        # Golden execution function (TTNN ops on CPU via PyTorch)
-    ├── tensors.py         # TensorPool and TensorValue
+    ├── tensors.py         # TensorPool (stores GoldenMapTensor directly)
     ├── ops.py             # IRModule wrapper for TTNN module
     ├── report.py          # CSV report writer
     └── utils.py           # Location parsing, dtype maps, debug utilities
@@ -167,7 +167,7 @@ flowchart TD;
     BLD["tools/builder<br/>(enable_chisel=True)"] -.->|optional caller| CB
     CB["callbacks.py<br/>4 callbacks"] --> CTX["context.py<br/>ChiselContext / BinaryState / ProgramState"]
     CTX --> IR["ops.py<br/>IRModule"]
-    CTX --> TP["tensors.py<br/>TensorPool / TensorValue"]
+    CTX --> TP["tensors.py<br/>TensorPool"]
     CTX --> EX["executor.py<br/>execute_golden()"]
     CTX --> RPT["report.py<br/>ReportWriter"]
     EX --> GM["tools/golden/mapping.py<br/>GOLDEN_MAPPINGS"]
@@ -222,12 +222,14 @@ execution, the function:
 
 ### `tensors.py` — Tensor Management
 
-- **`TensorValue`**: Wraps tensor data with metadata (execution type, runtime
-  reference, execution data).
-- **`TensorPool`**: Dict-based tensor store with optional disk caching. Multiple
-  instances exist at different levels: `global_tensor_pool` on `ChiselContext`
-  (keyed by `Tensor::globalId`) and per-`ProgramState` `golden_tensor_pool`
-  (keyed by SSA value name).
+- **`TensorPool`**: Dict-based tensor store mapping keys to `GoldenMapTensor`
+  directly, with optional disk caching. Multiple instances exist at different
+  levels: `global_tensor_pool` on `ChiselContext` (keyed by `Tensor::globalId`)
+  and per-`ProgramState` `golden_tensor_pool` (keyed by SSA value name).
+  No `TensorValue` wrapper — `GoldenMapTensor` from `tools/golden/` already
+  provides all needed tensor semantics (sharding, torch op compatibility,
+  dtype conversion). Device tensors are ephemeral (read in callback, compared,
+  discarded) and don't need pool storage.
 
 ### `ops.py` — IRModule Wrapper
 

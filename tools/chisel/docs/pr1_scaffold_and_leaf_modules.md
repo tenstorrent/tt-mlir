@@ -3,8 +3,8 @@
 ## Goal
 
 Establish the importable `chisel` Python package with CMake packaging, plus the
-core data structures that hold state: `TensorPool`/`TensorValue` for tensor
-management and `IRModule` for MLIR module traversal. This gives a testable
+core data structures that hold state: `TensorPool` for tensor management and
+`IRModule` for MLIR module traversal. This gives a testable
 foundation from the first PR.
 
 ## Files
@@ -15,7 +15,7 @@ foundation from the first PR.
 |------|-------------|
 | `tools/chisel/CMakeLists.txt` | CMake packaging using `declare_mlir_python_sources` |
 | `tools/chisel/chisel/__init__.py` | Minimal package init |
-| `tools/chisel/chisel/tensors.py` | `DeviceHandle`, `TensorValue`, and `TensorPool` |
+| `tools/chisel/chisel/tensors.py` | `TensorPool` (stores `GoldenMapTensor` directly) |
 | `tools/chisel/chisel/ops.py` | `IRModule` wrapper, `get_op_inputs()`, `get_op_outputs()`, `hash_location()` |
 
 ### Modified Files
@@ -123,54 +123,37 @@ class IRModule:
 
 ### `tensors.py`
 
-**`DeviceHandle`** — dataclass encapsulating device runtime pool interaction:
+**`TensorPool`** — dict subclass mapping keys to `GoldenMapTensor` directly,
+with optional disk caching. No `TensorValue` or `DeviceHandle` wrapper needed:
 
-```python
-@dataclass
-class DeviceHandle:
-    """Encapsulates device runtime pool interaction for a single tensor."""
-    tensor_ref: TensorRef
-    _cached: Tensor | None = field(default=None, repr=False)
-
-    def write_to_pool(self, program_context, data): ...
-    def read_from_pool(self, program_context) -> torch.Tensor | None: ...
-```
-
-**`TensorValue`** — a named tensor with a snapshot for comparison and a working
-value for execution. Uses composition with `DeviceHandle` for device tensors:
-
-```python
-class TensorValue:
-    """
-    For golden (CPU) tensors: device is None, working holds GoldenMapTensor.
-    For device (HW) tensors: device holds DeviceHandle, working is staging for write-back.
-    """
-    def __init__(self, name: str, data: Any, device: DeviceHandle | None = None):
-        self.name = name
-        self.snapshot = data                    # comparison value (torch.Tensor)
-        self.working = None                     # live execution value
-        self.device: DeviceHandle | None = device
-
-    def set_working(self, data=None): ...       # sets working (from snapshot if None)
-    def write_to_device(self, program_context): ...  # asserts device, writes working to pool
-    def read_from_device(self, program_context): ... # asserts device, reads from pool to snapshot
-```
-
-**GoldenMapTensor integration:** Golden `TensorValue.working` stores
-`GoldenMapTensor` (from `tools/golden/mapping.py`) natively, so the golden
-executor reads it directly without wrapping at call sites. `snapshot` stays as
-`torch.Tensor` for PCC comparison.
-
-**`TensorPool`** — dict subclass for tensor storage with optional disk caching:
+- `GoldenMapTensor` (from `tools/golden/mapping.py`) already provides all
+  needed tensor semantics (sharding, `__torch_function__` for shard-wise ops,
+  dtype conversion via `golden_map_tensor_as_torch_tensors()`)
+- Device tensors are ephemeral — captured from the runtime API in each callback
+  and consumed immediately, so they don't need pool storage or a `DeviceHandle`
+- The old `TensorValue.snapshot`/`working` split is unnecessary because golden
+  ops don't mutate inputs (they return new `GoldenMapTensor` instances)
 
 ```python
 class TensorPool(dict):
+    """Dict mapping SSA name (or globalId) -> GoldenMapTensor, with optional disk caching."""
+
     def __init__(self, caching: bool = False, output_dir: Path | None = None):
         super().__init__()
         self.caching = caching
         self.output_dir = output_dir
         if caching and output_dir:
             output_dir.mkdir(parents=True, exist_ok=True)
+
+    def __setitem__(self, key, value: GoldenMapTensor):
+        super().__setitem__(key, value)
+        if not self.caching:
+            return
+        torch_tensors = value.golden_map_tensor_as_torch_tensors()
+        for device_id, tensor in torch_tensors.items():
+            if tensor.dtype in [torch.uint16, torch.uint32, torch.uint64]:
+                continue
+            torch.save(tensor, self.output_dir / f"{key}_dev{device_id}.pt")
 ```
 
 ## Porting Notes
@@ -194,22 +177,12 @@ class TensorPool(dict):
 
 ### `tensors.py` from `runtime/tools/chisel/chisel/core/tensors.py`
 
-**`TensorValue` → composition refactor:**
-- **Replace** with composition design: `DeviceHandle` dataclass + refactored `TensorValue`
-- **Remove** `execution_type` parameter — pool identity determines golden vs device
-- **Rename** `data` → `snapshot`, `execution_data` → `working`
-- **Rename** `set_execution_data()` → `set_working()`
-- **Replace** `update_tensor_in_pool()` → `write_to_device()` (asserts `self.device`)
-- **Replace** `retrieve_tensor_from_pool()` → `read_from_device()` (delegates to `self.device`)
-- **Extract** `tensor_ref` and cached `Tensor` into `DeviceHandle` dataclass
-- **Add** `GoldenMapTensor` from `tools/golden/mapping.py` as the type stored in
-  `working` for golden tensors
-- Late `tensor_ref` assignment pattern becomes: `tv.device = DeviceHandle(tensor_ref)`
-
-**`TensorPool` changes:**
-- **Port as-is** — no ExecutionType dependency. The dict subclass with optional
-  caching works unchanged.
-- Update caching to use `value.snapshot` instead of `value.data`
+**Simplified — drop `TensorValue` and `DeviceHandle` entirely:**
+- **Remove** `TensorValue` class — pool stores `GoldenMapTensor` directly
+- **Remove** `DeviceHandle` — device tensor read/write stays inline in callbacks
+- **Keep** `TensorPool(dict)` with optional disk caching
+- **Update** caching to use `GoldenMapTensor.golden_map_tensor_as_torch_tensors()`
+  for serialization (saves per-shard `.pt` files)
 - In the new design, `golden_tensor_pool` (CPU tensors) is the only
   `TensorPool` on `ProgramState`. Device tensors are ephemeral — captured from
   the runtime API in each callback and consumed immediately.
@@ -217,17 +190,13 @@ class TensorPool(dict):
 ## Test Plan
 
 ### `test_tensors.py`
-- `test_tensor_value_creation()` — create with name and data, verify `snapshot`, `working=None`, `device=None`
-- `test_device_handle_creation()` — create `DeviceHandle` with mock `tensor_ref`
-- `test_tensor_value_with_device()` — create with `device=DeviceHandle(ref)`, verify device field
-- `test_set_working_default()` — verify `set_working()` copies snapshot to working
-- `test_set_working_explicit()` — verify `set_working(data)` stores given data
-- `test_tensor_pool_insert_retrieve()` — insert TensorValue, retrieve by key
+- `test_tensor_pool_insert_retrieve()` — insert `GoldenMapTensor`, retrieve by key
 - `test_tensor_pool_disk_caching()` — create pool with `caching=True` and tmp dir,
-  insert tensor, verify file written to disk (uses `value.snapshot`)
-- `test_tensor_pool_is_dict()` — verify TensorPool behaves as dict (keys, values, items)
+  insert `GoldenMapTensor`, verify per-shard `.pt` files written to disk
+- `test_tensor_pool_is_dict()` — verify TensorPool behaves as dict (keys, values, items, len)
+- `test_tensor_pool_no_caching()` — verify no files written when `caching=False`
 
-**Test dependencies:** `torch` only — mock runtime tensors where needed.
+**Test dependencies:** `torch` only.
 
 ### `test_ops.py`
 - `test_ir_module_creation()` — parse a small TTNN MLIR module string, create IRModule
