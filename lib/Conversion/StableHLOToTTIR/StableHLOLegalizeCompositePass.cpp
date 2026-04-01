@@ -448,6 +448,76 @@ public:
   }
 };
 
+// Converts stablehlo.custom_call @tenstorrent.distributed_rms_norm ->
+// ttir.distributed_rms_norm.
+// Attributes (cluster_axis, epsilon) are read from "tt.composite_attributes".
+// Operands: input, optional weight, optional residual.
+class CustomCallDistributedRMSNormConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+
+public:
+  CustomCallDistributedRMSNormConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CustomCallOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() != "tenstorrent.distributed_rms_norm") {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CustomCallOp must have exactly one result.");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+        srcOp->getDiscardableAttr("tt.composite_attributes"));
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "missing tt.composite_attributes on custom_call");
+    }
+
+    auto clusterAxisAttr = compositeAttrs.get("cluster_axis");
+    if (!clusterAxisAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "distributed_rms_norm requires cluster_axis attribute");
+    }
+
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(
+        rewriter.getNamedAttr("cluster_axis", clusterAxisAttr));
+
+    auto epsilonAttr = compositeAttrs.get("epsilon");
+    if (epsilonAttr) {
+      namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
+    }
+
+    // ttir.distributed_rms_norm has AttrSizedOperandSegments:
+    //   [input, weight, residual]
+    size_t numOperands = adaptor.getOperands().size();
+    SmallVector<int32_t> segmentSizes;
+    if (numOperands == 3) { // input, weight, residual
+      segmentSizes = {1, 1, 1};
+    } else if (numOperands == 2) { // input, weight
+      segmentSizes = {1, 1, 0};
+    } else { // input only
+      segmentSizes = {1, 0, 0};
+    }
+
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+    rewriter.replaceOpWithNewOp<ttir::DistributedRMSNormOp>(
+        srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
 // Special handling for tenstorrent.layer_norm -> ttir.layer_norm
 // Converts normalized_shape tensor attribute to DenseI64ArrayAttr
 // and sets operandSegmentSizes for AttrSizedOperandSegments
@@ -757,6 +827,7 @@ void populateStableHLOCompositeLegalizationPatterns(
       context, "tenstorrent.gelu_tanh");
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
+  patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
   patterns.add<TenstorrentGroupNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);

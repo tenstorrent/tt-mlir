@@ -42,6 +42,9 @@ static constexpr llvm::StringLiteral layerNormTargetName =
 
 static constexpr llvm::StringLiteral rmsNormTargetName = "tenstorrent.rms_norm";
 
+static constexpr llvm::StringLiteral distributedRmsNormTargetName =
+    "tenstorrent.distributed_rms_norm";
+
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
@@ -1084,6 +1087,48 @@ getRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Sharding rule for tenstorrent.distributed_rms_norm (custom_call).
+//
+// The distributed variant handles cross-device reductions internally via
+// all-gather of statistics, so ALL dimensions (batch and normalized) can be
+// freely sharded — no collectives needed from Shardy's perspective.
+//
+// Operands:
+//   operand 0: input    [batch dims..., feature dim]
+//   operand 1: weight   [feature dim] (optional)
+//   operand 2: residual [batch dims..., feature dim] (optional)
+// Result: same shape as input.
+static mlir::sdy::OpShardingRuleAttr
+getDistributedRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
+  auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  if (!inputType) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  const int64_t inputRank = inputType.getRank();
+  const int64_t numOperands = op.getNumOperands();
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  // All dimensions are pass-through because the op handles cross-device
+  // reductions internally.
+  for (int64_t dim = 0; dim < inputRank; dim++) {
+    SmallVector<int64_t> operandDims(numOperands, mlir::sdy::kNullDim);
+    operandDims[0] = dim; // input
+    // Weight (operand 1) only has the last dimension.
+    if (numOperands > 1 && dim == inputRank - 1) {
+      operandDims[1] = 0;
+    }
+    // Residual (operand 2) has the same shape as input.
+    if (numOperands > 2) {
+      operandDims[2] = dim;
+    }
+    builder.addFactor(operandDims, {dim}, inputType.getDimSize(dim),
+                      mlir::sdy::FactorType::kPassThrough);
+  }
+
+  return builder.build();
+}
+
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
           StablehloCustomCallShardingModel, ::mlir::stablehlo::CustomCallOp> {
@@ -1130,6 +1175,7 @@ private:
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
           {layerNormTargetName, getLayerNormShardingRule},
           {rmsNormTargetName, getRMSNormShardingRule},
+          {distributedRmsNormTargetName, getDistributedRMSNormShardingRule},
       };
 };
 

@@ -20,6 +20,7 @@ static const llvm::SmallDenseSet<llvm::StringRef> compositesWithShardingRules =
     {
         "tenstorrent.layer_norm",
         "tenstorrent.rms_norm",
+        "tenstorrent.distributed_rms_norm",
 };
 
 namespace mlir::tt::stablehlo {
