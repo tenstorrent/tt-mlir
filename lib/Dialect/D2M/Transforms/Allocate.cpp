@@ -620,14 +620,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       SequenceT genericSeqPos = analysis.sequencing[genericOp];
       auto *genericIt = analysis.generics.find(genericOp);
 
-      // Register in-generic allocs that back streamed operands.  This covers
-      // both operands that will get new streams inserted by insertStream AND
-      // operands that already have pre-existing streams (created by earlier
-      // passes like LowerToLayout).  In both cases the internal alloc needs
-      // a planner-assigned L1 address and will be stamped with
-      // CBLayoutAttr.
-      if (genericIt != analysis.generics.end() &&
-          !genericIt->second.isExplicitDatamovement) {
+      // Register in-generic allocs that back streamed operands.
+      // The internal alloc needs a planner-assigned L1 address and will be
+      // stamped with CBLayoutAttr, even for explicit generics, so that it can
+      // be hoisted correctly as a CB later in the HoistCBAllocs pass.
+      if (genericIt != analysis.generics.end()) {
         for (Region &region : genericOp->getRegions()) {
           for (const OperandContext &operandCtx : genericIt->second.operands) {
             if (!operandCtx.bufferType) {
@@ -918,6 +915,24 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                        getCBBufferSizeBytes(operandCtx.bufferType, device),
                        operandCtx.bufferType);
         TT_debug(getCBBufferSizeBytes(operandCtx.bufferType, device) > 0);
+      } else {
+        // If no iteration info is available, generic op should be classified as
+        // explicit datamovement form.
+        TT_assert(genericCtx.isExplicitDatamovement);
+
+        // For explicit datamovement ops, the grid and shard shapes aren't
+        // reblockable, so use operand device shape as-is for CB buffer type
+        // computation.
+        auto operandValue = genericOp->getOperand(operandIndex);
+        auto gridShape = ttcore::getGridShape(operandValue);
+        auto shardShape = ttcore::getShardShape(operandValue);
+
+        const auto operandType =
+            mlir::cast<MemRefType>(operand.get().getType());
+
+        operandCtx.bufferType =
+            getCBBufferType(gridShape, shardShape, operandType.getElementType(),
+                            L1Attr, numStreamBuffers);
       }
 
       // Finally, insert `operandCtx` into `genericCtx`.
@@ -1307,11 +1322,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     llvm::DenseSet<Operation *> visited;
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
-      if (genericCtx.isExplicitDatamovement) {
-        // Generics in "explicit datamovement" form manage their own
-        // streams which should already be present in the incoming IR.
-        continue;
-      }
 
       // Map every pre-stream alias back to its operand index so nested
       // remote ops can be retargeted even if they still reference an older
@@ -1909,6 +1919,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // move between DRAM and L1 circular buffers.
     if (memspace == MemorySpace::DeviceDRAM) {
       return true;
+    }
+
+    // Early out if in explicit datamovement form (no indexing map info
+    // available).
+    if (genericOp.isExplicitDatamovementForm()) {
+      return false;
     }
 
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
