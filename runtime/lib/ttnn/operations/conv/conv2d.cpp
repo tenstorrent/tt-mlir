@@ -4,7 +4,8 @@
 
 #include "operations/conv/conv2d.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
+#include "conv/unifiedConv2dOp.h"
+// #include "tt/runtime/detail/ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include <variant>
