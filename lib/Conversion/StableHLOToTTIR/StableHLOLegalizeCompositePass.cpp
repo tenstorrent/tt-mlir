@@ -488,9 +488,19 @@ public:
           srcOp, "distributed_rms_norm requires cluster_axis attribute");
     }
 
+    // The composite attribute may be a signed IntegerAttr (i32), but
+    // ttir.distributed_rms_norm expects UI32Attr. Convert it.
+    auto intAttr = mlir::dyn_cast<IntegerAttr>(clusterAxisAttr);
+    if (!intAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "cluster_axis must be an integer attribute");
+    }
+    auto ui32ClusterAxisAttr =
+        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(intAttr.getInt()));
+
     SmallVector<NamedAttribute> namedAttrs;
     namedAttrs.push_back(
-        rewriter.getNamedAttr("cluster_axis", clusterAxisAttr));
+        rewriter.getNamedAttr("cluster_axis", ui32ClusterAxisAttr));
 
     auto epsilonAttr = compositeAttrs.get("epsilon");
     if (epsilonAttr) {
