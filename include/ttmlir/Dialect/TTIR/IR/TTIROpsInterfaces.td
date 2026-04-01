@@ -70,6 +70,10 @@ def TTIR_TensorManipulation : OpInterface<"TensorManipulation"> {
   let cppNamespace = "::mlir::tt::ttir";
 }
 
+def TTIR_CCL : OpInterface<"CCL"> {
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
 def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
   let cppNamespace = "::mlir::tt::ttir";
   let methods = [
