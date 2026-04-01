@@ -310,7 +310,8 @@ void registerRuntimeBindings(nb::module_ &m) {
 
   nb::enum_<::tt::target::Arch>(m, "Arch")
       .value("WORMHOLE_B0", ::tt::target::Arch::Wormhole_b0)
-      .value("BLACKHOLE", ::tt::target::Arch::Blackhole);
+      .value("BLACKHOLE", ::tt::target::Arch::Blackhole)
+      .value("QUASAR", ::tt::target::Arch::Quasar);
 
   nb::enum_<::tt::runtime::MemoryLogLevel>(m, "MemoryLogLevel", nb::is_flag())
       .value("NONE", ::tt::runtime::MemoryLogLevel::NONE)

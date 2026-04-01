@@ -38,6 +38,8 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
     return ::tt::target::Arch::Wormhole_b0;
   case ::tt::ARCH::BLACKHOLE:
     return ::tt::target::Arch::Blackhole;
+  case ::tt::ARCH::QUASAR:
+    return ::tt::target::Arch::Quasar;
   default:
     break;
   }
@@ -198,8 +200,14 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
     auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
 
     constexpr std::uint32_t kDstPhysicalSizeTiles = 16;
-    constexpr std::uint32_t kNumComputeThreads = 1;
-    constexpr std::uint32_t kNumDatamovementThreads = 2;
+
+    uint32_t kNumComputeThreads = 1;
+    uint32_t kNumDatamovementThreads = 2;
+    if (tt::tt_metal::hal::get_arch() == tt::ARCH::QUASAR) {
+      kNumComputeThreads = 4;
+      kNumDatamovementThreads = 8;
+    }
+
     chipDescs.emplace_back(::tt::target::CreateChipDesc(
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
         &coordTranslationOffsets, device->l1_size_per_core(),

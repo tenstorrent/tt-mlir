@@ -115,7 +115,7 @@ inline ::tt::target::Arch toTargetArch(::tt::ARCH arch) {
   case ::tt::ARCH::BLACKHOLE:
     return ::tt::target::Arch::Blackhole;
   case ::tt::ARCH::QUASAR:
-    LOG_FATAL("Quasar architecture is not supported");
+    return ::tt::target::Arch::Quasar;
   case ::tt::ARCH::Invalid:
     LOG_FATAL("Invalid architecture");
   }

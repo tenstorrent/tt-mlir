@@ -429,6 +429,8 @@ def get_board_id(system_desc) -> str:
             return "p150"
         case "Blackhole", 2:
             return "p300"
+        case "Quasar", 1:
+            return "qsremu"
         case "Wormhole_b0", 1:
             return "n150"
         case "Wormhole_b0", 2:

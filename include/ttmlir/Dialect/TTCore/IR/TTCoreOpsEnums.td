@@ -47,11 +47,13 @@ def TTCore_DataType : I32EnumAttr<"DataType", "TT DataTypes",
 
 def TTCore_WormholeB0 : I32EnumAttrCase<"WormholeB0", 1, "wormhole_b0">;
 def TTCore_Blackhole : I32EnumAttrCase<"Blackhole", 2, "blackhole">;
+def TTCore_Quasar : I32EnumAttrCase<"Quasar", 3, "quasar">;
 
 def TTCore_Arch : I32EnumAttr<"Arch", "TT Arch",
                            [
                             TTCore_WormholeB0,
                             TTCore_Blackhole,
+                            TTCore_Quasar,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttcore";
