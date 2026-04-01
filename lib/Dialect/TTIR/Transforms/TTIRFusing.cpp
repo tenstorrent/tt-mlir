@@ -370,6 +370,20 @@ static bool isFullOpWithValue(Value value, float expectedValue,
     return false;
   }
 
+  // Look through ReshapeOps from scalar (rank 0) inputs. Aggressive
+  // simplification keeps scalar constants and the TTIR conversion wraps them
+  // in reshapes (e.g. full(scalar) -> reshape -> implicit broadcast).
+  while (isa<ReshapeOp>(op)) {
+    auto input = op->getOperand(0);
+    if (mlir::cast<RankedTensorType>(input.getType()).getRank() != 0) {
+      break;
+    }
+    op = input.getDefiningOp();
+    if (!op) {
+      return false;
+    }
+  }
+
   // Check if it's a ZerosOp and expected value is 0
   if (expectedValue == 0.0f && isa<ZerosOp>(op)) {
     return true;
@@ -1874,7 +1888,16 @@ public:
     auto reduceDims = *sumOp.getDimArg();
     auto inputShape = sumOp.getInput().getType().getShape();
 
-    FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
+    // Look through ReshapeOps from scalar (rank 0) inputs. Aggressive
+    // simplification keeps scalar constants wrapped in reshapes.
+    mlir::Value scaleValue = multiplyOp.getRhs();
+    while (auto reshapeOp = scaleValue.getDefiningOp<ReshapeOp>()) {
+      if (reshapeOp.getInput().getType().getRank() != 0) {
+        break;
+      }
+      scaleValue = reshapeOp.getInput();
+    }
+    FullOp fullOp = scaleValue.getDefiningOp<FullOp>();
     if (!isValidScale(fullOp, inputShape, reduceDims)) {
       return mlir::failure();
     }
@@ -2474,7 +2497,7 @@ private:
   // it exists, given the result of the sequence.
   Value getXCubedInput(Value xCubedResult) const {
     if (PowOp xCubed = xCubedResult.getDefiningOp<ttir::PowOp>()) {
-      ttir::FullOp power = xCubed.getRhs().getDefiningOp<ttir::FullOp>();
+      ttir::FullOp power = getFullOpThroughTMChain(xCubed.getRhs());
       if (!power) {
         return nullptr;
       }
@@ -2655,6 +2678,13 @@ public:
             if (auto broadcast = mlir::dyn_cast<BroadcastOp>(op)) {
               auto outType = mlir::cast<RankedTensorType>(broadcast.getType());
               return outType.getShape().back() == normalizedDimSize;
+            }
+            // Allow reshapes from scalar (rank 0) to higher rank. Aggressive
+            // simplification keeps constants as scalars wrapped in reshapes.
+            if (auto reshape = mlir::dyn_cast<ReshapeOp>(op)) {
+              auto inputType =
+                  mlir::cast<RankedTensorType>(reshape.getInput().getType());
+              return inputType.getRank() == 0;
             }
             return false;
           });
