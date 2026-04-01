@@ -136,6 +136,8 @@ void wait(const std::vector<Tensor> &tensors,
 
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking);
 
+uint32_t getNumShards(Tensor tensor);
+
 void memcpy(void *dst, Tensor src,
             std::optional<tt::target::DataType> dstDataType = std::nullopt);
 

@@ -67,6 +67,7 @@ Key points that apply to all op types:
 - The `@tag` method must return `OpResult` (not `OpView`)
 - `get_opview_from_method`, `get_opview_from_parser`, `get_opview_from_split` retrieve the MLIR op class from the decorator metadata
 - Golden tensors must be computed and set via `_set_golden_tensor` in all three methods
+- Input operands must be presharded if necessary via `_annotate_presharded_arg` in all `@split` methods
 - The `@split` method creates an isolated `Module` with its own `TTIRBuilder` instance
 
 ## Step 4: Add MLIR Snippet for Parse/Split Tests
