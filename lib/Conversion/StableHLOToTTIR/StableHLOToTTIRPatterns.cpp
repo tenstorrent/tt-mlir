@@ -4895,12 +4895,12 @@ private:
           op, "TTIR multi-dimensional scatter currently only supports "
               "index_vector_dim being the last dimension");
     }
-    
+
     // Check that scatter_dims_to_operand_dims is a superset of
-    // inserted_window_dims (every inserted dim must be scatter-indexed).
+    // inserted_window_dims.
     if (multiDimensionalScatter) {
       llvm::DenseSet<int64_t> scatterDimsSet(scatterDimsToOperandDims.begin(),
-                                              scatterDimsToOperandDims.end());
+                                             scatterDimsToOperandDims.end());
       for (int64_t dim : insertedWindowDims) {
         if (!scatterDimsSet.contains(dim)) {
           return rewriter.notifyMatchFailure(
@@ -5140,15 +5140,15 @@ private:
       // position. Pattern: [w0, w1, ..., wN-1, w0, w1, ..., wN-1, ...]
       //                     |---- window ---|  |--- window ----|
       //                    |--------- numScatterPositions times -----|
-      unsigned bitWidth = indexElementType.getIntOrFloatBitWidth();                
-                  
-      llvm::SmallVector<APInt> finalOffsetValues;                                  
+      unsigned bitWidth = indexElementType.getIntOrFloatBitWidth();
+
+      llvm::SmallVector<APInt> finalOffsetValues;
       finalOffsetValues.reserve(expandedNumIndices);
-      for (int64_t i = 0; i < numScatterPositions; ++i) {                          
-        for (int64_t w = 0; w < windowSize; ++w) {                                 
-          finalOffsetValues.push_back(APInt(bitWidth, windowOffsets[dim][w]));     
-        }                                                                          
-      } 
+      for (int64_t i = 0; i < numScatterPositions; ++i) {
+        for (int64_t w = 0; w < windowSize; ++w) {
+          finalOffsetValues.push_back(APInt(bitWidth, windowOffsets[dim][w]));
+        }
+      }
 
       // Create constant tensor with shape [expandedNumIndices, 1].
       // (to match the shape of individual slices generated in the next
@@ -5180,8 +5180,7 @@ private:
       if (isScatterDim) {
         // Slice the scatter index column for this operand dim.
         int64_t idxPos = scatterDimToIdxPos[operandDim];
-        llvm::SmallVector<int32_t> begins = {0,
-                                             static_cast<int32_t>(idxPos)};
+        llvm::SmallVector<int32_t> begins = {0, static_cast<int32_t>(idxPos)};
         llvm::SmallVector<int32_t> ends = {
             static_cast<int32_t>(expandedNumIndices),
             static_cast<int32_t>(idxPos + 1)};
