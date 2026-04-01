@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: not ttmlir-opt --split-input-file --stablehlo-to-ttir-pipeline --ttir-to-ttnn-backend-pipeline %s 2>&1  | FileCheck %s
+// RUN: not ttmlir-opt --split-input-file --stablehlo-to-ttir-pipeline %s 2>&1  | FileCheck %s
 // Negative tests for gather to embedding conversion
 
 // Verify that the parsing fails if there are operand and start indices batching dimensions
