@@ -519,9 +519,9 @@ private:
                                  traceCallArgs);
 
     // Start capturing the trace.
-    auto beginTraceCaptureOp = builder.create<ttnn::BeginTraceCaptureOp>(
-        runAndCaptureTraceFunc.getLoc(), utils::getTraceIdType(context),
-        deviceOp,
+    auto beginTraceCaptureOp = ttnn::BeginTraceCaptureOp::create(
+        builder, runAndCaptureTraceFunc.getLoc(),
+        utils::getTraceIdType(context), deviceOp,
         /*cq_id=*/0);
 
     // Execute the trace on device and capture it.
@@ -529,9 +529,9 @@ private:
         runAndCaptureTraceFunc.getLoc(), traceFunc, traceCallArgs);
 
     // Complete the trace capture.
-    builder.create<ttnn::EndTraceCaptureOp>(runAndCaptureTraceFunc.getLoc(),
-                                            deviceOp, beginTraceCaptureOp,
-                                            /*cq_id=*/0);
+    ttnn::EndTraceCaptureOp::create(builder, runAndCaptureTraceFunc.getLoc(),
+                                    deviceOp, beginTraceCaptureOp,
+                                    /*cq_id=*/0);
 
     // Execute the trace once to fill output slots with real computed values.
     builder.create<ttnn::ExecuteTraceOp>(runAndCaptureTraceFunc.getLoc(),

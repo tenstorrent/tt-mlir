@@ -1815,9 +1815,9 @@ static LogicalResult materializeFillTileKernelValue(
     if (!intTy.isInteger(32)) {
       Type i32Ty = rewriter.getI32Type();
       fillValue = intTy.getWidth() < 32
-                      ? rewriter.create<arith::ExtSIOp>(loc, i32Ty, fillValue)
+                      ? arith::ExtSIOp::create(rewriter, loc, i32Ty, fillValue)
                             .getResult()
-                      : rewriter.create<arith::TruncIOp>(loc, i32Ty, fillValue)
+                      : arith::TruncIOp::create(rewriter, loc, i32Ty, fillValue)
                             .getResult();
     }
     useIntFill = true;
@@ -1829,7 +1829,7 @@ static LogicalResult materializeFillTileKernelValue(
   }
   if (!ty.isF32()) {
     fillValue =
-        rewriter.create<arith::ExtFOp>(loc, rewriter.getF32Type(), fillValue)
+        arith::ExtFOp::create(rewriter, loc, rewriter.getF32Type(), fillValue)
             .getResult();
   }
   useIntFill = false;
@@ -1851,8 +1851,8 @@ public:
     Value outCB = getOutCB(rewriter, op);
     auto insertionPoint = rewriter.getInsertionPoint();
     setInsertionPointAfterOperands(rewriter, {outCB}, /*allowHoisting*/ true);
-    rewriter.create<ttkernel::ComputeKernelHWStartupOp>(loc, outCB, nullptr,
-                                                        outCB);
+    ttkernel::ComputeKernelHWStartupOp::create(rewriter, loc, outCB, nullptr,
+                                               outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     Value fillValue = adaptor.getValue();
@@ -1862,11 +1862,11 @@ public:
       return failure();
     }
 
-    rewriter.create<ttkernel::FillTileInitOp>(loc);
+    ttkernel::FillTileInitOp::create(rewriter, loc);
     if (useIntFill) {
-      rewriter.create<ttkernel::FillTileIntOp>(loc, dstIdx, fillValue);
+      ttkernel::FillTileIntOp::create(rewriter, loc, dstIdx, fillValue);
     } else {
-      rewriter.create<ttkernel::FillTileOp>(loc, dstIdx, fillValue);
+      ttkernel::FillTileOp::create(rewriter, loc, dstIdx, fillValue);
     }
 
     rewriter.replaceOp(op, dstIdx);

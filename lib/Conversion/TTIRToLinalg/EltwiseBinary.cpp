@@ -86,8 +86,8 @@ public:
     Location loc = op.getLoc();
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
-    auto boolResult = rewriter.create<TosaOpTy>(loc, boolType, adaptor.getLhs(),
-                                                adaptor.getRhs());
+    auto boolResult = TosaOpTy::create(rewriter, loc, boolType,
+                                       adaptor.getLhs(), adaptor.getRhs());
 
     rewriter.replaceOpWithNewOp<tosa::CastOp>(op, resultType, boolResult);
     return success();
@@ -115,8 +115,8 @@ public:
     // Swapped operands: rhs, lhs.
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
-    auto boolResult = rewriter.create<TosaOpTy>(loc, boolType, adaptor.getRhs(),
-                                                adaptor.getLhs());
+    auto boolResult = TosaOpTy::create(rewriter, loc, boolType,
+                                       adaptor.getRhs(), adaptor.getLhs());
 
     rewriter.replaceOpWithNewOp<tosa::CastOp>(op, resultType, boolResult);
     return success();
@@ -143,8 +143,8 @@ public:
     Location loc = op.getLoc();
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
-    auto boolResult = rewriter.create<TosaOpTy>(loc, boolType, adaptor.getLhs(),
-                                                adaptor.getRhs());
+    auto boolResult = TosaOpTy::create(rewriter, loc, boolType,
+                                       adaptor.getLhs(), adaptor.getRhs());
     auto notResult =
         tosa::LogicalNotOp::create(rewriter, loc, boolType, boolResult);
 
@@ -266,8 +266,9 @@ public:
     auto emptyTensor = tensor::EmptyOp::create(
         rewriter, loc, resultType.getShape(), resultType.getElementType());
 
-    auto genericOp = rewriter.create<linalg::GenericOp>(
-        loc, resultType, ValueRange{lhs, rhs}, ValueRange{emptyTensor},
+    auto genericOp = linalg::GenericOp::create(
+        rewriter, loc, resultType, ValueRange{lhs, rhs},
+        ValueRange{emptyTensor},
         SmallVector<AffineMap>{lhsMap, rhsMap, resultMap}, iteratorTypes,
         [&](OpBuilder &b, Location nestedLoc, ValueRange args) {
           Value result = buildBody(b, nestedLoc, args, resultType);
@@ -314,9 +315,9 @@ protected:
   Value buildBody(OpBuilder &b, Location loc, ValueRange args,
                   RankedTensorType /*resultType*/) const override {
     if (isa<FloatType>(args[0].getType())) {
-      return b.create<ArithFOpTy>(loc, args[0], args[1]);
+      return ArithFOpTy::create(b, loc, args[0], args[1]);
     }
-    return b.create<ArithIOpTy>(loc, args[0], args[1]);
+    return ArithIOpTy::create(b, loc, args[0], args[1]);
   }
 };
 } // namespace
