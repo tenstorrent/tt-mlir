@@ -1012,17 +1012,17 @@ getLayerNormShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
-// Sharding rule for tenstorrent.rms_norm (custom_call, distributed).
-//
-// Unlike layer_norm, the distributed rms_norm op handles cross-device
-// reductions internally, so ALL dimensions (batch and normalized) can
-// be freely sharded, no replication needed.
+// Sharding rule for tenstorrent.rms_norm (custom_call).
 //
 // Operands:
 //   operand 0: input  [batch dims..., normalized dims...]
 //   operand 1: weight [normalized dims...] (optional)
 //   operand 2: bias   [normalized dims...] (optional)
 // Result: same shape as input.
+//
+// Batch dimensions can be freely sharded. Normalized dimensions require
+// replication because RMS norm reduces over them and Shardy needs to
+// insert collectives to handle cross-device reductions.
 static mlir::sdy::OpShardingRuleAttr
 getRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
   auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
@@ -1065,8 +1065,8 @@ getRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
                       mlir::sdy::FactorType::kPassThrough);
   }
 
-  // Normalized dimensions: also pass-through because the distributed rms_norm
-  // op handles cross-device reductions internally.
+  // Normalized dimensions: need replication because RMS norm reduces over
+  // them. Shardy will insert collectives to handle cross-device reductions.
   for (int64_t i = 0; i < numNormalizedDims; i++) {
     int64_t inputDim = numBatchDims + i;
     SmallVector<int64_t> operandDims(numOperands, mlir::sdy::kNullDim);
@@ -1078,7 +1078,7 @@ getRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
       operandDims[2] = i;
     }
     builder.addFactor(operandDims, {inputDim}, inputType.getDimSize(inputDim),
-                      mlir::sdy::FactorType::kPassThrough);
+                      mlir::sdy::FactorType::kNeedReplication);
   }
 
   return builder.build();
