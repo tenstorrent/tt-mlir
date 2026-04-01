@@ -5776,16 +5776,20 @@ private:
           op, "TTIR multi-dimensional scatter currently only supports "
               "index_vector_dim being the last dimension");
     }
-
-    if (multiDimensionalScatter &&
-        llvm::DenseSet<int64_t>(scatterDimsToOperandDims.begin(),
-                                scatterDimsToOperandDims.end()) !=
-            llvm::DenseSet<int64_t>(insertedWindowDims.begin(),
-                                    insertedWindowDims.end())) {
-      return rewriter.notifyMatchFailure(
-          op, "TTIR multi-dimensional scatter requires "
-              "scatter_dims_to_operand_dims and inserted_window_dims to "
-              "contain the same elements");
+    
+    // Check that scatter_dims_to_operand_dims is a superset of
+    // inserted_window_dims (every inserted dim must be scatter-indexed).
+    if (multiDimensionalScatter) {
+      llvm::DenseSet<int64_t> scatterDimsSet(scatterDimsToOperandDims.begin(),
+                                              scatterDimsToOperandDims.end());
+      for (int64_t dim : insertedWindowDims) {
+        if (!scatterDimsSet.contains(dim)) {
+          return rewriter.notifyMatchFailure(
+              op, "TTIR multi-dimensional scatter requires every "
+                  "inserted_window_dim to also be in "
+                  "scatter_dims_to_operand_dims");
+        }
+      }
     }
 
     // Checks that apply to single dimensional scatter.
@@ -5910,6 +5914,8 @@ private:
         scatterDimNumbers.getInsertedWindowDims();
     ArrayRef<int64_t> updateWindowDims =
         scatterDimNumbers.getUpdateWindowDims();
+    ArrayRef<int64_t> scatterDimsToOperandDims =
+        scatterDimNumbers.getScatterDimsToOperandDims();
     int64_t indexVectorDim = scatterDimNumbers.getIndexVectorDim();
     int64_t operandRank = operandShape.size();
     Location loc = op.getLoc();
@@ -5917,6 +5923,12 @@ private:
     // Build set of inserted window dims for fast lookup.
     llvm::DenseSet<int64_t> insertedDimsSet(insertedWindowDims.begin(),
                                             insertedWindowDims.end());
+
+    // Build reverse map: operand dim -> index position in scatter indices.
+    llvm::DenseMap<int64_t, int64_t> scatterDimToIdxPos;
+    for (size_t i = 0; i < scatterDimsToOperandDims.size(); ++i) {
+      scatterDimToIdxPos[scatterDimsToOperandDims[i]] = i;
+    }
 
     // Calculate window shape from update dimensions at update_window_dims.
     // The window size is determined by the update tensor.
@@ -6009,13 +6021,15 @@ private:
       // position. Pattern: [w0, w1, ..., wN-1, w0, w1, ..., wN-1, ...]
       //                     |---- window ---|  |--- window ----|
       //                    |--------- numScatterPositions times -----|
-      llvm::SmallVector<int64_t> finalOffsetValues;
+      unsigned bitWidth = indexElementType.getIntOrFloatBitWidth();                
+                  
+      llvm::SmallVector<APInt> finalOffsetValues;                                  
       finalOffsetValues.reserve(expandedNumIndices);
-      for (int64_t i = 0; i < numScatterPositions; ++i) {
-        for (int64_t w = 0; w < windowSize; ++w) {
-          finalOffsetValues.push_back(windowOffsets[dim][w]);
-        }
-      }
+      for (int64_t i = 0; i < numScatterPositions; ++i) {                          
+        for (int64_t w = 0; w < windowSize; ++w) {                                 
+          finalOffsetValues.push_back(APInt(bitWidth, windowOffsets[dim][w]));     
+        }                                                                          
+      } 
 
       // Create constant tensor with shape [expandedNumIndices, 1].
       // (to match the shape of individual slices generated in the next
@@ -6032,38 +6046,58 @@ private:
       windowOffsetSlices.push_back(finalOffset);
     }
 
-    // Build per-dimension index slices by interleaving original indices
-    // and window offsets according to operand dimension order.
+    // Build per-dimension index slices. Each operand dimension can be:
+    // inserted (collapsed) + scatter-indexed: use scatter index only
+    // window-only: use window offset only
+    // both scatter-indexed and window: add scatter index + window offset
     llvm::SmallVector<Value> indexSlices;
-    size_t origIdxPos = 0;
     size_t windowIdxPos = 0;
     for (int64_t operandDim = 0; operandDim < operandRank; ++operandDim) {
-      if (insertedDimsSet.contains(operandDim)) {
-        // This dimension is indexed by scatter - slice from original indices.
+      bool isScatterDim = scatterDimToIdxPos.count(operandDim);
+      bool isWindowDim = !insertedDimsSet.contains(operandDim);
+
+      Value dimIndex = nullptr;
+
+      if (isScatterDim) {
+        // Slice the scatter index column for this operand dim.
+        int64_t idxPos = scatterDimToIdxPos[operandDim];
         llvm::SmallVector<int32_t> begins = {0,
-                                             static_cast<int32_t>(origIdxPos)};
+                                             static_cast<int32_t>(idxPos)};
         llvm::SmallVector<int32_t> ends = {
             static_cast<int32_t>(expandedNumIndices),
-            static_cast<int32_t>(origIdxPos + 1)};
+            static_cast<int32_t>(idxPos + 1)};
         llvm::SmallVector<int32_t> steps = {1, 1};
 
         llvm::SmallVector<int64_t> sliceShape = {expandedNumIndices, 1};
         RankedTensorType sliceType =
             RankedTensorType::get(sliceShape, indicesType.getElementType());
 
-        Value sliced = rewriter.create<ttir::SliceStaticOp>(
+        dimIndex = rewriter.create<ttir::SliceStaticOp>(
             ttmlir::utils::appendLocationSuffix(
                 loc, "_slice_orig_idx_" + std::to_string(operandDim)),
             sliceType, flatRepeatedIndices, rewriter.getI32ArrayAttr(begins),
             rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
-
-        indexSlices.push_back(sliced);
-        ++origIdxPos;
-      } else {
-        // This dimension is a window dimension - use window offset.
-        indexSlices.push_back(windowOffsetSlices[windowIdxPos]);
-        ++windowIdxPos;
       }
+
+      if (isWindowDim) {
+        Value windowOffset = windowOffsetSlices[windowIdxPos];
+        ++windowIdxPos;
+
+        if (dimIndex) {
+          // Both scatter-indexed and window dim: add scatter index + window
+          // offset.
+          RankedTensorType addType = RankedTensorType::get(
+              {expandedNumIndices, 1}, indicesType.getElementType());
+          dimIndex = rewriter.create<ttir::AddOp>(
+              ttmlir::utils::appendLocationSuffix(
+                  loc, "_scatter_plus_window_" + std::to_string(operandDim)),
+              addType, dimIndex, windowOffset);
+        } else {
+          dimIndex = windowOffset;
+        }
+      }
+
+      indexSlices.push_back(dimIndex);
     }
 
     Value flatIndices = computeFlatIndicesFromSlices(
