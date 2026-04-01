@@ -77,9 +77,11 @@ module attributes {} {
 
     // Get CB write pointers
     %cb0 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-    %src_ptr = emitc.call_opaque "get_write_ptr"(%cb0) : (!emitc.opaque<"::tt::CB">) -> i32
+    emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %cb0 : !emitc.opaque<"::tt::CB">
+    %src_ptr = emitc.literal "cb_ctarg_0.get_write_ptr()" : i32
     %cb1 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-    %dst_ptr = emitc.call_opaque "get_write_ptr"(%cb1) : (!emitc.opaque<"::tt::CB">) -> i32
+    emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %cb1 : !emitc.opaque<"::tt::CB">
+    %dst_ptr = emitc.literal "cb_ctarg_1.get_write_ptr()" : i32
 
     // Get NOC address
     %noc_addr = emitc.call_opaque "get_noc_addr"(%translated_x, %translated_y, %dst_ptr) : (!emitc.size_t, !emitc.size_t, i32) -> i64
