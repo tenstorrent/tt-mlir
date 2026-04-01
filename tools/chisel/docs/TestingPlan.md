@@ -149,7 +149,7 @@ module {
 | `test_ir_module_tracks_tensor_locations` | Input/output SSA values linked to ops |
 | `test_ir_module_skip_non_ttnn_ops` | `func.return`, `ttnn.empty` etc. excluded from comparison |
 
-## Section 5 \- Golden Executor Tests (`test_golden_executor.py`)
+## Section 5 \- Golden Execution Tests (`test_executor.py`)
 
 Parameterized tests verifying CPU golden correctness for individual TTNN ops via `GOLDEN_MAPPINGS`.
 
@@ -162,7 +162,7 @@ Parameterized tests verifying CPU golden correctness for individual TTNN ops via
 | `test_golden_exp` | `ttnn.exp` | `[0, 1]` | `[1, e]` |
 | `test_golden_missing_op` | (unlisted op) | — | Raises `ValueError` |
 | `test_golden_preserves_dtype` | any | bf16 input | bf16 output (or expected upcast) |
-| `test_golden_executor_populates_pool` | any | — | Output tensor present in `TensorPool` after execution |
+| `test_execute_golden_populates_pool` | any | — | Output tensor present in `TensorPool` after execution |
 
 ## Section 6 \- Callback Integration Tests (`test_callbacks.py`)
 

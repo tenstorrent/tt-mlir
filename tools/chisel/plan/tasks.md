@@ -53,7 +53,7 @@
 
 ## Chisel Executor & Report (PR 2)
 
-- Implement `GoldenExecutor` that replays TTNN ops via `GOLDEN_MAPPINGS` in `chisel/executor.py`.
+- Implement `execute_golden()` standalone function that replays TTNN ops via `GOLDEN_MAPPINGS` in `chisel/executor.py`.
 - Implement `ReportWriter` with per-op CSV rows (PCC, abs_error, rel_error) and per-program sections in `chisel/report.py`.
 
 ## Chisel Logic Layer (PR 3)

@@ -141,7 +141,7 @@ model: `ChiselContext → BinaryState → ProgramState`.
   `ReportWriter`, and a `programs` dict mapping `program_index` to
   `ProgramState`.
 - **`ProgramState`** is created once per program. Holds isolated
-  `golden_tensor_pool`, a `GoldenExecutor`, and an `op_iter` that advances
+  `golden_tensor_pool` and an `op_iter` that advances
   with each preOp/postOp callback.
 
 ### Program Boundaries
@@ -170,7 +170,7 @@ On each `preProgram` call, `ProgramState.reset_for_new_execution()`:
 Golden tensors flow through a two-level pool system:
 
 1. **Per-program pool** (keyed by SSA name): Used during op execution within a
-   program. The `GoldenExecutor` reads inputs from and writes outputs to this
+   program. The `execute_golden()` function reads inputs from and writes outputs to this
    pool.
 2. **Global pool** (keyed by `Tensor::globalId`): Cross-program and cross-binary
    sharing hub. `postProgram` copies new golden tensors from program → global.
@@ -213,7 +213,7 @@ via `start_program(program_index)`. Each program's ops are grouped under a
 | State model | Flat singleton with `_op_index` counter | Hierarchical: ChiselContext → BinaryState → ProgramState |
 | Op tracking | Manual `_op_index` with reset heuristics | Iterator (`op_iter`) advancing with callbacks |
 | Callbacks | 2 (preop, postop) | 4 (preProgram, postProgram, preOp, postOp) |
-| Golden executor | Custom PyTorch mappings for TTIR ops | Reuses `tools/golden/GOLDEN_MAPPINGS` for TTNN ops |
+| Golden execution | Custom PyTorch mappings for TTIR ops | Reuses `tools/golden/GOLDEN_MAPPINGS` for TTNN ops via standalone `execute_golden()` |
 | Golden pool scope | Single global pool | Per-program pool + global pool for cross-program sharing |
 | Packaging | `setup.py` with `pip install -e` | CMake `declare_mlir_python_sources()` |
 | Multi-program | Single program only | Explicit program boundaries, per-program state, cross-program/cross-binary golden sharing |

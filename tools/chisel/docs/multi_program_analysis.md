@@ -30,7 +30,6 @@ BinaryState
 
 ProgramState
 ├── golden_tensor_pool: TensorPool       # isolated, preserved across re-executions
-├── executor: GoldenExecutor
 ├── ops + op_iter                        # iterator advances with callbacks
 └── _skip_stash: dict[str, Tensor] | None  # preOp saves inputs here for skip mode
 ```
@@ -179,7 +178,6 @@ postProgram(binary, program_context):
 | `ProgramState.golden_tensor_pool` | Preserved | N/A (new ProgramState) |
 | `ProgramState.op_iter` | Reset to start | N/A (new ProgramState) |
 | `ProgramState._skip_stash` | Cleared | N/A (new ProgramState) |
-| `ProgramState.executor` | Preserved | N/A (new ProgramState) |
 | `BinaryState.ir_module` | Preserved | New (parsed from new binary) |
 | `BinaryState.registry` | Preserved | New (from new module) |
 | `ChiselContext.global_tensor_pool` | Preserved | Preserved |

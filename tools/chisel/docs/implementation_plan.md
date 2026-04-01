@@ -194,7 +194,7 @@ Builder's `check_outputs()` keeps its signature but delegates internally.
 | IR modules | Two: TTIR (golden) + TTNN (device) | One: TTNN (both) |
 | Registry | Correlates ops across TTIR/TTNN by location | Removed — IRModule tracks ops directly |
 | Fusion handling | `_merge_empty_golden_groups()` | Not needed |
-| Golden executor | Custom TTIR op mappings | Reuses `GOLDEN_MAPPINGS` TTNN entries |
+| Golden execution | Custom TTIR op mappings | Reuses `GOLDEN_MAPPINGS` TTNN entries via standalone `execute_golden()` |
 | Compilation | `compile_pipeline.py` runs passes | None — reads TTNN MLIR from flatbuffer |
 | Execution driver | Chisel creates and calls `rt_api()` | Passive — caller drives TTRT |
 | CLI | `main.py` with argparse | None — library only |

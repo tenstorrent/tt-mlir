@@ -114,7 +114,7 @@ New Chisel supports multi-program execution with:
 counter) and op counter to detect when a new program starts.
 - **Asymmetric state reset**: On program transition, device tensor pool and op
 index are cleared (tied to destroyed `ProgramContext`), while golden tensor
-pool, IR module, registry, and executor are preserved.
+pool, IR module, and registry are preserved.
 - **Cross-program golden sharing**: Golden tensors from one program (e.g.,
 shared weights, output-to-input chaining) are available to subsequent
 programs without recomputation.
@@ -151,7 +151,7 @@ happen independently per device. This introduces several challenges:
 ### Proposed Solution
 
 New Chisel replicates the builder's per-device comparison model:
-- Golden executor operates on `GoldenMapTensor` objects natively, applying
+- `execute_golden()` operates on `GoldenMapTensor` objects natively, applying
   golden functions per-shard.
 - Postop comparison iterates over devices, computing per-device metrics.
 - For tensor shape information, use `binary.get_program_ops_as_json()` as a

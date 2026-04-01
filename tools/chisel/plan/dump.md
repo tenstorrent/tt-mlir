@@ -34,7 +34,6 @@ BinaryState
 
 ProgramState
 ├── golden_tensor_pool: TensorPool       # isolated per-program, keyed by SSA name
-├── executor: GoldenExecutor             # refs own golden pool + registry
 ├── ops: List[OpInfo]                    # ordered ops for this program
 ├── op_iter: Iterator[OpInfo]            # advances with preop/postop callbacks
 └── _skip_stash: dict[str, Tensor] | None  # preOp saves inputs here for skip mode
@@ -90,7 +89,7 @@ Called after each TTNN op executes on device.
 - Get all op outputs from the device (loop over `get_op_output_refs` which
   returns a list — handles both single- and multi-output ops like Sort,
   MaxPool2dWithIndices, BatchNormTraining)
-- Execute golden operation via `program.executor`, store results in
+- Execute golden operation via `execute_golden()`, store results in
   `program.golden_tensor_pool` (keyed by SSA value name)
 - For each output:
     - Calculate metrics (PCC, abs error, rel error)

@@ -107,7 +107,7 @@ User code (JAX / tt-xla)
     v
 [TTRT executes binary with DebugHooks callbacks]
     |
-    |-- preop:  capture device inputs, feed golden executor
+    |-- preop:  capture device inputs, feed execute_golden()
     |-- HW op:  device executes TTNN op
     |-- postop: capture device output, compare with golden, write CSV row
     |
