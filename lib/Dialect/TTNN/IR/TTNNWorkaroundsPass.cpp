@@ -1019,6 +1019,66 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   return operandsWorkaround;
 }
 
+// Factory method to create workarounds for
+// paged_flash_multi_latent_attention_decode op operands.
+// page_table and cur_pos_tensor require ROW_MAJOR layout.
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createPagedFlashMultiLatentAttentionDecodeOpOperandsWorkarounds(
+        Operation *op) {
+  TTNNOperandWorkarounds emptyWorkaround;
+  TTNNOperandWorkarounds rowMajorLayoutWorkaround;
+  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  TTNNOperandWorkarounds rowMajorInt32Workaround;
+  rowMajorInt32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorInt32Workaround.tensorDataTypeWorkaround = ttcore::DataType::Int32;
+
+  auto mlaOp = cast<PagedFlashMultiLatentAttentionDecodeOp>(op);
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  // Query and key need no workarounds.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+
+  // Value (optional) needs no workaround.
+  if (mlaOp.getValue()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  }
+
+  // page_table requires ROW_MAJOR layout and INT32 dtype.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(rowMajorInt32Workaround);
+
+  // attention_mask (optional) needs no workaround.
+  if (mlaOp.getAttentionMask()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  }
+
+  // cur_pos_tensor (optional) requires ROW_MAJOR layout.
+  if (mlaOp.getCurPosTensor()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
+  }
+
+  // attention_sink (optional) needs no workaround.
+  if (mlaOp.getAttentionSink()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  }
+
+  // Need no workaround for output tensor.
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(emptyWorkaround);
+
+  return operandsWorkaround;
+}
+
 // Factory method to create workarounds for sparse_matmul op operands.
 // The sparsity tensor (3rd input) must be in ROW_MAJOR layout.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/39126

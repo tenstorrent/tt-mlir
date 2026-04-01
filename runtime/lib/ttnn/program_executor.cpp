@@ -8,6 +8,7 @@
 #include "operations/ccl/aggregate_tensor.h"
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/all_reduce.h"
+#include "operations/ccl/all_reduce_async.h"
 #include "operations/ccl/all_to_all_combine.h"
 #include "operations/ccl/all_to_all_dispatch.h"
 #include "operations/ccl/distribute_tensor.h"
@@ -32,6 +33,7 @@
 #include "operations/creation/full_with.h"
 #include "operations/data_movement/assign.h"
 #include "operations/data_movement/concat.h"
+#include "operations/data_movement/gather.h"
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
 #include "operations/data_movement/repeat.h"
@@ -93,6 +95,7 @@
 #include "operations/transformer/nlp_concat_heads.h"
 #include "operations/transformer/nlp_concat_heads_decode.h"
 #include "operations/transformer/nlp_create_qkv_heads_decode.h"
+#include "operations/transformer/paged_flash_multi_latent_attention_decode.h"
 #include "operations/transformer/paged_scaled_dot_product_attention_decode.h"
 #include "operations/transformer/rotary_embedding.h"
 #include "operations/transformer/rotary_embedding_llama.h"
@@ -310,6 +313,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::data_movement::run(op->type_as_ScatterOp(),
                                           getContext());
   }
+  case ::tt::target::ttnn::OpType::GatherOp: {
+    return operations::data_movement::run(op->type_as_GatherOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
     return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
                                         getContext());
@@ -434,6 +440,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::AllReduceOp: {
     return operations::ccl::run(op->type_as_AllReduceOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::AllReduceAsyncOp: {
+    return operations::ccl::run(op->type_as_AllReduceAsyncOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     return operations::ccl::run(op->type_as_ReduceScatterOp(), getContext());
   }
@@ -526,6 +535,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
     return operations::transformer::run(
         op->type_as_PagedScaledDotProductAttentionDecodeOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::PagedFlashMultiLatentAttentionDecodeOp: {
+    return operations::transformer::run(
+        op->type_as_PagedFlashMultiLatentAttentionDecodeOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     return operations::transformer::run(
