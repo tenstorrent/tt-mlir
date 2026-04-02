@@ -47,7 +47,7 @@ def logical_not(
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_logical_not(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
@@ -171,7 +171,7 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
@@ -356,7 +356,7 @@ def test_conv2d_consteval(
 @pytest.mark.parametrize("dilation", [[2, 1]])
 @pytest.mark.parametrize("padding", [[2, 1]])
 @pytest.mark.parametrize("groups", [1])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_conv2d(
     shapes: List[Shape],
     stride: List[int],
@@ -1254,7 +1254,7 @@ def create_hoisted_reduce_op(op_func, name):
         ([(128, 64, 32)], [2, 0, 1]),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_permute(shapes, permutation, request, target: str, device):
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [torch.float32])
@@ -1283,7 +1283,7 @@ def test_hoisted_permute(shapes, permutation, request, target: str, device):
     ],
     ids=["basic_slice_f32", "explicit_step_f32", "3d_slice_i32"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_slice(
     shape: Shape,
     dtype: torch.dtype,
@@ -1317,7 +1317,7 @@ def test_hoisted_slice(
 @pytest.mark.parametrize(
     "shapes", [[(64, 64), (64, 64), (64, 64)]], ids=shapes_list_str
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_where(shapes, request, target: str, device):
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [torch.float32] * len(shapes))
@@ -1343,7 +1343,7 @@ def test_hoisted_where(shapes, request, target: str, device):
     ],
     ids=["3d_to_1d_f32", "2d_to_1d_f32", "3d_to_2d_i32"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_reshape(
     input_shape, output_shape, dtype, request, target: str, device
 ):
@@ -1371,7 +1371,7 @@ def test_hoisted_reshape(
     ],
     ids=["3d_perm_f32", "2d_perm_f32", "3d_perm_i32"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_transpose(input_shape, dims, dtype, request, target: str, device):
     def module(builder: TTIRBuilder):
         @builder.func([input_shape], [dtype])
@@ -1395,7 +1395,7 @@ def test_hoisted_transpose(input_shape, dims, dtype, request, target: str, devic
 @x86_only
 @pytest.mark.parametrize("shape", [(1, 128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dim", [0])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_squeeze(shape: Shape, dim: int, target: str, request, device):
     """Test hoisted squeeze operation with appropriate shape that has a dimension of size 1"""
 
@@ -1547,7 +1547,7 @@ def test_unique_ops(
     ],
     ids=["2d_basic", "1d_indices", "large_vocab", "varied_dims", "4d_weight"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_embedding(
     indices_shape: Shape,
     weight_shape: Shape,
@@ -1587,7 +1587,7 @@ def test_hoisted_embedding(
 @x86_only
 @pytest.mark.parametrize("shape", [(4, 4)], ids=shape_str)
 @pytest.mark.parametrize("dim_args", [[0]])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_reduce_or(
     shape: Shape, dim_args: List[int], target: str, request, device
 ):
@@ -1620,7 +1620,7 @@ def test_hoisted_reduce_or(
         ((1, 128), [64, 1]),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_broadcast(shape, broadcast_dims, request, target: str, device):
     """Test broadcast operation with CPU hoisting enabled using the 'hoisted_' naming convention"""
 
@@ -1758,7 +1758,11 @@ def test_gather(
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn", "ttmetal" | Marks(pytest.mark.xfail(reason="Unhoisted ttir.zeros"))],
+    [
+        "ttnn",
+        "ttmetal" | Marks(pytest.mark.xfail(reason="Unhoisted ttir.zeros")),
+        "emitpy",
+    ],
 )
 def test_hoisted_gather(
     input_shape: Shape,
@@ -1808,7 +1812,7 @@ def test_hoisted_gather(
     ],
     ids=["standard_matmul", "batched_matmul", "3d_tensor_2d_tensor"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_dot_general(
     shapes: List[Shape],
     batch_dims_lhs: List[int],
@@ -2548,7 +2552,7 @@ def test_nested_function_calls(target, request, device):
     ],
     ids=["f32_simple", "i32_simple", "f32_offset_start"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_arange(
     shape: Shape,
     dtype: torch.dtype,
@@ -2589,7 +2593,7 @@ def test_hoisted_arange(
     ],
     ids=["repeat_dim0", "repeat_dim1", "3d_repeat"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_repeat(
     shape: Shape,
     repeat_dims: List[int],
@@ -2627,7 +2631,7 @@ def test_hoisted_repeat(
     ],
     ids=["unsqueeze_dim0", "unsqueeze_dim1", "unsqueeze_dim2", "3d_unsqueeze"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_unsqueeze(
     shape: Shape,
     dim: int,
@@ -2663,7 +2667,7 @@ def test_hoisted_unsqueeze(
     ],
     ids=["i32_to_f32", "f32_to_bf16"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_typecast(
     shape: Shape,
     input_dtype: torch.dtype,
@@ -2702,7 +2706,7 @@ def test_hoisted_typecast(
     ],
     ids=["concat_dim0", "concat_dim1", "concat_3_tensors", "concat_negative_dim"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_concat(
     shapes: List[Shape],
     dim: int,
@@ -2831,7 +2835,7 @@ def test_split_query_key_value_and_split_heads_gqa(
     ],
     ids=["mha_no_transpose", "mha_transpose_key"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_split_query_key_value_and_split_heads_mha(
     input_shape: Shape,
     num_heads: int,
@@ -2877,7 +2881,7 @@ def test_hoisted_split_query_key_value_and_split_heads_mha(
     ],
     ids=["gqa_no_transpose", "gqa_transpose_key"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_split_query_key_value_and_split_heads_gqa(
     q_shape: Shape,
     kv_shape: Shape,
@@ -2907,6 +2911,46 @@ def test_hoisted_split_query_key_value_and_split_heads_gqa(
                 unit_attrs=["ttir.should_hoist"],
             )
             return query, key, value
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "input_shape,num_heads",
+    [
+        ((2, 8, 128, 32), 8),
+        ((1, 4, 64, 16), 4),
+    ],
+    ids=["batch2_heads8", "batch1_heads4"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+def test_hoisted_concatenate_heads(
+    input_shape: Shape,
+    num_heads: int,
+    target: str,
+    request,
+    device,
+):
+    """Test concatenate_heads operation with CPU hoisting.
+
+    Input: [batch, num_heads, seq, head_size]
+    Output: [batch, seq, num_heads * head_size]
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def hoisted_concat_heads(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.concatenate_heads(in0, unit_attrs=["ttir.should_hoist"])
 
     compile_and_execute_ttir(
         module,
