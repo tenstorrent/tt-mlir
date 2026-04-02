@@ -1,4 +1,5 @@
 add_library(TTUnifiedOpLib STATIC
+  utils/utils.cpp
   conv/unifiedConv2dOp.cpp
 )
 
