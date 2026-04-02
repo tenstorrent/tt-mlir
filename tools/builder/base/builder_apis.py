@@ -87,12 +87,16 @@ def _compile_and_execute(
     enable_intermediate_verification: bool = False,
     dump_memory: bool = False,
     **compile_kwargs,
-) -> str:
+):
     # Support deferred device: resolve after compilation so the optimizer
     # pipeline can use OpModel's mock device without conflicting with a
-    # real device.
+    # real device. Only supported for ttnn/ttmetal targets.
     is_deferred = isinstance(device, DeferredDevice)
     if is_deferred:
+        assert target in [
+            "ttnn",
+            "ttmetal",
+        ], f"DeferredDevice is only supported for ttnn/ttmetal targets, got {target}"
         deferred = device
         device = None
 
@@ -705,7 +709,7 @@ def compile_and_execute_ttir(
         enable_intermediate_verification=enable_intermediate_verification,
         dump_memory=dump_memory,
     )
-    return artifact_dir
+    return os.path.join(artifact_dir, f"{target}_compiled.mlir")
 
 
 def compile_ttir_to_flatbuffer(

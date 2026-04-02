@@ -253,21 +253,6 @@ def nan_safe_softmax(
     return builder.typecast(softmax_out, out_dtype, unit_attrs=unit_attrs)
 
 
-def attention_output(
-    attn_weights,
-    value,
-    builder,
-    in_dtype=None,
-    out_dtype=torch.bfloat16,
-    unit_attrs=None,
-):
-    """Matmul attn_weights @ V, optional typecast."""
-    if in_dtype is not None:
-        value = builder.typecast(value, in_dtype, unit_attrs=unit_attrs)
-    output = builder.matmul(attn_weights, value, unit_attrs=unit_attrs)
-    return builder.typecast(output, out_dtype, unit_attrs=unit_attrs)
-
-
 # ---------------------------------------------------------------------------
 # Golden computation
 # ---------------------------------------------------------------------------
@@ -302,12 +287,11 @@ def check_op(mlir_file: str, op_name: str) -> bool:
     return False
 
 
-def assert_sdpa_fused(artifact_dir: str, q_seq: int):
-    output_path = os.path.join(artifact_dir, "ttnn_compiled.mlir")
+def assert_sdpa_fused(mlir_path: str, q_seq: int):
     if q_seq == 1:
-        assert check_op(output_path, "scaled_dot_product_attention_decode")
+        assert check_op(mlir_path, "scaled_dot_product_attention_decode")
     else:
-        assert check_op(output_path, "scaled_dot_product_attention")
+        assert check_op(mlir_path, "scaled_dot_product_attention")
 
 
 def compile_and_run_sdpa(module_fn, target, request):
@@ -388,8 +372,8 @@ def test_sdpa_split_scale_nan_safe(sdpa_shapes: SDPAShapes, target: str, request
             )
             return result
 
-    artifact_dir = compile_and_run_sdpa(module, target, request)
-    assert_sdpa_fused(artifact_dir, sdpa_shapes.q_seq)
+    mlir_path = compile_and_run_sdpa(module, target, request)
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
 
 
 @pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
@@ -461,10 +445,10 @@ def test_sdpa_post_scale_simple(
             )
             return result
 
-    artifact_dir = compile_and_run_sdpa(
+    mlir_path = compile_and_run_sdpa(
         module_with_mask if use_mask else module_no_mask, target, request
     )
-    assert_sdpa_fused(artifact_dir, sdpa_shapes.q_seq)
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
 
 
 @pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
@@ -523,8 +507,8 @@ def test_sdpa_pre_scale_q_nan_safe(sdpa_shapes: SDPAShapes, target: str, request
             )
             return result
 
-    artifact_dir = compile_and_run_sdpa(module, target, request)
-    assert_sdpa_fused(artifact_dir, sdpa_shapes.q_seq)
+    mlir_path = compile_and_run_sdpa(module, target, request)
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
 
 
 @pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
@@ -583,8 +567,8 @@ def test_sdpa_pre_scale_k_nan_safe(sdpa_shapes: SDPAShapes, target: str, request
             )
             return result
 
-    artifact_dir = compile_and_run_sdpa(module, target, request)
-    assert_sdpa_fused(artifact_dir, sdpa_shapes.q_seq)
+    mlir_path = compile_and_run_sdpa(module, target, request)
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
 
 
 @pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
@@ -631,5 +615,5 @@ def test_sdpa_simple_softmax(sdpa_shapes: SDPAShapes, target: str, request):
             )
             return result
 
-    artifact_dir = compile_and_run_sdpa(module, target, request)
-    assert_sdpa_fused(artifact_dir, sdpa_shapes.q_seq)
+    mlir_path = compile_and_run_sdpa(module, target, request)
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
