@@ -53,8 +53,8 @@ struct OpRuleBook {
   /// backend validation. Default accepts all. Override for ops that require
   /// homogeneous input layouts (e.g., concat requires all inputs to share the
   /// same memory layout type).
-  virtual bool isValidInputCombination(
-      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  virtual bool
+  isValidInputCombination(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
     return true;
   }
 
