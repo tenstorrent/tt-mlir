@@ -13,10 +13,12 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <limits>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -96,11 +98,12 @@ private:
   /// Returns one vector per operand.
   std::vector<std::vector<InputCandidate>> getInputCandidateSets(Operation *op);
 
-  /// Generate reshard candidate layouts for a tensor type: sharded-to-sharded
-  /// variants derived from the current layout.
-  std::vector<TTNNLayoutAttr>
-  generateReshardCandidates(RankedTensorType tensorType,
-                            TTNNLayoutAttr currentLayout);
+  /// Generate reshard candidate layouts for a tensor type: sharded target
+  /// layouts from any source layout (interleaved or sharded).
+  /// maxGridVolume prunes candidates whose grid exceeds the output tile count.
+  std::vector<TTNNLayoutAttr> generateReshardCandidates(
+      RankedTensorType tensorType, TTNNLayoutAttr currentLayout,
+      int64_t maxGridVolume = std::numeric_limits<int64_t>::max());
 
   /// Create a DRAM interleaved fallback layout for an op.
   TTNNLayoutAttr getDRAMInterleavedFallback(Operation *op);
