@@ -115,4 +115,31 @@ module {
       -> tensor<1x8x64x64xbf16>
     return %result : tensor<1x8x64x64xbf16>
   }
+
+  // Test 5: SDPA with sliding_window_size
+  func.func @sdpa_sliding_window(
+    %query: tensor<1x8x64x64xbf16>,
+    %key: tensor<1x8x64x64xbf16>,
+    %value: tensor<1x8x64x64xbf16>
+  ) -> tensor<1x8x64x64xbf16> {
+    // CHECK-LABEL: func.func @sdpa_sliding_window
+    // CHECK: "ttnn.transpose"
+    // CHECK: "ttnn.matmul"
+    // CHECK: "ttnn.full"
+    // CHECK: "ttnn.multiply"
+    // Sliding window mask as compile-time constant
+    // CHECK: "ttnn.constant"
+    // CHECK: "ttnn.add"
+    // CHECK: "ttnn.softmax"
+    // CHECK: "ttnn.matmul"
+    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value) <{
+      operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>,
+      is_causal = true,
+      scale = 0.125 : f32,
+      sliding_window_size = 32 : ui32
+    }> : (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>,
+         tensor<1x8x64x64xbf16>)
+      -> tensor<1x8x64x64xbf16>
+    return %result : tensor<1x8x64x64xbf16>
+  }
 }

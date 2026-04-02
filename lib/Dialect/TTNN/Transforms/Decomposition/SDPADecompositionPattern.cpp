@@ -65,6 +65,48 @@ static Value generateCausalMask(PatternRewriter &rewriter, Location loc,
                                      /*memory_config=*/MemoryConfigAttr());
 }
 
+/// Generate a sliding window mask [1, 1, Sq, Skv] as a compile-time constant.
+/// Positions where (row - col) < 0 or (row - col) >= windowSize are -inf.
+/// If isCausal is true, also masks future positions (row < col).
+static Value generateSlidingWindowMask(PatternRewriter &rewriter, Location loc,
+                                       int64_t seqLenQ, int64_t seqLenKV,
+                                       uint32_t windowSize, bool isCausal,
+                                       RankedTensorType referenceType,
+                                       Value device) {
+  llvm::SmallVector<float> maskData;
+  maskData.reserve(seqLenQ * seqLenKV);
+  for (int64_t i = 0; i < seqLenQ; i++) {
+    for (int64_t j = 0; j < seqLenKV; j++) {
+      int64_t diff = i - j;
+      bool inWindow = diff >= 0 && diff < static_cast<int64_t>(windowSize);
+      if (!isCausal) {
+        // Bidirectional: window centered on position
+        inWindow = std::abs(diff) < static_cast<int64_t>(windowSize);
+      }
+      maskData.push_back(inWindow ? 0.0f
+                                  : -std::numeric_limits<float>::infinity());
+    }
+  }
+
+  auto maskShape = llvm::SmallVector<int64_t>{1, 1, seqLenQ, seqLenKV};
+  auto plainMaskType = RankedTensorType::get(maskShape, rewriter.getF32Type());
+  auto denseAttr = DenseFPElementsAttr::get(plainMaskType, maskData);
+
+  auto maskType = createResultType(referenceType, maskShape);
+  ttcore::DataTypeAttr dtypeAttr;
+  LayoutAttr tensorLayoutAttr;
+  if (auto layoutAttr = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+          referenceType.getEncoding())) {
+    dtypeAttr = ttcore::DataTypeAttr::get(rewriter.getContext(),
+                                          layoutAttr.getDataType());
+    tensorLayoutAttr =
+        LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
+  }
+  return rewriter.create<ConstantOp>(loc, maskType, device, denseAttr,
+                                     dtypeAttr, tensorLayoutAttr,
+                                     /*memory_config=*/MemoryConfigAttr());
+}
+
 LogicalResult
 SDPADecompositionPattern::matchAndRewrite(ScaledDotProductAttentionOp op,
                                           PatternRewriter &rewriter) const {
@@ -192,8 +234,18 @@ SDPADecompositionPattern::matchAndRewrite(ScaledDotProductAttentionOp op,
     scores =
         rewriter.create<AddOp>(loc, scoresType, scores, op.getAttentionMask())
             .getResult();
-  } else if (op.getIsCausal()) {
-    // Generate causal mask when is_causal=true and no explicit mask provided.
+  }
+
+  // Generate positional mask (sliding window and/or causal).
+  if (op.getSlidingWindowSizeAttr()) {
+    uint32_t windowSize = op.getSlidingWindowSizeAttr().getUInt();
+    Value windowMask =
+        generateSlidingWindowMask(rewriter, loc, seqLenQ, seqLenKV, windowSize,
+                                  op.getIsCausal(), qType, device);
+    scores =
+        rewriter.create<AddOp>(loc, scoresType, scores, windowMask).getResult();
+  } else if (!op.getAttentionMask() && op.getIsCausal()) {
+    // Causal-only mask (no sliding window, no explicit mask).
     Value causalMask =
         generateCausalMask(rewriter, loc, seqLenQ, seqLenKV, qType, device);
     scores =
