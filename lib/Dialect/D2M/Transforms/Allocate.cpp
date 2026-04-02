@@ -141,6 +141,11 @@ struct MemrefValueContext {
   // Live range of this value, starting with the defining op itself
   // and extending to its last user.
   LiveRange live = {-1, -1};
+  // For a `memref.alloc` in the function body, the operation after which the
+  // pass inserts `memref.dealloc` (same block as the alloc; block-level SSA
+  // last-use anchor from `analyzeLiveness`). Otherwise null (e.g. block-arg
+  // roots only present in `memrefs` from operand analysis).
+  Operation *deallocAnchorOp = nullptr;
   // `true` iff this value is ineligible for remapping (has non-generic
   // users, has a generic explicit datamovement user, etc).
   bool isMemspaceBound = false;
@@ -505,8 +510,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// - Discover `memref.alloc`s already present in `funcOp` and collect them
   ///   into `analysis.memrefs`.
   /// - For each memref value:
-  ///   - Calculate effective liveness by extending `mlir::Liveness`
-  ///     ranges with uses by view/stream ops.
+  ///   - Record `getEndOperation` in `closure.lastOp` and copy it to
+  ///     `MemrefValueContext::deallocAnchorOp` for func-body allocs (dealloc
+  ///     insertion after that op).
+  ///   - Set `closure.live.last` to the max preorder index among all
+  ///     `OpOperand` uses (nested region uses included), plus the live-out
+  ///     corner case, then extend through view ops via `resolve()`.
   ///   - Pre-compute memory footprint if placed within L1 or DRAM.
   ///
   LogicalResult analyzeLiveness(func::FuncOp funcOp,
@@ -570,10 +579,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // the max over its users over a traversal through this graph.
 
     for (auto &[op, closure] : livenessJoinGraph) {
-      // Initial last values are from the SSA liveness calculation.
-      auto i = analysis.sequencing.operationMap.find(closure.lastOp);
-      TT_debug(i != analysis.sequencing.operationMap.end());
-      closure.live.last = i->second;
+      Value result = op->getResult(0);
+      closure.live.last =
+          maxUseSequenceWithLiveOut(result, *li, funcBody, analysis.sequencing);
     }
 
     // TODO(vroubtsov) this is retained from v2, but now there is an opportunity
@@ -593,6 +601,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         MemrefValueContext &memrefCtx = addMemrefValueContext(
             rewriter, analysis, allocOp, memrefType, device);
         memrefCtx.live = closure.live;
+        memrefCtx.deallocAnchorOp = closure.lastOp;
       }
     }
 
@@ -1255,6 +1264,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       analysis.sequencing.operationMap.erase(oldGenericOp.getOperation());
       analysis.sequencing.operationMap[sequenceAnchor] = sequencePosition;
 
+      for (auto &[value, memrefCtx] : analysis.memrefs) {
+        if (memrefCtx.deallocAnchorOp == oldGenericOp.getOperation()) {
+          memrefCtx.deallocAnchorOp = reblocked->genericOp.getOperation();
+        }
+      }
+
       // Redirect the single externally visible output to the rebuilt view.
       if (oldGenericOp.getNumResults() > 0) {
         TT_assert(oldGenericOp.getNumResults() == 1u);
@@ -1600,8 +1615,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         continue;
       }
 
-      insertDealloc(rewriter, allocOp, memrefCtx.live.last,
-                    analysis.sequencing);
+      TT_assertv(memrefCtx.deallocAnchorOp,
+                 "expected dealloc anchor for func-body memref alloc");
+      insertDealloc(rewriter, allocOp, memrefCtx.deallocAnchorOp);
     }
 
     return success();
@@ -1689,16 +1705,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   }
 
   static void insertDealloc(RewriterBase &rewriter, memref::AllocOp allocOp,
-                            Planner::SequenceT position,
-                            const SequenceMapping &sequencing) {
-    Operation *lastOp = sequencing.positionMap[position];
-    if (!llvm::isa<func::ReturnOp>(lastOp)) {
+                            Operation *anchorOp) {
+    TT_assertv(anchorOp, "dealloc anchor required");
+    TT_assertv(anchorOp->getBlock() == allocOp->getBlock(),
+               "dealloc anchor must be in the same block as the alloc");
+    if (!llvm::isa<func::ReturnOp>(anchorOp)) {
       OpBuilder::InsertionGuard guard(rewriter);
-      {
-        rewriter.setInsertionPointAfter(lastOp);
-        rewriter.create<memref::DeallocOp>(lastOp->getLoc(),
-                                           allocOp.getResult());
-      }
+      rewriter.setInsertionPointAfter(anchorOp);
+      rewriter.create<memref::DeallocOp>(anchorOp->getLoc(),
+                                         allocOp.getResult());
     }
   }
 
@@ -2163,6 +2178,34 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     MemRefType newType = remap(rewriter, memrefType, memspace);
 
     rewriter.modifyOpInPlace(op, [&]() { memref.setType(newType); });
+  }
+
+  /// Max preorder sequence index among all `OpOperand` uses of `value`.
+  /// If `value` is live-out of `funcBody`, also take the index of the block's
+  /// last op (same corner case as `LivenessBlockInfo::getEndOperation`).
+  static SequenceT maxUseSequenceWithLiveOut(
+      Value value, const mlir::LivenessBlockInfo &blockLiveness,
+      Block &funcBody, const SequenceMapping &sequencing) {
+    SequenceT maxSeq = 0;
+    bool found = false;
+    for (OpOperand &use : value.getUses()) {
+      auto it = sequencing.operationMap.find(use.getOwner());
+      if (it == sequencing.operationMap.end()) {
+        continue;
+      }
+      found = true;
+      maxSeq = std::max(maxSeq, it->second);
+    }
+    TT_assertv(found, "expected at least one use in sequencing map");
+
+    if (blockLiveness.isLiveOut(value)) {
+      Operation &back = funcBody.back();
+      if (auto it = sequencing.operationMap.find(&back);
+          it != sequencing.operationMap.end()) {
+        maxSeq = std::max(maxSeq, it->second);
+      }
+    }
+    return maxSeq;
   }
 
   // Recursive helper for `analyzeAllocOps(func::FuncOp funcOp...)`.
