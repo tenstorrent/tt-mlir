@@ -535,7 +535,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     LivenessClosureGraph livenessJoinGraph;
 
-    funcBody.walk<WalkOrder::PreOrder>([&](Operation *op) {
+    funcBody.walk<WalkOrder::PostOrder>([&](Operation *op) {
       const SequenceT position = analysis.sequencing.size();
 
       analysis.sequencing.operationMap[op] = position;
