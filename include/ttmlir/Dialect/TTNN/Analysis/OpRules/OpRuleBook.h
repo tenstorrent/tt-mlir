@@ -49,6 +49,15 @@ struct OpRuleBook {
   /// always outputs DRAM-interleaved regardless of input layout).
   virtual bool shouldExploreReshards() const { return true; }
 
+  /// Cross-product pruning: reject input layout combinations before expensive
+  /// backend validation. Default accepts all. Override for ops that require
+  /// homogeneous input layouts (e.g., concat requires all inputs to share the
+  /// same memory layout type).
+  virtual bool isValidInputCombination(
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+    return true;
+  }
+
   /// Apply op-specific attributes (Conv2dConfig, MatmulProgramConfig, etc.)
   /// from the chosen candidate to the IR op.
   virtual void applyOpSpecificAttrs(Operation *op,

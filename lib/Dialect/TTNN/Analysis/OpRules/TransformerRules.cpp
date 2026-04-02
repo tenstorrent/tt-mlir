@@ -45,4 +45,13 @@ OutputHints SDPARuleBook::getOutputHints(
   return layout_filter_utils::nullHintOnly();
 }
 
+//===----------------------------------------------------------------------===//
+// RotaryEmbeddingRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn RotaryEmbeddingRuleBook::getInputLayoutFilter() const {
+  return layout_filter_utils::allowOnlyShardingType(
+      TensorMemoryLayout::HeightSharded);
+}
+
 } // namespace mlir::tt::ttnn

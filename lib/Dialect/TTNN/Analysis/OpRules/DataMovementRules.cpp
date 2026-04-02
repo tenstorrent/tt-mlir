@@ -20,6 +20,21 @@ LayoutFilterFn ConcatRuleBook::getInputLayoutFilter() const {
 
 bool ConcatRuleBook::shouldExploreReshards() const { return true; }
 
+bool ConcatRuleBook::isValidInputCombination(
+    llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  // Concat requires all inputs to have the same memory layout type.
+  if (inputLayouts.size() < 2) {
+    return true;
+  }
+  auto firstMem = inputLayouts[0].getMemLayout();
+  for (size_t i = 1; i < inputLayouts.size(); ++i) {
+    if (inputLayouts[i].getMemLayout() != firstMem) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // ConcatOp::getOutputHints — uses default OpRuleBook impl (sharded + NULL hints).
 // Sharded output re-enabled after tt-metal hang fix landed.
 // https://github.com/tenstorrent/tt-metal/issues/39419
