@@ -163,9 +163,13 @@ std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
   case ::tt::target::DataType::Int8:
   case ::tt::target::DataType::Bool:
     return 1;
-  default:
-    LOG_FATAL("Unsupported element size for data type");
-    return 0;
+  case ::tt::target::DataType::BFP_Float8:
+  case ::tt::target::DataType::BFP_BFloat8:
+  case ::tt::target::DataType::BFP_Float4:
+  case ::tt::target::DataType::BFP_BFloat4:
+  case ::tt::target::DataType::BFP_Float2:
+  case ::tt::target::DataType::BFP_BFloat2:
+    return 1;
   }
 }
 
