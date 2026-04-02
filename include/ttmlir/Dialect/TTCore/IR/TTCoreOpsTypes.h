@@ -181,6 +181,10 @@ inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
     }
   }
 
+  if (mlir::isa<mlir::IndexType>(elementType)) {
+    return DataType::UInt32;
+  }
+
   return {};
 }
 
