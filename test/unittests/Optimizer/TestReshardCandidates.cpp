@@ -78,10 +78,10 @@ public:
     } else {
       grid = ttcore::GridAttr::get(&context, gridShape);
     }
-    return TTNNLayoutAttr::get(
-        &context, tensorShape, elementType, bufferType, grid,
-        mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
-                                                    tensorMemoryLayout));
+    return TTNNLayoutAttr::get(&context, tensorShape, elementType, bufferType,
+                               grid,
+                               mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+                                   &context, tensorMemoryLayout));
   }
 
   TTNNLayoutAttr
@@ -157,13 +157,12 @@ public:
 
     for (const auto &[memLayout, gridShape] : shardSpecs) {
       auto [v2p, p2v] = (memLayout == TensorMemoryLayout::HeightSharded)
-                             ? std::make_pair(v2pHeight, p2vHeight)
-                             : std::make_pair(v2pBlock, p2vBlock);
+                            ? std::make_pair(v2pHeight, p2vHeight)
+                            : std::make_pair(v2pBlock, p2vBlock);
       auto grid = ttcore::GridAttr::get(&context, gridShape, v2p, p2v);
-      auto layout =
-          TTNNLayoutAttr::get(&context, shape, elementType, BufferType::L1,
-                              grid,
-                              TensorMemoryLayoutAttr::get(&context, memLayout));
+      auto layout = TTNNLayoutAttr::get(
+          &context, shape, elementType, BufferType::L1, grid,
+          TensorMemoryLayoutAttr::get(&context, memLayout));
       pageLayoutArr[tiledIdx][shardedIdx].push_back(layout);
     }
 

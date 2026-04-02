@@ -958,11 +958,12 @@ void L1SpillManagement<MemoryTracker>::run() {
     if (result.isNotImplemented()) {
       // Op not validated by backend — evict all live L1 tensors. Without
       // OpModel constraints we cannot know how much L1 the op needs, so the
-      // only safe choice is a full flush.
+      // only safe choice is a full flush. Insert spills right before the
+      // trigger op so earlier consumers can still read from L1.
       TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                    "    NOT_IMPLEMENTED: evicting all live L1 tensors for {0}",
                    ttmlir::opToString(op));
-      evictAllFromL1(pos, data);
+      evictAllFromL1(pos, data, op);
       ++spillCount;
       continue;
     }
@@ -1128,8 +1129,9 @@ void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::evictAllFromL1(
-    int64_t pos, const ScheduleData &data) {
+void L1SpillManagement<MemoryTracker>::evictAllFromL1(int64_t pos,
+                                                      const ScheduleData &data,
+                                                      Operation *triggerOp) {
   llvm::SmallVector<Operation *> evictedOps;
   for (Value victim : liveValues) {
     uint64_t freedBytes = memoryTracker.getTensorSize(victim);
@@ -1138,7 +1140,7 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(
                  "    EVICT_ALL: {0} (L1: {1} bytes)",
                  ttmlir::opToString(victimOp), freedBytes);
     observer_->onEviction(victimOp, pos, freedBytes);
-    spillToDram(victim);
+    spillToDram(victim, triggerOp);
     memoryTracker.removeTensor(victim);
     evictedOps.push_back(victimOp);
   }
@@ -1207,7 +1209,8 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::spillToDram(Value result) {
+void L1SpillManagement<MemoryTracker>::spillToDram(Value result,
+                                                   Operation *insertBefore) {
   Operation *defOp = result.getDefiningOp();
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(result.getType());
   TTNNLayoutAttr layoutAttr =
@@ -1233,12 +1236,21 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Value result) {
       utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
 
   OpBuilder builder(defOp->getContext());
-  builder.setInsertionPointAfter(defOp);
+  if (insertBefore) {
+    builder.setInsertionPoint(insertBefore);
+  } else {
+    builder.setInsertionPointAfter(defOp);
+  }
   Location loc = ttmlir::utils::appendLocationSuffix(defOp->getLoc(), "_spill");
 
-  // Save all uses, insert ToMemoryConfigOp, reconnect uses.
+  // Save uses that should be reconnected to the DRAM spill. When insertBefore
+  // is set, only reconnect uses at or after the insertion point — earlier uses
+  // can still read the original L1 value directly.
   llvm::SmallVector<std::pair<Operation *, unsigned>> uses;
   for (auto &use : result.getUses()) {
+    if (insertBefore && use.getOwner()->isBeforeInBlock(insertBefore)) {
+      continue; // This use is before the spill point — keep reading from L1.
+    }
     uses.emplace_back(use.getOwner(), use.getOperandNumber());
   }
 

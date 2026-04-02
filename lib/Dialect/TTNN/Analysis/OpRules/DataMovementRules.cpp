@@ -35,8 +35,8 @@ bool ConcatRuleBook::isValidInputCombination(
   return true;
 }
 
-// ConcatOp::getOutputHints — uses default OpRuleBook impl (sharded + NULL hints).
-// Sharded output re-enabled after tt-metal hang fix landed.
+// ConcatOp::getOutputHints — uses default OpRuleBook impl (sharded + NULL
+// hints). Sharded output re-enabled after tt-metal hang fix landed.
 // https://github.com/tenstorrent/tt-metal/issues/39419
 // Fix: https://github.com/tenstorrent/tt-metal/pull/39882
 
