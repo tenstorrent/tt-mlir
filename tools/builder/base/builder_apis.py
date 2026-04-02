@@ -59,6 +59,18 @@ class DeferredDevice:
     def __init__(self, request):
         self._request = request
 
+    def prepare(self):
+        """Close any cached device from prior tests so compilation can use
+        the mock device without conflict."""
+        from conftest import _current_device, clear_device_cache
+
+        if _current_device is not None:
+            tt_runtime.runtime.close_mesh_device(_current_device)
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.DISABLED
+            )
+            clear_device_cache()
+
     def open(self):
         return self._request.getfixturevalue("device")
 
@@ -98,6 +110,7 @@ def _compile_and_execute(
             "ttmetal",
         ], f"DeferredDevice is only supported for ttnn/ttmetal targets, got {target}"
         deferred = device
+        deferred.prepare()
         device = None
 
     builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_fn(
