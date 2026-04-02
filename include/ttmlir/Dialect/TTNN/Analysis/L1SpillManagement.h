@@ -212,8 +212,9 @@ private:
   void demoteToDram(Operation *op);
 
   /// Insert ToMemoryConfigOp to spill a single result value to DRAM
-  /// interleaved.
-  void spillToDram(Value result);
+  /// interleaved. When insertBefore is provided, the spill op is placed
+  /// right before that op (e.g., a CCL op) instead of after the defining op.
+  void spillToDram(Value result, Operation *insertBefore = nullptr);
 
   /// Remove all "ttnn.output_l1_usage" attributes from ops in the function.
   void cleanupL1UsageAttrs();
@@ -261,8 +262,10 @@ private:
 
   /// Evict all live L1 tensors. Used when encountering ops without OpModel
   /// support — since we cannot know their L1 requirements, the only safe
-  /// choice is a full flush.
-  void evictAllFromL1(int64_t pos, const ScheduleData &data);
+  /// choice is a full flush. Spill ops are inserted right before triggerOp
+  /// (the CCL op) so earlier consumers can still read from L1.
+  void evictAllFromL1(int64_t pos, const ScheduleData &data,
+                      Operation *triggerOp = nullptr);
 
   /// Evict live tensors using Belady's algorithm until no tensor's simulated
   /// address falls below the cushioned CB threshold. Replaces the former
