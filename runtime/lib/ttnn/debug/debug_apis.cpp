@@ -22,7 +22,7 @@ void checkTensorRefMatchesTTNNTensor(
                toString(expectedLayout), ", got ", toString(actualLayout));
 
   ::ttnn::DataType expectedDataType =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(
+      unifiedOpLib::operations::utils::toTTNNDataType(
           tensorRef->desc()->layout()->memory_desc()->data_type());
   ::ttnn::DataType actualDataType = ttnnTensor.dtype();
   DEBUG_ASSERT(expectedDataType == actualDataType,

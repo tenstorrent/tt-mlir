@@ -68,7 +68,7 @@ static void runQuantizationOp(const OpType *op, ProgramContext &context,
   std::optional<::ttnn::DataType> outputDataType = std::nullopt;
   if (op->output_dtype()) {
     outputDataType =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+        unifiedOpLib::operations::utils::toTTNNDataType(*(op->output_dtype()));
   }
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =

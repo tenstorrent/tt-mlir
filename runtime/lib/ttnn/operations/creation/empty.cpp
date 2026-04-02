@@ -16,9 +16,9 @@ void run(const ::tt::target::ttnn::EmptyOp *op, ProgramContext &context) {
   ::ttnn::Shape shape = ::tt::runtime::ttnn::operations::utils::toTTNNShape(
       *op->out()->desc()->shape());
   ::ttnn::DataType dtype =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
+      unifiedOpLib::operations::utils::toTTNNDataType(op->dtype());
   ::ttnn::Layout layout =
-      ::tt::runtime::ttnn::utils::toTTNNLayout(op->layout());
+      ::unifiedOpLib::operations::utils::toTTNNLayout(op->layout());
 
   ::ttnn::Tensor out;
   if (op->device()) {

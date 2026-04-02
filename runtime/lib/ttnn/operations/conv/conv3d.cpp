@@ -37,7 +37,7 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
   ::ttnn::DataType outputDtype = ::ttnn::DataType::BFLOAT16;
   if (op->output_dtype()) {
     outputDtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+        unifiedOpLib::operations::utils::toTTNNDataType(*(op->output_dtype()));
   }
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
@@ -47,7 +47,7 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
     const auto *fbConfig = op->conv3d_config();
     ::ttnn::experimental::prim::Conv3dConfig config;
     if (fbConfig->weights_dtype()) {
-      config.weights_dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
+      conv3dConfig->weights_dtype = unifiedOpLib::operations::utils::toTTNNDataType(
           *fbConfig->weights_dtype());
     }
     if (fbConfig->t_out_block()) {

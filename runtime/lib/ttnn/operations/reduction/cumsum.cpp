@@ -24,7 +24,7 @@ void run(const ::tt::target::ttnn::CumSumOp *op, ProgramContext &context) {
 
   std::optional<::ttnn::DataType> dtype = std::nullopt;
   if (op->dtype()) {
-    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*op->dtype());
+    dtype = unifiedOpLib::operations::utils::toTTNNDataType(*op->dtype());
   }
 
   ::ttnn::Tensor out =
