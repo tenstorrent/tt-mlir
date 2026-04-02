@@ -2130,10 +2130,8 @@ public:
   using OpAdaptor = typename TTNNOp::Adaptor;
 
   EmitPyTTNNEmitter(TTNNOp op, OpAdaptor adaptor,
-                    mlir::ConversionPatternRewriter &rewriter,
-                    bool enableGoldenMode)
-      : op{op}, adaptor{adaptor}, rewriter{rewriter},
-        enableGoldenMode{enableGoldenMode} {}
+                    mlir::ConversionPatternRewriter &rewriter)
+      : op{op}, adaptor{adaptor}, rewriter{rewriter} {}
 
   EmitPyTTNNEmitter(const EmitPyTTNNEmitter &) = delete;
   EmitPyTTNNEmitter &operator=(const EmitPyTTNNEmitter &) = delete;
@@ -2352,10 +2350,6 @@ public:
 
     auto callee = opConversionPattern.convertOpName(op);
 
-    if (enableGoldenMode) {
-      callee += ".golden_function";
-    }
-
     auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         op, resultTypes, callee, operands, rewriter.getArrayAttr(args),
         rewriter.getArrayAttr(keywordArgs));
@@ -2395,7 +2389,6 @@ private:
   ConversionPatternRewriter &rewriter;
   llvm::SmallVector<mlir::Value> operands;
   llvm::SmallVector<mlir::Attribute> keywordArgs;
-  bool enableGoldenMode;
 };
 
 // Helper function to secure memory config attribute.
