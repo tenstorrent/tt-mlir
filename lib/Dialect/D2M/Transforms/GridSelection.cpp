@@ -837,8 +837,14 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
         continue;
       }
 
-      auto tileType = mlir::cast<ttcore::TileType>(inputType.getElementType());
-      auto inputPhysShape = inputLayout.getPhysicalShape(tileType.getShape());
+      SmallVector<int64_t> tileShape;
+      if (auto tileType =
+              mlir::dyn_cast<ttcore::TileType>(inputType.getElementType())) {
+        tileShape = llvm::to_vector(tileType.getShape());
+      } else {
+        tileShape = llvm::to_vector(ttcore::TileType::getDefaultShape());
+      }
+      auto inputPhysShape = inputLayout.getPhysicalShape(tileShape);
       auto inputOptimalGrid =
           computeOptimalGrid(inputType, inputPhysShape, config);
 
@@ -864,7 +870,7 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
     builder.setInsertionPoint(compositeView);
     auto newCompositeView = builder.create<d2m::CompositeViewOp>(
         compositeView.getLoc(), newOutType, reblockedInputs,
-        compositeView.getDim());
+        compositeView.getDim(), /*logicalSizes=*/nullptr);
 
     compositeView.getResult().replaceAllUsesWith(newCompositeView.getResult());
     compositeView.erase();

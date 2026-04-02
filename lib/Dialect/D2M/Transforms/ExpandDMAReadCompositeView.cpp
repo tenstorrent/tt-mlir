@@ -322,6 +322,12 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
 
   auto expandedGenericInputs =
       newGOp.getInputs().slice(compositeOperandIdx, compositeInputs.size());
+  const bool isTiled = mlir::isa<ttcore::TileType>(
+      mlir::cast<MemRefType>(compositeView.getResult().getType())
+          .getElementType());
+  if (!isTiled) {
+    return failure();
+  }
   if (failed(expandCompositeDMARead(rewriter, clonedCompositeRead,
                                     expandedGenericInputs,
                                     compositeView.getDim()))) {
