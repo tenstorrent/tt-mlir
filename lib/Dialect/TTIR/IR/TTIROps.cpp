@@ -255,6 +255,22 @@ static bool isConstantNonZero(mlir::Value value) {
   return attr && !isZeroAttr(attr);
 }
 
+// Check if the attribute represents one.
+static bool isOneAttr(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValue().isExactlyValue(1.0);
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return intAttr.getValue().isOne();
+  }
+  return false;
+}
+
+static bool isConstantOne(mlir::Value value) {
+  mlir::Attribute attr = getConstantValue(value);
+  return attr && isOneAttr(attr);
+}
+
 // Helper to extract the shape of a RankedTensorType as a vector of i32.
 static llvm::SmallVector<int32_t>
 getShapeAsI32(mlir::RankedTensorType tensorType) {
@@ -265,9 +281,38 @@ getShapeAsI32(mlir::RankedTensorType tensorType) {
 // LogicalAndOp
 //===----------------------------------------------------------------------===//
 
+// Check if a value is known to be boolean-valued (exactly 0 or 1).
+// True for: i1 types, constants that are exactly 0 or 1 (looks through
+// layout ops), and results of comparison/logical ops.
+static bool isBooleanValued(mlir::Value value) {
+  auto type = mlir::cast<mlir::RankedTensorType>(value.getType());
+  if (type.getElementType().isInteger(1)) {
+    return true;
+  }
+
+  if (isConstantZero(value) || isConstantOne(value)) {
+    return true;
+  }
+
+  mlir::Operation *defOp = value.getDefiningOp();
+  if (!defOp) {
+    return false;
+  }
+
+  // Comparison and logical ops always produce 0/1.
+  return llvm::isa<mlir::tt::ttir::EqualOp, mlir::tt::ttir::NotEqualOp,
+                   mlir::tt::ttir::GreaterEqualOp,
+                   mlir::tt::ttir::GreaterThanOp, mlir::tt::ttir::LessEqualOp,
+                   mlir::tt::ttir::LessThanOp, mlir::tt::ttir::LogicalAndOp,
+                   mlir::tt::ttir::LogicalOrOp, mlir::tt::ttir::LogicalXorOp,
+                   mlir::tt::ttir::LogicalNotOp, mlir::tt::ttir::IsFiniteOp>(
+      defOp);
+}
+
 // LogicalAndOp canonicalization:
-//   and(zero, x)    -> ZerosOp        (absorbing)
-//   and(nonzero, x) -> x (i1) or OnesOp (identity, both const nonzero)
+//   and(zero, x)    -> ZerosOp   (absorbing)
+//   and(nonzero, x) -> x         (identity, when x is boolean-valued)
+//   and(nonzero, nonzero) -> OnesOp (both constant nonzero)
 void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
@@ -275,7 +320,6 @@ void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
       +[](mlir::tt::ttir::LogicalAndOp op, mlir::PatternRewriter &rewriter) {
         auto resultType =
             mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
-        bool isI1 = resultType.getElementType().isInteger(1);
 
         // Absorbing: and(zero, x) -> 0
         if (isConstantZero(op.getLhs()) || isConstantZero(op.getRhs())) {
@@ -285,12 +329,12 @@ void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
           return mlir::success();
         }
 
-        // Identity: and(nonzero, x) -> x when x is guaranteed boolean (i1)
-        if (isConstantNonZero(op.getLhs()) && isI1) {
+        // Identity: and(nonzero, x) -> x when x is boolean-valued
+        if (isConstantNonZero(op.getLhs()) && isBooleanValued(op.getRhs())) {
           rewriter.replaceOp(op, op.getRhs());
           return mlir::success();
         }
-        if (isConstantNonZero(op.getRhs()) && isI1) {
+        if (isConstantNonZero(op.getRhs()) && isBooleanValued(op.getLhs())) {
           rewriter.replaceOp(op, op.getLhs());
           return mlir::success();
         }
@@ -313,8 +357,9 @@ void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
 //===----------------------------------------------------------------------===//
 
 // LogicalOrOp canonicalization:
-//   or(nonzero, x) -> OnesOp          (absorbing)
-//   or(zero, x)    -> x (i1) or ZerosOp (identity, both const zero)
+//   or(nonzero, x) -> OnesOp   (absorbing)
+//   or(zero, x)    -> x        (identity, when x is boolean-valued)
+//   or(zero, zero)  -> ZerosOp  (both constant zero)
 void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
@@ -322,7 +367,6 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
       +[](mlir::tt::ttir::LogicalOrOp op, mlir::PatternRewriter &rewriter) {
         auto resultType =
             mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
-        bool isI1 = resultType.getElementType().isInteger(1);
 
         // Absorbing: or(nonzero, x) -> 1
         if (isConstantNonZero(op.getLhs()) || isConstantNonZero(op.getRhs())) {
@@ -332,12 +376,12 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
           return mlir::success();
         }
 
-        // Identity: or(zero, x) -> x when x is guaranteed boolean (i1)
-        if (isConstantZero(op.getLhs()) && isI1) {
+        // Identity: or(zero, x) -> x when x is boolean-valued
+        if (isConstantZero(op.getLhs()) && isBooleanValued(op.getRhs())) {
           rewriter.replaceOp(op, op.getRhs());
           return mlir::success();
         }
-        if (isConstantZero(op.getRhs()) && isI1) {
+        if (isConstantZero(op.getRhs()) && isBooleanValued(op.getLhs())) {
           rewriter.replaceOp(op, op.getLhs());
           return mlir::success();
         }
@@ -2511,10 +2555,89 @@ foldConsecutiveSliceStatic(mlir::tt::ttir::SliceStaticOp consumerOp) {
   return nullptr;
 }
 
+// Fold slice of concat when taking an entire input tensor along the concat
+// dimension Pattern: slice(concat(t1, t2, ..., tn), dim=concat_dim,
+// begins=[..., offset, ...], ends=[..., offset + size_of_ti, ...]) -> ti This
+// eliminates unnecessary concatenation when only one input tensor is needed.
+static mlir::OpFoldResult
+foldSliceOfConcat(mlir::tt::ttir::SliceStaticOp sliceOp) {
+  auto concatOp = sliceOp.getInput().getDefiningOp<mlir::tt::ttir::ConcatOp>();
+  if (!concatOp) {
+    return nullptr;
+  }
+
+  mlir::ArrayAttr beginsAttr = sliceOp.getBeginsAttr();
+  mlir::ArrayAttr endsAttr = sliceOp.getEndsAttr();
+  mlir::ArrayAttr stepsAttr = sliceOp.getStepAttr();
+
+  if (!beginsAttr || !endsAttr || !stepsAttr ||
+      beginsAttr.size() != endsAttr.size() ||
+      beginsAttr.size() != stepsAttr.size()) {
+    return nullptr;
+  }
+
+  int32_t concatDim = concatOp.getDim();
+  // Normalize negative concat dimension
+  if (concatDim < 0) {
+    concatDim += beginsAttr.size();
+  }
+
+  // Track offset along the concat dimension
+  int64_t offset = 0;
+
+  // Try every concat input to find one that matches the slice pattern
+  for (auto curInput : concatOp.getInputs()) {
+    auto curInputType =
+        mlir::dyn_cast<mlir::RankedTensorType>(curInput.getType());
+    if (!curInputType ||
+        curInputType.getRank() != static_cast<int64_t>(beginsAttr.size()) ||
+        concatDim >= curInputType.getRank()) {
+      continue;
+    }
+
+    int64_t curInputSize = curInputType.getShape()[concatDim];
+    if (curInputSize == mlir::ShapedType::kDynamic) {
+      continue;
+    }
+
+    // Check if the slice covers this input entirely
+    bool matches = llvm::all_of(
+        llvm::enumerate(llvm::zip(beginsAttr, endsAttr, stepsAttr,
+                                  curInputType.getShape())),
+        [&](auto pair) {
+          auto [dimIdx, tuple] = pair;
+          auto [dimBegin, dimEnd, dimStep, inputDimSize] = tuple;
+
+          int32_t begin = mlir::cast<mlir::IntegerAttr>(dimBegin).getInt();
+          int32_t end = mlir::cast<mlir::IntegerAttr>(dimEnd).getInt();
+          int32_t step = mlir::cast<mlir::IntegerAttr>(dimStep).getInt();
+
+          int32_t expectedBegin =
+              (dimIdx == static_cast<size_t>(concatDim)) ? offset : 0;
+          int32_t expectedEnd = (dimIdx == static_cast<size_t>(concatDim))
+                                    ? offset + curInputSize
+                                    : inputDimSize;
+
+          return begin == expectedBegin && end == expectedEnd && step == 1;
+        });
+
+    if (matches) {
+      return curInput;
+    }
+    offset += curInputSize;
+  }
+
+  return nullptr;
+}
+
 // SliceStaticOp Folder
 mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
 
   if (auto foldResult = foldConsecutiveSliceStatic(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldSliceOfConcat(*this)) {
     return foldResult;
   }
 
@@ -4332,6 +4455,22 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
 }
 
 //===----------------------------------------------------------------------===//
+// AllReduceAsyncOp
+//===----------------------------------------------------------------------===//
+
+// AllReduceAsyncOp verification
+::mlir::LogicalResult mlir::tt::ttir::AllReduceAsyncOp::verify() {
+  ::mlir::tt::ttcore::ReduceType reduceType = getReduceType();
+
+  // Currently TTIR only supports the sum reduce types.
+  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
+    return emitOpError("Invalid reduction op for all reduce async op.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ReduceScatterOp
 //===----------------------------------------------------------------------===//
 
@@ -4496,6 +4635,39 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   if (indexShape != sourceShape) {
     return emitOpError(
         "Index tensor must have the same shape as source tensor.");
+  }
+
+  return ::mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// GatherDimOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::GatherDimOp::verify() {
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+  const ::mlir::RankedTensorType indexType = getIndex().getType();
+  const ::mlir::RankedTensorType resultType = getResult().getType();
+
+  const int64_t inputRank = inputType.getRank();
+  const int64_t indexRank = indexType.getRank();
+
+  if (inputRank != indexRank) {
+    return emitOpError()
+           << "Input tensor and index tensor must have the same rank. "
+           << "Got input rank = " << inputRank
+           << ", index rank = " << indexRank;
+  }
+
+  int32_t dim = getDim();
+  if (dim >= inputRank || dim < -inputRank) {
+    return emitOpError() << "Dimension must be in the range [-" << inputRank
+                         << ", " << inputRank << "), got dim = " << dim;
+  }
+
+  if (indexType.getShape() != resultType.getShape()) {
+    return emitOpError(
+        "Index tensor and result tensor must have the same shape.");
   }
 
   return ::mlir::success();
@@ -5992,6 +6164,58 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
       return emitOpError(
           "Cur pos tensor number of users must match query number of users.");
     }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PagedFlashMultiLatentAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult
+mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
+
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType pageTableType = getPageTable().getType();
+
+  // Verify ranks.
+  if (queryType.getShape().size() != 4) {
+    return emitOpError("Query must be a 4D tensor.");
+  }
+  if (keyType.getShape().size() != 4) {
+    return emitOpError("Key tensor must be a 4D tensor.");
+  }
+  if (pageTableType.getShape().size() != 2) {
+    return emitOpError("Page table tensor must be a 2D tensor.");
+  }
+
+  // Verify element types.
+  if (!queryType.getElementType().isFloat()) {
+    return emitOpError("Query must be a float tensor.");
+  }
+  if (queryType.getElementType() != keyType.getElementType()) {
+    return emitOpError("Query and key must have the same element type.");
+  }
+  if (!pageTableType.getElementType().isInteger()) {
+    return emitOpError("Page table must be an integer tensor.");
+  }
+
+  // Verify value if present.
+  if (getValue()) {
+    RankedTensorType valueType = getValue().getType();
+    if (valueType.getShape().size() != 4) {
+      return emitOpError("Value tensor must be a 4D tensor.");
+    }
+    if (queryType.getElementType() != valueType.getElementType()) {
+      return emitOpError("Query and value must have the same element type.");
+    }
+  }
+
+  // head_dim_v must be > 0.
+  if (getHeadDimV() == 0) {
+    return emitOpError("head_dim_v must be greater than 0.");
   }
 
   return success();

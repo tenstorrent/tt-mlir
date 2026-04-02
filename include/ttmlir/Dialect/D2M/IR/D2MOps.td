@@ -235,7 +235,8 @@ def D2M_GenericOp
       I64ArrayAttr:$block_factors, AffineMapArrayAttr:$indexing_maps,
       TTCore_IteratorTypeArrayAttr:$iterator_types,
       D2M_ThreadArrayAttr:$threads,
-      OptionalAttr<DenseI64ArrayAttr>:$scratch_inputs);
+      OptionalAttr<DenseI64ArrayAttr>:$scratch_inputs,
+      OptionalAttr<TTCore_FabricConnectionConfigAttr>:$fabricConnectionConfig);
   let results = (outs Variadic<AnyRankedTensor>:$results);
   let regions = (region VariadicRegion<AnyRegion>:$regions);
 
@@ -277,7 +278,8 @@ def D2M_GenericOp
                      "ArrayAttr": $iteratorTypes,
                      CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors,
+                     CArg<"ttcore::FabricConnectionConfigAttr", "nullptr">: $fabricConnectionConfig)>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "ValueRange": $additionalArgs,
@@ -286,14 +288,16 @@ def D2M_GenericOp
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors,
+                     CArg<"ttcore::FabricConnectionConfigAttr", "nullptr">: $fabricConnectionConfig)>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "ValueRange": $additionalArgs,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors,
+                     CArg<"ttcore::FabricConnectionConfigAttr", "nullptr">: $fabricConnectionConfig)>,
     ];
 
     let extraClassDeclaration = [{
@@ -510,33 +514,6 @@ def D2M_ResetGlobalSemaphoreOp : D2M_Op<"reset_global_semaphore"> {
   let results = (outs);
 
   let assemblyFormat = [{ `(` $semaphore `)` attr-dict `:` type($semaphore) }];
-}
-
-def D2M_FullOp
-    : D2M_Op<"full", [Pure, DeclareOpInterfaceMethods<
-                                BufferizableOpInterface,
-                                ["bufferizesToMemoryRead",
-                                 "bufferizesToMemoryWrite", "bufferize",
-                                 "getAliasingValues", "getBufferType"]>]> {
-  let summary = "Creates a tensor filled with the specified value (D2M).";
-  let description = [{
-    Tensor operation to create a tensor filled with a specified value.
-    Given a `shape` and a `fill_value`, produces a tensor with the shape, filled with the specified value.
-  }];
-
-  let arguments = (ins DenseI32ArrayAttr:$shape,
-      AnyAttrOf<[F32Attr, I32Attr]>:$fill_value);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let builders = [OpBuilder<(ins "Type":$resultType, "Attribute":$fillValue),
-                            [{
-      RankedTensorType tensorType = mlir::cast<RankedTensorType>(resultType);
-      build($_builder, $_state, tensorType, llvm::to_vector_of<int32_t>(tensorType.getShape()), fillValue);
-    }]>];
-
-  let assemblyFormat = "attr-dict `:` type($result)";
-  let hasVerifier = 1;
 }
 
 def D2M_MeshShardOp

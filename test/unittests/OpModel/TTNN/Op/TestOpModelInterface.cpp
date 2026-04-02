@@ -4583,6 +4583,133 @@ TEST_F(OpModelBase, layerNormPreAllGatherOpL1Memory) {
   }
 }
 
+TEST_F(OpModelBase, layerNormPostAllGatherOp) {
+  // Test case 1: Basic LayerNormPostAllGather with weight and bias
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> statsShape = {1, 1, 32, 64};
+  llvm::SmallVector<int64_t> weightShape = {128};
+  llvm::SmallVector<int64_t> biasShape = {128};
+
+  auto input = createEmptyTensor(inputShape);
+  auto stats = createEmptyTensor(statsShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto bias = createEmptyTensor(biasShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  llvm::APFloat epsilon(1e-12f);
+
+  LayerNormPostAllGatherOp op = builder.create<LayerNormPostAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input, stats, weight, bias, epsilon,
+      nullptr, nullptr, nullptr, nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, layerNormPostAllGatherOpMinimal) {
+  // Test case 2: LayerNormPostAllGather without optional tensors
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> statsShape = {1, 1, 32, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto stats = createEmptyTensor(statsShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  llvm::APFloat epsilon(1e-12f);
+
+  LayerNormPostAllGatherOp op = builder.create<LayerNormPostAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input, stats, nullptr, nullptr,
+      epsilon, nullptr, nullptr, nullptr, nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, layerNormPostAllGatherOpL1Memory) {
+  // Test case 3: LayerNormPostAllGather with L1 memory buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> statsShape = {1, 1, 32, 64};
+  llvm::SmallVector<int64_t> weightShape = {128};
+  llvm::SmallVector<int64_t> biasShape = {128};
+
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr statsLayout_L1 = CreateTiledLayout(
+      statsShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr tensorLayout_L1 = CreateTiledLayout(
+      weightShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto stats =
+      createEmptyTensor(statsShape, builder.getBF16Type(), statsLayout_L1);
+  auto weight =
+      createEmptyTensor(weightShape, builder.getBF16Type(), tensorLayout_L1);
+  auto bias =
+      createEmptyTensor(biasShape, builder.getBF16Type(), tensorLayout_L1);
+  auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
+
+  llvm::APFloat epsilon(1e-12f);
+
+  LayerNormPostAllGatherOp op = builder.create<LayerNormPostAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input, stats, weight, bias, epsilon,
+      nullptr, nullptr, nullptr, nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, groupNormOp) {
   // Test case 1: Basic GroupNorm with weight and bias
   llvm::SmallVector<int64_t> inputShape = {1, 1, 64, 480};
@@ -5961,5 +6088,146 @@ INSTANTIATE_TEST_SUITE_P(MeshPartitionRuntime,
                              MeshPartitionRuntimeParam{2, 4, 0, 1},
                              MeshPartitionRuntimeParam{2, 4, 1, 0},
                              MeshPartitionRuntimeParam{2, 4, 1, 1}));
+
+//===----------------------------------------------------------------------===//
+// GatherOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelBase, GatherOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {64, 128};
+  llvm::SmallVector<int64_t> indexShape = {32, 128};
+  llvm::SmallVector<int64_t> outputShape = {32, 128};
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+  auto uint32Type =
+      mlir::IntegerType::get(&context, 32, mlir::IntegerType::Unsigned);
+  auto tiledUint32Type = ttcore::TileType::get(uint32Type);
+  auto indexLayout =
+      TTNNLayoutAttr::get(&context, indexShape, tiledUint32Type,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+
+  auto input = createEmptyTensor(inputShape);
+  auto index = createEmptyTensor(indexShape, tiledUint32Type, indexLayout);
+  auto outputType = createRankedTensorType(outputShape);
+
+  auto gatherOp =
+      builder.create<GatherOp>(builder.getUnknownLoc(), outputType, input,
+                               index, builder.getI32IntegerAttr(0),
+                               /*memory_config=*/nullptr);
+
+  gatherOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(gatherOp.getOperation());
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for GatherOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(gatherOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for GatherOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// PagedFlashMultiLatentAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
+  // MLA config: batch=4, n_heads=8, nkv=1, kv_lora_rank=128, d_rope=64
+  int64_t batch = 4;
+  int64_t nHeads = 8;
+  int64_t headDim = 192;  // kv_lora_rank + d_rope
+  int64_t headDimV = 128; // kv_lora_rank
+  int64_t numBlocks = 64;
+  int64_t nkv = 1;
+  int64_t blockSize = 64;
+  int64_t blocksPerUser = 16;
+
+  llvm::SmallVector<int64_t> queryShape{1, batch, nHeads, headDim};
+  llvm::SmallVector<int64_t> keyShape{numBlocks, nkv, blockSize, headDim};
+  llvm::SmallVector<int64_t> pageTableShape{batch, blocksPerUser};
+  llvm::SmallVector<int64_t> curPosShape{batch};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+  auto pageTableType = builder.getI32Type();
+  auto curPosType = builder.getI32Type();
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto queryLayout =
+      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto keyLayout =
+      TTNNLayoutAttr::get(&context, keyShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto pageTableLayout =
+      TTNNLayoutAttr::get(&context, pageTableShape, pageTableType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto curPosLayout =
+      TTNNLayoutAttr::get(&context, curPosShape, curPosType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyShape, tiledElemType, keyLayout);
+  auto pageTable =
+      createEmptyTensor(pageTableShape, pageTableType, pageTableLayout);
+  auto curPos = createEmptyTensor(curPosShape, curPosType, curPosLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto mlaOp = builder.create<PagedFlashMultiLatentAttentionDecodeOp>(
+      builder.getUnknownLoc(), outputType, query, key,
+      /*value=*/nullptr,
+      /*head_dim_v=*/headDimV, pageTable,
+      /*is_causal=*/true,
+      /*attention_mask=*/nullptr,
+      /*cur_pos_tensor=*/curPos,
+      /*attention_sink=*/nullptr,
+      /*scale=*/builder.getF32FloatAttr(headDim * 1.0f),
+      /*memory_config=*/nullptr);
+
+  mlaOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(mlaOp.getOperation());
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(totalPeakSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for "
+              "PagedFlashMultiLatentAttentionDecodeOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  // Skip runtime test — paged ops may sporadically hang (see issue #5738).
+  constexpr bool skipRuntimeTest = true;
+  if (!skipRuntimeTest) {
+    auto runtimeExp = getOpRuntime(mlaOp.getOperation());
+    if (runtimeExp) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      FAIL() << "Runtime test failed for "
+                "PagedFlashMultiLatentAttentionDecodeOp; Error="
+             << llvm::toString(runtimeExp.takeError());
+    }
+  }
+}
 
 } // namespace mlir::tt::ttnn

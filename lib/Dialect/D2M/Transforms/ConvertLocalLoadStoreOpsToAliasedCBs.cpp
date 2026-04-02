@@ -301,6 +301,17 @@ public:
     moduleOp->walk([&](RemoteStoreOp remoteStore) {
       Value memref = remoteStore.getMemref();
       if (isLocalOperand(memref, remoteStore.getOperation())) {
+        // Skip remote_stores whose local buffer has CBLayoutAttr.
+        // These are streaming circular buffers (hoisted by HoistCBAllocs)
+        // that require real data movement and must not be converted to
+        // reserve/push/wait/pop.
+        Value localBuffer = remoteStore.getLocalBuffer();
+        if (localBuffer) {
+          auto bufType = mlir::dyn_cast<MemRefType>(localBuffer.getType());
+          if (bufType && mlir::isa<ttcore::CBLayoutAttr>(bufType.getLayout())) {
+            return;
+          }
+        }
         remoteStoresToConvert.push_back(remoteStore);
       }
     });

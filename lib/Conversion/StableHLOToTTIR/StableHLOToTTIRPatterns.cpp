@@ -2439,18 +2439,11 @@ public:
           srcOp, "Invalid structure of reduce window block.");
     }
 
-    // Validate input shapes and ranks.
+    // Validate input ranks.
     RankedTensorType firstInputType =
         mlir::cast<RankedTensorType>(srcOp.getInputs()[0].getType());
-    for (Value input : srcOp.getInputs()) {
-      if (mlir::cast<RankedTensorType>(input.getType()).getShape() !=
-          firstInputType.getShape()) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "All inputs must have the same shape.");
-      }
-    }
     int64_t inputRank = firstInputType.getRank();
-    if (inputRank > 4) {
+    if (inputRank > 5) {
       return rewriter.notifyMatchFailure(srcOp, "Invalid input tensor rank.");
     }
 
@@ -2463,9 +2456,8 @@ public:
     }
     if (initValues->size() != srcOp.getInputs().size()) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Mismatch between inputs and init values.");
+          srcOp, "Mismatch between init values and inputs count.");
     }
-
     // Validate block body.
     Block &block = srcOp.getBody().getBlocks().front();
     auto &operations = block.getOperations();
@@ -2488,41 +2480,22 @@ public:
     // Validate op attributes or assign default values if not provided.
 
     DenseI64ArrayAttr windowDimensions = adaptor.getWindowDimensionsAttr();
-    if (windowDimensions.size() != inputRank) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "Invalid pooling window dimensions.");
-    }
 
     DenseI64ArrayAttr windowStrides = adaptor.getWindowStridesAttr();
     if (!windowStrides) {
       windowStrides = rewriter.getDenseI64ArrayAttr(
           SmallVector<int64_t>(windowDimensions.size(), 1));
     }
-    if (windowStrides.size() != inputRank) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "Invalid pooling window strides.");
-    }
-
     DenseI64ArrayAttr windowDilations = adaptor.getWindowDilationsAttr();
     if (!windowDilations) {
       windowDilations = rewriter.getDenseI64ArrayAttr(
           SmallVector<int64_t>(windowDimensions.size(), 1));
     }
-    if (windowDilations.size() != inputRank) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "Invalid pooling window dilations.");
-    }
-
     DenseI64ArrayAttr baseDilations = adaptor.getBaseDilationsAttr();
     if (!baseDilations) {
       baseDilations = rewriter.getDenseI64ArrayAttr(
           SmallVector<int64_t>(windowDimensions.size(), 1));
     }
-    if (baseDilations.size() != inputRank) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "Invalid base dilations in pooling.");
-    }
-
     DenseI64ArrayAttr padding =
         adaptor.getPaddingAttr()
             ? rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(
@@ -2533,6 +2506,13 @@ public:
     BoolAttr ceilMode = rewriter.getBoolAttr(false);
 
     BoolAttr countIncludesPad = rewriter.getBoolAttr(true);
+
+    // TTIR pooling ops do not support base dilations.
+    if (!llvm::all_of(baseDilations.asArrayRef(),
+                      [](int64_t d) { return d == 1; })) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Base dilations other than 1 are not supported.");
+    }
 
     // Handle the special case of lowering to CumSumOp.
     if (srcOp.getInputs().size() == 1) {
@@ -2548,8 +2528,16 @@ public:
       }
     }
 
-    // Not a special case of CumSumOp - lowering to TTIR pooling ops is
-    // supported only for 2D and 4D input tensors.
+    // Handle 5D input (3D pooling) by decomposing into two 2D pooling passes.
+    // This works because max is associative: max(i,j,k) = max_i(max(j,k)).
+    if (inputRank == 5) {
+      return lowerReduceWindow5D(srcOp, adaptor, rewriter, *initValues,
+                                 reductionOps, windowDimensions, windowStrides,
+                                 windowDilations, padding, ceilMode);
+    }
+
+    // Lowering to a single TTIR pooling op is supported only for 2D and 4D
+    // input tensors.
     if (!(inputRank == 2 || inputRank == 4)) {
       return rewriter.notifyMatchFailure(srcOp, "Invalid input tensor rank.");
     }
@@ -2768,6 +2756,222 @@ public:
   }
 
 private:
+  // Decompose a 5D reduce_window (3D pooling) into two sequential 2D max pool
+  // operations. The 3D pooling window [kD, kH, kW] is factored as:
+  //   Pass 1: MaxPool2d over (H, W) with kernel [kH, kW]
+  //   Pass 2: MaxPool2d over (D)    with kernel [kD, 1]
+  // This is valid because max is associative: max(i,j,k) = max_i(max(j,k)).
+  LogicalResult
+  lowerReduceWindow5D(mlir::stablehlo::ReduceWindowOp srcOp,
+                      mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
+                      ConversionPatternRewriter &rewriter,
+                      SmallVector<TypicalInitReductionValue> &initValues,
+                      SmallVector<mlir::Operation *> &reductionOps,
+                      DenseI64ArrayAttr windowDimensions,
+                      DenseI64ArrayAttr windowStrides,
+                      DenseI64ArrayAttr windowDilations,
+                      DenseI64ArrayAttr padding, BoolAttr ceilMode) const {
+    using TypicalInitReductionValue::NEG_INF;
+
+    // Identify spatial dimensions (window_dim > 1). Expect exactly 3 for 5D.
+    SmallVector<size_t> spatialDims =
+        indicesOfValuesGreaterThanOne(windowDimensions.asArrayRef());
+    if (spatialDims.size() != 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "5D reduce_window requires exactly 3 spatial dimensions.");
+    }
+
+    // Only max pooling is supported for 5D decomposition.
+    for (size_t i = 0; i < reductionOps.size(); ++i) {
+      if (!isa<mlir::stablehlo::MaxOp>(reductionOps[i]) ||
+          initValues[i] != NEG_INF) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "5D reduce_window decomposition only supports max pooling.");
+      }
+    }
+
+    // Identify non-spatial dimensions.
+    SmallVector<size_t> nonSpatialDims;
+    for (size_t i = 0; i < 5; ++i) {
+      if (!llvm::is_contained(spatialDims, i)) {
+        nonSpatialDims.push_back(i);
+      }
+    }
+
+    // Non-spatial dimensions are folded into batch, so they must have trivial
+    // window attributes. Stride > 1 would subsample, padding would change the
+    // output size - neither is handled by the batch-folding reshapes.
+    for (size_t dim : nonSpatialDims) {
+      if (windowStrides[dim] != 1 || padding[dim * 2] != 0 ||
+          padding[dim * 2 + 1] != 0) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Non-spatial dimensions must have stride=1 and no padding "
+                   "for 5D decomposition.");
+      }
+    }
+
+    // Canonical layout: [nonSpatial0, nonSpatial1, spatial0, spatial1,
+    // spatial2] i.e. NCDHW where N,C are non-spatial and D,H,W are spatial.
+    bool needsPermute =
+        (nonSpatialDims[0] != 0 || nonSpatialDims[1] != 1 ||
+         spatialDims[0] != 2 || spatialDims[1] != 3 || spatialDims[2] != 4);
+
+    SmallVector<int64_t> permToCanonical = {
+        static_cast<int64_t>(nonSpatialDims[0]),
+        static_cast<int64_t>(nonSpatialDims[1]),
+        static_cast<int64_t>(spatialDims[0]),
+        static_cast<int64_t>(spatialDims[1]),
+        static_cast<int64_t>(spatialDims[2])};
+    SmallVector<int64_t> permFromCanonical =
+        ttmlir::utils::inversePermutation(permToCanonical);
+
+    // Extract pooling attributes for the 3 spatial dimensions.
+    int64_t kD = windowDimensions[spatialDims[0]];
+    int64_t kH = windowDimensions[spatialDims[1]];
+    int64_t kW = windowDimensions[spatialDims[2]];
+
+    int64_t sD = windowStrides[spatialDims[0]];
+    int64_t sH = windowStrides[spatialDims[1]];
+    int64_t sW = windowStrides[spatialDims[2]];
+
+    int64_t dD = windowDilations[spatialDims[0]];
+    int64_t dH = windowDilations[spatialDims[1]];
+    int64_t dW = windowDilations[spatialDims[2]];
+
+    int64_t pHLo = padding[spatialDims[1] * 2];
+    int64_t pHHi = padding[spatialDims[1] * 2 + 1];
+    int64_t pWLo = padding[spatialDims[2] * 2];
+    int64_t pWHi = padding[spatialDims[2] * 2 + 1];
+    int64_t pDLo = padding[spatialDims[0] * 2];
+    int64_t pDHi = padding[spatialDims[0] * 2 + 1];
+
+    // Pool2d attributes for Pass 1 (HW pooling).
+    auto kernelHW = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(kH), static_cast<int32_t>(kW)});
+    auto strideHW = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(sH), static_cast<int32_t>(sW)});
+    auto dilationHW = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(dH), static_cast<int32_t>(dW)});
+    auto paddingHW = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(pHLo), static_cast<int32_t>(pWLo),
+         static_cast<int32_t>(pHHi), static_cast<int32_t>(pWHi)});
+
+    // Pool2d attributes for Pass 2 (D pooling).
+    auto kernelD = rewriter.getDenseI32ArrayAttr({static_cast<int32_t>(kD), 1});
+    auto strideD = rewriter.getDenseI32ArrayAttr({static_cast<int32_t>(sD), 1});
+    auto dilationD =
+        rewriter.getDenseI32ArrayAttr({static_cast<int32_t>(dD), 1});
+    auto paddingD = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(pDLo), 0, static_cast<int32_t>(pDHi), 0});
+
+    // A preceding stablehlo.PadOp could be fused into the pooling padding,
+    // similar to the 4D path (getFusablePadOp / combinePaddingFromPadOp), but
+    // the 5D case is uncommon enough that this optimization is deferred.
+    SmallVector<Value> resultVals;
+    for (size_t i = 0; i < srcOp.getInputs().size(); ++i) {
+      Value input = adaptor.getInputs()[i];
+      RankedTensorType inputType =
+          mlir::cast<RankedTensorType>(input.getType());
+      Type elemType = inputType.getElementType();
+      auto encoding = inputType.getEncoding();
+
+      RankedTensorType originalResultType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResult(i).getType()));
+
+      // Permute to canonical NCDHW layout if needed.
+      SmallVector<int64_t> canonShape;
+      if (needsPermute) {
+        canonShape = ttmlir::utils::applyPermutation(inputType.getShape(),
+                                                     permToCanonical);
+        input = rewriter.create<ttir::PermuteOp>(
+            srcOp.getLoc(),
+            RankedTensorType::get(canonShape, elemType, encoding), input,
+            permToCanonical);
+      } else {
+        canonShape = SmallVector<int64_t>(inputType.getShape());
+      }
+
+      // Canonical shape: [N, C, D, H, W].
+      int64_t N = canonShape[0];
+      int64_t C = canonShape[1];
+      int64_t D = canonShape[2];
+      int64_t H = canonShape[3];
+      int64_t W = canonShape[4];
+
+      // Derive output spatial sizes from the original result type.
+      SmallVector<int64_t> canonResultShape;
+      if (needsPermute) {
+        canonResultShape = ttmlir::utils::applyPermutation(
+            originalResultType.getShape(), permToCanonical);
+      } else {
+        canonResultShape = SmallVector<int64_t>(originalResultType.getShape());
+      }
+      int64_t Dout = canonResultShape[2];
+      int64_t Hout = canonResultShape[3];
+      int64_t Wout = canonResultShape[4];
+
+      // Pass 1: Pool over H, W.
+      // Reshape [N, C, D, H, W] -> [N*C*D, H, W, 1].
+      int64_t batchHW = N * C * D;
+      SmallVector<int64_t> shapeForHW = {batchHW, H, W, 1};
+      SmallVector<int32_t> shapeForHW32(shapeForHW.begin(), shapeForHW.end());
+
+      Value reshapedHW = rewriter.create<ttir::ReshapeOp>(
+          srcOp.getLoc(), RankedTensorType::get(shapeForHW, elemType, encoding),
+          input, rewriter.getI32ArrayAttr(shapeForHW32));
+
+      SmallVector<int64_t> resultShapeHW = {batchHW, Hout, Wout, 1};
+      Value pooledHW =
+          rewriter
+              .create<ttir::MaxPool2dOp>(
+                  srcOp.getLoc(),
+                  RankedTensorType::get(resultShapeHW, elemType, encoding),
+                  reshapedHW, kernelHW, strideHW, dilationHW, paddingHW,
+                  ceilMode)
+              .getResult();
+
+      // Pass 2: Pool over D.
+      // Reshape [N*C*D, Hout, Wout, 1] -> [N*C, D, Hout*Wout, 1].
+      int64_t batchD = N * C;
+      int64_t flatHW = Hout * Wout;
+      SmallVector<int64_t> shapeForD = {batchD, D, flatHW, 1};
+      SmallVector<int32_t> shapeForD32(shapeForD.begin(), shapeForD.end());
+
+      Value reshapedD = rewriter.create<ttir::ReshapeOp>(
+          srcOp.getLoc(), RankedTensorType::get(shapeForD, elemType, encoding),
+          pooledHW, rewriter.getI32ArrayAttr(shapeForD32));
+
+      SmallVector<int64_t> resultShapeD = {batchD, Dout, flatHW, 1};
+      Value pooledD =
+          rewriter
+              .create<ttir::MaxPool2dOp>(
+                  srcOp.getLoc(),
+                  RankedTensorType::get(resultShapeD, elemType, encoding),
+                  reshapedD, kernelD, strideD, dilationD, paddingD, ceilMode)
+              .getResult();
+
+      // Reshape back to canonical 5D: [N*C, Dout, Hout*Wout, 1] ->
+      //                                [N, C, Dout, Hout, Wout].
+      SmallVector<int32_t> canonResultShape32(canonResultShape.begin(),
+                                              canonResultShape.end());
+      Value result = rewriter.create<ttir::ReshapeOp>(
+          srcOp.getLoc(),
+          RankedTensorType::get(canonResultShape, elemType, encoding), pooledD,
+          rewriter.getI32ArrayAttr(canonResultShape32));
+
+      // Permute back to original layout if needed.
+      if (needsPermute) {
+        result = rewriter.create<ttir::PermuteOp>(
+            srcOp.getLoc(), originalResultType, result, permFromCanonical);
+      }
+
+      resultVals.push_back(result);
+    }
+
+    rewriter.replaceOp(srcOp, resultVals);
+    return success();
+  }
+
   // This function verifies all the required conditions to convert stablehlo
   // reduce_window op to TTIR cumsum op and also determine the dimension
   // attribute along which the cumulative sum will be computed.
@@ -2853,7 +3057,6 @@ private:
   // Validate structure of the ReduceWindowOp.
   // - Body must have exactly one block.
   // - Block must contain at least one reduction op.
-  // - The number of inputs must equal the number of outputs.
   bool hasValidOpStructure(mlir::stablehlo::ReduceWindowOp &srcOp) const {
     auto &blocks = srcOp.getBody().getBlocks();
     if (blocks.size() != 1) {
@@ -2861,9 +3064,6 @@ private:
     }
     const auto &ops = blocks.front().getOperations();
     if (ops.size() < 2) {
-      return false;
-    }
-    if (srcOp.getInputs().size() != srcOp.getResults().size()) {
       return false;
     }
     return true;
@@ -6521,14 +6721,64 @@ public:
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
 
     Value attentionMask = nullptr;
-    if (adaptor.getOperands().size() == 4) {
-      attentionMask = adaptor.getOperands()[3];
+    auto hasAttentionMaskStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
+    bool hasAttentionMask = false;
+    if (hasAttentionMaskStringAttr) {
+      if (failed(parseBoolFromStringAttr(hasAttentionMaskStringAttr,
+                                         hasAttentionMask))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to parse has_attention_mask attribute.");
+      }
+    }
+
+    Value attentionSink = nullptr;
+    auto hasAttentionSinkStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_sink");
+    bool hasAttentionSink = false;
+    if (hasAttentionSinkStringAttr) {
+      if (failed(parseBoolFromStringAttr(hasAttentionSinkStringAttr,
+                                         hasAttentionSink))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to parse has_attention_sink attribute.");
+      }
+    }
+
+    // For backward compatibility, if the frontend did not provide
+    // has_attention_mask and has_attention_sink attributes, we will infer the
+    // presence of attention mask based on the number of operands. The new
+    // frontend should always provide these attributes, so this inference logic
+    // will eventually be removed.
+    if (adaptor.getOperands().size() == 4 && !hasAttentionMask &&
+        !hasAttentionSink) {
+      hasAttentionMask = true;
+    }
+
+    // Validate that the number of operands matches what the attributes imply.
+    auto operands = adaptor.getOperands();
+    size_t operandIndex = 3; // Start after query, key, value
+    unsigned expectedNumOperands =
+        operandIndex + (hasAttentionMask ? 1 : 0) + (hasAttentionSink ? 1 : 0);
+    if (expectedNumOperands != operands.size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "Mismatch between operands and has_attention_mask/has_attention_sink "
+          "attributes.");
+    }
+
+    if (hasAttentionMask) {
+      attentionMask = operands[operandIndex];
+      operandIndex++;
+    }
+    if (hasAttentionSink) {
+      attentionSink = operands[operandIndex];
+      operandIndex++;
     }
 
     rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
         srcOp, outputType, query, key, value, attentionMask, isCausalAttr,
         scaleAttr, /*slidingWindowSize=*/nullptr,
-        /*attention_sink=*/Value());
+        /*attention_sink=*/attentionSink);
 
     return success();
   }

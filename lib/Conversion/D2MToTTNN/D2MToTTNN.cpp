@@ -270,7 +270,8 @@ createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
       if (nocIdx < 0) {
         nocIdx = unassignedNocCounter++ % 2;
       }
-      auto nocIndex = nocIdx == 0 ? ttnn::NocIndex::Noc0 : ttnn::NocIndex::Noc1;
+      auto nocIndex =
+          nocIdx == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
       auto processor = nocIdx == 0 ? ttnn::DataMovementProcessor::RiscV1
                                    : ttnn::DataMovementProcessor::RiscV0;
       kernelConfigs[i] = builder.getAttr<ttnn::DataMovementKernelAttr>(
@@ -485,28 +486,6 @@ static LogicalResult convertD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
   return success();
 }
 
-static LogicalResult convertD2MFull(d2m::FullOp op, IRRewriter &rewriter,
-                                    DenseMap<Value, Value> &valueMapping) {
-  auto tensorType = cast<RankedTensorType>(op.getResult().getType());
-  auto attrs = getTensorAllocAttrs(op, tensorType);
-  if (failed(attrs)) {
-    return failure();
-  }
-
-  auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-  auto shapeI32 = op.getShape();
-  SmallVector<int64_t> shapeI64(shapeI32.begin(), shapeI32.end());
-  auto shape = ttnn::ShapeAttr::get(op.getContext(), shapeI64);
-
-  OpBuilder::InsertionGuard guard(rewriter);
-  rewriter.setInsertionPointAfter(op);
-  auto fullOp = rewriter.create<ttnn::FullOp>(
-      op.getLoc(), tensorType, device, shape, op.getFillValueAttr(),
-      attrs->dtype, attrs->layout, attrs->memcfg);
-  valueMapping[op.getResult()] = fullOp.getResult();
-  return success();
-}
-
 static LogicalResult
 handleD2MCreateGlobalSemaphore(d2m::CreateGlobalSemaphoreOp op,
                                IRRewriter &rewriter,
@@ -559,15 +538,12 @@ materializeTTNNTensors(ModuleOp moduleOp,
   // We need to collect ops first because we insert new ops during traversal.
   SmallVector<memref::AllocOp> allocOps;
   SmallVector<d2m::EmptyOp> emptyOps;
-  SmallVector<d2m::FullOp> fullOps;
 
   moduleOp.walk([&](Operation *op) {
     if (auto allocOp = dyn_cast<memref::AllocOp>(op)) {
       allocOps.push_back(allocOp);
     } else if (auto emptyOp = dyn_cast<d2m::EmptyOp>(op)) {
       emptyOps.push_back(emptyOp);
-    } else if (auto fullOp = dyn_cast<d2m::FullOp>(op)) {
-      fullOps.push_back(fullOp);
     }
   });
 
@@ -578,11 +554,6 @@ materializeTTNNTensors(ModuleOp moduleOp,
   }
   for (auto op : emptyOps) {
     if (failed(convertD2MEmpty(op, rewriter, valueMapping))) {
-      return failure();
-    }
-  }
-  for (auto op : fullOps) {
-    if (failed(convertD2MFull(op, rewriter, valueMapping))) {
       return failure();
     }
   }
@@ -754,6 +725,14 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
   SmallVector<Value> ios;
   for (auto &info : infos) {
     ios.push_back(info.ioTensor);
+  }
+  // Runtime ttnn::generic_op currently requires at least one input and one
+  // output tensor in io_tensors. Some generator-style generics (e.g. fill ->
+  // unary) have only a single output tensor. Mirror that tensor as both input
+  // and output in the IO list so lowering stays within the runtime contract.
+  if (op.getInputs().empty() && op.getOutputs().size() == 1 &&
+      ios.size() == 1) {
+    ios.push_back(ios.front());
   }
 
   rewriter.setInsertionPoint(op);
@@ -1059,7 +1038,7 @@ static LogicalResult convertSpatials(ModuleOp moduleOp) {
 static LogicalResult cleanupAndVerify(ModuleOp moduleOp,
                                       DenseMap<Value, Value> &valueMapping) {
   // Replace all mapped values' uses with their TTNN equivalents.
-  // This handles d2m.empty/full results used directly by func.return.
+  // This handles d2m.empty results used directly by func.return.
   for (auto &[oldVal, newVal] : valueMapping) {
     oldVal.replaceAllUsesWith(newVal);
   }
@@ -1083,9 +1062,8 @@ static LogicalResult cleanupAndVerify(ModuleOp moduleOp,
   SmallVector<Operation *> opsToErase;
   moduleOp.walk([&](Operation *op) {
     if (isa<ttir::TTNNMetalLayoutCastOp, d2m::ViewLayoutOp, d2m::EmptyOp,
-            d2m::FullOp, d2m::ResetGlobalSemaphoreOp,
-            d2m::CreateGlobalSemaphoreOp, memref::DeallocOp, memref::AllocOp>(
-            op)) {
+            d2m::ResetGlobalSemaphoreOp, d2m::CreateGlobalSemaphoreOp,
+            memref::DeallocOp, memref::AllocOp>(op)) {
       opsToErase.push_back(op);
     }
   });

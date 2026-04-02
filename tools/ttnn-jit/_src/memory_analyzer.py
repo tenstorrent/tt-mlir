@@ -190,10 +190,6 @@ class MemoryAnalyzer:
         )
         print(f"       - D2M addr range: [{addr_range[0]}, {addr_range[1]})")
 
-    def _dump_memory_info(self):
-        """Dump the memory info of the device to ./generated/reports/"""
-        ttnn.device.dump_device_memory_state(self.device)
-
     def _allocate_and_get_addr_range(
         self, buffer_size: int, allocate_fn, prefix: str
     ) -> tuple[int, int]:

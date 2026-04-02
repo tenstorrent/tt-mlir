@@ -16,6 +16,7 @@ set(LLK_HEADERS
     ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_fabric_2d_routing.h
     ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_fabric_api.h
     ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_reg_api.h
+    ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_semaphore.h
 )
 
 # Set the output directory for generated headers

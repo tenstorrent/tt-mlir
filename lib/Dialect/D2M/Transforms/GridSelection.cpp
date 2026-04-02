@@ -7,6 +7,7 @@
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -179,38 +180,6 @@ computePhysicalShape(Value operand, const GridSelectionConfig &config,
       llvm::ArrayRef(tileShape.data(), tileShape.size()));
 }
 
-// Compute optimal grid shape for a given physical shape and target grid by
-// finding the largest grid dimensions that evenly divide the physical shape.
-// This ensures maximum utilization of available worker cores while maintaining
-// even distribution of work.
-static llvm::SmallVector<int64_t>
-computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
-                               ArrayRef<int64_t> targetSquareGridShape) {
-  llvm::SmallVector<int64_t> grid(physicalShape.size(), 1);
-
-  TT_assert(targetSquareGridShape.size() == 2u);
-  TT_assert(physicalShape.size() >= targetSquareGridShape.size());
-
-  // For tensors with rank > 2, only shard across the last two dimensions
-  // (which correspond to the 2D worker grid).
-  const size_t dimOffset = physicalShape.size() - targetSquareGridShape.size();
-
-  for (size_t i = 0; i < targetSquareGridShape.size(); ++i) {
-    const int64_t dim = physicalShape[dimOffset + i];
-    TT_assert(dim > 0);
-    // Search downward from the target grid size to find the largest divisor.
-    for (int64_t g = targetSquareGridShape[i]; g > 0; g--) {
-      if (dim % g == 0) {
-        grid[dimOffset + i] = g;
-        break;
-      }
-    }
-  }
-
-  TT_assert(grid.size() == physicalShape.size());
-  return grid;
-}
-
 // The following is a simple heuristic that determines (A) if a tensor _can_
 // be implemented as a virtual grid and (B) if it makes sense to do so based
 // on low grid utilization with regular block sharding.
@@ -229,7 +198,7 @@ static bool shouldImplementAsVirtualGrid(RankedTensorType tensorType,
   if (physicalShape.size() != 2) {
     return true;
   }
-  auto blockShardedGrid = computeOptimalBlockShardedGrid(
+  auto blockShardedGrid = utils::computeOptimalBlockShardedGrid(
       physicalShape, config.targetSquareGridShape);
   auto blockShardedGridVolume =
       ttmlir::utils::volume<int64_t>(blockShardedGrid);
@@ -250,8 +219,8 @@ computeOptimalGrid(mlir::RankedTensorType tensorType,
       return virtualGrid;
     }
   }
-  return computeOptimalBlockShardedGrid(physicalShape,
-                                        config.targetSquareGridShape);
+  return utils::computeOptimalBlockShardedGrid(physicalShape,
+                                               config.targetSquareGridShape);
 }
 
 static ttcore::MetalLayoutAttr

@@ -1,6 +1,11 @@
 if (TTMLIR_ENABLE_OPMODEL)
         add_definitions(-DTTMLIR_ENABLE_OPMODEL)
-        set(OPMODEL_SRCS Fusing/RoPEFusingPattern.cpp Fusing/SDPAFusingPattern.cpp Fusing/TopKFusingPattern.cpp Fusing/FusionValidator.cpp)
+        set(OPMODEL_SRCS
+                Fusing/RoPEFusingPattern.cpp
+                Fusing/SDPAFusingPattern.cpp
+                Fusing/SplitQKVFusingPatterns.cpp
+                Fusing/TopKFusingPattern.cpp
+                Fusing/FusionValidator.cpp)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
@@ -8,6 +13,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/OperationValidationAndFallback.cpp
         OptimizerPasses/Optimizer.cpp
         OptimizerPasses/DevicePassesWrapper.cpp
+        OptimizerPasses/GreedyMemoryLayoutPropagation.cpp
         OptimizerPasses/RowMajorLayoutPropagation.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNAdjustDeallocs.cpp

@@ -359,7 +359,9 @@ class TTNNBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             add_module = Module.create()
-            add_builder = TTNNBuilder(old_ctx, old_loc)
+            add_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(add_module.body):
@@ -384,6 +386,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     add_builder._set_golden_tensor(in0, input0)
                     add_builder._set_golden_tensor(in1, input1)
+                    add_builder._annotate_presharded_arg(in0)
+                    add_builder._annotate_presharded_arg(in1)
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
                     ordered_outputs.append(new_op_result)
@@ -473,7 +477,9 @@ class TTNNBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             abs_module = Module.create()
-            abs_builder = TTNNBuilder(old_ctx, old_loc)
+            abs_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(abs_module.body):
@@ -493,6 +499,7 @@ class TTNNBuilder(Builder):
                     abs_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     abs_builder._set_golden_tensor(in0, input0)
+                    abs_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -581,7 +588,9 @@ class TTNNBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             cbrt_module = Module.create()
-            cbrt_builder = TTNNBuilder(old_ctx, old_loc)
+            cbrt_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(cbrt_module.body):
@@ -601,6 +610,7 @@ class TTNNBuilder(Builder):
                     cbrt_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     cbrt_builder._set_golden_tensor(in0, input0)
+                    cbrt_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -689,7 +699,9 @@ class TTNNBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             ceil_module = Module.create()
-            ceil_builder = TTNNBuilder(old_ctx, old_loc)
+            ceil_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(ceil_module.body):
@@ -709,6 +721,7 @@ class TTNNBuilder(Builder):
                     ceil_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     ceil_builder._set_golden_tensor(in0, input0)
+                    ceil_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -797,7 +810,9 @@ class TTNNBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             cos_module = Module.create()
-            cos_builder = TTNNBuilder(old_ctx, old_loc)
+            cos_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(cos_module.body):
@@ -817,6 +832,7 @@ class TTNNBuilder(Builder):
                     cos_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     cos_builder._set_golden_tensor(in0, input0)
+                    cos_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -905,7 +921,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             acos_module = Module.create()
-            acos_builder = TTNNBuilder(old_ctx, old_loc)
+            acos_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(acos_module.body):
@@ -924,6 +942,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     acos_builder._set_golden_tensor(in0, input0)
+                    acos_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -1012,7 +1031,9 @@ class TTNNBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             erf_module = Module.create()
-            erf_builder = TTNNBuilder(old_ctx, old_loc)
+            erf_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(erf_module.body):
@@ -1032,6 +1053,7 @@ class TTNNBuilder(Builder):
                     erf_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     erf_builder._set_golden_tensor(in0, input0)
+                    erf_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -1120,7 +1142,9 @@ class TTNNBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             erfc_module = Module.create()
-            erfc_builder = TTNNBuilder(old_ctx, old_loc)
+            erfc_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(erfc_module.body):
@@ -1140,6 +1164,7 @@ class TTNNBuilder(Builder):
                     erfc_builder._set_golden_tensor(new_op_result, old_op_result)
                     input0 = self._get_golden_tensor(old_op.input)
                     erfc_builder._set_golden_tensor(in0, input0)
+                    erfc_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
 
@@ -1228,7 +1253,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             exp_module = Module.create()
-            exp_builder = TTNNBuilder(old_ctx, old_loc)
+            exp_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(exp_module.body):
@@ -1247,6 +1274,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     exp_builder._set_golden_tensor(in0, input0)
+                    exp_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -1335,7 +1363,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             floor_module = Module.create()
-            floor_builder = TTNNBuilder(old_ctx, old_loc)
+            floor_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(floor_module.body):
@@ -1354,6 +1384,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     floor_builder._set_golden_tensor(in0, input0)
+                    floor_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -1442,7 +1473,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             gelu_module = Module.create()
-            gelu_builder = TTNNBuilder(old_ctx, old_loc)
+            gelu_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(gelu_module.body):
@@ -1461,6 +1494,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     gelu_builder._set_golden_tensor(in0, input0)
+                    gelu_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -1549,7 +1583,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             isfinite_module = Module.create()
-            isfinite_builder = TTNNBuilder(old_ctx, old_loc)
+            isfinite_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(isfinite_module.body):
@@ -1656,7 +1692,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             logical_not_module = Module.create()
-            logical_not_builder = TTNNBuilder(old_ctx, old_loc)
+            logical_not_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(logical_not_module.body):
@@ -1675,6 +1713,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     logical_not_builder._set_golden_tensor(in0, input0)
+                    logical_not_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -1763,7 +1802,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             bitwise_not_module = Module.create()
-            bitwise_not_builder = TTNNBuilder(old_ctx, old_loc)
+            bitwise_not_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(bitwise_not_module.body):
@@ -1782,6 +1823,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     bitwise_not_builder._set_golden_tensor(in0, input0)
+                    bitwise_not_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -1870,7 +1912,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             neg_module = Module.create()
-            neg_builder = TTNNBuilder(old_ctx, old_loc)
+            neg_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(neg_module.body):
@@ -1889,6 +1933,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     neg_builder._set_golden_tensor(in0, input0)
+                    neg_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -1977,7 +2022,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             tan_module = Module.create()
-            tan_builder = TTNNBuilder(old_ctx, old_loc)
+            tan_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(tan_module.body):
@@ -1996,6 +2043,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     tan_builder._set_golden_tensor(in0, input0)
+                    tan_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -2084,7 +2132,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             atan_module = Module.create()
-            atan_builder = TTNNBuilder(old_ctx, old_loc)
+            atan_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(atan_module.body):
@@ -2103,6 +2153,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     atan_builder._set_golden_tensor(in0, input0)
+                    atan_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -2191,7 +2242,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             tanh_module = Module.create()
-            tanh_builder = TTNNBuilder(old_ctx, old_loc)
+            tanh_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(tanh_module.body):
@@ -2210,6 +2263,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     tanh_builder._set_golden_tensor(in0, input0)
+                    tanh_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -2298,7 +2352,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             reciprocal_module = Module.create()
-            reciprocal_builder = TTNNBuilder(old_ctx, old_loc)
+            reciprocal_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(reciprocal_module.body):
@@ -2317,6 +2373,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     reciprocal_builder._set_golden_tensor(in0, input0)
+                    reciprocal_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -2405,7 +2462,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             relu_module = Module.create()
-            relu_builder = TTNNBuilder(old_ctx, old_loc)
+            relu_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(relu_module.body):
@@ -2424,6 +2483,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     relu_builder._set_golden_tensor(in0, input0)
+                    relu_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -2512,7 +2572,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             relu6_module = Module.create()
-            relu6_builder = TTNNBuilder(old_ctx, old_loc)
+            relu6_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(relu6_module.body):
@@ -2531,6 +2593,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     relu6_builder._set_golden_tensor(in0, input0)
+                    relu6_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -2619,7 +2682,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             rsqrt_module = Module.create()
-            rsqrt_builder = TTNNBuilder(old_ctx, old_loc)
+            rsqrt_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(rsqrt_module.body):
@@ -2638,6 +2703,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     rsqrt_builder._set_golden_tensor(in0, input0)
+                    rsqrt_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -2726,7 +2792,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             sigmoid_module = Module.create()
-            sigmoid_builder = TTNNBuilder(old_ctx, old_loc)
+            sigmoid_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(sigmoid_module.body):
@@ -2745,6 +2813,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     sigmoid_builder._set_golden_tensor(in0, input0)
+                    sigmoid_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -2833,7 +2902,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             silu_module = Module.create()
-            silu_builder = TTNNBuilder(old_ctx, old_loc)
+            silu_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(silu_module.body):
@@ -2852,6 +2923,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     silu_builder._set_golden_tensor(in0, input0)
+                    silu_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -2940,7 +3012,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             sign_module = Module.create()
-            sign_builder = TTNNBuilder(old_ctx, old_loc)
+            sign_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(sign_module.body):
@@ -2959,6 +3033,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     sign_builder._set_golden_tensor(in0, input0)
+                    sign_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -3047,7 +3122,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             sin_module = Module.create()
-            sin_builder = TTNNBuilder(old_ctx, old_loc)
+            sin_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(sin_module.body):
@@ -3066,6 +3143,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     sin_builder._set_golden_tensor(in0, input0)
+                    sin_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -3154,7 +3232,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             asin_module = Module.create()
-            asin_builder = TTNNBuilder(old_ctx, old_loc)
+            asin_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(asin_module.body):
@@ -3173,6 +3253,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     asin_builder._set_golden_tensor(in0, input0)
+                    asin_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -3261,7 +3342,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             sqrt_module = Module.create()
-            sqrt_builder = TTNNBuilder(old_ctx, old_loc)
+            sqrt_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(sqrt_module.body):
@@ -3280,6 +3363,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     sqrt_builder._set_golden_tensor(in0, input0)
+                    sqrt_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -3365,7 +3449,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             typecast_module = Module.create()
-            typecast_builder = TTNNBuilder(old_ctx, old_loc)
+            typecast_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(typecast_module.body):
@@ -3384,6 +3470,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     typecast_builder._set_golden_tensor(in0, input0)
+                    typecast_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -3472,7 +3559,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             log_module = Module.create()
-            log_builder = TTNNBuilder(old_ctx, old_loc)
+            log_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(log_module.body):
@@ -3491,6 +3580,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     log_builder._set_golden_tensor(in0, input0)
+                    log_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -3579,7 +3669,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             log1p_module = Module.create()
-            log1p_builder = TTNNBuilder(old_ctx, old_loc)
+            log1p_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(log1p_module.body):
@@ -3598,6 +3690,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     log1p_builder._set_golden_tensor(in0, input0)
+                    log1p_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -3686,7 +3779,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             expm1_module = Module.create()
-            expm1_builder = TTNNBuilder(old_ctx, old_loc)
+            expm1_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(expm1_module.body):
@@ -3705,6 +3800,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     expm1_builder._set_golden_tensor(in0, input0)
+                    expm1_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -3800,7 +3896,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             eq_module = Module.create()
-            eq_builder = TTNNBuilder(old_ctx, old_loc)
+            eq_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(eq_module.body):
@@ -3920,7 +4018,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             ne_module = Module.create()
-            ne_builder = TTNNBuilder(old_ctx, old_loc)
+            ne_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(ne_module.body):
@@ -4040,7 +4140,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             ge_module = Module.create()
-            ge_builder = TTNNBuilder(old_ctx, old_loc)
+            ge_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(ge_module.body):
@@ -4160,7 +4262,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             gt_module = Module.create()
-            gt_builder = TTNNBuilder(old_ctx, old_loc)
+            gt_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(gt_module.body):
@@ -4280,7 +4384,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             le_module = Module.create()
-            le_builder = TTNNBuilder(old_ctx, old_loc)
+            le_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(le_module.body):
@@ -4400,7 +4506,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             lt_module = Module.create()
-            lt_builder = TTNNBuilder(old_ctx, old_loc)
+            lt_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(lt_module.body):
@@ -4520,7 +4628,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             logical_and_module = Module.create()
-            logical_and_builder = TTNNBuilder(old_ctx, old_loc)
+            logical_and_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(logical_and_module.body):
@@ -4544,6 +4654,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     logical_and_builder._set_golden_tensor(in0, input0)
                     logical_and_builder._set_golden_tensor(in1, input1)
+                    logical_and_builder._annotate_presharded_arg(in0)
+                    logical_and_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -4638,7 +4750,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             logical_left_shift_module = Module.create()
-            logical_left_shift_builder = TTNNBuilder(old_ctx, old_loc)
+            logical_left_shift_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(logical_left_shift_module.body):
@@ -4662,6 +4776,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     logical_left_shift_builder._set_golden_tensor(in0, input0)
                     logical_left_shift_builder._set_golden_tensor(in1, input1)
+                    logical_left_shift_builder._annotate_presharded_arg(in0)
+                    logical_left_shift_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -4758,7 +4874,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             logical_or_module = Module.create()
-            logical_or_builder = TTNNBuilder(old_ctx, old_loc)
+            logical_or_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(logical_or_module.body):
@@ -4782,6 +4900,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     logical_or_builder._set_golden_tensor(in0, input0)
                     logical_or_builder._set_golden_tensor(in1, input1)
+                    logical_or_builder._annotate_presharded_arg(in0)
+                    logical_or_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -4878,7 +4998,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             logical_right_shift_module = Module.create()
-            logical_right_shift_builder = TTNNBuilder(old_ctx, old_loc)
+            logical_right_shift_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(logical_right_shift_module.body):
@@ -4904,6 +5026,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     logical_right_shift_builder._set_golden_tensor(in0, input0)
                     logical_right_shift_builder._set_golden_tensor(in1, input1)
+                    logical_right_shift_builder._annotate_presharded_arg(in0)
+                    logical_right_shift_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -5000,7 +5124,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             logical_xor_module = Module.create()
-            logical_xor_builder = TTNNBuilder(old_ctx, old_loc)
+            logical_xor_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(logical_xor_module.body):
@@ -5024,6 +5150,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     logical_xor_builder._set_golden_tensor(in0, input0)
                     logical_xor_builder._set_golden_tensor(in1, input1)
+                    logical_xor_builder._annotate_presharded_arg(in0)
+                    logical_xor_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -5119,7 +5247,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             bitwise_and_module = Module.create()
-            bitwise_and_builder = TTNNBuilder(old_ctx, old_loc)
+            bitwise_and_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(bitwise_and_module.body):
@@ -5141,6 +5271,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     bitwise_and_builder._set_golden_tensor(in0, input0)
                     bitwise_and_builder._set_golden_tensor(in1, input1)
+                    bitwise_and_builder._annotate_presharded_arg(in0)
+                    bitwise_and_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -5236,7 +5368,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             bitwise_or_module = Module.create()
-            bitwise_or_builder = TTNNBuilder(old_ctx, old_loc)
+            bitwise_or_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(bitwise_or_module.body):
@@ -5258,6 +5392,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     bitwise_or_builder._set_golden_tensor(in0, input0)
                     bitwise_or_builder._set_golden_tensor(in1, input1)
+                    bitwise_or_builder._annotate_presharded_arg(in0)
+                    bitwise_or_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -5353,7 +5489,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             bitwise_xor_module = Module.create()
-            bitwise_xor_builder = TTNNBuilder(old_ctx, old_loc)
+            bitwise_xor_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(bitwise_xor_module.body):
@@ -5375,6 +5513,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     bitwise_xor_builder._set_golden_tensor(in0, input0)
                     bitwise_xor_builder._set_golden_tensor(in1, input1)
+                    bitwise_xor_builder._annotate_presharded_arg(in0)
+                    bitwise_xor_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -5469,7 +5609,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             minimum_module = Module.create()
-            minimum_builder = TTNNBuilder(old_ctx, old_loc)
+            minimum_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(minimum_module.body):
@@ -5491,6 +5633,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     minimum_builder._set_golden_tensor(in0, input0)
                     minimum_builder._set_golden_tensor(in1, input1)
+                    minimum_builder._annotate_presharded_arg(in0)
+                    minimum_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -5587,7 +5731,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             maximum_module = Module.create()
-            maximum_builder = TTNNBuilder(old_ctx, old_loc)
+            maximum_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(maximum_module.body):
@@ -5609,6 +5755,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     maximum_builder._set_golden_tensor(in0, input0)
                     maximum_builder._set_golden_tensor(in1, input1)
+                    maximum_builder._annotate_presharded_arg(in0)
+                    maximum_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -5705,7 +5853,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             subtract_module = Module.create()
-            subtract_builder = TTNNBuilder(old_ctx, old_loc)
+            subtract_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(subtract_module.body):
@@ -5729,6 +5879,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     subtract_builder._set_golden_tensor(in0, input0)
                     subtract_builder._set_golden_tensor(in1, input1)
+                    subtract_builder._annotate_presharded_arg(in0)
+                    subtract_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -5823,7 +5975,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             remainder_module = Module.create()
-            remainder_builder = TTNNBuilder(old_ctx, old_loc)
+            remainder_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(remainder_module.body):
@@ -5845,6 +5999,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     remainder_builder._set_golden_tensor(in0, input0)
                     remainder_builder._set_golden_tensor(in1, input1)
+                    remainder_builder._annotate_presharded_arg(in0)
+                    remainder_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -5939,7 +6095,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             pow_tensor_module = Module.create()
-            pow_tensor_builder = TTNNBuilder(old_ctx, old_loc)
+            pow_tensor_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(pow_tensor_module.body):
@@ -5961,6 +6119,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     pow_tensor_builder._set_golden_tensor(in0, input0)
                     pow_tensor_builder._set_golden_tensor(in1, input1)
+                    pow_tensor_builder._annotate_presharded_arg(in0)
+                    pow_tensor_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -6055,7 +6215,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             atan2_module = Module.create()
-            atan2_builder = TTNNBuilder(old_ctx, old_loc)
+            atan2_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(atan2_module.body):
@@ -6077,6 +6239,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     atan2_builder._set_golden_tensor(in0, input0)
                     atan2_builder._set_golden_tensor(in1, input1)
+                    atan2_builder._annotate_presharded_arg(in0)
+                    atan2_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -6173,7 +6337,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             multiply_module = Module.create()
-            multiply_builder = TTNNBuilder(old_ctx, old_loc)
+            multiply_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(multiply_module.body):
@@ -6197,6 +6363,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     multiply_builder._set_golden_tensor(in0, input0)
                     multiply_builder._set_golden_tensor(in1, input1)
+                    multiply_builder._annotate_presharded_arg(in0)
+                    multiply_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -6293,7 +6461,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             divide_module = Module.create()
-            divide_builder = TTNNBuilder(old_ctx, old_loc)
+            divide_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(divide_module.body):
@@ -6317,6 +6487,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.rhs)
                     divide_builder._set_golden_tensor(in0, input0)
                     divide_builder._set_golden_tensor(in1, input1)
+                    divide_builder._annotate_presharded_arg(in0)
+                    divide_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -6426,7 +6598,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             clamp_tensor_module = Module.create()
-            clamp_tensor_builder = TTNNBuilder(old_ctx, old_loc)
+            clamp_tensor_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.input.type,
                 old_op.min.type,
@@ -6562,7 +6736,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             concat_module = Module.create()
-            concat_builder = TTNNBuilder(old_ctx, old_loc)
+            concat_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [inp.type for inp in old_op.inputs]
 
             with InsertionPoint(concat_module.body):
@@ -6686,7 +6862,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             repeat_module = Module.create()
-            repeat_builder = TTNNBuilder(old_ctx, old_loc)
+            repeat_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(repeat_module.body):
@@ -6831,7 +7009,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             where_module = Module.create()
-            where_builder = TTNNBuilder(old_ctx, old_loc)
+            where_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [
                 old_op.first.type,
                 old_op.second.type,
@@ -6866,6 +7046,9 @@ class TTNNBuilder(Builder):
                     where_builder._set_golden_tensor(first, input0)
                     where_builder._set_golden_tensor(second, input1)
                     where_builder._set_golden_tensor(third, input2)
+                    where_builder._annotate_presharded_arg(first)
+                    where_builder._annotate_presharded_arg(second)
+                    where_builder._annotate_presharded_arg(third)
 
                     ordered_inputs.append(first)
                     ordered_inputs.append(second)
@@ -6985,7 +7168,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             matmul_module = Module.create()
-            matmul_builder = TTNNBuilder(old_ctx, old_loc)
+            matmul_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.a.type, old_op.b.type]
 
             with InsertionPoint(matmul_module.body):
@@ -7014,6 +7199,8 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.b)
                     matmul_builder._set_golden_tensor(in0, input0)
                     matmul_builder._set_golden_tensor(in1, input1)
+                    matmul_builder._annotate_presharded_arg(in0)
+                    matmul_builder._annotate_presharded_arg(in1)
 
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
@@ -7140,7 +7327,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             linear_module = Module.create()
-            linear_builder = TTNNBuilder(old_ctx, old_loc)
+            linear_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.a.type, old_op.b.type]
             has_bias = old_op.bias is not None
             if has_bias:
@@ -7174,11 +7363,14 @@ class TTNNBuilder(Builder):
                     input1 = self._get_golden_tensor(old_op.b)
                     linear_builder._set_golden_tensor(in0, input0)
                     linear_builder._set_golden_tensor(in1, input1)
+                    linear_builder._annotate_presharded_arg(in0)
+                    linear_builder._annotate_presharded_arg(in1)
                     ordered_inputs.append(in0)
                     ordered_inputs.append(in1)
                     if has_bias:
                         bias_golden = self._get_golden_tensor(old_op.bias)
                         linear_builder._set_golden_tensor(bias, bias_golden)
+                        linear_builder._annotate_presharded_arg(bias)
                         ordered_inputs.append(bias)
 
                     ordered_outputs.append(new_op_result)
@@ -7268,7 +7460,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             clamp_scalar_module = Module.create()
-            clamp_scalar_builder = TTNNBuilder(old_ctx, old_loc)
+            clamp_scalar_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(clamp_scalar_module.body):
@@ -7295,6 +7489,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     clamp_scalar_builder._set_golden_tensor(in0, input0)
+                    clamp_scalar_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -7385,7 +7580,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             repeat_interleave_module = Module.create()
-            repeat_interleave_builder = TTNNBuilder(old_ctx, old_loc)
+            repeat_interleave_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(repeat_interleave_module.body):
@@ -7412,6 +7609,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     repeat_interleave_builder._set_golden_tensor(in0, input0)
+                    repeat_interleave_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -7498,7 +7696,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             leaky_relu_module = Module.create()
-            leaky_relu_builder = TTNNBuilder(old_ctx, old_loc)
+            leaky_relu_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(leaky_relu_module.body):
@@ -7517,6 +7717,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     leaky_relu_builder._set_golden_tensor(in0, input0)
+                    leaky_relu_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -7599,7 +7800,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             mish_module = Module.create()
-            mish_builder = TTNNBuilder(old_ctx, old_loc)
+            mish_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(mish_module.body):
@@ -7618,6 +7821,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     mish_builder._set_golden_tensor(in0, input0)
+                    mish_builder._annotate_presharded_arg(in0)
 
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
@@ -8065,7 +8269,9 @@ class TTNNBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             deallocate_module = Module.create()
-            deallocate_builder = TTNNBuilder(old_ctx, old_loc)
+            deallocate_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(deallocate_module.body):
@@ -8085,6 +8291,7 @@ class TTNNBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.input)
                     deallocate_builder._set_golden_tensor(in0, input0)
+                    deallocate_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
 
                     return
@@ -8441,6 +8648,118 @@ class TTNNBuilder(Builder):
             input_golden,
             residual_golden,
             recip_golden,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op, {old_op.result: new_op_result}
+
+    ############### ttnn.LayerNormPostAllGatherOp ###############
+
+    @tag(ttnn.LayerNormPostAllGatherOp)
+    def layer_norm_post_all_gather(
+        self,
+        input: Operand,
+        stats: Operand,
+        weight: Optional[Operand] = None,
+        bias: Optional[Operand] = None,
+        epsilon: float = 1e-12,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.layer_norm_post_all_gather)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_golden = self._get_golden_tensor(input)
+        stats_golden = self._get_golden_tensor(stats)
+        weight_golden = self._get_golden_tensor(weight) if weight is not None else None
+        bias_golden = self._get_golden_tensor(bias) if bias is not None else None
+        epsilon_attr = FloatAttr.get_f32(epsilon)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input_golden,
+            stats_golden,
+            weight_golden,
+            bias_golden,
+            epsilon_attr,
+            mlir_output_type,
+        )
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        output_dtype = self._get_data_type_attribute(input)
+
+        op = ttnn_op(
+            result,
+            input,
+            stats,
+            loc=loc,
+            weight=weight,
+            bias=bias,
+            epsilon=epsilon_attr,
+            dtype=output_dtype,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.LayerNormPostAllGatherOp)
+    def layer_norm_post_all_gather_parser(
+        self,
+        old_op: ttnn.LayerNormPostAllGatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(
+            TTNNBuilder.layer_norm_post_all_gather_parser
+        )
+
+        in0 = global_dict[old_op.input]
+        stats = global_dict[old_op.stats]
+        weight = global_dict[old_op.weight] if old_op.weight is not None else None
+        bias = global_dict[old_op.bias] if old_op.bias is not None else None
+        result = old_op.result.type
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            stats,
+            loc=old_op.location,
+            weight=weight,
+            bias=bias,
+            epsilon=old_op.epsilon,
+            dtype=old_op.dtype,
+            memory_config=old_op.memory_config,
+            compute_config=old_op.compute_config,
+            program_config=old_op.program_config,
+        )
+        new_op_result = new_op.result
+
+        input_golden = self._get_golden_tensor(in0)
+        stats_golden = self._get_golden_tensor(stats)
+        weight_golden = self._get_golden_tensor(weight) if weight is not None else None
+        bias_golden = self._get_golden_tensor(bias) if bias is not None else None
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input_golden,
+            stats_golden,
+            weight_golden,
+            bias_golden,
+            old_op.epsilon,
             result.element_type,
         )
         self._set_golden_tensor(new_op_result, golden_output)

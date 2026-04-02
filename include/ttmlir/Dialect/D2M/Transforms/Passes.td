@@ -750,23 +750,30 @@ def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
 }
 
 def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::ModuleOp"> {
-  let summary = "Scalarize constant tensor inputs in d2m.generic operations";
+  let summary = "Scalarize uses of splat fills produced inside d2m.generic (tile_fill pattern)";
   let description = [{
-    This pass looks at d2m.generic operations and identifies constant tensor inputs
-    (created by d2m.full operations). When a constant tensor is used by operations
-    that support scalar operands (operations with supportsTileOrScalarRhs()), the
-    pass replaces the tensor block arguments in linalg.generic operations with
-    scalar constants.
+    This pass matches **producer** `d2m.generic` operations whose region contains the
+    splat-fill shape produced by lowering `ttir.full`: a single inputless
+    `linalg.generic` whose body is `arith.constant` + `d2m.tile_fill` (+ yield).
+    It reads the splat value from that pattern, follows the producer result through
+    `d2m.to_layout`, `d2m.view_layout`, and `ttir.ttnn_metal_layout_cast` to **consumer**
+    `d2m.generic` regions, and rewrites inner `linalg.generic` ops so operands that
+    were loaded from the splat tensor become `arith.constant` scalars where the tile op
+    implements `supportsTileOrScalarRhs()`.
+
+    It then drops now-unused producer inputs from the outer `d2m.generic` and removes
+    redundant `d2m.remote_load` chains where applicable.
 
     This transformation can improve performance by:
-    1. Reducing memory usage (no need to store the constant tensor)
+    1. Reducing memory usage (no need to materialize the constant tensor for those uses)
     2. Enabling more efficient scalar operations in the compute kernel
 
     Example transformation:
     ```mlir
-    // Before:
-    %const = d2m.full {fill_value = 2.5 : f32, shape = array<i32: 128, 128>} : tensor<128x128xf32>
-    %const_layout = d2m.to_layout %const, ...
+    // Before: splat tensor flows from a fill generic (e.g. after `ttir.full` -> D2M)
+    // into a compute generic; %fill below is the fill producer's result after layout.
+    %fill = d2m.generic ... { ... linalg.generic ... d2m.tile_fill ... } : ...
+    %const_layout = d2m.to_layout %fill, ...
     d2m.generic ins(%input, %const_layout : ...) {
     ^compute0(%cb0: !d2m.cb<tensor<4x4x!ttcore.tile<...>>>, %cb1: !d2m.cb<tensor<4x4x!ttcore.tile<...>>>, ...):
       %t0 = d2m.wait %cb0 : ...

@@ -34,6 +34,13 @@ namespace mlir::tt::ttkernel {
 
 namespace {
 
+static Value i16(OpBuilder &rewriter, Location loc, int16_t value) {
+  return rewriter
+      .create<arith::ConstantOp>(loc, rewriter.getI16Type(),
+                                 rewriter.getI16IntegerAttr(value))
+      .getResult();
+}
+
 static Value i32(OpBuilder &rewriter, Location loc, int32_t value) {
   return rewriter
       .create<arith::ConstantOp>(loc, rewriter.getI32Type(),
@@ -76,23 +83,83 @@ static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
               index(rewriter, loc, 1))};
 }
 
+static Value getFabricConnectionManager(Operation *op) {
+  Value fcm;
+  op->getParentOfType<func::FuncOp>().walk(
+      [&](ttkernel::CreateFabricConnectionManagerOp
+              createFabricConnectionManagerOp) {
+        fcm = createFabricConnectionManagerOp.getResult();
+        return WalkResult::interrupt();
+      });
+  TT_assertv(fcm, "Expected fabric connection manager op.");
+  return fcm;
+}
+
+static SmallVector<Value> getMeshPositionIndices(OpBuilder &rewriter,
+                                                 Location loc, Operation *op) {
+  auto meshShape = ttcore::lookupDevice(op).getMeshShape();
+  auto fcm = getFabricConnectionManager(op);
+  SmallVector<Value> indices;
+  for (size_t i = 0; i < meshShape.size(); i++) {
+    indices.push_back(
+        rewriter.create<ttkernel::GetMyLogicalMeshPositionOp>(loc, fcm, i));
+  }
+  return indices;
+}
+
+static SmallVector<Value>
+getDeviceMcastEndPosition(OpBuilder &rewriter, OperandRange startDevice,
+                          OperandRange deviceMcastShape) {
+  assert(startDevice.size() == deviceMcastShape.size() &&
+         "startDevice and deviceMcastShape must have the same size");
+  SmallVector<Value> endDevice;
+  endDevice.reserve(startDevice.size());
+  for (auto [start, shape] : llvm::zip(startDevice, deviceMcastShape)) {
+    Value sum = rewriter.create<arith::AddIOp>(start.getLoc(), start, shape);
+    Value end = rewriter.create<arith::SubIOp>(
+        start.getLoc(), sum, index(rewriter, start.getLoc(), 1));
+    endDevice.push_back(end);
+  }
+  return endDevice;
+}
+
+static Value getDeviceInMcastRange(OpBuilder &rewriter, Location loc,
+                                   ValueRange deviceIndices,
+                                   ValueRange startIndices,
+                                   ValueRange endIndices) {
+  assert(startIndices.size() == endIndices.size() &&
+         startIndices.size() == deviceIndices.size() &&
+         "startIndices, endIndices, and deviceIndices must have the same size");
+  Value result = rewriter.create<arith::ConstantOp>(
+      loc, rewriter.getIntegerAttr(rewriter.getI1Type(), 1));
+  for (auto [start, end, device] :
+       llvm::zip(startIndices, endIndices, deviceIndices)) {
+    Value lowerBoundCheck = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::ule, start, device);
+    result = rewriter.create<arith::AndIOp>(loc, result, lowerBoundCheck);
+    Value upperBoundCheck = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::ule, device, end);
+    result = rewriter.create<arith::AndIOp>(loc, result, upperBoundCheck);
+  }
+  return result;
+}
+
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
-  if (memref::LoadOp loadOp =
-          mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
-      loadOp) {
+  if (auto loadOp = cb.getDefiningOp<memref::LoadOp>()) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
-    return rewriter.getRemappedValue(loadOp.getMemref());
+    return rewriter.getRemappedValue(loadOp.getMemRef());
   }
 
-  if (mlir::isa<memref::SubViewOp>(cb.getDefiningOp())) {
-    memref::SubViewOp subViewOp =
-        mlir::cast<memref::SubViewOp>(cb.getDefiningOp());
+  if (auto affLoad = cb.getDefiningOp<affine::AffineLoadOp>()) {
+    return rewriter.getRemappedValue(affLoad.getMemRef());
+  }
+
+  if (auto subViewOp = cb.getDefiningOp<memref::SubViewOp>()) {
     return rewriter.getRemappedValue(subViewOp.getSource());
   }
 
-  if (mlir::isa<memref::CastOp>(cb.getDefiningOp())) {
-    memref::CastOp castOp = mlir::cast<memref::CastOp>(cb.getDefiningOp());
+  if (auto castOp = cb.getDefiningOp<memref::CastOp>()) {
     return rewriter.getRemappedValue(castOp.getSource());
   }
   llvm_unreachable("Expected load or subview op");
@@ -161,42 +228,69 @@ static void ensureDominatesInsertionPoint(OpBuilder &rewriter, Value value) {
   defOp->moveBefore(insertBlock, rewriter.getInsertionPoint());
 }
 
-// This is a workaround special case for getting an in/out CB. This whole
-// routine should go away with issue:
-// https://github.com/tenstorrent/tt-mlir/issues/3602
-template <typename LoadOrStoreOp>
-static Value getInOrOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
-  static_assert(std::is_same_v<LoadOrStoreOp, memref::LoadOp> ||
-                std::is_same_v<LoadOrStoreOp, memref::StoreOp>);
-  func::FuncOp func = op->getParentOfType<func::FuncOp>();
-  assert(func && "Expected func op.");
-  Value cb = nullptr;
-  func.walk([&](LoadOrStoreOp loadStore) {
-    if (ttcore::getMemorySpace(loadStore.getMemRef()) ==
-        ttcore::MemorySpace::DeviceL1) {
-      cb = loadStore.getMemRef();
+// Remapped L1 CB for a tile loaded from L1; null if the value is not an L1 load
+// (including DST-only producers such as tile_fill).
+static Value tryGetL1CbFromTensorShardLoad(ConversionPatternRewriter &rewriter,
+                                           Value v) {
+  Value memref;
+  if (auto load = v.getDefiningOp<memref::LoadOp>()) {
+    memref = load.getMemRef();
+  } else if (auto load = v.getDefiningOp<affine::AffineLoadOp>()) {
+    memref = load.getMemRef();
+  } else {
+    return nullptr;
+  }
+  if (ttcore::getMemorySpace(memref) != ttcore::MemorySpace::DeviceL1) {
+    return nullptr;
+  }
+  return rewriter.getRemappedValue(memref);
+}
+
+// Walk `func` for the first L1 memref touched by `OpTy` (load or store).
+template <typename OpTy>
+static Value findFirstL1CbForOpKind(func::FuncOp func) {
+  Value cb;
+  func.walk([&](OpTy accessOp) {
+    Value m = accessOp.getMemRef();
+    if (ttcore::getMemorySpace(m) == ttcore::MemorySpace::DeviceL1) {
+      cb = m;
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
+  return cb;
+}
+
+// First memref load/store wins; memref dialect ops are scanned before affine.
+// Used when operand-local CB resolution is insufficient.
+static Value findFirstL1CbMemref(func::FuncOp func, bool forInput) {
+  if (forInput) {
+    if (Value cb = findFirstL1CbForOpKind<memref::LoadOp>(func)) {
+      return cb;
+    }
+    return findFirstL1CbForOpKind<affine::AffineLoadOp>(func);
+  }
+  if (Value cb = findFirstL1CbForOpKind<memref::StoreOp>(func)) {
+    return cb;
+  }
+  return findFirstL1CbForOpKind<affine::AffineStoreOp>(func);
+}
+
+static Value getRemappedFirstL1Cb(ConversionPatternRewriter &rewriter,
+                                  Operation *op, bool forInput) {
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  assert(func && "Expected func op.");
+  Value cb = findFirstL1CbMemref(func, forInput);
   assert(cb && "CB not found.");
   return rewriter.getRemappedValue(cb);
 }
 
-// This is a workaround special case for getting an input CB. This whole
-// routine should go away with issue:
-// https://github.com/tenstorrent/tt-mlir/issues/3602
 static Value getInCB(ConversionPatternRewriter &rewriter, Operation *op) {
-  // Search for a load from L1.
-  return getInOrOutCB<memref::LoadOp>(rewriter, op);
+  return getRemappedFirstL1Cb(rewriter, op, /*forInput=*/true);
 }
 
-// This is a workaround special case for getting an output CB. This whole
-// routine should go away with issue:
-// https://github.com/tenstorrent/tt-mlir/issues/3602
 static Value getOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
-  // Search for a store to L1.
-  return getInOrOutCB<memref::StoreOp>(rewriter, op);
+  return getRemappedFirstL1Cb(rewriter, op, /*forInput=*/false);
 }
 
 // Check if an operand comes from DST.
@@ -882,8 +976,18 @@ public:
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto insertionPoint = rewriter.getInsertionPoint();
-    auto inCB = getInCB(rewriter, op);
-    auto outCB = getOutCB(rewriter, op);
+    Value outCB = getOutCB(rewriter, op);
+    Value inCB;
+    if constexpr (arity == 1) {
+      inCB = tryGetL1CbFromTensorShardLoad(rewriter, op.getInput());
+      if (!inCB) {
+        // DST-only tile (e.g. after tile_fill): no L1 CB; reuse output CB for
+        // init_sfpu.
+        inCB = outCB;
+      }
+    } else {
+      inCB = getInCB(rewriter, op);
+    }
     rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
     setInsertionPointAfterOperands(rewriter, {inCB, outCB},
                                    /*allowHoisting*/ true);
@@ -999,27 +1103,49 @@ public:
         // Handle scalar operand - need to use unary scalar ops
         const auto dstIdx = adaptor.getLhs();
         auto loc = op->getLoc();
+        auto scalarToI32Param = [&](Value scalar) -> Value {
+          auto scalarType = mlir::cast<Type>(scalar.getType());
+          if (auto floatType = llvm::dyn_cast<FloatType>(scalarType)) {
+            Value f32Scalar = scalar;
+            if (!floatType.isF32()) {
+              f32Scalar = rewriter.create<arith::ExtFOp>(
+                  loc, rewriter.getF32Type(), scalar);
+            }
+            return rewriter.create<arith::BitcastOp>(loc, rewriter.getI32Type(),
+                                                     f32Scalar);
+          }
+
+          // Integer scalars are passed as i32 numeric values.
+          if (scalarType.isInteger(32)) {
+            return scalar;
+          }
+          if (auto intType = llvm::dyn_cast<IntegerType>(scalarType)) {
+            if (intType.getWidth() < 32) {
+              return rewriter.create<arith::ExtSIOp>(loc, rewriter.getI32Type(),
+                                                     scalar);
+            }
+            return rewriter.create<arith::TruncIOp>(loc, rewriter.getI32Type(),
+                                                    scalar);
+          }
+
+          llvm_unreachable("Expected scalar rhs to be integer or float");
+        };
 
         // Create the appropriate unary scalar op based on the D2M op type
         if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
-          // Bitcast the scalar value to i32 to pass as parameter
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Param(adaptor.getRhs());
           rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Param(adaptor.getRhs());
           rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Param(adaptor.getRhs());
           rewriter.create<ttkernel::MulUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileDivOp>) {
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
+          auto scalarParam = scalarToI32Param(adaptor.getRhs());
           rewriter.create<ttkernel::DivUnaryTileOp>(loc, dstIdx, scalarParam);
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
           // For power, convert float value to integer (not bitcast)
@@ -1368,6 +1494,36 @@ public:
   };
 };
 
+// Coerce `d2m.tile_fill` scalar to i32 (FillTileIntOp) or f32 (FillTileOp).
+static LogicalResult materializeFillTileKernelValue(
+    Location loc, d2m::TileFillOp op, Value &fillValue,
+    ConversionPatternRewriter &rewriter, bool &useIntFill) {
+  Type ty = fillValue.getType();
+  if (auto intTy = dyn_cast<IntegerType>(ty)) {
+    if (!intTy.isInteger(32)) {
+      Type i32Ty = rewriter.getI32Type();
+      fillValue = intTy.getWidth() < 32
+                      ? rewriter.create<arith::ExtSIOp>(loc, i32Ty, fillValue)
+                            .getResult()
+                      : rewriter.create<arith::TruncIOp>(loc, i32Ty, fillValue)
+                            .getResult();
+    }
+    useIntFill = true;
+    return success();
+  }
+  if (!isa<FloatType>(ty)) {
+    return rewriter.notifyMatchFailure(
+        op, "tile_fill value must be a float or integer type");
+  }
+  if (!ty.isF32()) {
+    fillValue =
+        rewriter.create<arith::ExtFOp>(loc, rewriter.getF32Type(), fillValue)
+            .getResult();
+  }
+  useIntFill = false;
+  return success();
+}
+
 class D2MTileFillRewriter : public OpConversionPattern<d2m::TileFillOp> {
 public:
   using OpConversionPattern<d2m::TileFillOp>::OpConversionPattern;
@@ -1378,13 +1534,29 @@ public:
     Value dstIdx = getDstIdxFromResult(op.getResult());
     ensureDominatesInsertionPoint(rewriter, dstIdx);
 
-    Value fillValue = adaptor.getValue();
     Location loc = op->getLoc();
+    // No L1 input: HW startup uses the output CB for both unpack and pack.
+    Value outCB = getOutCB(rewriter, op);
+    auto insertionPoint = rewriter.getInsertionPoint();
+    setInsertionPointAfterOperands(rewriter, {outCB}, /*allowHoisting*/ true);
+    rewriter.create<ttkernel::ComputeKernelHWStartupOp>(loc, outCB, nullptr,
+                                                        outCB);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
-    rewriter.create<ttkernel::ExperimentalTileFillOp>(loc, dstIdx, fillValue);
+    Value fillValue = adaptor.getValue();
+    bool useIntFill = false;
+    if (failed(materializeFillTileKernelValue(loc, op, fillValue, rewriter,
+                                              useIntFill))) {
+      return failure();
+    }
 
-    // Replace the op with its DST index so users (like TileWhereOp) get the
-    // correct operand value.
+    rewriter.create<ttkernel::FillTileInitOp>(loc);
+    if (useIntFill) {
+      rewriter.create<ttkernel::FillTileIntOp>(loc, dstIdx, fillValue);
+    } else {
+      rewriter.create<ttkernel::FillTileOp>(loc, dstIdx, fillValue);
+    }
+
     rewriter.replaceOp(op, dstIdx);
     return success();
   }
@@ -1737,7 +1909,56 @@ public:
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
 
-    if (op.isDstLocal()) {
+    if (op.getStartDevice().size() > 0) {
+      auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
+          rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
+      auto dstNocAddr =
+          buildNocAddress(rewriter, op.getLoc(), adaptor.getDst(),
+                          op.getDstIndices(), chipDesc, op.getDstMemorySpace());
+      auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
+      auto meshId = i16(rewriter, op->getLoc(), 0);
+      auto fcm = getFabricConnectionManager(op);
+
+      // fabric unicast
+      if (op.getDeviceMcastShape().size() == 0) {
+        auto deviceId =
+            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+                op.getLoc(), fcm, op.getStartDevice());
+        rewriter.create<ttkernel::FabricWriteOp>(
+            op.getLoc(), fcm, meshId, deviceId, dstNocAddr, srcL1Addr, size);
+      }
+      // fabric multicast
+      else {
+        auto startDeviceId =
+            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+                op.getLoc(), fcm, op.getStartDevice());
+        auto endDevice = getDeviceMcastEndPosition(
+            rewriter, op.getStartDevice(), op.getDeviceMcastShape());
+        auto endDeviceId =
+            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+                op.getLoc(), fcm, endDevice);
+        rewriter.create<ttkernel::FabricMulticastWriteOp>(
+            op.getLoc(), fcm, meshId, startDeviceId, endDeviceId, dstNocAddr,
+            srcL1Addr, size);
+
+        // Add noc async write if device is contained within mcast region
+        auto meshPositionIndices =
+            getMeshPositionIndices(rewriter, op.getLoc(), op);
+        Value isDeviceInMcastRange =
+            getDeviceInMcastRange(rewriter, op.getLoc(), meshPositionIndices,
+                                  op.getStartDevice(), endDevice);
+        auto ifOp = rewriter.create<scf::IfOp>(
+            op.getLoc(), TypeRange{}, isDeviceInMcastRange,
+            true /*addThenBlock*/, false /*addElseBlock*/);
+        {
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+          rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
+                                                     dstNocAddr, size);
+          rewriter.create<scf::YieldOp>(op.getLoc());
+        }
+      }
+    } else if (op.isDstLocal()) {
       // Local to Local Datamovement & Multicast
 
       // Both src and dst are local, use the metal cb pointers to determine
@@ -1887,6 +2108,23 @@ public:
     Value virtDim = rewriter.create<mlir::affine::AffineApplyOp>(
         op.getLoc(), selectedMap, ValueRange{logicalY, logicalX});
     rewriter.replaceOp(op, virtDim);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MMeshPositionRewriter
+    : public OpConversionPattern<d2m::MeshPositionOp> {
+public:
+  using OpConversionPattern<d2m::MeshPositionOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::MeshPositionOp op, d2m::MeshPositionOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto fcm = getFabricConnectionManager(op);
+    rewriter.replaceOpWithNewOp<ttkernel::GetMyLogicalMeshPositionOp>(
+        op, fcm, op.getDim());
     return success();
   }
 };
@@ -2158,7 +2396,57 @@ public:
     Value value = op.getValue();
     Value semaphoreAddr = adaptor.getSemaphore();
 
-    if (op.getDstCoreIndex().empty()) {
+    if (op.getStartDevice().size() > 0) {
+      assert(mlir::isa<d2m::SemaphoreIncOp>(op) &&
+             "only d2m.semaphore_inc to remote device is allowed.");
+      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+          rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
+          op.getDstCoreIndex());
+      auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
+          op.getLoc(), virtX, virtY, semaphoreAddr);
+      auto meshId = i16(rewriter, op->getLoc(), 0);
+      auto fcm = getFabricConnectionManager(op);
+
+      // fabric unicast
+      if (op.getDeviceMcastShape().size() == 0) {
+        auto deviceId =
+            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+                op.getLoc(), fcm, op.getStartDevice());
+        rewriter.replaceOpWithNewOp<ttkernel::FabricSemIncOp>(
+            op, fcm, meshId, deviceId, nocAddr, value);
+      }
+      // fabric multicast
+      else {
+        auto startDeviceId =
+            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+                op.getLoc(), fcm, op.getStartDevice());
+        auto endDevice = getDeviceMcastEndPosition(
+            rewriter, op.getStartDevice(), op.getDeviceMcastShape());
+        auto endDeviceId =
+            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+                op.getLoc(), fcm, endDevice);
+        rewriter.replaceOpWithNewOp<ttkernel::FabricMulticastSemIncOp>(
+            op, fcm, meshId, startDeviceId, endDeviceId, nocAddr, value);
+
+        // Add noc semaphore inc if device is contained within mcast region
+        auto meshPositionIndices =
+            getMeshPositionIndices(rewriter, op.getLoc(), op);
+        Value isDeviceInMcastRange =
+            getDeviceInMcastRange(rewriter, op.getLoc(), meshPositionIndices,
+                                  op.getStartDevice(), endDevice);
+        auto ifOp = rewriter.create<scf::IfOp>(
+            op.getLoc(), TypeRange{}, isDeviceInMcastRange,
+            true /*addThenBlock*/, false /*addElseBlock*/);
+        {
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+          rewriter.create<ttkernel::NocSemaphoreIncOp>(op.getLoc(), nocAddr,
+                                                       value,
+                                                       /*noc_id=*/nullptr);
+          rewriter.create<scf::YieldOp>(op.getLoc());
+        }
+      }
+    } else if (op.getDstCoreIndex().empty()) {
       assert(!mlir::isa<d2m::SemaphoreIncOp>(op) &&
              "d2m.semaphore_inc to local core is illegal.");
 
@@ -2231,12 +2519,67 @@ public:
     auto semaphorePtr =
         rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
 
-    rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreWaitOp>(op, semaphorePtr,
-                                                              op.getValue());
+    rewriter.replaceOpWithNewOp<ttkernel::SemaphoreWaitOp>(op, semaphorePtr,
+                                                           op.getValue());
     if (op.getResetValue()) {
       rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
                                                    op.getResetValue());
     }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MDeviceSynchronizeRewriter
+    : public OpConversionPattern<d2m::DeviceSynchronizeOp> {
+public:
+  using OpConversionPattern<d2m::DeviceSynchronizeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::DeviceSynchronizeOp op,
+                  d2m::DeviceSynchronizeOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // get noc addr and ptr from global semaphore
+    auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+        rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
+        op.getCoreIndices());
+    auto globalSemAddr = rewriter.create<ttkernel::GetNocAddrOp>(
+        op.getLoc(), virtX, virtY, adaptor.getSyncSemaphore());
+    auto globalSemPtr = rewriter.create<ttkernel::CastToL1PtrOp>(
+        op.getLoc(), adaptor.getSyncSemaphore());
+
+    assert(op.getSenderStartDevice().size() > 0 && "start device must be set");
+    auto fcm = getFabricConnectionManager(op);
+    auto meshId = i16(rewriter, op->getLoc(), 0);
+    auto incr = i32(rewriter, op->getLoc(), 1);
+    auto numReceivers = i32(rewriter, op->getLoc(), op.getNumReceivers());
+
+    // fabric unicast
+    if (op.getSenderDeviceMcastShape().size()) {
+      auto startDeviceId =
+          rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+              op.getLoc(), fcm, op.getSenderStartDevice());
+      auto endDevice = getDeviceMcastEndPosition(
+          rewriter, op.getSenderStartDevice(), op.getSenderDeviceMcastShape());
+      auto endDeviceId =
+          rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+              op.getLoc(), fcm, endDevice);
+      rewriter.replaceOpWithNewOp<ttkernel::FabricMulticastSemIncOp>(
+          op, fcm, meshId, startDeviceId, endDeviceId, globalSemAddr, incr);
+    }
+    // fabric multicast
+    else {
+      auto startDeviceId =
+          rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
+              op.getLoc(), fcm, op.getSenderStartDevice());
+      rewriter.replaceOpWithNewOp<ttkernel::FabricSemIncOp>(
+          op, fcm, meshId, startDeviceId, globalSemAddr, incr);
+    }
+
+    rewriter.create<ttkernel::SemaphoreWaitOp>(op.getLoc(), globalSemPtr,
+                                               numReceivers);
 
     return success();
   }
@@ -2339,11 +2682,13 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MCBReleaseOpRewriter<d2m::PopOp, ttkernel::CBPopFrontOp>,
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
+               ttkernel::D2MMeshPositionRewriter,
                ttkernel::D2MNullTxRewriter,
                ttkernel::MemRefCollapseRewriter,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,
-               ttkernel::D2MSemaphoreWaitRewriter>(typeConverter, ctx);
+               ttkernel::D2MSemaphoreWaitRewriter,
+               ttkernel::D2MDeviceSynchronizeRewriter>(typeConverter, ctx);
 
   patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx,
                                                       ttnnMode);

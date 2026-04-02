@@ -62,11 +62,20 @@ struct RankedTensorTypeFactory {
                                  ArrayRef<int64_t> tensorShape);
 };
 
+// Helper method to get the buffer type from the tensor layout encoding.
+BufferType getBufferTypeFromTensor(RankedTensorType tensorType);
+
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies and temporarily within L1 Interleaved
 // Fallback Analysis.
 //
 uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout);
+
+// Return the per-core L1 memory usage of a layout.
+// For sharded layouts, returns the shard size.
+// For L1 interleaved, returns total size / numCores since the grid attribute
+// is irrelevant for interleaved — data is distributed across all device cores.
+uint64_t getPerCoreL1Usage(TTNNLayoutAttr layout, uint64_t numCores);
 
 // Helper method to get the tensor layout attribute from the tensor value.
 TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorType);

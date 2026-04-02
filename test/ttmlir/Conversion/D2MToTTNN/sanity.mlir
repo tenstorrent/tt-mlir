@@ -23,6 +23,13 @@
   memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>
   >
 
+// BF16 tile layout (dtype must match memref element type for ttnn.full / empty).
+#l1_layout_bf16 = #ttnn.ttnn_layout<
+  (d0, d1) -> (d0, d1),
+  <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>,
+  memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>
+  >
+
 module {
   func.func @test_generic(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> {
     %device = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
@@ -70,17 +77,17 @@ module {
     %output_dram = "ttnn.to_memory_config"(%output_l1) <{memory_config = #dram_memory_config}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
     return %output_dram : tensor<32x32xf32, #dram_layout>
   }
-  func.func @test_full() -> tensor<32x32xbf16, #l1_layout> {
+  func.func @test_full() -> tensor<32x32xbf16, #l1_layout_bf16> {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: ttnn.full
-    %1 = d2m.full {fill_value = 5.000000e-01 : f32, shape = array<i32: 32, 32>} : tensor<32x32xbf16, #l1_layout>
-    return %1 : tensor<32x32xbf16, #l1_layout>
+    %1 = "ttnn.full"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, fill_value = 5.000000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #l1_layout_bf16>
+    return %1 : tensor<32x32xbf16, #l1_layout_bf16>
   }
-  func.func @test_empty() -> tensor<32x32xbf16, #l1_layout> {
+  func.func @test_empty() -> tensor<32x32xbf16, #l1_layout_bf16> {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: ttnn.empty
-    %1 = d2m.empty() : tensor<32x32xbf16, #l1_layout>
-    return %1 : tensor<32x32xbf16, #l1_layout>
+    %1 = d2m.empty() : tensor<32x32xbf16, #l1_layout_bf16>
+    return %1 : tensor<32x32xbf16, #l1_layout_bf16>
   }
   func.func private @read_kernel() attributes {
     ttkernel.arg_spec = #ttkernel.arg_spec<

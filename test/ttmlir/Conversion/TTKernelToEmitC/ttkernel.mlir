@@ -1094,6 +1094,17 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @fill_tile_int
+    func.func @fill_tile_int() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: %[[VAL:.*]] = "emitc.constant"
+      %val = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "fill_tile_int"(%[[DST_INDEX]], %[[VAL]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.fill_tile_int"(%dst_index, %val) : (i32, i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @eqz_tile_init
     func.func @eqz_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "eqz_tile_init"()
@@ -1622,27 +1633,27 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @noc_semaphore_wait
-    func.func @noc_semaphore_wait() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    // CHECK-LABEL: func @semaphore_wait
+    func.func @semaphore_wait() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
       %temp = arith.constant 262400 : i32
       %addr = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
       // CHECK: %[[VAL:.*]] = "emitc.constant"
       %val = arith.constant 123 : i32
-      // CHECK: emitc.call_opaque "noc_semaphore_wait"(%[[ADDR]], %[[VAL]])
-      "ttkernel.noc_semaphore_wait"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
+      // CHECK: emitc.call_opaque "experimental::semaphore_wait"(%[[ADDR]], %[[VAL]])
+      "ttkernel.experimental::semaphore_wait"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
       return
     }
 
-    // CHECK-LABEL: func @noc_semaphore_wait_min
-    func.func @noc_semaphore_wait_min() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    // CHECK-LABEL: func @semaphore_wait_min
+    func.func @semaphore_wait_min() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
       %temp = arith.constant 262400 : i32
       %addr = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
       // CHECK: %[[VAL:.*]] = "emitc.constant"
       %val = arith.constant 123 : i32
-      // CHECK: emitc.call_opaque "noc_semaphore_wait_min"(%[[ADDR]], %[[VAL]])
-      "ttkernel.noc_semaphore_wait_min"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
+      // CHECK: emitc.call_opaque "experimental::semaphore_wait_min"(%[[ADDR]], %[[VAL]])
+      "ttkernel.experimental::semaphore_wait_min"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
       return
     }
 
