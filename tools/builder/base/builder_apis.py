@@ -62,6 +62,14 @@ def _compile_and_execute(
     dump_memory: bool = False,
     **compile_kwargs,
 ) -> str:
+    # Support deferred device: if device is callable, resolve after compilation.
+    # This allows optimizer-dependent tests to compile with a mock device (used
+    # internally by OpModel) and only open the real device for execution.
+    deferred_device = callable(device)
+    if deferred_device:
+        device_factory = device
+        device = None
+
     builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_fn(
         target=target,
         **compile_kwargs,
@@ -70,60 +78,73 @@ def _compile_and_execute(
     if skip_exec:
         raise TTBuilderRuntimeException("Manually skipped execution")
 
-    # Execute the flatbuffer
-    if target in ["ttnn", "ttmetal"]:
-        execute_fb(
-            compiled_bin,
-            pcc=pcc,
-            atol=atol,
-            rtol=rtol,
-            disable_golden=disable_golden,
-            device=device,
-            check_pcc=check_pcc,
-            check_atol=check_atol,
-            check_rtol=check_rtol,
-            input_output_goldens=input_output_goldens,
-            intermediate_goldens=intermediate_goldens,
-            bypass_ops=builder._bypass_ops,
-            enable_intermediate_verification=enable_intermediate_verification,
-            save_artifacts=compile_kwargs.get("save_artifacts", False),
-            artifact_dir=compile_kwargs.get("artifact_dir", "."),
-            dump_memory=dump_memory,
-        )
+    if deferred_device:
+        device = device_factory()
 
-    elif target == "emitpy":
-        execute_py(
-            compiled_bin,
-            pcc=pcc,
-            atol=atol,
-            rtol=rtol,
-            disable_golden=disable_golden,
-            check_pcc=check_pcc,
-            check_atol=check_atol,
-            check_rtol=check_rtol,
-            input_output_goldens=input_output_goldens,
-            save_artifacts=compile_kwargs.get("save_artifacts", False),
-            artifact_dir=compile_kwargs.get("artifact_dir", "."),
-        )
+    # Execute the flatbuffer, closing deferred devices after execution so that
+    # the next test's compilation can use a mock device without conflict.
+    try:
+        if target in ["ttnn", "ttmetal"]:
+            execute_fb(
+                compiled_bin,
+                pcc=pcc,
+                atol=atol,
+                rtol=rtol,
+                disable_golden=disable_golden,
+                device=device,
+                check_pcc=check_pcc,
+                check_atol=check_atol,
+                check_rtol=check_rtol,
+                input_output_goldens=input_output_goldens,
+                intermediate_goldens=intermediate_goldens,
+                bypass_ops=builder._bypass_ops,
+                enable_intermediate_verification=enable_intermediate_verification,
+                save_artifacts=compile_kwargs.get("save_artifacts", False),
+                artifact_dir=compile_kwargs.get("artifact_dir", "."),
+                dump_memory=dump_memory,
+            )
 
-    elif target == "emitc":
-        cpp_path = os.path.join(
-            compile_kwargs.get("artifact_dir", "."), "emitc_compiled.cpp"
-        )
-        execute_cpp(
-            cpp_path,
-            pcc=pcc,
-            atol=atol,
-            rtol=rtol,
-            disable_golden=disable_golden,
-            device=device,
-            check_pcc=check_pcc,
-            check_atol=check_atol,
-            check_rtol=check_rtol,
-            input_output_goldens=input_output_goldens,
-            save_artifacts=compile_kwargs.get("save_artifacts", False),
-            artifact_dir=compile_kwargs.get("artifact_dir", "."),
-        )
+        elif target == "emitpy":
+            execute_py(
+                compiled_bin,
+                pcc=pcc,
+                atol=atol,
+                rtol=rtol,
+                disable_golden=disable_golden,
+                check_pcc=check_pcc,
+                check_atol=check_atol,
+                check_rtol=check_rtol,
+                input_output_goldens=input_output_goldens,
+                save_artifacts=compile_kwargs.get("save_artifacts", False),
+                artifact_dir=compile_kwargs.get("artifact_dir", "."),
+            )
+
+        elif target == "emitc":
+            cpp_path = os.path.join(
+                compile_kwargs.get("artifact_dir", "."), "emitc_compiled.cpp"
+            )
+            execute_cpp(
+                cpp_path,
+                pcc=pcc,
+                atol=atol,
+                rtol=rtol,
+                disable_golden=disable_golden,
+                device=device,
+                check_pcc=check_pcc,
+                check_atol=check_atol,
+                check_rtol=check_rtol,
+                input_output_goldens=input_output_goldens,
+                save_artifacts=compile_kwargs.get("save_artifacts", False),
+                artifact_dir=compile_kwargs.get("artifact_dir", "."),
+            )
+    finally:
+        # When using deferred device, close the device after execution so that
+        # the next test's compilation can create a mock device for the optimizer.
+        if deferred_device and device is not None:
+            tt_runtime.runtime.close_mesh_device(device)
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.DISABLED
+            )
 
 
 def _compile(root_func: Callable, builder: Builder):
@@ -663,6 +684,7 @@ def compile_and_execute_ttir(
         enable_intermediate_verification=enable_intermediate_verification,
         dump_memory=dump_memory,
     )
+    return artifact_dir
 
 
 def compile_ttir_to_flatbuffer(
