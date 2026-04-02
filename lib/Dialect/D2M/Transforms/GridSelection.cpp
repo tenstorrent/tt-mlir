@@ -6,7 +6,6 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
-#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
@@ -16,10 +15,8 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/IRMapping.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
@@ -400,6 +397,11 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
       continue;
     }
 
+    // The CompositeView hides the ToLayout ops behind it, skip as well.
+    if (mlir::isa<d2m::CompositeViewOp>(user)) {
+      continue;
+    }
+
     // Find the parent GenericOp for this use.
     // The user might be the GenericOp itself (if it's an operand), or
     // it might be an operation nested within the GenericOp's regions.
@@ -710,6 +712,22 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     auto optimalGrid = computeOptimalGrid(operandType, physShape, config);
     result.optimalOperandGrids.push_back(optimalGrid);
 
+    // If a view's input is a ToLayoutOp, also compute and apply the optimal
+    // grid for that ToLayoutOp independently.
+    auto captureToLayoutsForViews = [&](Value input) {
+      if (auto toLayoutOp = input.getDefiningOp<d2m::ToLayoutOp>()) {
+        if (!toLayoutOp.getInput()
+                 .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+          auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+          auto inputPhysShape = computePhysicalShape(input, config, builder);
+          auto inputOptimalGrid =
+              computeOptimalGrid(inputType, inputPhysShape, config);
+
+          result.toLayouts.push_back({toLayoutOp, idx, inputOptimalGrid});
+        }
+      }
+    };
+
     if (isTTNNOperand(operand)) {
       result.ttnnTensors.push_back({operand, idx, optimalGrid});
     } else if (auto viewLayout = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
@@ -720,26 +738,21 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
         result.viewLayouts.push_back({viewLayout, idx, optimalGrid});
       }
 
-      // If the view's input is a ToLayoutOp, also compute and apply the
-      // optimal grid for that ToLayoutOp independently.
-      if (auto toLayoutOp =
-              viewLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
-        if (!toLayoutOp.getInput()
-                 .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-          auto inputType = mlir::cast<mlir::RankedTensorType>(
-              viewLayout.getInput().getType());
+      captureToLayoutsForViews(viewLayout.getInput());
 
-          llvm::SmallVector<int64_t> inputPhysShape =
-              computePhysicalShape(viewLayout.getInput(), config, builder);
-          auto inputOptimalGrid =
-              computeOptimalGrid(inputType, inputPhysShape, config);
+    } else if (auto compositeView =
+                   operand.getDefiningOp<d2m::CompositeViewOp>()) {
+      result.compositeViews.push_back({compositeView, idx, optimalGrid});
 
-          result.toLayouts.push_back({toLayoutOp, idx, inputOptimalGrid});
+      // For row-major concat, reblock the inputs and insert unit grid views.
+      const bool isTiled = mlir::isa<ttcore::TileType>(
+          mlir::cast<RankedTensorType>(compositeView.getResult().getType())
+              .getElementType());
+      if (!isTiled) {
+        for (Value input : compositeView.getInputs()) {
+          captureToLayoutsForViews(input);
         }
       }
-    } else if (auto compositeViewOp =
-                   operand.getDefiningOp<d2m::CompositeViewOp>()) {
-      result.compositeViews.push_back({compositeViewOp, idx, optimalGrid});
     } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
       result.toLayouts.push_back({toLayoutOp, idx, optimalGrid});
     } else if (auto emptyOp = operand.getDefiningOp<d2m::EmptyOp>()) {
@@ -821,7 +834,11 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
   for (const auto &info : compositeViewsToUpdate) {
     auto compositeView = info.op;
 
-    // The composite_view handles its own inputs instead of relying on
+    const bool isTiled = mlir::isa<ttcore::TileType>(
+        mlir::cast<RankedTensorType>(compositeView.getResult().getType())
+            .getElementType());
+
+    // The composite_view handles its own tiled inputs instead of relying on
     // updateToLayoutOps, and does not use computePhysicalShape to recreate the
     // input with its grid-aligned shape.
     // Views don't own the data and we want to stack other views on top of the
@@ -832,7 +849,9 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
       auto inputType = mlir::cast<RankedTensorType>(input.getType());
       auto inputLayout =
           mlir::dyn_cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
-      if (!inputLayout) {
+      if (!isTiled) {
+        // TODO(wenbinlyuTT): redundant, use verifier & extra helper method?
+        assert(!mlir::isa<ttcore::TileType>(inputType.getElementType()));
         reblockedInputs.push_back(input);
         continue;
       }
@@ -864,7 +883,7 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
     builder.setInsertionPoint(compositeView);
     auto newCompositeView = builder.create<d2m::CompositeViewOp>(
         compositeView.getLoc(), newOutType, reblockedInputs,
-        compositeView.getDim());
+        compositeView.getDim(), compositeView.getLogicalSizesAttr());
 
     compositeView.getResult().replaceAllUsesWith(newCompositeView.getResult());
     compositeView.erase();

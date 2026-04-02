@@ -16,10 +16,10 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MEXPANDDMAREADCOMPOSITEVIEW
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-static LogicalResult expandCompositeDMARead(IRRewriter &rewriter,
-                                            DMAReadOp dmaRead,
-                                            ValueRange expandedInputs,
-                                            const int32_t concatDim) {
+static LogicalResult expandCompositeDMAReadTiled(IRRewriter &rewriter,
+                                                 DMAReadOp dmaRead,
+                                                 ValueRange expandedInputs,
+                                                 const int32_t concatDim) {
   assert(dmaRead.isShardLevel());
   ttcore::DeviceAttr device = ttcore::lookupDevice(dmaRead);
 
@@ -206,6 +206,52 @@ static LogicalResult expandCompositeDMARead(IRRewriter &rewriter,
   return success();
 }
 
+static LogicalResult expandCompositeDMAReadRowMajor(
+    IRRewriter &rewriter, DMAReadOp dmaRead, ValueRange expandedInputs,
+    const int32_t concatDim, ArrayRef<int64_t> logicalSizes) {
+
+  Value localDst = dmaRead.getDst();
+  MemRefType dstType = mlir::cast<MemRefType>(localDst.getType());
+  const int64_t shardRank = dstType.getRank();
+  auto srcIndices = dmaRead.getSrcIndices();
+  auto loc = dmaRead.getLoc();
+
+  rewriter.setInsertionPoint(dmaRead);
+  int64_t cumulativeOffset = 0;
+  for (size_t i = 0; i < expandedInputs.size(); i++) {
+    const int64_t pieceSize = logicalSizes[i];
+
+    SmallVector<AffineExpr> exprs;
+    for (int64_t dim = 0; dim < shardRank; dim++) {
+      if (dim == concatDim) {
+        exprs.push_back(rewriter.getAffineDimExpr(dim) + cumulativeOffset);
+      } else {
+        exprs.push_back(rewriter.getAffineDimExpr(dim));
+      }
+    }
+    auto map = AffineMap::get(shardRank, 0, exprs, rewriter.getContext());
+
+    auto viewType =
+        MemRefType::get(dstType.getShape(), dstType.getElementType(),
+                        MemRefLayoutAttrInterface(), dstType.getMemorySpace());
+    auto view = rewriter.create<d2m::ViewLayoutOp>(loc, viewType, localDst, map,
+                                                   /*reinterpretLayout=*/false);
+
+    Value input = expandedInputs[i];
+    auto shiftedRead =
+        rewriter.create<DMAReadOp>(loc, input, srcIndices, view, ValueRange(),
+                                   rewriter.getI64IntegerAttr(0));
+    rewriter.create<DMAWaitOp>(loc, shiftedRead.getResult());
+
+    cumulativeOffset += pieceSize;
+  }
+
+  auto nullTx = rewriter.create<NullTxOp>(loc, DMAType::Read);
+  rewriter.replaceOp(dmaRead, nullTx.getResult());
+
+  return success();
+}
+
 static DenseI64ArrayAttr remapScratchInputs(OpBuilder &builder,
                                             DenseI64ArrayAttr oldScratchInputs,
                                             const int64_t expandedInputIndex,
@@ -322,14 +368,26 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
 
   auto expandedGenericInputs =
       newGOp.getInputs().slice(compositeOperandIdx, compositeInputs.size());
-  if (failed(expandCompositeDMARead(rewriter, clonedCompositeRead,
-                                    expandedGenericInputs,
-                                    compositeView.getDim()))) {
-    return failure();
+  const bool isTiled = mlir::isa<ttcore::TileType>(
+      mlir::cast<MemRefType>(compositeView.getResult().getType())
+          .getElementType());
+
+  LogicalResult result = success();
+  if (isTiled) {
+    result = expandCompositeDMAReadTiled(rewriter, clonedCompositeRead,
+                                         expandedGenericInputs,
+                                         compositeView.getDim());
+  } else {
+    result = expandCompositeDMAReadRowMajor(
+        rewriter, clonedCompositeRead, expandedGenericInputs,
+        compositeView.getDim(), compositeView.getLogicalSizes().value());
+  }
+  if (failed(result)) {
+    return result;
   }
 
   rewriter.replaceOp(gOp, newGOp.getResults());
-  return success();
+  return result;
 }
 
 static LogicalResult expandCompositeViews(ModuleOp moduleOp) {
