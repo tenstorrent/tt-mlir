@@ -357,11 +357,11 @@ def test_sdpa_split_scale_nan_safe(sdpa_shapes: SDPAShapes, target: str, request
             q_scaled = pre_scale(
                 query, sdpa_shapes.split_scale, builder, unit_attrs=unit_attrs
             )
-            key, value = gqa_broadcast_kv(
+            key_exp, value_exp = gqa_broadcast_kv(
                 key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
             k_scaled = pre_scale(
-                key,
+                key_exp,
                 sdpa_shapes.split_scale,
                 builder,
                 dtype=torch.float32,
@@ -378,7 +378,7 @@ def test_sdpa_split_scale_nan_safe(sdpa_shapes: SDPAShapes, target: str, request
                 out_dtype=torch.float32,
                 unit_attrs=unit_attrs,
             )
-            v_f32 = builder.typecast(value, torch.float32, unit_attrs=unit_attrs)
+            v_f32 = builder.typecast(value_exp, torch.float32, unit_attrs=unit_attrs)
             output = builder.matmul(attn, v_f32, unit_attrs=unit_attrs)
             result = builder.typecast(output, torch.bfloat16, unit_attrs=unit_attrs)
 
@@ -416,15 +416,15 @@ def test_sdpa_post_scale_simple(
 
             golden = build_torch_golden(q_data, k_data, v_data, scale=sdpa_shapes.scale)
 
-            key, value = gqa_broadcast_kv(
+            key_exp, value_exp = gqa_broadcast_kv(
                 key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
-            scores = compute_scores(query, key, builder, unit_attrs=unit_attrs)
+            scores = compute_scores(query, key_exp, builder, unit_attrs=unit_attrs)
             scores = post_scale_scores(
                 scores, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
             )
             attn = simple_softmax(scores, builder, unit_attrs=unit_attrs)
-            result = builder.matmul(attn, value, unit_attrs=unit_attrs)
+            result = builder.matmul(attn, value_exp, unit_attrs=unit_attrs)
 
             builder.set_goldens(
                 {query: q_data, key: k_data, value: v_data},
@@ -444,17 +444,16 @@ def test_sdpa_post_scale_simple(
                 q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
             )
 
-            key, value = gqa_broadcast_kv(
+            key_exp, value_exp = gqa_broadcast_kv(
                 key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
-            scores = compute_scores(
-                query, key, builder, mask=mask, unit_attrs=unit_attrs
-            )
+            scores = compute_scores(query, key_exp, builder, unit_attrs=unit_attrs)
             scores = post_scale_scores(
                 scores, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
             )
+            scores = builder.add(scores, mask, unit_attrs=unit_attrs)
             attn = simple_softmax(scores, builder, unit_attrs=unit_attrs)
-            result = builder.matmul(attn, value, unit_attrs=unit_attrs)
+            result = builder.matmul(attn, value_exp, unit_attrs=unit_attrs)
 
             builder.set_goldens(
                 {query: q_data, key: k_data, value: v_data, mask: m_data},
@@ -499,10 +498,10 @@ def test_sdpa_pre_scale_q_nan_safe(sdpa_shapes: SDPAShapes, target: str, request
             q_scaled = pre_scale(
                 query, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
             )
-            key, value = gqa_broadcast_kv(
+            key_exp, value_exp = gqa_broadcast_kv(
                 key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
-            k_f32 = builder.typecast(key, torch.float32, unit_attrs=unit_attrs)
+            k_f32 = builder.typecast(key_exp, torch.float32, unit_attrs=unit_attrs)
             k_t = builder.transpose(k_f32, dim0=-2, dim1=-1)
             scores = builder.matmul(q_scaled, k_t, unit_attrs=unit_attrs)
             mask_f32 = builder.typecast(mask, torch.float32, unit_attrs=unit_attrs)
@@ -514,7 +513,7 @@ def test_sdpa_pre_scale_q_nan_safe(sdpa_shapes: SDPAShapes, target: str, request
                 out_dtype=torch.float32,
                 unit_attrs=unit_attrs,
             )
-            v_f32 = builder.typecast(value, torch.float32, unit_attrs=unit_attrs)
+            v_f32 = builder.typecast(value_exp, torch.float32, unit_attrs=unit_attrs)
             output = builder.matmul(attn, v_f32, unit_attrs=unit_attrs)
             result = builder.typecast(output, torch.bfloat16, unit_attrs=unit_attrs)
 
@@ -556,10 +555,12 @@ def test_sdpa_pre_scale_k_nan_safe(sdpa_shapes: SDPAShapes, target: str, request
             )
 
             # GQA expand, then pre-scale K only
-            key, value = gqa_broadcast_kv(
+            key_exp, value_exp = gqa_broadcast_kv(
                 key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
-            k_scaled = pre_scale(key, sdpa_shapes.scale, builder, unit_attrs=unit_attrs)
+            k_scaled = pre_scale(
+                key_exp, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
+            )
             k_t = builder.transpose(k_scaled, dim0=-2, dim1=-1)
             q_f32 = builder.typecast(query, torch.float32, unit_attrs=unit_attrs)
             scores = builder.matmul(q_f32, k_t, unit_attrs=unit_attrs)
@@ -572,7 +573,7 @@ def test_sdpa_pre_scale_k_nan_safe(sdpa_shapes: SDPAShapes, target: str, request
                 out_dtype=torch.float32,
                 unit_attrs=unit_attrs,
             )
-            v_f32 = builder.typecast(value, torch.float32, unit_attrs=unit_attrs)
+            v_f32 = builder.typecast(value_exp, torch.float32, unit_attrs=unit_attrs)
             output = builder.matmul(attn, v_f32, unit_attrs=unit_attrs)
             result = builder.typecast(output, torch.bfloat16, unit_attrs=unit_attrs)
 
@@ -613,17 +614,16 @@ def test_sdpa_simple_softmax(sdpa_shapes: SDPAShapes, target: str, request):
                 q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
             )
 
-            key, value = gqa_broadcast_kv(
+            key_exp, value_exp = gqa_broadcast_kv(
                 key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
-            scores = compute_scores(
-                query, key, builder, mask=mask, unit_attrs=unit_attrs
-            )
+            scores = compute_scores(query, key_exp, builder, unit_attrs=unit_attrs)
             scores = post_scale_scores(
                 scores, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
             )
+            scores = builder.add(scores, mask, unit_attrs=unit_attrs)
             attn = simple_softmax(scores, builder, unit_attrs=unit_attrs)
-            result = builder.matmul(attn, value, unit_attrs=unit_attrs)
+            result = builder.matmul(attn, value_exp, unit_attrs=unit_attrs)
 
             builder.set_goldens(
                 {query: q_data, key: k_data, value: v_data, mask: m_data},
