@@ -175,7 +175,7 @@ def test_softmax(
 
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_softmax(
     shape: Shape,
     request,
@@ -274,7 +274,7 @@ def test_layer_norm(
         ((2, 4, 64), [64]),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_layer_norm(
     shape: Shape,
     normalized_shape: List[int],
