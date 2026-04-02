@@ -16,6 +16,7 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -2100,88 +2101,45 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           return mlir::failure();
         }
 
-        auto replaceWithOutputAlloc =
-            [op](PatternRewriter &rewriter, Region &region, Operation *regionOp,
-                 OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
+        auto replaceWithEmpty = [](PatternRewriter &rewriter, Region &region,
+                                   Operation *regionOp,
+                                   OpOperand &initOperand) -> bool {
+          if (!mlir::isa<RankedTensorType>(initOperand.get().getType())) {
+            return false;
+          }
+
           Operation *origDefiningOp = initOperand.get().getDefiningOp();
-          if (origDefiningOp &&
-              !mlir::isa<EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
+          if (!origDefiningOp || mlir::isa<EmptyOp>(origDefiningOp)) {
             return false;
           }
 
-          // Find the output alloc by positional counting.
-          Value outputAlloc = GenericOp::getOperandAlloc(region, dpsIOBoundary);
-
-          if (!outputAlloc || outputAlloc.use_empty()) {
-            return false;
-          }
-
-          // Find a wait/reserve that dominates the DPS operation.
-          Operation *waitOrReserve = nullptr;
-
-          // Get the parent function to compute dominance.
-          Operation *parentOp = op->getParentOp();
-          while (parentOp && !mlir::isa<FunctionOpInterface>(parentOp)) {
-            parentOp = parentOp->getParentOp();
-          }
-
-          assert(parentOp && "d2m.generic must be nested within a function");
-
-          // Use DominanceInfo for cross-block dominance checking.
-          DominanceInfo domInfo(parentOp);
-          for (Operation *user : outputAlloc.getUsers()) {
-            if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) {
-              continue;
-            }
-            // Check if this wait/reserve dominates the regionOp.
-            if (domInfo.dominates(user, regionOp)) {
-              waitOrReserve = user;
-              break;
-            }
-          }
-
-          if (!waitOrReserve) {
-            return false;
-          }
-
-          rewriter.modifyOpInPlace(regionOp, [&]() {
-            initOperand.assign(waitOrReserve->getResult(0));
-          });
-
-          if (mlir::isa_and_nonnull<EmptyOp, mlir::tensor::EmptyOp>(
-                  origDefiningOp)) {
-            rewriter.replaceAllUsesWith(origDefiningOp->getResult(0),
-                                        initOperand.get());
-          }
+          rewriter.setInsertionPoint(regionOp);
+          auto empty = rewriter.create<EmptyOp>(regionOp->getLoc(),
+                                                initOperand.get().getType(),
+                                                nullptr, nullptr);
+          initOperand.assign(empty);
 
           return true;
         };
 
-        int64_t dpsIOBoundary = op.getNumDpsInputs();
         bool updated = false;
         for (Region &region : op->getRegions()) {
           if (op.getRegionThreadType(region.getRegionNumber()) !=
-              ThreadType::Compute) {
+              ThreadType::Unified) {
             continue;
           }
 
           region.walk([&](Operation *regionOp) {
-            if (DestinationStyleOpInterface dps =
-                    mlir::dyn_cast<DestinationStyleOpInterface>(regionOp);
+            if (linalg::GenericOp dps =
+                    mlir::dyn_cast<linalg::GenericOp>(regionOp);
                 dps) {
               for (OpOperand &initOperand : dps.getDpsInitsMutable()) {
                 assert(op.getNumDpsInits() == dps.getNumDpsInits());
                 assert(op.getNumDpsInits() == 1);
 
-                updated |= replaceWithOutputAlloc(rewriter, region, regionOp,
-                                                  initOperand, dpsIOBoundary);
+                updated |=
+                    replaceWithEmpty(rewriter, region, regionOp, initOperand);
               }
-            } else if (TileMatmulBlockOp tmb =
-                           mlir::dyn_cast<TileMatmulBlockOp>(regionOp);
-                       tmb) {
-              updated |=
-                  replaceWithOutputAlloc(rewriter, region, regionOp,
-                                         tmb.getOutputMutable(), dpsIOBoundary);
             }
           });
         }
