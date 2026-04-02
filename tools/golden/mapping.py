@@ -6650,6 +6650,31 @@ def ttnn_all_gather_golden(
     )
 
 
+def ttnn_reduce_scatter_golden(
+    input: GoldenMapTensor,
+    reduce_type_attr: ttcore.ir.ReduceTypeAttr,
+    scatter_dim_attr: IntegerAttr,
+    cluster_axis_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    reduce_type = ttcore.ir.ReduceTypeAttr.maybe_downcast(reduce_type_attr).value
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    scatter_dim = unpack_mlir_attr(scatter_dim_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    output_shards = [None] * len(input.shard_map)
+    grouped_shards = input.group_by_axis(cluster_axis)
+    for group in grouped_shards:
+        group_tensors = list(group.values())
+        reduced_tensor = reduce_mapping[reduce_type](group_tensors)
+        scattered_tensor = torch.chunk(reduced_tensor, len(group), dim=scatter_dim)
+        for index, id in enumerate(group.keys()):
+            output_shards[id] = scattered_tensor[index].clone().to(output_dtype)
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
 ################ TTNN Layout/Device Op Golden Functions ###############
 
 
@@ -7144,6 +7169,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.AllGatherOp: ttnn_all_gather_golden,
     ttnn.GatherOp: ttir_gather_dim_golden,
     ttnn.AllReduceAsyncOp: ttir_all_reduce_golden,
+    ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,
