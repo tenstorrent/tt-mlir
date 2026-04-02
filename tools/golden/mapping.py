@@ -272,9 +272,11 @@ class GoldenMapTensor:
 
             def func(*a, **kw):
                 a = tuple(
-                    x.float()
-                    if isinstance(x, torch.Tensor) and x.dtype == torch.bfloat16
-                    else x
+                    (
+                        x.float()
+                        if isinstance(x, torch.Tensor) and x.dtype == torch.bfloat16
+                        else x
+                    )
                     for x in a
                 )
                 result = _orig_func(*a, **kw)
@@ -5427,6 +5429,32 @@ def stablehlo_shift_right_logical_golden(
     return shifted.to(output_dtype)
 
 
+def stablehlo_remainder_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.remainder(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_atan2_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.atan2(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_shift_left_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_int64 = input_tensor.to(torch.int64)
+    shift_int64 = other_tensor.to(torch.int64)
+    input_unsigned = torch.bitwise_and(input_int64, 0xFFFFFFFF)
+    result = torch.bitwise_left_shift(input_unsigned, shift_int64)
+    result = torch.bitwise_and(result, 0xFFFFFFFF)
+    return result.to(output_dtype)
+
+
 _STABLEHLO_COMPARE_DISPATCH = {
     "EQ": torch.eq,
     "NE": torch.ne,
@@ -7031,6 +7059,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SubtractOp: stablehlo_subtract_golden,
     stablehlo.PowOp: stablehlo_pow_golden,
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
+    stablehlo.RemOp: stablehlo_remainder_golden,
+    stablehlo.Atan2Op: stablehlo_atan2_golden,
+    stablehlo.ShiftLeftOp: stablehlo_shift_left_golden,
     stablehlo.ReverseOp: stablehlo_reverse_golden,
     stablehlo.DotGeneralOp: dot_general_golden,
     stablehlo.DynamicSliceOp: dynamic_slice_golden,
