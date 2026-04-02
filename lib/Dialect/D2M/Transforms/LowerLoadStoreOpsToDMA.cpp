@@ -64,26 +64,17 @@ public:
     auto genericOp = remoteLoad->getParentOfType<GenericOp>();
     TT_assertv(genericOp, "RemoteLoad must be inside a GenericOp");
 
-    // Derive which dimensions are multicast from mcastShape.
-    // A dimension is multicast if mcastShape[i] > 1.
-    // Also calculate mcast volume.
-    SmallVector<bool> isMcastDim;
-    size_t mcastVolume = 1;
-    for (Value mcastDimVal : remoteLoad.getMcastShape()) {
-      int64_t dimSize = 1;
-      if (auto constantOp = mcastDimVal.getDefiningOp<arith::ConstantOp>()) {
-        if (auto intAttr = mlir::dyn_cast<IntegerAttr>(constantOp.getValue())) {
-          dimSize = intAttr.getInt();
-        }
-      }
-      isMcastDim.push_back(dimSize > 1);
-      mcastVolume *= dimSize;
-    }
-
     Value zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
     Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
                                                    rewriter.getIndexAttr(1));
+
+    // Calculate mcast volume dynamically by multiplying all mcastShape dims.
+    Value mcastVolume = one;
+    for (Value mcastDimVal : remoteLoad.getMcastShape()) {
+      mcastVolume =
+          rewriter.create<arith::MulIOp>(loc, mcastVolume, mcastDimVal);
+    }
 
     // Get pre-allocated semaphores for synchronization.
     // These must have been set by D2MPreallocateMcastSemaphores pass.
@@ -93,8 +84,8 @@ public:
 
     // Number of receivers is mcastVolume - 1 (excluding sender itself).
     // The sender waits for this many semaphore increments before multicasting.
-    Value numReceiversVal = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIndexType(), rewriter.getIndexAttr(mcastVolume - 1));
+    Value numReceiversVal =
+        rewriter.create<arith::SubIOp>(loc, mcastVolume, one);
 
     // Determine if this core is the sender.
     // The sender is at position mcastStartIndex[i] for each multicast
@@ -103,19 +94,17 @@ public:
     Value isSender = nullptr;
     AffineMap gridMapping = genericOp.getGrid().getPhysicalToVirtMap();
     ValueRange mcastStartIndex = remoteLoad.getMcastStartIndex();
-    for (size_t i = 0; i < isMcastDim.size(); ++i) {
-      if (isMcastDim[i]) {
-        Value coreIdx = rewriter.create<CoreIndexOp>(
-            loc, static_cast<int64_t>(i), gridMapping);
-        Value condition = rewriter.create<arith::CmpIOp>(
-            loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreIdx,
-            mcastStartIndex[i]);
-        if (isSender) {
-          isSender = rewriter.create<arith::AndIOp>(loc, isSender, condition)
-                         .getResult();
-        } else {
-          isSender = condition;
-        }
+    for (auto [i, mcastIdx] : llvm::enumerate(mcastStartIndex)) {
+      Value coreIdx = rewriter.create<CoreIndexOp>(loc, static_cast<int64_t>(i),
+                                                   gridMapping);
+      Value condition = rewriter.create<arith::CmpIOp>(
+          loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreIdx,
+          mcastIdx);
+      if (isSender) {
+        isSender = rewriter.create<arith::AndIOp>(loc, isSender, condition)
+                       .getResult();
+      } else {
+        isSender = condition;
       }
     }
     TT_assertv(isSender, "No multicast dimensions found in mcastShape");
@@ -159,29 +148,11 @@ public:
         [&](OpBuilder &builder, Location loc) {
           // Receiver: signal ready and wait for sender to finish.
           SmallVector<Value> senderCoreIndex;
-          Value zeroIdx = builder.create<arith::ConstantOp>(
-              loc, builder.getIndexType(), builder.getIndexAttr(0));
-
-          // Build sender core index by reading actual core positions.
-          // For dimensions that are multicast, sender is at mcastStartIndex.
-          // For non-multicast dimensions, use current core position.
-          // Pass grid mapping for proper virtualization support.
-          for (size_t i = 0; i < isMcastDim.size(); ++i) {
-            if (isMcastDim[i]) {
-              // Multicast dimension - sender is at mcastStartIndex.
-              senderCoreIndex.push_back(mcastStartIndex[i]);
-            } else {
-              // Non-multicast dimension - use current core's position.
-              Value currentCoreIdx = builder.create<CoreIndexOp>(
-                  loc, static_cast<int64_t>(i), gridMapping);
-              senderCoreIndex.push_back(currentCoreIdx);
-            }
-          }
 
           builder.create<SemaphoreIncOp>(loc, receiversReadySemaphore, one,
-                                         senderCoreIndex);
+                                         mcastStartIndex);
           builder.create<SemaphoreWaitOp>(loc, senderFinishedSemaphore, one,
-                                          zeroIdx);
+                                          zero);
 
           // Note: CB already reserved before the if/else, so receiver has
           // proper access to the multicast data.
