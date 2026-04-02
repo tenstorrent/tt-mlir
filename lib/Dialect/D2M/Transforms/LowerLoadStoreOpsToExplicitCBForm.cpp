@@ -44,6 +44,27 @@ static bool isRemoteOperand(Value operand, Operation *op) {
   return false;
 }
 
+// Returns true if val is a scratch buffer: it traces back
+// to a d2m.reserve.
+static Value findScratchCB(Value val) {
+  while (val) {
+    if (auto reserveOp = val.getDefiningOp<ReserveOp>()) {
+      return reserveOp.getCb();
+    }
+    Operation *defOp = val.getDefiningOp();
+    if (!defOp) {
+      break;
+    }
+    if (isa<memref::SubViewOp, memref::ExpandShapeOp, memref::CollapseShapeOp>(
+            defOp)) {
+      val = defOp->getOperand(0);
+    } else {
+      break;
+    }
+  }
+  return Value();
+}
+
 // If all consumers of the WaitOp result are DM ops, the CB lifecycle (pop) is
 // managed by the DM ops themselves; no consumer-side pop is needed here.
 static bool hasOnlyDMConsumers(WaitOp waitOp) {
@@ -341,53 +362,41 @@ static void rewriteImplicitLocalCopyOpsToExplicitCBForm(
     dmaCopiesToConvert.push_back(dmaCopy);
   });
 
-  for (LocalCopyOp dmaCopy : dmaCopiesToConvert) {
-    Location loc = dmaCopy.getLoc();
+  for (LocalCopyOp localCopy : dmaCopiesToConvert) {
+    Location loc = localCopy.getLoc();
 
-    GenericOp generic = dmaCopy->getParentOfType<GenericOp>();
+    GenericOp generic = localCopy->getParentOfType<GenericOp>();
     TT_assertv(generic,
                "expected local_copy to be nested inside a d2m.generic");
 
-    Value dst = dmaCopy.getDst();
-    auto allocOp =
-        mlir::dyn_cast_if_present<memref::AllocOp>(dst.getDefiningOp());
-    TT_assertv(allocOp,
-               "expected local_copy dst to be defined by memref.alloc");
+    Value dst = localCopy.getDst();
 
-    Region &region = generic.getRegion(0);
-    auto L1Attr = mlir::tt::ttcore::MemorySpaceAttr::get(
-        generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1);
-    MemRefType allocType = allocOp.getType();
-    MemRefType cbUnderlyingType = MemRefType::get(
-        allocType.getShape(), allocType.getElementType(), nullptr, L1Attr);
-    auto cbType = CBType::get(cbUnderlyingType);
-
-    unsigned port =
-        getNextAvailablePort(region, portCounters, generic.getOperation());
-    unsigned ioSize = generic.getInputsAndOutputs().size();
-    if (port < ioSize) {
-      port = ioSize;
+    // Find the CB for the local_copy destination.
+    // Case 1: scratch intermediate — trace through subview/expand/collapse
+    //         to the d2m.reserve and use its scratch CB.
+    // Case 2: operand-backed — the dst is a direct generic operand.
+    Value cb = findScratchCB(dst);
+    if (!cb) {
+      cb = findAssociatedCB(localCopy.getOperation(), dst, rewriter, cache,
+                            portCounters);
     }
-    portCounters[generic.getOperation()] = port + 1;
+    TT_assertv(
+        cb,
+        "expected local_copy dst to be a scratch buffer or a generic operand");
 
-    OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointToStart(&region.front());
-    auto getCBOp =
-        rewriter.create<GetCBOp>(generic.getLoc(), cbType, port, nullptr);
-    Value cb = getCBOp.getResult();
-
-    rewriter.setInsertionPoint(dmaCopy);
-    rewriter.create<LocalCopyOp>(loc, TypeRange{}, dmaCopy.getSrc(),
+    rewriter.setInsertionPoint(localCopy);
+    rewriter.create<LocalCopyOp>(loc, TypeRange{}, localCopy.getSrc(),
                                  /*dst=*/Value{}, cb,
-                                 dmaCopy.getIndexingMaps());
+                                 localCopy.getIndexingMaps());
     auto waitOp = rewriter.create<WaitOp>(loc, cb);
 
-    rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
+    // Replace in-region uses of the dst with the wait result.
+    rewriter.replaceUsesWithIf(dst, waitOp.getResult(), [&](OpOperand &use) {
+      return use.getOwner() != localCopy.getOperation() && generic &&
+             generic->isProperAncestor(use.getOwner());
+    });
 
-    rewriter.eraseOp(dmaCopy);
-    if (allocOp->use_empty()) {
-      rewriter.eraseOp(allocOp);
-    }
+    rewriter.eraseOp(localCopy);
 
     if (!hasOnlyDMConsumers(waitOp)) {
       ensurePopForWait(rewriter, waitOp);
@@ -420,16 +429,6 @@ static void rewriteImplicitRemoteStoreOpsToExplicitCBForm(
         assocCb = reserveOp.getCb();
       } else if (auto waitOp = localBuffer.getDefiningOp<WaitOp>()) {
         assocCb = waitOp.getCb();
-        // If remote_store is only consumer, the WaitOp is dead and should be
-        // erased. LowerLoadStoreOpsToDMA will insert the necessary wait/pop
-        // later on. if (waitOp.getResult().hasOneUse()) {
-        //   rewriter.setInsertionPoint(remoteStore);
-        //   rewriter.create<RemoteStoreOp>(loc, memref,
-        //                                  remoteStore.getIndices(), assocCb);
-        //   rewriter.eraseOp(remoteStore);
-        //   rewriter.eraseOp(waitOp);
-        //   continue;
-        // }
       } else {
         // The localBuffer may be a hoisted additionalArg (external alloc).
         // Find the CB via the store's memref operand instead.
