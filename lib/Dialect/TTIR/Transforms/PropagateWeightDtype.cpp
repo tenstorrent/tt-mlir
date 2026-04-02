@@ -16,8 +16,8 @@ namespace mlir::tt::ttir {
 namespace {
 
 // Trace the weight operand backward through allowed ops (TM, CCL, Broadcast,
-// MeshShard, MeshPartition, Typecast, ToLayout) to find the originating func
-// arg. If it carries "ttcore.weight_dtype", set it on the consumer op.
+// MeshShard, MeshPartition, Typecast, RepeatInterleave) to find the originating
+// func arg. If it carries "ttcore.weight_dtype", set it on the consumer op.
 static void resolveAndSetWeightDtype(mlir::Value weight,
                                      mlir::Operation *consumerOp) {
   // Trace backward through allowed ops to find the originating func arg.
@@ -26,7 +26,7 @@ static void resolveAndSetWeightDtype(mlir::Value weight,
     if (op->hasTrait<TensorManipulation::Trait>() ||
         op->hasTrait<CCL::Trait>() ||
         mlir::isa<BroadcastOp, MeshShardOp, MeshPartitionOp, TypecastOp,
-                  ToLayoutOp>(op)) {
+                  RepeatInterleaveOp>(op)) {
       source = op->getOperand(0);
     } else {
       TTMLIR_DEBUG(ttmlir::LogComponent::General,
