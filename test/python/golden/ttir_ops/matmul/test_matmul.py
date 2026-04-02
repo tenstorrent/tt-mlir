@@ -131,7 +131,7 @@ def test_linear(
     ids=["3D_with_bias", "2D_no_bias"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_linear(
     shapes: List[Shape], dtype: torch.dtype, target: str, request, device
 ):
@@ -165,7 +165,7 @@ def test_hoisted_linear(
     ids=["standard_2D_matmul", "3D_batched_matmul"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_matmul(
     shapes: List[Shape], dtype: torch.dtype, target: str, request, device
 ):
