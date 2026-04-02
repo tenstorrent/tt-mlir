@@ -165,7 +165,7 @@ public:
                    "{1} legal op configs.",
                    func.getName(), legalConfigs.size());
 
-      std::unique_ptr<MemoryLayoutPropagationObserver> observer;
+      std::unique_ptr<LayoutPropagationObserver> observer;
       if (enableCompileTimeStats) {
         observer = std::make_unique<CompileTimeStatsObserver>();
       } else if (enableDecisionTrace) {
