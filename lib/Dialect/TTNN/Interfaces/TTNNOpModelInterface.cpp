@@ -5041,24 +5041,6 @@ FullOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// GatherOp - TTNN Op Model Interface
-//===----------------------------------------------------------------------===//
-
-llvm::Expected<op_model::OpConstraints>
-GatherOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                           const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-}
-
-llvm::Expected<size_t>
-GatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                       const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-}
-
-//===----------------------------------------------------------------------===//
 // AllGatherOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 // AllGatherOp and ReduceScatterOp are not supported, since they have been
