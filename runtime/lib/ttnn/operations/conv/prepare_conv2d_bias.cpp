@@ -36,12 +36,12 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
   std::copy_n(op->dilation()->begin(), 2, dilation.begin());
 
   ::ttnn::DataType inputDtype =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(op->input_dtype());
+      unifiedOpLib::operations::utils::toTTNNDataType(op->input_dtype());
 
   std::optional<::ttnn::DataType> outputDtype;
   if (op->output_dtype()) {
     outputDtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+        unifiedOpLib::operations::utils::toTTNNDataType(*(op->output_dtype()));
   }
 
   std::optional<::ttnn::Conv2dConfig> conv2dConfig;
@@ -75,7 +75,7 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
 
   ::ttnn::Tensor out = ::ttnn::operations::conv::conv2d::prepare_conv_bias(
       weightTensor, *inputMemoryConfig,
-      ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
+      ::unifiedOpLib::operations::utils::toTTNNLayout(op->input_tensor_layout()),
       op->in_channels(), op->out_channels(), op->batch_size(),
       op->input_height(), op->input_width(), kernelSize, stride, padding,
       dilation, op->groups(), &targetDevice, inputDtype, outputDtype,
