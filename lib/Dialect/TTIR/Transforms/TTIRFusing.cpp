@@ -2353,12 +2353,16 @@ private:
     // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
     // add op
     bool isArgLhs = false;
-    Operation *one = getOneThroughTMChain(gaussianCDFAdd.getLhs());
+    Operation *one = getScalarThroughTMChain(gaussianCDFAdd.getLhs());
     if (!one) {
-      one = getOneThroughTMChain(gaussianCDFAdd.getRhs());
+      one = getScalarThroughTMChain(gaussianCDFAdd.getRhs());
       isArgLhs = true;
     }
     if (!one) {
+      return nullptr;
+    }
+
+    if (!isScalarValue(one->getResult(0), ONE)) {
       return nullptr;
     }
 
@@ -2578,55 +2582,45 @@ private:
            value / trueValue - 1.0 >= -1.5e-3;
   }
 
-  // This function will return true if the Value 'val' is a FullOp (or the
-  // result of tensor-manipulation ops (Reshape, Permute, Broadcast) beginning
-  // with a FullOp), with the fill_value near 'scalar'. It allows for an error
-  // of 1.5%
+  // This function will return true if the Value 'val' is a scalar constant
+  // creation op (or the result of tensor-manipulation ops (Reshape, Permute,
+  // Broadcast) beginning with a scalar constant creation op), with the
+  // fill_value near 'scalar'. It allows for an error of 1.5%
   bool isScalarValue(Value val, double scalar) const {
-    if (ttir::FullOp fullOp = getFullOpThroughTMChain(val)) {
+    Operation *scalarOp = getScalarThroughTMChain(val);
+    if (!scalarOp) {
+      return false;
+    }
+
+    if (auto fullOp = dyn_cast<ttir::FullOp>(scalarOp)) {
       if (isa<FloatAttr>(fullOp.getFillValue())) {
         APFloat value = dyn_cast<FloatAttr>(fullOp.getFillValue()).getValue();
-        if (checkFloatIsNear(value.convertToFloat(), scalar)) {
-          return true;
-        }
+        return checkFloatIsNear(value.convertToFloat(), scalar);
       }
+      return false;
+    }
+
+    if (auto onesOp = dyn_cast<ttir::OnesOp>(scalarOp)) {
+      return checkFloatIsNear(1.0, scalar);
+    }
+    if (auto zerosOp = dyn_cast<ttir::ZerosOp>(scalarOp)) {
+      return checkFloatIsNear(0.0, scalar);
     }
 
     return false;
   }
 
-  FullOp getFullOpThroughTMChain(Value value) const {
+  Operation *getScalarThroughTMChain(Value value) const {
     Operation *currentOp = value.getDefiningOp();
 
     while (isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp, ttir::PermuteOp>(
         currentOp)) {
       currentOp = currentOp->getOperand(0).getDefiningOp();
     }
-    return mlir::dyn_cast_if_present<ttir::FullOp>(currentOp);
-  }
-
-  // Same as `getFullOpThroughTMChain` but get OnesOp or FullOp with fill_value
-  // close to one.
-  Operation *getOneThroughTMChain(Value value) const {
-    Operation *currentOp = value.getDefiningOp();
-
-    while (isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp, ttir::PermuteOp>(
-        currentOp)) {
-      currentOp = currentOp->getOperand(0).getDefiningOp();
+    if (isa_and_nonnull<ttir::FullOp, ttir::OnesOp, ttir::ZerosOp>(currentOp)) {
+      return currentOp;
     }
-
-    if (auto full = mlir::dyn_cast_if_present<ttir::FullOp>(currentOp)) {
-      if (!isa<FloatAttr>(full.getFillValue())) {
-        return nullptr;
-      }
-      APFloat value = dyn_cast<FloatAttr>(full.getFillValue()).getValue();
-      if (!checkFloatIsNear(value.convertToFloat(), ONE)) {
-        return nullptr;
-      }
-      return full;
-    }
-
-    return mlir::dyn_cast_if_present<ttir::OnesOp>(currentOp);
+    return nullptr;
   }
 };
 } // namespace
