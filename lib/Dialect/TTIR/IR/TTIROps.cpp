@@ -302,12 +302,7 @@ static bool shouldFold(mlir::Operation *op) {
   if (!shapedType) {
     return false;
   }
-  llvm::ArrayRef<int64_t> shape = shapedType.getShape();
-  if (std::reduce(shape.begin(), shape.end(), 1, std::multiplies<int64_t>()) >
-      foldLimit) {
-    return false;
-  }
-  return true;
+  return ttmlir::utils::volume(shapedType.getShape()) <= foldLimit;
 }
 
 //===----------------------------------------------------------------------===//
@@ -2691,12 +2686,8 @@ constantFoldNonSplatSliceStatic(mlir::tt::ttir::SliceStaticOp op,
          "Expected a non-splat, non-empty dense attribute");
 
   llvm::ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
-  // Calculate step size for iterating over any dimension.
-  llvm::SmallVector<int64_t> iterStepSize(inputShape.size());
-  std::partial_sum(inputShape.rbegin(), std::prev(inputShape.rend()),
-                   std::next(iterStepSize.rbegin()),
-                   std::multiplies<int64_t>());
-  iterStepSize.back() = 1;
+  mlir::SmallVector<int64_t> iterStepSize =
+      ttmlir::utils::calculateStrides(inputShape);
 
   llvm::SmallVector<int64_t> begins(inputShape.size());
   llvm::SmallVector<int64_t> ends(inputShape.size());
@@ -5382,9 +5373,8 @@ constantFoldNonSplatPermute(mlir::tt::ttir::PermuteOp op,
   llvm::ArrayRef<int64_t> outputShape = resultType.getShape();
 
   // Calculate step size for iterating over any dimension.
-  llvm::SmallVector<int64_t> stepSize(outputShape.size());
-  std::partial_sum(outputShape.rbegin(), std::prev(outputShape.rend()),
-                   std::next(stepSize.rbegin()), std::multiplies<int64_t>());
+  llvm::SmallVector<int64_t> stepSize =
+      ttmlir::utils::calculateStrides(outputShape);
   stepSize.back() = 1;
 
   // Invert the permutation so that the elements represent dimensions in

@@ -156,6 +156,9 @@ static bool isOneAttr(mlir::Attribute attr) {
         return builder.create<ttir::OnesOp>(loc, type, shape);
       }
 
+      // Canonicalize splat constant to FullOp. The value first needs to be
+      // converted to i32 or f32, which will not reduce precision because we
+      // don't use larger types in TTIR.
       if (auto fillValueAttr = utils::splatToFillValue(builder, elementsAttr)) {
         return builder.create<ttir::FullOp>(loc, type, shape, fillValueAttr);
       }
