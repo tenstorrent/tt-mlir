@@ -4,7 +4,7 @@
 // Verify that index tensor must be unsigned integer type.
 module {
   func.func @gather_signed_index(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
-    // CHECK: error: 'ttnn.gather' op Index tensor must have an unsigned integer element type, got 'i32'
+    // CHECK: error: 'ttnn.gather' op Index tensor must have an unsigned integer type of ui16 or ui32, got 'i32'
     %0 = "ttnn.gather"(%arg0, %arg1) <{dim = 0 : i32, sparse_grad = false}> : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
