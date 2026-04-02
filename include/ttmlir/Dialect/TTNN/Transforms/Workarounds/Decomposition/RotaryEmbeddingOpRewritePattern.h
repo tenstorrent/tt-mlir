@@ -15,9 +15,13 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// If seq_len (dim -2) needs tile-alignment padding, creates a padded
-// RotaryEmbeddingOp and a SliceStaticOp to restore the original shape,
-// returning them as a pair. Returns std::nullopt if no padding is needed.
+// If seq_len (dim -2) or head_dim (dim -1) need alignment padding, creates
+// padded inputs and a padded RotaryEmbeddingOp plus a SliceStaticOp to restore
+// the original shape, returning them as a pair. seq_len is padded to
+// TILE_HEIGHT (https://github.com/tenstorrent/tt-metal/issues/31567); head_dim
+// is padded to TILE_WIDTH * 2
+// (https://github.com/tenstorrent/tt-metal/issues/41313).
+// Returns std::nullopt if no padding is needed.
 // Caller is responsible for erasing the returned ops if they are temporary.
 std::optional<std::pair<RotaryEmbeddingOp, SliceStaticOp>>
 getWorkaroundedOp(RotaryEmbeddingOp ropeOp, PatternRewriter &rewriter);

@@ -326,7 +326,7 @@ public:
       patterns.add<fusing::RoPERotateHalfFusing>(&getContext(),
                                                  validationConfig);
       patterns.add<fusing::RoPEExpandedFusing>(&getContext(), validationConfig);
-      patterns.add<fusing::RoPEDecodeFusing>(&getContext());
+      patterns.add<fusing::RoPEDecodeFusing>(&getContext(), validationConfig);
       patterns.add<fusing::TopKFusing>(&getContext(), validationConfig);
       patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());

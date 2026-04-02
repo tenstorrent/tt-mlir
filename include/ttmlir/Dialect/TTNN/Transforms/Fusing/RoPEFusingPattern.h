@@ -61,11 +61,15 @@ private:
 // Produces: permute(x, {2, 0, 1, 3}) -> rotary_embedding(..., token_index=0)
 class RoPEDecodeFusing : public mlir::OpRewritePattern<PermuteOp> {
 public:
-  using OpRewritePattern<PermuteOp>::OpRewritePattern;
+  RoPEDecodeFusing(mlir::MLIRContext *ctx, const FusionValidationConfig &config)
+      : OpRewritePattern<PermuteOp>(ctx), validationConfig(config) {}
 
   mlir::LogicalResult
   matchAndRewrite(PermuteOp permuteOp,
                   mlir::PatternRewriter &rewriter) const override;
+
+private:
+  FusionValidationConfig validationConfig;
 };
 
 } // namespace mlir::tt::ttnn::fusing

@@ -6,16 +6,10 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
-#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
 
 #include <algorithm>
 
@@ -845,8 +839,6 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
                            ArrayRef<int64_t> outPermutation,
                            DeviceComputeKernelConfigAttr computeConfig,
                            const FusionValidationConfig &validationConfig) {
-  op_model::ScopedSingletonDeviceGuard deviceGuard(srcOp);
-
   // Validate in an isolated module before committing to fusion.
   FusionValidator validator(rewriter.getContext(), validationConfig);
   auto validationResult = validator.validateFusion<RotaryEmbeddingOp>(
@@ -1031,8 +1023,6 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
     return failure();
   }
 
-  op_model::ScopedSingletonDeviceGuard deviceGuard(permuteOp.getOperation());
-
   // Create pre-permute on the original RoPE input: BHSD -> permuted order.
   auto prePermute = ttir_to_ttnn::utils::generatePermute(
       mlir::cast<TypedValue<RankedTensorType>>(ropeOp.getInput()),
@@ -1041,41 +1031,27 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
   auto tokenIndex = rewriter.getIntegerAttr(
       rewriter.getIntegerType(32, /*isSigned=*/false), 0);
 
+  // Validate in an isolated module before committing to fusion.
+  FusionValidator validator(rewriter.getContext(), validationConfig);
+  auto validationResult = validator.validateFusion<RotaryEmbeddingOp>(
+      permuteOp, ropeOp.getLoc(), {prePermute.getType()},
+      prePermute.getResult(), ropeOp.getCosCache(), ropeOp.getSinCache(),
+      tokenIndex,
+      /*memory_config=*/ropeOp.getMemoryConfigAttr(),
+      /*compute_config=*/ropeOp.getComputeConfigAttr());
+
+  if (!validationResult.isSuccess()) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+                 "RoPE decode fusion validation failed: {0}",
+                 validationResult.errorMessage);
+    rewriter.eraseOp(prePermute);
+    return failure();
+  }
+
   auto newRope = rewriter.create<RotaryEmbeddingOp>(
       ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
       ropeOp.getCosCache(), ropeOp.getSinCache(), tokenIndex,
       ropeOp.getMemoryConfigAttr(), ropeOp.getComputeConfigAttr());
-
-  // Validate the fused op. If validation fails, try the workaround-padded
-  // version since the workaround pass (seq_len tile alignment) hasn't run yet.
-  std::vector<TTNNLayoutAttr> inputLayouts =
-      utils::extractInputLayouts(newRope.getOperation());
-  auto resultType = mlir::cast<RankedTensorType>(newRope.getType());
-  OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
-  auto validationResult = op_constraint_validation::validateOperation(
-      newRope.getOperation(), inputLayouts, config);
-
-  if (!validationResult.isSuccess()) {
-    auto workaround =
-        workarounds::decomposition::getWorkaroundedOp(newRope, rewriter);
-    if (workaround) {
-      auto paddedOp = workaround->first;
-      auto sliceOp = workaround->second;
-      inputLayouts = utils::extractInputLayouts(paddedOp.getOperation());
-      resultType = mlir::cast<RankedTensorType>(paddedOp.getType());
-      config = OpConfig(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
-      validationResult = op_constraint_validation::validateOperation(
-          paddedOp.getOperation(), inputLayouts, config);
-      rewriter.eraseOp(sliceOp);
-      rewriter.eraseOp(paddedOp);
-    }
-
-    if (!validationResult.isSuccess()) {
-      rewriter.eraseOp(newRope);
-      rewriter.eraseOp(prePermute);
-      return failure();
-    }
-  }
 
   // Replace the permute's uses with the new RoPE result.
   // The old RoPE op becomes dead and is cleaned up by the rewriter.
