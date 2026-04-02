@@ -29,7 +29,7 @@ void run(const ::tt::target::ttnn::AssignOp *op, ProgramContext &context) {
   std::optional<::ttnn::DataType> outputDtype = std::nullopt;
   if (op->output_dtype()) {
     outputDtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*op->output_dtype());
+        unifiedOpLib::operations::utils::toTTNNDataType(*op->output_dtype());
   }
 
   ::ttnn::Tensor output = ::ttnn::assign(in, memoryConfig, outputDtype,

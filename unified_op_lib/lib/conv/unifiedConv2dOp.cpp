@@ -11,10 +11,11 @@
 #include <operations/conv/conv2d/conv2d.hpp>
 #include <operations/functions.hpp>
 #include <variant>
+#include "utils/utils.h"
 
 namespace unifiedOpLib {
 
-namespace utils = ::tt::runtime::ttnn::operations::utils;
+// namespace utils = ::tt::runtime::ttnn::operations::utils;
 
 // // Extract output MemoryConfig from the Conv2dOpT.out TensorRefT.
 // static std::optional<::ttnn::MemoryConfig>
@@ -67,21 +68,21 @@ resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT) {
 
   if (conv2dOpT.output_dtype.has_value()) {
     params.outputDtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*conv2dOpT.output_dtype);
+        operations::utils::toTTNNDataType(*conv2dOpT.output_dtype);
   }
 
   if (conv2dOpT.conv2d_config) {
-    params.conv2dConfig = utils::createConv2dConfig(*conv2dOpT.conv2d_config);
+    params.conv2dConfig = operations::utils::createConv2dConfig(*conv2dOpT.conv2d_config);
   }
 
   if (conv2dOpT.compute_config) {
     params.computeConfig =
-        utils::createDeviceComputeKernelConfig(*conv2dOpT.compute_config);
+        operations::utils::createDeviceComputeKernelConfig(*conv2dOpT.compute_config);
   }
 
   if (conv2dOpT.conv2d_slice_config) {
     params.sliceConfig =
-        utils::createConv2dSliceConfig(*conv2dOpT.conv2d_slice_config);
+        operations::utils::createConv2dSliceConfig(*conv2dOpT.conv2d_slice_config);
   }
 
   // std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
@@ -93,10 +94,10 @@ resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT) {
   if (conv2dOpT.out) {
     // params.outputMemoryConfig = getOutputMemoryConfig(*conv2dOpT.out);
     params.outputMemoryConfig =
-        ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-            ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(
+        operations::utils::createMemoryConfigIfNeeded(
+            operations::utils::getTensorRefMemoryConfig(
                 *conv2dOpT.out));
-    LOG_ASSERT(tt::runtime::ttnn::utils::inSystemMemory(*conv2dOpT.out) ||
+    LOG_ASSERT(operations::utils::inSystemMemory(*conv2dOpT.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }

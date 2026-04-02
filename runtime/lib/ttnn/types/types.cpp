@@ -43,7 +43,7 @@ LayoutDesc::fromMemoryDesc(const ::tt::target::ttnn::MemoryDesc *memoryDesc) {
       utils::toTTNNStorageType(memoryDesc->storage_type());
   ::ttnn::Layout layout =
       utils::inferLayoutFromTileShape(memoryDesc->tile_shape());
-  ::ttnn::DataType dtype = utils::toTTNNDataType(memoryDesc->data_type());
+  ::ttnn::DataType dtype = unifiedOpLib::operations::utils::toTTNNDataType(memoryDesc->data_type());
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       utils::createMemoryConfigIfNeeded(memoryDesc->memory_config());
 

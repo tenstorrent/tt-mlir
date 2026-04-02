@@ -14,7 +14,7 @@ using ::tt::runtime::DeviceRuntime;
 Layout getDramInterleavedTileLayout(::tt::target::DataType dataType) {
   LOG_ASSERT(getCurrentDeviceRuntime() == DeviceRuntime::TTNN);
   ::ttnn::DataType ttnnDataType =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(dataType);
+      unifiedOpLib::operations::utils::toTTNNDataType(dataType);
   ::tt::runtime::ttnn::LayoutDesc layoutDesc(::ttnn::StorageType::DEVICE,
                                              ::ttnn::Layout::TILE, ttnnDataType,
                                              ::ttnn::DRAM_MEMORY_CONFIG);
@@ -27,7 +27,7 @@ Layout getDramInterleavedTileLayout(::tt::target::DataType dataType) {
 Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
   LOG_ASSERT(getCurrentDeviceRuntime() == DeviceRuntime::TTNN);
   ::ttnn::DataType ttnnDataType =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(dataType);
+      unifiedOpLib::operations::utils::toTTNNDataType(dataType);
   ::tt::runtime::ttnn::LayoutDesc layoutDesc(
       ::ttnn::StorageType::DEVICE, ::ttnn::Layout::ROW_MAJOR, ttnnDataType,
       ::ttnn::DRAM_MEMORY_CONFIG);
@@ -40,7 +40,7 @@ Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
 ::tt::runtime::Layout getHostRowMajorLayout(::tt::target::DataType dataType) {
   LOG_ASSERT(getCurrentDeviceRuntime() == DeviceRuntime::TTNN);
   ::ttnn::DataType ttnnDataType =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(dataType);
+      unifiedOpLib::operations::utils::toTTNNDataType(dataType);
   ::tt::runtime::ttnn::LayoutDesc layoutDesc(::ttnn::StorageType::HOST,
                                              ::ttnn::Layout::ROW_MAJOR,
                                              ttnnDataType, std::nullopt);
