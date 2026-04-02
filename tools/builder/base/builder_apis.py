@@ -46,6 +46,32 @@ from builder.d2m.d2m_builder import D2MBuilder
 # ----- Private APIs -----
 
 
+class DeferredDevice:
+    """Device that opens after compilation, not before.
+
+    The optimizer pipeline uses OpModel's internal mock device during
+    compilation. If a real device is already open, mock device creation
+    fails. Pass ``DeferredDevice(request)`` as the ``device`` argument to
+    ``compile_and_execute_ttir`` so the real device is opened only for
+    execution.
+    """
+
+    def __init__(self, request):
+        self._request = request
+
+    def open(self):
+        return self._request.getfixturevalue("device")
+
+    def close(self, device):
+        """Close the device and clear the fixture cache so the next test
+        can compile with a mock device."""
+        tt_runtime.runtime.close_mesh_device(device)
+        tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.DISABLED)
+        from conftest import clear_device_cache
+
+        clear_device_cache()
+
+
 def _compile_and_execute(
     compile_fn: Callable,
     target: Literal["ttnn", "ttmetal", "emitc", "emitpy"],
@@ -62,12 +88,12 @@ def _compile_and_execute(
     dump_memory: bool = False,
     **compile_kwargs,
 ) -> str:
-    # Support deferred device: if device is callable, resolve after compilation.
-    # This allows optimizer-dependent tests to compile with a mock device (used
-    # internally by OpModel) and only open the real device for execution.
-    deferred_device = callable(device)
-    if deferred_device:
-        device_factory = device
+    # Support deferred device: resolve after compilation so the optimizer
+    # pipeline can use OpModel's mock device without conflicting with a
+    # real device.
+    is_deferred = isinstance(device, DeferredDevice)
+    if is_deferred:
+        deferred = device
         device = None
 
     builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_fn(
@@ -78,8 +104,8 @@ def _compile_and_execute(
     if skip_exec:
         raise TTBuilderRuntimeException("Manually skipped execution")
 
-    if deferred_device:
-        device = device_factory()
+    if is_deferred:
+        device = deferred.open()
 
     # Execute the flatbuffer, closing deferred devices after execution so that
     # the next test's compilation can use a mock device without conflict.
@@ -138,13 +164,8 @@ def _compile_and_execute(
                 artifact_dir=compile_kwargs.get("artifact_dir", "."),
             )
     finally:
-        # When using deferred device, close the device after execution so that
-        # the next test's compilation can create a mock device for the optimizer.
-        if deferred_device and device is not None:
-            tt_runtime.runtime.close_mesh_device(device)
-            tt_runtime.runtime.set_fabric_config(
-                tt_runtime.runtime.FabricConfig.DISABLED
-            )
+        if is_deferred and device is not None:
+            deferred.close(device)
 
 
 def _compile(root_func: Callable, builder: Builder):

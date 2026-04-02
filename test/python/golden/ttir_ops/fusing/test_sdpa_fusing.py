@@ -12,8 +12,8 @@ import torch
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_apis import compile_and_execute_ttir
-from conftest import clear_device_cache, get_request_kwargs
+from builder.base.builder_apis import compile_and_execute_ttir, DeferredDevice
+from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -315,7 +315,7 @@ def compile_and_run_sdpa(module_fn, target, request):
         module_fn,
         target=target,
         **get_request_kwargs(request),
-        device=lambda: (clear_device_cache(), request.getfixturevalue("device"))[1],
+        device=DeferredDevice(request),
         pipeline_options=["enable-optimizer=true"],
         save_artifacts=True,
     )
