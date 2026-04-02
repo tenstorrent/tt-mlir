@@ -75,5 +75,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTMLIRTTIRToTTNN
         MLIRTTNNValidation
         TTMLIRTTNNToEmitC
+        TTMLIRTTIRToEmitPy
         TTMLIRTTNNToEmitPy
         )
