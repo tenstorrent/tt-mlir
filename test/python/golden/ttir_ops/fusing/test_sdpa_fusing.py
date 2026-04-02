@@ -326,38 +326,43 @@ def compile_and_run_sdpa(module_fn, target, request):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("shapes", ALL_SHAPES)
+@pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_sdpa_split_scale_nan_safe(shapes: SDPAShapes, target: str, request):
+def test_sdpa_split_scale_nan_safe(sdpa_shapes: SDPAShapes, target: str, request):
     """
     Qwen / Phi / BERT / ViT pattern.
     Pattern: (Q * scale) @ (K^T * scale) -> mask -> nan_safe_softmax -> @ V
     """
-    input_shapes = [shapes.query, shapes.key, shapes.value, shapes.mask]
+    input_shapes = [
+        sdpa_shapes.query,
+        sdpa_shapes.key,
+        sdpa_shapes.value,
+        sdpa_shapes.mask,
+    ]
     dtypes = [torch.bfloat16] * 4
 
     def module(builder: TTIRBuilder):
         @builder.func(input_shapes, dtypes)
         def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
-            q_data = torch.randn(shapes.query, dtype=torch.bfloat16)
-            k_data = torch.randn(shapes.key, dtype=torch.bfloat16)
-            v_data = torch.randn(shapes.value, dtype=torch.bfloat16)
-            m_data = torch.zeros(shapes.mask, dtype=torch.bfloat16)
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
 
             golden = build_torch_golden(
-                q_data, k_data, v_data, scale=shapes.scale, attention_mask=m_data
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
             )
 
             # Build TTIR: split pre-scale Q and K, GQA expand, compute scores, nan-safe softmax
             q_scaled = pre_scale(
-                query, shapes.split_scale, builder, unit_attrs=unit_attrs
+                query, sdpa_shapes.split_scale, builder, unit_attrs=unit_attrs
             )
             key, value = gqa_broadcast_kv(
-                key, value, shapes.q_heads, builder, unit_attrs=unit_attrs
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
             k_scaled = pre_scale(
                 key,
-                shapes.split_scale,
+                sdpa_shapes.split_scale,
                 builder,
                 dtype=torch.float32,
                 unit_attrs=unit_attrs,
@@ -384,39 +389,39 @@ def test_sdpa_split_scale_nan_safe(shapes: SDPAShapes, target: str, request):
             return result
 
     artifact_dir = compile_and_run_sdpa(module, target, request)
-    assert_sdpa_fused(artifact_dir, shapes.q_seq)
+    assert_sdpa_fused(artifact_dir, sdpa_shapes.q_seq)
 
 
-@pytest.mark.parametrize("shapes", ALL_SHAPES)
+@pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
 @pytest.mark.parametrize("use_mask", [False, True])
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sdpa_post_scale_simple(
-    shapes: SDPAShapes, use_mask: bool, target: str, request
+    sdpa_shapes: SDPAShapes, use_mask: bool, target: str, request
 ):
     """
     SegFormer-like / simple pattern.
     Pattern: Q @ K^T -> scale -> [mask] -> simple_softmax -> @ V
     """
-    input_shapes = [shapes.query, shapes.key, shapes.value]
+    input_shapes = [sdpa_shapes.query, sdpa_shapes.key, sdpa_shapes.value]
     if use_mask:
-        input_shapes.append(shapes.mask)
+        input_shapes.append(sdpa_shapes.mask)
     dtypes = [torch.bfloat16] * len(input_shapes)
 
     def module_no_mask(builder: TTIRBuilder):
         @builder.func(input_shapes, dtypes)
         def sdpa(query, key, value, builder: TTIRBuilder, unit_attrs=None):
-            q_data = torch.randn(shapes.query, dtype=torch.bfloat16)
-            k_data = torch.randn(shapes.key, dtype=torch.bfloat16)
-            v_data = torch.randn(shapes.value, dtype=torch.bfloat16)
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
 
-            golden = build_torch_golden(q_data, k_data, v_data, scale=shapes.scale)
+            golden = build_torch_golden(q_data, k_data, v_data, scale=sdpa_shapes.scale)
 
             key, value = gqa_broadcast_kv(
-                key, value, shapes.q_heads, builder, unit_attrs=unit_attrs
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
             scores = compute_scores(query, key, builder, unit_attrs=unit_attrs)
             scores = post_scale_scores(
-                scores, shapes.scale, builder, unit_attrs=unit_attrs
+                scores, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
             )
             attn = simple_softmax(scores, builder, unit_attrs=unit_attrs)
             result = builder.matmul(attn, value, unit_attrs=unit_attrs)
@@ -430,23 +435,23 @@ def test_sdpa_post_scale_simple(
     def module_with_mask(builder: TTIRBuilder):
         @builder.func(input_shapes, dtypes)
         def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
-            q_data = torch.randn(shapes.query, dtype=torch.bfloat16)
-            k_data = torch.randn(shapes.key, dtype=torch.bfloat16)
-            v_data = torch.randn(shapes.value, dtype=torch.bfloat16)
-            m_data = torch.zeros(shapes.mask, dtype=torch.bfloat16)
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
 
             golden = build_torch_golden(
-                q_data, k_data, v_data, scale=shapes.scale, attention_mask=m_data
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
             )
 
             key, value = gqa_broadcast_kv(
-                key, value, shapes.q_heads, builder, unit_attrs=unit_attrs
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
             scores = compute_scores(
                 query, key, builder, mask=mask, unit_attrs=unit_attrs
             )
             scores = post_scale_scores(
-                scores, shapes.scale, builder, unit_attrs=unit_attrs
+                scores, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
             )
             attn = simple_softmax(scores, builder, unit_attrs=unit_attrs)
             result = builder.matmul(attn, value, unit_attrs=unit_attrs)
@@ -460,35 +465,42 @@ def test_sdpa_post_scale_simple(
     artifact_dir = compile_and_run_sdpa(
         module_with_mask if use_mask else module_no_mask, target, request
     )
-    assert_sdpa_fused(artifact_dir, shapes.q_seq)
+    assert_sdpa_fused(artifact_dir, sdpa_shapes.q_seq)
 
 
-@pytest.mark.parametrize("shapes", ALL_SHAPES)
+@pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_sdpa_pre_scale_q_nan_safe(shapes: SDPAShapes, target: str, request):
+def test_sdpa_pre_scale_q_nan_safe(sdpa_shapes: SDPAShapes, target: str, request):
     """
     LLaMA decode pattern.
     Pattern: (Q * scale) @ K^T -> mask -> nan_safe_softmax -> @ V
     """
-    input_shapes = [shapes.query, shapes.key, shapes.value, shapes.mask]
+    input_shapes = [
+        sdpa_shapes.query,
+        sdpa_shapes.key,
+        sdpa_shapes.value,
+        sdpa_shapes.mask,
+    ]
     dtypes = [torch.bfloat16] * 4
 
     def module(builder: TTIRBuilder):
         @builder.func(input_shapes, dtypes)
         def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
-            q_data = torch.randn(shapes.query, dtype=torch.bfloat16)
-            k_data = torch.randn(shapes.key, dtype=torch.bfloat16)
-            v_data = torch.randn(shapes.value, dtype=torch.bfloat16)
-            m_data = torch.zeros(shapes.mask, dtype=torch.bfloat16)
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
 
             golden = build_torch_golden(
-                q_data, k_data, v_data, scale=shapes.scale, attention_mask=m_data
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
             )
 
             # Pre-scale Q only, then GQA expand K/V
-            q_scaled = pre_scale(query, shapes.scale, builder, unit_attrs=unit_attrs)
+            q_scaled = pre_scale(
+                query, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
+            )
             key, value = gqa_broadcast_kv(
-                key, value, shapes.q_heads, builder, unit_attrs=unit_attrs
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
             k_f32 = builder.typecast(key, torch.float32, unit_attrs=unit_attrs)
             k_t = builder.transpose(k_f32, dim0=-2, dim1=-1)
@@ -513,36 +525,41 @@ def test_sdpa_pre_scale_q_nan_safe(shapes: SDPAShapes, target: str, request):
             return result
 
     artifact_dir = compile_and_run_sdpa(module, target, request)
-    assert_sdpa_fused(artifact_dir, shapes.q_seq)
+    assert_sdpa_fused(artifact_dir, sdpa_shapes.q_seq)
 
 
-@pytest.mark.parametrize("shapes", ALL_SHAPES)
+@pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_sdpa_pre_scale_k_nan_safe(shapes: SDPAShapes, target: str, request):
+def test_sdpa_pre_scale_k_nan_safe(sdpa_shapes: SDPAShapes, target: str, request):
     """
     LLaMA prefill / Falcon / Gemma / Mistral pattern.
     Pattern: Q @ (K^T * scale) -> mask -> nan_safe_softmax -> @ V
     """
-    input_shapes = [shapes.query, shapes.key, shapes.value, shapes.mask]
+    input_shapes = [
+        sdpa_shapes.query,
+        sdpa_shapes.key,
+        sdpa_shapes.value,
+        sdpa_shapes.mask,
+    ]
     dtypes = [torch.bfloat16] * 4
 
     def module(builder: TTIRBuilder):
         @builder.func(input_shapes, dtypes)
         def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
-            q_data = torch.randn(shapes.query, dtype=torch.bfloat16)
-            k_data = torch.randn(shapes.key, dtype=torch.bfloat16)
-            v_data = torch.randn(shapes.value, dtype=torch.bfloat16)
-            m_data = torch.zeros(shapes.mask, dtype=torch.bfloat16)
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
 
             golden = build_torch_golden(
-                q_data, k_data, v_data, scale=shapes.scale, attention_mask=m_data
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
             )
 
             # GQA expand, then pre-scale K only
             key, value = gqa_broadcast_kv(
-                key, value, shapes.q_heads, builder, unit_attrs=unit_attrs
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
-            k_scaled = pre_scale(key, shapes.scale, builder, unit_attrs=unit_attrs)
+            k_scaled = pre_scale(key, sdpa_shapes.scale, builder, unit_attrs=unit_attrs)
             k_t = builder.transpose(k_scaled, dim0=-2, dim1=-1)
             q_f32 = builder.typecast(query, torch.float32, unit_attrs=unit_attrs)
             scores = builder.matmul(q_f32, k_t, unit_attrs=unit_attrs)
@@ -566,39 +583,44 @@ def test_sdpa_pre_scale_k_nan_safe(shapes: SDPAShapes, target: str, request):
             return result
 
     artifact_dir = compile_and_run_sdpa(module, target, request)
-    assert_sdpa_fused(artifact_dir, shapes.q_seq)
+    assert_sdpa_fused(artifact_dir, sdpa_shapes.q_seq)
 
 
-@pytest.mark.parametrize("shapes", ALL_SHAPES)
+@pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_sdpa_simple_softmax(shapes: SDPAShapes, target: str, request):
+def test_sdpa_simple_softmax(sdpa_shapes: SDPAShapes, target: str, request):
     """
     Swin-like pattern: simple softmax, no NaN handling.
     Pattern: Q @ K^T -> scale -> mask -> simple_softmax -> @ V
     """
-    input_shapes = [shapes.query, shapes.key, shapes.value, shapes.mask]
+    input_shapes = [
+        sdpa_shapes.query,
+        sdpa_shapes.key,
+        sdpa_shapes.value,
+        sdpa_shapes.mask,
+    ]
     dtypes = [torch.bfloat16] * 4
 
     def module(builder: TTIRBuilder):
         @builder.func(input_shapes, dtypes)
         def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
-            q_data = torch.randn(shapes.query, dtype=torch.bfloat16)
-            k_data = torch.randn(shapes.key, dtype=torch.bfloat16)
-            v_data = torch.randn(shapes.value, dtype=torch.bfloat16)
-            m_data = torch.zeros(shapes.mask, dtype=torch.bfloat16)
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
 
             golden = build_torch_golden(
-                q_data, k_data, v_data, scale=shapes.scale, attention_mask=m_data
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
             )
 
             key, value = gqa_broadcast_kv(
-                key, value, shapes.q_heads, builder, unit_attrs=unit_attrs
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
             scores = compute_scores(
                 query, key, builder, mask=mask, unit_attrs=unit_attrs
             )
             scores = post_scale_scores(
-                scores, shapes.scale, builder, unit_attrs=unit_attrs
+                scores, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
             )
             attn = simple_softmax(scores, builder, unit_attrs=unit_attrs)
             result = builder.matmul(attn, value, unit_attrs=unit_attrs)
@@ -610,4 +632,4 @@ def test_sdpa_simple_softmax(shapes: SDPAShapes, target: str, request):
             return result
 
     artifact_dir = compile_and_run_sdpa(module, target, request)
-    assert_sdpa_fused(artifact_dir, shapes.q_seq)
+    assert_sdpa_fused(artifact_dir, sdpa_shapes.q_seq)
