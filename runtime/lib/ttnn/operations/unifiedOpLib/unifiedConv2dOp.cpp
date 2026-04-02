@@ -66,7 +66,7 @@
 
 //   if (conv2dOpT.output_dtype.has_value()) {
 //     params.outputDtype =
-//         ::tt::runtime::ttnn::utils::toTTNNDataType(*conv2dOpT.output_dtype);
+//         unifiedOpLib::operations::utils::toTTNNDataType(*conv2dOpT.output_dtype);
 //   }
 
 //   if (conv2dOpT.conv2d_config) {

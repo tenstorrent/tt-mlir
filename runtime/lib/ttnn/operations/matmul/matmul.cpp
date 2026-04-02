@@ -9,6 +9,7 @@
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "utils/utils.h"
 
 #include <algorithm>
 #include <optional>
@@ -128,7 +129,7 @@ void run(const ::tt::target::ttnn::SparseMatmulOp *op,
   ::ttnn::operations::matmul::MatmulMultiCoreReuseMultiCast1DProgramConfig
       programConfig{
           .compute_with_storage_grid_size =
-              ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+              unifiedOpLib::operations::utils::toTTNNCoreCoord(
                   *config->compute_with_storage_grid_size()),
           .in0_block_w = config->in0_block_w(),
           .out_subblock_h = config->out_subblock_h(),
