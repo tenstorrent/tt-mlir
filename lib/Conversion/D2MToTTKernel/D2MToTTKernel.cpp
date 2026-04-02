@@ -2100,8 +2100,12 @@ public:
       }
     } else {
       // Scalar: CT args are always passed as ui32; other types are cast.
-      Type ui32Type = IntegerType::get(ctx, 32, IntegerType::Unsigned);
-      Type ui32ScalarType = ttkernel::ScalarType::get(ctx, ui32Type);
+      bool needsCast = !mlir::isa<IndexType>(resultType) &&
+                       !resultType.isUnsignedInteger(32);
+      Type ttkernelResultType =
+          needsCast ? IntegerType::get(ctx, 32, IntegerType::Unsigned)
+                    : resultType;
+      Type ui32ScalarType = ttkernelResultType;
       ArgAttr arg = rewriter.getAttr<ArgAttr>(ArgType::Scalar, operandIndex);
       Value argVal;
       if (isRuntime) {
@@ -2118,13 +2122,14 @@ public:
         argVal = rewriter.create<ttkernel::GetCompileArgValOp>(
             op.getLoc(), ui32ScalarType, static_cast<int32_t>(argIndex));
       }
-      if (resultType == ui32Type) {
-        rewriter.replaceOp(op, argVal);
-      } else {
-        Type targetScalarType = ttkernel::ScalarType::get(ctx, resultType);
-        rewriter.replaceOpWithNewOp<ttkernel::ReinterpretCastOp>(
-            op, targetScalarType, argVal);
+
+      if (needsCast) {
+        Type targetScalarType = resultType;
+        argVal = rewriter.create<ttkernel::ReinterpretCastOp>(
+            op.getLoc(), targetScalarType, argVal);
       }
+
+      rewriter.replaceOp(op, argVal);
     }
     return success();
   }

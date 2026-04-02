@@ -3171,7 +3171,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
 // TTKernel Compile and runtime arguments operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_ArgResultType : AnyTypeOf<[I32, TTKernel_CB, TTKernel_L1Addr, TTKernel_Scalar, TTKernel_LocalSemaphore, TTKernel_GlobalSemaphore]>;
+def TTKernel_ArgResultType : AnyTypeOf<[Index, I32, TTKernel_CB, TTKernel_L1Addr, TTKernel_Scalar, TTKernel_LocalSemaphore, TTKernel_GlobalSemaphore]>;
 
 def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val", [Pure]> {
     let summary = "Get runtime arg value.";
