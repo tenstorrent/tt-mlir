@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
@@ -180,9 +181,9 @@ std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
     hintMem = hintMemStr;
   }
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "    FAILED validation for {0}: hint[{1}] "
-               "outBuf={2} outMem={3} inputs=[{4}] reshard={5}",
-               op->getName(), hintIdx, hintBuf, hintMem,
+               "    FAILED validation for {0}: hint[{1}] error: {2} "
+               "outBuf={3} outMem={4} inputs=[{5}] reshard={6}",
+               op->getName(), hintIdx, result.errorMessage, hintBuf, hintMem,
                formatInputLayouts(inputLayouts), anyReshard);
 
   observer->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/false,
@@ -593,9 +594,8 @@ bool MemoryLayoutPropagation::validateReshard(
   bool valid = result.isSuccess();
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "  validateReshard: {0} -> {1}: {2}",
-               producerOutputLayout.getBufferType(),
-               reshardLayout.getBufferType(), valid ? "OK" : "FAILED");
+               "  validateReshard: {0} -> {1}: {2}", producerOutputLayout,
+               reshardLayout, valid ? "OK" : "FAILED");
   return valid;
 }
 
@@ -707,11 +707,28 @@ void MemoryLayoutPropagation::addReshardCandidates(
     }
   }
 
+  // Compute max grid volume from output tensor tile count. For tiled outputs,
+  // reshard grids larger than the output tile count are wasteful — the op can't
+  // produce a sharded output on more cores than it has tiles.
+  int64_t maxGridVolume = std::numeric_limits<int64_t>::max();
+  auto outputType =
+      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  auto outputLayout =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputType.getEncoding());
+  if (outputLayout &&
+      mlir::isa<ttcore::TileType>(outputLayout.getElementType())) {
+    auto shape = outputType.getShape();
+    int64_t cols = (shape.back() + TILE_WIDTH - 1) / TILE_WIDTH;
+    int64_t rows = (outputType.getNumElements() / shape.back() +
+                    TILE_HEIGHT - 1) / TILE_HEIGHT;
+    maxGridVolume = rows * cols;
+  }
+
   // Collect unique reshard layouts across all base layouts.
   llvm::SmallVector<TTNNLayoutAttr> uniqueReshardLayouts;
   for (const auto &baseLayout : layoutsToExplore) {
     std::vector<TTNNLayoutAttr> reshardCandidates =
-        generateReshardCandidates(tensorType, baseLayout);
+        generateReshardCandidates(tensorType, baseLayout, maxGridVolume);
     for (const auto &reshardLayout : reshardCandidates) {
       // Dedup: skip if already in uniqueReshardLayouts or existing candidates.
       bool alreadyPresent = false;
@@ -865,7 +882,8 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
 }
 
 std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
-    RankedTensorType tensorType, TTNNLayoutAttr currentLayout) {
+    RankedTensorType tensorType, TTNNLayoutAttr currentLayout,
+    int64_t maxGridVolume) {
   // Only generate sharded-to-sharded reshard candidates. Resharding from
   // sharded to interleaved (DRAM or L1) almost always hurts performance.
   if (!tensorTypePossibleLayouts) {
@@ -904,6 +922,10 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
         !isShardedMemoryLayout(layout.getMemLayout().getValue())) {
       continue;
     }
+    if (static_cast<int64_t>(layout.getGrid().getGridVolume()) >
+        maxGridVolume) {
+      continue;
+    }
     filtered.push_back(layout);
   }
 
@@ -930,19 +952,10 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
     }
   }
 
-  // Sort by grid volume (product of grid dims) descending -- more cores first.
+  // Sort by grid volume descending -- more cores first.
   std::sort(deduped.begin(), deduped.end(),
             [](const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) {
-              auto aShape = a.getGrid().getShape();
-              auto bShape = b.getGrid().getShape();
-              int64_t aVol = 1, bVol = 1;
-              for (int64_t d : aShape) {
-                aVol *= d;
-              }
-              for (int64_t d : bShape) {
-                bVol *= d;
-              }
-              return aVol > bVol;
+              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
             });
 
   if (deduped.size() > maxReshardCandidates) {
@@ -950,9 +963,12 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
   }
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "generateReshardCandidates: {0} sharded-to-sharded candidates "
-               "for tensor type with shape [{1}]",
-               deduped.size(), tensorType.getShape().size());
+               "  generated {0} reshard candidates for {1}", deduped.size(),
+               currentLayout);
+  for ([[maybe_unused]] auto &layout : deduped) {
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                 "\t\t{}", layout);
+  }
 
   return deduped;
 }
