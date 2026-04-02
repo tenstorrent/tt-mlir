@@ -446,6 +446,31 @@ module {
       %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
       %cb_B = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
+      // CHECK: %[[IN0_TILE_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[IN1_TILE_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[DST_TILE_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[TRANSPOSE:.*]] = "emitc.constant"
+      // CHECK: %[[CT_DIM:.*]] = "emitc.constant"
+      // CHECK: %[[RT_DIM:.*]] = "emitc.constant"
+      // CHECK: %[[KT_DIM:.*]] = "emitc.constant"
+      %in0_tile_index = arith.constant 0 : i32
+      %in1_tile_index = arith.constant 0 : i32
+      %dst_tile_index = arith.constant 0 : i32
+      %transpose = arith.constant 0 : i32
+      %ct_dim = arith.constant 1 : i32
+      %rt_dim = arith.constant 2 : i32
+      %kt_dim = arith.constant 2 : i32
+      // CHECK: emitc.call_opaque "matmul_block"(%[[CB_A]], %[[CB_B]], %[[IN0_TILE_INDEX]], %[[IN1_TILE_INDEX]], %[[DST_TILE_INDEX]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]])
+      "ttkernel.matmul_block"(%cb_A, %cb_B, %in0_tile_index, %in1_tile_index, %dst_tile_index, %transpose, %ct_dim, %rt_dim, %kt_dim) : (!cb0_tiles, !cb1_tiles, i32, i32, i32, i32, i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @experimental_matmul_block
+    func.func @experimental_matmul_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB_A:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+      %cb_B = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       // CHECK: %[[TRANSPOSE:.*]] = "emitc.constant"
       // CHECK: %[[IN0_TILE_INDEX:.*]] = "emitc.constant"
       // CHECK: %[[IN1_TILE_INDEX:.*]] = "emitc.constant"
