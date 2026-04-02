@@ -18,11 +18,13 @@ namespace {
 // func arg. If it carries "ttcore.weight_dtype", set it on the consumer op.
 static void resolveAndSetWeightDtype(mlir::Value weight,
                                      mlir::Operation *consumerOp) {
-  // Trace backward through TM ops, BroadcastOp, and MeshShardOp.
+  // Trace backward through TM ops, BroadcastOp, MeshShardOp, and
+  // MeshPartitionOp. MeshPartitionOp appears in multi-chip (manual_computation)
+  // graphs between mesh_shard and sparse_matmul for MoE expert weights.
   mlir::Value source = weight;
   while (auto *op = source.getDefiningOp()) {
     if (op->hasTrait<TensorManipulation::Trait>() ||
-        mlir::isa<BroadcastOp, MeshShardOp>(op)) {
+        mlir::isa<BroadcastOp, MeshShardOp, MeshPartitionOp>(op)) {
       source = op->getOperand(0);
     } else {
       break;
@@ -63,6 +65,8 @@ public:
         resolveAndSetWeightDtype(matmulOp.getB(), op);
       } else if (auto linearOp = mlir::dyn_cast<LinearOp>(op)) {
         resolveAndSetWeightDtype(linearOp.getB(), op);
+      } else if (auto sparseMatmulOp = mlir::dyn_cast<SparseMatmulOp>(op)) {
+        resolveAndSetWeightDtype(sparseMatmulOp.getB(), op);
       }
     });
   }
