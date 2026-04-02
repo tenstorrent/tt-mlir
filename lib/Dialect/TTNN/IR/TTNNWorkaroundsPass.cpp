@@ -209,6 +209,18 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 
+// Factory method to create a set of workarounds for GatherOp. The GatherOp
+// requires the input and index tensors to be in TILED layout.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createGatherOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds tiledLayoutWorkaround;
+  tiledLayoutWorkaround.tensorLayoutWorkaround = Layout::Tile;
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(tiledLayoutWorkaround)      // input
+      .addInputOperandWorkaround(tiledLayoutWorkaround)      // index
+      .addOutputOperandWorkaround(TTNNOperandWorkarounds()); // result
+}
+
 // Factory method to create a set of workarounds for ScatterOp. The ScatterOp
 // expects the input to be in row-major layout if using f32, bf16, or int32.
 TTNNOperandsWorkarounds
