@@ -36,6 +36,8 @@ namespace mlir::tt::ttnn {
 struct ConcatRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter() const override;
   bool shouldExploreReshards() const override;
+  bool isValidInputCombination(
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
 };
 
 /// SliceStaticOp, SliceDynamicOp: reject all sharded inputs, non-sharded

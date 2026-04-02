@@ -45,6 +45,12 @@ struct SDPARuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// RotaryEmbedding: only height-sharded inputs (width/block rejected by
+/// tt-metal), reshards allowed.
+struct RotaryEmbeddingRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter() const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_TRANSFORMERRULES_H
