@@ -1169,7 +1169,7 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
     }];
 }
 
-def D2M_DMACopyOp : D2M_GenericRegionDatamovementOp<"dma_copy",
+def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
   , DestinationStyleOpInterface
@@ -1196,25 +1196,25 @@ def D2M_DMACopyOp : D2M_GenericRegionDatamovementOp<"dma_copy",
 
       Tensor form (pre-bufferization):
       ```mlir
-      %result = d2m.dma_copy %src, %dst indexing_maps = [#src_map, #dst_map]
+      %result = d2m.local_copy %src, %dst indexing_maps = [#src_map, #dst_map]
         : tensor<...>, tensor<...> -> tensor<...>
       ```
 
       Memref form (post-bufferization, no result):
       ```mlir
-      d2m.dma_copy %src, %dst indexing_maps = [#src_map, #dst_map]
+      d2m.local_copy %src, %dst indexing_maps = [#src_map, #dst_map]
         : memref<...>, memref<...>
       ```
 
       Explicit CB form (after LowerLoadStoreOpsToExplicitCBForm):
       ```mlir
-      d2m.dma_copy %src into %cb indexing_maps = [#src_map, #dst_map]
+      d2m.local_copy %src into %cb indexing_maps = [#src_map, #dst_map]
         : memref<...> into !d2m.cb<memref<...>>
       ```
 
       Memref form with MemTx result (after LowerLoadStoreOpsToDMA):
       ```mlir
-      %tx = d2m.dma_copy %src, %dst indexing_maps = [#src_map, #dst_map]
+      %tx = d2m.local_copy %src, %dst indexing_maps = [#src_map, #dst_map]
         : memref<...>, memref<...> -> !d2m.mem_tx
       d2m.dma_wait %tx
       ```
@@ -1289,7 +1289,7 @@ def D2M_DMACopyOp : D2M_GenericRegionDatamovementOp<"dma_copy",
           return mlir::cast<MemRefType>(getDst().getType());
         if (getCb())
           return getCbType().template getUnderlyingAs<MemRefType>();
-        llvm_unreachable("DMACopyOp has neither dst nor cb");
+        llvm_unreachable("LocalCopyOp has neither dst nor cb");
       }
 
       // Returns the destination shaped type (works for both tensor and memref).
@@ -1298,7 +1298,7 @@ def D2M_DMACopyOp : D2M_GenericRegionDatamovementOp<"dma_copy",
           return mlir::cast<ShapedType>(getDst().getType());
         if (getCb())
           return getCbType().template getUnderlyingAs<ShapedType>();
-        llvm_unreachable("DMACopyOp has neither dst nor cb");
+        llvm_unreachable("LocalCopyOp has neither dst nor cb");
       }
 
       /// Returns the CB port number. Op must be in explicit CB form.

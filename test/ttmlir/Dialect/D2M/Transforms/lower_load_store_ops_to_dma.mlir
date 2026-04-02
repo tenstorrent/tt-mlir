@@ -209,9 +209,9 @@ module attributes {} {
     }
     return
   }
-  // dma_copy gets its producer side synchronization inserted.
-  // CHECK-LABEL: func.func @test_dma_copy
-  func.func @test_dma_copy() {
+  // local_copy gets its producer side synchronization inserted.
+  // CHECK-LABEL: func.func @test_local_copy
+  func.func @test_local_copy() {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
 
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
@@ -220,7 +220,7 @@ module attributes {} {
 
     // CHECK: %[[SRC:.*]] = d2m.wait
     // CHECK: d2m.reserve
-    // CHECK: %[[TX:.*]] = d2m.dma_copy %[[SRC]], %{{.*}} indexing_maps
+    // CHECK: %[[TX:.*]] = d2m.local_copy %[[SRC]], %{{.*}} indexing_maps
     // CHECK-SAME: -> !d2m.mem_tx
     // CHECK: d2m.dma_wait %[[TX]]
     // CHECK: d2m.push
@@ -234,7 +234,7 @@ module attributes {} {
       scf.for %arg1 = %c0 to %c1 step %c1 {
         scf.for %arg2 = %c0 to %c1 step %c1 {
           %src = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-          d2m.dma_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          d2m.local_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {

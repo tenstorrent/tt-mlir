@@ -104,12 +104,12 @@ def D2M_DMAOpInterface : OpInterface<"DMAOpInterface"> {
 }
 
 // Interface for CB-based DMA ops that run on the DM thread (RemoteLoadOp,
-// RemoteStoreOp, DMACopyOp).
+// RemoteStoreOp, LocalCopyOp).
 def D2M_ShardDMAOpInterface : OpInterface<"ShardDMAOpInterface"> {
   let cppNamespace = "::mlir::tt::d2m";
   let description = [{
     Implemented by the shard-level DMA ops (RemoteLoadOp, RemoteStoreOp,
-    DMACopyOp) that run on the datamovement thread before lowering to fully
+    LocalCopyOp) that run on the datamovement thread before lowering to fully
     indexed form.  Provides a uniform getCBPort() accessor so scheduling and
     thread-splitting passes do not need to enumerate individual op types.
   }];

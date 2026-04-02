@@ -306,15 +306,15 @@ public:
   }
 };
 
-class D2MLowerDMACopyRewritePattern : public OpRewritePattern<DMACopyOp> {
+class D2MLowerDMACopyRewritePattern : public OpRewritePattern<LocalCopyOp> {
 public:
-  using OpRewritePattern<DMACopyOp>::OpRewritePattern;
+  using OpRewritePattern<LocalCopyOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(DMACopyOp dmaCopy,
+  LogicalResult matchAndRewrite(LocalCopyOp dmaCopy,
                                 PatternRewriter &rewriter) const final {
     if (!dmaCopy.isExplicitCBForm()) {
-      return rewriter.notifyMatchFailure(dmaCopy,
-                                         "dma_copy is not in explicit CB form");
+      return rewriter.notifyMatchFailure(
+          dmaCopy, "local_copy is not in explicit CB form");
     }
 
     Location loc = dmaCopy.getLoc();
@@ -324,8 +324,8 @@ public:
 
     Value src = dmaCopy.getSrc();
     auto memTxType = rewriter.getType<MemTxType>();
-    auto newCopy = rewriter.create<DMACopyOp>(loc, memTxType, src, localMemref,
-                                              dmaCopy.getIndexingMaps());
+    auto newCopy = rewriter.create<LocalCopyOp>(
+        loc, memTxType, src, localMemref, dmaCopy.getIndexingMaps());
 
     rewriter.eraseOp(dmaCopy);
 
@@ -333,8 +333,8 @@ public:
     rewriter.create<PushOp>(loc, cb);
 
     // Pop the source CB to signal consumption. The consumer-side pop insertion
-    // was deferred from ExplicitCBForm because dma_copy is a DM op and the pop
-    // must live on the DM thread, which is only available after splitting.
+    // was deferred from ExplicitCBForm because local_copy is a DM op and the
+    // pop must live on the DM thread, which is only available after splitting.
     if (auto srcWait = src.getDefiningOp<WaitOp>()) {
       rewriter.create<PopOp>(loc, srcWait.getCb());
     }

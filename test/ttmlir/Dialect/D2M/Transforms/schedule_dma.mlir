@@ -406,9 +406,9 @@ module {
     return
   }
 
-  // Test 9: remote_load (cb0) + dma_copy (cb2) on different CBs - should split
-  // CHECK-LABEL: func.func @test_dma_copy_scheduled
-  func.func @test_dma_copy_scheduled(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
+  // Test 9: remote_load (cb0) + local_copy (cb2) on different CBs - should split
+  // CHECK-LABEL: func.func @test_local_copy_scheduled
+  func.func @test_local_copy_scheduled(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
 
     // CHECK: d2m.generic
@@ -418,9 +418,9 @@ module {
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
     ^datamovement0:
       // CHECK: d2m.remote_load
-      // CHECK-NOT: d2m.dma_copy
+      // CHECK-NOT: d2m.local_copy
       // CHECK: }, {
-      // CHECK: d2m.dma_copy
+      // CHECK: d2m.local_copy
       // CHECK-NOT: d2m.remote_load
       // CHECK: }, {
       %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
@@ -435,7 +435,7 @@ module {
           %1 = arith.addi %core1, %arg2 : index
           d2m.remote_load %arg0[%0, %1] into %cb0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
           %src = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-          d2m.dma_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          d2m.local_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {
@@ -447,9 +447,9 @@ module {
     return
   }
 
-  // Test 10: dma_copy only - should not spolit
-  // CHECK-LABEL: func.func @test_dma_copy_no_split
-  func.func @test_dma_copy_no_split() {
+  // Test 10: local_copy only - should not spolit
+  // CHECK-LABEL: func.func @test_local_copy_no_split
+  func.func @test_local_copy_no_split() {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
 
     // CHECK: d2m.generic
@@ -458,12 +458,12 @@ module {
         ins(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
     ^datamovement0:
-      // CHECK: d2m.dma_copy
+      // CHECK: d2m.local_copy
       // CHECK: }, {
       %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %src = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-      d2m.dma_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      d2m.local_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
     }, {
     ^compute0:
       %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
@@ -473,7 +473,7 @@ module {
     return
   }
 
-  // Test 11: Two dma_copy ops on different destination CBs - should split
+  // Test 11: Two local_copy ops on different destination CBs - should split
   // CHECK-LABEL: func.func @test_two_dma_copies_scheduling
   func.func @test_two_dma_copies_scheduling() {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
@@ -487,14 +487,14 @@ module {
       %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %cb4 = d2m.get_cb(4) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-      // CHECK: d2m.dma_copy
+      // CHECK: d2m.local_copy
       // CHECK: }, {
-      // CHECK: d2m.dma_copy
+      // CHECK: d2m.local_copy
       // CHECK: }, {
       %a = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-      d2m.dma_copy %a into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      d2m.local_copy %a into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %b = d2m.wait %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-      d2m.dma_copy %b into %cb4 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      d2m.local_copy %b into %cb4 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
     }, {
     ^compute0:
       %cb4 = d2m.get_cb(4) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
