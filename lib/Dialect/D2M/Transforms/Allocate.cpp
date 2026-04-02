@@ -142,9 +142,9 @@ struct MemrefValueContext {
   // and extending to its last user.
   LiveRange live = {-1, -1};
   // For a `memref.alloc` in the function body, the operation after which the
-  // pass inserts `memref.dealloc` (same block as the alloc; block-level SSA
-  // last-use anchor from `analyzeLiveness`). Otherwise null (e.g. block-arg
-  // roots only present in `memrefs` from operand analysis).
+  // pass inserts `memref.dealloc` (same block as the alloc). Derived from
+  // `getEndOperation` / `resolve(lastOp)` / preorder map, then hoisted via
+  // parent ops to the alloc's block when the candidate lies in a nested region.
   Operation *deallocAnchorOp = nullptr;
   // `true` iff this value is ineligible for remapping (has non-generic
   // users, has a generic explicit datamovement user, etc).
@@ -510,12 +510,16 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// - Discover `memref.alloc`s already present in `funcOp` and collect them
   ///   into `analysis.memrefs`.
   /// - For each memref value:
-  ///   - Record `getEndOperation` in `closure.lastOp` and copy it to
-  ///     `MemrefValueContext::deallocAnchorOp` for func-body allocs (dealloc
-  ///     insertion after that op).
+  ///   - Record `getEndOperation` in `closure.lastOp` (SSA end for the
+  ///     defining op's result).
   ///   - Set `closure.live.last` to the max preorder index among all
   ///     `OpOperand` uses (nested region uses included), plus the live-out
   ///     corner case, then extend through view ops via `resolve()`.
+  ///   - For func-body `memref.alloc`s, set
+  ///   `MemrefValueContext::deallocAnchorOp`
+  ///     from `closure.lastOp`; when it is in the join graph, map
+  ///     `resolve(lastOp)` through preorder indices, then hoist to an ancestor
+  ///     in the alloc's block for insertion.
   ///   - Pre-compute memory footprint if placed within L1 or DRAM.
   ///
   LogicalResult analyzeLiveness(func::FuncOp funcOp,
@@ -601,7 +605,16 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         MemrefValueContext &memrefCtx = addMemrefValueContext(
             rewriter, analysis, allocOp, memrefType, device);
         memrefCtx.live = closure.live;
-        memrefCtx.deallocAnchorOp = closure.lastOp;
+        Operation *anchorOp = closure.lastOp;
+        if (livenessJoinGraph.contains(anchorOp)) {
+          SequenceT anchorSeq = resolve(anchorOp, livenessJoinGraph);
+          TT_assertv(anchorSeq < analysis.sequencing.size(),
+                     "dealloc anchor sequence out of range");
+          anchorOp = analysis.sequencing.positionMap[anchorSeq];
+          anchorOp = ancestorOpInBlock(anchorOp, allocOp->getBlock());
+          TT_assertv(anchorOp, "dealloc anchor has no ancestor in alloc block");
+        }
+        memrefCtx.deallocAnchorOp = anchorOp;
       }
     }
 
@@ -1702,6 +1715,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     rewriter.finalizeOpModification(op);
 
     return success();
+  }
+
+  /// Nearest ancestor of `op` (including `op`) in `block`, for dealloc
+  /// insertion in the same block as `memref.alloc`.
+  static Operation *ancestorOpInBlock(Operation *op, Block *block) {
+    while (op && op->getBlock() != block) {
+      op = op->getParentOp();
+    }
+    return op;
   }
 
   static void insertDealloc(RewriterBase &rewriter, memref::AllocOp allocOp,
