@@ -9,6 +9,7 @@
 #include "ttmlir/Support/Logger.h"
 
 #include <cmath>
+#include <limits>
 
 namespace mlir::tt::ttnn::decomposition {
 
@@ -25,6 +26,43 @@ static RankedTensorType createResultType(RankedTensorType sourceType,
     return ttnn::utils::RankedTensorTypeFactory::create(sourceType, newShape);
   }
   return RankedTensorType::get(newShape, sourceType.getElementType());
+}
+
+/// Generate a causal mask [1, 1, Sq, Skv] as a compile-time constant.
+/// Lower triangle = 0.0, upper triangle = -inf.
+static Value generateCausalMask(PatternRewriter &rewriter, Location loc,
+                                int64_t seqLenQ, int64_t seqLenKV,
+                                RankedTensorType referenceType, Value device) {
+  // Build the mask data at compile time.
+  llvm::SmallVector<float> maskData;
+  maskData.reserve(seqLenQ * seqLenKV);
+  for (int64_t i = 0; i < seqLenQ; i++) {
+    for (int64_t j = 0; j < seqLenKV; j++) {
+      maskData.push_back((i >= j) ? 0.0f
+                                  : -std::numeric_limits<float>::infinity());
+    }
+  }
+
+  // Create dense attribute with f32 type (encoding-free).
+  auto maskShape = llvm::SmallVector<int64_t>{1, 1, seqLenQ, seqLenKV};
+  auto plainMaskType = RankedTensorType::get(maskShape, rewriter.getF32Type());
+  auto denseAttr = DenseFPElementsAttr::get(plainMaskType, maskData);
+
+  // Create ConstantOp with TTNN-encoded result type.
+  // Extract dtype and layout from encoding for the verifier.
+  auto maskType = createResultType(referenceType, maskShape);
+  ttcore::DataTypeAttr dtypeAttr;
+  LayoutAttr tensorLayoutAttr;
+  if (auto layoutAttr = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+          referenceType.getEncoding())) {
+    dtypeAttr = ttcore::DataTypeAttr::get(rewriter.getContext(),
+                                          layoutAttr.getDataType());
+    tensorLayoutAttr =
+        LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
+  }
+  return rewriter.create<ConstantOp>(loc, maskType, device, denseAttr,
+                                     dtypeAttr, tensorLayoutAttr,
+                                     /*memory_config=*/MemoryConfigAttr());
 }
 
 LogicalResult
@@ -154,6 +192,12 @@ SDPADecompositionPattern::matchAndRewrite(ScaledDotProductAttentionOp op,
     scores =
         rewriter.create<AddOp>(loc, scoresType, scores, op.getAttentionMask())
             .getResult();
+  } else if (op.getIsCausal()) {
+    // Generate causal mask when is_causal=true and no explicit mask provided.
+    Value causalMask =
+        generateCausalMask(rewriter, loc, seqLenQ, seqLenKV, qType, device);
+    scores =
+        rewriter.create<AddOp>(loc, scoresType, scores, causalMask).getResult();
   }
 
   // ---- Step 6: Attention sink (concat) ----

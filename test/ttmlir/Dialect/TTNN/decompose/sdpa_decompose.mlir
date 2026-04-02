@@ -88,4 +88,31 @@ module {
       -> tensor<1x8x64x64xbf16>
     return %result : tensor<1x8x64x64xbf16>
   }
+
+  // Test 4: Causal SDPA — is_causal=true, no explicit mask
+  // Should generate causal mask via arange + ge + where
+  func.func @sdpa_causal_no_mask(
+    %query: tensor<1x8x64x64xbf16>,
+    %key: tensor<1x8x64x64xbf16>,
+    %value: tensor<1x8x64x64xbf16>
+  ) -> tensor<1x8x64x64xbf16> {
+    // CHECK-LABEL: func.func @sdpa_causal_no_mask
+    // CHECK: "ttnn.transpose"
+    // CHECK: "ttnn.matmul"
+    // CHECK: "ttnn.full"
+    // CHECK: "ttnn.multiply"
+    // Causal mask generated as compile-time constant + add
+    // CHECK: "ttnn.constant"
+    // CHECK: "ttnn.add"
+    // CHECK: "ttnn.softmax"
+    // CHECK: "ttnn.matmul"
+    %result = "ttnn.scaled_dot_product_attention"(%query, %key, %value) <{
+      operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>,
+      is_causal = true,
+      scale = 0.125 : f32
+    }> : (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>,
+         tensor<1x8x64x64xbf16>)
+      -> tensor<1x8x64x64xbf16>
+    return %result : tensor<1x8x64x64xbf16>
+  }
 }
