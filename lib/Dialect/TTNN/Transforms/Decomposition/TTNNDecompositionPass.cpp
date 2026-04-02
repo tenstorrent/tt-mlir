@@ -13,7 +13,8 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDECOMPOSITION
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
-class TTNNDecomposition : public impl::TTNNDecompositionBase<TTNNDecomposition> {
+class TTNNDecomposition
+    : public impl::TTNNDecompositionBase<TTNNDecomposition> {
 public:
   using impl::TTNNDecompositionBase<TTNNDecomposition>::TTNNDecompositionBase;
 

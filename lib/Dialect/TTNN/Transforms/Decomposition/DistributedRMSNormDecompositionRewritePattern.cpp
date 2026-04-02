@@ -10,10 +10,13 @@
 
 namespace mlir::tt::ttnn::decomposition {
 
-// Returns true if the input shape is (1,1,32,M) which is the only shape
-// supported by the fused_rms_minimal kernel.
+// Returns true if the input shape is (1,1,32,M) where M is a multiple of 32,
+// which is the only shape supported by the fused_rms_minimal kernel.
+// Mirrors the TT_FATAL assertion in rms_allgather_device_operation.cpp:
+//   shape[0]==1, shape[1]==1, shape[2]==32, shape[3]%32==0
 static bool isSupportedByFusedKernel(ArrayRef<int64_t> shape) {
-  return shape.size() == 4 && shape[0] == 1 && shape[1] == 1 && shape[2] == 32;
+  return shape.size() == 4 && shape[0] == 1 && shape[1] == 1 &&
+         shape[2] == 32 && shape[3] % 32 == 0;
 }
 
 LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
@@ -36,11 +39,12 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
   // Determine how many devices are along the cluster axis by inspecting the
   // GetDeviceOp's mesh_shape attribute. This avoids requiring a system
   // descriptor and is consistent with the IR representation.
-  auto getDeviceOp =
-      mlir::dyn_cast_if_present<ttnn::GetDeviceOp>(op.getDevice().getDefiningOp());
+  auto getDeviceOp = mlir::dyn_cast_if_present<ttnn::GetDeviceOp>(
+      op.getDevice().getDefiningOp());
   assert(getDeviceOp && "expected device to be defined by a GetDeviceOp");
   ttnn::MeshShapeAttr meshShapeAttr = getDeviceOp.getMeshShapeAttr();
-  assert(meshShapeAttr && "expected GetDeviceOp to have a mesh_shape attribute");
+  assert(meshShapeAttr &&
+         "expected GetDeviceOp to have a mesh_shape attribute");
   // MeshShapeAttr stores (y, x); clusterAxis 0 = y-axis, 1 = x-axis.
   int64_t numDevices =
       (clusterAxis == 0) ? meshShapeAttr.getY() : meshShapeAttr.getX();
