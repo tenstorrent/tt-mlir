@@ -22,7 +22,7 @@ static void resolveAndSetWeightDtype(mlir::Value weight,
   mlir::Value source = weight;
   while (auto *op = source.getDefiningOp()) {
     if (op->hasTrait<TensorManipulation::Trait>() ||
-        mlir::isa<BroadcastOp, MeshShardOp>(op)) {
+        mlir::isa<BroadcastOp, MeshShardOp, MeshPartitionOp>(op)) {
       source = op->getOperand(0);
     } else {
       break;
@@ -63,6 +63,8 @@ public:
         resolveAndSetWeightDtype(matmulOp.getB(), op);
       } else if (auto linearOp = mlir::dyn_cast<LinearOp>(op)) {
         resolveAndSetWeightDtype(linearOp.getB(), op);
+      } else if (auto sparseMatmulOp = mlir::dyn_cast<SparseMatmulOp>(op)) {
+        resolveAndSetWeightDtype(sparseMatmulOp.getB(), op);
       }
     });
   }

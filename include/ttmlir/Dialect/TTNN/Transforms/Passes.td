@@ -403,13 +403,13 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
 }
 
 def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::ModuleOp"> {
-  let summary = "Convert weight tensors to a specified dtype in matmul and linear operations.";
+  let summary = "Convert weight tensors to a specified dtype in matmul, linear, and sparse_matmul operations.";
   let description = [{
-    This pass converts weight tensors in matrix multiplication and linear
-    operations to a specified data type while keeping activations and outputs
-    in high precision (bf16/f32).
+    This pass converts weight tensors in matrix multiplication, linear, and
+    sparse matrix multiplication operations to a specified data type while
+    keeping activations and outputs in high precision (bf16/f32).
 
-    For matmul/linear operations:
+    For matmul/linear/sparse_matmul operations:
       - Inserts ttnn.typecast operations to convert weights to the target dtype
       - Only converts weights that trace back to constant/parameter arguments
       - Keeps activation inputs and outputs in their original precision
