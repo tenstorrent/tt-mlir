@@ -105,7 +105,7 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dim", [0])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_concat_op(
     shapes: List[Shape],
     dim: int,
@@ -180,7 +180,7 @@ def test_pad(
     ],
 )
 @pytest.mark.parametrize("value", [0])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_pad_op(
     shape: Shape,
     padding: List[int],
@@ -377,7 +377,7 @@ def test_unsqueeze(shape: Shape, dim: int, target: str, request, device):
 
 @x86_only
 @pytest.mark.parametrize("shapes", [[(128, 128), (16384,)]], ids=shapes_list_str)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_reshape_op(
     shapes: List[Shape],
     request,
@@ -574,7 +574,7 @@ def test_transpose(
 @x86_only
 @pytest.mark.parametrize("shape", [(32, 64, 128)], ids=shape_str)
 @pytest.mark.parametrize("transpose_dims", [(0, 1)])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_transpose_op(
     shape: Shape,
     transpose_dims: List[int],
