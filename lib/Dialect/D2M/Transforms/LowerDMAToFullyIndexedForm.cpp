@@ -356,18 +356,18 @@ public:
   }
 };
 
-class D2MLowerDMACopyToFullyIndexed : public OpRewritePattern<DMACopyOp> {
+class D2MLowerLocalCopyToFullyIndexed : public OpRewritePattern<LocalCopyOp> {
 public:
-  D2MLowerDMACopyToFullyIndexed(MLIRContext *context,
-                                bool debugCoalescingInference)
-      : OpRewritePattern<DMACopyOp>(context),
+  D2MLowerLocalCopyToFullyIndexed(MLIRContext *context,
+                                  bool debugCoalescingInference)
+      : OpRewritePattern<LocalCopyOp>(context),
         debugCoalescingInference(debugCoalescingInference) {}
 
 private:
   bool debugCoalescingInference;
 
 public:
-  LogicalResult matchAndRewrite(DMACopyOp op,
+  LogicalResult matchAndRewrite(LocalCopyOp op,
                                 PatternRewriter &rewriter) const final {
     if (!op.hasMemTxResult()) {
       return failure();
@@ -487,8 +487,8 @@ public:
                                                 debugCoalescingInference);
     patterns.add<D2MLowerDMAWriteToFullyIndexed>(&getContext(),
                                                  debugCoalescingInference);
-    patterns.add<D2MLowerDMACopyToFullyIndexed>(&getContext(),
-                                                debugCoalescingInference);
+    patterns.add<D2MLowerLocalCopyToFullyIndexed>(&getContext(),
+                                                  debugCoalescingInference);
     populateAffineToStdConversionPatterns(patterns);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

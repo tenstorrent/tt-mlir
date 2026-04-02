@@ -193,7 +193,7 @@ void DMAWriteOp::getEffects(
                        true, mlir::SideEffects::DefaultResource::get());
 }
 
-::mlir::LogicalResult DMACopyOp::verify() {
+::mlir::LogicalResult LocalCopyOp::verify() {
   bool hasDst = static_cast<bool>(getDst());
   bool hasCb = static_cast<bool>(getCb());
   if (hasDst == hasCb) {
@@ -249,20 +249,20 @@ void DMAWriteOp::getEffects(
   return success();
 }
 
-bool DMACopyOp::bufferizesToMemoryRead(
+bool LocalCopyOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   return operand.get() == getSrc();
 }
 
-bool DMACopyOp::bufferizesToMemoryWrite(
+bool LocalCopyOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   Value dst = getDst();
   return dst && operand.get() == dst;
 }
 
 mlir::bufferization::AliasingValueList
-DMACopyOp::getAliasingValues(mlir::OpOperand &operand,
-                             const mlir::bufferization::AnalysisState &) {
+LocalCopyOp::getAliasingValues(mlir::OpOperand &operand,
+                               const mlir::bufferization::AnalysisState &) {
   mlir::bufferization::AliasingValueList aliasList;
   Value dst = getDst();
   Value resultValue = getResult();
@@ -274,20 +274,20 @@ DMACopyOp::getAliasingValues(mlir::OpOperand &operand,
 }
 
 mlir::FailureOr<mlir::bufferization::BufferLikeType>
-DMACopyOp::getBufferType(mlir::Value value,
-                         const mlir::bufferization::BufferizationOptions &,
-                         const mlir::bufferization::BufferizationState &,
-                         ::llvm::SmallVector<mlir::Value> &) {
+LocalCopyOp::getBufferType(mlir::Value value,
+                           const mlir::bufferization::BufferizationOptions &,
+                           const mlir::bufferization::BufferizationState &,
+                           ::llvm::SmallVector<mlir::Value> &) {
   return ttcore::getBufferType(value.getType(), /*isView=*/false);
 }
 
 mlir::LogicalResult
-DMACopyOp::bufferize(mlir::RewriterBase &rewriter,
-                     const mlir::bufferization::BufferizationOptions &options,
-                     mlir::bufferization::BufferizationState &state) {
+LocalCopyOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
   if (getCb()) {
     return emitOpError(
-        "DMACopyOp with CB should not exist during bufferization");
+        "LocalCopyOp with CB should not exist during bufferization");
   }
 
   // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
@@ -304,17 +304,17 @@ DMACopyOp::bufferize(mlir::RewriterBase &rewriter,
     return failure();
   }
 
-  // The memref-form DMACopyOp has no result (unlike the tensor-form which
+  // The memref-form LocalCopyOp has no result (unlike the tensor-form which
   // returns the destination tensor). Create the new op and replace the old
   // tensor result with the destination buffer directly.
-  rewriter.create<DMACopyOp>(getLoc(), *srcBuffer, *dstBuffer,
-                             getIndexingMaps());
+  rewriter.create<LocalCopyOp>(getLoc(), *srcBuffer, *dstBuffer,
+                               getIndexingMaps());
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      ValueRange{*dstBuffer});
   return success();
 }
 
-bool DMACopyOp::hasTensorSemantics() {
+bool LocalCopyOp::hasTensorSemantics() {
   if (getCb()) {
     return false;
   }

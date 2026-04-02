@@ -49,7 +49,7 @@ static bool isRemoteOperand(Value operand, Operation *op) {
 static bool hasOnlyDMConsumers(WaitOp waitOp) {
   return !waitOp.getResult().use_empty() &&
          llvm::all_of(waitOp.getResult().getUsers(), [](Operation *user) {
-           return isa<DMACopyOp, RemoteStoreOp>(user);
+           return isa<LocalCopyOp, RemoteStoreOp>(user);
          });
 }
 
@@ -327,31 +327,32 @@ static void rewriteImplicitRemoteLoadOpsToExplicitCBForm(
     if (allocToErase) {
       rewriter.eraseOp(allocToErase);
     }
-
   }
 }
 
-static void rewriteImplicitDMACopyOpsToExplicitCBForm(
+static void rewriteImplicitLocalCopyOpsToExplicitCBForm(
     ModuleOp moduleOp, IRRewriter &rewriter, CBCache &cache,
     PortCounter &portCounters) {
-  SmallVector<DMACopyOp> dmaCopiesToConvert;
-  moduleOp->walk([&](DMACopyOp dmaCopy) {
+  SmallVector<LocalCopyOp> dmaCopiesToConvert;
+  moduleOp->walk([&](LocalCopyOp dmaCopy) {
     if (!dmaCopy.isImplicitForm()) {
       return;
     }
     dmaCopiesToConvert.push_back(dmaCopy);
   });
 
-  for (DMACopyOp dmaCopy : dmaCopiesToConvert) {
+  for (LocalCopyOp dmaCopy : dmaCopiesToConvert) {
     Location loc = dmaCopy.getLoc();
 
     GenericOp generic = dmaCopy->getParentOfType<GenericOp>();
-    TT_assertv(generic, "expected dma_copy to be nested inside a d2m.generic");
+    TT_assertv(generic,
+               "expected local_copy to be nested inside a d2m.generic");
 
     Value dst = dmaCopy.getDst();
     auto allocOp =
         mlir::dyn_cast_if_present<memref::AllocOp>(dst.getDefiningOp());
-    TT_assertv(allocOp, "expected dma_copy dst to be defined by memref.alloc");
+    TT_assertv(allocOp,
+               "expected local_copy dst to be defined by memref.alloc");
 
     Region &region = generic.getRegion(0);
     auto L1Attr = mlir::tt::ttcore::MemorySpaceAttr::get(
@@ -376,8 +377,9 @@ static void rewriteImplicitDMACopyOpsToExplicitCBForm(
     Value cb = getCBOp.getResult();
 
     rewriter.setInsertionPoint(dmaCopy);
-    rewriter.create<DMACopyOp>(loc, TypeRange{}, dmaCopy.getSrc(),
-                               /*dst=*/Value{}, cb, dmaCopy.getIndexingMaps());
+    rewriter.create<LocalCopyOp>(loc, TypeRange{}, dmaCopy.getSrc(),
+                                 /*dst=*/Value{}, cb,
+                                 dmaCopy.getIndexingMaps());
     auto waitOp = rewriter.create<WaitOp>(loc, cb);
 
     rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
@@ -393,10 +395,9 @@ static void rewriteImplicitDMACopyOpsToExplicitCBForm(
   }
 }
 
-static void rewriteImplicitRemoteStoreOpsToExplicitCBForm(ModuleOp moduleOp,
-                                                  IRRewriter &rewriter,
-                                                  CBCache &cache,
-                                                  PortCounter &portCounters) {
+static void rewriteImplicitRemoteStoreOpsToExplicitCBForm(
+    ModuleOp moduleOp, IRRewriter &rewriter, CBCache &cache,
+    PortCounter &portCounters) {
   // Rewrite RemoteStoreOps, converting implicit form to explicit CB form.
   SmallVector<RemoteStoreOp> remoteStoresToConvert;
   moduleOp->walk([&](RemoteStoreOp remoteStore) {
@@ -502,10 +503,10 @@ static void rewriteRemoteOpsToExplicitCB(ModuleOp moduleOp,
 
   rewriteImplicitRemoteLoadOpsToExplicitCBForm(moduleOp, rewriter, cache,
                                                portCounters);
-  rewriteImplicitDMACopyOpsToExplicitCBForm(moduleOp, rewriter, cache,
-                                            portCounters);
+  rewriteImplicitLocalCopyOpsToExplicitCBForm(moduleOp, rewriter, cache,
+                                              portCounters);
   rewriteImplicitRemoteStoreOpsToExplicitCBForm(moduleOp, rewriter, cache,
-                                        portCounters);
+                                                portCounters);
 }
 
 class D2MLowerLoadStoreOpsToExplicitCBForm
