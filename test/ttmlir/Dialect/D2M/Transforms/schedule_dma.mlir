@@ -447,7 +447,7 @@ module {
     return
   }
 
-  // Test 10: local_copy only - should not spolit
+  // Test 10: local_copy only - should not split
   // CHECK-LABEL: func.func @test_local_copy_no_split
   func.func @test_local_copy_no_split() {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
