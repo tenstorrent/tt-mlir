@@ -8,7 +8,7 @@
 #ttnn_layout_output    = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 // Tiled layouts for input and index (workaround should be a no-op for these).
 #ttnn_layout_input_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
-#ttnn_layout_index_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, ui32>, #dram>, <interleaved>>
+#ttnn_layout_index_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, u32>, #dram>, <interleaved>>
 
 module attributes {} {
   // Verify that the input and index tensors are converted to tiled layout when
@@ -27,7 +27,7 @@ module attributes {} {
     // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<2x3xui32,
     %0 = "ttnn.gather"(%arg0, %arg1)
-        <{dim = 0 : i32, sparse_grad = false}>
+        <{dim = 0 : i32}>
         : (tensor<5x3xf32, #ttnn_layout_input_rm>,
            tensor<2x3xui32, #ttnn_layout_index_rm>)
         -> tensor<2x3xf32, #ttnn_layout_output>
@@ -45,7 +45,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     // CHECK: "ttnn.gather"
     %0 = "ttnn.gather"(%arg0, %arg1)
-        <{dim = 0 : i32, sparse_grad = false}>
+        <{dim = 0 : i32}>
         : (tensor<5x3xf32, #ttnn_layout_input_tile>,
            tensor<2x3xui32, #ttnn_layout_index_tile>)
         -> tensor<2x3xf32, #ttnn_layout_output>

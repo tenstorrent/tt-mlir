@@ -1114,10 +1114,6 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ReductionOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::GatherOp: {
-    tensorRef = opContext.type_as_GatherOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
     tensorRef = opContext.type_as_EmbeddingOp()->out();
     break;
