@@ -280,6 +280,33 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
   ];
 }
 
+def TTNNDecomposeOpsOnValidationFailure: Pass<"ttnn-decompose-ops-on-validation-failure", "::mlir::ModuleOp">
+{
+  let summary = "TTNN decompose ops on validation failure pass.";
+  let description = [{
+    This pass validates operations against device constraints using
+    FusionValidator and decomposes them to equivalent component operations
+    when validation fails. This provides a fallback path for ops that
+    cannot execute on device in their fused form.
+  }];
+
+  let options = [
+    Option<"enableOpConstraints",
+            "enable-op-constraints",
+            "bool", /*default=*/"false",
+            "Enable op model constraint validation. "
+            "Requires TTMLIR_ENABLE_OPMODEL.">,
+    Option<"maxFallbackAttempts",
+            "max-fallback-attempts",
+            "uint32_t", /*default=*/"10000",
+            "Maximum number of fallback configurations to try.">,
+    Option<"forceDecompose",
+            "force-decompose",
+            "bool", /*default=*/"false",
+            "Skip validation and always decompose. Used for testing.">
+  ];
+}
+
 def TTNND2MFusing: Pass<"ttnn-d2m-fusing", "::mlir::ModuleOp"> {
   let summary = "TTNN D2M fusing pass.";
   let description = [{
