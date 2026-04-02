@@ -378,6 +378,32 @@ def TTKernel_MatmulBlockInitShortOp : TTKernel_InitOp<"mm_block_init_short"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$transpose,  I32:$ct_dim, I32:$rt_dim, I32:$kt_dim);
 }
 
+def TTKernel_MatmulBlockOp : TTKernel_FPUOp<"matmul_block", [TTKernel_TernaryOpTrait]> {
+    let summary = "Block matmul operation";
+    let description = [{
+      Performs block-sized matrix multiplication *C=A\*B* between blocks of tiles
+      in two input CBs and accumulates the result into DST. Block dimensions are
+      specified by ct_dim (output columns in tiles), rt_dim (output rows in tiles),
+      and kt_dim (inner dimension in tiles). The transpose flag controls whether
+      input 1 is transposed. The DST register buffer must be in acquired state via
+      ttkernel.tile_regs_acquire. Blocking; compute engine only.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb_id,
+                         TTKernel_CB:$in1_cb_id,
+                         IndexLike:$in0_tile_idx,
+                         IndexLike:$in1_tile_idx,
+                         IndexLike:$dst_tile_idx,
+                         I32:$transpose,
+                         I32:$ct_dim,
+                         I32:$rt_dim,
+                         I32:$kt_dim);
+
+    let assemblyFormat = [{
+      `(` $in0_cb_id `,` $in1_cb_id `,` $in0_tile_idx `,` $in1_tile_idx `,` $dst_tile_idx `,` $transpose `,` $ct_dim `,` $rt_dim `,` $kt_dim `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_block", [TTKernel_TernaryOpTrait]> {
     let summary = "Matmul tiles operation";
     let description = [{
@@ -660,19 +686,18 @@ def TTKernel_CopyDestValuesInitOp : TTKernel_InitOp<"copy_dest_values_init"> {
 }
 
 def TTKernel_CopyDestValuesOp : TTKernel_SFPUOp<"copy_dest_values", [TTKernel_BinaryOpTrait]> {
-    let summary = "Copies all values from the tile in idst1 to the tile in idst0 in the DST register buffer.";
+    let summary = "Copies all values from the tile at idst_in to the tile at idst_out in the DST register buffer.";
     let description = [{
-      Copies all values from the tile in idst1 to the tile in idst0 in the DST
-      register buffer. Performs element-wise computation of copy operation
-      DST[dst0_index] <- DST[dst1_index]
+      Copies all values from the tile at idst_in to the tile at idst_out in the DST
+      register buffer. Performs element-wise copy: DST[idst_out] <- DST[idst_in].
       The DST register buffer must be in acquired state via *tile_regs_acquire* call.
       This call is blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+    let arguments = (ins IndexLike:$idst_in, IndexLike:$idst_out);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $idst_in `,` $idst_out `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

@@ -1236,6 +1236,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockInitShortOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalMatmulBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
