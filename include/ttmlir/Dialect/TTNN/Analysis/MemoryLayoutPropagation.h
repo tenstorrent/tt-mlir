@@ -13,10 +13,12 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <limits>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -101,10 +103,10 @@ private:
   /// When exploreInterleavedToSharded is false (default), only sharded source
   /// layouts generate candidates. Set to true to also explore
   /// interleaved-to-sharded reshards for ops that benefit from sharded inputs.
-  std::vector<TTNNLayoutAttr>
-  generateReshardCandidates(RankedTensorType tensorType,
-                            TTNNLayoutAttr currentLayout,
-                            bool exploreInterleavedToSharded = false);
+  std::vector<TTNNLayoutAttr> generateReshardCandidates(
+      RankedTensorType tensorType, TTNNLayoutAttr currentLayout,
+      bool exploreInterleavedToSharded = false,
+      int64_t maxGridVolume = std::numeric_limits<int64_t>::max());
 
   /// Create a DRAM interleaved fallback layout for an op.
   TTNNLayoutAttr getDRAMInterleavedFallback(Operation *op);
