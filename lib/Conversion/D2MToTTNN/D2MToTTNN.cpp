@@ -270,7 +270,8 @@ createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
       if (nocIdx < 0) {
         nocIdx = unassignedNocCounter++ % 2;
       }
-      auto nocIndex = nocIdx == 0 ? ttnn::NocIndex::Noc0 : ttnn::NocIndex::Noc1;
+      auto nocIndex =
+          nocIdx == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
       auto processor = nocIdx == 0 ? ttnn::DataMovementProcessor::RiscV1
                                    : ttnn::DataMovementProcessor::RiscV0;
       kernelConfigs[i] = builder.getAttr<ttnn::DataMovementKernelAttr>(

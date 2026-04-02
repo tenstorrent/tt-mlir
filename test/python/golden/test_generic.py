@@ -154,7 +154,13 @@ def test_generic(
                 out_shard = tensor.empty(out_block_shape, out.type.element_type)
                 d2m.tile_matmul_block(lhs_shard, rhs_shard, out_shard)
                 res = d2m.remote_store(
-                    out.type, out, [mbi, nbi], local_buffer=out_shard
+                    out.type,
+                    out,
+                    [mbi, nbi],
+                    start_device=[],
+                    device_mcast_shape=[],
+                    semaphore_indices=[],
+                    local_buffer=out_shard,
                 )
                 d2m.yield_([res])
 
@@ -291,7 +297,13 @@ def test_generic_allocator_reblock_policy(
                 out_shard = tensor.empty(out_block_shape, out.type.element_type)
                 d2m.tile_matmul_block(lhs_shard, rhs_shard, out_shard)
                 res = d2m.remote_store(
-                    out.type, out, [mbi, nbi], local_buffer=out_shard
+                    out.type,
+                    out,
+                    [mbi, nbi],
+                    start_device=[],
+                    device_mcast_shape=[],
+                    semaphore_indices=[],
+                    local_buffer=out_shard,
                 )
                 d2m.yield_([res])
 

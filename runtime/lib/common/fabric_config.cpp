@@ -13,7 +13,7 @@
 namespace tt::runtime::common {
 
 // only for UnidirRingTorus routing mode
-enum class RoutingDirection { Forward, Backward };
+enum class RoutingDirection { Forward = 0, Backward };
 
 template <typename ProgramOrDescriptor>
 std::unordered_map<::tt::tt_metal::CoreCoord, std::vector<uint32_t>>
@@ -31,6 +31,8 @@ appendFabricConfigArgs(
   uint32_t cluster_axis = fabricConnectionConfig->cluster_axis();
   uint32_t num_links = fabricConnectionConfig->num_links();
   tt::target::RoutingMode routing_mode = fabricConnectionConfig->routing_mode();
+  uint32_t cores_per_link =
+      routing_mode == tt::target::RoutingMode::UnidirRingTorus ? 2 : 1;
 
   std::unordered_map<tt::tt_metal::CoreCoord, std::vector<uint32_t>>
       fabricConfigArgs;
@@ -52,7 +54,7 @@ appendFabricConfigArgs(
       std::pair<tt_fabric::eth_chan_directions, tt_fabric::eth_chan_directions>>
       routing_directions;
 
-  // Add topology type (Line=0, Ring=1) and axis (for 1D)
+  // Add topology type (Ring=0, Line=1) and axis (for 1D)
   rtArgsVec.push_back(static_cast<uint32_t>(topology_type));
   LOG_ASSERT(cluster_axis < 2, "Invalid cluster axis, must be < 2");
   rtArgsVec.push_back(cluster_axis);
@@ -183,9 +185,10 @@ appendFabricConfigArgs(
     }
 
     LOG_DEBUG("Device ", deviceCoord, " dimension ", dim,
-              " Forward direction: ", routing_directions[dim].first);
-    LOG_DEBUG("Device ", deviceCoord, " dimension ", dim,
-              " Backward direction: ", routing_directions[dim].second);
+              " Forward direction: ", (uint32_t)routing_directions[dim].first);
+    LOG_DEBUG(
+        "Device ", deviceCoord, " dimension ", dim,
+        " Backward direction: ", (uint32_t)routing_directions[dim].second);
   }
 
   // Add mesh coordinate to device id mapping (in flattened mesh coordinate
@@ -202,10 +205,11 @@ appendFabricConfigArgs(
   // insert fabric connection args (device and core specific)
   std::vector<tt::tt_metal::CoreCoord> cores =
       tt::tt_metal::corerange_to_cores(coreRangeSet);
-  LOG_ASSERT(cores.size() <= num_links, "Number of cores (", cores.size(),
+  LOG_ASSERT(cores.size() <= num_links * cores_per_link, "Number of cores (",
+             cores.size(),
              ") to connect to fabric routers exceeds number of routing "
              "planes available (",
-             num_links, ")");
+             num_links * cores_per_link, ")");
   for (uint32_t i = 0; i < cores.size(); i++) {
     std::vector<uint32_t> rtArgsVecPerCore = rtArgsVec;
     auto num_fabric_connection_arg_idx = rtArgsVecPerCore.size();
@@ -248,8 +252,9 @@ appendFabricConfigArgs(
     }
     uint32_t num_connections =
         tt::tt_fabric::append_routing_plane_connection_manager_rt_args(
-            src_fabric_node_id, connection_directions, {i}, program, handle,
-            {cores[i]}, rtArgsVecPerCore, tt::tt_fabric::FabricApiType::Linear);
+            src_fabric_node_id, connection_directions, {i / cores_per_link},
+            program, handle, {cores[i]}, rtArgsVecPerCore,
+            tt::tt_fabric::FabricApiType::Linear);
     // update number of connections
     rtArgsVecPerCore[num_fabric_connection_arg_idx + 1] = num_connections;
     // update number of fabric connection args
