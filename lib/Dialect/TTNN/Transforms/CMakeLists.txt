@@ -23,6 +23,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNFileSplit.cpp
         TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp
+        Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
+        Decomposition/TTNNDecompositionPass.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
@@ -57,7 +59,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
         Workarounds/Decomposition/RMSNormConfigRewritePattern.cpp
-        Workarounds/Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
+
         Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterConfigRewritePattern.cpp
         Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp
