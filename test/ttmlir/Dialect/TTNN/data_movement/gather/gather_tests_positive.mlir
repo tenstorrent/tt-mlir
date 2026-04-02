@@ -7,8 +7,7 @@ module attributes {} {
     // CHECK-LABEL: func.func @gather_dim0
     // CHECK: "ttnn.gather"
     // CHECK-SAME: dim = 0 : i32
-    // CHECK-SAME: sparse_grad = false
-    %0 = "ttir.gather_dim"(%arg0, %arg1) <{dim = 0 : i32, sparse_grad = false}> : (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
+    %0 = "ttir.gather_dim"(%arg0, %arg1) <{dim = 0 : i32}> : (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
 
@@ -17,7 +16,7 @@ module attributes {} {
     // CHECK-LABEL: func.func @gather_dim1
     // CHECK: "ttnn.gather"
     // CHECK-SAME: dim = 1 : i32
-    %0 = "ttir.gather_dim"(%arg0, %arg1) <{dim = 1 : i32, sparse_grad = false}> : (tensor<3x5xbf16>, tensor<3x2xui32>) -> tensor<3x2xbf16>
+    %0 = "ttir.gather_dim"(%arg0, %arg1) <{dim = 1 : i32}> : (tensor<3x5xbf16>, tensor<3x2xui32>) -> tensor<3x2xbf16>
     return %0 : tensor<3x2xbf16>
   }
 
@@ -26,7 +25,7 @@ module attributes {} {
     // CHECK-LABEL: func.func @gather_negative_dim
     // CHECK: "ttnn.gather"
     // CHECK-SAME: dim = -1 : i32
-    %0 = "ttir.gather_dim"(%arg0, %arg1) <{dim = -1 : i32, sparse_grad = false}> : (tensor<4x6xf32>, tensor<4x3xui32>) -> tensor<4x3xf32>
+    %0 = "ttir.gather_dim"(%arg0, %arg1) <{dim = -1 : i32}> : (tensor<4x6xf32>, tensor<4x3xui32>) -> tensor<4x3xf32>
     return %0 : tensor<4x3xf32>
   }
 
@@ -35,7 +34,7 @@ module attributes {} {
     // CHECK-LABEL: func.func @gather_3d
     // CHECK: "ttnn.gather"
     // CHECK-SAME: dim = 2 : i32
-    %0 = "ttir.gather_dim"(%arg0, %arg1) <{dim = 2 : i32, sparse_grad = false}> : (tensor<2x4x6xf32>, tensor<2x4x3xui32>) -> tensor<2x4x3xf32>
+    %0 = "ttir.gather_dim"(%arg0, %arg1) <{dim = 2 : i32}> : (tensor<2x4x6xf32>, tensor<2x4x3xui32>) -> tensor<2x4x3xf32>
     return %0 : tensor<2x4x3xf32>
   }
 }
