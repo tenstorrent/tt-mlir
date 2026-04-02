@@ -28,6 +28,9 @@ public:
   void runOnOperation() final {
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
+
+    squeezeTilizeUnitDims(module, rewriter);
+
     llvm::SmallVector<Operation *> opsToReplace;
     module->walk([&](func::FuncOp func) {
       if (func.isDeclaration()) {
@@ -127,6 +130,81 @@ private:
       return opsToCreate.createToLayoutOp && output.isTilized();
     }
   };
+
+  // Tilize on shapes like [4, 1, 32, 2880] produces expensive
+  // TilizeWithValPadding + Slice sequences in tt-metal due to the size-1
+  // non-tile dimension.  Squeezing to [4, 32, 2880] before tilize and
+  // unsqueezing after is metadata-only and avoids the overhead entirely.
+  void squeezeTilizeUnitDims(ModuleOp module, IRRewriter &rewriter) {
+    llvm::SmallVector<ttnn::ToLayoutOp> candidates;
+    module->walk([&](ttnn::ToLayoutOp op) {
+      if (op.getLayout() != ttnn::Layout::Tile) {
+        return;
+      }
+      RankedTensorType inputType = op.getInput().getType();
+      auto inputLayout = mlir::cast<TTNNLayoutAttr>(inputType.getEncoding());
+      if (inputLayout.getLayout() != ttnn::Layout::RowMajor) {
+        return;
+      }
+      ArrayRef<int64_t> shape = inputType.getShape();
+      int64_t rank = inputType.getRank();
+      if (rank < 3) {
+        return;
+      }
+      for (int64_t i = 0; i < rank - 2; ++i) {
+        if (shape[i] == 1) {
+          candidates.push_back(op);
+          return;
+        }
+      }
+    });
+
+    for (auto op : candidates) {
+      RankedTensorType inputType = op.getInput().getType();
+      ArrayRef<int64_t> inputShape = inputType.getShape();
+      int64_t rank = inputType.getRank();
+
+      int64_t squeezeDim = -1;
+      for (int64_t i = 0; i < rank - 2; ++i) {
+        if (inputShape[i] == 1) {
+          squeezeDim = i;
+          break;
+        }
+      }
+
+      SmallVector<int64_t> squeezedShape;
+      for (int64_t i = 0; i < rank; ++i) {
+        if (i != squeezeDim) {
+          squeezedShape.push_back(inputShape[i]);
+        }
+      }
+
+      rewriter.setInsertionPoint(op);
+
+      SmallVector<int32_t> squeezedShapeI32(squeezedShape.begin(),
+                                            squeezedShape.end());
+      RankedTensorType squeezedRMType =
+          utils::RankedTensorTypeFactory::create(inputType, squeezedShape);
+      auto squeezeReshape = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), squeezedRMType, op.getInput(),
+          rewriter.getI32ArrayAttr(squeezedShapeI32), ttnn::MemoryConfigAttr());
+
+      RankedTensorType originalOutType = op.getResult().getType();
+      RankedTensorType squeezedTileType =
+          utils::RankedTensorTypeFactory::create(originalOutType,
+                                                 squeezedShape);
+      auto squeezedTilize = rewriter.create<ttnn::ToLayoutOp>(
+          op.getLoc(), squeezedTileType, squeezeReshape.getResult(),
+          op.getLayoutAttr(), op.getDtypeAttr(), op.getMemoryConfigAttr());
+
+      SmallVector<int32_t> origShapeI32(inputShape.begin(), inputShape.end());
+      auto unsqueezeReshape = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), originalOutType, squeezedTilize.getResult(),
+          rewriter.getI32ArrayAttr(origShapeI32), ttnn::MemoryConfigAttr());
+
+      rewriter.replaceOp(op, unsqueezeReshape.getResult());
+    }
+  }
 
   bool isOutputFromCPUHoistedFunction(mlir::Value value) const {
     if (auto callOp = value.getDefiningOp<func::CallOp>()) {

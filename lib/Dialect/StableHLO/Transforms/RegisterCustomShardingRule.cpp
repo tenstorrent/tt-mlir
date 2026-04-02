@@ -71,6 +71,47 @@ getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   ArrayRef<int64_t> scatterDimsToOperandDims =
       dimNums.getScatterDimsToOperandDims();
   ArrayRef<int64_t> insertedWindowDims = dimNums.getInsertedWindowDims();
+  int64_t indexVectorDim = dimNums.getIndexVectorDim();
+
+  // Scatter (iteration) dims of the indices tensor: all dims except
+  // index_vector_dim. For indices shape [B*S, top_k, 2] with
+  // indexVectorDim=2, scatter dims are [0, 1].
+  SmallVector<int64_t> indicesScatterDims;
+  for (int64_t d = 0; d < indicesRank; d++) {
+    if (d != indexVectorDim) {
+      indicesScatterDims.push_back(d);
+    }
+  }
+
+  // Detect identity-mapped scatter dimensions via iota pattern analysis.
+  //
+  // When indices = concatenate(broadcast(iota(dim=0)), ...,
+  // dim=indexVectorDim), the first index element equals the iteration position
+  // (indices[i,j,0] = i). This means each row writes only to its own position
+  // in the operand—no cross-partition writes occur, so that dimension can be
+  // kPassThrough.
+  int64_t identityMappedOperandDim = -1;
+  int64_t linkedIndicesDim = -1;
+
+  if (!scatterDimsToOperandDims.empty() && !indicesScatterDims.empty()) {
+    if (auto concatOp =
+            indices.getDefiningOp<mlir::stablehlo::ConcatenateOp>()) {
+      if (static_cast<int64_t>(concatOp.getDimension()) == indexVectorDim) {
+        mlir::Value firstSrc = concatOp.getInputs().front();
+        if (auto bcast =
+                firstSrc.getDefiningOp<mlir::stablehlo::BroadcastInDimOp>()) {
+          firstSrc = bcast.getOperand();
+        }
+        if (auto iotaOp = firstSrc.getDefiningOp<mlir::stablehlo::IotaOp>()) {
+          if (iotaOp.getIotaDimension() == 0 &&
+              scatterDimsToOperandDims[0] == 0) {
+            identityMappedOperandDim = 0;
+            linkedIndicesDim = indicesScatterDims[0];
+          }
+        }
+      }
+    }
+  }
 
   // Return null if input is not sharded along scatter_dims_to_operand_dims.
   // This would fallback to default sharding rule in
@@ -90,11 +131,9 @@ getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   }
 
   if (!isShardedAlongScatterDims) {
-    // Return null to fallback to default sharding rule.
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  // Check input and update have the same rank.
   if (inputRank != updateRank) {
     scatterOp->emitError(
         "Custom sharding rule not implemented for scatter "
@@ -104,42 +143,37 @@ getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
 
   sdy::OpShardingRuleBuilder builder(scatterOp);
 
-  // Input, updates, and result need to be sharded together.
-  // Replicate if dimension is in scatter_dims_to_operand_dims.
-  // Replicate if dimension is in inserted_window_dims.
-  // Shard otherwise.
   for (int64_t inputDim = 0; inputDim < inputRank; inputDim++) {
     bool isScatterDimsToOperandDim =
         llvm::is_contained(scatterDimsToOperandDims, inputDim);
     bool isInsertedWindowDim = llvm::is_contained(insertedWindowDims, inputDim);
 
     if (isScatterDimsToOperandDim || isInsertedWindowDim) {
-      // Dimension is in scatter_dims_to_operand_dims or inserted_window_dims -
-      // MUST REPLICATE.
-      builder.addFactor({inputDim, sdy::kNullDim,
-                         inputDim}, // [input_dim, indices_dim, updates_dim]
-                        {inputDim}, // result_dim
-                        inputType.getDimSize(inputDim),
-                        mlir::sdy::FactorType::kNeedReplication);
+      if (inputDim == identityMappedOperandDim) {
+        // Identity-mapped via iota: link input, indices, updates, and result
+        // dims together so batch sharding propagates without all_gather.
+        builder.addFactor({inputDim, linkedIndicesDim, inputDim}, {inputDim},
+                          inputType.getDimSize(inputDim),
+                          sdy::FactorType::kPassThrough);
+      } else {
+        builder.addFactor({inputDim, sdy::kNullDim, inputDim}, {inputDim},
+                          inputType.getDimSize(inputDim),
+                          mlir::sdy::FactorType::kNeedReplication);
+      }
     } else {
-      // Dimension is NOT in scatter_dims_to_operand_dims or
-      // inserted_window_dims - CAN SHARD. Shard input, updates, and result
-      // together.
-      builder.addFactor({inputDim, sdy::kNullDim,
-                         inputDim}, // [input_dim, indices_dim, updates_dim]
-                        {inputDim}, // result_dim
+      builder.addFactor({inputDim, sdy::kNullDim, inputDim}, {inputDim},
                         inputType.getDimSize(inputDim),
-                        sdy::FactorType::kPassThrough // Can be sharded.
-      );
+                        sdy::FactorType::kPassThrough);
     }
   }
 
-  // Replicate all scatter_indices dimensions.
+  // Replicate scatter_indices dimensions (skip any already linked above).
   for (int64_t indicesDim = 0; indicesDim < indicesRank; indicesDim++) {
-    builder.addFactor({sdy::kNullDim, indicesDim,
-                       sdy::kNullDim}, // [input_dim, indices_dim, updates_dim]
-                      {sdy::kNullDim}, // Doesn't appear in result.
-                      indicesType.getDimSize(indicesDim),
+    if (indicesDim == linkedIndicesDim) {
+      continue;
+    }
+    builder.addFactor({sdy::kNullDim, indicesDim, sdy::kNullDim},
+                      {sdy::kNullDim}, indicesType.getDimSize(indicesDim),
                       sdy::FactorType::kNeedReplication);
   }
 
@@ -527,14 +561,16 @@ getSparseMatmulShardingRule(mlir::stablehlo::CustomCallOp op) {
 // =====================================================================
 // Dispatch is an opaque CCL operation that handles EP communication
 // along ONE mesh axis only (cluster_axis; -1 = flatten 2D mesh to 1D).
-// Experts are compound-sharded across both mesh dims; input is replicated
-// on one dim and all-to-all'ed on the other.
 //
-// All factors use kNeedReplication with isBlocked=true to prevent
-// Shardy from propagating any sharding through the op. Without isBlocked,
-// Shardy would insert unnecessary all_gather/AllSlice pairs.
+// Batch dimension (B) uses kPassThrough so Shardy does NOT insert
+// all_gather when B is sharded (e.g. batch-parallel on a 2D mesh).
+// The output B*D dimension is decomposed into compound sub-factors:
+//   D_dispatch (outer, kNeedReplication) — dispatch_devices, must not shard
+//   B          (inner, kPassThrough)     — batch, propagates sharding
+// This layout matches the reshape [1, B*D, S, H] → [D, B, S, H] used
+// downstream before sparse_matmul.
 //
-// Operands: [0] input [B,S,1,H], [1] indices [B,S,1,K], [2] mapping [1,1,E,D]
+// Operands: [0] input [B,1,S,H], [1] indices [B,1,S,K], [2] mapping [1,1,E,D]
 // Results:  [0] dispatched [1,B*D,S,H], [1] metadata [1,B*D,S,K]
 //
 // Note: torch-xla may emit the custom_call with either:
@@ -567,21 +603,29 @@ getAllToAllDispatchShardingRule(mlir::stablehlo::CustomCallOp op) {
 
   // Extract dimension sizes
   int64_t bDim = inputType.getShape()[0];   // B
-  int64_t sDim = inputType.getShape()[1];   // S
+  int64_t sDim = inputType.getShape()[1];   // S (typically 1)
   int64_t hDim = inputType.getShape()[3];   // H
   int64_t kDim = indicesType.getShape()[3]; // K
   int64_t eDim = mappingType.getShape()[2]; // E
-  int64_t dDim = mappingType.getShape()[3]; // D
+  int64_t dDim = mappingType.getShape()[3]; // D (total devices)
+
+  // Parse num_devices (dispatch devices on cluster_axis) from frontend attrs
+  int64_t numDevices = 1;
+  auto frontendAttributes = llvm::dyn_cast_or_null<mlir::DictionaryAttr>(
+      op->getDiscardableAttr("mhlo.frontend_attributes"));
+  if (frontendAttributes) {
+    if (auto attr = frontendAttributes.getAs<mlir::StringAttr>("num_devices")) {
+      attr.getValue().getAsInteger(10, numDevices);
+    }
+  }
 
   // Resolve result types: handle both variadic (2 results) and tuple (1 result)
   SmallVector<Type> resultTypes;
   if (op.getNumResults() == 2) {
-    // Variadic results: each result is a tensor
     for (auto type : op.getResultTypes()) {
       resultTypes.push_back(type);
     }
   } else if (op.getNumResults() == 1) {
-    // Possibly a tuple result
     auto tupleType = llvm::dyn_cast<mlir::TupleType>(op.getResult(0).getType());
     if (tupleType && tupleType.size() == 2) {
       for (auto elemType : tupleType.getTypes()) {
@@ -599,49 +643,52 @@ getAllToAllDispatchShardingRule(mlir::stablehlo::CustomCallOp op) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  // Use explicit type-range constructor to bypass TupleType cast issue
   // Result 0: dispatched [1, B*D, S, H]
   // Result 1: metadata [1, B*D, S, K]
   mlir::sdy::OpShardingRuleBuilder builder(op.getOperandTypes(),
                                            TypeRange(resultTypes),
                                            op.getContext(), std::nullopt);
 
-  // B factor: input[0]=dim0, input[1]=dim0, input[2]=kNull,
-  //           result[0]=kNull (B is absorbed into B*D), result[1]=kNull
-  builder.addFactor({0, 0, mlir::sdy::kNullDim},
-                    {mlir::sdy::kNullDim, mlir::sdy::kNullDim}, bDim,
-                    mlir::sdy::FactorType::kNeedReplication,
-                    /*isBlocked=*/true);
+  // Output dim 1 = B*D is decomposed into compound sub-factors.
+  // Order: D (outer) then B (inner), matching reshape [1,BD,S,H] → [D,B,S,H].
+  //
+  // D_dispatch sub-factor (outer): dispatch_devices part of B*D.
+  // kNeedReplication + blocked — must not be sharded further.
+  builder.addFactor(
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim}, {1, 1},
+      numDevices, mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
 
-  // S factor: input[0]=dim1, input[1]=dim1, input[2]=kNull,
-  //           result[0]=dim2, result[1]=dim2
+  // B sub-factor (inner): batch part of B*D, linked to input B (dim 0).
+  // kPassThrough — dispatch handles batch-sharded input natively;
+  // Shardy should NOT insert all_gather on the batch dimension.
+  builder.addFactor({0, 0, mlir::sdy::kNullDim}, {1, 1}, bDim,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  // S factor: input[0]=dim1, input[1]=dim1, result[0]=dim2, result[1]=dim2
   builder.addFactor({1, 1, mlir::sdy::kNullDim}, {2, 2}, sDim,
                     mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
 
-  // H factor: input[0]=dim3, input[1]=kNull, input[2]=kNull,
-  //           result[0]=dim3, result[1]=kNull
+  // H factor: input[0]=dim3, result[0]=dim3
   builder.addFactor({3, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
                     {3, mlir::sdy::kNullDim}, hDim,
                     mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
 
-  // K factor: input[0]=kNull, input[1]=dim3, input[2]=kNull,
-  //           result[0]=kNull, result[1]=dim3
+  // K factor: input[1]=dim3, result[1]=dim3
   builder.addFactor({mlir::sdy::kNullDim, 3, mlir::sdy::kNullDim},
                     {mlir::sdy::kNullDim, 3}, kDim,
                     mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
 
-  // E factor: input[0]=kNull, input[1]=kNull, input[2]=dim2,
-  //           result[0]=kNull, result[1]=kNull
+  // E factor: mapping[2]=dim2
   builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim, 2},
                     {mlir::sdy::kNullDim, mlir::sdy::kNullDim}, eDim,
                     mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
 
-  // D factor: input[0]=kNull, input[1]=kNull, input[2]=dim3,
-  //           result[0]=kNull, result[1]=kNull
+  // D_total factor: mapping[2]=dim3 (total devices in mapping table)
   builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim, 3},
                     {mlir::sdy::kNullDim, mlir::sdy::kNullDim}, dDim,
                     mlir::sdy::FactorType::kNeedReplication,
@@ -658,7 +705,12 @@ getAllToAllDispatchShardingRule(mlir::stablehlo::CustomCallOp op) {
 // For 2D mesh with compound-sharded experts, the needed cross-column
 // all_reduce(sum) is inserted explicitly in the StableHLOToTTIR conversion.
 //
-// H, BD, S, K: kNeedReplication with isBlocked (no sharding propagation).
+// The input B*D dimension is decomposed into compound sub-factors:
+//   D_dispatch (outer, kNeedReplication) — dispatch_devices, must not shard
+//   B          (inner, kPassThrough)     — batch, propagates to result dim 1
+// This allows batch sharding to pass through combine without all_gather.
+//
+// H, S, K: kNeedReplication with isBlocked (no sharding propagation).
 //
 // Operands: [0] expert_out [E,B*D,S,H], [1] metadata [1,B*D,S,K],
 //           [2] mapping [1,1,E_total,D]
@@ -693,24 +745,64 @@ getAllToAllCombineShardingRule(mlir::stablehlo::CustomCallOp op) {
   }
 
   // Extract dimension sizes
-  int64_t eDim = expertOutType.getShape()[0];  // E (global expert count)
-  int64_t bdDim = expertOutType.getShape()[1]; // B*D
-  int64_t sDim = expertOutType.getShape()[2];  // S
-  int64_t hDim = expertOutType.getShape()[3];  // H
-  int64_t kDim = metadataType.getShape()[3];   // K
-  int64_t dDim = mappingType.getShape()[3];    // D (num dispatch devices)
+  int64_t eDim = expertOutType.getShape()[0]; // E (global expert count)
+  // int64_t bdDim = expertOutType.getShape()[1]; // B*D
+  int64_t sDim = expertOutType.getShape()[2]; // S
+  int64_t hDim = expertOutType.getShape()[3]; // H
+  int64_t kDim = metadataType.getShape()[3];  // K
+  int64_t dDim = mappingType.getShape()[3];   // D (total devices)
+
+  // Parse num_devices and cluster_axis from frontend attributes to determine
+  // how to split the E factor for compound-sharded experts.
+  int64_t numDevices = 1;
+  int64_t clusterAxis = 0;
+  auto frontendAttributes = llvm::dyn_cast_or_null<mlir::DictionaryAttr>(
+      op->getDiscardableAttr("mhlo.frontend_attributes"));
+  if (frontendAttributes) {
+    if (auto attr = frontendAttributes.getAs<mlir::StringAttr>("num_devices")) {
+      attr.getValue().getAsInteger(10, numDevices);
+    }
+    if (auto attr =
+            frontendAttributes.getAs<mlir::StringAttr>("cluster_axis")) {
+      attr.getValue().getAsInteger(10, clusterAxis);
+    }
+  }
+
+  int64_t eDispatch = numDevices;
+  int64_t eReduce = (numDevices > 1) ? eDim / numDevices : 1;
 
   mlir::sdy::OpShardingRuleBuilder builder(op);
 
-  // E factor: single kPassThrough — combine handles dispatch-axis
-  // communication internally. Cross-column reduction (for 2D compound
-  // sharding) is inserted explicitly in the StableHLOToTTIR conversion pass.
-  // Using kReduction here causes Shardy to insert all_reduce on BOTH axes
-  // (kPassThrough with kNullDim in the result also triggers reduce), which
-  // corrupts the combine output by summing unrelated batches.
-  builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
-                    {mlir::sdy::kNullDim}, eDim,
-                    mlir::sdy::FactorType::kPassThrough);
+  // E factor(s): For 2D compound sharding (e.g. {"batch","model"} on experts),
+  // split E into two compound sub-factors so Shardy can differentiate:
+  //   - dispatch sub-factor (kPassThrough): combine handles this axis
+  //   internally
+  //   - reduce sub-factor (kReduction): Shardy auto-inserts all_reduce via
+  //     unreduced_axes
+  // Sub-factor order must match the compound sharding axis order.
+  // cluster_axis=0 → dispatch is first axis → [kPassThrough, kReduction]
+  // cluster_axis=1 → dispatch is second axis → [kReduction, kPassThrough]
+  if (eDispatch > 1 && eReduce > 1) {
+    if (clusterAxis == 0) {
+      builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                        {mlir::sdy::kNullDim}, eDispatch,
+                        mlir::sdy::FactorType::kPassThrough);
+      builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                        {mlir::sdy::kNullDim}, eReduce,
+                        mlir::sdy::FactorType::kReduction);
+    } else {
+      builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                        {mlir::sdy::kNullDim}, eReduce,
+                        mlir::sdy::FactorType::kReduction);
+      builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                        {mlir::sdy::kNullDim}, eDispatch,
+                        mlir::sdy::FactorType::kPassThrough);
+    }
+  } else {
+    builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                      {mlir::sdy::kNullDim}, eDim,
+                      mlir::sdy::FactorType::kPassThrough);
+  }
 
   // E factor (mapping): mapping dim 2 is the global expert count and must
   // stay replicated — combine reads it to determine expert-to-device routing.
@@ -736,12 +828,21 @@ getAllToAllCombineShardingRule(mlir::stablehlo::CustomCallOp op) {
                     mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
 
-  // BD factor: expertOut[0]=dim1, metadata[1]=dim1, mapping=kNull, result=dim1
-  builder.addFactor({1, 1, mlir::sdy::kNullDim}, {1}, bdDim,
-                    mlir::sdy::FactorType::kNeedReplication,
+  // Input B*D (dim 1) decomposed into compound sub-factors: D (outer) + B
+  // (inner). Layout matches reshape [E, B*D, S, H] where B*D = D_dispatch * B.
+  int64_t bDim = resultType.getShape()[1]; // B from result [K, B, S, H]
+
+  // D_dispatch sub-factor (outer): combine gathers from D devices internally.
+  builder.addFactor({1, 1, mlir::sdy::kNullDim}, {mlir::sdy::kNullDim},
+                    numDevices, mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
 
-  // D factor: expertOut=kNull, metadata=kNull, mapping[2]=dim3, result=kNull
+  // B sub-factor (inner): batch dimension propagates from input B*D to result
+  // B.
+  builder.addFactor({1, 1, mlir::sdy::kNullDim}, {1}, bDim,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  // D_total factor: mapping[2]=dim3 (total devices in mapping table)
   builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim, 3},
                     {mlir::sdy::kNullDim}, dDim,
                     mlir::sdy::FactorType::kNeedReplication,
@@ -829,7 +930,9 @@ struct StablehloShardingModel
 // moe_expert_token_remap sharding rule
 // =====================================================================
 // Device-local data movement op that remaps global expert indices to local
-// per-device experts. D/B/S/K factors are opaque (kNeedReplication + blocked).
+// per-device experts. D/S/K factors are opaque (kNeedReplication + blocked).
+// B (=B*D from dispatch) uses kPassThrough so batch sharding propagates
+// through without all_gather.
 // The E factor uses kPassThrough so compound sharding propagates through:
 // outputs use global E shape, and UpdateGlobalToLocalShapes divides E by
 // the compound mesh factor to produce E_local on each device.
@@ -894,11 +997,11 @@ getMoeExpertTokenRemapShardingRule(mlir::stablehlo::CustomCallOp op) {
                     {mlir::sdy::kNullDim, mlir::sdy::kNullDim}, dDim,
                     mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
-  // B factor: topk[1], mapping_in=kNull, metadata[1],
-  //           mapping_out[1], reduced=kNull
+  // B factor (=B*D from dispatch): topk[1], mapping_in=kNull, metadata[1],
+  //           mapping_out[1], reduced=kNull.
+  // kPassThrough: batch sharding propagates through token remap.
   builder.addFactor({1, mlir::sdy::kNullDim, 1}, {1, mlir::sdy::kNullDim}, bDim,
-                    mlir::sdy::FactorType::kNeedReplication,
-                    /*isBlocked=*/true);
+                    mlir::sdy::FactorType::kPassThrough);
   // S factor: topk[2], mapping_in=kNull, metadata[2],
   //           mapping_out[2], reduced=kNull
   builder.addFactor({2, mlir::sdy::kNullDim, 2}, {2, mlir::sdy::kNullDim}, sDim,

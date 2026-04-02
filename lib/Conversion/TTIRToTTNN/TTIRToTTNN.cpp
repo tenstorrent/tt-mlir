@@ -1581,56 +1581,117 @@ public:
 
 namespace {
 
-// Generate a default MatmulMultiCoreReuseMultiCast1DProgramConfig for
+// Find the largest factor of n that does not exceed limit.
+static int64_t largestFactorAtMost(int64_t n, int64_t limit) {
+  int64_t best = 1;
+  for (int64_t f = 1; f * f <= n; ++f) {
+    if (n % f != 0) {
+      continue;
+    }
+    if (f <= limit) {
+      best = std::max(best, f);
+    }
+    int64_t complement = n / f;
+    if (complement <= limit) {
+      best = std::max(best, complement);
+    }
+  }
+  return best;
+}
+
+// Generate an optimized MatmulMultiCoreReuseMultiCast1DProgramConfig for
 // sparse_matmul based on tensor shapes and device grid size.
-// Mirrors the runtime logic in createSparseMatmulProgramConfig.
+//
+// Tuning strategy modeled after the hand-tuned tt-metal GPT-OSS expert configs:
+//   - Maximize core utilization by finding a grid (x,y) whose product evenly
+//     divides N_tiles and fits within the device worker grid.
+//   - Choose a large in0_block_w (K-dimension blocking factor) to reduce the
+//     number of DRAM round-trips for the K inner loop.
+//   - Set out_subblock_w > 1 when per_core_N allows, respecting the hardware
+//     constraint that out_subblock_h * out_subblock_w <= 8.
 static ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr
 createSparseMatmulProgramConfigAttr(MLIRContext *ctx, RankedTensorType aType,
                                     RankedTensorType bType,
                                     ttcore::DeviceAttr deviceAttr) {
-  constexpr int64_t tileH = 32;
-  constexpr int64_t tileW = 32;
+  constexpr int64_t tileSize = 32;
 
-  // Get compute grid from device
   auto gridShape = deviceAttr.getWorkerGrid().getShape();
-  int64_t coreY = gridShape[0];
-  int64_t coreX = gridShape[1];
+  int64_t maxCoreY = gridShape[0]; // e.g. 8 or 9
+  int64_t maxCoreX = gridShape[1]; // e.g. 8
 
   auto aShape = aType.getShape();
   auto bShape = bType.getShape();
 
-  // A is [..., M, K], B is [..., K, N]
   int64_t M = aShape[aShape.size() - 2];
+  int64_t K = aShape[aShape.size() - 1];
   int64_t N = bShape[bShape.size() - 1];
 
-  int64_t NTiles = (N + tileW - 1) / tileW;
+  int64_t mTiles =
+      std::max(static_cast<int64_t>(1), (M + tileSize - 1) / tileSize);
+  int64_t kTiles =
+      std::max(static_cast<int64_t>(1), (K + tileSize - 1) / tileSize);
+  int64_t nTiles =
+      std::max(static_cast<int64_t>(1), (N + tileSize - 1) / tileSize);
 
-  // For 1D multicast (mcast_in0=true), Y rows replicate and X columns
-  // distribute N tiles. The runtime requires ceil(NTiles / perCoreN) to equal
-  // usedCoreX (all X-columns must have work). Reduce coreX until this holds.
-  int64_t usedCoreX = std::min(coreX, NTiles);
-  while (usedCoreX > 1) {
-    int64_t pcn = (NTiles + usedCoreX - 1) / usedCoreX;
-    if ((NTiles + pcn - 1) / pcn == usedCoreX) {
-      break;
+  // ---- Core grid selection ------------------------------------------------
+  // For 1D multicast the total core count is coreX * coreY and N tiles are
+  // spread across all cores.  The grid must be rectangular (required by the
+  // sparse matmul kernel's mcast receiver logic).  We pick the largest
+  // rectangular grid whose product evenly divides nTiles.
+  int64_t maxCores = maxCoreX * maxCoreY;
+  int64_t bestCores = 1;
+  int64_t bestX = 1;
+  int64_t bestY = 1;
+  for (int64_t y = 1; y <= maxCoreY; ++y) {
+    for (int64_t x = 1; x <= maxCoreX; ++x) {
+      int64_t total = x * y;
+      if (total > nTiles || total > maxCores) {
+        break;
+      }
+      if (nTiles % total == 0 && total > bestCores) {
+        bestCores = total;
+        bestX = x;
+        bestY = y;
+      }
     }
-    --usedCoreX;
   }
 
-  int64_t perCoreM = std::max(static_cast<int64_t>(1), M / tileH);
-  int64_t perCoreN =
-      std::max(static_cast<int64_t>(1), (NTiles + usedCoreX - 1) / usedCoreX);
+  int64_t perCoreM = std::max(static_cast<int64_t>(1), mTiles);
+  int64_t perCoreN = nTiles / bestCores; // exact division guaranteed
 
-  auto gridAttr = ttnn::CoreCoordAttr::get(ctx, usedCoreX, coreY);
+  // ---- in0_block_w (K blocking) -------------------------------------------
+  // Larger values amortize DRAM latency.  Must evenly divide kTiles.
+  // Cap at 32 tiles (~64 KB for BF16) to stay within L1 budget.
+  int64_t in0BlockW =
+      largestFactorAtMost(kTiles, std::min(kTiles, static_cast<int64_t>(32)));
+
+  // ---- out_block / out_subblock sizing ------------------------------------
+  // Use full per_core_N as out_block_w so the kernel processes all N tiles
+  // assigned to each core in a single output block, reducing loop overhead.
+  // out_subblock_w is capped so that subblock_h * subblock_w <= 8 (HW limit).
+  int64_t outBlockH = perCoreM;
+  int64_t outBlockW = perCoreN;
+  // Choose largest out_subblock_w that evenly divides outBlockW, with hw cap.
+  int64_t maxSubblockW = std::min(static_cast<int64_t>(8), outBlockW);
+  int64_t outSubblockW = 1;
+  for (int64_t sw = maxSubblockW; sw >= 1; --sw) {
+    if (outBlockW % sw == 0) {
+      outSubblockW = sw;
+      break;
+    }
+  }
+  int64_t outSubblockH = std::min(outBlockH, 8 / outSubblockW);
+
+  auto gridAttr = ttnn::CoreCoordAttr::get(ctx, bestX, bestY);
   auto hopCoresAttr = ttnn::CoreRangeSetAttr::get(ctx, {});
 
   return ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
       ctx, gridAttr,
-      /*in0_block_w=*/1,
-      /*out_subblock_h=*/1,
-      /*out_subblock_w=*/1,
-      /*out_block_h=*/1,
-      /*out_block_w=*/1,
+      /*in0_block_w=*/static_cast<uint64_t>(in0BlockW),
+      /*out_subblock_h=*/static_cast<uint64_t>(outSubblockH),
+      /*out_subblock_w=*/static_cast<uint64_t>(outSubblockW),
+      /*out_block_h=*/static_cast<uint64_t>(outBlockH),
+      /*out_block_w=*/static_cast<uint64_t>(outBlockW),
       /*per_core_m=*/static_cast<uint64_t>(perCoreM),
       /*per_core_n=*/static_cast<uint64_t>(perCoreN),
       /*fuse_batch=*/false,
@@ -1650,18 +1711,27 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SparseMatmulOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Convert nnz to IntegerAttr
     mlir::IntegerAttr nnzAttr = nullptr;
     if (auto nnz = op.getNnz()) {
       nnzAttr = rewriter.getI64IntegerAttr(*nnz);
     }
 
-    // Generate program config from tensor shapes and device grid
     auto aType = mlir::cast<RankedTensorType>(adaptor.getA().getType());
     auto bType = mlir::cast<RankedTensorType>(adaptor.getB().getType());
     auto deviceAttr = ttcore::lookupDevice(op);
     auto programConfigAttr = createSparseMatmulProgramConfigAttr(
         rewriter.getContext(), aType, bType, deviceAttr);
+
+    // HiFi2 gives the same BF16 throughput as LoFi on Wormhole while
+    // retaining intermediate mantissa bits.  fp32 dest accumulation avoids
+    // precision loss across the K-dimension reduction.
+    // auto computeConfigAttr = ttnn::DeviceComputeKernelConfigAttr::get(
+    //     rewriter.getContext(),
+    //     /*mathFidelity=*/ttnn::MathFidelity::HiFi2,
+    //     /*mathApproxMode=*/mlir::BoolAttr::get(rewriter.getContext(), false),
+    //     /*fp32DestAccEn=*/mlir::BoolAttr::get(rewriter.getContext(), true),
+    //     /*packerL1Acc=*/mlir::BoolAttr::get(rewriter.getContext(), true),
+    //     /*dstFullSyncEn=*/nullptr);
 
     rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),

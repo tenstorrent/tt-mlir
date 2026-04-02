@@ -108,7 +108,9 @@ public:
 
     mlir::RewritePatternSet patterns(&getContext());
     patterns.add<WeightDtypeConversionPattern<MatmulOp>,
-                 WeightDtypeConversionPattern<LinearOp>>(&getContext(), dtype);
+                 WeightDtypeConversionPattern<LinearOp>,
+                 WeightDtypeConversionPattern<SparseMatmulOp>>(&getContext(),
+                                                               dtype);
 
     if (failed(
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {

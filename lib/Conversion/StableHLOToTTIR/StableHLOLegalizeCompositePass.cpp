@@ -486,6 +486,15 @@ public:
 
     mlir::Value currInput = adaptor.getOperands().front();
     auto meshShape = shardyMeshSharding->getMeshShape();
+
+    // Inside sdy.manual_computation, shapes are already local for the manual
+    // axes. Compare the composite's original input and output shapes to detect
+    // dimensions that are already at the target size — those need no partition.
+    auto srcInputType =
+        mlir::cast<RankedTensorType>(srcOp.getOperand(0).getType());
+    auto srcOutputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
     // Replace the composite op with 1 or more ttir.mesh_partition ops.
     for (size_t i = 0; i < tensorDims.size(); ++i) {
       auto currInputType = mlir::cast<RankedTensorType>(currInput.getType());
@@ -498,6 +507,15 @@ public:
       if (static_cast<size_t>(clusterAxes[i]) >= meshShape.size()) {
         return rewriter.notifyMatchFailure(srcOp, "Invalid mesh axis index.");
       }
+
+      // If the composite's input and output have the same size on this
+      // dimension, the partition has already been applied (e.g. inside
+      // sdy.manual_computation where shapes are local for manual axes).
+      if (srcInputType.getShape()[tensorDims[i]] ==
+          srcOutputType.getShape()[tensorDims[i]]) {
+        continue;
+      }
+
       // Compute new shape for the result tensor, with original dimension
       // divided by mesh axis size
       int64_t meshAxisSize = meshShape[clusterAxes[i]];
