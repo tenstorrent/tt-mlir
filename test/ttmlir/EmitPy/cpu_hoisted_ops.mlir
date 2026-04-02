@@ -230,86 +230,85 @@ func.func @softmax_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
-
-// Verify CPU-hoisted functions are generated with golden_function calls
+// Verify CPU-hoisted functions call ttir_cpu.<op> directly.
 
 // CHECK-LABEL : # File: "consteval"
 
 // Binary arithmetic
 // CHECK-LABEL: def cpu_hoisted_ttir_add_{{.*}}
-// CHECK: ttnn.add.golden_function
+// CHECK: ttir_cpu.add(
 
 // Binary division
 // CHECK-LABEL: def cpu_hoisted_ttir_div_{{.*}}
-// CHECK: ttnn.divide.golden_function
+// CHECK: ttir_cpu.div(
 
 // Binary comparison
 // CHECK-LABEL: def cpu_hoisted_ttir_eq_{{.*}}
-// CHECK: ttnn.eq.golden_function
+// CHECK: ttir_cpu.eq(
 
 // Binary logical
 // CHECK-LABEL: def cpu_hoisted_ttir_logical_{{.*}}
-// CHECK: ttnn.logical_and.golden_function
+// CHECK: ttir_cpu.logical_and(
 
 // Binary min/max
 // CHECK-LABEL: def cpu_hoisted_ttir_maximum_{{.*}}
-// CHECK: ttnn.maximum.golden_function
+// CHECK: ttir_cpu.maximum(
 
 // Matrix multiplication
 // CHECK-LABEL: def cpu_hoisted_ttir_matmul_{{.*}}
-// CHECK: ttnn.matmul.golden_function
+// CHECK: ttir_cpu.matmul(
 
 // Unary activation
 // CHECK-LABEL: def cpu_hoisted_ttir_relu_{{.*}}
-// CHECK: ttnn.relu.golden_function
+// CHECK: ttir_cpu.relu(
 
 // Unary trigonometric
 // CHECK-LABEL: def cpu_hoisted_ttir_sin_{{.*}}
-// CHECK: ttnn.sin.golden_function
+// CHECK: ttir_cpu.sin(
 
 // Unary exponential/logarithmic
 // CHECK-LABEL: def cpu_hoisted_ttir_exp_{{.*}}
-// CHECK: ttnn.exp.golden_function
+// CHECK: ttir_cpu.exp(
 
 // CHECK-LABEL: def cpu_hoisted_ttir_log_{{.*}}
-// CHECK: ttnn.log.golden_function
+// CHECK: ttir_cpu.log(
 
 // Unary rounding
 // CHECK-LABEL: def cpu_hoisted_ttir_ceil_{{.*}}
-// CHECK: ttnn.ceil.golden_function
+// CHECK: ttir_cpu.ceil(
 
 // Unary sign/abs
 // CHECK-LABEL: def cpu_hoisted_ttir_abs_{{.*}}
-// CHECK: ttnn.abs.golden_function
+// CHECK: ttir_cpu.abs(
 
 // Unary reciprocal
 // CHECK-LABEL: def cpu_hoisted_ttir_reciprocal_{{.*}}
-// CHECK: ttnn.reciprocal.golden_function
+// CHECK: ttir_cpu.reciprocal(
 
 // Unary sqrt
 // CHECK-LABEL: def cpu_hoisted_ttir_sqrt_{{.*}}
-// CHECK: ttnn.sqrt.golden_function
+// CHECK: ttir_cpu.sqrt(
 
 // Pooling
 // CHECK-LABEL: def cpu_hoisted_ttir_max_{{.*}}
-// CHECK: ttnn.max_pool2d.golden_function
+// CHECK: ttir_cpu.max_pool2d(
 
 // Reduction
 // CHECK-LABEL: def cpu_hoisted_ttir_sum_{{.*}}
-// CHECK: ttnn.sum.golden_function
+// CHECK: ttir_cpu.sum(
 
 // Data manipulation - reshape
 // CHECK-LABEL: def cpu_hoisted_ttir_reshape_{{.*}}
-// CHECK: ttnn.reshape.golden_function
+// CHECK: ttir_cpu.reshape(
 
 // Data manipulation - concat
 // CHECK-LABEL: def cpu_hoisted_ttir_concat_{{.*}}
-// CHECK: ttnn.concat.golden_function
+// CHECK: ttir_cpu.concat(
 
 // Data manipulation - permute
 // CHECK-LABEL: def cpu_hoisted_ttir_permute_{{.*}}
-// CHECK: ttnn.permute.golden_function
+// CHECK: ttir_cpu.permute(
 
 // Softmax
 // CHECK-LABEL: def cpu_hoisted_ttir_softmax_{{.*}}
-// CHECK: ttnn.softmax.golden_function
+// CHECK: ttir_cpu.softmax(
