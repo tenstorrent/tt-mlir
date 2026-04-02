@@ -78,20 +78,20 @@ func.func @forward_all_const(%arg0: tensor<32x16xf32> {ttcore.argument_type = #t
   return %0 : tensor<32x16xf32>
 }
 
-// Verify that 5 CPU-hoisted functions are generated with golden_function calls.
+// Verify that 5 CPU-hoisted functions are generated with ttir_cpu calls.
 
 // CHECK-LABEL : # File: "consteval"
 
 // CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
-// CHECK: golden_function
+// CHECK: ttir_cpu.
 // CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
-// CHECK: golden_function
+// CHECK: ttir_cpu.
 // CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
-// CHECK: golden_function
+// CHECK: ttir_cpu.
 // CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
-// CHECK: golden_function
+// CHECK: ttir_cpu.
 // CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
-// CHECK: golden_function
+// CHECK: ttir_cpu.
 
 // CHECK-LABEL: def forward_const_eval_0(
 // CHECK: cpu_hoisted_const_eval_{{.*}}
