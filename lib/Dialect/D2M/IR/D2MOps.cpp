@@ -1208,6 +1208,10 @@ LogicalResult d2m::CompositeViewOp::bufferize(
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
   // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  const bool isTiled = mlir::isa<ttcore::TileType>(
+      mlir::cast<RankedTensorType>(getResult().getType()).getElementType());
+  const int dim = getDim();
+  SmallVector<int64_t> logicalSizes;
   SmallVector<Value> bufferizedInputs;
   for (Value input : getInputs()) {
     auto maybeBuffer =
@@ -1216,6 +1220,10 @@ LogicalResult d2m::CompositeViewOp::bufferize(
       return maybeBuffer;
     }
     bufferizedInputs.push_back(*maybeBuffer);
+
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto layout = mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+    logicalSizes.push_back(layout.getLogicalShape()[dim]);
   }
 
   SmallVector<Value> invocationStack;
@@ -1226,8 +1234,10 @@ LogicalResult d2m::CompositeViewOp::bufferize(
   }
 
   auto outMemrefType = mlir::cast<MemRefType>(*outMemrefTypeOr);
+  // The logicalSizes attribute is only useful for row-major concat.
   auto newOp = rewriter.create<d2m::CompositeViewOp>(
-      getLoc(), outMemrefType, bufferizedInputs, getDim());
+      getLoc(), outMemrefType, bufferizedInputs, dim,
+      isTiled ? nullptr : rewriter.getDenseI64ArrayAttr(logicalSizes));
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      newOp.getResult());
   return success();
@@ -1249,44 +1259,84 @@ d2m::CompositeViewOp::getBufferType(
 }
 
 mlir::LogicalResult d2m::CompositeViewOp::verify() {
-  auto resultType = this->getResult().getType();
-  const bool isMemrefType = mlir::isa<MemRefType>(resultType);
+  auto outType = this->getResult().getType();
+  const bool isTensorType = mlir::isa<RankedTensorType>(outType);
 
-  auto outShape = isMemrefType
-                      ? mlir::cast<MemRefType>(resultType).getShape()
-                      : mlir::cast<RankedTensorType>(resultType).getShape();
-  const int32_t rank = static_cast<int32_t>(outShape.size()) / 2;
+  auto getVerificationShape = [&](Type type) {
+    SmallVector<int64_t> verificationShape;
+    if (isTensorType) {
+      auto tensorType = mlir::cast<RankedTensorType>(type);
+      auto layout =
+          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+      verificationShape.assign(layout.getLogicalShape().begin(),
+                               layout.getLogicalShape().end());
+    } else {
+      auto memrefType = mlir::cast<MemRefType>(type);
+      auto gridShardShape = memrefType.getShape();
+      const size_t rank = gridShardShape.size() / 2;
+      verificationShape.resize(rank);
+      for (size_t i = 0; i < rank; i++) {
+        verificationShape[i] = gridShardShape[i] * gridShardShape[i + rank];
+      }
+    }
+    return verificationShape;
+  };
+
+  auto outShape = getVerificationShape(outType);
+  const int32_t rank = static_cast<int32_t>(outShape.size());
   const int32_t compositeDim = this->getDim();
   if (compositeDim < 0 || compositeDim >= rank) {
-    return emitOpError("Composite view dim out of range.");
+    return emitOpError("dim out of range.");
   }
 
   if (this->getInputs().size() < 2) {
-    return emitOpError("Composite view should have at least two inputs.");
+    return emitOpError("must have at least two inputs.");
   }
 
   int64_t accum = 0;
   for (auto input : this->getInputs()) {
-    auto inShape =
-        isMemrefType ? mlir::cast<MemRefType>(input.getType()).getShape()
-                     : mlir::cast<RankedTensorType>(input.getType()).getShape();
-    if (inShape.size() != static_cast<size_t>(2 * rank)) {
-      return emitOpError("Incompatible input/output shapes.");
+    auto inShape = getVerificationShape(input.getType());
+    if (inShape.size() != static_cast<size_t>(rank)) {
+      return emitOpError("incompatible inputs & output ranks.");
     }
 
     for (int32_t i = 0; i < rank; i++) {
       if (i == compositeDim) {
-        accum += inShape[i] * inShape[i + rank];
-      } else if (inShape[i] * inShape[i + rank] !=
-                 outShape[i] * outShape[i + rank]) {
-        return emitOpError("Incompatible non-composite dim.");
+        accum += inShape[i];
+      } else if (inShape[i] != outShape[i]) {
+        return emitOpError("incompatible non-composite dim.");
       }
     }
   }
 
-  // The output's composite dim could have been aligned-up.
-  if (accum > outShape[compositeDim] * outShape[compositeDim + rank]) {
-    return emitOpError("Incompatible composite dim.");
+  // The input & output memrefs' grid + shard shapes might have been aligned up:
+  // - Logical "1 & 1 -> 2", device "32 & 32 -> 32".
+  // - Logical "192 & 192 -> 384", device "192 & 192 -> 512".
+  if (isTensorType && (accum != outShape[compositeDim])) {
+    return emitOpError("incompatible composite dim.");
+  }
+
+  if (!isTensorType) {
+    auto outMemref = mlir::cast<MemRefType>(outType);
+    const bool isTiled =
+        mlir::isa<ttcore::TileType>(outMemref.getElementType());
+    auto logicalSizes = this->getLogicalSizes();
+    if (isTiled && logicalSizes.has_value()) {
+      return emitOpError("unneeded logicalSizes attr.");
+    }
+    if (!isTiled) {
+      if (!logicalSizes.has_value()) {
+        return emitOpError("missing logicalSizes attr.");
+      }
+      if (logicalSizes.value().size() != this->getInputs().size()) {
+        return emitOpError("wrong logicalSizes length.");
+      }
+      const int64_t totalLogicalExtent = std::accumulate(
+          logicalSizes.value().begin(), logicalSizes.value().end(), 0);
+      if (totalLogicalExtent > accum) {
+        return emitOpError("incorret logicalSizes.");
+      }
+    }
   }
 
   return mlir::success();

@@ -16,10 +16,10 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MEXPANDDMAREADCOMPOSITEVIEW
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-static LogicalResult expandCompositeDMARead(IRRewriter &rewriter,
-                                            DMAReadOp dmaRead,
-                                            ValueRange expandedInputs,
-                                            const int32_t concatDim) {
+static LogicalResult expandCompositeDMAReadTiled(IRRewriter &rewriter,
+                                                 DMAReadOp dmaRead,
+                                                 ValueRange expandedInputs,
+                                                 const int32_t concatDim) {
   assert(dmaRead.isShardLevel());
   ttcore::DeviceAttr device = ttcore::lookupDevice(dmaRead);
 
@@ -206,6 +206,213 @@ static LogicalResult expandCompositeDMARead(IRRewriter &rewriter,
   return success();
 }
 
+static LogicalResult expandCompositeDMAReadRowMajor(
+    IRRewriter &rewriter, DMAReadOp dmaRead, ValueRange expandedInputs,
+    const int32_t concatDim, ArrayRef<int64_t> logicalSizes,
+    const int64_t totalConcatShards) {
+  Value localDst = dmaRead.getDst();
+  MemRefType dstType = mlir::cast<MemRefType>(localDst.getType());
+  SmallVector<int64_t> outputShardShape(dstType.getShape());
+  auto gridIndices = dmaRead.getSrcIndices();
+  const int64_t gridRank = static_cast<int64_t>(gridIndices.size());
+  const bool isWidthConcat = concatDim == gridRank - 1;
+
+  int64_t coalescingFactor = 1;
+  if (isWidthConcat) {
+    // For width-concat's row-assembly, conservatively use the NoC DMA quantum.
+    const int nocAlignmentL1 =
+        ttcore::getOpChipDescAttr(dmaRead).getNocL1AddressAlignBytes();
+    const int32_t elemBytes =
+        std::max(1, static_cast<int32_t>(dstType.getElementTypeBitWidth()) / 8);
+    coalescingFactor = nocAlignmentL1 / elemBytes;
+  } else {
+    // For height/outer-concat, the unit of data movement should be the
+    // row-major stride of the concat dim (i.e. each step covers all trailing
+    // dimensions shape[concatDim+1:]). The same factor applies to everything
+    // because all shapes match except on the concatDim.
+    for (int64_t d = concatDim + 1; d < gridRank; d++) {
+      coalescingFactor *= outputShardShape[d];
+    }
+  }
+
+  ttcore::DeviceAttr device = ttcore::lookupDevice(dmaRead);
+  SmallVector<AffineMap> inputMemoryMaps;
+  SmallVector<SmallVector<int64_t>> inputShardShapes;
+  for (Value input : expandedInputs) {
+    inputMemoryMaps.push_back(
+        utils::getMemoryMap(device, input, /*isRemote=*/true));
+    auto shape = mlir::cast<MemRefType>(input.getType()).getShape();
+    inputShardShapes.emplace_back(shape.drop_front(gridRank).begin(),
+                                  shape.drop_front(gridRank).end());
+  }
+  auto localMemoryMap =
+      utils::getMemoryMap(device, localDst, /*isRemote=*/false);
+
+  auto emitDMAReadForInput = [&](OpBuilder &builder, Location innerLoc,
+                                 ValueRange shardIters, Value globalConcatIdx,
+                                 const int inputIdx,
+                                 const int64_t pieceOffset) {
+    // Locate the starting coordinates for the current coalescingFactor worth of
+    // DMA read on the specified input.
+    SmallVector<Value> inputFullIdx(2 * gridRank);
+    for (int dim = 0; dim < gridRank; dim++) {
+      // The global logical index of the DMA read starting point for the given
+      // input at the given dim.
+      Value globalDimIdx = nullptr;
+
+      if (dim == concatDim) {
+        // For the current iteration in the concat dim, shift back the global
+        // logical index by the logical starting offset of the current input
+        // piece, to get the index within the input.
+        if (pieceOffset == 0) {
+          globalDimIdx = globalConcatIdx;
+        } else {
+          Value offsetVal = builder.create<arith::ConstantOp>(
+              innerLoc, builder.getIndexType(),
+              builder.getIndexAttr(pieceOffset));
+          globalDimIdx = builder.create<arith::SubIOp>(
+              innerLoc, globalConcatIdx, offsetVal);
+        }
+      } else {
+        // The coordinates are identical for the non-concat dim.
+        Value outShardExtent = builder.create<arith::ConstantOp>(
+            innerLoc, builder.getIndexType(),
+            builder.getIndexAttr(outputShardShape[dim]));
+        Value baseIdx = builder.create<arith::MulIOp>(
+            innerLoc, gridIndices[dim], outShardExtent);
+        globalDimIdx =
+            builder.create<arith::AddIOp>(innerLoc, baseIdx, shardIters[dim]);
+      }
+
+      Value inShardExtent = builder.create<arith::ConstantOp>(
+          innerLoc, builder.getIndexType(),
+          builder.getIndexAttr(inputShardShapes[inputIdx][dim]));
+      // Input shard index: logical starting index / shard extent.
+      inputFullIdx[dim] =
+          builder.create<arith::DivSIOp>(innerLoc, globalDimIdx, inShardExtent);
+      // Input shard offset: logical starting index % shard extent.
+      inputFullIdx[dim + gridRank] =
+          builder.create<arith::RemSIOp>(innerLoc, globalDimIdx, inShardExtent);
+    }
+
+    SmallVector<Value> remoteIndices =
+        utils::applyMap(builder, innerLoc, inputMemoryMaps[inputIdx],
+                        inputFullIdx, /*isRemote=*/true);
+
+    SmallVector<Value> localIndices = utils::applyMap(
+        builder, innerLoc, localMemoryMap, shardIters, /*isRemote=*/false);
+
+    Value dmaTx = builder.create<DMAReadOp>(
+        innerLoc, expandedInputs[inputIdx], remoteIndices, localDst,
+        localIndices, builder.getI64IntegerAttr(coalescingFactor));
+    builder.create<DMAWaitOp>(innerLoc, dmaTx);
+  };
+
+  auto loc = dmaRead.getLoc();
+  rewriter.setInsertionPoint(dmaRead);
+
+  // N-D loop over all the output shard dimensions.
+  SmallVector<Value> lbs, ubs, loopSteps;
+  for (int dim = 0; dim < gridRank; dim++) {
+    lbs.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+    ubs.push_back(
+        rewriter.create<arith::ConstantIndexOp>(loc, outputShardShape[dim]));
+    int64_t step;
+    if (dim < concatDim) {
+      // Outer dims are stepped normally.
+      step = 1;
+    } else if (dim == concatDim) {
+      // Width-concat assembles rows, others read entire trailing strides.
+      step = isWidthConcat ? coalescingFactor : 1;
+    } else {
+      // Inner dims only do 1 iteration, the coalescingFactor covers everything.
+      step = outputShardShape[dim];
+    }
+    loopSteps.push_back(rewriter.create<arith::ConstantIndexOp>(loc, step));
+  }
+
+  int64_t totalLogicalExtent = 0;
+  for (int64_t n : logicalSizes) {
+    totalLogicalExtent += n;
+  }
+
+  scf::buildLoopNest(
+      rewriter, loc, lbs, ubs, loopSteps,
+      [&](OpBuilder &loopBuilder, Location innerLoc, ValueRange shardIters) {
+        Value concatShardExtent = loopBuilder.create<arith::ConstantOp>(
+            innerLoc, loopBuilder.getIndexType(),
+            loopBuilder.getIndexAttr(outputShardShape[concatDim]));
+        Value baseConcatIdx = loopBuilder.create<arith::MulIOp>(
+            innerLoc, gridIndices[concatDim], concatShardExtent);
+        Value concatIter = shardIters[concatDim];
+
+        // The expression for the current iter's logical, global position in the
+        // concat dim.
+        Value globalConcatIdx = loopBuilder.create<arith::AddIOp>(
+            innerLoc, baseConcatIdx, concatIter);
+
+        // Use an if-else chain to select the right input based on the logical
+        // concat boundaries.
+        std::function<void(OpBuilder &, const int, const int64_t)>
+            emitIfElseChain = [&](OpBuilder &builder, const int inputIdx,
+                                  const int64_t startOffset) {
+              // Base case: reaching the end of the chain (the last 'else').
+              if (inputIdx + 1 == static_cast<int>(expandedInputs.size())) {
+                emitDMAReadForInput(builder, innerLoc, shardIters,
+                                    globalConcatIdx, inputIdx, startOffset);
+                return;
+              }
+
+              // Recursive case:
+              // - Emit DMA reads for the current input's contribution.
+              // - Recurse into the 'else' branch for the next input.
+              const int64_t boundary = startOffset + logicalSizes[inputIdx];
+              Value boundaryVal = builder.create<arith::ConstantOp>(
+                  innerLoc, builder.getIndexType(),
+                  builder.getIndexAttr(boundary));
+              Value cond = builder.create<arith::CmpIOp>(
+                  innerLoc, arith::CmpIPredicate::ult, globalConcatIdx,
+                  boundaryVal);
+
+              auto ifOp = builder.create<scf::IfOp>(innerLoc, TypeRange{}, cond,
+                                                    /*hasElse=*/true);
+
+              OpBuilder thenBuilder = ifOp.getThenBodyBuilder();
+              emitDMAReadForInput(thenBuilder, innerLoc, shardIters,
+                                  globalConcatIdx, inputIdx, startOffset);
+
+              OpBuilder elseBuilder = ifOp.getElseBodyBuilder();
+              emitIfElseChain(elseBuilder, inputIdx + 1, boundary);
+            };
+
+        // Skip out-of-bound portions if the output was aligned up.
+        if (totalLogicalExtent <
+            totalConcatShards * outputShardShape[concatDim]) {
+          Value totalExtentVal = loopBuilder.create<arith::ConstantOp>(
+              innerLoc, loopBuilder.getIndexType(),
+              loopBuilder.getIndexAttr(totalLogicalExtent));
+          Value inBounds = loopBuilder.create<arith::CmpIOp>(
+              innerLoc, arith::CmpIPredicate::ult, globalConcatIdx,
+              totalExtentVal);
+          auto guardOp = loopBuilder.create<scf::IfOp>(
+              innerLoc, TypeRange{}, inBounds, /*hasElse=*/false);
+          OpBuilder guardBuilder = guardOp.getThenBodyBuilder();
+          emitIfElseChain(guardBuilder, /*inputIdx=*/0, /*startOffset=*/0);
+        } else {
+          emitIfElseChain(loopBuilder, /*inputIdx=*/0, /*startOffset=*/0);
+        }
+      });
+
+  for (Operation *user : llvm::make_early_inc_range(dmaRead->getUsers())) {
+    if (auto waitOp = mlir::dyn_cast<DMAWaitOp>(user)) {
+      rewriter.eraseOp(waitOp);
+    }
+  }
+  rewriter.eraseOp(dmaRead);
+
+  return success();
+}
+
 static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
                                                    GenericOp gOp) {
   CompositeViewOp compositeView = nullptr;
@@ -301,14 +508,31 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
 
   auto expandedGenericInputs =
       newGOp.getInputs().slice(compositeOperandIdx, compositeInputs.size());
-  if (failed(expandCompositeDMARead(rewriter, clonedCompositeRead,
-                                    expandedGenericInputs,
-                                    compositeView.getDim()))) {
-    return failure();
+  const bool isTiled = mlir::isa<ttcore::TileType>(
+      mlir::cast<MemRefType>(compositeView.getResult().getType())
+          .getElementType());
+
+  const int32_t compositeDim = compositeView.getDim();
+  LogicalResult result = success();
+  if (isTiled) {
+    result = expandCompositeDMAReadTiled(rewriter, clonedCompositeRead,
+                                         expandedGenericInputs, compositeDim);
+  } else {
+    // This value is only used to determine if we need the guard to skip the
+    // padded portions of the output shards.
+    const int64_t totalConcatShards =
+        mlir::cast<MemRefType>(compositeView.getResult().getType())
+            .getShape()[compositeDim];
+    result = expandCompositeDMAReadRowMajor(
+        rewriter, clonedCompositeRead, expandedGenericInputs, compositeDim,
+        compositeView.getLogicalSizes().value(), totalConcatShards);
+  }
+  if (failed(result)) {
+    return result;
   }
 
   rewriter.replaceOp(gOp, newGOp.getResults());
-  return success();
+  return result;
 }
 
 static LogicalResult expandCompositeViews(ModuleOp moduleOp) {

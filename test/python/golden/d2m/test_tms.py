@@ -797,19 +797,23 @@ def test_rearrange(
         ##################################
         #               3D               #
         ##################################
+        # Aligned inputs
         ([(17, 32, 64), (17, 32, 96)], 2),
         ([(19, 64, 32), (19, 96, 32)], 1),
         ([(11, 64, 64), (13, 64, 64)], 0),
+        # 3-concat
         ([(10, 64, 32), (10, 64, 64), (10, 64, 96)], 2),
         ([(10, 96, 64), (10, 32, 64), (10, 64, 64)], 1),
         ([(11, 64, 64), (12, 64, 64), (13, 64, 64)], 0),
         ##################################
         #               4D               #
         ##################################
+        # Aligned inputs
         ([(3, 7, 32, 64), (3, 7, 32, 96)], 3),
         ([(7, 3, 64, 64), (7, 3, 32, 64)], 2),
         ([(2, 6, 64, 32), (2, 9, 64, 32)], 1),
         ([(8, 5, 32, 64), (3, 5, 32, 64)], 0),
+        # 3-concat
         ([(2, 3, 64, 32), (2, 3, 64, 64), (2, 3, 64, 96)], 3),
         ([(3, 2, 96, 64), (3, 2, 32, 64), (3, 2, 64, 64)], 2),
         ([(4, 2, 64, 64), (4, 1, 64, 64), (4, 3, 64, 64)], 1),
@@ -817,16 +821,63 @@ def test_rearrange(
         ##################################
         #    Large tensors (multi-core)  #
         ##################################
+        # These exercise the grid selection path where concat inputs are
+        # large enough that single-core allocation would overflow L1,
+        # requiring the to_layout ops to distribute data across cores.
         ([(1, 32, 128, 64), (1, 32, 128, 64)], 3),
         ([(1, 32, 128, 128), (1, 32, 128, 128)], 3),
         ([(1, 32, 64, 128), (1, 32, 64, 128)], 2),
         ([(512, 512), (512, 512)], 1),
         ([(512, 512), (512, 512)], 0),
+        ##################################
+        #         Tile-unaligned         #
+        ##################################
+        ([(2, 1), (2, 1)], 1),
+        ([(1, 3), (1, 3)], 0),
+        ([(32, 8), (32, 8)], 1),
+        ([(8, 32), (8, 32)], 0),
+        ([(64, 3), (64, 5)], 1),
+        ([(7, 64), (11, 64)], 0),
+        ([(128, 8), (128, 8)], 1),
+        ([(8, 128), (8, 128)], 0),
+        ([(256, 37), (256, 51)], 1),
+        ([(97, 256), (197, 256)], 0),
+        ([(1097, 1), (1097, 1), (1097, 1)], 1),
+        ([(1, 1409), (1, 1409), (1, 1409)], 0),
+        # Concat boundary & output tile boundary cut the input tiles, face-aligned.
+        ([(32, 16), (32, 32), (32, 16)], 1),
+        ([(16, 32), (32, 32), (16, 32)], 0),
+        # Concat boundary & output tile boundary cut the input tiles' faces.
+        ([(64, 8), (64, 16), (64, 16), (64, 24), (64, 8)], 1),
+        ([(8, 96), (16, 96), (16, 96), (24, 96), (8, 96)], 0),
+        # Broadcast-like.
+        ([(3, 59, 1)] * 31, 2),
+        ([(3, 1, 61)] * 31, 1),
+        # Off-by-one.
+        ([(5, 3, 127), (5, 3, 1), (5, 3, 1), (5, 3, 127), (5, 3, 31), (5, 3, 255)], 2),
+        ([(7, 127, 2), (7, 1, 2), (7, 1, 2), (7, 127, 2), (7, 31, 2), (7, 255, 2)], 1),
+        ([(2, 3, 401, 1), (2, 3, 401, 3), (2, 3, 401, 1)], 3),
+        ([(3, 2, 1, 271), (3, 2, 3, 271), (3, 2, 1, 271)], 2),
+        ([(2, 4, 8, 64, 1), (2, 4, 8, 64, 5), (2, 4, 8, 64, 1)], 4),
+        ([(2, 8, 4, 1, 64), (2, 8, 4, 5, 64), (2, 8, 4, 1, 64)], 3),
+        # Stress shard selection w/ multiples of 8: tile-unaligned, NoC-friendly.
+        ([(1, 8), (1, 16), (1, 48), (1, 8), (1, 80), (1, 8), (1, 144)] * 3, 1),
+        ([(1, 3), (1, 1), (1, 257), (1, 37), (1, 127), (1, 61), (1, 19)] * 2, 1),
+        # Extracted from models.
+        ([(1024, 1), (1024, 1)], 1),
+        ([(128, 4, 1), (128, 4, 1)], 2),
+        ([(1, 32, 1, 32, 1), (1, 32, 1, 32, 1)], 4),
+        pytest.param(
+            [(1, 32, 16, 32, 1), (1, 32, 16, 32, 1)],
+            4,
+            marks=pytest.mark.skip_config(["sim"]),
+        ),
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     def module(builder: TTIRBuilder):
+        # Generate dtypes list dynamically based on number of shapes
         dtypes = [torch.float32] * len(shapes)
 
         @builder.func(shapes, dtypes)
@@ -834,8 +885,9 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
             *args,
             unit_attrs: Optional[List[str]] = None,
         ):
-            inputs = args[:-1]
-            builder = args[-1]
+            # args is (in0, in1, ..., inN, builder)
+            inputs = args[:-1]  # All input tensors
+            builder = args[-1]  # Last argument is the builder
             return builder.concat(list(inputs), dim, unit_attrs)
 
     compile_and_execute_ttir(
